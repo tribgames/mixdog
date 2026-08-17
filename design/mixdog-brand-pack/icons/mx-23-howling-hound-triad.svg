@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx23-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx23-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx23-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx23-apex" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#818cf8"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx23-bg)" filter="url(#mx23-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx23-rim)" stroke-width="1.5"/>
+  <g><polygon points="128,348 196,140 256,260 216,348" fill="url(#mx23-apex)"/><polygon points="384,348 316,140 256,260 296,348" fill="#ffffff" fill-opacity="0.9"/><polygon points="216,280 256,190 296,280 256,348" fill="#00f2fe"/><circle cx="256" cy="270" r="8" fill="#ffffff"/></g>
+</svg>

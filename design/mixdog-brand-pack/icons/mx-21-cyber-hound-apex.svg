@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx21-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx21-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ff7a00" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx21-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx21-l" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ff7a00"/><stop offset="100%" stop-color="#ea580c"/></linearGradient><linearGradient id="mx21-r" x1="100%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx21-bg)" filter="url(#mx21-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx21-rim)" stroke-width="1.5"/>
+  <g transform="translate(0, 8)"><path d="M 124 336 L 158 136 C 160 124 175 118 184 127 L 236 182 L 196 336 Z" fill="url(#mx21-l)"/><path d="M 388 336 L 354 136 C 352 124 337 118 328 127 L 276 182 L 316 336 Z" fill="url(#mx21-r)"/><polygon points="236,182 256,156 276,182 256,224" fill="#ffffff"/><polygon points="214,242 298,242 256,338" fill="#f1f5f9"/><polygon points="242,308 270,308 256,326" fill="#0f172a"/><polygon points="186,214 220,230 200,236" fill="#38bdf8"/><polygon points="326,214 292,230 312,236" fill="#ff7a00"/><rect x="160" y="360" width="192" height="10" rx="5" fill="#ff7a00"/><circle cx="256" cy="365" r="7" fill="#ffffff"/></g>
+</svg>

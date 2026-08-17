@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx04-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx04-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx04-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx04-cad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx04-bg)" filter="url(#mx04-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx04-rim)" stroke-width="1.5"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="256" cy="256" r="140" stroke="rgba(255,255,255,0.12)" stroke-width="3" stroke-dasharray="8 8"/><path d="M 140 344 V 208 L 204 144 L 256 196 L 308 144 L 372 208 V 344" stroke="url(#mx04-cad)" stroke-width="16"/><path d="M 196 280 L 256 340 L 316 280" stroke="#ffffff" stroke-width="14"/><circle cx="204" cy="144" r="7" fill="#34d399"/><circle cx="308" cy="144" r="7" fill="#34d399"/><circle cx="256" cy="256" r="5" fill="#ffffff"/></g>
+</svg>

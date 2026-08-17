@@ -6776,7 +6776,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .studio-shell:has(.studio-detail) .studio-topbar {
   visibility: hidden;
 }
-/* The preview is a square media/details frame: no nested rounded thumbnail. */
+/* Detail card follows the shared dialog grammar (model picker / settings):
+   rounded frame, hairline ring, overlay elevation over the scrim. */
 .studio-detail-card {
   box-sizing: border-box;
   min-width: 0;
@@ -6785,8 +6786,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   grid-template-columns: minmax(0, 1fr) 260px;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-  border-radius: 0;
+  border-radius: var(--mx-radius-xl);
   background: var(--mx-workspace-sheet);
+  box-shadow: var(--mx-overlay), inset 0 0 0 .5px var(--mx-border-muted);
 }
 .studio-detail-stage {
   display: grid;
@@ -6804,7 +6806,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   min-width: 0;
   min-height: 0;
   object-fit: contain;
-  border-radius: 0;
+  border-radius: var(--mx-radius-md);
   animation: studio-stage-in 160ms ease-out;
 }
 .studio-detail-side {
@@ -6884,15 +6886,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .studio-detail-block p { margin: 0; font-size: var(--mx-font-minor); line-height: var(--mx-line-minor); }
-.studio-detail-block--prompt {
-  margin-inline: -16px;
-  padding-inline: 16px;
-  border-radius: 0;
-  background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, var(--mx-bg-base));
-  box-shadow:
-    inset 0 .5px 0 var(--mx-border-muted),
-    inset 0 -.5px 0 var(--mx-border-muted);
-}
+/* Prompt shares the DETAILS block card: the old full-bleed band pushed its
+   head row (label + copy) against the strip edges. */
 .studio-detail-prompt {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -6925,7 +6920,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   gap: 6px;
   min-height: 32px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
@@ -6943,9 +6938,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .studio-detail-card {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
-    border-radius: 0;
+    border-radius: var(--mx-radius-xl);
     background: var(--mx-bg-base);
-    box-shadow: none;
+    box-shadow: var(--mx-overlay), inset 0 0 0 .5px var(--mx-border-muted);
   }
   .studio-detail-stage {
     position: relative;
@@ -6963,7 +6958,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     width: auto;
     height: auto;
     object-fit: contain;
-    border-radius: 0;
+    border-radius: var(--mx-radius-md);
     box-shadow: none;
   }
   .studio-detail-stage-close {
@@ -6988,7 +6983,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     max-height: none;
     overflow: hidden;
     padding: 14px;
-    border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
+    /* The rounded card frame owns the shape now: a second sheet curve here
+       stacked a 16px arc inside the 12px card corner. */
+    border-radius: 0;
     box-shadow: inset 0 .5px 0 var(--mx-border-muted);
   }
   .studio-detail-side > header { display: none; }
@@ -6998,12 +6995,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     box-shadow: none;
   }
   .studio-detail-block--prompt {
-    margin-inline: 0;
-    padding: 10px 0 12px;
-    background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, var(--mx-bg-base));
-    box-shadow:
-      inset 0 .5px 0 var(--mx-border-muted),
-      inset 0 -.5px 0 var(--mx-border-muted);
+    padding: 10px 12px;
+    border-radius: var(--mx-radius-lg);
+    background: var(--mx-bg-layer-1);
+    box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
   }
   .studio-detail-block + .studio-detail-block .studio-detail-block-head { display: none; }
   .studio-detail-block dl { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -10098,23 +10093,34 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .route-sheet-slider input { flex: 1; min-width: 0; }
 .route-sheet-slider span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
-.route-context-stepper {
-  display: grid;
-  grid-template-columns: 38px minmax(112px, 1fr) 38px;
-  gap: 4px;
-  padding: 2px 6px 6px;
-}
-.route-context-stepper > button {
-  min-width: 0;
-  justify-content: center;
-  text-align: center;
-}
-.route-context-value {
+/* Context pane: value header + 10%-snap slider + reset row. */
+.route-context-head {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 10px 0;
 }
-.route-context-value small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.route-context-head strong { font-size: 15px; font-weight: 600; }
+.route-context-head small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.route-context-default {
+  margin-left: auto;
+  padding: 0 7px;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  line-height: 16px;
+}
+.route-context-slider { display: flex; padding: 6px 10px 4px; }
+.route-context-slider input {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: var(--mx-text);
+  cursor: pointer;
+}
+.route-context-slider input:disabled { cursor: default; opacity: 0.5; }
+.route-context-reset { justify-content: center; color: var(--mx-text-muted); }
 .route-sheet,
 .route-sheet-flyout { overflow: auto; overscroll-behavior: contain; }
 .route-sheet-flyout--model { overflow: hidden; padding: 0; }

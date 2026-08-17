@@ -1,0 +1,2469 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mixdog Aperture Triad 200 Mega Icon System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #06070a;
+      --bg-surface: #0e1118;
+      --bg-card: #131722;
+      --bg-card-hover: #1b2130;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(56, 189, 248, 0.4);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --cyan: #38bdf8;
+      --indigo: #818cf8;
+      --violet: #c084fc;
+      --rose: #f43f5e;
+      --emerald: #10b981;
+      --amber: #fbbf24;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    .bg-grid {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image:
+        radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.15) 0%, transparent 60%),
+        radial-gradient(circle at 85% 20%, rgba(217, 70, 239, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 15% 40%, rgba(16, 185, 129, 0.08) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1560px;
+      margin: 0 auto;
+      padding: 40px 24px 120px;
+    }
+
+    /* Header */
+    header {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 18px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+    }
+
+    header h1 {
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header p {
+      font-size: 15px;
+      color: var(--text-muted);
+      max-width: 820px;
+      margin: 0 auto;
+    }
+
+    /* Live Multi-Scale Strip (Sticky Inspector) */
+    .sticky-viewer {
+      position: sticky;
+      top: 16px;
+      z-index: 100;
+      background: rgba(14, 17, 24, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-xl);
+      padding: 16px 24px;
+      margin-bottom: 32px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .viewer-info {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .viewer-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--cyan);
+      background: rgba(56, 189, 248, 0.12);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .viewer-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .viewer-scales {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      background: #08090d;
+      padding: 8px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .scale-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .scale-item span {
+      font-size: 10px;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .viewer-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-copy {
+      background: var(--cyan);
+      color: #000;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+
+    .btn-copy:hover {
+      transform: scale(1.04);
+    }
+
+    /* Filter Bar */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: #fff;
+      font-size: 13px;
+      min-width: 280px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--cyan);
+    }
+
+    .filter-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip:hover, .chip.active {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+      font-weight: 600;
+    }
+
+    /* 200 Icons Mega Grid */
+    .mega-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 16px;
+    }
+
+    .icon-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .icon-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(56, 189, 248, 0.15);
+    }
+
+    .icon-card.selected {
+      border-color: var(--cyan);
+      background: rgba(56, 189, 248, 0.08);
+    }
+
+    .icon-num {
+      position: absolute;
+      top: 10px; left: 10px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .icon-fav {
+      position: absolute;
+      top: 8px; right: 8px;
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.2s, color 0.2s;
+    }
+
+    .icon-fav:hover, .icon-fav.active {
+      color: #f43f5e;
+      transform: scale(1.2);
+    }
+
+    .icon-img-wrap {
+      width: 100px;
+      height: 100px;
+      margin: 12px 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-img-wrap img {
+      width: 90px;
+      height: 90px;
+      transition: transform 0.2s;
+    }
+
+    .icon-card:hover .icon-img-wrap img {
+      transform: scale(1.08);
+    }
+
+    .icon-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+      color: #e2e8f0;
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+    }
+
+    .icon-category {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+
+  <div class="container">
+    <header>
+      <div class="badge">🚀 200 Mega Icon System • Aperture Triad 2.0</div>
+      <h1>Mixdog Aperture Triad 200 Mega Suite</h1>
+      <p>131번 Aperture Triad 120° 회전 대칭 기하학을 기반으로 설계된 200개의 완벽한 독립 모던 아이콘 컬렉션입니다.</p>
+    </header>
+
+    <!-- Sticky Live Viewer -->
+    <div class="sticky-viewer" id="viewer">
+      <div class="viewer-info">
+        <span class="viewer-badge" id="v-num">#101</span>
+        <div>
+          <div class="viewer-title" id="v-title">Isometric Triad Cube Core</div>
+          <div style="font-size: 11px; color: var(--text-muted);" id="v-desc">아이소메트릭 큐브가 3방향 아크의 교차 중심에서 입체적으로 회전하는 코어</div>
+        </div>
+      </div>
+
+      <div class="viewer-scales">
+        <div class="scale-item"><img id="s-64" src="./ap200-001.svg" width="64" height="64" /><span>64px</span></div>
+        <div class="scale-item"><img id="s-32" src="./ap200-001.svg" width="32" height="32" /><span>32px</span></div>
+        <div class="scale-item"><img id="s-24" src="./ap200-001.svg" width="24" height="24" /><span>24px</span></div>
+        <div class="scale-item"><img id="s-16" src="./ap200-001.svg" width="16" height="16" /><span>16px</span></div>
+      </div>
+
+      <div class="viewer-actions">
+        <button class="btn-copy" onclick="copyCurrentSvg()">📋 SVG 코드 복사</button>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <input type="text" class="search-input" id="search-input" placeholder="🔍 200개 아이콘 검색 (이름, 번호, 태그)..." oninput="filterGrid()" />
+      <div class="filter-chips">
+        <button class="chip active" onclick="setFilter('all', this)">전체 (200)</button>
+        <button class="chip" onclick="setFilter('fav', this)">♥ 찜한 목록 (<span id="fav-count">0</span>)</button>
+        <button class="chip" onclick="setFilter('3d-spatial', this)">💎 3D & Spatial</button>
+        <button class="chip" onclick="setFilter('quantum', this)">⚡ Cyber & Quantum</button>
+        <button class="chip" onclick="setFilter('canine-bionic', this)">🐺 Bionic Canine</button>
+        <button class="chip" onclick="setFilter('dev-syntax', this)">💻 Code Grammar</button>
+        <button class="chip" onclick="setFilter('multi-model', this)">🔀 Multi-Model</button>
+        <button class="chip" onclick="setFilter('hardware', this)">⚙️ Hardware Metal</button>
+        <button class="chip" onclick="setFilter('geometry', this)">📐 Pure Geometry</button>
+        <button class="chip" onclick="setFilter('masterpiece', this)">👑 Masterpiece</button>
+      </div>
+    </div>
+
+    <!-- 200 Mega Grid -->
+    <div class="mega-grid" id="grid">
+      
+        <div class="icon-card " id="card-ap100-001" data-id="ap100-001" data-num="1" data-cat="canine" data-title="series 1: icon #001" onclick="selectIcon('ap100-001', 'Series 1: Icon #001', 'Series 1 (Core Suite)', '1')">
+          <span class="icon-num">#001</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-001', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-001.svg" loading="lazy" alt="Series 1: Icon #001" />
+          </div>
+          <div class="icon-title">Series 1: Icon #001</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-002" data-id="ap100-002" data-num="2" data-cat="canine" data-title="series 1: icon #002" onclick="selectIcon('ap100-002', 'Series 1: Icon #002', 'Series 1 (Core Suite)', '2')">
+          <span class="icon-num">#002</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-002', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-002.svg" loading="lazy" alt="Series 1: Icon #002" />
+          </div>
+          <div class="icon-title">Series 1: Icon #002</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-003" data-id="ap100-003" data-num="3" data-cat="canine" data-title="series 1: icon #003" onclick="selectIcon('ap100-003', 'Series 1: Icon #003', 'Series 1 (Core Suite)', '3')">
+          <span class="icon-num">#003</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-003', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-003.svg" loading="lazy" alt="Series 1: Icon #003" />
+          </div>
+          <div class="icon-title">Series 1: Icon #003</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-004" data-id="ap100-004" data-num="4" data-cat="canine" data-title="series 1: icon #004" onclick="selectIcon('ap100-004', 'Series 1: Icon #004', 'Series 1 (Core Suite)', '4')">
+          <span class="icon-num">#004</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-004', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-004.svg" loading="lazy" alt="Series 1: Icon #004" />
+          </div>
+          <div class="icon-title">Series 1: Icon #004</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-005" data-id="ap100-005" data-num="5" data-cat="canine" data-title="series 1: icon #005" onclick="selectIcon('ap100-005', 'Series 1: Icon #005', 'Series 1 (Core Suite)', '5')">
+          <span class="icon-num">#005</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-005', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-005.svg" loading="lazy" alt="Series 1: Icon #005" />
+          </div>
+          <div class="icon-title">Series 1: Icon #005</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-006" data-id="ap100-006" data-num="6" data-cat="canine" data-title="series 1: icon #006" onclick="selectIcon('ap100-006', 'Series 1: Icon #006', 'Series 1 (Core Suite)', '6')">
+          <span class="icon-num">#006</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-006', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-006.svg" loading="lazy" alt="Series 1: Icon #006" />
+          </div>
+          <div class="icon-title">Series 1: Icon #006</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-007" data-id="ap100-007" data-num="7" data-cat="canine" data-title="series 1: icon #007" onclick="selectIcon('ap100-007', 'Series 1: Icon #007', 'Series 1 (Core Suite)', '7')">
+          <span class="icon-num">#007</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-007', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-007.svg" loading="lazy" alt="Series 1: Icon #007" />
+          </div>
+          <div class="icon-title">Series 1: Icon #007</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-008" data-id="ap100-008" data-num="8" data-cat="canine" data-title="series 1: icon #008" onclick="selectIcon('ap100-008', 'Series 1: Icon #008', 'Series 1 (Core Suite)', '8')">
+          <span class="icon-num">#008</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-008', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-008.svg" loading="lazy" alt="Series 1: Icon #008" />
+          </div>
+          <div class="icon-title">Series 1: Icon #008</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-009" data-id="ap100-009" data-num="9" data-cat="canine" data-title="series 1: icon #009" onclick="selectIcon('ap100-009', 'Series 1: Icon #009', 'Series 1 (Core Suite)', '9')">
+          <span class="icon-num">#009</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-009', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-009.svg" loading="lazy" alt="Series 1: Icon #009" />
+          </div>
+          <div class="icon-title">Series 1: Icon #009</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-010" data-id="ap100-010" data-num="10" data-cat="canine" data-title="series 1: icon #010" onclick="selectIcon('ap100-010', 'Series 1: Icon #010', 'Series 1 (Core Suite)', '10')">
+          <span class="icon-num">#010</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-010', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-010.svg" loading="lazy" alt="Series 1: Icon #010" />
+          </div>
+          <div class="icon-title">Series 1: Icon #010</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-011" data-id="ap100-011" data-num="11" data-cat="canine" data-title="series 1: icon #011" onclick="selectIcon('ap100-011', 'Series 1: Icon #011', 'Series 1 (Core Suite)', '11')">
+          <span class="icon-num">#011</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-011', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-011.svg" loading="lazy" alt="Series 1: Icon #011" />
+          </div>
+          <div class="icon-title">Series 1: Icon #011</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-012" data-id="ap100-012" data-num="12" data-cat="canine" data-title="series 1: icon #012" onclick="selectIcon('ap100-012', 'Series 1: Icon #012', 'Series 1 (Core Suite)', '12')">
+          <span class="icon-num">#012</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-012', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-012.svg" loading="lazy" alt="Series 1: Icon #012" />
+          </div>
+          <div class="icon-title">Series 1: Icon #012</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-013" data-id="ap100-013" data-num="13" data-cat="canine" data-title="series 1: icon #013" onclick="selectIcon('ap100-013', 'Series 1: Icon #013', 'Series 1 (Core Suite)', '13')">
+          <span class="icon-num">#013</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-013', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-013.svg" loading="lazy" alt="Series 1: Icon #013" />
+          </div>
+          <div class="icon-title">Series 1: Icon #013</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-014" data-id="ap100-014" data-num="14" data-cat="canine" data-title="series 1: icon #014" onclick="selectIcon('ap100-014', 'Series 1: Icon #014', 'Series 1 (Core Suite)', '14')">
+          <span class="icon-num">#014</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-014', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-014.svg" loading="lazy" alt="Series 1: Icon #014" />
+          </div>
+          <div class="icon-title">Series 1: Icon #014</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-015" data-id="ap100-015" data-num="15" data-cat="canine" data-title="series 1: icon #015" onclick="selectIcon('ap100-015', 'Series 1: Icon #015', 'Series 1 (Core Suite)', '15')">
+          <span class="icon-num">#015</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-015', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-015.svg" loading="lazy" alt="Series 1: Icon #015" />
+          </div>
+          <div class="icon-title">Series 1: Icon #015</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-016" data-id="ap100-016" data-num="16" data-cat="spark" data-title="series 1: icon #016" onclick="selectIcon('ap100-016', 'Series 1: Icon #016', 'Series 1 (Core Suite)', '16')">
+          <span class="icon-num">#016</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-016', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-016.svg" loading="lazy" alt="Series 1: Icon #016" />
+          </div>
+          <div class="icon-title">Series 1: Icon #016</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-017" data-id="ap100-017" data-num="17" data-cat="spark" data-title="series 1: icon #017" onclick="selectIcon('ap100-017', 'Series 1: Icon #017', 'Series 1 (Core Suite)', '17')">
+          <span class="icon-num">#017</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-017', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-017.svg" loading="lazy" alt="Series 1: Icon #017" />
+          </div>
+          <div class="icon-title">Series 1: Icon #017</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-018" data-id="ap100-018" data-num="18" data-cat="spark" data-title="series 1: icon #018" onclick="selectIcon('ap100-018', 'Series 1: Icon #018', 'Series 1 (Core Suite)', '18')">
+          <span class="icon-num">#018</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-018', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-018.svg" loading="lazy" alt="Series 1: Icon #018" />
+          </div>
+          <div class="icon-title">Series 1: Icon #018</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-019" data-id="ap100-019" data-num="19" data-cat="spark" data-title="series 1: icon #019" onclick="selectIcon('ap100-019', 'Series 1: Icon #019', 'Series 1 (Core Suite)', '19')">
+          <span class="icon-num">#019</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-019', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-019.svg" loading="lazy" alt="Series 1: Icon #019" />
+          </div>
+          <div class="icon-title">Series 1: Icon #019</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-020" data-id="ap100-020" data-num="20" data-cat="spark" data-title="series 1: icon #020" onclick="selectIcon('ap100-020', 'Series 1: Icon #020', 'Series 1 (Core Suite)', '20')">
+          <span class="icon-num">#020</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-020', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-020.svg" loading="lazy" alt="Series 1: Icon #020" />
+          </div>
+          <div class="icon-title">Series 1: Icon #020</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-021" data-id="ap100-021" data-num="21" data-cat="spark" data-title="series 1: icon #021" onclick="selectIcon('ap100-021', 'Series 1: Icon #021', 'Series 1 (Core Suite)', '21')">
+          <span class="icon-num">#021</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-021', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-021.svg" loading="lazy" alt="Series 1: Icon #021" />
+          </div>
+          <div class="icon-title">Series 1: Icon #021</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-022" data-id="ap100-022" data-num="22" data-cat="spark" data-title="series 1: icon #022" onclick="selectIcon('ap100-022', 'Series 1: Icon #022', 'Series 1 (Core Suite)', '22')">
+          <span class="icon-num">#022</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-022', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-022.svg" loading="lazy" alt="Series 1: Icon #022" />
+          </div>
+          <div class="icon-title">Series 1: Icon #022</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-023" data-id="ap100-023" data-num="23" data-cat="spark" data-title="series 1: icon #023" onclick="selectIcon('ap100-023', 'Series 1: Icon #023', 'Series 1 (Core Suite)', '23')">
+          <span class="icon-num">#023</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-023', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-023.svg" loading="lazy" alt="Series 1: Icon #023" />
+          </div>
+          <div class="icon-title">Series 1: Icon #023</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-024" data-id="ap100-024" data-num="24" data-cat="spark" data-title="series 1: icon #024" onclick="selectIcon('ap100-024', 'Series 1: Icon #024', 'Series 1 (Core Suite)', '24')">
+          <span class="icon-num">#024</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-024', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-024.svg" loading="lazy" alt="Series 1: Icon #024" />
+          </div>
+          <div class="icon-title">Series 1: Icon #024</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-025" data-id="ap100-025" data-num="25" data-cat="spark" data-title="series 1: icon #025" onclick="selectIcon('ap100-025', 'Series 1: Icon #025', 'Series 1 (Core Suite)', '25')">
+          <span class="icon-num">#025</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-025', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-025.svg" loading="lazy" alt="Series 1: Icon #025" />
+          </div>
+          <div class="icon-title">Series 1: Icon #025</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-026" data-id="ap100-026" data-num="26" data-cat="spark" data-title="series 1: icon #026" onclick="selectIcon('ap100-026', 'Series 1: Icon #026', 'Series 1 (Core Suite)', '26')">
+          <span class="icon-num">#026</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-026', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-026.svg" loading="lazy" alt="Series 1: Icon #026" />
+          </div>
+          <div class="icon-title">Series 1: Icon #026</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-027" data-id="ap100-027" data-num="27" data-cat="spark" data-title="series 1: icon #027" onclick="selectIcon('ap100-027', 'Series 1: Icon #027', 'Series 1 (Core Suite)', '27')">
+          <span class="icon-num">#027</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-027', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-027.svg" loading="lazy" alt="Series 1: Icon #027" />
+          </div>
+          <div class="icon-title">Series 1: Icon #027</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-028" data-id="ap100-028" data-num="28" data-cat="spark" data-title="series 1: icon #028" onclick="selectIcon('ap100-028', 'Series 1: Icon #028', 'Series 1 (Core Suite)', '28')">
+          <span class="icon-num">#028</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-028', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-028.svg" loading="lazy" alt="Series 1: Icon #028" />
+          </div>
+          <div class="icon-title">Series 1: Icon #028</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-029" data-id="ap100-029" data-num="29" data-cat="spark" data-title="series 1: icon #029" onclick="selectIcon('ap100-029', 'Series 1: Icon #029', 'Series 1 (Core Suite)', '29')">
+          <span class="icon-num">#029</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-029', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-029.svg" loading="lazy" alt="Series 1: Icon #029" />
+          </div>
+          <div class="icon-title">Series 1: Icon #029</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-030" data-id="ap100-030" data-num="30" data-cat="spark" data-title="series 1: icon #030" onclick="selectIcon('ap100-030', 'Series 1: Icon #030', 'Series 1 (Core Suite)', '30')">
+          <span class="icon-num">#030</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-030', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-030.svg" loading="lazy" alt="Series 1: Icon #030" />
+          </div>
+          <div class="icon-title">Series 1: Icon #030</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-031" data-id="ap100-031" data-num="31" data-cat="cli" data-title="series 1: icon #031" onclick="selectIcon('ap100-031', 'Series 1: Icon #031', 'Series 1 (Core Suite)', '31')">
+          <span class="icon-num">#031</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-031', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-031.svg" loading="lazy" alt="Series 1: Icon #031" />
+          </div>
+          <div class="icon-title">Series 1: Icon #031</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-032" data-id="ap100-032" data-num="32" data-cat="cli" data-title="series 1: icon #032" onclick="selectIcon('ap100-032', 'Series 1: Icon #032', 'Series 1 (Core Suite)', '32')">
+          <span class="icon-num">#032</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-032', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-032.svg" loading="lazy" alt="Series 1: Icon #032" />
+          </div>
+          <div class="icon-title">Series 1: Icon #032</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-033" data-id="ap100-033" data-num="33" data-cat="cli" data-title="series 1: icon #033" onclick="selectIcon('ap100-033', 'Series 1: Icon #033', 'Series 1 (Core Suite)', '33')">
+          <span class="icon-num">#033</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-033', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-033.svg" loading="lazy" alt="Series 1: Icon #033" />
+          </div>
+          <div class="icon-title">Series 1: Icon #033</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-034" data-id="ap100-034" data-num="34" data-cat="cli" data-title="series 1: icon #034" onclick="selectIcon('ap100-034', 'Series 1: Icon #034', 'Series 1 (Core Suite)', '34')">
+          <span class="icon-num">#034</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-034', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-034.svg" loading="lazy" alt="Series 1: Icon #034" />
+          </div>
+          <div class="icon-title">Series 1: Icon #034</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-035" data-id="ap100-035" data-num="35" data-cat="cli" data-title="series 1: icon #035" onclick="selectIcon('ap100-035', 'Series 1: Icon #035', 'Series 1 (Core Suite)', '35')">
+          <span class="icon-num">#035</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-035', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-035.svg" loading="lazy" alt="Series 1: Icon #035" />
+          </div>
+          <div class="icon-title">Series 1: Icon #035</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-036" data-id="ap100-036" data-num="36" data-cat="cli" data-title="series 1: icon #036" onclick="selectIcon('ap100-036', 'Series 1: Icon #036', 'Series 1 (Core Suite)', '36')">
+          <span class="icon-num">#036</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-036', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-036.svg" loading="lazy" alt="Series 1: Icon #036" />
+          </div>
+          <div class="icon-title">Series 1: Icon #036</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-037" data-id="ap100-037" data-num="37" data-cat="cli" data-title="series 1: icon #037" onclick="selectIcon('ap100-037', 'Series 1: Icon #037', 'Series 1 (Core Suite)', '37')">
+          <span class="icon-num">#037</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-037', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-037.svg" loading="lazy" alt="Series 1: Icon #037" />
+          </div>
+          <div class="icon-title">Series 1: Icon #037</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-038" data-id="ap100-038" data-num="38" data-cat="cli" data-title="series 1: icon #038" onclick="selectIcon('ap100-038', 'Series 1: Icon #038', 'Series 1 (Core Suite)', '38')">
+          <span class="icon-num">#038</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-038', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-038.svg" loading="lazy" alt="Series 1: Icon #038" />
+          </div>
+          <div class="icon-title">Series 1: Icon #038</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-039" data-id="ap100-039" data-num="39" data-cat="cli" data-title="series 1: icon #039" onclick="selectIcon('ap100-039', 'Series 1: Icon #039', 'Series 1 (Core Suite)', '39')">
+          <span class="icon-num">#039</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-039', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-039.svg" loading="lazy" alt="Series 1: Icon #039" />
+          </div>
+          <div class="icon-title">Series 1: Icon #039</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-040" data-id="ap100-040" data-num="40" data-cat="cli" data-title="series 1: icon #040" onclick="selectIcon('ap100-040', 'Series 1: Icon #040', 'Series 1 (Core Suite)', '40')">
+          <span class="icon-num">#040</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-040', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-040.svg" loading="lazy" alt="Series 1: Icon #040" />
+          </div>
+          <div class="icon-title">Series 1: Icon #040</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-041" data-id="ap100-041" data-num="41" data-cat="cli" data-title="series 1: icon #041" onclick="selectIcon('ap100-041', 'Series 1: Icon #041', 'Series 1 (Core Suite)', '41')">
+          <span class="icon-num">#041</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-041', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-041.svg" loading="lazy" alt="Series 1: Icon #041" />
+          </div>
+          <div class="icon-title">Series 1: Icon #041</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-042" data-id="ap100-042" data-num="42" data-cat="cli" data-title="series 1: icon #042" onclick="selectIcon('ap100-042', 'Series 1: Icon #042', 'Series 1 (Core Suite)', '42')">
+          <span class="icon-num">#042</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-042', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-042.svg" loading="lazy" alt="Series 1: Icon #042" />
+          </div>
+          <div class="icon-title">Series 1: Icon #042</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-043" data-id="ap100-043" data-num="43" data-cat="cli" data-title="series 1: icon #043" onclick="selectIcon('ap100-043', 'Series 1: Icon #043', 'Series 1 (Core Suite)', '43')">
+          <span class="icon-num">#043</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-043', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-043.svg" loading="lazy" alt="Series 1: Icon #043" />
+          </div>
+          <div class="icon-title">Series 1: Icon #043</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-044" data-id="ap100-044" data-num="44" data-cat="cli" data-title="series 1: icon #044" onclick="selectIcon('ap100-044', 'Series 1: Icon #044', 'Series 1 (Core Suite)', '44')">
+          <span class="icon-num">#044</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-044', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-044.svg" loading="lazy" alt="Series 1: Icon #044" />
+          </div>
+          <div class="icon-title">Series 1: Icon #044</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-045" data-id="ap100-045" data-num="45" data-cat="cli" data-title="series 1: icon #045" onclick="selectIcon('ap100-045', 'Series 1: Icon #045', 'Series 1 (Core Suite)', '45')">
+          <span class="icon-num">#045</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-045', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-045.svg" loading="lazy" alt="Series 1: Icon #045" />
+          </div>
+          <div class="icon-title">Series 1: Icon #045</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-046" data-id="ap100-046" data-num="46" data-cat="multi-model" data-title="series 1: icon #046" onclick="selectIcon('ap100-046', 'Series 1: Icon #046', 'Series 1 (Core Suite)', '46')">
+          <span class="icon-num">#046</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-046', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-046.svg" loading="lazy" alt="Series 1: Icon #046" />
+          </div>
+          <div class="icon-title">Series 1: Icon #046</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-047" data-id="ap100-047" data-num="47" data-cat="multi-model" data-title="series 1: icon #047" onclick="selectIcon('ap100-047', 'Series 1: Icon #047', 'Series 1 (Core Suite)', '47')">
+          <span class="icon-num">#047</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-047', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-047.svg" loading="lazy" alt="Series 1: Icon #047" />
+          </div>
+          <div class="icon-title">Series 1: Icon #047</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-048" data-id="ap100-048" data-num="48" data-cat="multi-model" data-title="series 1: icon #048" onclick="selectIcon('ap100-048', 'Series 1: Icon #048', 'Series 1 (Core Suite)', '48')">
+          <span class="icon-num">#048</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-048', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-048.svg" loading="lazy" alt="Series 1: Icon #048" />
+          </div>
+          <div class="icon-title">Series 1: Icon #048</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-049" data-id="ap100-049" data-num="49" data-cat="multi-model" data-title="series 1: icon #049" onclick="selectIcon('ap100-049', 'Series 1: Icon #049', 'Series 1 (Core Suite)', '49')">
+          <span class="icon-num">#049</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-049', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-049.svg" loading="lazy" alt="Series 1: Icon #049" />
+          </div>
+          <div class="icon-title">Series 1: Icon #049</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-050" data-id="ap100-050" data-num="50" data-cat="multi-model" data-title="series 1: icon #050" onclick="selectIcon('ap100-050', 'Series 1: Icon #050', 'Series 1 (Core Suite)', '50')">
+          <span class="icon-num">#050</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-050', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-050.svg" loading="lazy" alt="Series 1: Icon #050" />
+          </div>
+          <div class="icon-title">Series 1: Icon #050</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-051" data-id="ap100-051" data-num="51" data-cat="multi-model" data-title="series 1: icon #051" onclick="selectIcon('ap100-051', 'Series 1: Icon #051', 'Series 1 (Core Suite)', '51')">
+          <span class="icon-num">#051</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-051', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-051.svg" loading="lazy" alt="Series 1: Icon #051" />
+          </div>
+          <div class="icon-title">Series 1: Icon #051</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-052" data-id="ap100-052" data-num="52" data-cat="multi-model" data-title="series 1: icon #052" onclick="selectIcon('ap100-052', 'Series 1: Icon #052', 'Series 1 (Core Suite)', '52')">
+          <span class="icon-num">#052</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-052', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-052.svg" loading="lazy" alt="Series 1: Icon #052" />
+          </div>
+          <div class="icon-title">Series 1: Icon #052</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-053" data-id="ap100-053" data-num="53" data-cat="multi-model" data-title="series 1: icon #053" onclick="selectIcon('ap100-053', 'Series 1: Icon #053', 'Series 1 (Core Suite)', '53')">
+          <span class="icon-num">#053</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-053', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-053.svg" loading="lazy" alt="Series 1: Icon #053" />
+          </div>
+          <div class="icon-title">Series 1: Icon #053</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-054" data-id="ap100-054" data-num="54" data-cat="multi-model" data-title="series 1: icon #054" onclick="selectIcon('ap100-054', 'Series 1: Icon #054', 'Series 1 (Core Suite)', '54')">
+          <span class="icon-num">#054</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-054', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-054.svg" loading="lazy" alt="Series 1: Icon #054" />
+          </div>
+          <div class="icon-title">Series 1: Icon #054</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-055" data-id="ap100-055" data-num="55" data-cat="multi-model" data-title="series 1: icon #055" onclick="selectIcon('ap100-055', 'Series 1: Icon #055', 'Series 1 (Core Suite)', '55')">
+          <span class="icon-num">#055</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-055', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-055.svg" loading="lazy" alt="Series 1: Icon #055" />
+          </div>
+          <div class="icon-title">Series 1: Icon #055</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-056" data-id="ap100-056" data-num="56" data-cat="gradient-360" data-title="series 1: icon #056" onclick="selectIcon('ap100-056', 'Series 1: Icon #056', 'Series 1 (Core Suite)', '56')">
+          <span class="icon-num">#056</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-056', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-056.svg" loading="lazy" alt="Series 1: Icon #056" />
+          </div>
+          <div class="icon-title">Series 1: Icon #056</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-057" data-id="ap100-057" data-num="57" data-cat="gradient-360" data-title="series 1: icon #057" onclick="selectIcon('ap100-057', 'Series 1: Icon #057', 'Series 1 (Core Suite)', '57')">
+          <span class="icon-num">#057</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-057', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-057.svg" loading="lazy" alt="Series 1: Icon #057" />
+          </div>
+          <div class="icon-title">Series 1: Icon #057</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-058" data-id="ap100-058" data-num="58" data-cat="gradient-360" data-title="series 1: icon #058" onclick="selectIcon('ap100-058', 'Series 1: Icon #058', 'Series 1 (Core Suite)', '58')">
+          <span class="icon-num">#058</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-058', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-058.svg" loading="lazy" alt="Series 1: Icon #058" />
+          </div>
+          <div class="icon-title">Series 1: Icon #058</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-059" data-id="ap100-059" data-num="59" data-cat="gradient-360" data-title="series 1: icon #059" onclick="selectIcon('ap100-059', 'Series 1: Icon #059', 'Series 1 (Core Suite)', '59')">
+          <span class="icon-num">#059</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-059', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-059.svg" loading="lazy" alt="Series 1: Icon #059" />
+          </div>
+          <div class="icon-title">Series 1: Icon #059</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-060" data-id="ap100-060" data-num="60" data-cat="gradient-360" data-title="series 1: icon #060" onclick="selectIcon('ap100-060', 'Series 1: Icon #060', 'Series 1 (Core Suite)', '60')">
+          <span class="icon-num">#060</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-060', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-060.svg" loading="lazy" alt="Series 1: Icon #060" />
+          </div>
+          <div class="icon-title">Series 1: Icon #060</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-061" data-id="ap100-061" data-num="61" data-cat="gradient-360" data-title="series 1: icon #061" onclick="selectIcon('ap100-061', 'Series 1: Icon #061', 'Series 1 (Core Suite)', '61')">
+          <span class="icon-num">#061</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-061', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-061.svg" loading="lazy" alt="Series 1: Icon #061" />
+          </div>
+          <div class="icon-title">Series 1: Icon #061</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-062" data-id="ap100-062" data-num="62" data-cat="gradient-360" data-title="series 1: icon #062" onclick="selectIcon('ap100-062', 'Series 1: Icon #062', 'Series 1 (Core Suite)', '62')">
+          <span class="icon-num">#062</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-062', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-062.svg" loading="lazy" alt="Series 1: Icon #062" />
+          </div>
+          <div class="icon-title">Series 1: Icon #062</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-063" data-id="ap100-063" data-num="63" data-cat="gradient-360" data-title="series 1: icon #063" onclick="selectIcon('ap100-063', 'Series 1: Icon #063', 'Series 1 (Core Suite)', '63')">
+          <span class="icon-num">#063</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-063', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-063.svg" loading="lazy" alt="Series 1: Icon #063" />
+          </div>
+          <div class="icon-title">Series 1: Icon #063</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-064" data-id="ap100-064" data-num="64" data-cat="gradient-360" data-title="series 1: icon #064" onclick="selectIcon('ap100-064', 'Series 1: Icon #064', 'Series 1 (Core Suite)', '64')">
+          <span class="icon-num">#064</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-064', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-064.svg" loading="lazy" alt="Series 1: Icon #064" />
+          </div>
+          <div class="icon-title">Series 1: Icon #064</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-065" data-id="ap100-065" data-num="65" data-cat="gradient-360" data-title="series 1: icon #065" onclick="selectIcon('ap100-065', 'Series 1: Icon #065', 'Series 1 (Core Suite)', '65')">
+          <span class="icon-num">#065</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-065', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-065.svg" loading="lazy" alt="Series 1: Icon #065" />
+          </div>
+          <div class="icon-title">Series 1: Icon #065</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-066" data-id="ap100-066" data-num="66" data-cat="gradient-360" data-title="series 1: icon #066" onclick="selectIcon('ap100-066', 'Series 1: Icon #066', 'Series 1 (Core Suite)', '66')">
+          <span class="icon-num">#066</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-066', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-066.svg" loading="lazy" alt="Series 1: Icon #066" />
+          </div>
+          <div class="icon-title">Series 1: Icon #066</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-067" data-id="ap100-067" data-num="67" data-cat="gradient-360" data-title="series 1: icon #067" onclick="selectIcon('ap100-067', 'Series 1: Icon #067', 'Series 1 (Core Suite)', '67')">
+          <span class="icon-num">#067</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-067', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-067.svg" loading="lazy" alt="Series 1: Icon #067" />
+          </div>
+          <div class="icon-title">Series 1: Icon #067</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-068" data-id="ap100-068" data-num="68" data-cat="gradient-360" data-title="series 1: icon #068" onclick="selectIcon('ap100-068', 'Series 1: Icon #068', 'Series 1 (Core Suite)', '68')">
+          <span class="icon-num">#068</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-068', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-068.svg" loading="lazy" alt="Series 1: Icon #068" />
+          </div>
+          <div class="icon-title">Series 1: Icon #068</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-069" data-id="ap100-069" data-num="69" data-cat="gradient-360" data-title="series 1: icon #069" onclick="selectIcon('ap100-069', 'Series 1: Icon #069', 'Series 1 (Core Suite)', '69')">
+          <span class="icon-num">#069</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-069', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-069.svg" loading="lazy" alt="Series 1: Icon #069" />
+          </div>
+          <div class="icon-title">Series 1: Icon #069</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-070" data-id="ap100-070" data-num="70" data-cat="gradient-360" data-title="series 1: icon #070" onclick="selectIcon('ap100-070', 'Series 1: Icon #070', 'Series 1 (Core Suite)', '70')">
+          <span class="icon-num">#070</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-070', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-070.svg" loading="lazy" alt="Series 1: Icon #070" />
+          </div>
+          <div class="icon-title">Series 1: Icon #070</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-071" data-id="ap100-071" data-num="71" data-cat="geometry" data-title="series 1: icon #071" onclick="selectIcon('ap100-071', 'Series 1: Icon #071', 'Series 1 (Core Suite)', '71')">
+          <span class="icon-num">#071</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-071', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-071.svg" loading="lazy" alt="Series 1: Icon #071" />
+          </div>
+          <div class="icon-title">Series 1: Icon #071</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-072" data-id="ap100-072" data-num="72" data-cat="geometry" data-title="series 1: icon #072" onclick="selectIcon('ap100-072', 'Series 1: Icon #072', 'Series 1 (Core Suite)', '72')">
+          <span class="icon-num">#072</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-072', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-072.svg" loading="lazy" alt="Series 1: Icon #072" />
+          </div>
+          <div class="icon-title">Series 1: Icon #072</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-073" data-id="ap100-073" data-num="73" data-cat="geometry" data-title="series 1: icon #073" onclick="selectIcon('ap100-073', 'Series 1: Icon #073', 'Series 1 (Core Suite)', '73')">
+          <span class="icon-num">#073</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-073', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-073.svg" loading="lazy" alt="Series 1: Icon #073" />
+          </div>
+          <div class="icon-title">Series 1: Icon #073</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-074" data-id="ap100-074" data-num="74" data-cat="geometry" data-title="series 1: icon #074" onclick="selectIcon('ap100-074', 'Series 1: Icon #074', 'Series 1 (Core Suite)', '74')">
+          <span class="icon-num">#074</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-074', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-074.svg" loading="lazy" alt="Series 1: Icon #074" />
+          </div>
+          <div class="icon-title">Series 1: Icon #074</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-075" data-id="ap100-075" data-num="75" data-cat="geometry" data-title="series 1: icon #075" onclick="selectIcon('ap100-075', 'Series 1: Icon #075', 'Series 1 (Core Suite)', '75')">
+          <span class="icon-num">#075</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-075', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-075.svg" loading="lazy" alt="Series 1: Icon #075" />
+          </div>
+          <div class="icon-title">Series 1: Icon #075</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-076" data-id="ap100-076" data-num="76" data-cat="geometry" data-title="series 1: icon #076" onclick="selectIcon('ap100-076', 'Series 1: Icon #076', 'Series 1 (Core Suite)', '76')">
+          <span class="icon-num">#076</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-076', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-076.svg" loading="lazy" alt="Series 1: Icon #076" />
+          </div>
+          <div class="icon-title">Series 1: Icon #076</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-077" data-id="ap100-077" data-num="77" data-cat="geometry" data-title="series 1: icon #077" onclick="selectIcon('ap100-077', 'Series 1: Icon #077', 'Series 1 (Core Suite)', '77')">
+          <span class="icon-num">#077</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-077', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-077.svg" loading="lazy" alt="Series 1: Icon #077" />
+          </div>
+          <div class="icon-title">Series 1: Icon #077</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-078" data-id="ap100-078" data-num="78" data-cat="geometry" data-title="series 1: icon #078" onclick="selectIcon('ap100-078', 'Series 1: Icon #078', 'Series 1 (Core Suite)', '78')">
+          <span class="icon-num">#078</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-078', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-078.svg" loading="lazy" alt="Series 1: Icon #078" />
+          </div>
+          <div class="icon-title">Series 1: Icon #078</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-079" data-id="ap100-079" data-num="79" data-cat="geometry" data-title="series 1: icon #079" onclick="selectIcon('ap100-079', 'Series 1: Icon #079', 'Series 1 (Core Suite)', '79')">
+          <span class="icon-num">#079</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-079', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-079.svg" loading="lazy" alt="Series 1: Icon #079" />
+          </div>
+          <div class="icon-title">Series 1: Icon #079</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-080" data-id="ap100-080" data-num="80" data-cat="geometry" data-title="series 1: icon #080" onclick="selectIcon('ap100-080', 'Series 1: Icon #080', 'Series 1 (Core Suite)', '80')">
+          <span class="icon-num">#080</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-080', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-080.svg" loading="lazy" alt="Series 1: Icon #080" />
+          </div>
+          <div class="icon-title">Series 1: Icon #080</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-081" data-id="ap100-081" data-num="81" data-cat="geometry" data-title="series 1: icon #081" onclick="selectIcon('ap100-081', 'Series 1: Icon #081', 'Series 1 (Core Suite)', '81')">
+          <span class="icon-num">#081</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-081', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-081.svg" loading="lazy" alt="Series 1: Icon #081" />
+          </div>
+          <div class="icon-title">Series 1: Icon #081</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-082" data-id="ap100-082" data-num="82" data-cat="geometry" data-title="series 1: icon #082" onclick="selectIcon('ap100-082', 'Series 1: Icon #082', 'Series 1 (Core Suite)', '82')">
+          <span class="icon-num">#082</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-082', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-082.svg" loading="lazy" alt="Series 1: Icon #082" />
+          </div>
+          <div class="icon-title">Series 1: Icon #082</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-083" data-id="ap100-083" data-num="83" data-cat="geometry" data-title="series 1: icon #083" onclick="selectIcon('ap100-083', 'Series 1: Icon #083', 'Series 1 (Core Suite)', '83')">
+          <span class="icon-num">#083</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-083', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-083.svg" loading="lazy" alt="Series 1: Icon #083" />
+          </div>
+          <div class="icon-title">Series 1: Icon #083</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-084" data-id="ap100-084" data-num="84" data-cat="geometry" data-title="series 1: icon #084" onclick="selectIcon('ap100-084', 'Series 1: Icon #084', 'Series 1 (Core Suite)', '84')">
+          <span class="icon-num">#084</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-084', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-084.svg" loading="lazy" alt="Series 1: Icon #084" />
+          </div>
+          <div class="icon-title">Series 1: Icon #084</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-085" data-id="ap100-085" data-num="85" data-cat="geometry" data-title="series 1: icon #085" onclick="selectIcon('ap100-085', 'Series 1: Icon #085', 'Series 1 (Core Suite)', '85')">
+          <span class="icon-num">#085</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-085', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-085.svg" loading="lazy" alt="Series 1: Icon #085" />
+          </div>
+          <div class="icon-title">Series 1: Icon #085</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-086" data-id="ap100-086" data-num="86" data-cat="hardware" data-title="series 1: icon #086" onclick="selectIcon('ap100-086', 'Series 1: Icon #086', 'Series 1 (Core Suite)', '86')">
+          <span class="icon-num">#086</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-086', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-086.svg" loading="lazy" alt="Series 1: Icon #086" />
+          </div>
+          <div class="icon-title">Series 1: Icon #086</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-087" data-id="ap100-087" data-num="87" data-cat="hardware" data-title="series 1: icon #087" onclick="selectIcon('ap100-087', 'Series 1: Icon #087', 'Series 1 (Core Suite)', '87')">
+          <span class="icon-num">#087</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-087', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-087.svg" loading="lazy" alt="Series 1: Icon #087" />
+          </div>
+          <div class="icon-title">Series 1: Icon #087</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-088" data-id="ap100-088" data-num="88" data-cat="hardware" data-title="series 1: icon #088" onclick="selectIcon('ap100-088', 'Series 1: Icon #088', 'Series 1 (Core Suite)', '88')">
+          <span class="icon-num">#088</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-088', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-088.svg" loading="lazy" alt="Series 1: Icon #088" />
+          </div>
+          <div class="icon-title">Series 1: Icon #088</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-089" data-id="ap100-089" data-num="89" data-cat="hardware" data-title="series 1: icon #089" onclick="selectIcon('ap100-089', 'Series 1: Icon #089', 'Series 1 (Core Suite)', '89')">
+          <span class="icon-num">#089</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-089', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-089.svg" loading="lazy" alt="Series 1: Icon #089" />
+          </div>
+          <div class="icon-title">Series 1: Icon #089</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-090" data-id="ap100-090" data-num="90" data-cat="hardware" data-title="series 1: icon #090" onclick="selectIcon('ap100-090', 'Series 1: Icon #090', 'Series 1 (Core Suite)', '90')">
+          <span class="icon-num">#090</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-090', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-090.svg" loading="lazy" alt="Series 1: Icon #090" />
+          </div>
+          <div class="icon-title">Series 1: Icon #090</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-091" data-id="ap100-091" data-num="91" data-cat="hardware" data-title="series 1: icon #091" onclick="selectIcon('ap100-091', 'Series 1: Icon #091', 'Series 1 (Core Suite)', '91')">
+          <span class="icon-num">#091</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-091', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-091.svg" loading="lazy" alt="Series 1: Icon #091" />
+          </div>
+          <div class="icon-title">Series 1: Icon #091</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-092" data-id="ap100-092" data-num="92" data-cat="hardware" data-title="series 1: icon #092" onclick="selectIcon('ap100-092', 'Series 1: Icon #092', 'Series 1 (Core Suite)', '92')">
+          <span class="icon-num">#092</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-092', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-092.svg" loading="lazy" alt="Series 1: Icon #092" />
+          </div>
+          <div class="icon-title">Series 1: Icon #092</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-093" data-id="ap100-093" data-num="93" data-cat="hardware" data-title="series 1: icon #093" onclick="selectIcon('ap100-093', 'Series 1: Icon #093', 'Series 1 (Core Suite)', '93')">
+          <span class="icon-num">#093</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-093', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-093.svg" loading="lazy" alt="Series 1: Icon #093" />
+          </div>
+          <div class="icon-title">Series 1: Icon #093</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-094" data-id="ap100-094" data-num="94" data-cat="hardware" data-title="series 1: icon #094" onclick="selectIcon('ap100-094', 'Series 1: Icon #094', 'Series 1 (Core Suite)', '94')">
+          <span class="icon-num">#094</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-094', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-094.svg" loading="lazy" alt="Series 1: Icon #094" />
+          </div>
+          <div class="icon-title">Series 1: Icon #094</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-095" data-id="ap100-095" data-num="95" data-cat="hardware" data-title="series 1: icon #095" onclick="selectIcon('ap100-095', 'Series 1: Icon #095', 'Series 1 (Core Suite)', '95')">
+          <span class="icon-num">#095</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-095', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-095.svg" loading="lazy" alt="Series 1: Icon #095" />
+          </div>
+          <div class="icon-title">Series 1: Icon #095</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-096" data-id="ap100-096" data-num="96" data-cat="masterpiece" data-title="series 1: icon #096" onclick="selectIcon('ap100-096', 'Series 1: Icon #096', 'Series 1 (Core Suite)', '96')">
+          <span class="icon-num">#096</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-096', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-096.svg" loading="lazy" alt="Series 1: Icon #096" />
+          </div>
+          <div class="icon-title">Series 1: Icon #096</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-097" data-id="ap100-097" data-num="97" data-cat="masterpiece" data-title="series 1: icon #097" onclick="selectIcon('ap100-097', 'Series 1: Icon #097', 'Series 1 (Core Suite)', '97')">
+          <span class="icon-num">#097</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-097', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-097.svg" loading="lazy" alt="Series 1: Icon #097" />
+          </div>
+          <div class="icon-title">Series 1: Icon #097</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-098" data-id="ap100-098" data-num="98" data-cat="masterpiece" data-title="series 1: icon #098" onclick="selectIcon('ap100-098', 'Series 1: Icon #098', 'Series 1 (Core Suite)', '98')">
+          <span class="icon-num">#098</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-098', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-098.svg" loading="lazy" alt="Series 1: Icon #098" />
+          </div>
+          <div class="icon-title">Series 1: Icon #098</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-099" data-id="ap100-099" data-num="99" data-cat="masterpiece" data-title="series 1: icon #099" onclick="selectIcon('ap100-099', 'Series 1: Icon #099', 'Series 1 (Core Suite)', '99')">
+          <span class="icon-num">#099</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-099', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-099.svg" loading="lazy" alt="Series 1: Icon #099" />
+          </div>
+          <div class="icon-title">Series 1: Icon #099</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap100-100" data-id="ap100-100" data-num="100" data-cat="masterpiece" data-title="series 1: icon #100" onclick="selectIcon('ap100-100', 'Series 1: Icon #100', 'Series 1 (Core Suite)', '100')">
+          <span class="icon-num">#100</span>
+          <button class="icon-fav" onclick="toggleFav('ap100-100', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap100-100.svg" loading="lazy" alt="Series 1: Icon #100" />
+          </div>
+          <div class="icon-title">Series 1: Icon #100</div>
+          <div class="icon-category">Series 1 (Core Suite)</div>
+        </div>
+      
+        <div class="icon-card selected" id="card-ap200-001" data-id="ap200-001" data-num="101" data-cat="3d-spatial" data-title="isometric triad cube core" onclick="selectIcon('ap200-001', 'Isometric Triad Cube Core', '아이소메트릭 큐브가 3방향 아크의 교차 중심에서 입체적으로 회전하는 코어', '101')">
+          <span class="icon-num">#101</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-001', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-001.svg" loading="lazy" alt="Isometric Triad Cube Core" />
+          </div>
+          <div class="icon-title">Isometric Triad Cube Core</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-002" data-id="ap200-002" data-num="102" data-cat="3d-spatial" data-title="floating pyramidal apex" onclick="selectIcon('ap200-002', 'Floating Pyramidal Apex', '3개의 삼각 각면이 모여 4차원 정사면체(Tetrahedron)를 이루는 크리스털 코어', '102')">
+          <span class="icon-num">#102</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-002', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-002.svg" loading="lazy" alt="Floating Pyramidal Apex" />
+          </div>
+          <div class="icon-title">Floating Pyramidal Apex</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-003" data-id="ap200-003" data-num="103" data-cat="3d-spatial" data-title="toroid ring intersection" onclick="selectIcon('ap200-003', 'Toroid Ring Intersection', '직교하는 3개의 입체 토러스 링이 맞물려 구체 공간을 감싸는 우주적 조형', '103')">
+          <span class="icon-num">#103</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-003', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-003.svg" loading="lazy" alt="Toroid Ring Intersection" />
+          </div>
+          <div class="icon-title">Toroid Ring Intersection</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-004" data-id="ap200-004" data-num="104" data-cat="3d-spatial" data-title="3d mobius trefoil knot" onclick="selectIcon('ap200-004', '3D Mobius Trefoil Knot', '면과 선이 입체적으로 꼬이며 회전하는 뫼비우스 트리포일 토폴로지 코어', '104')">
+          <span class="icon-num">#104</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-004', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-004.svg" loading="lazy" alt="3D Mobius Trefoil Knot" />
+          </div>
+          <div class="icon-title">3D Mobius Trefoil Knot</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-005" data-id="ap200-005" data-num="105" data-cat="3d-spatial" data-title="orthographic depth layers" onclick="selectIcon('ap200-005', 'Orthographic Depth Layers', '3개의 원형 플레이트가 계단식 깊이감(Z-Index)으로 중첩된 모던 레이어드 코어', '105')">
+          <span class="icon-num">#105</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-005', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-005.svg" loading="lazy" alt="Orthographic Depth Layers" />
+          </div>
+          <div class="icon-title">Orthographic Depth Layers</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-006" data-id="ap200-006" data-num="106" data-cat="3d-spatial" data-title="hexagonal prism crystal" onclick="selectIcon('ap200-006', 'Hexagonal Prism Crystal', '2026 차세대 비주얼 테마: Hexagonal Prism Crystal & 360° 연속 회전 아크 시스템', '106')">
+          <span class="icon-num">#106</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-006', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-006.svg" loading="lazy" alt="Hexagonal Prism Crystal" />
+          </div>
+          <div class="icon-title">Hexagonal Prism Crystal</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-007" data-id="ap200-007" data-num="107" data-cat="3d-spatial" data-title="wireframe gyroscope core" onclick="selectIcon('ap200-007', 'Wireframe Gyroscope Core', '2026 차세대 비주얼 테마: Wireframe Gyroscope Core & 360° 연속 회전 아크 시스템', '107')">
+          <span class="icon-num">#107</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-007', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-007.svg" loading="lazy" alt="Wireframe Gyroscope Core" />
+          </div>
+          <div class="icon-title">Wireframe Gyroscope Core</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-008" data-id="ap200-008" data-num="108" data-cat="3d-spatial" data-title="isometric hypercube node" onclick="selectIcon('ap200-008', 'Isometric Hypercube Node', '2026 차세대 비주얼 테마: Isometric Hypercube Node & 360° 연속 회전 아크 시스템', '108')">
+          <span class="icon-num">#108</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-008', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-008.svg" loading="lazy" alt="Isometric Hypercube Node" />
+          </div>
+          <div class="icon-title">Isometric Hypercube Node</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-009" data-id="ap200-009" data-num="109" data-cat="3d-spatial" data-title="floating diamond facet" onclick="selectIcon('ap200-009', 'Floating Diamond Facet', '2026 차세대 비주얼 테마: Floating Diamond Facet & 360° 연속 회전 아크 시스템', '109')">
+          <span class="icon-num">#109</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-009', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-009.svg" loading="lazy" alt="Floating Diamond Facet" />
+          </div>
+          <div class="icon-title">Floating Diamond Facet</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-010" data-id="ap200-010" data-num="110" data-cat="3d-spatial" data-title="spherical volumetric orb" onclick="selectIcon('ap200-010', 'Spherical Volumetric Orb', '2026 차세대 비주얼 테마: Spherical Volumetric Orb & 360° 연속 회전 아크 시스템', '110')">
+          <span class="icon-num">#110</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-010', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-010.svg" loading="lazy" alt="Spherical Volumetric Orb" />
+          </div>
+          <div class="icon-title">Spherical Volumetric Orb</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-011" data-id="ap200-011" data-num="111" data-cat="quantum" data-title="quantum entanglement loop" onclick="selectIcon('ap200-011', 'Quantum Entanglement Loop', '2026 차세대 비주얼 테마: Quantum Entanglement Loop & 360° 연속 회전 아크 시스템', '111')">
+          <span class="icon-num">#111</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-011', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-011.svg" loading="lazy" alt="Quantum Entanglement Loop" />
+          </div>
+          <div class="icon-title">Quantum Entanglement Loop</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-012" data-id="ap200-012" data-num="112" data-cat="quantum" data-title="laser aperture visor" onclick="selectIcon('ap200-012', 'Laser Aperture Visor', '2026 차세대 비주얼 테마: Laser Aperture Visor & 360° 연속 회전 아크 시스템', '112')">
+          <span class="icon-num">#112</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-012', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-012.svg" loading="lazy" alt="Laser Aperture Visor" />
+          </div>
+          <div class="icon-title">Laser Aperture Visor</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-013" data-id="ap200-013" data-num="113" data-cat="quantum" data-title="synaptic ai neural spark" onclick="selectIcon('ap200-013', 'Synaptic AI Neural Spark', '2026 차세대 비주얼 테마: Synaptic AI Neural Spark & 360° 연속 회전 아크 시스템', '113')">
+          <span class="icon-num">#113</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-013', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-013.svg" loading="lazy" alt="Synaptic AI Neural Spark" />
+          </div>
+          <div class="icon-title">Synaptic AI Neural Spark</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-014" data-id="ap200-014" data-num="114" data-cat="quantum" data-title="holographic matrix grid" onclick="selectIcon('ap200-014', 'Holographic Matrix Grid', '2026 차세대 비주얼 테마: Holographic Matrix Grid & 360° 연속 회전 아크 시스템', '114')">
+          <span class="icon-num">#114</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-014', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-014.svg" loading="lazy" alt="Holographic Matrix Grid" />
+          </div>
+          <div class="icon-title">Holographic Matrix Grid</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-015" data-id="ap200-015" data-num="115" data-cat="quantum" data-title="particle accelerator nexus" onclick="selectIcon('ap200-015', 'Particle Accelerator Nexus', '2026 차세대 비주얼 테마: Particle Accelerator Nexus & 360° 연속 회전 아크 시스템', '115')">
+          <span class="icon-num">#115</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-015', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-015.svg" loading="lazy" alt="Particle Accelerator Nexus" />
+          </div>
+          <div class="icon-title">Particle Accelerator Nexus</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-016" data-id="ap200-016" data-num="116" data-cat="quantum" data-title="tachyon hyper-beam burst" onclick="selectIcon('ap200-016', 'Tachyon Hyper-Beam Burst', '2026 차세대 비주얼 테마: Tachyon Hyper-Beam Burst & 360° 연속 회전 아크 시스템', '116')">
+          <span class="icon-num">#116</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-016', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-016.svg" loading="lazy" alt="Tachyon Hyper-Beam Burst" />
+          </div>
+          <div class="icon-title">Tachyon Hyper-Beam Burst</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-017" data-id="ap200-017" data-num="117" data-cat="quantum" data-title="zero-point energy kernel" onclick="selectIcon('ap200-017', 'Zero-Point Energy Kernel', '2026 차세대 비주얼 테마: Zero-Point Energy Kernel & 360° 연속 회전 아크 시스템', '117')">
+          <span class="icon-num">#117</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-017', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-017.svg" loading="lazy" alt="Zero-Point Energy Kernel" />
+          </div>
+          <div class="icon-title">Zero-Point Energy Kernel</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-018" data-id="ap200-018" data-num="118" data-cat="quantum" data-title="cybernetic iris gate" onclick="selectIcon('ap200-018', 'Cybernetic Iris Gate', '2026 차세대 비주얼 테마: Cybernetic Iris Gate & 360° 연속 회전 아크 시스템', '118')">
+          <span class="icon-num">#118</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-018', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-018.svg" loading="lazy" alt="Cybernetic Iris Gate" />
+          </div>
+          <div class="icon-title">Cybernetic Iris Gate</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-019" data-id="ap200-019" data-num="119" data-cat="quantum" data-title="nanotech circuit bus" onclick="selectIcon('ap200-019', 'Nanotech Circuit Bus', '2026 차세대 비주얼 테마: Nanotech Circuit Bus & 360° 연속 회전 아크 시스템', '119')">
+          <span class="icon-num">#119</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-019', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-019.svg" loading="lazy" alt="Nanotech Circuit Bus" />
+          </div>
+          <div class="icon-title">Nanotech Circuit Bus</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-020" data-id="ap200-020" data-num="120" data-cat="quantum" data-title="superconducting ring core" onclick="selectIcon('ap200-020', 'Superconducting Ring Core', '2026 차세대 비주얼 테마: Superconducting Ring Core & 360° 연속 회전 아크 시스템', '120')">
+          <span class="icon-num">#120</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-020', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-020.svg" loading="lazy" alt="Superconducting Ring Core" />
+          </div>
+          <div class="icon-title">Superconducting Ring Core</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-021" data-id="ap200-021" data-num="121" data-cat="canine-bionic" data-title="cyber-hound laser eye node" onclick="selectIcon('ap200-021', 'Cyber-Hound Laser Eye Node', '2026 차세대 비주얼 테마: Cyber-Hound Laser Eye Node & 360° 연속 회전 아크 시스템', '121')">
+          <span class="icon-num">#121</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-021', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-021.svg" loading="lazy" alt="Cyber-Hound Laser Eye Node" />
+          </div>
+          <div class="icon-title">Cyber-Hound Laser Eye Node</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-022" data-id="ap200-022" data-num="122" data-cat="canine-bionic" data-title="aerodynamic dog ear blade" onclick="selectIcon('ap200-022', 'Aerodynamic Dog Ear Blade', '2026 차세대 비주얼 테마: Aerodynamic Dog Ear Blade & 360° 연속 회전 아크 시스템', '122')">
+          <span class="icon-num">#122</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-022', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-022.svg" loading="lazy" alt="Aerodynamic Dog Ear Blade" />
+          </div>
+          <div class="icon-title">Aerodynamic Dog Ear Blade</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-023" data-id="ap200-023" data-num="123" data-cat="canine-bionic" data-title="terminal hound bone slash" onclick="selectIcon('ap200-023', 'Terminal Hound Bone Slash', '2026 차세대 비주얼 테마: Terminal Hound Bone Slash & 360° 연속 회전 아크 시스템', '123')">
+          <span class="icon-num">#123</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-023', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-023.svg" loading="lazy" alt="Terminal Hound Bone Slash" />
+          </div>
+          <div class="icon-title">Terminal Hound Bone Slash</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-024" data-id="ap200-024" data-num="124" data-cat="canine-bionic" data-title="bionic paw sensor matrix" onclick="selectIcon('ap200-024', 'Bionic Paw Sensor Matrix', '2026 차세대 비주얼 테마: Bionic Paw Sensor Matrix & 360° 연속 회전 아크 시스템', '124')">
+          <span class="icon-num">#124</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-024', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-024.svg" loading="lazy" alt="Bionic Paw Sensor Matrix" />
+          </div>
+          <div class="icon-title">Bionic Paw Sensor Matrix</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-025" data-id="ap200-025" data-num="125" data-cat="canine-bionic" data-title="smart hound collar token" onclick="selectIcon('ap200-025', 'Smart Hound Collar Token', '2026 차세대 비주얼 테마: Smart Hound Collar Token & 360° 연속 회전 아크 시스템', '125')">
+          <span class="icon-num">#125</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-025', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-025.svg" loading="lazy" alt="Smart Hound Collar Token" />
+          </div>
+          <div class="icon-title">Smart Hound Collar Token</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-026" data-id="ap200-026" data-num="126" data-cat="canine-bionic" data-title="stealth hound m silhouette" onclick="selectIcon('ap200-026', 'Stealth Hound M Silhouette', '2026 차세대 비주얼 테마: Stealth Hound M Silhouette & 360° 연속 회전 아크 시스템', '126')">
+          <span class="icon-num">#126</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-026', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-026.svg" loading="lazy" alt="Stealth Hound M Silhouette" />
+          </div>
+          <div class="icon-title">Stealth Hound M Silhouette</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-027" data-id="ap200-027" data-num="127" data-cat="canine-bionic" data-title="hunting sentinel radar scope" onclick="selectIcon('ap200-027', 'Hunting Sentinel Radar Scope', '2026 차세대 비주얼 테마: Hunting Sentinel Radar Scope & 360° 연속 회전 아크 시스템', '127')">
+          <span class="icon-num">#127</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-027', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-027.svg" loading="lazy" alt="Hunting Sentinel Radar Scope" />
+          </div>
+          <div class="icon-title">Hunting Sentinel Radar Scope</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-028" data-id="ap200-028" data-num="128" data-cat="canine-bionic" data-title="canine whiskers code slits" onclick="selectIcon('ap200-028', 'Canine Whiskers Code Slits', '2026 차세대 비주얼 테마: Canine Whiskers Code Slits & 360° 연속 회전 아크 시스템', '128')">
+          <span class="icon-num">#128</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-028', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-028.svg" loading="lazy" alt="Canine Whiskers Code Slits" />
+          </div>
+          <div class="icon-title">Canine Whiskers Code Slits</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-029" data-id="ap200-029" data-num="129" data-cat="canine-bionic" data-title="sleeping hound mobius knot" onclick="selectIcon('ap200-029', 'Sleeping Hound Mobius Knot', '2026 차세대 비주얼 테마: Sleeping Hound Mobius Knot & 360° 연속 회전 아크 시스템', '129')">
+          <span class="icon-num">#129</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-029', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-029.svg" loading="lazy" alt="Sleeping Hound Mobius Knot" />
+          </div>
+          <div class="icon-title">Sleeping Hound Mobius Knot</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-030" data-id="ap200-030" data-num="130" data-cat="canine-bionic" data-title="alpha hound crown crest" onclick="selectIcon('ap200-030', 'Alpha Hound Crown Crest', '2026 차세대 비주얼 테마: Alpha Hound Crown Crest & 360° 연속 회전 아크 시스템', '130')">
+          <span class="icon-num">#130</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-030', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-030.svg" loading="lazy" alt="Alpha Hound Crown Crest" />
+          </div>
+          <div class="icon-title">Alpha Hound Crown Crest</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-031" data-id="ap200-031" data-num="131" data-cat="dev-syntax" data-title="git commit tree node core" onclick="selectIcon('ap200-031', 'Git Commit Tree Node Core', '2026 차세대 비주얼 테마: Git Commit Tree Node Core & 360° 연속 회전 아크 시스템', '131')">
+          <span class="icon-num">#131</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-031', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-031.svg" loading="lazy" alt="Git Commit Tree Node Core" />
+          </div>
+          <div class="icon-title">Git Commit Tree Node Core</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-032" data-id="ap200-032" data-num="132" data-cat="dev-syntax" data-title="3-way git merge branch" onclick="selectIcon('ap200-032', '3-Way Git Merge Branch', '2026 차세대 비주얼 테마: 3-Way Git Merge Branch & 360° 연속 회전 아크 시스템', '132')">
+          <span class="icon-num">#132</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-032', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-032.svg" loading="lazy" alt="3-Way Git Merge Branch" />
+          </div>
+          <div class="icon-title">3-Way Git Merge Branch</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-033" data-id="ap200-033" data-num="133" data-cat="dev-syntax" data-title="code comments // dual slash" onclick="selectIcon('ap200-033', 'Code Comments // Dual Slash', '2026 차세대 비주얼 테마: Code Comments // Dual Slash & 360° 연속 회전 아크 시스템', '133')">
+          <span class="icon-num">#133</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-033', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-033.svg" loading="lazy" alt="Code Comments // Dual Slash" />
+          </div>
+          <div class="icon-title">Code Comments // Dual Slash</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-034" data-id="ap200-034" data-num="134" data-cat="dev-syntax" data-title="curly brackets { ai } block" onclick="selectIcon('ap200-034', 'Curly Brackets { AI } Block', '2026 차세대 비주얼 테마: Curly Brackets { AI } Block & 360° 연속 회전 아크 시스템', '134')">
+          <span class="icon-num">#134</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-034', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-034.svg" loading="lazy" alt="Curly Brackets { AI } Block" />
+          </div>
+          <div class="icon-title">Curly Brackets { AI } Block</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-035" data-id="ap200-035" data-num="135" data-cat="dev-syntax" data-title="html / jsx tag < • > kernel" onclick="selectIcon('ap200-035', 'HTML / JSX Tag < • > Kernel', '2026 차세대 비주얼 테마: HTML / JSX Tag < • > Kernel & 360° 연속 회전 아크 시스템', '135')">
+          <span class="icon-num">#135</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-035', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-035.svg" loading="lazy" alt="HTML / JSX Tag < • > Kernel" />
+          </div>
+          <div class="icon-title">HTML / JSX Tag < • > Kernel</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-036" data-id="ap200-036" data-num="136" data-cat="dev-syntax" data-title="lambda calculus λ node" onclick="selectIcon('ap200-036', 'Lambda Calculus λ Node', '2026 차세대 비주얼 테마: Lambda Calculus λ Node & 360° 연속 회전 아크 시스템', '136')">
+          <span class="icon-num">#136</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-036', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-036.svg" loading="lazy" alt="Lambda Calculus λ Node" />
+          </div>
+          <div class="icon-title">Lambda Calculus λ Node</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-037" data-id="ap200-037" data-num="137" data-cat="dev-syntax" data-title="async / await flow signal" onclick="selectIcon('ap200-037', 'Async / Await Flow Signal', '2026 차세대 비주얼 테마: Async / Await Flow Signal & 360° 연속 회전 아크 시스템', '137')">
+          <span class="icon-num">#137</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-037', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-037.svg" loading="lazy" alt="Async / Await Flow Signal" />
+          </div>
+          <div class="icon-title">Async / Await Flow Signal</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-038" data-id="ap200-038" data-num="138" data-cat="dev-syntax" data-title="shebang #!/ script kernel" onclick="selectIcon('ap200-038', 'Shebang #!/ Script Kernel', '2026 차세대 비주얼 테마: Shebang #!/ Script Kernel & 360° 연속 회전 아크 시스템', '138')">
+          <span class="icon-num">#138</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-038', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-038.svg" loading="lazy" alt="Shebang #!/ Script Kernel" />
+          </div>
+          <div class="icon-title">Shebang #!/ Script Kernel</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-039" data-id="ap200-039" data-num="139" data-cat="dev-syntax" data-title="binary bitmask 0101 matrix" onclick="selectIcon('ap200-039', 'Binary Bitmask 0101 Matrix', '2026 차세대 비주얼 테마: Binary Bitmask 0101 Matrix & 360° 연속 회전 아크 시스템', '139')">
+          <span class="icon-num">#139</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-039', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-039.svg" loading="lazy" alt="Binary Bitmask 0101 Matrix" />
+          </div>
+          <div class="icon-title">Binary Bitmask 0101 Matrix</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-040" data-id="ap200-040" data-num="140" data-cat="dev-syntax" data-title="regex token wildcard .* node" onclick="selectIcon('ap200-040', 'Regex Token Wildcard .* Node', '2026 차세대 비주얼 테마: Regex Token Wildcard .* Node & 360° 연속 회전 아크 시스템', '140')">
+          <span class="icon-num">#140</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-040', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-040.svg" loading="lazy" alt="Regex Token Wildcard .* Node" />
+          </div>
+          <div class="icon-title">Regex Token Wildcard .* Node</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-041" data-id="ap200-041" data-num="141" data-cat="multi-model" data-title="claude x openai x gemini trinity" onclick="selectIcon('ap200-041', 'Claude x OpenAI x Gemini Trinity', '2026 차세대 비주얼 테마: Claude x OpenAI x Gemini Trinity & 360° 연속 회전 아크 시스템', '141')">
+          <span class="icon-num">#141</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-041', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-041.svg" loading="lazy" alt="Claude x OpenAI x Gemini Trinity" />
+          </div>
+          <div class="icon-title">Claude x OpenAI x Gemini Trinity</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-042" data-id="ap200-042" data-num="142" data-cat="multi-model" data-title="multi-agent fader mixer" onclick="selectIcon('ap200-042', 'Multi-Agent Fader Mixer', '2026 차세대 비주얼 테마: Multi-Agent Fader Mixer & 360° 연속 회전 아크 시스템', '142')">
+          <span class="icon-num">#142</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-042', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-042.svg" loading="lazy" alt="Multi-Agent Fader Mixer" />
+          </div>
+          <div class="icon-title">Multi-Agent Fader Mixer</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-043" data-id="ap200-043" data-num="143" data-cat="multi-model" data-title="venn blend ai synthesizer" onclick="selectIcon('ap200-043', 'Venn Blend AI Synthesizer', '2026 차세대 비주얼 테마: Venn Blend AI Synthesizer & 360° 연속 회전 아크 시스템', '143')">
+          <span class="icon-num">#143</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-043', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-043.svg" loading="lazy" alt="Venn Blend AI Synthesizer" />
+          </div>
+          <div class="icon-title">Venn Blend AI Synthesizer</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-044" data-id="ap200-044" data-num="144" data-cat="multi-model" data-title="borromean trinity rings" onclick="selectIcon('ap200-044', 'Borromean Trinity Rings', '2026 차세대 비주얼 테마: Borromean Trinity Rings & 360° 연속 회전 아크 시스템', '144')">
+          <span class="icon-num">#144</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-044', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-044.svg" loading="lazy" alt="Borromean Trinity Rings" />
+          </div>
+          <div class="icon-title">Borromean Trinity Rings</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-045" data-id="ap200-045" data-num="145" data-cat="multi-model" data-title="neural weight synapse hub" onclick="selectIcon('ap200-045', 'Neural Weight Synapse Hub', '2026 차세대 비주얼 테마: Neural Weight Synapse Hub & 360° 연속 회전 아크 시스템', '145')">
+          <span class="icon-num">#145</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-045', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-045.svg" loading="lazy" alt="Neural Weight Synapse Hub" />
+          </div>
+          <div class="icon-title">Neural Weight Synapse Hub</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-046" data-id="ap200-046" data-num="146" data-cat="multi-model" data-title="autonomous task router core" onclick="selectIcon('ap200-046', 'Autonomous Task Router Core', '2026 차세대 비주얼 테마: Autonomous Task Router Core & 360° 연속 회전 아크 시스템', '146')">
+          <span class="icon-num">#146</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-046', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-046.svg" loading="lazy" alt="Autonomous Task Router Core" />
+          </div>
+          <div class="icon-title">Autonomous Task Router Core</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-047" data-id="ap200-047" data-num="147" data-cat="multi-model" data-title="multi-context window aperture" onclick="selectIcon('ap200-047', 'Multi-Context Window Aperture', '2026 차세대 비주얼 테마: Multi-Context Window Aperture & 360° 연속 회전 아크 시스템', '147')">
+          <span class="icon-num">#147</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-047', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-047.svg" loading="lazy" alt="Multi-Context Window Aperture" />
+          </div>
+          <div class="icon-title">Multi-Context Window Aperture</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-048" data-id="ap200-048" data-num="148" data-cat="multi-model" data-title="inference velocity jet core" onclick="selectIcon('ap200-048', 'Inference Velocity Jet Core', '2026 차세대 비주얼 테마: Inference Velocity Jet Core & 360° 연속 회전 아크 시스템', '148')">
+          <span class="icon-num">#148</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-048', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-048.svg" loading="lazy" alt="Inference Velocity Jet Core" />
+          </div>
+          <div class="icon-title">Inference Velocity Jet Core</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-049" data-id="ap200-049" data-num="149" data-cat="multi-model" data-title="embedding vector space cluster" onclick="selectIcon('ap200-049', 'Embedding Vector Space Cluster', '2026 차세대 비주얼 테마: Embedding Vector Space Cluster & 360° 연속 회전 아크 시스템', '149')">
+          <span class="icon-num">#149</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-049', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-049.svg" loading="lazy" alt="Embedding Vector Space Cluster" />
+          </div>
+          <div class="icon-title">Embedding Vector Space Cluster</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-050" data-id="ap200-050" data-num="150" data-cat="multi-model" data-title="prompt-response echo loop" onclick="selectIcon('ap200-050', 'Prompt-Response Echo Loop', '2026 차세대 비주얼 테마: Prompt-Response Echo Loop & 360° 연속 회전 아크 시스템', '150')">
+          <span class="icon-num">#150</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-050', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-050.svg" loading="lazy" alt="Prompt-Response Echo Loop" />
+          </div>
+          <div class="icon-title">Prompt-Response Echo Loop</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-051" data-id="ap200-051" data-num="151" data-cat="hardware" data-title="45° chamfered space gray steel" onclick="selectIcon('ap200-051', '45° Chamfered Space Gray Steel', '2026 차세대 비주얼 테마: 45° Chamfered Space Gray Steel & 360° 연속 회전 아크 시스템', '151')">
+          <span class="icon-num">#151</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-051', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-051.svg" loading="lazy" alt="45° Chamfered Space Gray Steel" />
+          </div>
+          <div class="icon-title">45° Chamfered Space Gray Steel</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-052" data-id="ap200-052" data-num="152" data-cat="hardware" data-title="amber laser target sight" onclick="selectIcon('ap200-052', 'Amber Laser Target Sight', '2026 차세대 비주얼 테마: Amber Laser Target Sight & 360° 연속 회전 아크 시스템', '152')">
+          <span class="icon-num">#152</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-052', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-052.svg" loading="lazy" alt="Amber Laser Target Sight" />
+          </div>
+          <div class="icon-title">Amber Laser Target Sight</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-053" data-id="ap200-053" data-num="153" data-cat="hardware" data-title="champagne gold watch bezel" onclick="selectIcon('ap200-053', 'Champagne Gold Watch Bezel', '2026 차세대 비주얼 테마: Champagne Gold Watch Bezel & 360° 연속 회전 아크 시스템', '153')">
+          <span class="icon-num">#153</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-053', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-053.svg" loading="lazy" alt="Champagne Gold Watch Bezel" />
+          </div>
+          <div class="icon-title">Champagne Gold Watch Bezel</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-054" data-id="ap200-054" data-num="154" data-cat="hardware" data-title="liquid mercury mirror surface" onclick="selectIcon('ap200-054', 'Liquid Mercury Mirror Surface', '2026 차세대 비주얼 테마: Liquid Mercury Mirror Surface & 360° 연속 회전 아크 시스템', '154')">
+          <span class="icon-num">#154</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-054', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-054.svg" loading="lazy" alt="Liquid Mercury Mirror Surface" />
+          </div>
+          <div class="icon-title">Liquid Mercury Mirror Surface</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-055" data-id="ap200-055" data-num="155" data-cat="hardware" data-title="matte gunmetal tactical coat" onclick="selectIcon('ap200-055', 'Matte Gunmetal Tactical Coat', '2026 차세대 비주얼 테마: Matte Gunmetal Tactical Coat & 360° 연속 회전 아크 시스템', '155')">
+          <span class="icon-num">#155</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-055', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-055.svg" loading="lazy" alt="Matte Gunmetal Tactical Coat" />
+          </div>
+          <div class="icon-title">Matte Gunmetal Tactical Coat</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-056" data-id="ap200-056" data-num="156" data-cat="hardware" data-title="copper heat-pipe thermal core" onclick="selectIcon('ap200-056', 'Copper Heat-Pipe Thermal Core', '2026 차세대 비주얼 테마: Copper Heat-Pipe Thermal Core & 360° 연속 회전 아크 시스템', '156')">
+          <span class="icon-num">#156</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-056', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-056.svg" loading="lazy" alt="Copper Heat-Pipe Thermal Core" />
+          </div>
+          <div class="icon-title">Copper Heat-Pipe Thermal Core</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-057" data-id="ap200-057" data-num="157" data-cat="hardware" data-title="frosted glassmorphic smoked lens" onclick="selectIcon('ap200-057', 'Frosted Glassmorphic Smoked Lens', '2026 차세대 비주얼 테마: Frosted Glassmorphic Smoked Lens & 360° 연속 회전 아크 시스템', '157')">
+          <span class="icon-num">#157</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-057', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-057.svg" loading="lazy" alt="Frosted Glassmorphic Smoked Lens" />
+          </div>
+          <div class="icon-title">Frosted Glassmorphic Smoked Lens</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-058" data-id="ap200-058" data-num="158" data-cat="hardware" data-title="brushed platinum luxury texture" onclick="selectIcon('ap200-058', 'Brushed Platinum Luxury Texture', '2026 차세대 비주얼 테마: Brushed Platinum Luxury Texture & 360° 연속 회전 아크 시스템', '158')">
+          <span class="icon-num">#158</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-058', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-058.svg" loading="lazy" alt="Brushed Platinum Luxury Texture" />
+          </div>
+          <div class="icon-title">Brushed Platinum Luxury Texture</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-059" data-id="ap200-059" data-num="159" data-cat="hardware" data-title="cnc micrometer calibration notch" onclick="selectIcon('ap200-059', 'CNC Micrometer Calibration Notch', '2026 차세대 비주얼 테마: CNC Micrometer Calibration Notch & 360° 연속 회전 아크 시스템', '159')">
+          <span class="icon-num">#159</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-059', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-059.svg" loading="lazy" alt="CNC Micrometer Calibration Notch" />
+          </div>
+          <div class="icon-title">CNC Micrometer Calibration Notch</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-060" data-id="ap200-060" data-num="160" data-cat="hardware" data-title="ceramic white clean shell" onclick="selectIcon('ap200-060', 'Ceramic White Clean Shell', '2026 차세대 비주얼 테마: Ceramic White Clean Shell & 360° 연속 회전 아크 시스템', '160')">
+          <span class="icon-num">#160</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-060', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-060.svg" loading="lazy" alt="Ceramic White Clean Shell" />
+          </div>
+          <div class="icon-title">Ceramic White Clean Shell</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-061" data-id="ap200-061" data-num="161" data-cat="geometry" data-title="ultra-bold 38px solid impact" onclick="selectIcon('ap200-061', 'Ultra-Bold 38px Solid Impact', '2026 차세대 비주얼 테마: Ultra-Bold 38px Solid Impact & 360° 연속 회전 아크 시스템', '161')">
+          <span class="icon-num">#161</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-061', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-061.svg" loading="lazy" alt="Ultra-Bold 38px Solid Impact" />
+          </div>
+          <div class="icon-title">Ultra-Bold 38px Solid Impact</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-062" data-id="ap200-062" data-num="162" data-cat="geometry" data-title="ultra-fine 10px technical hairline" onclick="selectIcon('ap200-062', 'Ultra-Fine 10px Technical Hairline', '2026 차세대 비주얼 테마: Ultra-Fine 10px Technical Hairline & 360° 연속 회전 아크 시스템', '162')">
+          <span class="icon-num">#162</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-062', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-062.svg" loading="lazy" alt="Ultra-Fine 10px Technical Hairline" />
+          </div>
+          <div class="icon-title">Ultra-Fine 10px Technical Hairline</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-063" data-id="ap200-063" data-num="163" data-cat="geometry" data-title="golden ratio fibonacci spiral" onclick="selectIcon('ap200-063', 'Golden Ratio Fibonacci Spiral', '2026 차세대 비주얼 테마: Golden Ratio Fibonacci Spiral & 360° 연속 회전 아크 시스템', '163')">
+          <span class="icon-num">#163</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-063', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-063.svg" loading="lazy" alt="Golden Ratio Fibonacci Spiral" />
+          </div>
+          <div class="icon-title">Golden Ratio Fibonacci Spiral</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-064" data-id="ap200-064" data-num="164" data-cat="geometry" data-title="double-rail concentric track" onclick="selectIcon('ap200-064', 'Double-Rail Concentric Track', '2026 차세대 비주얼 테마: Double-Rail Concentric Track & 360° 연속 회전 아크 시스템', '164')">
+          <span class="icon-num">#164</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-064', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-064.svg" loading="lazy" alt="Double-Rail Concentric Track" />
+          </div>
+          <div class="icon-title">Double-Rail Concentric Track</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-065" data-id="ap200-065" data-num="165" data-cat="geometry" data-title="aerofoil tapered fin contour" onclick="selectIcon('ap200-065', 'Aerofoil Tapered Fin Contour', '2026 차세대 비주얼 테마: Aerofoil Tapered Fin Contour & 360° 연속 회전 아크 시스템', '165')">
+          <span class="icon-num">#165</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-065', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-065.svg" loading="lazy" alt="Aerofoil Tapered Fin Contour" />
+          </div>
+          <div class="icon-title">Aerofoil Tapered Fin Contour</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-066" data-id="ap200-066" data-num="166" data-cat="geometry" data-title="dotted speed-racer strobe" onclick="selectIcon('ap200-066', 'Dotted Speed-Racer Strobe', '2026 차세대 비주얼 테마: Dotted Speed-Racer Strobe & 360° 연속 회전 아크 시스템', '166')">
+          <span class="icon-num">#166</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-066', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-066.svg" loading="lazy" alt="Dotted Speed-Racer Strobe" />
+          </div>
+          <div class="icon-title">Dotted Speed-Racer Strobe</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-067" data-id="ap200-067" data-num="167" data-cat="geometry" data-title="inverted negative-space hexagon" onclick="selectIcon('ap200-067', 'Inverted Negative-Space Hexagon', '2026 차세대 비주얼 테마: Inverted Negative-Space Hexagon & 360° 연속 회전 아크 시스템', '167')">
+          <span class="icon-num">#167</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-067', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-067.svg" loading="lazy" alt="Inverted Negative-Space Hexagon" />
+          </div>
+          <div class="icon-title">Inverted Negative-Space Hexagon</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-068" data-id="ap200-068" data-num="168" data-cat="geometry" data-title="micro-serif architectural terminal" onclick="selectIcon('ap200-068', 'Micro-Serif Architectural Terminal', '2026 차세대 비주얼 테마: Micro-Serif Architectural Terminal & 360° 연속 회전 아크 시스템', '168')">
+          <span class="icon-num">#168</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-068', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-068.svg" loading="lazy" alt="Micro-Serif Architectural Terminal" />
+          </div>
+          <div class="icon-title">Micro-Serif Architectural Terminal</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-069" data-id="ap200-069" data-num="169" data-cat="geometry" data-title="concentric donut void core" onclick="selectIcon('ap200-069', 'Concentric Donut Void Core', '2026 차세대 비주얼 테마: Concentric Donut Void Core & 360° 연속 회전 아크 시스템', '169')">
+          <span class="icon-num">#169</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-069', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-069.svg" loading="lazy" alt="Concentric Donut Void Core" />
+          </div>
+          <div class="icon-title">Concentric Donut Void Core</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-070" data-id="ap200-070" data-num="170" data-cat="geometry" data-title="equilateral prism triangle gate" onclick="selectIcon('ap200-070', 'Equilateral Prism Triangle Gate', '2026 차세대 비주얼 테마: Equilateral Prism Triangle Gate & 360° 연속 회전 아크 시스템', '170')">
+          <span class="icon-num">#170</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-070', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-070.svg" loading="lazy" alt="Equilateral Prism Triangle Gate" />
+          </div>
+          <div class="icon-title">Equilateral Prism Triangle Gate</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-071" data-id="ap200-071" data-num="171" data-cat="masterpiece" data-title="mixdog masterpiece: quantum hound" onclick="selectIcon('ap200-071', 'Mixdog Masterpiece: Quantum Hound', '2026 차세대 비주얼 테마: Mixdog Masterpiece: Quantum Hound & 360° 연속 회전 아크 시스템', '171')">
+          <span class="icon-num">#171</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-071', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-071.svg" loading="lazy" alt="Mixdog Masterpiece: Quantum Hound" />
+          </div>
+          <div class="icon-title">Mixdog Masterpiece: Quantum Hound</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-072" data-id="ap200-072" data-num="172" data-cat="masterpiece" data-title="supreme cli terminal orchestrator" onclick="selectIcon('ap200-072', 'Supreme CLI Terminal Orchestrator', '2026 차세대 비주얼 테마: Supreme CLI Terminal Orchestrator & 360° 연속 회전 아크 시스템', '172')">
+          <span class="icon-num">#172</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-072', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-072.svg" loading="lazy" alt="Supreme CLI Terminal Orchestrator" />
+          </div>
+          <div class="icon-title">Supreme CLI Terminal Orchestrator</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-073" data-id="ap200-073" data-num="173" data-cat="masterpiece" data-title="autonomous multi-agent hivemind" onclick="selectIcon('ap200-073', 'Autonomous Multi-Agent Hivemind', '2026 차세대 비주얼 테마: Autonomous Multi-Agent Hivemind & 360° 연속 회전 아크 시스템', '173')">
+          <span class="icon-num">#173</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-073', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-073.svg" loading="lazy" alt="Autonomous Multi-Agent Hivemind" />
+          </div>
+          <div class="icon-title">Autonomous Multi-Agent Hivemind</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-074" data-id="ap200-074" data-num="174" data-cat="masterpiece" data-title="ultra-sleek macos app container tile" onclick="selectIcon('ap200-074', 'Ultra-Sleek macOS App Container Tile', '2026 차세대 비주얼 테마: Ultra-Sleek macOS App Container Tile & 360° 연속 회전 아크 시스템', '174')">
+          <span class="icon-num">#174</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-074', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-074.svg" loading="lazy" alt="Ultra-Sleek macOS App Container Tile" />
+          </div>
+          <div class="icon-title">Ultra-Sleek macOS App Container Tile</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-075" data-id="ap200-075" data-num="175" data-cat="masterpiece" data-title="mixdog singularity horizon icon" onclick="selectIcon('ap200-075', 'Mixdog Singularity Horizon Icon', '2026 차세대 비주얼 테마: Mixdog Singularity Horizon Icon & 360° 연속 회전 아크 시스템', '175')">
+          <span class="icon-num">#175</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-075', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-075.svg" loading="lazy" alt="Mixdog Singularity Horizon Icon" />
+          </div>
+          <div class="icon-title">Mixdog Singularity Horizon Icon</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-076" data-id="ap200-076" data-num="176" data-cat="hardware" data-title="power button standby glyph ⏻" onclick="selectIcon('ap200-076', 'Power Button Standby Glyph ⏻', '2026 차세대 비주얼 테마: Power Button Standby Glyph ⏻ & 360° 연속 회전 아크 시스템', '176')">
+          <span class="icon-num">#176</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-076', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-076.svg" loading="lazy" alt="Power Button Standby Glyph ⏻" />
+          </div>
+          <div class="icon-title">Power Button Standby Glyph ⏻</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-077" data-id="ap200-077" data-num="177" data-cat="dev-syntax" data-title="ferris crab claw rust speed node" onclick="selectIcon('ap200-077', 'Ferris Crab Claw Rust Speed Node', '2026 차세대 비주얼 테마: Ferris Crab Claw Rust Speed Node & 360° 연속 회전 아크 시스템', '177')">
+          <span class="icon-num">#177</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-077', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-077.svg" loading="lazy" alt="Ferris Crab Claw Rust Speed Node" />
+          </div>
+          <div class="icon-title">Ferris Crab Claw Rust Speed Node</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-078" data-id="ap200-078" data-num="178" data-cat="dev-syntax" data-title="python yin-yang dual orbit" onclick="selectIcon('ap200-078', 'Python Yin-Yang Dual Orbit', '2026 차세대 비주얼 테마: Python Yin-Yang Dual Orbit & 360° 연속 회전 아크 시스템', '178')">
+          <span class="icon-num">#178</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-078', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-078.svg" loading="lazy" alt="Python Yin-Yang Dual Orbit" />
+          </div>
+          <div class="icon-title">Python Yin-Yang Dual Orbit</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-079" data-id="ap200-079" data-num="179" data-cat="canine-bionic" data-title="winking cyber-hound face (^_-)" onclick="selectIcon('ap200-079', 'Winking Cyber-Hound Face (^_-)', '2026 차세대 비주얼 테마: Winking Cyber-Hound Face (^_-) & 360° 연속 회전 아크 시스템', '179')">
+          <span class="icon-num">#179</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-079', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-079.svg" loading="lazy" alt="Winking Cyber-Hound Face (^_-)" />
+          </div>
+          <div class="icon-title">Winking Cyber-Hound Face (^_-)</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-080" data-id="ap200-080" data-num="180" data-cat="canine-bionic" data-title="tongue-out happy doggo (=^.^=)" onclick="selectIcon('ap200-080', 'Tongue-Out Happy Doggo (=^.^=)', '2026 차세대 비주얼 테마: Tongue-Out Happy Doggo (=^.^=) & 360° 연속 회전 아크 시스템', '180')">
+          <span class="icon-num">#180</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-080', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-080.svg" loading="lazy" alt="Tongue-Out Happy Doggo (=^.^=)" />
+          </div>
+          <div class="icon-title">Tongue-Out Happy Doggo (=^.^=)</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-081" data-id="ap200-081" data-num="181" data-cat="dev-syntax" data-title="terminal solid block cursor █" onclick="selectIcon('ap200-081', 'Terminal Solid Block Cursor █', '2026 차세대 비주얼 테마: Terminal Solid Block Cursor █ & 360° 연속 회전 아크 시스템', '181')">
+          <span class="icon-num">#181</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-081', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-081.svg" loading="lazy" alt="Terminal Solid Block Cursor █" />
+          </div>
+          <div class="icon-title">Terminal Solid Block Cursor █</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-082" data-id="ap200-082" data-num="182" data-cat="3d-spatial" data-title="3-layer neumorphic emboss core" onclick="selectIcon('ap200-082', '3-Layer Neumorphic Emboss Core', '2026 차세대 비주얼 테마: 3-Layer Neumorphic Emboss Core & 360° 연속 회전 아크 시스템', '182')">
+          <span class="icon-num">#182</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-082', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-082.svg" loading="lazy" alt="3-Layer Neumorphic Emboss Core" />
+          </div>
+          <div class="icon-title">3-Layer Neumorphic Emboss Core</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-083" data-id="ap200-083" data-num="183" data-cat="3d-spatial" data-title="prism facet asteroid core" onclick="selectIcon('ap200-083', 'Prism Facet Asteroid Core', '2026 차세대 비주얼 테마: Prism Facet Asteroid Core & 360° 연속 회전 아크 시스템', '183')">
+          <span class="icon-num">#183</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-083', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-083.svg" loading="lazy" alt="Prism Facet Asteroid Core" />
+          </div>
+          <div class="icon-title">Prism Facet Asteroid Core</div>
+          <div class="icon-category">💎 3D & Isometric</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-084" data-id="ap200-084" data-num="184" data-cat="quantum" data-title="infinity symbol loop ∞ hub" onclick="selectIcon('ap200-084', 'Infinity Symbol Loop ∞ Hub', '2026 차세대 비주얼 테마: Infinity Symbol Loop ∞ Hub & 360° 연속 회전 아크 시스템', '184')">
+          <span class="icon-num">#184</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-084', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-084.svg" loading="lazy" alt="Infinity Symbol Loop ∞ Hub" />
+          </div>
+          <div class="icon-title">Infinity Symbol Loop ∞ Hub</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-085" data-id="ap200-085" data-num="185" data-cat="quantum" data-title="dual crossed laser beam swords" onclick="selectIcon('ap200-085', 'Dual Crossed Laser Beam Swords', '2026 차세대 비주얼 테마: Dual Crossed Laser Beam Swords & 360° 연속 회전 아크 시스템', '185')">
+          <span class="icon-num">#185</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-085', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-085.svg" loading="lazy" alt="Dual Crossed Laser Beam Swords" />
+          </div>
+          <div class="icon-title">Dual Crossed Laser Beam Swords</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-086" data-id="ap200-086" data-num="186" data-cat="quantum" data-title="black hole event horizon singularity" onclick="selectIcon('ap200-086', 'Black Hole Event Horizon Singularity', '2026 차세대 비주얼 테마: Black Hole Event Horizon Singularity & 360° 연속 회전 아크 시스템', '186')">
+          <span class="icon-num">#186</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-086', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-086.svg" loading="lazy" alt="Black Hole Event Horizon Singularity" />
+          </div>
+          <div class="icon-title">Black Hole Event Horizon Singularity</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-087" data-id="ap200-087" data-num="187" data-cat="masterpiece" data-title="diamond shield cyber armor" onclick="selectIcon('ap200-087', 'Diamond Shield Cyber Armor', '2026 차세대 비주얼 테마: Diamond Shield Cyber Armor & 360° 연속 회전 아크 시스템', '187')">
+          <span class="icon-num">#187</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-087', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-087.svg" loading="lazy" alt="Diamond Shield Cyber Armor" />
+          </div>
+          <div class="icon-title">Diamond Shield Cyber Armor</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-088" data-id="ap200-088" data-num="188" data-cat="hardware" data-title="rotary dial knob level indicator" onclick="selectIcon('ap200-088', 'Rotary Dial Knob Level Indicator', '2026 차세대 비주얼 테마: Rotary Dial Knob Level Indicator & 360° 연속 회전 아크 시스템', '188')">
+          <span class="icon-num">#188</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-088', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-088.svg" loading="lazy" alt="Rotary Dial Knob Level Indicator" />
+          </div>
+          <div class="icon-title">Rotary Dial Knob Level Indicator</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-089" data-id="ap200-089" data-num="189" data-cat="multi-model" data-title="audio spectrum equalizer bars" onclick="selectIcon('ap200-089', 'Audio Spectrum Equalizer Bars', '2026 차세대 비주얼 테마: Audio Spectrum Equalizer Bars & 360° 연속 회전 아크 시스템', '189')">
+          <span class="icon-num">#189</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-089', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-089.svg" loading="lazy" alt="Audio Spectrum Equalizer Bars" />
+          </div>
+          <div class="icon-title">Audio Spectrum Equalizer Bars</div>
+          <div class="icon-category">🔀 Multi-Model Engine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-090" data-id="ap200-090" data-num="190" data-cat="hardware" data-title="multi-core cpu silicon die socket" onclick="selectIcon('ap200-090', 'Multi-Core CPU Silicon Die Socket', '2026 차세대 비주얼 테마: Multi-Core CPU Silicon Die Socket & 360° 연속 회전 아크 시스템', '190')">
+          <span class="icon-num">#190</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-090', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-090.svg" loading="lazy" alt="Multi-Core CPU Silicon Die Socket" />
+          </div>
+          <div class="icon-title">Multi-Core CPU Silicon Die Socket</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-091" data-id="ap200-091" data-num="191" data-cat="dev-syntax" data-title="binary data ring 010101" onclick="selectIcon('ap200-091', 'Binary Data Ring 010101', '2026 차세대 비주얼 테마: Binary Data Ring 010101 & 360° 연속 회전 아크 시스템', '191')">
+          <span class="icon-num">#191</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-091', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-091.svg" loading="lazy" alt="Binary Data Ring 010101" />
+          </div>
+          <div class="icon-title">Binary Data Ring 010101</div>
+          <div class="icon-category">💻 Code Grammar</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-092" data-id="ap200-092" data-num="192" data-cat="geometry" data-title="hexagonal honeycomb mesh" onclick="selectIcon('ap200-092', 'Hexagonal Honeycomb Mesh', '2026 차세대 비주얼 테마: Hexagonal Honeycomb Mesh & 360° 연속 회전 아크 시스템', '192')">
+          <span class="icon-num">#192</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-092', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-092.svg" loading="lazy" alt="Hexagonal Honeycomb Mesh" />
+          </div>
+          <div class="icon-title">Hexagonal Honeycomb Mesh</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-093" data-id="ap200-093" data-num="193" data-cat="geometry" data-title="tri-segment biohazard hazard rune" onclick="selectIcon('ap200-093', 'Tri-Segment Biohazard Hazard Rune', '2026 차세대 비주얼 테마: Tri-Segment Biohazard Hazard Rune & 360° 연속 회전 아크 시스템', '193')">
+          <span class="icon-num">#193</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-093', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-093.svg" loading="lazy" alt="Tri-Segment Biohazard Hazard Rune" />
+          </div>
+          <div class="icon-title">Tri-Segment Biohazard Hazard Rune</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-094" data-id="ap200-094" data-num="194" data-cat="hardware" data-title="crosshair sniper precision sight" onclick="selectIcon('ap200-094', 'Crosshair Sniper Precision Sight', '2026 차세대 비주얼 테마: Crosshair Sniper Precision Sight & 360° 연속 회전 아크 시스템', '194')">
+          <span class="icon-num">#194</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-094', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-094.svg" loading="lazy" alt="Crosshair Sniper Precision Sight" />
+          </div>
+          <div class="icon-title">Crosshair Sniper Precision Sight</div>
+          <div class="icon-category">⚙️ Hardware & Industrial</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-095" data-id="ap200-095" data-num="195" data-cat="canine-bionic" data-title="radar pulse sweep sonar" onclick="selectIcon('ap200-095', 'Radar Pulse Sweep Sonar', '2026 차세대 비주얼 테마: Radar Pulse Sweep Sonar & 360° 연속 회전 아크 시스템', '195')">
+          <span class="icon-num">#195</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-095', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-095.svg" loading="lazy" alt="Radar Pulse Sweep Sonar" />
+          </div>
+          <div class="icon-title">Radar Pulse Sweep Sonar</div>
+          <div class="icon-category">🐺 Bionic Canine</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-096" data-id="ap200-096" data-num="196" data-cat="geometry" data-title="minimalist dot pill capsule" onclick="selectIcon('ap200-096', 'Minimalist Dot Pill Capsule', '2026 차세대 비주얼 테마: Minimalist Dot Pill Capsule & 360° 연속 회전 아크 시스템', '196')">
+          <span class="icon-num">#196</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-096', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-096.svg" loading="lazy" alt="Minimalist Dot Pill Capsule" />
+          </div>
+          <div class="icon-title">Minimalist Dot Pill Capsule</div>
+          <div class="icon-category">📐 Pure Geometry</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-097" data-id="ap200-097" data-num="197" data-cat="quantum" data-title="twin helix dna strand core" onclick="selectIcon('ap200-097', 'Twin Helix DNA Strand Core', '2026 차세대 비주얼 테마: Twin Helix DNA Strand Core & 360° 연속 회전 아크 시스템', '197')">
+          <span class="icon-num">#197</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-097', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-097.svg" loading="lazy" alt="Twin Helix DNA Strand Core" />
+          </div>
+          <div class="icon-title">Twin Helix DNA Strand Core</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-098" data-id="ap200-098" data-num="198" data-cat="quantum" data-title="supercharged lightning spark ⚡" onclick="selectIcon('ap200-098', 'Supercharged Lightning Spark ⚡', '2026 차세대 비주얼 테마: Supercharged Lightning Spark ⚡ & 360° 연속 회전 아크 시스템', '198')">
+          <span class="icon-num">#198</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-098', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-098.svg" loading="lazy" alt="Supercharged Lightning Spark ⚡" />
+          </div>
+          <div class="icon-title">Supercharged Lightning Spark ⚡</div>
+          <div class="icon-category">⚡ Cyber & Quantum</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-099" data-id="ap200-099" data-num="199" data-cat="masterpiece" data-title="mixdog final genesis core" onclick="selectIcon('ap200-099', 'Mixdog Final Genesis Core', '2026 차세대 비주얼 테마: Mixdog Final Genesis Core & 360° 연속 회전 아크 시스템', '199')">
+          <span class="icon-num">#199</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-099', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-099.svg" loading="lazy" alt="Mixdog Final Genesis Core" />
+          </div>
+          <div class="icon-title">Mixdog Final Genesis Core</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+        <div class="icon-card " id="card-ap200-100" data-id="ap200-100" data-num="200" data-cat="masterpiece" data-title="absolute zero superconductor matrix" onclick="selectIcon('ap200-100', 'Absolute Zero Superconductor Matrix', '2026 차세대 비주얼 테마: Absolute Zero Superconductor Matrix & 360° 연속 회전 아크 시스템', '200')">
+          <span class="icon-num">#200</span>
+          <button class="icon-fav" onclick="toggleFav('ap200-100', event)">♥</button>
+          <div class="icon-img-wrap">
+            <img src="./ap200-100.svg" loading="lazy" alt="Absolute Zero Superconductor Matrix" />
+          </div>
+          <div class="icon-title">Absolute Zero Superconductor Matrix</div>
+          <div class="icon-category">👑 Masterpiece Suite</div>
+        </div>
+      
+    </div>
+  </div>
+
+  <script>
+    let currentSvg = 'ap200-001.svg';
+    let favorites = new Set();
+
+    function selectIcon(id, title, desc, num) {
+      currentSvg = id + '.svg';
+      document.getElementById('v-num').innerText = '#' + String(num).padStart(3, '0');
+      document.getElementById('v-title').innerText = title;
+      document.getElementById('v-desc').innerText = desc;
+
+      document.getElementById('s-64').src = './' + currentSvg;
+      document.getElementById('s-32').src = './' + currentSvg;
+      document.getElementById('s-24').src = './' + currentSvg;
+      document.getElementById('s-16').src = './' + currentSvg;
+
+      document.querySelectorAll('.icon-card').forEach(c => c.classList.remove('selected'));
+      const activeCard = document.getElementById('card-' + id);
+      if (activeCard) activeCard.classList.add('selected');
+    }
+
+    function toggleFav(id, e) {
+      e.stopPropagation();
+      const btn = e.target;
+      if (favorites.has(id)) {
+        favorites.delete(id);
+        btn.classList.remove('active');
+      } else {
+        favorites.add(id);
+        btn.classList.add('active');
+      }
+      document.getElementById('fav-count').innerText = favorites.size;
+    }
+
+    async function copyCurrentSvg() {
+      try {
+        const res = await fetch('./' + currentSvg);
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        alert('✅ ' + currentSvg + ' 소스코드가 클립보드에 복사되었습니다!');
+      } catch (err) {
+        alert('복사 실패: ' + err.message);
+      }
+    }
+
+    let currentFilter = 'all';
+
+    function setFilter(filter, btn) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      filterGrid();
+    }
+
+    function filterGrid() {
+      const q = document.getElementById('search-input').value.toLowerCase().trim();
+      const cards = document.querySelectorAll('.icon-card');
+
+      cards.forEach(card => {
+        const id = card.getAttribute('data-id');
+        const num = card.getAttribute('data-num');
+        const cat = card.getAttribute('data-cat');
+        const title = card.getAttribute('data-title');
+
+        let matchFilter = false;
+        if (currentFilter === 'all') matchFilter = true;
+        else if (currentFilter === 'fav') matchFilter = favorites.has(id);
+        else matchFilter = (cat === currentFilter);
+
+        let matchSearch = !q || title.includes(q) || id.includes(q) || num.includes(q);
+
+        if (matchFilter && matchSearch) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+  </script>
+</body>
+</html>

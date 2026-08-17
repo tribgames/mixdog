@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    
+      <linearGradient id="m13-a" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#00f2fe"/><stop offset="100%" stop-color="#38bdf8"/>
+      </linearGradient>
+      <linearGradient id="m13-b" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#6366f1"/>
+      </linearGradient>
+      <linearGradient id="m13-c" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#00f2fe"/>
+      </linearGradient>
+    
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#07080b"/>
+  
+      <!-- Tapered Aerofoil Fin Blades (3 Rotations) -->
+      <g>
+        <path d="M 116 58 C 145 58 178 78 194 104 C 182 108 160 92 136 82 C 122 76 116 68 116 58 Z" fill="url(#m13-a)"/>
+        <path d="M 116 58 C 145 58 178 78 194 104 C 182 108 160 92 136 82 C 122 76 116 68 116 58 Z" transform="rotate(120 128 128)" fill="url(#m13-b)"/>
+        <path d="M 116 58 C 145 58 178 78 194 104 C 182 108 160 92 136 82 C 122 76 116 68 116 58 Z" transform="rotate(240 128 128)" fill="url(#m13-c)"/>
+      </g>
+    
+  
+      <circle cx="128" cy="128" r="14" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+      <circle cx="128" cy="128" r="6" fill="#00f2fe"/>
+      <circle cx="128" cy="128" r="2.5" fill="#ffffff"/>
+    
+</svg>

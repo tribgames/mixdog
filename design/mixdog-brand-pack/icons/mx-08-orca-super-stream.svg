@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx08-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx08-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx08-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx08-stream" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#c084fc"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx08-bg)" filter="url(#mx08-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx08-rim)" stroke-width="1.5"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M 140 340 C 120 220 150 148 200 148 C 236 148 250 196 256 228 C 262 196 276 148 312 148 C 362 148 392 220 372 340" stroke="url(#mx08-stream)" stroke-width="34"/><path d="M 194 274 L 256 336 L 318 274" stroke="#ffffff" stroke-width="30"/><circle cx="256" cy="290" r="7" fill="#38bdf8"/></g>
+</svg>

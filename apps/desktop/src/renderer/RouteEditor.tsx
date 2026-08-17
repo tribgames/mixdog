@@ -90,7 +90,7 @@ function sheetAnchor(
 function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number): number {
   if (pane === 'model') return 380;
   if (pane === 'effort') return Math.min(300, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 34));
-  if (pane === 'context') return 94;
+  if (pane === 'context') return 132;
   return 132;
 }
 
@@ -114,6 +114,8 @@ export function RouteEditor({
   contextPercent,
   contextDefaultPercent,
   contextTokens,
+  contextMaxTokens = 0,
+  contextDefaultTokens = 0,
   catalogLoaded,
   catalogRefreshing,
   catalogError,
@@ -140,6 +142,8 @@ export function RouteEditor({
   contextPercent: number;
   contextDefaultPercent: number;
   contextTokens: number;
+  contextMaxTokens?: number;
+  contextDefaultTokens?: number;
   catalogLoaded: boolean;
   catalogRefreshing: boolean;
   catalogError: string;
@@ -175,6 +179,9 @@ export function RouteEditor({
   // The sheet scales out of the trigger pill, so the
   // pill's size at open time drives the starting transform.
   const morphFrom = useRef<{ width: number; height: number } | null>(null);
+  // Context slider drag preview: local until commit (pointer/key release);
+  // the routed contextPercent takes over once the snapshot catches up.
+  const [contextDraft, setContextDraft] = useState<number | null>(null);
   const clickGuard = useImmediateOverlayClickGuard();
   const surfaceActive = useSurfaceActive();
   const sheetId = useId().replace(/:/g, '');
@@ -190,6 +197,24 @@ export function RouteEditor({
   const sheetHeight = rows.length * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
+  const shownContextPercent = contextDraft ?? contextPercent;
+  const shownContextTokens = shownContextPercent === contextPercent
+    ? contextTokens
+    : shownContextPercent === contextDefaultPercent && contextDefaultTokens
+      ? contextDefaultTokens
+      : contextMaxTokens
+        ? Math.max(1, Math.floor(contextMaxTokens * shownContextPercent / 100))
+        : contextTokens;
+  const commitContextDraft = () => {
+    if (contextDraft === null || contextDraft === contextPercent) return;
+    onChangeContext(contextDraft);
+  };
+  useEffect(() => {
+    // A closed/left pane or a snapshot that caught up releases the preview.
+    if (contextDraft !== null && (pane !== 'context' || contextDraft === contextPercent)) {
+      setContextDraft(null);
+    }
+  }, [pane, contextDraft, contextPercent]);
 
   const finishClose = useCallback(() => {
     hoverLock.current = null;
@@ -588,21 +613,30 @@ export function RouteEditor({
       <div ref={optionFlyout} className="route-sheet-flyout" role="menu" aria-label={t('Context')}
         style={flyoutBox} data-placement={flyoutBox.placement} data-state={closing ? 'closing' : 'open'}>
         <div className="route-sheet-flyout-title" aria-hidden="true">{t('Context')}</div>
-        <div className="route-context-stepper">
-          <button type="button" className="route-sheet-option" aria-label={t('Decrease context')}
-            disabled={tuningDisabled || contextPercent <= 10}
-            onClick={() => onChangeContext(Math.max(10, contextPercent - 10))}>−</button>
-          <button type="button" className="route-sheet-option route-context-value"
-            aria-label={t('Reset context to default')} disabled={tuningDisabled}
-            onClick={() => onChangeContext(contextDefaultPercent)}>
-            <strong>{contextPercent}%</strong>
-            <small>{formatContextWindow(contextTokens).replace(/ Context$/, '')}
-              {contextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}</small>
-          </button>
-          <button type="button" className="route-sheet-option" aria-label={t('Increase context')}
-            disabled={tuningDisabled || contextPercent >= 100}
-            onClick={() => onChangeContext(Math.min(100, contextPercent + 10))}>+</button>
+        <div className="route-context-head" aria-hidden="true">
+          <strong>{shownContextPercent}%</strong>
+          <small>{formatContextWindow(shownContextTokens).replace(/ Context$/, '')}</small>
+          {shownContextPercent === contextDefaultPercent
+            && <span className="route-context-default">{t('Default')}</span>}
         </div>
+        <div className="route-context-slider">
+          <input type="range" min={10} max={100} step={10}
+            value={shownContextPercent} disabled={tuningDisabled}
+            aria-label={t('Context')} aria-valuetext={`${shownContextPercent}%`}
+            list={`${sheetId}-context-ticks`}
+            onChange={(event) => setContextDraft(Number(event.currentTarget.value))}
+            onPointerUp={commitContextDraft}
+            onKeyUp={commitContextDraft}
+            onBlur={commitContextDraft} />
+          <datalist id={`${sheetId}-context-ticks`}>
+            <option value={contextDefaultPercent} />
+          </datalist>
+        </div>
+        <button type="button" className="route-sheet-option route-context-reset"
+          disabled={tuningDisabled || shownContextPercent === contextDefaultPercent}
+          onClick={() => { setContextDraft(null); onChangeContext(contextDefaultPercent); }}>
+          {t('Reset to default ({{percent}}%)', { percent: contextDefaultPercent })}
+        </button>
       </div>,
       document.body,
     )}

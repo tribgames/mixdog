@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx31-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx31-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#34d399" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx31-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx31-c" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/></linearGradient><linearGradient id="mx31-e" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx31-bg)" filter="url(#mx31-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx31-rim)" stroke-width="1.5"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="124" y="210" width="36" height="136" rx="18" fill="url(#mx31-c)"/><path d="M 176 196 C 176 160 204 144 228 168 L 244 186" stroke="#ffffff" stroke-width="32"/><path d="M 336 196 C 336 160 308 144 284 168 L 268 186" stroke="#ffffff" stroke-width="32"/><rect x="352" y="210" width="36" height="136" rx="18" fill="url(#mx31-e)"/><path d="M 194 280 L 256 342 L 318 280" stroke="#ffffff" stroke-width="32"/><circle cx="256" cy="236" r="8" fill="#34d399"/></g>
+</svg>

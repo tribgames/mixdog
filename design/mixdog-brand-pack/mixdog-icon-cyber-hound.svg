@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="c1-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14151a"/>
+      <stop offset="60%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#040405"/>
+    </linearGradient>
+    <linearGradient id="c1-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff9a3c" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="c1-ear-left" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff7a00"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="c1-ear-right" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="c1-snout" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#f1f5f9"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <linearGradient id="c1-collar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff7a00"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <radialGradient id="c1-glow" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#ff7a00" stop-opacity="0.22"/>
+      <stop offset="45%" stop-color="#38bdf8" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="c1-shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="24" stdDeviation="30" flood-color="#000000" flood-opacity="0.95"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle App Container -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#c1-bg)" filter="url(#c1-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#c1-rim)" stroke-width="2"/>
+  <circle cx="256" cy="240" r="170" fill="url(#c1-glow)"/>
+
+  <!-- Cyber Hound + 'M' Monogram Symbol -->
+  <g id="cyber-hound-glyph" transform="translate(0, 8)">
+    <!-- Left Ear / Left M-Pillar -->
+    <path d="M 124 336 L 158 136 C 160 124 175 118 184 127 L 236 182 L 196 336 Z" fill="url(#c1-ear-left)"/>
+    <!-- Left Inner Facet Accent -->
+    <polygon points="158,136 236,182 196,240 148,220" fill="#ffffff" fill-opacity="0.15"/>
+
+    <!-- Right Ear / Right M-Pillar -->
+    <path d="M 388 336 L 354 136 C 352 124 337 118 328 127 L 276 182 L 316 336 Z" fill="url(#c1-ear-right)"/>
+    <!-- Right Inner Facet Accent -->
+    <polygon points="354,136 276,182 316,240 364,220" fill="#ffffff" fill-opacity="0.12"/>
+
+    <!-- Center Bridge (M-Apex & Hound Forehead) -->
+    <polygon points="236,182 256,156 276,182 256,224" fill="#ffffff"/>
+    
+    <!-- Hound Snout / Terminal Prompt Nose Wedge -->
+    <polygon points="214,242 298,242 256,338" fill="url(#c1-snout)"/>
+    <!-- Tech Nose / Terminal Core Dot -->
+    <polygon points="242,308 270,308 256,326" fill="#0f172a"/>
+
+    <!-- Cyber Eyes (Angle Brackets & Quantum Slits) -->
+    <polygon points="186,214 220,230 200,236" fill="#38bdf8"/>
+    <polygon points="326,214 292,230 312,236" fill="#ff9a3c"/>
+
+    <!-- Collar / Foundation High-Speed Data Bus Line -->
+    <rect x="160" y="360" width="192" height="10" rx="5" fill="url(#c1-collar)"/>
+    <circle cx="256" cy="365" r="7" fill="#ffffff"/>
+    <circle cx="256" cy="365" r="3" fill="#ff7a00"/>
+  </g>
+</svg>
