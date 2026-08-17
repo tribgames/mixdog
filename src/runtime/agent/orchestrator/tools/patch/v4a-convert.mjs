@@ -27,248 +27,33 @@ import {
 import {
   findLineSequence,
   findLineSequenceEscapeEquiv,
-  longestCommonSubstringLen,
-  boundedEditDistance,
-  EDIT_DISTANCE_ALLOWANCE_PER_LINE,
   splitTextLinesForPatch,
-  firstMeaningfulPatchLine,
-  nearestPatchLineHint,
-  nearestPatchLineMatch,
-  formatPatchSourceExcerpt,
-  compactPatchPreviewLine,
   decodeValidUtf8OrNull,
   assertSafeReplacementPlan,
 } from './matcher.mjs';
-
-function v4AHunkLineStats(hunk) {
-  let oldCount = 0;
-  let newCount = 0;
-  const oldLines = [];
-  const newLines = [];
-  const oldTags = [];
-  for (const raw of hunk.lines || []) {
-    if (!raw) continue;
-    const tag = raw[0];
-    const body = raw.slice(1);
-    if (tag === ' ') {
-      oldCount++;
-      newCount++;
-      oldLines.push(body);
-      newLines.push(body);
-      oldTags.push(' ');
-    } else if (tag === '-') {
-      oldCount++;
-      oldLines.push(body);
-      oldTags.push('-');
-    } else if (tag === '+') {
-      newCount++;
-      newLines.push(body);
-    }
-  }
-  return { oldCount, newCount, oldLines, newLines, oldTags };
-}
-
-// V4A parity: typographic punctuation is normalised to
-// ASCII on the most permissive matching pass, so a patch authored in plain
-// ASCII still locates context in a file containing smart quotes / en dashes.
-function normalizeAnchorText(value) {
-  return String(value).trim().replace(/[\u2010-\u2015\u2212]/g, '-')
-    .replace(/[\u2018-\u201B]/g, "'")
-    .replace(/[\u201C-\u201F]/g, '"')
-    .replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ');
-}
-
-// The anchor seek now falls through the SAME decreasing-strictness passes the
-// body seek uses (exact -> rstrip -> trim -> normalised).
-// An anchor that is present but differs by trailing whitespace or a smart
-// quote must not report as "anchor not found". Exact stays first, so every
-// currently-resolving patch keeps its existing position.
-function seekAnchor(lines, anchor, cursor) {
-  const passes = [
-    (line) => line.includes(anchor),
-    (line) => line.trimEnd().includes(anchor.trimEnd()),
-    (line) => line.trim().includes(anchor.trim()),
-    (line) => normalizeAnchorText(line).includes(normalizeAnchorText(anchor)),
-  ];
-  for (const matches of passes) {
-    const found = lines.findIndex((line, idx) => idx >= cursor && matches(line));
-    if (found >= 0) return found;
-  }
-  return -1;
-}
-
-function seekAnchorChain(lines, anchors, fromLine) {
-  let cursor = Math.max(0, fromLine || 0);
-  for (const anchor of anchors) {
-    const found = seekAnchor(lines, anchor, cursor);
-    if (found === -1) return -1;
-    cursor = found + 1;
-  }
-  return cursor;
-}
-
-function countAnchorHits(lines, anchor, cap = 2) {
-  let hits = 0;
-  for (const line of lines) {
-    if (line.includes(anchor)) {
-      hits += 1;
-      if (hits >= cap) break;
-    }
-  }
-  return hits;
-}
-
-// A single anchor of pure digits is a 1-based line-number claim — models copy
-// the number straight from `read`'s `N→…` gutter. Returns the line number
-// when it names a real line of the file, else null.
-function numericAnchorLineHint(anchors, lineCount) {
-  const list = (anchors || []).map((anchor) => String(anchor || '').trim()).filter(Boolean);
-  if (list.length !== 1 || !/^\d{1,7}$/.test(list[0])) return null;
-  const lineNo = Number.parseInt(list[0], 10);
-  return lineNo >= 1 && lineNo <= lineCount ? lineNo : null;
-}
-
-function findAnchorLine(lines, anchors, fromLine) {
-  const list = (anchors || []).map((anchor) => String(anchor || '').trim()).filter(Boolean);
-  if (list.length === 0) return Math.max(0, fromLine || 0);
-  const forward = seekAnchorChain(lines, list, fromLine);
-  if (forward >= 0) return forward;
-  // Hunks listed out of file order leave the cursor PAST an anchor that is
-  // still present (orderV4AHunksByFilePosition re-sorts most such input; this
-  // covers what its keying cannot resolve). Retrying from the top is only
-  // safe when every anchor occurs exactly once in the file — the position is
-  // then unambiguous, so no other occurrence can be selected instead.
-  if ((fromLine || 0) > 0 && list.every((anchor) => countAnchorHits(lines, anchor) === 1)) {
-    const fromTop = seekAnchorChain(lines, list, 0);
-    if (fromTop >= 0) return fromTop;
-  }
-  // Line-number absorption: every content pass above ran first, so this fires
-  // only when the digits appear in NO line of the file; the number is then
-  // trusted as a 1-based position hint and the body seek still validates the
-  // hunk's real context from that line.
-  const hint = numericAnchorLineHint(list, lines.length);
-  if (hint !== null) return hint;
-  return -1;
-}
-
-// Non-fatal ambiguity channel. V4A applies the FIRST
-// context match after the previous hunk, with no uniqueness check — that is
-// the spec, so a duplicate context stays a success. It is reported on the
-// result instead, so a silently misplaced edit is visible in the same turn.
-const _v4aAmbiguityNotices = new Set();
-const V4A_AMBIGUITY_NOTICE_CAP = 4;
-
-function countExactWindows(lines, pattern, cap = 2) {
-  if (!Array.isArray(pattern) || pattern.length === 0) return 0;
-  let hits = 0;
-  outer: for (let i = 0; i + pattern.length <= lines.length; i++) {
-    for (let k = 0; k < pattern.length; k++) {
-      if (lines[i + k] !== pattern[k]) continue outer;
-    }
-    hits += 1;
-    if (hits >= cap) break;
-  }
-  return hits;
-}
-
-function noteV4AHunkAmbiguity(displayPath, sourceLines, loc) {
-  if (_v4aAmbiguityNotices.size >= V4A_AMBIGUITY_NOTICE_CAP) return;
-  if (loc.anchored || !(loc.matchLen > 0)) return;
-  if (countExactWindows(sourceLines, loc.pattern) < 2) return;
-  _v4aAmbiguityNotices.add(
-    `${displayPath}: hunk context matches more than one place; applied at line ${loc.oldStartIdx + 1} `
-    + '(first match after the previous hunk). Add an @@ anchor to target a different one.',
-  );
-}
-
-// `*** End of File` was relaxed to locate this hunk: report where it actually
-// landed so a mid-file hunk that carried the marker by mistake is visible in
-// the same turn instead of silently looking like an end-of-file edit.
-function noteV4AEofSignalIgnored(displayPath, loc) {
-  if (_v4aAmbiguityNotices.size >= V4A_AMBIGUITY_NOTICE_CAP) return;
-  if (!loc?.eofSignalIgnored) return;
-  _v4aAmbiguityNotices.add(
-    `${displayPath}: hunk carried *** End of File but its context is at line ${loc.oldStartIdx + 1}, `
-    + 'not the end of file; the marker was ignored. Drop it unless the hunk really ends the file.',
-  );
-}
-
-export function drainV4AAmbiguityNotices() {
-  if (_v4aAmbiguityNotices.size === 0) return [];
-  const list = [..._v4aAmbiguityNotices];
-  _v4aAmbiguityNotices.clear();
-  return list;
-}
-
-function formatV4AHunkLocator(hunk) {
-  return (hunk.anchors || []).filter(Boolean).join(' > ') || '(no anchor)';
-}
-
-function formatV4AAnchorMissHint(sourceLines, hunk) {
-  const anchors = (hunk?.anchors || []).filter(Boolean);
-  const nearest = anchors.length > 0
-    ? anchors.map((anchor) => nearestPatchLineHint(sourceLines, anchor, 0)).find(Boolean)
-    : null;
-  return anchors.length === 0
-    ? ' use an existing @@ anchor from the current file or add exact context lines.'
-    : ` use an existing @@ anchor from the current file or add exact context lines; no stubs.${nearest ? ` nearest anchor candidate: ${nearest}.` : ''}`;
-}
-
-function formatV4AContextMissHint(sourceLines, stats, anchorLine) {
-  const expected = firstMeaningfulPatchLine(stats.oldLines);
-  const parts = [];
-  let centerIdx = -1;
-  if (expected) {
-    const nearest = nearestPatchLineHint(sourceLines, expected, anchorLine);
-    parts.push(`expected first old line: ${JSON.stringify(compactPatchPreviewLine(expected))}`);
-    if (nearest) parts.push(nearest);
-    const divergence = firstV4ADivergenceHint(sourceLines, stats.oldLines, anchorLine);
-    if (divergence) {
-      parts.push(divergence.text);
-      centerIdx = divergence.fileIdx;
-    } else {
-      const match = nearestPatchLineMatch(sourceLines, expected, anchorLine);
-      if (match) centerIdx = match.index;
-    }
-  }
-  if (centerIdx < 0 && Number.isFinite(anchorLine) && anchorLine >= 0) centerIdx = anchorLine;
-  parts.push('use exact current context or a broader @@ anchor; no stubs.');
-  const head = ` ${parts.join('; ')} Copy the context lines verbatim from the excerpt below — do not retype them from memory.`;
-  return `${head}${formatPatchSourceExcerpt(sourceLines, centerIdx, (stats.oldLines || []).length)}`;
-}
-
-// When the FIRST old line does exist verbatim in the source, the real
-// mismatch is some later line of the block — name it, with both sides
-// JSON-escaped so invisible differences (real char vs literal \uXXXX
-// escape, tabs, trailing spaces) become visible in the error. Returns the
-// message plus the file index it points at, so the caller can centre the
-// source excerpt on the true divergence instead of the anchor.
-function firstV4ADivergenceHint(sourceLines, oldLines, anchorLine) {
-  const lines = oldLines || [];
-  const firstIdx = lines.findIndex((l) => String(l ?? '').trim().length > 0);
-  if (firstIdx < 0) return null;
-  const first = lines[firstIdx];
-  const starts = [];
-  for (let i = 0; i < sourceLines.length; i++) {
-    if (sourceLines[i] === first) starts.push(i - firstIdx);
-  }
-  const pref = Number.isFinite(anchorLine) && anchorLine >= 0 ? anchorLine : 0;
-  const start = starts.filter((s) => s >= 0)
-    .sort((a, b) => Math.abs(a - pref) - Math.abs(b - pref) || a - b)[0];
-  if (start === undefined) return null;
-  for (let k = 0; k < lines.length; k++) {
-    const exp = lines[k];
-    const act = sourceLines[start + k];
-    if (act !== exp) {
-      const actText = act === undefined ? '(past EOF)' : JSON.stringify(compactPatchPreviewLine(act));
-      return {
-        text: `first divergent line: old[${k + 1}] expected ${JSON.stringify(compactPatchPreviewLine(exp))} vs file line ${start + k + 1} actual ${actText}`,
-        fileIdx: start + k,
-      };
-    }
-  }
-  return null;
-}
+import {
+  v4AHunkLineStats,
+  numericAnchorLineHint,
+  findAnchorLine,
+  noteV4AHunkAmbiguity,
+  noteV4AEofSignalIgnored,
+  formatV4AHunkLocator,
+  formatV4AAnchorMissHint,
+  formatV4AContextMissHint,
+} from './v4a-anchors.mjs';
+// Facade re-export: pre-split importers reach the notice drain through this
+// module.
+export { drainV4AAmbiguityNotices } from './v4a-anchors.mjs';
+import {
+  findContextTolerantWindow,
+  findEditDistanceWindow,
+  findOuterContextTrimmedWindow,
+  findIndentNormalizedWindow,
+  restoreOpcodePrefixWindow,
+  restorePlusAsContext,
+  remapNewLineIndents,
+  uniqueExactSequenceStart,
+} from './v4a-windows.mjs';
 
 function joinTextLinesForPatch(lines) {
   const eol = lines?.eol || '\n';
@@ -313,294 +98,6 @@ function cloneTextLinesForPatch(sourceLines) {
 function eofInsertionIndex(sourceLines) {
   const len = (sourceLines || []).length;
   return len > 0 && sourceLines[len - 1] === '' ? len - 1 : len;
-}
-
-// Bounded context-tolerance tier (fuzzy, non-EOF, last resort before the
-// context-miss error). Recovers the measured top remaining failure class —
-// 1-2 nearby context lines drifted since the model last saw the file — under
-// guards that make mis-application practically impossible:
-//   - every '-' (deletion) line must match the file byte-exactly;
-//   - only ' ' (context) lines may mismatch, at most 2, and each drifted
-//     line must still resemble the file line (shared substring >= half);
-//   - at least 2 exact non-blank matches must anchor the window;
-//   - the qualifying window must be UNIQUE across the ENTIRE file;
-//   - the caller REMAPS tolerated context to the file's on-disk lines, so a
-//     drifted patch line never overwrites file content it did not target.
-function findContextTolerantWindow(sourceLines, oldLines, oldTags) {
-  const n = oldLines.length;
-  if (n < 3 || !Array.isArray(oldTags) || oldTags.length !== n) return null;
-  const collapse = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
-  const similar = (a, b) => {
-    const ca = collapse(a);
-    const cb = collapse(b);
-    if (!ca || !cb) return false;
-    return longestCommonSubstringLen(ca, cb) >= Math.max(4, Math.ceil(Math.max(ca.length, cb.length) / 2));
-  };
-  const windows = [];
-  for (let i = 0; i + n <= sourceLines.length && windows.length < 2; i++) {
-    let mismatches = 0;
-    let exactNonBlank = 0;
-    let ok = true;
-    for (let k = 0; k < n; k++) {
-      const pat = oldLines[k];
-      const src = sourceLines[i + k];
-      if (src === pat) {
-        if (collapse(pat)) exactNonBlank++;
-        continue;
-      }
-      if (oldTags[k] !== ' ' || ++mismatches > 2 || !similar(pat, src)) { ok = false; break; }
-    }
-    if (ok && mismatches > 0 && exactNonBlank >= 2) windows.push(i);
-  }
-  return windows.length === 1 ? { start: windows[0] } : null;
-}
-
-// Bounded edit-distance tier (fuzzy, after the context-tolerance tier).
-// Recovers the block a model retyped from memory with a couple of characters
-// off — a dropped bracket, a mistyped short token — where the tolerance tier
-// refuses because the drift sits on a deletion line. Guards keep it safe:
-//   - TOTAL distance across the block stays within ~0.34 characters per line
-//     (3 lines buy exactly 1 character), measured on trimmed text;
-//   - at least 2 non-blank lines must match byte-exactly as anchors;
-//   - the qualifying window must be UNIQUE across the ENTIRE file;
-//   - the caller REMAPS every old line to the file's on-disk text, so the
-//     emitted hunk stays byte-exact for the applier.
-function findEditDistanceWindow(sourceLines, oldLines) {
-  const n = (oldLines || []).length;
-  const maxDistance = Math.floor(n * EDIT_DISTANCE_ALLOWANCE_PER_LINE);
-  if (n < 3 || maxDistance <= 0) return null;
-  const windows = [];
-  for (let i = 0; i + n <= sourceLines.length && windows.length < 2; i++) {
-    let total = 0;
-    let exact = 0;
-    let ok = true;
-    for (let k = 0; k < n; k++) {
-      const pat = String(oldLines[k] ?? '');
-      const src = String(sourceLines[i + k] ?? '');
-      if (src === pat) {
-        if (pat.trim()) exact++;
-        continue;
-      }
-      total += boundedEditDistance(src.trim(), pat.trim(), maxDistance - total);
-      if (total > maxDistance) { ok = false; break; }
-    }
-    if (ok && total > 0 && exact >= 2) windows.push(i);
-  }
-  return windows.length === 1 ? { start: windows[0] } : null;
-}
-
-// Recovery for outer context the model got wrong — a stray copied line, or a
-// whole surrounding block retyped from memory — around an edit whose deletion
-// lines are current. Trim only contiguous outer ' ' lines — never '-' or '+'
-// lines — smallest trim first, and accept the shortened old block only when it
-// matches byte-exactly at exactly one place in the ENTIRE file. That
-// uniqueness IS the position proof, so the trim budget runs to all available
-// outer context: a byte-exact, file-unique deletion core cannot land anywhere
-// else, whatever the caller wrote around it. Requiring a deletion keeps this
-// off insertion-only hunks (they carry no payload to anchor on), and any
-// competing trim plan or duplicate occurrence stays a hard context miss.
-function findOuterContextTrimmedWindow(sourceLines, hunk, stats) {
-  const body = (hunk?.lines || []).filter(
-    (line) => typeof line === 'string'
-      && line.length > 0
-      && !isV4AEndOfFileMarker(line)
-      && (line[0] === ' ' || line[0] === '-' || line[0] === '+'),
-  );
-  if (!body.some((line) => line[0] === '-')) return null;
-
-  let leadingAvailable = 0;
-  while (leadingAvailable < body.length && body[leadingAvailable][0] === ' ') leadingAvailable++;
-  let trailingAvailable = 0;
-  while (
-    trailingAvailable < body.length - leadingAvailable
-    && body[body.length - 1 - trailingAvailable][0] === ' '
-  ) trailingAvailable++;
-  if (leadingAvailable === 0 && trailingAvailable === 0) return null;
-
-  const maxTrimmed = leadingAvailable + trailingAvailable;
-  for (let totalTrimmed = 1; totalTrimmed <= maxTrimmed; totalTrimmed++) {
-    const plans = [];
-    let ambiguous = false;
-    for (let leading = 0; leading <= Math.min(totalTrimmed, leadingAvailable); leading++) {
-      const trailing = totalTrimmed - leading;
-      if (trailing > trailingAvailable) continue;
-      const remainingBody = body.slice(leading, body.length - trailing);
-      if (!remainingBody.some((line) => line[0] === '-')) continue;
-      const oldLines = stats.oldLines.slice(leading, stats.oldLines.length - trailing);
-      const newLines = stats.newLines.slice(leading, stats.newLines.length - trailing);
-      if (oldLines.length === 0) continue;
-
-      const starts = [];
-      outer: for (let i = 0; i + oldLines.length <= sourceLines.length; i++) {
-        for (let k = 0; k < oldLines.length; k++) {
-          if (sourceLines[i + k] !== oldLines[k]) continue outer;
-        }
-        starts.push(i);
-        if (starts.length > 1) break;
-      }
-      if (starts.length > 1) {
-        ambiguous = true;
-      } else if (starts.length === 1) {
-        plans.push({
-          start: starts[0],
-          oldLines,
-          newLines,
-          leading,
-          trailing,
-        });
-      }
-    }
-    if (ambiguous || plans.length > 1) return null;
-    if (plans.length === 1) return plans[0];
-  }
-  return null;
-}
-
-function uniqueExactSequenceStart(sourceLines, pattern) {
-  if (!Array.isArray(pattern) || pattern.length === 0) return -1;
-  let found = -1;
-  outer: for (let i = 0; i + pattern.length <= sourceLines.length; i++) {
-    for (let k = 0; k < pattern.length; k++) {
-      if (sourceLines[i + k] !== pattern[k]) continue outer;
-    }
-    if (found >= 0) return -1;
-    found = i;
-  }
-  return found;
-}
-
-function trimLeadingWs(value) {
-  return String(value ?? '').replace(/^[\t ]*/, '');
-}
-
-function leadingWs(value) {
-  return String(value ?? '').match(/^[\t ]*/)[0];
-}
-
-function remapNewLineIndents(oldLines, sourceSlice, newLines) {
-  const prefixMap = new Map();
-  for (let k = 0; k < oldLines.length; k++) {
-    const pat = String(oldLines[k] ?? '');
-    const src = String(sourceSlice[k] ?? '');
-    if (trimLeadingWs(pat) !== trimLeadingWs(src)) continue;
-    const from = leadingWs(pat);
-    const to = leadingWs(src);
-    if (from === to) continue;
-    if (prefixMap.has(from) && prefixMap.get(from) !== to) return newLines;
-    prefixMap.set(from, to);
-  }
-  if (prefixMap.size === 0) return newLines;
-  return newLines.map((line) => {
-    const lead = leadingWs(line);
-    if (!prefixMap.has(lead)) return line;
-    return prefixMap.get(lead) + String(line).slice(lead.length);
-  });
-}
-
-// Observed (tool-failures): same text, wrong leading indent. Accept only a
-// unique whole-window trim-start match so `});` cannot land on a guess.
-function findIndentNormalizedWindow(sourceLines, oldLines) {
-  const n = (oldLines || []).length;
-  if (n === 0) return null;
-  const starts = [];
-  for (let i = 0; i + n <= sourceLines.length; i++) {
-    let ok = true;
-    let changed = false;
-    for (let k = 0; k < n; k++) {
-      const pat = String(oldLines[k] ?? '');
-      const src = String(sourceLines[i + k] ?? '');
-      if (trimLeadingWs(pat) !== trimLeadingWs(src)) {
-        ok = false;
-        break;
-      }
-      if (pat !== src) changed = true;
-    }
-    if (ok && changed) starts.push(i);
-  }
-  return starts.length === 1 ? { start: starts[0] } : null;
-}
-
-// A leading '-' or '+' on a source line was eaten as the hunk opcode
-// (`- Plan` parsed as delete of ` Plan`). Restore when the dashed form is
-// the unique window. Mixed hunks keep that line (it was context); delete-only
-// hunks still delete the dashed file line.
-function restoreOpcodePrefixWindow(sourceLines, hunk) {
-  const stats = v4AHunkLineStats(hunk);
-  const oldLines = stats.oldLines;
-  if (!oldLines.length) return null;
-  const starts = [];
-  for (let i = 0; i + oldLines.length <= sourceLines.length; i++) {
-    let ok = true;
-    for (let k = 0; k < oldLines.length; k++) {
-      const src = sourceLines[i + k];
-      const pat = oldLines[k];
-      if (src !== pat && src !== `-${pat}` && src !== `+${pat}`) {
-        ok = false;
-        break;
-      }
-    }
-    if (ok) starts.push(i);
-  }
-  if (starts.length !== 1) return null;
-  const start = starts[0];
-  const restoredOld = oldLines.map((_, k) => sourceLines[start + k]);
-  if (!restoredOld.some((src, k) => src !== oldLines[k])) return null;
-  const hadPlus = (hunk.lines || []).some((line) => line[0] === '+');
-  const restoredNew = [];
-  let oldIdx = 0;
-  for (const raw of hunk.lines || []) {
-    if (!raw) continue;
-    const tag = raw[0];
-    const body = raw.slice(1);
-    if (tag === ' ') {
-      restoredNew.push(restoredOld[oldIdx]);
-      oldIdx += 1;
-    } else if (tag === '-') {
-      const restored = restoredOld[oldIdx];
-      if (hadPlus && restored !== body) restoredNew.push(restored);
-      oldIdx += 1;
-    } else if (tag === '+') {
-      restoredNew.push(body);
-    }
-  }
-  return { start, oldLines: restoredOld, newLines: restoredNew };
-}
-
-// A '+' line was eaten as an addition (`+ TODO` parsed as insert of ` TODO`)
-// when the file line is `+ TODO`. Peel those pluses into the unique old
-// window so they stay context instead of a duplicate insert.
-function restorePlusAsContext(sourceLines, hunk) {
-  const stats = v4AHunkLineStats(hunk);
-  if (!stats.oldCount) return null;
-  const body = (hunk.lines || []).filter(
-    (line) => typeof line === 'string' && line.length > 0 && !isV4AEndOfFileMarker(line),
-  );
-  const windowOld = [];
-  const windowNew = [];
-  let peeled = 0;
-  for (const raw of body) {
-    const tag = raw[0];
-    const rest = raw.slice(1);
-    if (tag === ' ') {
-      windowOld.push(rest);
-      windowNew.push(rest);
-    } else if (tag === '-') {
-      windowOld.push(rest);
-    } else if (tag === '+') {
-      const asFile = `+${rest}`;
-      if (sourceLines.includes(asFile)) {
-        windowOld.push(asFile);
-        windowNew.push(asFile);
-        peeled += 1;
-      } else {
-        windowNew.push(rest);
-      }
-    }
-  }
-  if (!peeled || !windowOld.length) return null;
-  const start = uniqueExactSequenceStart(sourceLines, windowOld);
-  if (start < 0) return null;
-  return { start, oldLines: windowOld, newLines: windowNew };
 }
 
 function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {}) {
@@ -1002,7 +499,7 @@ function lstatV4APatchTarget(fullPath, displayPath) {
   return st;
 }
 
-function validateV4ARenameSection(section, basePath, seenDestKeys) {
+export function validateV4ARenameSection(section, basePath, seenDestKeys) {
   const srcFull = resolveV4AEntryPath(basePath, section.path);
   const destFull = resolveV4AEntryPath(basePath, section.movePath);
   // Case-only rename (foo.js -> Foo.js) on a case-insensitive fs resolves to
@@ -1058,7 +555,7 @@ function validateV4ARenameSection(section, basePath, seenDestKeys) {
   return null;
 }
 
-async function applyV4ARenameSection(section, basePath, options = {}) {
+export async function applyV4ARenameSection(section, basePath, options = {}) {
   const srcFull = resolveV4AEntryPath(basePath, section.path);
   const destFull = resolveV4AEntryPath(basePath, section.movePath);
   // Case-only rename on a case-insensitive fs: src and dest are the SAME
@@ -1144,20 +641,31 @@ export async function planV4ARenameSections(sections, basePath) {
   if (renameSections.length === 0) {
     return { renameSections: [], remainingSections };
   }
-  if (renameSections.length > 1) {
-    throw new Error('apply_patch: only one V4A rename (*** Move to:) per patch is supported; split into separate patches.');
-  }
-  if (remainingSections.length > 0) {
-    throw new Error('apply_patch: V4A rename cannot be combined with other add/update/delete sections in the same patch; apply file edits in a separate patch first.');
-  }
   await assertPathReachable(basePath);
   const renameReachPaths = renameSections.flatMap((section) => [
     resolveV4AEntryPath(basePath, section.path),
     resolveV4AEntryPath(basePath, section.movePath),
   ]);
   await assertPathsReachable(renameReachPaths);
+  // Renames coexist with add/update/delete sections and with each other, but
+  // never on overlapping paths: renames apply BEFORE the non-rename waves, so
+  // a shared target would silently reorder operations. Refuse overlaps and
+  // duplicate sources up front.
+  const remainingKeys = new Set(remainingSections.map(
+    (section) => v4aRenamePathKey(resolveV4AEntryPath(basePath, section.path)),
+  ));
   const seenDestKeys = new Set();
+  const seenSrcKeys = new Set();
   for (const section of renameSections) {
+    const srcKey = v4aRenamePathKey(resolveV4AEntryPath(basePath, section.path));
+    const destKey = v4aRenamePathKey(resolveV4AEntryPath(basePath, section.movePath));
+    if (seenSrcKeys.has(srcKey)) {
+      throw new Error(`apply_patch: duplicate V4A rename source ${normalizeOutputPath(section.path)}`);
+    }
+    seenSrcKeys.add(srcKey);
+    if (remainingKeys.has(srcKey) || remainingKeys.has(destKey)) {
+      throw new Error(`apply_patch: V4A rename ${normalizeOutputPath(section.path)} → ${normalizeOutputPath(section.movePath)} touches a path another section edits; split into separate patches.`);
+    }
     const errText = validateV4ARenameSection(section, basePath, seenDestKeys);
     if (errText) throw new Error(errText);
   }

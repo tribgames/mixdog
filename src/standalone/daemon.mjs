@@ -569,30 +569,26 @@ async function main() {
     },
   };
   let sessionRuntimePrewarmStarted = false;
+  let sessionRuntimePrewarmPromise = null;
   sessionRuntimePool = createSessionRuntimePool({ cwd: CWD, log });
   function prewarmSessionRuntime() {
-    if (sessionRuntimePrewarmStarted) return;
+    if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;
     sessionRuntimePrewarmStarted = true;
     void import('../runtime/agent/orchestrator/tools/builtin/read-image-resize.mjs')
       .then((module) => module.prewarmImageResizer?.())
       .catch((error) => log(`image pipeline prewarm failed (non-fatal): ${error?.message || error}`));
-    void sessionRuntimePool.prewarm()
+    sessionRuntimePrewarmPromise = sessionRuntimePool.prewarm()
       .then(() => {
-        log('session shard runtime/agent-loop/keychain/provider prewarm started');
-        // Agent shard spread: warm the peer shards a Lead fanout will land on,
-        // staggered in the background so boot never pays an N-fork burst.
-        void sessionRuntimePool.prewarmSpread()
-          .then((warmed) => {
-            if (Array.isArray(warmed) && warmed.length > 1) {
-              log(`session shard spread-prewarm warmed shards [${warmed.join(', ')}]`);
-            }
-          })
-          .catch((error) => log(`session shard spread-prewarm failed (non-fatal): ${error?.message || error}`));
+        log('session shard runtime/agent-loop/keychain/provider prewarm ready');
+        return true;
       })
       .catch((error) => {
         sessionRuntimePrewarmStarted = false;
+        sessionRuntimePrewarmPromise = null;
         log(`session runtime/keychain prewarm failed (non-fatal): ${error?.message || error}`);
+        return false;
       });
+    return sessionRuntimePrewarmPromise;
   }
   sessionService = createSessionService({
     createSessionRuntime: (options) => sessionRuntimePool.create(options),
@@ -663,7 +659,7 @@ async function main() {
       ...eventLoopStatus(),
     }),
     onClientsEmpty: () => { maybeSelfShutdown('no live session clients'); },
-    onClientRegistered: () => { prewarmSessionRuntime(); },
+    onClientRegistered: () => { void prewarmSessionRuntime(); },
     onClientDropped: (token) => { try { sessionService.releaseClient(token); } catch {} },
     onUpgradeRequested: requestDaemonReplacement,
   });
@@ -711,15 +707,21 @@ async function main() {
   const bootRemoteSessionId = transport.remoteIntentSessionId;
   if (bootRemoteSessionId) {
     void (async () => {
-      // Independent boot legs: the channel worker (provider load + gateway
-      // login) does not need the session runtime, and serializing it behind
-      // materializeSession pushed the Discord connect past the whole
-      // shard-boot+resume window (~15s). Only the intent restore below needs
-      // both.
-      await Promise.all([
+      // Keep network login parallel, but do not make a Remote resume compete
+      // with the foreground shard's module/provider/keychain warmup. The first
+      // desktop submit can now use that ready shard instead of joining two cold
+      // runtime graphs. Peer spread-prewarm remains demand-driven by agent
+      // creates in session-runtime-pool.
+      const channelBoot = startChannels({ messaging: true }).then(
+        () => null,
+        (error) => error instanceof Error ? error : new Error(String(error)),
+      );
+      await prewarmSessionRuntime();
+      const [, channelError] = await Promise.all([
         sessionService.materializeSession(bootRemoteSessionId),
-        startChannels({ messaging: true }),
+        channelBoot,
       ]);
+      if (channelError) throw channelError;
       const restored = await transport.restoreRemoteIntent();
       if (!restored) throw new Error(`remote intent restore refused session=${bootRemoteSessionId}`);
       log(`daemon boot remote restored session=${bootRemoteSessionId}`);

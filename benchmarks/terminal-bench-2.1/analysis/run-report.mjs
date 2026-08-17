@@ -134,7 +134,8 @@ function traceDiagnostics(trialDir) {
       argsSummary: compactTraceArgs(row.tool_args_summary ?? row.tool_args),
     };
     tools.push(call);
-    if ((row.result_kind && row.result_kind !== 'normal') || row.result_error_first_line) {
+    // scoped-cache-hit is a successful cached result, not a failure.
+    if ((row.result_kind && row.result_kind !== 'normal' && row.result_kind !== 'scoped-cache-hit') || row.result_error_first_line) {
       failures.push(call);
     }
   }

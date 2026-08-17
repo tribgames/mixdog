@@ -29,3 +29,17 @@ test('project file operations reject symlink and junction escapes', async (t) =>
     /resolves outside/,
   );
 });
+
+test('project directory listing does not hide entries after 500', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-project-list-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await Promise.all(Array.from(
+    { length: 501 },
+    (_, index) => writeFile(join(root, `file-${String(index).padStart(3, '0')}.txt`), ''),
+  ));
+
+  const entries = await listProjectDirIn(root, '');
+
+  assert.equal(entries.length, 501);
+  assert.equal(entries.at(-1)?.name, 'file-500.txt');
+});

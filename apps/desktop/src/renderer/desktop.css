@@ -10478,17 +10478,16 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   position: absolute;
   top: 1px;
   right: -2px;
-  min-width: 12px;
-  height: 12px;
+  min-width: 0;
+  height: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 2px;
-  border-radius: 999px;
-  color: var(--mx-bg-base);
-  background: var(--mx-text);
-  font-size: 8px;
-  font-weight: var(--mx-weight-medium);
+  padding: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font-size: 9px;
+  font-weight: var(--mx-weight-semibold);
   font-variant-numeric: tabular-nums;
   line-height: 1;
   box-sizing: border-box;
@@ -10521,8 +10520,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-context-indicator > button:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: none; }
 .session-context-indicator svg { width: 20px; height: 20px; transform: rotate(-90deg); }
 .session-context-indicator circle { fill: none; stroke-width: 2; }
-.session-context-indicator .context-usage-track { stroke: var(--mx-border-strong); }
-.session-context-indicator .context-usage-value { stroke: currentColor; stroke-linecap: round; }
+.session-context-indicator .context-usage-track { stroke: var(--mx-text-faint); }
+.session-context-indicator .context-usage-value { stroke: var(--mx-text); stroke-linecap: round; }
 .session-context-popover {
   position: absolute;
   z-index: 20;

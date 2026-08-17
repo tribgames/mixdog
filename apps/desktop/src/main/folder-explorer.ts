@@ -70,8 +70,8 @@ export function browsableFolderPath(value: unknown): string {
   if (!text || text.length > 16_384 || text.includes('\0')) {
     throw new TypeError('path is invalid.');
   }
+  if (!isAbsolute(text)) throw new TypeError('path must be absolute.');
   const resolved = resolve(text);
-  if (!isAbsolute(resolved)) throw new TypeError('path must be absolute.');
   return resolved;
 }
 
@@ -155,7 +155,9 @@ export async function renameFolderEntryAbs(path: string, newName: string): Promi
   const target = join(dirname(path), folderEntryName(newName));
   if (target === path) return;
   if (dirname(path) === path) throw new Error('Cannot rename a drive root.');
-  if (await stat(target).then(() => true, () => false)) {
+  const sameEntry = process.platform === 'win32'
+    && target.toLocaleLowerCase() === path.toLocaleLowerCase();
+  if (!sameEntry && await stat(target).then(() => true, () => false)) {
     throw new Error('An entry with that name already exists.');
   }
   await rename(path, target);
@@ -186,6 +188,7 @@ export async function moveFolderEntriesAbs(
     stat(candidate).then(() => true, () => false);
   const sources: string[] = [];
   const conflicts: string[] = [];
+  const destinationKeys = new Set<string>();
   for (const source of paths) {
     if (dirname(source) === source) throw new Error('Cannot move a drive root.');
     if (targetDir === source || targetDir.startsWith(source + sep)) {
@@ -193,7 +196,13 @@ export async function moveFolderEntriesAbs(
     }
     const destination = join(targetDir, basename(source));
     if (destination === source) continue;
-    if (await exists(destination)) conflicts.push(basename(source));
+    const destinationKey = process.platform === 'win32'
+      ? destination.toLocaleLowerCase()
+      : destination;
+    if (destinationKeys.has(destinationKey) || await exists(destination)) {
+      conflicts.push(basename(source));
+    }
+    destinationKeys.add(destinationKey);
     sources.push(source);
   }
   if (conflicts.length && strategy === 'ask') return { conflicts, moved: [] };
@@ -202,6 +211,9 @@ export async function moveFolderEntriesAbs(
     let destination = join(targetDir, basename(source));
     if (await exists(destination)) {
       if (strategy === 'skip') continue;
+      if (strategy === 'ask') {
+        return { conflicts: [basename(source)], moved };
+      }
       if (strategy === 'replace') {
         if (!trashEntry) throw new Error('Replace is unavailable.');
         await trashEntry(destination);

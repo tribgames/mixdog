@@ -141,6 +141,7 @@ export const FilesRootPane = memo(function FilesRootPane({
   const editingRef = useRef<ExplorerEdit | null>(null);
   editingRef.current = editing;
   const [editValue, setEditValue] = useState("");
+  const [mutationError, setMutationError] = useState("");
   const editInputRef = useRef<HTMLInputElement>(null);
   const editSelectionState = useRef<"prefix" | "all" | "suffix">("prefix");
   const [clipboard, setClipboard] = useState<{ rels: string[]; cut: boolean } | null>(null);
@@ -167,6 +168,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     setFocusedRel("");
     setEditing(null);
     setClipboard(null);
+    setMutationError("");
     if (!projectPath) {
       onReadyChange(readinessKey, true);
       return () => { live = false; };
@@ -425,6 +427,8 @@ export const FilesRootPane = memo(function FilesRootPane({
     editingRef.current = null;
     setEditing(null);
   };
+  const mutationErrorText = (reason: unknown) =>
+    reason instanceof Error ? reason.message : String(reason);
   const commitEdit = () => {
     const edit = editingRef.current;
     if (!edit) return;
@@ -432,6 +436,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     editingRef.current = null;
     setEditing(null);
     if (!value) return;
+    setMutationError("");
     if (edit.mode === "rename") {
       if (value === edit.initial) return;
       void api?.renameProjectEntry?.(projectPath, edit.rel, value)
@@ -441,6 +446,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           setSelected(new Set([nextRel]));
           setFocusedRel(nextRel);
         })
+        .catch((reason) => setMutationError(mutationErrorText(reason)))
         .finally(() => refreshDir(edit.parentRel));
       return;
     }
@@ -461,17 +467,27 @@ export const FilesRootPane = memo(function FilesRootPane({
         setFocusedRel(finalRel);
         if (!dir) openFile(finalRel, "preview");
       })
-      .catch(() => refreshDir(edit.parentRel));
+      .catch((reason) => {
+        setMutationError(mutationErrorText(reason));
+        refreshDir(edit.parentRel);
+      });
   };
   const deleteSelection = () => {
     const rels = selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : [];
     if (rels.length === 0) return;
     const label = rels.length === 1 ? (rels[0].split("/").at(-1) || rels[0]) : `${rels.length} items`;
     if (!window.confirm(`Move ${label} to the Recycle Bin?`)) return;
+    setMutationError("");
     void Promise.allSettled(rels.map((rel) => Promise.resolve(api?.trashProjectEntry?.(projectPath, rel))))
-      .then(() => {
-        setSelected(new Set());
-        setFocusedRel("");
+      .then((results) => {
+        const failed = results.flatMap((result, index) =>
+          result.status === "rejected" ? [rels[index]] : []);
+        setSelected(new Set(failed));
+        setFocusedRel(failed[0] || "");
+        const rejection = results.find((result) => result.status === "rejected");
+        if (rejection?.status === "rejected") {
+          setMutationError(mutationErrorText(rejection.reason));
+        }
         for (const parent of new Set(rels.map(parentOf))) refreshDir(parent);
       });
   };
@@ -485,16 +501,23 @@ export const FilesRootPane = memo(function FilesRootPane({
   };
   const pasteClipboard = async (targetDirRel: string) => {
     if (!clipboard) return;
+    setMutationError("");
     const ops = clipboard.rels.filter((rel) =>
       targetDirRel !== rel && !targetDirRel.startsWith(`${rel}/`)
       && !(clipboard.cut && parentOf(rel) === targetDirRel));
+    const failed: string[] = [];
+    let firstError: unknown;
     for (const rel of ops) {
       try {
         if (clipboard.cut) await api?.moveProjectEntry?.(projectPath, rel, targetDirRel);
         else await api?.copyProjectEntry?.(projectPath, rel, targetDirRel);
-      } catch { /* collision/permission — the refresh below shows reality */ }
+      } catch (reason) {
+        failed.push(rel);
+        firstError ??= reason;
+      }
     }
-    if (clipboard.cut) setClipboard(null);
+    if (clipboard.cut) setClipboard(failed.length ? { rels: failed, cut: true } : null);
+    if (firstError !== undefined) setMutationError(mutationErrorText(firstError));
     expandDir(targetDirRel);
     refreshDir(targetDirRel);
     for (const parent of new Set(ops.map(parentOf))) refreshDir(parent);
@@ -513,6 +536,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     clearHoverExpand();
     setDropTarget(null);
     if (rels.length === 0) return;
+    setMutationError("");
     if (!copy) {
       // explorer.confirmDragAndDrop default: every DnD move asks once.
       const label = rels.length === 1
@@ -520,16 +544,23 @@ export const FilesRootPane = memo(function FilesRootPane({
         : `the following ${rels.length} items`;
       if (!window.confirm(`Are you sure you want to move ${label}?`)) return;
     }
+    const failed: string[] = [];
+    let firstError: unknown;
     for (const rel of rels) {
       try {
         if (copy) await api?.copyProjectEntry?.(projectPath, rel, targetDirRel);
         else await api?.moveProjectEntry?.(projectPath, rel, targetDirRel);
-      } catch { /* name collision — surfaced by the refresh */ }
+      } catch (reason) {
+        failed.push(rel);
+        firstError ??= reason;
+      }
     }
     expandDir(targetDirRel);
     refreshDir(targetDirRel);
     for (const parent of new Set(rels.map(parentOf))) refreshDir(parent);
-    setSelected(new Set());
+    setSelected(new Set(failed));
+    setFocusedRel(failed[0] || "");
+    if (firstError !== undefined) setMutationError(mutationErrorText(firstError));
   };
   const dragTargetDir = (row: ExplorerRow) => row.dir ? row.rel : row.parentRel;
   const onTreeKeyDown = (event: React.KeyboardEvent) => {
@@ -856,6 +887,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       {rootVisible && treeItems}
       {rootVisible && rows.length === 0 && !editing && rootEntriesEmpty
         && <p className="utility-dock-empty">{t("Empty folder.")}</p>}
+      {mutationError && <p className="utility-dock-empty" role="alert">{mutationError}</p>}
     </div>
     {menu && (() => {
       const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);

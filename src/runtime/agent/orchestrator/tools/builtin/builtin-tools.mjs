@@ -117,8 +117,11 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 pattern: {
-                    type: 'string',
-                    description: 'Required literal text or regex to search for.',
+                    anyOf: [
+                        { type: 'string' },
+                        { type: 'array', items: { type: 'string' }, minItems: 1 },
+                    ],
+                    description: 'Required literal text or regex, or array for independent fan-out.',
                 },
                 path: {
                     type: 'string',

@@ -458,19 +458,27 @@ export function registerDesktopIpc(
     // scan and the actual move execute in the daemon. If the second scan sees
     // a new race it reports conflicts instead of deleting anything.
     if (mode === 'replace') {
-      return invokeDesktopOperation<{ conflicts?: string[]; moved: Array<{ from: string; to: string }> }>(
-        'moveFolderEntriesAbs',
-        [sources, target, 'ask'],
-      ).then(async (first) => {
-        if (!first.conflicts?.length) return first;
-        for (const name of first.conflicts) {
-          await shell.trashItem(resolvePath(target, pathBasename(name)));
+      return (async () => {
+        const moved: Array<{ from: string; to: string }> = [];
+        for (const source of sources) {
+          const first = await invokeDesktopOperation<{
+            conflicts?: string[]; moved: Array<{ from: string; to: string }>;
+          }>('moveFolderEntriesAbs', [[source], target, 'ask']);
+          if (first.moved.length) {
+            moved.push(...first.moved);
+            continue;
+          }
+          if (first.conflicts?.length) {
+            await shell.trashItem(resolvePath(target, pathBasename(first.conflicts[0])));
+            const second = await invokeDesktopOperation<{
+              conflicts?: string[]; moved: Array<{ from: string; to: string }>;
+            }>('moveFolderEntriesAbs', [[source], target, 'ask']);
+            if (second.conflicts?.length) return { conflicts: second.conflicts, moved };
+            moved.push(...second.moved);
+          }
         }
-        return invokeDesktopOperation(
-          'moveFolderEntriesAbs',
-          [sources, target, 'ask'],
-        );
-      });
+        return { moved };
+      })();
     }
     return invokeDesktopOperation(
       'moveFolderEntriesAbs',

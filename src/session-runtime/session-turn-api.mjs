@@ -186,6 +186,8 @@ export function createSessionTurnApi(deps) {
           mcpWaitMs += performance.now() - startedAt;
         }
       };
+      let session0 = null;
+      let releaseFirstTitle = null;
       const startedAt = Date.now();
       try {
         await awaitTurn(() => awaitRoutePreparation?.());
@@ -223,9 +225,19 @@ export function createSessionTurnApi(deps) {
               .catch((error) => bootProfile('channels:turn-rebind-failed', { error: error?.message || String(error) }));
           }
         }
-        const session0 = getSession();
+        session0 = getSession();
         startTurnSnapshot(session0?.id);
-        try { sessionTitles?.scheduleFirst(session0, prompt); } catch { /* title fallback stays the preview */ }
+        const firstTitleAfter = new Promise((resolve) => {
+          releaseFirstTitle = () => {
+            if (!resolve) return;
+            const done = resolve;
+            resolve = null;
+            done();
+          };
+        });
+        try {
+          sessionTitles?.scheduleFirst(session0, prompt, { after: firstTitleAfter });
+        } catch { /* title fallback stays the preview */ }
         // Turn-review boundary: start a fresh session+turn generation. Lead
         // worktree capture overlaps route/MCP/provider preparation. Worker
         // apply_patch diffs bind to this generation and cannot leak into the
@@ -376,6 +388,7 @@ export function createSessionTurnApi(deps) {
                 value = options.onStreamDelta?.(...args);
               } finally {
                 if (isVisibleStreamProgress(args[0])) {
+                  releaseFirstTitle?.();
                   turnTimingStatus = 'first-visible';
                   emitTurnTiming(turnTimingStatus);
                   armHeavyRuntimeWarmup('first-visible');
@@ -425,6 +438,7 @@ export function createSessionTurnApi(deps) {
         } catch { /* best-effort: StopFailure hook must never break teardown */ }
         throw error;
       } finally {
+        releaseFirstTitle?.();
         emitTurnTiming(turnTimingStatus);
         armHeavyRuntimeWarmup('turn-settled');
         if (turnSignal.aborted) {
