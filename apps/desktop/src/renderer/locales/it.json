@@ -1,4 +1,9 @@
 {
+  "Custom": "Personalizzato",
+  "Lead works alone.": "Lead lavora da solo.",
+  "Parallel delegation.": "Delega in parallelo.",
+  "Shown in workflow lists and included in the prompt.": "Mostrato negli elenchi dei flussi di lavoro e incluso nel prompt.",
+  "What this workflow does": "Cosa fa questo flusso di lavoro",
   "{{agentCount}} agents": "{{agentCount}} agenti",
   "{{connected}} connected · {{failed}} failed": "{{connected}} connessi · {{failed}} non riusciti",
   "{{count}} available": "{{count}} disponibili",

@@ -1,4 +1,9 @@
 {
+  "Custom": "カスタム",
+  "Lead works alone.": "Lead が単独で作業します。",
+  "Parallel delegation.": "並列委任。",
+  "Shown in workflow lists and included in the prompt.": "ワークフロー一覧に表示され、プロンプトにも含まれます。",
+  "What this workflow does": "このワークフローの役割",
   "{{agentCount}} agents": "エージェント数: {{agentCount}}",
   "{{connected}} connected · {{failed}} failed": "{{connected}}件接続 · {{failed}}件失敗",
   "{{count}} available": "{{count}}個利用可能",

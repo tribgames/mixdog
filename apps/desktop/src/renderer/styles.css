@@ -184,24 +184,9 @@ button { color: inherit; }
 .route-controls { min-width: 0; }
 .model-trigger { min-width: 0; height: 28px; display: flex; align-items: center; border: 0; background: transparent; text-align: left; }
 .model-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-picker-layer {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-}
-.model-picker-dialog {
-  width: min(calc(100vw - 16px), 640px);
-  height: min(calc(var(--vvh, 100vh) - 16px), 512px);
-  max-height: 100%;
-  min-height: 280px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
 .model-search { height: 32px; display: flex; align-items: center; }
 .model-search input { min-width: 0; flex: 1; border: 0; background: transparent; }
-.model-picker-body, .model-picker-list { min-height: 0; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+.model-catalog-body, .model-catalog-list { min-height: 0; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
 .model-list { min-height: 0; display: flex; flex: 1; flex-direction: column; overflow-y: auto; }
 .model-group button { width: 100%; display: flex; align-items: center; border: 0; background: transparent; text-align: left; }
 .effort-control select { height: 28px; }

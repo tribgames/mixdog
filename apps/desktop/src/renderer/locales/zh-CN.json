@@ -1,4 +1,9 @@
 {
+  "Custom": "自定义",
+  "Lead works alone.": "Lead 单独工作。",
+  "Parallel delegation.": "并行委派。",
+  "Shown in workflow lists and included in the prompt.": "显示在工作流列表中，并包含在提示词中。",
+  "What this workflow does": "此工作流的用途",
   "{{agentCount}} agents": "{{agentCount}} 个代理",
   "{{connected}} connected · {{failed}} failed": "{{connected}} 个已连接 · {{failed}} 个失败",
   "{{count}} available": "{{count}} 个可用",

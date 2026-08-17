@@ -243,6 +243,7 @@ export async function clearSessionMessages(sessionId, options = {}) {
         lastBeforeMessageTokens: beforeMessageTokens,
         lastAfterMessageTokens: afterMessageTokens,
         lastPressureTokens: beforeTokens,
+        currentEstimatedTokens: afterTokens,
         lastCheckedAt: now,
         lastChanged: beforeTokens !== afterTokens,
         lastClearAt: now,

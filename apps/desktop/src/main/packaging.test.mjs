@@ -128,6 +128,10 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.match(builder, /files:\s+-\s*out\/\*\*/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/main\/daemon\.cjs/);
   assert.match(builder, /asarUnpack:[\s\S]*out\/renderer\/\*\*/);
+  assert.match(
+    builder,
+    /asarUnpack:[\s\S]*node_modules\/@homebridge\/node-pty-prebuilt-multiarch\/\*\*/,
+  );
   assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
   assert.match(main, /MIXDOG_GRAPH_BIN:\s*graphPath/);
   assert.match(main, /MIXDOG_SPAWN_SERVER_BIN:/);

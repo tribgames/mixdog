@@ -484,7 +484,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* Buttons float the ring a hair further out. */
 button:focus-visible { outline-offset: 1.5px; }
 /* Dialog titles tighten 15px headings to -0.13px. */
-.model-picker-header h2, .settings-confirm-dialog > header h3,
+.settings-confirm-dialog > header h3,
 .approval-heading b, .settings-section-heading h2,
 .settings-group > header h3 { letter-spacing: var(--mx-tracking-tight); }
 
@@ -1557,6 +1557,15 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   --mx-rail-item-outline-active: color-mix(in srgb, var(--mx-text) 20%, transparent);
 }
 .session-sidebar-panels .schedules-list { gap: 6px; }
+.session-sidebar-panels .schedules-row[draggable="true"] { cursor: grab; }
+.session-sidebar-panels .schedules-row[draggable="true"]:active { cursor: grabbing; }
+.session-sidebar-panels .schedules-row[data-reordering="true"] { opacity: .48; }
+.session-sidebar-panels .schedules-row[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus), inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.session-sidebar-panels .schedules-row[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus), inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
 /* No extra section break in the rail (user: 간격이 어색하다): the page's own
    6px gap already separates the blocks, so the added margin doubled the gap
    between Common Instructions and the first project card (12px vs 6px). */
@@ -1673,6 +1682,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   box-sizing: border-box;
   display: flex;
   align-items: center;
+  gap: 4px;
   flex: 1;
   padding: 0;
   border: 0;
@@ -1683,7 +1693,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .utility-dock .agent-session-heading h2 {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1694,7 +1704,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   flex: 0 0 12px;
   display: inline-grid;
   place-items: center;
-  color: var(--mx-text-faint);
+  color: var(--mx-text-muted);
+  transform: translateY(1px);
 }
 .utility-dock .agent-session-heading:hover .agent-session-chevron {
   color: var(--mx-text-soft);
@@ -4273,7 +4284,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .model-trigger:focus-visible .provider-icon,
 .model-trigger[aria-expanded="true"] .provider-icon { opacity: 1; }
 .model-trigger > span { font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
-.model-picker-dialog, .slash-palette {
+.slash-palette {
   padding: 2px;
   border: 0;
   border-radius: var(--mx-radius-md);
@@ -4311,68 +4322,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
 }
 .model-search button:hover { color: var(--mx-icon); background: var(--mx-hover); }
-.model-picker-layer {
-  /* Stacking comes from the modal-layer registry (960+, inline): it must
-     beat the 940 dialog cards a picker can open from. */
-  padding: 8px;
-  background: color-mix(in srgb, var(--mx-scrim) 72%, transparent);
-  backdrop-filter: blur(2px);
-}
-.model-picker-dialog {
-  width: min(calc(100vw - 16px), 640px);
-  height: min(calc(var(--vvh, 100vh) - 16px), 512px);
-  max-height: 100%;
-  min-height: 280px;
-  border: 0;
-  border-radius: var(--mx-radius-xl);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-overlay), inset 0 0 0 .5px var(--mx-border-muted);
-  animation: mx-dialog-in 120ms ease-out;
-  outline: 0;
-}
 @keyframes mx-dialog-in { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
-.model-picker-header {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  align-self: stretch;
-  gap: 20px;
-  padding: 18px 16px 16px 20px;
-}
-.model-picker-heading {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 4px;
-}
-.model-picker-header h2 {
-  min-width: 0;
-  margin: 0;
-  color: var(--mx-text);
-  font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-emphasis);
-}
-.model-picker-heading p {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.model-picker-actions {
-  flex: none;
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.model-provider-add,
-.model-picker-close {
+.model-provider-add {
   width: 30px;
   height: 30px;
   display: grid;
@@ -4386,29 +4337,27 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .model-provider-add:hover,
-.model-provider-add:focus-visible,
-.model-picker-close:hover,
-.model-picker-close:focus-visible {
+.model-provider-add:focus-visible {
   color: var(--mx-icon);
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 .5px var(--mx-border);
   outline: none;
 }
-.model-picker-body { width: 100%; position: relative; }
-.model-picker-body > .pane-surface-gate {
+.model-catalog-body { width: 100%; position: relative; }
+.model-catalog-body > .pane-surface-gate {
   width: 100%;
   min-height: 280px;
   background: transparent;
 }
-/* The gate must forward the dialog's definite height to the list; a block
-   content box neutralized .model-picker-list's flex:1, so .model-list grew to
+/* The gate must forward the catalog's definite height to the list; a block
+   content box neutralized .model-catalog-list's flex:1, so .model-list grew to
    its full content height and never scrolled (user: 스크롤이 아예 안 된다). */
-.model-picker-body > .pane-surface-gate > .pane-surface-gate-content {
+.model-catalog-body > .pane-surface-gate > .pane-surface-gate-content {
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-.model-picker-list {
+.model-catalog-list {
   gap: 14px;
   padding: 0 14px 14px;
 }
@@ -4420,7 +4369,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-self: stretch;
   margin-bottom: 2px;
 }
-.model-picker-dialog .model-search,
 .model-catalog-panel .model-search {
   width: 100%;
   height: auto;
@@ -4442,13 +4390,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   align-items: center;
   gap: 8px;
 }
-.model-picker-dialog .model-search:focus-within,
 .model-catalog-panel .model-search:focus-within {
   color: var(--mx-icon);
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-strong);
 }
-.model-picker-dialog .model-search input,
 .model-catalog-panel .model-search input { line-height: var(--mx-line-ui); min-height: 20px; font-size: var(--mx-font-ui); }
 .model-list {
   gap: 16px;
@@ -5334,7 +5280,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
-.mixdog-settings__row, .settings-form-row, .settings-route-editor, .settings-resource {
+.mixdog-settings__row, .settings-form-row, .settings-resource {
   min-height: 0;
   padding: 20px 0;
   gap: 16px;
@@ -5423,12 +5369,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-danger);
   background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
 }
-.settings-route-editor.compact { min-height: 0; padding: 0; border-bottom: 0; }
 .mixdog-settings__row:last-child,
 .settings-form-row:last-child,
-.settings-route-editor:last-child,
 .settings-resource:last-child { border-bottom: 0; }
-.mixdog-settings__row-title, .settings-form-row b, .settings-route-editor > div:first-child b,
+.mixdog-settings__row-title, .settings-form-row b,
 .settings-resource b, .settings-domain-form > header b {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
@@ -5440,7 +5384,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   letter-spacing: 0;
 }
 .mixdog-settings__copy, .settings-form-row > div:first-child { gap: 8px; }
-.mixdog-settings__description, .settings-form-row small, .settings-route-editor > div:first-child small,
+.mixdog-settings__description, .settings-form-row small,
 .settings-resource p, .settings-domain-form > header small {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
@@ -5499,8 +5443,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
 }
 .settings-row-control .mixdog-settings__switch { justify-self: end; }
-.settings-route-editor.compact .settings-select.mx-select-root { min-width: 118px; max-width: 210px; }
-.settings-route-row .settings-select.mx-select-root { flex: 0 1 340px; }
 .settings-select--effort.mx-select-root { min-width: 108px; }
 .settings-form-controls .mx-select-root { min-width: 100px; flex: 1; }
 .settings-domain-grid .mx-select-root { width: 100%; }
@@ -5643,7 +5585,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .core-memory-scope { grid-column: 1; }
   .core-memory-actions { grid-column: 2; }
 }
-.settings-route-controls { gap: 8px; }
 /* Shortcuts reference rows: label left, keybind chip right (matching
    the keybind chip language). */
 .settings-shortcut-list { display: grid; }
@@ -7480,46 +7421,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: max-content;
   min-width: 0;
 }
-.workflows-route-controls .settings-route-editor.compact {
-  width: max-content;
-}
-.workflows-route-controls .settings-route-controls {
-  width: max-content;
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 2px;
-}
-.workflows-route-controls .settings-model-trigger {
-  width: max-content;
-  min-width: 0;
-  max-width: none;
-  flex: 0 0 auto;
-  justify-content: flex-start;
-}
-.workflows-route-controls .settings-model-trigger > span {
-  text-align: left;
-}
-.workflows-route-controls .effort-control {
-  width: max-content;
-  min-width: 0;
-  flex: 0 0 auto;
-}
-.workflows-route-controls .fast-control {
-  width: max-content;
-  min-width: 0;
-  flex: 0 0 auto;
-}
-.workflows-route-controls .effort-control .mx-select-root,
-.workflows-route-controls .effort-control .mx-select-trigger {
-  width: max-content;
-  min-width: 0;
-  max-width: none;
-  flex: 0 0 auto;
-}
-.workflows-route-controls .mx-select-value {
-  text-align: left;
-}
+.workflows-route-controls .route-editor { max-width: 100%; }
 /* Shared md-body grammar: every markdown editor field (WORKFLOW.md, AGENT.md,
    project/common Instructions) reads as the same instrument. */
 .workflows-md-field textarea {
@@ -7608,14 +7510,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     grid-column: 2 / 4;
     grid-row: 2;
   }
-  /* Model + effort + fast no longer fit on one line at this width: let the
-     cluster wrap inside the row instead of running past the card edge. */
-  .workflows-model-row .workflows-route-controls,
-  .workflows-model-row .workflows-route-controls .settings-route-editor.compact,
-  .workflows-model-row .workflows-route-controls .settings-route-controls {
-    width: 100%;
-    flex-wrap: wrap;
-  }
+  .workflows-model-row .workflows-route-controls { width: 100%; }
+  .workflows-model-row .workflows-route-controls .model-trigger { max-width: 100%; }
   .workflows-model-row > .row-overflow {
     grid-column: 3;
     grid-row: 1;
@@ -7625,12 +7521,8 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    which overflows the dialog card horizontally once the viewport shrinks. */
 @media (max-width: 640px) {
   .workflows-dialog-route { display: block; }
-  .workflows-dialog-route .workflows-route-controls,
-  .workflows-dialog-route .workflows-route-controls .settings-route-editor.compact,
-  .workflows-dialog-route .workflows-route-controls .settings-route-controls {
-    width: 100%;
-    flex-wrap: wrap;
-  }
+  .workflows-dialog-route .workflows-route-controls { width: 100%; }
+  .workflows-dialog-route .workflows-route-controls .model-trigger { max-width: 100%; }
 }
 /* Projects page (sidebar → Projects): Schedules-page grammar replacing the
    popup switcher — rows reuse the schedules list skin. */
@@ -9026,22 +8918,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     font-size: 16px;
   }
   .studio-composer-bar { height: 48px; }
-  /* Pickers become bottom sheets (system grammar) instead of centered
-     desktop dialogs floating over a phone keyboard. */
-  @keyframes mx-sheet-up { from { transform: translateY(24px); opacity: 0; } }
-  .model-picker-layer {
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    padding: 0;
-  }
-  .model-picker-dialog {
-    width: 100vw;
-    height: min(480px, calc(var(--vvh, 100vh) - 56px));
-    min-height: 240px;
-    border-radius: var(--mx-radius-sheet) var(--mx-radius-sheet) 0 0;
-    animation: mx-sheet-up 200ms ease;
-  }
   /* Composer pills must WRAP their text: when the footer row crowds, the
      model trigger shrinks with an ellipsis inside the shape instead of the
      label painting past the pill edge (user: "Claude F" spilling out). */
@@ -9088,7 +8964,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mx-menu, .mx-toast, .model-picker-dialog, .slash-palette,
+  .mx-menu, .mx-toast, .slash-palette,
   .route-sheet, .route-sheet-flyout,
   .live-activity span, .stream-cursor { animation: none; }
   .message-actions { transition: none; }
@@ -10093,7 +9969,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .route-sheet-slider input { flex: 1; min-width: 0; }
 .route-sheet-slider span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
-/* Context pane: value header + 10%-snap slider + reset row. */
+/* Context pane: value header with inline default/reset, 10%-snap slider. */
 .route-context-head {
   display: flex;
   align-items: baseline;
@@ -10102,15 +9978,18 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .route-context-head strong { font-size: 15px; font-weight: 600; }
 .route-context-head small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
-.route-context-default {
+/* "1M · Default" tail: plain muted text at rest, a click restores default. */
+.route-context-reset {
   margin-left: auto;
-  padding: 0 7px;
-  border: 1px solid var(--mx-border);
+  border: 0;
+  padding: 1px 7px;
   border-radius: var(--mx-radius-pill);
+  background: transparent;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
-  line-height: 16px;
+  cursor: pointer;
 }
+.route-context-reset:hover { color: var(--mx-text); background: var(--mx-hover); }
 .route-context-slider { display: flex; padding: 6px 10px 4px; }
 .route-context-slider input {
   flex: 1;
@@ -10120,23 +9999,22 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 .route-context-slider input:disabled { cursor: default; opacity: 0.5; }
-.route-context-reset { justify-content: center; color: var(--mx-text-muted); }
 .route-sheet,
 .route-sheet-flyout { overflow: auto; overscroll-behavior: contain; }
 .route-sheet-flyout--model { overflow: hidden; padding: 0; }
 .model-catalog-panel,
-.model-catalog-panel .model-picker-body,
+.model-catalog-panel .model-catalog-body,
 .model-catalog-panel .pane-surface-gate,
 .model-catalog-panel .pane-surface-gate-content,
-.model-catalog-panel .model-picker-list {
+.model-catalog-panel .model-catalog-list {
   min-height: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 .model-catalog-panel { width: 100%; overflow: hidden; }
-.model-catalog-panel .model-picker-body > .pane-surface-gate { min-height: 0; }
-.model-catalog-panel .model-picker-list { gap: 8px; padding: 8px; }
+.model-catalog-panel .model-catalog-body > .pane-surface-gate { min-height: 0; }
+.model-catalog-panel .model-catalog-list { gap: 8px; padding: 8px; }
 .model-catalog-panel .model-search { min-height: 32px; padding: 6px 8px; }
 .model-catalog-panel .model-list { min-height: 0; flex: 1 1 auto; overflow: auto; gap: 10px; padding: 0; }
 /* Codex-style embedded catalog: flat single-line rows — no cards, no

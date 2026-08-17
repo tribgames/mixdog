@@ -8,6 +8,7 @@ import { projectIdentity, SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { publishSidebarProjects } from './sidebar-reference-cache';
 import { acquireTitleBarDim } from './titlebar-dim';
+import { usePersistedListOrder } from './use-persisted-list-order';
 
 function displayProjectFolder(path: string): string {
   return path.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || path;
@@ -150,7 +151,13 @@ export function ProjectsPane({
     resetEdit();
   });
   // No search field (user: 프로젝트 목록은 짧다 — 서치창 제거).
-  const visible = projects;
+  const projectOrder = usePersistedListOrder(
+    'mixdog.sidebar-order.projects.v1',
+    projects.map((project) => project.path),
+  );
+  const visible = projectOrder.orderedIds
+    .map((path) => projects.find((project) => project.path === path))
+    .filter((project): project is DesktopProjectSummary => Boolean(project));
 
   return <div className="schedules-pane projects-pane stable-surface-preserved stable-takeover-surface"
     data-surface-active={active ? 'true' : 'false'}
@@ -408,7 +415,8 @@ export function ProjectsPane({
       {visible.length ? <div className="schedules-list projects-list">{visible.map((project) => {
         const title = project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path);
         const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
-        return <div key={project.path} className={`schedules-row projects-row${selected ? ' selected' : ''}`}>
+        return <div key={project.path} className={`schedules-row projects-row${selected ? ' selected' : ''}`}
+          {...projectOrder.getReorderProps(project.path)}>
           <span className="projects-row-icon" aria-hidden="true"><Folder size={16} /></span>
           {/* The row is a read-only entry (user: 클릭 없애 그냥) — clicking a
               project no longer mints a NEW TASK draft; only the pencil acts. */}

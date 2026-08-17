@@ -16,14 +16,12 @@
   .mixdog-settings__header h1, .mixdog-settings__section h2 { margin: 0; }
   .mixdog-settings__body { display: flex; flex-direction: column; overflow-y: auto; }
   .mixdog-settings__list, .settings-group-body { overflow: hidden; }
-  .mixdog-settings__row, .settings-route-editor,
-  .settings-form-row, .settings-resource {
+  .mixdog-settings__row, .settings-form-row, .settings-resource {
     width: 100%;
     display: flex;
     align-items: center;
   }
-  .mixdog-settings__copy,
-  .settings-route-editor > div:first-child, .settings-form-row > div:first-child {
+  .mixdog-settings__copy, .settings-form-row > div:first-child {
     min-width: 0;
     flex: 1;
     display: grid;
@@ -49,7 +47,7 @@
   .capability-settings-content,
   .command-surface-content,
   .onboarding-ready-content { min-width: 0; }
-  .settings-route-controls, .settings-form-controls, .settings-resource-actions,
+  .settings-form-controls, .settings-resource-actions,
   .settings-provider-secret,
   .settings-button-row,
   .settings-oauth-code, .settings-oauth-dialog > footer {
@@ -58,9 +56,7 @@
     align-items: center;
     flex-wrap: wrap;
   }
-  .settings-route-controls, .settings-form-controls { justify-content: flex-end; }
-  .settings-route-editor:not(.compact) .settings-route-controls { min-width: 0; flex: 1.4; }
-  .settings-route-editor.compact .settings-route-controls { justify-content: flex-start; }
+  .settings-form-controls { justify-content: flex-end; }
   .settings-check { display: inline-flex; align-items: center; white-space: nowrap; }
   .settings-form-controls { flex: 1.2; }
   .settings-form-controls input, .settings-form-controls select { min-width: 100px; flex: 1; }
@@ -127,8 +123,8 @@
   .onboarding-workflow-grid > button { display: grid; text-align: left; }
 
   @media (max-width: 860px) {
-    .settings-form-row, .settings-route-editor:not(.compact) { align-items: stretch; flex-direction: column; }
-    .settings-form-controls, .settings-route-controls { justify-content: flex-start; }
+    .settings-form-row { align-items: stretch; flex-direction: column; }
+    .settings-form-controls { justify-content: flex-start; }
     .settings-domain-grid { grid-template-columns: 1fr; }
     .settings-domain-grid > label.wide { grid-column: auto; }
     .settings-resource { align-items: flex-start; flex-wrap: wrap; }
@@ -286,131 +282,6 @@
   row-gap: 4px;
 }
 .mixdog-settings-v2 .settings-resource-title b { max-width: 100%; }
-.settings-row-control > .settings-model-trigger {
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  margin-left: 0;
-  justify-content: flex-end;
-  gap: 6px;
-  text-align: right;
-}
-.settings-row-control > .effort-control,
-.settings-row-control > .fast-control {
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-  flex: 0 0 100%;
-}
-.settings-row-control > .effort-control .mx-select-root,
-.settings-row-control > .effort-control .mx-select-trigger {
-  width: 100%;
-  min-width: 0;
-  max-width: none;
-}
-.settings-row-control > .effort-control .mx-select-value {
-  text-align: right;
-}
-.settings-model-trigger > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-}
-.mixdog-settings-v2 .settings-resource.settings-agent-route { align-items: start; }
-.mixdog-settings-v2 .settings-agent-route > div:first-child { padding-top: 7px; }
-.settings-agent-route .settings-resource-control,
-.settings-agent-route .settings-resource-actions,
-.settings-agent-route .settings-route-editor.compact,
-.settings-agent-route .settings-route-controls { width: 100%; }
-.settings-agent-route .settings-route-controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
-  justify-items: end;
-}
-.settings-agent-route .settings-route-controls > *,
-.settings-agent-route .effort-control,
-.settings-agent-route .fast-control,
-.settings-agent-route .mx-select-root,
-.settings-agent-route .mx-select-trigger {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-}
-.settings-agent-route .settings-model-trigger,
-.settings-agent-route .effort-control .mx-select-trigger {
-  height: 28px;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 0 5px 0 8px;
-  color: var(--mx-text);
-  background: transparent;
-  box-shadow: none;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-ui);
-  text-align: right;
-}
-.settings-agent-route .effort-control,
-.settings-agent-route .fast-control {
-  height: 28px;
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-.settings-agent-route .settings-model-trigger > span,
-.settings-agent-route .mx-select-value { text-align: right; }
-.settings-agent-route .settings-model-trigger:hover,
-.settings-agent-route .settings-model-trigger[aria-expanded="true"],
-.settings-agent-route .mx-select-trigger:hover:not(:disabled),
-.settings-agent-route .mx-select-trigger[aria-expanded="true"] {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-}
-.settings-row-control > .effort-control .mx-select-trigger {
-  color: var(--mx-text);
-  font-weight: var(--mx-weight-regular);
-}
-
-/* ModelPicker and OpenSelect use different primitives. Settings routes own one
-   shared closed-state chevron and right edge; Fast stays a compact glyph. */
-.settings-row-control > .settings-model-trigger,
-.settings-row-control > .effort-control .mx-select-trigger,
-.settings-agent-route .settings-model-trigger,
-.settings-agent-route .effort-control .mx-select-trigger {
-  height: 28px;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 0 5px 0 8px;
-  color: var(--mx-text);
-  background: transparent;
-  box-shadow: none;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-ui);
-  text-align: right;
-}
-.settings-row-control > .settings-model-trigger > svg,
-.settings-row-control > .effort-control .mx-select-trigger > svg,
-.settings-agent-route .settings-model-trigger > svg,
-.settings-agent-route .effort-control .mx-select-trigger > svg {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 14px;
-  padding: 0;
-  color: var(--mx-icon-muted);
-  background: transparent;
-  opacity: 1;
-  stroke-width: 2;
-  transition: transform 90ms ease-out;
-}
-.settings-row-control > .fast-control,
-.settings-agent-route .fast-control { justify-content: flex-end; }
-.settings-row-control .fast-mode-toggle,
-.settings-agent-route .fast-mode-toggle { flex: 0 0 28px; }
-.settings-model-trigger[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .settings-empty-list {
   box-sizing: border-box;
   min-height: 56px;

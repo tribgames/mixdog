@@ -1,4 +1,4 @@
-export type RouteSheetPane = 'model' | 'effort' | 'context' | 'speed';
+export type RouteSheetPane = 'model' | 'effort' | 'context' | 'speed' | `parameter:${string}`;
 
 export const ROUTE_PANEL_PADDING = 4;
 export const ROUTE_SHEET_ROW_HEIGHT = 36;
@@ -132,10 +132,12 @@ export function routeSheetRows(input: {
   effortCount: number;
   contextVisible: boolean;
   fastVisible: boolean;
+  parameterIds?: string[];
 }): RouteSheetPane[] {
   const rows: RouteSheetPane[] = ['model'];
   if (input.hasModel && input.effortCount > 0) rows.push('effort');
   if (input.hasModel && input.contextVisible) rows.push('context');
+  if (input.hasModel) rows.push(...(input.parameterIds || []).map((id) => `parameter:${id}` as const));
   if (input.hasModel && input.fastVisible) rows.push('speed');
   return rows;
 }

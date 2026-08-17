@@ -221,7 +221,6 @@ export function SettingsView({
     const handleKey = (event: KeyboardEvent) => {
       const dialog = dialogRef.current;
       const nestedDialog = dialog?.querySelector<HTMLElement>('[data-settings-nested-dialog]') || null;
-      if (document.querySelector('.model-picker-dialog[aria-modal="true"]')) return;
       if (event.key === 'Escape') {
         const openPortaledMenu = Array.from(
           dialog?.querySelectorAll<HTMLElement>('[role="combobox"][aria-expanded="true"][aria-controls]') || [],

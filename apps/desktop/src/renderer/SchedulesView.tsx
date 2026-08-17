@@ -3,9 +3,9 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
-import { FastModeToggle } from './FastModeToggle';
 import { t } from './i18n';
-import { filterConfiguredModels, ModelPicker } from './ModelPicker';
+import { filterConfiguredModels } from './model-catalog';
+import { ModelRouteEditor } from './ModelRouteEditor';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
@@ -24,6 +24,7 @@ import {
   useSidebarReferences,
   type SidebarReferenceKey,
 } from './sidebar-reference-cache';
+import { usePersistedListOrder } from './use-persisted-list-order';
 
 type RecordValue = Record<string, unknown>;
 export type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
@@ -146,7 +147,13 @@ function scheduleMeta(schedule: RecordValue): string {
   const ref = parseModelRef(String(schedule.model || ''));
   if (ref.route) {
     const slash = ref.route.indexOf('/');
-    parts.push(slash > 0 ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash)) : ref.route);
+    const model = slash > 0
+      ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash))
+      : ref.route;
+    const effort = ref.effort
+      ? `${ref.effort.slice(0, 1).toLocaleUpperCase()}${ref.effort.slice(1)}`
+      : '';
+    parts.push([model, effort, ref.fast ? t('Fast') : ''].filter(Boolean).join(' · '));
   }
   const cwd = String(schedule.cwd || '');
   if (cwd) parts.push(cwd.split(/[\\/]/).filter(Boolean).pop() || cwd);
@@ -247,7 +254,6 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
   const modelId = slash > 0 ? model.slice(slash + 1) : '';
-  const modelLabel = model ? (slash > 0 ? modelDisplayName(modelId, modelProvider) : model) : 'Model';
   const selected = models.find((option) => option.provider === modelProvider && option.model === modelId);
   const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
     ? effort
@@ -339,34 +345,21 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
             <AutomationAttachButton attachments={attachments} disabled={busy}
               ariaLabel={t("Attach files to this schedule")}
               onChange={setAttachments} onError={setFormError} />
-            <ModelPicker models={models} provider={modelProvider} model={modelId}
-              triggerLabel={modelLabel} ariaLabel={t("Schedule model")}
-              triggerClassName="model-trigger schedules-model-trigger" disabled={busy}
-              onSelect={(option) => {
-                const nextEffort = preferredEffort(option);
-                setModel(`${option.provider}/${option.model}`);
-                setEffort(nextEffort);
-                setFast(modelFastAvailable(option, nextEffort) ? option.fastPreferred : false);
-                setModelParameters(preferredModelParameters(option));
+            <ModelRouteEditor models={models} disabled={busy} ariaLabel={t("Schedule model")}
+              value={{
+                provider: modelProvider,
+                model: modelId,
+                ...(effortValue ? { effort: effortValue } : {}),
+                fast,
+                modelParameters: selectedModelParameters,
+              }}
+              onChange={(selection) => {
+                setModel(`${selection.provider}/${selection.model}`);
+                setEffort(String(selection.effort || ''));
+                setFast(selection.fast === true);
+                setModelParameters(selection.modelParameters || {});
                 setFormError('');
               }} />
-            {selected && selected.effortOptions.length > 0 && <OpenSelect variant="route"
-              ariaLabel={t("Schedule reasoning effort")}
-              value={effortValue} disabled={busy} localizeLabels={false}
-              options={selected.effortOptions} onChange={(value) => {
-                setEffort(value);
-                if (!modelFastAvailable(selected, value, selectedModelParameters)) setFast(false);
-              }} />}
-            {selected?.fastCapable && <FastModeToggle ariaLabel={t("Schedule fast mode")}
-              enabled={fastAvailable && fast} disabled={busy || !fastAvailable} onChange={setFast} />}
-            {selected?.modelParameterOptions?.map((parameter) => <OpenSelect key={parameter.id}
-              ariaLabel={t(`Schedule ${parameter.label}`)}
-              value={selectedModelParameters[parameter.id] || parameter.options[0]?.value || ''} disabled={busy}
-              options={parameter.options} onChange={(value) => {
-                const next = { ...selectedModelParameters, [parameter.id]: value };
-                setModelParameters(next);
-                if (!modelFastAvailable(selected, effortValue, next)) setFast(false);
-              }} />)}
             {/* Same flat, right-aligned workflow control as the chat
                 composer (effort-control/workflow-control skin). */}
             <div className="effort-control workflow-control">
@@ -503,6 +496,13 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   };
 
   const schedules = rows(setup.schedules);
+  const scheduleOrder = usePersistedListOrder(
+    'mixdog.sidebar-order.schedules.v1',
+    schedules.map((schedule) => String(schedule.name)),
+  );
+  const orderedSchedules = scheduleOrder.orderedIds
+    .map((name) => schedules.find((schedule) => String(schedule.name) === name))
+    .filter((schedule): schedule is RecordValue => Boolean(schedule));
   const runNow = async (name: string) => {
     if (!api?.invokeCapability || runningName) return;
     setRunningName(name);
@@ -519,7 +519,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
     }
   };
   const text = query.trim().toLowerCase();
-  const visible = schedules.filter((schedule) => {
+  const visible = orderedSchedules.filter((schedule) => {
     const enabled = schedule.enabled !== false;
     if (filter === 'active' && !enabled) return false;
     if (filter === 'paused' && enabled) return false;
@@ -568,7 +568,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
           const name = String(schedule.name);
           const enabled = schedule.enabled !== false;
           const running = runningNames?.has(name) === true;
-          return <div key={name} className="schedules-row">
+          return <div key={name} className="schedules-row" {...scheduleOrder.getReorderProps(name)}>
             <span className="schedules-row-status" role={running ? 'status' : undefined}
               aria-label={running ? t("{{name}} is running", { name }) : undefined} aria-hidden={running ? undefined : true}>
               {running

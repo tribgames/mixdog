@@ -524,6 +524,21 @@ export const ModelSelector = memo(function ModelSelector({
       contextPercent: nextContextPercent,
     });
   };
+  const changeModelParameter = async (id: string, value: string) => {
+    if (!known || tuningUnavailable || routingGuard.current) return;
+    const nextModelParameters = { ...selectedModelParameters, [id]: value };
+    const nextFast = fastControlVisible
+      ? modelFastAvailable(known, effort, nextModelParameters) && displayedFast
+      : undefined;
+    await route({
+      provider,
+      model,
+      ...(effort ? { effort } : {}),
+      ...(nextFast === undefined ? {} : { fast: nextFast }),
+      modelParameters: nextModelParameters,
+      contextPercent: normalizedContextPercent,
+    });
+  };
 
   return <div className="route-controls">
     <RouteEditor models={selectableModels} provider={provider} model={model}
@@ -536,6 +551,8 @@ export const ModelSelector = memo(function ModelSelector({
       contextTokens={contextTokens}
       contextMaxTokens={maxContextWindow}
       contextDefaultTokens={defaultContextWindow}
+      modelParameterOptions={known?.modelParameterOptions || []}
+      modelParameters={selectedModelParameters}
       catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
       catalogError={catalogError} providerSetupError={providerSetupError}
       modelDisabled={modelUnavailable} tuningDisabled={tuningUnavailable}
@@ -544,6 +561,7 @@ export const ModelSelector = memo(function ModelSelector({
       onChangeEffort={(value) => void changeEffort(value)}
       onChangeFast={(enabled) => void changeFast(enabled)}
       onChangeContext={(value) => void changeContext(value)}
+      onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
       onOpenProviders={() => onOpenSettings("providers")} />
   </div>;
 });
