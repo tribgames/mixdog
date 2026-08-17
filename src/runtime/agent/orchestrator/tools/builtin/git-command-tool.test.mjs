@@ -76,6 +76,10 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     const deleteCommand = `reflog delete --rewrite ${selectors.map(quote).join(' ')}`;
     assert.match(String(await git(repo, deleteCommand)), /^Error: git reflog delete requires confirm:true/);
     parseOk(await git(repo, deleteCommand, { confirm: true }));
+    // Dry-run previews skip the confirm gate: nothing mutates.
+    parseOk(await git(repo, 'reflog expire --dry-run --verbose --expire-unreachable=now --all'));
+    parseOk(await git(repo, 'prune --dry-run'));
+    parseOk(await git(repo, 'clean -nd'));
     assert.match(String(await git(repo, 'reflog expire --expire-unreachable=now --all --rewrite')), /^Error: git reflog expire requires confirm:true/);
     parseOk(await git(repo, 'reflog expire --expire-unreachable=now --all --rewrite', { confirm: true }));
     assert.match(String(await git(repo, 'gc --prune=now')), /^Error: git gc --prune=now requires confirm:true/);
