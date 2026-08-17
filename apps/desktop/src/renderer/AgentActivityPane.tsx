@@ -13,9 +13,10 @@ import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { modelDisplayName } from './provider-display';
-import { formatWorkElapsed, TextShimmer, timeMs } from './TranscriptView';
+import { formatWorkElapsed, timeMs } from './TranscriptView';
 
 type RecordValue = Record<string, unknown>;
+export const AGENT_POOL_RECONCILE_MS = 2_000;
 
 interface LiveAgentSummary {
   key: string;
@@ -246,17 +247,20 @@ function AgentPoolRow({
   const name = !lead && tag && tag.toLowerCase() !== role.toLowerCase()
     ? `${role} · ${tag}`
     : role;
+  const tabTitle = tag && tag.toLowerCase() !== sessionTitle.toLowerCase()
+    ? [sessionTitle, tag].filter(Boolean).join(' · ')
+    : sessionTitle || tag || role;
   const elapsedBase = timeMs(agent.turnStartedAt) || timeMs(agent.startedAt);
   // Idle duration carries no information (user: 대기중인데 왜 시간 표기하냐):
   // a resting agent's card says only that it rests. Time belongs to work.
   const done = !queued && !running && unread;
   const workMeta = elapsedBase
     ? formatWorkElapsed(clock - elapsedBase) || '0s'
-    : desktopAgentStatus(agent);
+    : '0s';
   const elapsed = queued
     ? t('Queued')
     : running
-      ? [t('Working'), workMeta].filter(Boolean).join(' · ')
+      ? workMeta
       : done
         ? t('Completed')
         : t('Idle');
@@ -275,7 +279,7 @@ function AgentPoolRow({
     onClick={() => {
       if (!sessionId) return;
       if (lead) onOpenLeadSession?.(ownerSessionId);
-      else onOpenSession?.(sessionId, sessionTitle || role, ownerSessionId);
+      else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
     }}>
     <span className="schedules-row-copy">
       <b className="agent-pool-name">{name}</b>
@@ -284,22 +288,10 @@ function AgentPoolRow({
         {agent.fast === true && <FastModeIndicator />}
       </small>
     </span>
-    {/* A per-row spinner spun on every visible card at once and carried no
-        information the label lacks (user: 스피너 차라리 없는게 좋을거같다).
-        The status word plus elapsed time says the same thing, quietly. */}
     <span className="agent-activity-status">
-      {/* Live work borrows the transcript's thinking grammar: the VERB carries
-          the sweep and the clock stays static beside it. A shimmer over the
-          ticking time would remount every second (TextShimmer keys on its
-          text) and restart the glint before it ever crossed the phrase. */}
       <time className="agent-activity-elapsed" aria-label={elapsed}
         data-state={queued ? 'queued' : running ? 'running' : done ? 'done' : 'idle'}>
-        {running
-          ? <>
-            <TextShimmer text={t('Working')} />
-            {workMeta && <span className="agent-activity-elapsed-meta">{workMeta}</span>}
-          </>
-          : elapsed}
+        {elapsed}
       </time>
     </span>
   </button>;
@@ -326,28 +318,52 @@ export function AgentActivityPane({
   const orderRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     const host = window.mixdogDesktop;
-    if (typeof host?.listAgentPool !== 'function') {
+    const listAgentPool = host?.listAgentPool;
+    if (typeof listAgentPool !== 'function') {
       setAgents([]);
       return undefined;
     }
     let live = true;
-    void host.listAgentPool()
-      .then((rows) => {
-        if (live) setAgents(Array.isArray(rows) ? rows : []);
-      })
-      .catch(() => {
-        if (live) setAgents([]);
-      });
+    let pushedRevision = 0;
+    let requestSequence = 0;
+    let appliedRequest = 0;
+    let requestRunning = false;
+    let receivedRows = false;
+    const refresh = async () => {
+      if (requestRunning) return;
+      requestRunning = true;
+      const sequence = ++requestSequence;
+      const revision = pushedRevision;
+      try {
+        const rows = await listAgentPool();
+        if (!live || revision !== pushedRevision || sequence < appliedRequest) return;
+        appliedRequest = sequence;
+        receivedRows = true;
+        setAgents(Array.isArray(rows) ? rows : []);
+      } catch {
+        if (live && !receivedRows && revision === pushedRevision) setAgents([]);
+      } finally {
+        requestRunning = false;
+      }
+    };
+    void refresh();
     const unsubscribe = typeof host.subscribeAgentPool === 'function'
       ? host.subscribeAgentPool((rows) => {
-        if (live) setAgents(Array.isArray(rows) ? rows : []);
+        if (!live) return;
+        pushedRevision += 1;
+        receivedRows = true;
+        setAgents(Array.isArray(rows) ? rows : []);
       })
+      : undefined;
+    const reconcileTimer = active
+      ? window.setInterval(() => { void refresh(); }, AGENT_POOL_RECONCILE_MS)
       : undefined;
     return () => {
       live = false;
+      if (reconcileTimer !== undefined) window.clearInterval(reconcileTimer);
       unsubscribe?.();
     };
-  }, []);
+  }, [active]);
   const groups = useMemo(() => {
     const byOwner = new Map<string, {
       ownerId: string;

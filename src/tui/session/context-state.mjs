@@ -90,7 +90,7 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     if (Object.keys(patch).length > 0) updateState(patch);
   }
 
-  const syncContextStats = ({ allowEstimated = false } = {}) => {
+  const syncContextStats = ({ allowEstimated = false, invalidateExact = false } = {}) => {
     if (getPendingSessionReset()) return null;
     const ctx = runtime.contextStatus?.() || null;
     if (!ctx) return null;
@@ -116,13 +116,18 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     const estimatedTokens = Math.max(0, Number(ctx.currentEstimatedTokens ?? ctx.usedTokens ?? 0));
     const usedTokens = Math.max(0, Number(ctx.usedTokens ?? estimatedTokens ?? 0));
     const usedSource = String(ctx.usedSource || '').toLowerCase();
+    // A successful pre-send auto-compact rewrites the transcript before the
+    // next provider request can publish fresh usage. Never keep painting the
+    // exact token count measured against the deleted pre-compact prefix during
+    // that gap; publish the compacted transcript estimate immediately.
+    const forceEstimated = invalidateExact && estimatedTokens > 0;
     const shouldPublishEstimate = allowEstimated && (
       usedSource === 'estimated'
       || Number(ctx.currentEstimatedTokens) > 0
       || usedTokens > 0
     );
     if (!allowEstimated && !hasProviderUsage && usedSource !== 'last_api_request') return ctx;
-    if (shouldPublishEstimate) {
+    if (forceEstimated || shouldPublishEstimate) {
       stats.currentEstimatedContextTokens = estimatedTokens;
       stats.currentContextSource = 'estimated';
       stats.currentContextTokens = 0;

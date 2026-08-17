@@ -15,7 +15,6 @@ import React, {
 import { createPortal } from "react-dom";
 import { clampOverlayIntoView } from "./anchored-panel";
 import {
-  Bot,
   FileText,
   FileDiff,
   Folder,
@@ -77,7 +76,6 @@ function tabIsWorking(
  *  contract tests). */
 function tabGlyph(tab: WorkspaceTab, size = 14) {
   switch (tab.selection.kind) {
-    case "agent-session": return <Bot size={size} />;
     case "project": return <Folder size={size} />;
     case "file": return <FileText size={size} />;
     case "diff": return <FileDiff size={size} />;
@@ -772,8 +770,6 @@ export function WorkspaceTabStrip({
                     {working
                       ? <ProgressSpinner size={14} className="workspace-tab-status" role="status"
                         aria-label={t("{{name}} is working", { name: tab.title })} />
-                      : tab.selection.kind === "agent-session"
-                        ? <Bot size={14} />
                       : tab.selection.kind === "project"
                         ? <Folder size={14} />
                         : tab.selection.kind === "file"

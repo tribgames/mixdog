@@ -676,7 +676,10 @@ export function createRunTurn(bag) {
         const isError = isCallError;
         const text = isError
           ? toolErrorDisplay(rawText, callRec.name || 'tool')
-          : (isExitError ? stripShellExitHeader(rawText) : rawText);
+          // Strip the machine exit header for ANY parsed code (0 included):
+          // exit 0 no longer routes through isExitError but its
+          // `[exit code: 0]` line is still display noise.
+          : (exitCode != null ? stripShellExitHeader(rawText) : rawText);
         callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
         assignAggregateSummaryOrder(aggregate, callRec);
         callRec.isError = isError;
@@ -966,7 +969,8 @@ export function createRunTurn(bag) {
           // would then change above this statusdone item.
           clearAggregateContinuation();
           const compactStatus = String(event?.status || '').toLowerCase();
-          if (!['failed', 'skipped', 'no_change'].includes(compactStatus)) {
+          const compactChanged = !['failed', 'skipped', 'no_change'].includes(compactStatus);
+          if (compactChanged) {
             const currentTurnItems = getState().items.slice(currentTurnItemsStart);
             set({ items: replaceItems(currentTurnItems, { preserveStreamingTail: true }) });
             currentTurnItemsStart = 0;
@@ -981,7 +985,7 @@ export function createRunTurn(bag) {
           // Compaction itself remains owned by the pre-provider-send pass.
           // This event only refreshes the gauge from the already-mutated
           // transcript before another render can show stale pressure.
-          syncContextStats({ allowEstimated: true });
+          syncContextStats({ allowEstimated: true, invalidateExact: compactChanged });
         },
         onStageChange: async (stage, detail = null) => {
           if (!markTurnProgress(`stage:${String(stage || '')}`)) return;

@@ -73,10 +73,6 @@ function workflowPresetName(slot) {
   return `WORKFLOW ${String(slot || '').toUpperCase()}`;
 }
 
-export function agentPresetSlot(agentId) {
-  return `agent-${String(agentId || '').replace(/[^a-z0-9_.-]+/gi, '-').toLowerCase()}`;
-}
-
 export function normalizeAgentId(value) {
   const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
   if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
@@ -455,9 +451,9 @@ export function upsertWorkflowPreset(presets, slot, routeLike) {
   return next;
 }
 
-// Config-aware route resolvers need resolveDefaultProvider + findPreset from
-// the runtime; created via this factory.
-export function createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset }) {
+// Config-aware route resolvers need findPreset from the runtime; created via
+// this factory.
+export function createWorkflowRouteHelpers({ findPreset }) {
   function summarizeWorkflowRoutes(config) {
     const out = {};
     const lead = routeFromPreset(config, config?.default);
@@ -484,7 +480,7 @@ export function createWorkflowRouteHelpers({ resolveDefaultProvider, findPreset 
     return preset ? normalizeWorkflowRoute(preset) : null;
   }
 
-  function agentRouteFromConfig(config, agentId, _dataDir) {
+  function agentRouteFromConfig(config, agentId) {
     // Custom agents (user-authored roles) pass through as workflow-style ids;
     // their routes live in config.agents[<id>] like the fixed roles.
     const id = normalizeAgentId(agentId) || normalizeWorkflowId(agentId);

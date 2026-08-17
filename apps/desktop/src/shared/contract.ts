@@ -58,7 +58,6 @@ export const DESKTOP_IPC = {
   remoteAccessInfo: 'mixdog:remote-access-info',
   rotateRemoteAccess: 'mixdog:rotate-remote-access',
   prefetchSession: 'mixdog:prefetch-session',
-  peekSession: 'mixdog:peek-session',
   setVisibleSessions: 'mixdog:set-visible-sessions',
   listAgentPool: 'mixdog:list-agent-pool',
   searchProjectFiles: 'mixdog:search-project-files',
@@ -1490,9 +1489,6 @@ export interface DesktopApi {
    *  pairing token and restarting the bridge/relay legs. */
   rotateRemoteAccess?(): Promise<DesktopRemoteAccessInfo | null>;
   prefetchSession?(sessionId: string): Promise<boolean>;
-  /** Pane peek: ask the host to publish a read-only lane frame for an idle
-   *  session so its pane paints as foreground without a resume. */
-  peekSession?(sessionId: string): Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;

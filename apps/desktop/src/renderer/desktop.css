@@ -1693,11 +1693,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding-top: 0;
 }
 .utility-dock .agent-activity-status {
-  /* 80px is a FLOOR, not a cap: a fixed track clipped "작업 중 · 12m 47s" to
-     "작업 중 · 1m …" (user: 가끔 잘려서 ... 뜬다). The status text never
-     ellipsizes — the name/route copy beside it shrinks instead, and short
-     labels still land on the same right axis. */
-  min-width: 80px;
+  /* Running rows show only the clock; return the removed status-word width to
+     the agent name/tag while retaining a stable right-aligned time column. */
+  min-width: 42px;
   flex: 0 0 auto;
   display: grid;
   /* Text-only status column (the row spinner is gone): ONE track, so every
@@ -1742,28 +1740,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .utility-dock .agent-activity-elapsed[data-state="running"] {
   color: var(--mx-text-soft);
-}
-/* Running rows flow like the thinking status (user: 띵킹 스피너에서 흐르는
-   것처럼). The sweep is one tier quieter than the transcript's — this is a
-   dock list of supporting rows, not the turn's headline — and the clock stays
-   static so the glint completes a full pass instead of restarting each tick. */
-.utility-dock .agent-activity-elapsed [data-component="text-shimmer"][data-active="true"]
-  [data-slot="text-shimmer-char"] {
-  background: linear-gradient(
-    90deg,
-    var(--mx-text-muted) 15%,
-    var(--mx-text) 48%,
-    var(--mx-text-muted) 82%
-  );
-  background-size: var(--text-shimmer-size) 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-.utility-dock .agent-activity-elapsed-meta { color: var(--mx-text-muted); }
-.utility-dock .agent-activity-elapsed-meta::before {
-  content: "\00B7";
-  margin: 0 4px;
-  color: var(--mx-text-faint);
 }
 /* Completion notice: an idle row whose session is still unseen carries the
    Recent-dot meaning as ACCENTED TEXT (user: 닷 대용으로 완료알림). It fades
@@ -5780,12 +5756,12 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-radius: 0;
   box-shadow: none;
 }
-.agent-session-unavailable {
+.session-unavailable {
   align-items: center;
   justify-content: center;
   padding: 24px;
 }
-.agent-session-unavailable-card {
+.session-unavailable-card {
   display: flex;
   max-width: 360px;
   flex-direction: column;
@@ -5794,11 +5770,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   color: var(--mx-text);
   text-align: center;
 }
-.agent-session-unavailable-card > span {
+.session-unavailable-card > span {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }
-.agent-session-unavailable-card > button {
+.session-unavailable-card > button {
   min-height: 28px;
   padding: 0 12px;
 }

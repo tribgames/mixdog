@@ -39,7 +39,11 @@ export function shellCommandExitCode(text) {
 export function toolCallOutcome(message, rawText) {
   const exitCode = shellCommandExitCode(rawText);
   if (exitCode != null) {
-    return { isCallError: false, isExitError: true, exitCode };
+    // Every completed shell result carries `[exit code: N]` — including 0
+    // (bash-tool statusMarker). Only a NON-ZERO code is the neutral "Exit"
+    // state; exit 0 is a plain success and must count as Ok, not into the
+    // exit bucket (which renders "Exit 0" and a warning tone).
+    return { isCallError: false, isExitError: exitCode !== 0, exitCode };
   }
   const isCallError = message?.isError === true || message?.toolKind === 'error';
   return {

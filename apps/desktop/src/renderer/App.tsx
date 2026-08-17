@@ -50,7 +50,7 @@ import {
 import {
   defaultSessionLaneStore,
   useSessionLane,
-  useSessionRemoteOwner,
+  usePinnedRemoteSession,
 } from "./session-lane-store";
 import {
   type SettingsSection as SlashSettingsSection
@@ -109,7 +109,6 @@ import { useAppWorkspaceNavigation } from "./use-app-workspace-navigation";
 import { useAppPaneChrome } from "./use-app-pane-chrome";
 import { useAppStartupRestore } from "./use-app-startup-restore";
 import {
-  AppAgentSessionPaneSurface,
   AppConversationPaneSurface,
 } from "./app-conversation-pane-surfaces";
 import {
@@ -192,7 +191,7 @@ import {
   PaneHeaderStatus,
   selectDesktopSnapshot,
   SnapshotUtilityDock,
-  requestSessionPeek,
+  requestSessionRead,
   useDesktopSnapshotSelector,
 } from "./app-snapshot-views";
 
@@ -233,7 +232,7 @@ export function App() {
     selectDesktopSnapshot,
     desktopChromeSnapshotsEqual,
   );
-  const sidebarRemoteSessionId = useSessionRemoteOwner(defaultSessionLaneStore);
+  const sidebarRemoteSessionId = usePinnedRemoteSession(defaultSessionLaneStore);
   const {
     applyDockOpen,
     applySidebarOpen,
@@ -342,7 +341,6 @@ export function App() {
     : null;
   const startupNavigationSelection = paneWorkspace.restoredFromStorage
     && startupFocusedPaneSelection
-    && startupFocusedPaneSelection.kind !== "agent-session"
     && startupFocusedPaneSelection.kind !== "studio"
     && startupFocusedPaneSelection.kind !== "terminal"
     && startupFocusedPaneSelection.kind !== "folder"
@@ -794,7 +792,7 @@ export function App() {
       applySessionLaneResult(sessionId, result.snapshot);
       return;
     }
-    void requestSessionPeek(sessionId);
+    void requestSessionRead(sessionId);
   }, [invokeResult]);
   const openDesktopUpdate = useCallback(() => {
     if (updaterState.status === "ready") setUpdateDialogOpen(true);
@@ -1118,7 +1116,7 @@ export function App() {
     navigationEpoch.current += 1;
     closeSidebarForNavigation();
     setRequestedSessionId("");
-    if (!defaultSessionLaneStore.get(sessionId)) requestSessionPeek(sessionId);
+    if (!defaultSessionLaneStore.get(sessionId)) requestSessionRead(sessionId);
     const session = sessions.find((item) => item.id === sessionId);
     finishPendingConversationHandoff();
     activateSelection(
@@ -1175,8 +1173,13 @@ export function App() {
         : null) ?? inherited.workflow,
     };
     const draftSelection = newDraftSelection();
-    const draftKey = navigationKey(draftSelection);
-    draftPanePrefs.current.set(draftKey, seeded);
+    // Per-draft prefs are keyed by draftId, not navigationKey: the old
+    // "new:<id>" key orphaned this entry, so the replacement draft resolved
+    // stale inherited prefs instead of the cleared session's settings.
+    const draftPrefsKey = draftSelection.kind === "new"
+      ? draftSelection.draftId || "default"
+      : "default";
+    draftPanePrefs.current.set(draftPrefsKey, seeded);
     // The cleared session's settings become the seed for FUTURE new tasks as
     // well (same rule as explicit staging).
     lastNewTaskPrefs.current = seeded;
@@ -1851,14 +1854,6 @@ export function App() {
         },
       }} />;
   };
-  const paneAgentSessionSurface = (
-    paneSelection: Extract<WorkspaceSelection, { kind: "agent-session" }>,
-    focused: boolean,
-    focusPane: () => void,
-  ) => <AppAgentSessionPaneSurface
-    paneSelection={paneSelection}
-    focused={focused}
-    focusPane={focusPane} />;
   const {
     paneFileEditors,
     paneUtilitySurfacePortals,
@@ -1887,7 +1882,7 @@ export function App() {
   // PANE tabs are part of the visible workspace: a session tab that is
   // already open must not cold-load on its first click (user: PANE에 이미
   // 올라간 게 왜 콜드냐). Once boot settles, idle-prewarm each open tab's
-  // lane. requestSessionPeek dedupes (laned/in-flight sessions no-op) and
+  // lane. requestSessionRead dedupes (laned/in-flight sessions no-op) and
   // the lane store's byte budget still owns retention, so this only fronts
   // the disk read that the first click would otherwise pay behind a cover.
   useEffect(() => {
@@ -1909,8 +1904,8 @@ export function App() {
       if (cancelled) return;
       const next = queue.shift();
       if (!next) return;
-      requestSessionPeek(next);
-      // Spread the peeks so they never compete with a live interaction.
+      requestSessionRead(next);
+      // Spread the reads so they never compete with a live interaction.
       stepTimer = window.setTimeout(step, 250);
     };
     const idle = host.requestIdleCallback?.(step, { timeout: 3_000 });
@@ -2143,7 +2138,6 @@ export function App() {
                   observedSessionIds={observedAgentSessionIds}
                   renderStrip={paneStripFor}
                   renderConversation={paneConversationSurface}
-                  renderAgentSession={paneAgentSessionSurface}
                   renderFileEditors={paneFileEditors}
                   renderUtilityTabs={paneUtilityTabs}
                   onFocusSelection={activatePaneSurface}

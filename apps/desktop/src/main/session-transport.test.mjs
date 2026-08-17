@@ -339,8 +339,8 @@ test('an SSE reconnect resyncs in place without rejecting an in-flight desktop r
   await transport.close();
 });
 
-test('remote session ownership stays global when another session publishes focus state', async () => {
-  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-remote-owner-'));
+test('the pinned remote session stays global when another session publishes focus state', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-remote-session-'));
   let host = null;
   let hooks = null;
   const updates = [];
@@ -391,7 +391,7 @@ test('remote session ownership stays global when another session publishes focus
     await host.setVisibleSessions(['session_remote', 'session_focused']);
 
     hooks.onFrame({
-      type: 'remote-owner-state',
+      type: 'remote-session-state',
       enabled: true,
       sessionId: 'session_remote',
     });
@@ -414,12 +414,68 @@ test('remote session ownership stays global when another session publishes focus
     assert.equal(latest('session_focused')?.remoteSessionId, 'session_remote');
 
     hooks.onFrame({
-      type: 'remote-owner-state',
+      type: 'remote-session-state',
       enabled: false,
       sessionId: null,
     });
     assert.equal(latest('session_focused')?.remoteEnabled, false);
     assert.equal(latest('session_focused')?.remoteSessionId, null);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('an agent tab loads its transcript through the normal session read path', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-agent-tab-read-'));
+  const updates = [];
+  let host = null;
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    create: unsupported,
+    async read({ sessionId }) {
+      assert.equal(sessionId, 'agent_child');
+      return {
+        sessionId,
+        revision: 0,
+        full: {
+          sessionId,
+          items: [
+            { id: 'user-1', kind: 'user', text: 'worker brief' },
+            { id: 'assistant-1', kind: 'assistant', text: 'worker handoff' },
+          ],
+          queued: [],
+        },
+      };
+    },
+    subscribe: unsupported,
+    unsubscribe: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient() { return client; },
+      loadProjects: unsupported,
+      async loadSessionStore() { return { listStoredAgentWorkers: () => [] }; },
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+    host.subscribeSessionStates((update) => updates.push(update));
+    assert.equal(await host.prefetchSession('agent_child'), true);
+    assert.deepEqual(
+      updates.at(-1).snapshot.items.map((item) => item.text),
+      ['worker brief', 'worker handoff'],
+    );
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });

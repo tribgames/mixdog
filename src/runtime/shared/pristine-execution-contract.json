@@ -43,6 +43,11 @@
       "credentialFile": "grok-oauth.json",
       "credentialPathEnv": "GROK_OAUTH_CREDENTIALS_PATH",
       "modelCatalogFile": "grok-oauth-models.json"
+    },
+    "cursor-oauth": {
+      "credentialFile": "cursor-oauth.json",
+      "credentialPathEnv": "CURSOR_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "cursor-oauth-models.json"
     }
   },
   "apiKeyProviders": {

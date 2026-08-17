@@ -1,11 +1,38 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { classifyCliInvocation } from './headless-command.mjs';
 import { runHeadlessExec } from './headless-exec.mjs';
+import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/providers/cursor-auth.mjs';
+import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
+
+test('pristine headless execution binds Cursor OAuth credentials in process', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-cursor-auth-test-'));
+  const dataDir = join(root, 'data');
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(join(dataDir, 'cursor-oauth.json'), JSON.stringify({
+    access_token: 'cursor-test-token',
+  }));
+  const env = { MIXDOG_HOME: root };
+  const boundary = createPristineExecutionBoundary({
+    provider: 'cursor-oauth',
+    model: 'gemini-3.7-flash',
+    env,
+  });
+  try {
+    assert.equal(boundary.audit.authMode, 'in-process-host-oauth-binding');
+    assert.equal(await resolveCursorOAuthAccessToken(), 'cursor-test-token');
+    assert.deepEqual(boundary.loadConfig().providers, {
+      'cursor-oauth': { enabled: true },
+    });
+  } finally {
+    boundary.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('headless exec runs one implicit-approval session and waits for tracked tasks', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-exec-test-'));

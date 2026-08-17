@@ -297,6 +297,15 @@ export function listStoredAgentWorkers() {
         if (!row || typeof row !== 'object') continue;
         const sessionId = cleanValue(row.sessionId);
         if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
+        try {
+            const session = JSON.parse(readFileSync(
+                join(dataDir(), 'sessions', `${sessionId}.json`),
+                'utf8',
+            ));
+            const owner = cleanValue(session?.owner).toLowerCase();
+            const agent = cleanValue(session?.agent).toLowerCase();
+            if (owner === 'agent' || (agent && agent !== 'lead')) continue;
+        } catch { /* legacy Lead rows may predate a durable session record */ }
         const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
         const heartbeatFresh = heartbeatAt > 0
             && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
@@ -701,6 +710,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
     const requestedLimit = Number(options.transcriptItemLimit);
     return {
         sessionId,
+        ...(options.includeMessages === true ? { messages } : {}),
         items: restoreTranscriptItems(messages, {
             sessionId,
             itemLimit: Number.isFinite(requestedLimit) && requestedLimit > 0

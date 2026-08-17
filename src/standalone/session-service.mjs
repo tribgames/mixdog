@@ -98,7 +98,7 @@ export function createSessionService({
   sessionExists = null,
   readStoredSession = null,
   listSessions = null,
-  getRemoteOwnerState = null,
+  getRemoteSessionState = null,
   desktopRuntime = null,
   publishIntervalMs = 16,
   onFrame = () => {},
@@ -638,19 +638,16 @@ export function createSessionService({
     return loading;
   }
 
-  /** Entry that is live now or already loading (e.g. a competing submit).
-   *  Views never start a load themselves. */
-  async function liveEntryForView(sessionId) {
-    const owner = sessionOwner(sessionId);
-    if (owner) return owner;
-    const inFlight = sessionLoads.get(sessionId);
-    if (!inFlight) return null;
-    try {
-      return await inFlight;
-    } catch {
-      // The failed load answers its own caller; a view falls through to disk.
-      return null;
-    }
+  /** Entry that is live NOW. Views never start a load themselves, and they
+   *  never wait for one either: an in-flight load (daemon-boot remote restore,
+   *  a competing submit) can take shard-boot seconds, and awaiting it blanked
+   *  the pane for exactly that session while every other session rendered
+   *  instantly from its disk projection (user report). The caller falls
+   *  through to the projection path, which registers a pending viewer /
+   *  re-checks the owner, so the completed load still adopts the view and
+   *  promotes it to live frames. */
+  function liveEntryForView(sessionId) {
+    return sessionOwner(sessionId) || null;
   }
 
   async function storedSessionProjection(sessionId, hints) {
@@ -683,6 +680,20 @@ export function createSessionService({
       ...extra,
       revision: 0,
       full: projection,
+    };
+  }
+
+  async function requestedMessageSlice(params, sessionId) {
+    if (!Number.isInteger(params?.messageStart)) return {};
+    if (typeof readStoredSession !== 'function') {
+      throw new Error('session transcript reader is unavailable');
+    }
+    const stored = await readStoredSession(sessionId, { includeMessages: true });
+    const messages = Array.isArray(stored?.messages) ? stored.messages : [];
+    const start = Math.max(0, params.messageStart);
+    return {
+      messageCount: messages.length,
+      messages: sanitizeForWire(start > 0 ? messages.slice(start) : messages),
     };
   }
 
@@ -735,12 +746,12 @@ export function createSessionService({
       throw new Error('session catalog is unavailable');
     }
     const sessions = await listSessions(options || {});
-    const remoteOwner = typeof getRemoteOwnerState === 'function'
-      ? await getRemoteOwnerState()
+    const remoteSession = typeof getRemoteSessionState === 'function'
+      ? await getRemoteSessionState()
       : null;
     return {
       sessions: sanitizeForWire(Array.isArray(sessions) ? sessions : []),
-      remoteOwner: sanitizeForWire(remoteOwner) ?? null,
+      remoteSession: sanitizeForWire(remoteSession) ?? null,
     };
   }
 
@@ -907,7 +918,10 @@ export function createSessionService({
     if (live) {
       const step = advance(live);
       retainUnwatched(live, 'headless session read');
-      return sessionResult(live, step, baseRevision);
+      return sessionResult(live, step, baseRevision, await requestedMessageSlice(
+        params,
+        id,
+      ));
     }
     if (typeof readStoredSession === 'function') {
       const projection = await storedSessionProjection(id, openHints);
@@ -915,16 +929,22 @@ export function createSessionService({
       if (lateOwner) {
         const step = advance(lateOwner);
         retainUnwatched(lateOwner, 'headless session read');
-        return sessionResult(lateOwner, step, baseRevision);
+        return sessionResult(lateOwner, step, baseRevision, await requestedMessageSlice(
+          params,
+          id,
+        ));
       }
       if (!projection) throw new Error(`session ${id} is not available`);
-      return projectionResult(id, projection);
+      return projectionResult(id, projection, await requestedMessageSlice(params, id));
     }
     // Embedders without a store reader keep the legacy load-on-read seam.
     const entry = await entryForSession(id, openHints || {});
     const step = advance(entry);
     retainUnwatched(entry, 'headless session read');
-    return sessionResult(entry, step, baseRevision);
+    return sessionResult(entry, step, baseRevision, await requestedMessageSlice(
+      params,
+      id,
+    ));
   }
 
   async function subscribeSession(
@@ -1020,6 +1040,14 @@ export function createSessionService({
       baseRevision,
       { accepted: accepted === true },
     );
+  }
+
+  async function materializeSession(sessionId, openHints = {}) {
+    const id = String(sessionId || '');
+    if (!id) throw new TypeError('sessionId is required');
+    const entry = await entryForSession(id, openHints || {});
+    retainUnwatched(entry, 'daemon session owner');
+    return entry.runtime;
   }
 
   async function abortSession({
@@ -1272,7 +1300,7 @@ export function createSessionService({
 
   return {
     handleCall, listSessionCatalog, createSession, readSession, subscribeSession, unsubscribeSession,
-    submitSession, abortSession, approveSession,
+    submitSession, materializeSession, abortSession, approveSession,
     configureSession, stop, releaseClient,
     get size() { return sessions.size; },
     /** Live work the daemon must not abandon (self-shutdown guard). */

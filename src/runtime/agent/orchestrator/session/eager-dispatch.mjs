@@ -4,6 +4,7 @@
 // streaming. Calls execute in parallel except that repository-wide Git writes
 // serialize against file edits, while shell waits for every earlier mutation;
 // results are collected later in call order.
+import { resolve as pathResolve } from 'node:path';
 import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { classifyResultKind } from './result-classification.mjs';
 import { isInvalidToolArgsMarker } from '../providers/openai-compat-stream.mjs';
@@ -46,9 +47,30 @@ export function createEagerDispatcher({
         // assistant turn. Patches remain path-parallel with each other; a later
         // shell waits for all of them and is skipped if any patch failed.
         let patchBarrier = Promise.resolve({ failedPatchIds: [] });
-        // Exact-string edits are single-replacement calls. Serialize them so
-        // multiple edits to one file in the same model turn observe prior writes.
-        let editBarrier = Promise.resolve();
+        // Exact-string edits are single-replacement calls. Same-FILE edits in
+        // one model turn must observe prior writes, so each target path keeps
+        // its own barrier chain; DIFFERENT files stay parallel (a single global
+        // chain here serialized every edit in the turn — user report: batched
+        // multi-file edits ran one by one). An edit whose target path cannot be
+        // determined serializes against every prior edit, and later edits on
+        // any path wait for it (conservative fallback).
+        const editBarriersByPath = new Map();
+        let editBarrierPathless = Promise.resolve();
+        const _editPathKey = (args) => {
+            const raw = args && typeof args === 'object'
+                ? (args.file_path ?? args.path ?? args.file)
+                : null;
+            const text = typeof raw === 'string' ? raw.trim() : '';
+            if (!text) return null;
+            try {
+                // Case-folded + separator-normalized. Merging two spellings of
+                // one file is required for correctness; merging two distinct
+                // files can only over-serialize, never under-serialize.
+                return pathResolve(cwd || '.', text).replace(/\\/g, '/').toLowerCase();
+            } catch {
+                return null;
+            }
+        };
         // Git mutations have repository-wide effects. They wait for earlier
         // file edits, and later edits/shell verification wait for them.
         let gitMutationBarrier = Promise.resolve();
@@ -147,7 +169,14 @@ export function createEagerDispatcher({
             const mutation = _isMutationTool(call.name, call.arguments);
             const precedingPatches = (_isShellTool(call.name) || gitMutation) ? patchBarrier : null;
             const precedingGitMutation = (_isShellTool(call.name) || mutation) ? gitMutationBarrier : null;
-            const precedingEdits = _isEditTool(call.name) ? editBarrier : null;
+            let precedingEdits = null;
+            let editPathKey = null;
+            if (_isEditTool(call.name)) {
+                editPathKey = _editPathKey(call.arguments);
+                precedingEdits = editPathKey
+                    ? Promise.all([editBarriersByPath.get(editPathKey), editBarrierPathless])
+                    : Promise.all([...editBarriersByPath.values(), editBarrierPathless]);
+            }
             if (_dedupEligible) _eagerInFlightSigs.set(_sig, call.id);
             entry.promise = (async () => {
                 try {
@@ -229,7 +258,17 @@ export function createEagerDispatcher({
                 });
             pending.set(call.id, entry);
             if (_isEditTool(call.name)) {
-                editBarrier = entry.promise.then(() => undefined, () => undefined);
+                const settledEdit = entry.promise.then(() => undefined, () => undefined);
+                if (editPathKey) {
+                    editBarriersByPath.set(editPathKey, settledEdit);
+                } else {
+                    // A pathless edit acts as a full barrier: it already waited
+                    // for every prior chain, so later edits on any path only
+                    // need to wait for it (they all await editBarrierPathless).
+                    const priorChains = [...editBarriersByPath.values(), editBarrierPathless];
+                    editBarrierPathless = Promise.all([...priorChains, settledEdit])
+                        .then(() => undefined, () => undefined);
+                }
             }
             if (_isMutationTool(call.name, call.arguments)) {
                 const precedingPatchState = patchBarrier;

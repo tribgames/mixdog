@@ -166,8 +166,15 @@ export function agentPresetName(agent) {
 }
 
 export async function resolvePrompt(args, cwd) {
-  const prompt = clean(args.prompt || args.message);
-  const file = clean(args.file);
+  const promptValue = args.prompt !== undefined ? args.prompt : args.message;
+  if (promptValue !== undefined && typeof promptValue !== 'string') {
+    throw new TypeError('agent: prompt/message must be a string');
+  }
+  if (args.file !== undefined && typeof args.file !== 'string') {
+    throw new TypeError('agent: file must be a string');
+  }
+  const prompt = promptValue?.trim() || '';
+  const file = args.file?.trim() || '';
   if (prompt && file) throw new Error('agent: provide only one of prompt/message or file');
   if (prompt) return prompt;
   if (file) {
@@ -175,12 +182,6 @@ export async function resolvePrompt(args, cwd) {
     return readFileSync(target, 'utf8');
   }
   throw new Error('agent: prompt/message/file is required');
-}
-
-export function withCwdHeader(prompt, cwd) {
-  if (!cwd) return prompt;
-  if (String(prompt).startsWith('[effective-cwd]')) return prompt;
-  return `[effective-cwd] ${cwd}\n\n${prompt}`;
 }
 
 export function compactIso(value) {

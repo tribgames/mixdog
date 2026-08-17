@@ -187,6 +187,9 @@ export function createLeadWorkerIndex({ dataDir, cfgMod, workerRowFromSession })
 
   function upsertLeadSession(session, extra = {}) {
     if (!session?.id || typeof workerRowFromSession !== 'function') return false;
+    const owner = clean(session.owner).toLowerCase();
+    const agent = clean(session.agent).toLowerCase();
+    if (owner === 'agent' || (agent && agent !== 'lead')) return false;
     const now = Date.now();
     const status = clean(extra.status) || (session.closed === true ? 'closed' : clean(session.status) || 'idle');
     const stage = clean(extra.stage) || status;

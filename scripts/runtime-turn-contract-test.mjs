@@ -21,11 +21,55 @@ import { WORKER_INDEX_FILE } from '../src/standalone/agent-tool/tool-def.mjs';
 import { presentErrorText, isCancelLikeError } from '../src/runtime/shared/err-text.mjs';
 import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
+import { createContextState } from '../src/tui/session/context-state.mjs';
 
 const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip;
 
 const failAfter = (ms, message) => new Promise((_, reject) => {
   setTimeout(() => reject(new Error(message)), ms);
+});
+
+test('auto-compact replaces stale exact context usage with the compacted estimate', () => {
+  let state = {
+    sessionId: 'context-session',
+    provider: 'test-provider',
+    model: 'test-model',
+    busy: true,
+    spinner: { mode: 'compacting' },
+    thinking: null,
+    stats: {
+      inputTokens: 90_000,
+      latestInputTokens: 90_000,
+      currentContextTokens: 90_000,
+      currentEstimatedContextTokens: 0,
+      currentContextSource: 'last_api_request',
+    },
+  };
+  const runtime = {
+    id: 'context-session',
+    provider: 'test-provider',
+    model: 'test-model',
+    contextStatus: () => ({
+      usedSource: 'last_api_request',
+      usedTokens: 90_000,
+      currentEstimatedTokens: 12_000,
+      lastApiRequestTokens: 90_000,
+      messages: { count: 3 },
+      compaction: {},
+    }),
+  };
+  const context = createContextState({
+    runtime,
+    getState: () => state,
+    updateState: (patch) => { state = { ...state, ...patch }; },
+    getPendingSessionReset: () => false,
+  });
+
+  context.syncContextStats({ allowEstimated: true, invalidateExact: true });
+
+  assert.equal(state.stats.currentContextTokens, 0);
+  assert.equal(state.stats.currentEstimatedContextTokens, 12_000);
+  assert.equal(state.stats.currentContextSource, 'estimated');
 });
 
 test('Lead pool rows never enter the agent-tool closeAll registry', () => {

@@ -14,7 +14,6 @@ import {
 import { Conversation } from "./Conversation";
 import {
   desktopConversationShellSnapshotsEqual,
-  desktopConversationSnapshotsEqual,
   desktopDockSnapshotsEqual,
   desktopHeaderSnapshotsEqual,
   desktopRuntimeProgressSnapshotsEqual,
@@ -156,6 +155,8 @@ export const PaneConversation = memo(function PaneConversation({
     desktopConversationShellSnapshotsEqual,
     !hidden,
   );
+  const [readUnavailable, setReadUnavailable] = useState(false);
+  const [readRetry, setReadRetry] = useState(0);
   const coverIdRef = useRef(sessionId || "draft");
   const originSessionRef = useRef(sessionId || "");
   const markdownPending = conversationMarkdownPending({
@@ -163,11 +164,19 @@ export const PaneConversation = memo(function PaneConversation({
     coverId: coverIdRef.current,
     hasMeasurements: Boolean(readTranscriptVirtualSnapshot(sessionId)?.measurements?.length),
   });
-  useLayoutEffect(() => {
+  useEffect(() => {
     // Fill a cold lane once. A session that already has rows is skipped
-    // inside requestSessionPeek; a focused resume already filled its target.
-    if (sessionId && reconcileOnMount) requestSessionPeek(sessionId);
-  }, [reconcileOnMount, sessionId]);
+    // inside requestSessionRead; a focused resume already filled its target.
+    if (!sessionId || !reconcileOnMount) return undefined;
+    let current = true;
+    setReadUnavailable(false);
+    void requestSessionRead(sessionId).then((accepted) => {
+      if (current && !accepted && defaultSessionLaneStore.get(sessionId) === null) {
+        setReadUnavailable(true);
+      }
+    });
+    return () => { current = false; };
+  }, [readRetry, reconcileOnMount, sessionId]);
   const laneReady = hidden || !sessionId || (!markdownPending && lane !== null);
   const { coverKey, promotingFromDraft } = conversationCoverIdentity(
     coverIdRef.current,
@@ -283,17 +292,25 @@ export const PaneConversation = memo(function PaneConversation({
     />
     <PaneSurfaceCover ready={surfaceReady} label="Loading conversation…"
       transitionKey={coverKey} showSpinner={false} />
+    {readUnavailable && lane === null && !hidden
+      ? <div className="pane-surface-cover session-unavailable" role="alert">
+        <div className="session-unavailable-card">
+          <strong>Session unavailable</strong>
+          <span>The transcript could not be loaded.</span>
+          <button type="button" onClick={() => setReadRetry((value) => value + 1)}>Retry</button>
+        </div>
+      </div>
+      : null}
   </>;
 });
 
-// Pane peek: subscribe BEFORE asking the host. Modern visible-session hosts
-// retain their latest live frame, so this handshake is safe even when it races
-// registration: a delayed disk read cannot replace a newer owner frame.
-// Dedupe only while a request is in flight; a failed/missed startup peek gets
+// Canonical session.read fills a cold lane without resuming it. The visible
+// session subscription remains responsible for subsequent live frames.
+// Dedupe only while a request is in flight; a failed/missed startup read gets
 // bounded retries instead of being suppressed forever.
-const sessionPeeksInFlight = new Map<string, Promise<boolean>>();
-const MAX_SESSION_PEEK_ATTEMPTS = 3;
-export function requestSessionPeek(
+const sessionReadsInFlight = new Map<string, Promise<boolean>>();
+const MAX_SESSION_READ_ATTEMPTS = 3;
+export function requestSessionRead(
   sessionId: string,
 ): Promise<boolean> {
   if (!sessionId) return Promise.resolve(false);
@@ -303,30 +320,30 @@ export function requestSessionPeek(
   if (existing && Array.isArray(existing.items) && existing.items.length > 0) {
     return Promise.resolve(true);
   }
-  const inFlight = sessionPeeksInFlight.get(sessionId);
+  const inFlight = sessionReadsInFlight.get(sessionId);
   if (inFlight) return inFlight;
-  const peekSession = window.mixdogDesktop?.peekSession;
-  if (typeof peekSession !== "function") return Promise.resolve(false);
+  const readSession = window.mixdogDesktop?.prefetchSession;
+  if (typeof readSession !== "function") return Promise.resolve(false);
   defaultSessionLaneStore.start();
   const request = (async () => {
-    for (let attempt = 1; attempt <= MAX_SESSION_PEEK_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; attempt <= MAX_SESSION_READ_ATTEMPTS; attempt += 1) {
       let accepted = false;
       try {
-        accepted = await Promise.resolve(peekSession(sessionId)) === true;
+        accepted = await Promise.resolve(readSession(sessionId)) === true;
       } catch {
         accepted = false;
       }
       if (accepted) return true;
-      if (attempt < MAX_SESSION_PEEK_ATTEMPTS) {
+      if (attempt < MAX_SESSION_READ_ATTEMPTS) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
       }
     }
     return false;
   })();
-  sessionPeeksInFlight.set(sessionId, request);
+  sessionReadsInFlight.set(sessionId, request);
   void request.finally(() => {
-    if (sessionPeeksInFlight.get(sessionId) === request) {
-      sessionPeeksInFlight.delete(sessionId);
+    if (sessionReadsInFlight.get(sessionId) === request) {
+      sessionReadsInFlight.delete(sessionId);
     }
   });
   return request;
@@ -366,65 +383,6 @@ export function PaneHeaderStatus({
       onChange={onRemoteChange} />
   </>;
 }
-
-/** Child-agent transcript viewer. The child lane is refreshed independently
- * from the focused parent engine and Conversation mounts no mutating controls. */
-export const AgentSessionConversation = memo(function AgentSessionConversation({
-  sessionId,
-}: {
-  sessionId: string;
-}) {
-  const lane = useSessionLane(
-    sessionId,
-    defaultSessionLaneStore,
-    desktopConversationSnapshotsEqual,
-  ) as Snapshot | null;
-  const [peekFailed, setPeekFailed] = useState(false);
-  const [retryRequest, setRetryRequest] = useState(0);
-  useLayoutEffect(() => {
-    if (!sessionId) return undefined;
-    let current = true;
-    setPeekFailed(false);
-    void requestSessionPeek(sessionId).then((accepted) => {
-      if (current && !accepted && !defaultSessionLaneStore.get(sessionId)) {
-        setPeekFailed(true);
-      }
-    });
-    return () => { current = false; };
-  }, [retryRequest, sessionId]);
-  const snapshot = lane ?? EMPTY_SNAPSHOT;
-  return <>
-    <Conversation snapshot={snapshot} routeSnapshot={snapshot} readOnly
-      invokeResult={async () => undefined}
-      errors={[]}
-      submit={async () => undefined}
-      applySnapshot={() => {}}
-      transitioning={false}
-      composerFocusRequest={0}
-      onNewTask={() => {}}
-      onClearProject={() => {}}
-      onResumeSession={() => {}}
-      onOpenSessions={() => {}}
-      onOpenProjects={() => {}}
-      onOpenSettings={() => {}}
-      projects={[]}
-      showProjectSelector={false}
-      activeProjectPath=""
-      activeProjectLabel=""
-      onSelectProject={() => {}}
-      onOpenCommandSurface={() => {}} />
-    {peekFailed && lane === null
-      ? <div className="pane-surface-cover agent-session-unavailable" role="alert">
-        <div className="agent-session-unavailable-card">
-          <strong>Agent session record unavailable</strong>
-          <span>The transcript and its archived result could not be loaded.</span>
-          <button type="button" onClick={() => setRetryRequest((value) => value + 1)}>Retry</button>
-        </div>
-      </div>
-      : <PaneSurfaceCover ready={lane !== null} label="Loading agent session…"
-        transitionKey={`agent-session:${sessionId}`} />}
-  </>;
-});
 
 // Lucide's Wifi draws its base dot as a 0.01-length stroke ("M12 20h.01") —
 // invisible at the header's thin 1.25px stroke. Same waves, but the dot is a

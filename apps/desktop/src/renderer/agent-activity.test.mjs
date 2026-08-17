@@ -4,7 +4,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 
-import { AgentActivityPane } from "./AgentActivityPane.tsx";
+import { AGENT_POOL_RECONCILE_MS, AgentActivityPane } from "./AgentActivityPane.tsx";
 import { ActiveAgentsIndicator, ActiveShellsIndicator } from "./ActiveAgentsIndicator.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
@@ -124,6 +124,126 @@ test("Agent chip appears immediately from an active tool call; the shell chip wa
   }
 });
 
+test("running background agent jobs drive the header icon until terminal", async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(TaskIndicators, {
+        snapshot: {
+          sessionId: "lead-a",
+          agentJobs: [{
+            task_id: "task-agent-1",
+            tag: "review",
+            status: "running",
+            startedAt: Date.now() - 1_000,
+          }],
+        },
+      }));
+    });
+    assert.equal(document.querySelector(".session-agents-count")?.textContent, "1");
+
+    await act(async () => {
+      dom.root.render(React.createElement(TaskIndicators, {
+        snapshot: {
+          sessionId: "lead-a",
+          agentJobs: [{ task_id: "task-agent-1", tag: "review", status: "completed" }],
+        },
+      }));
+    });
+    assert.equal(Boolean(document.querySelector(".session-agents-indicator")), false);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("Agent pane ignores a stale initial list that resolves after a live push", async () => {
+  const dom = installDom();
+  let resolveInitial;
+  let push = () => {};
+  window.mixdogDesktop = {
+    listAgentPool: () => new Promise((resolve) => { resolveInitial = resolve; }),
+    subscribeAgentPool(listener) {
+      push = listener;
+      return () => {};
+    },
+  };
+  const sessions = [
+    { id: "lead-a", title: "Lead A", preview: "", updatedAt: 1, messageCount: 1 },
+  ];
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(AgentActivityPane, { active: false, sessions }));
+    });
+    await act(async () => push([{
+      tag: "review",
+      agent: "reviewer",
+      status: "running",
+      stage: "running",
+      sessionId: "worker-new",
+      ownerSessionId: "lead-a",
+    }]));
+    assert.ok(document.querySelector('[data-agent-session-id="worker-new"]'));
+
+    await act(async () => resolveInitial([]));
+    assert.ok(document.querySelector('[data-agent-session-id="worker-new"]'));
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("active Agent pane reconciles missed pool pushes and clears departed rows", async () => {
+  const dom = installDom();
+  const originalSetInterval = window.setInterval.bind(window);
+  const originalClearInterval = window.clearInterval.bind(window);
+  let reconcile = null;
+  let pool = [{
+    tag: "review",
+    agent: "reviewer",
+    status: "running",
+    stage: "running",
+    sessionId: "worker-live",
+    ownerSessionId: "lead-a",
+  }];
+  window.setInterval = (callback, ms) => {
+    if (ms === AGENT_POOL_RECONCILE_MS) {
+      reconcile = callback;
+      return 987654;
+    }
+    return originalSetInterval(callback, ms);
+  };
+  window.clearInterval = (id) => {
+    if (id !== 987654) originalClearInterval(id);
+  };
+  window.mixdogDesktop = {
+    async listAgentPool() { return pool; },
+    subscribeAgentPool() { return () => {}; },
+  };
+  const sessions = [
+    { id: "lead-a", title: "Lead A", preview: "", updatedAt: 1, messageCount: 1 },
+  ];
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(AgentActivityPane, { active: true, sessions }));
+    });
+    assert.ok(document.querySelector('[data-agent-session-id="worker-live"]'));
+    assert.equal(typeof reconcile, "function");
+
+    pool = [];
+    await act(async () => {
+      reconcile();
+      await Promise.resolve();
+    });
+    assert.equal(Boolean(document.querySelector('[data-agent-session-id="worker-live"]')), false);
+  } finally {
+    await act(async () => dom.root.unmount());
+    window.setInterval = originalSetInterval;
+    window.clearInterval = originalClearInterval;
+    dom.close();
+  }
+});
+
 test("two session task indicators update independently without focus routing", async () => {
   const dom = installDom();
   const LaneIndicator = ({ sessionId }) => {
@@ -204,7 +324,7 @@ test("Agents groups every active session and renders each session's live agents"
           provider: "openai",
         },
         {
-          tag: "review",
+          tag: "legacy-session",
           agent: "reviewer",
           title: "Review dependency update",
           status: "idle",
@@ -291,6 +411,8 @@ test("Agents groups every active session and renders each session's live agents"
     const runningRow = document.querySelector('[data-agent-session-id="lead-a"]').closest(".schedules-row");
     assert.equal(runningRow.querySelector(".agent-activity-status [role=status]"), null);
     assert.equal(runningRow.lastElementChild.className, "agent-activity-status");
+    assert.doesNotMatch(runningRow.querySelector(".agent-activity-elapsed").textContent, /Working/);
+    assert.match(runningRow.querySelector(".agent-activity-elapsed").textContent, /^\d/);
     const idleRow = document.querySelector('[data-agent-session-id="child-b"]').closest(".schedules-row");
     // A resting agent reports rest only: idle duration carries no information
     // (user decision), so the label is the bare state word.
@@ -301,7 +423,7 @@ test("Agents groups every active session and renders each session's live agents"
     await act(async () => document.querySelector('[data-agent-session-id="child-b"]').click());
     assert.deepEqual(opened, [
       ["lead", "lead-a"],
-      ["agent", "child-b", "Review dependency update", "lead-b"],
+      ["agent", "child-b", "Review dependency update · legacy-session", "lead-b"],
     ]);
   } finally {
     await act(async () => dom.root.unmount());

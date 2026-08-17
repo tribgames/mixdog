@@ -131,7 +131,8 @@ function buildRestoredAggregateItem(members) {
     // Mirror live outcome semantics: a plain non-zero shell exit is the
     // neutral 'Exit N' state, not a red failure; only real call errors count.
     const exitCode = shellCommandExitCode(resultText);
-    const isExitError = exitCode != null;
+    // Exit 0 is a completed success, never the neutral "Exit" bucket.
+    const isExitError = exitCode != null && exitCode !== 0;
     const isCallError = !isExitError && item.isError === true;
     calls.push({
       name: item.name,
@@ -1033,49 +1034,6 @@ export function createSessionApiB(bag) {
         flushEmitImmediate();
       }
     },
-    // Desktop split panes: read-only transcript + route peek of an idle
-    // session — no resume, no ownership claim, no session runtime state mutation.
-    // Panes render every visible session as foreground from this frame.
-    peekSessionTranscript: (id, options = {}) => {
-      const session = runtime.peekSession?.(id);
-      if (!session) return null;
-      const sessionId = String(session.id || id);
-      const limit = Number(options.transcriptItemLimit);
-      const contextStatus = runtime.contextStatusForSession?.(session) || null;
-      return {
-        sessionId,
-        items: restoreTranscriptItems(session.messages, {
-          sessionId,
-          itemLimit: Number.isFinite(limit) && limit > 0 ? limit : Number.POSITIVE_INFINITY,
-        }),
-        provider: session.provider || '',
-        model: session.model || '',
-        effort: session.effort || '',
-        fast: session.fast === true,
-        modelParameters: session.modelParameters || {},
-        cwd: session.cwd || '',
-        desktopSession: session.desktopSession || null,
-        workflow: session.workflow || null,
-        ...sessionContextSnapshotProjection(session, contextStatus),
-      };
-    },
-    // RAW session messages (wire-sanitized downstream). Agent shard spread:
-    // the Lead-side watchdog partial-handoff and terminal-result collection
-    // read raw `session.messages`, which the display projection cannot carry.
-    // `start` slices from a caller-known baseline so turn-end reads stay small.
-    peekSessionMessages: (id, options = {}) => {
-      const session = runtime.peekSession?.(id);
-      if (!session) return null;
-      const messages = Array.isArray(session.messages) ? session.messages : [];
-      const start = Math.max(0, Math.floor(Number(options.start) || 0));
-      return {
-        sessionId: String(session.id || id),
-        messageCount: messages.length,
-        messages: start > 0 ? messages.slice(start) : messages,
-        agent: session.agent || null,
-        status: session.closed === true ? 'closed' : (session.status || 'idle'),
-      };
-    },
     resume: async (id, options = {}) => {
       if (getState().commandBusy) return false;
       // quiet: viewer-follow refreshes (session runtime share tick) re-resume on every
@@ -1147,6 +1105,8 @@ export function createSessionApiB(bag) {
       try { clearInterval(lifecycle.runtimePulseTimer); } catch {}
       try { lifecycle.unsubscribeRuntimeNotifications?.(); } catch {}
       lifecycle.unsubscribeRuntimeNotifications = null;
+      try { lifecycle.unsubscribeAgentStatus?.(); } catch {}
+      lifecycle.unsubscribeAgentStatus = null;
       try { lifecycle.unsubscribeRemoteState?.(); } catch {}
       lifecycle.unsubscribeRemoteState = null;
       denyAllToolApprovals('runtime closing');

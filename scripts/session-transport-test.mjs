@@ -22,6 +22,7 @@ process.env.MIXDOG_CHANNEL_ACTIVE_CALLS = '8';
 
 const { createSessionTransport } = await import('../src/standalone/session-transport.mjs');
 const { createSessionService } = await import('../src/standalone/session-service.mjs');
+const { SESSION_READ_ACTIONS } = await import('../src/standalone/session-protocol.mjs');
 const { createChannelTransport } = await import('../src/standalone/channel-transport.mjs');
 const {
   cleanupBackgroundTasks,
@@ -757,14 +758,14 @@ test('session catalog has one explicit route and never rides session responses',
       scans += 1;
       return [{ id: 'catalog-row', updatedAt: scans }];
     },
-    getRemoteOwnerState() {
+    getRemoteSessionState() {
       return { enabled: true, sessionId: 'catalog-row' };
     },
   });
   try {
     const firstCatalog = await service.handleCall('session.list', {});
     assert.ok(Array.isArray(firstCatalog.sessions));
-    assert.deepEqual(firstCatalog.remoteOwner, {
+    assert.deepEqual(firstCatalog.remoteSession, {
       enabled: true,
       sessionId: 'catalog-row',
     });
@@ -911,6 +912,33 @@ function createStubSessionRuntime(sessionId = '') {
     async dispose() { state = { ...state, disposed: true }; publish(); },
   };
 }
+
+test('canonical session.read returns raw agent messages without a deprecated action', async () => {
+  const messages = [
+    { role: 'user', content: 'worker brief' },
+    { role: 'assistant', content: 'worker handoff' },
+  ];
+  const runtime = createStubSessionRuntime('agent_read_session');
+  assert.equal(Object.hasOwn(runtime, 'session'), false);
+  const service = createSessionService({
+    createSessionRuntime: async () => runtime,
+    readStoredSession: async (_sessionId, options = {}) => ({
+      items: [],
+      ...(options.includeMessages === true ? { messages } : {}),
+    }),
+  });
+  try {
+    const result = await service.handleCall('session.read', {
+      sessionId: 'agent_read_session',
+      messageStart: 1,
+    });
+    assert.equal(result.messageCount, 2);
+    assert.deepEqual(result.messages, [messages[1]]);
+    assert.equal(SESSION_READ_ACTIONS.some((name) => /peek/i.test(name)), false);
+  } finally {
+    await service.stop('test end');
+  }
+});
 
 async function withDaemon(run, {
   sessionFactory = async () => createStubSessionRuntime(), idleEvictMs = null, evictSweepMs = null,
@@ -1363,7 +1391,7 @@ test('disconnected channel remote-state churn keeps only the latest frame', asyn
   }
 });
 
-test('channel transport publishes remote ownership independently of state-file persistence', async () => {
+test('channel transport publishes the pinned remote session independently of state-file persistence', async () => {
   const states = [];
   let transport = null;
   transport = createChannelTransport({
@@ -1373,7 +1401,7 @@ test('channel transport publishes remote ownership independently of state-file p
       }
       return { ok: true };
     },
-    onRemoteOwnerStateChange: (state) => states.push(state),
+    onRemoteStateChange: (state) => states.push(state),
   });
   const endpoint = await transport.start();
   try {

@@ -45,8 +45,6 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'listThemes',
   'listWorkflows',
   'mcpStatus',
-  'peekSessionMessages',
-  'peekSessionTranscript',
   'pluginsStatus',
   'readMediaAsset',
   'resolveMediaFile',

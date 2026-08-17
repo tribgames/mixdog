@@ -1,4 +1,4 @@
-// Host-level desktop state (workspace, remote owner, chrome) is separate from
+// Host-level desktop state (Project, pinned remote session, chrome) is separate from
 // established session panes, which read only their keyed session lanes.
 import { useCallback, useEffect, useRef, useState } from "react";
 

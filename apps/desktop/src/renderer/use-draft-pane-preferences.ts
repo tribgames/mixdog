@@ -5,7 +5,11 @@ import type { Snapshot } from "./desktop-types";
 import { mergeRoutePreference, routePreferenceStore } from "./app-route-preference";
 import { asRecord, navigationKey } from "./text-format";
 
-const DRAFT_PANE_PREFS_KEY = "mixdog.desktop-draft-pane-prefs.v1";
+// v2: entries store ONLY explicitly staged fields (null = inherit live from
+// the last cached settings). v1 entries materialized inherited values, which
+// froze stale models onto restored/parked drafts (user report).
+const DRAFT_PANE_PREFS_KEY = "mixdog.desktop-draft-pane-prefs.v2";
+const LEGACY_DRAFT_PANE_PREFS_KEY = "mixdog.desktop-draft-pane-prefs.v1";
 const LAST_NEW_TASK_PREFS_KEY = "mixdog.desktop-last-new-task-prefs.v1";
 
 export type DraftPanePrefs = {
@@ -86,11 +90,16 @@ export function useDraftPanePreferences({
       projectPath: effectiveDraftProjectPath(last
         ? last.projectPath
         : newTaskProjectPathRef.current || preferredDraftProjectPath),
-      modelSelection: newTaskModelSelectionRef.current
-        ?? last?.modelSelection
+      // The last cached settings win over the focused-draft singletons: the
+      // singletons may still mirror an old parked draft, while a genuinely
+      // new task must reuse the LAST cached settings (user rule). Every
+      // explicit staging also updates lastNewTaskPrefs, so this order never
+      // loses fresh data.
+      modelSelection: last?.modelSelection
+        ?? newTaskModelSelectionRef.current
         ?? snapshotDraftModelSelection,
-      workflow: newTaskWorkflowRef.current
-        ?? last?.workflow ?? null,
+      workflow: last?.workflow
+        ?? newTaskWorkflowRef.current ?? null,
     };
   }, [effectiveDraftProjectPath, preferredDraftProjectPath, snapshotDraftModelSelection]);
   // ONE display/restore rule for a draft's effective prefs (focused and
@@ -146,13 +155,25 @@ export function useDraftPanePreferences({
     const current = selectionRef.current;
     if (current.kind !== "new") return;
     const draftKey = current.draftId || "default";
-    const entry = draftPanePrefs.current.get(draftKey) ?? inheritedDraftPrefs();
+    // A first-touch entry stays null-valued (inherit live): only the fields
+    // the user explicitly stages freeze on this pane.
+    const entry = draftPanePrefs.current.get(draftKey)
+      ?? { projectPath: inheritedDraftPrefs().projectPath, modelSelection: null, workflow: null };
     const merged = { ...entry, ...patch };
     // Refresh insertion order so the persistence cap drops the oldest drafts.
     draftPanePrefs.current.delete(draftKey);
     draftPanePrefs.current.set(draftKey, merged);
-    // Explicit staging updates the inheritance source for FUTURE new tasks.
-    lastNewTaskPrefs.current = merged;
+    // Explicit staging updates the inheritance source for FUTURE new tasks —
+    // but only the STAGED fields. Merging the whole entry rewound the cache
+    // to this pane's older values (user report: the last session-creation
+    // model was not cached for the next New Task).
+    const last = lastNewTaskPrefs.current ?? inheritedDraftPrefs();
+    lastNewTaskPrefs.current = {
+      ...last,
+      ...(patch.projectPath === undefined ? {} : { projectPath: patch.projectPath }),
+      ...(patch.modelSelection ? { modelSelection: patch.modelSelection } : {}),
+      ...(patch.workflow ? { workflow: patch.workflow } : {}),
+    };
     persistDraftPanePrefs();
     setDraftPrefsVersion((value) => value + 1);
   }, [inheritedDraftPrefs, persistDraftPanePrefs]);
@@ -173,6 +194,9 @@ export function useDraftPanePreferences({
             : null,
         };
       }
+      // v1 entries materialized inherited models; resolving them as explicit
+      // choices resurfaced stale models, so they are abandoned wholesale.
+      window.localStorage.removeItem(LEGACY_DRAFT_PANE_PREFS_KEY);
       const raw = window.localStorage.getItem(DRAFT_PANE_PREFS_KEY);
       const parsed: unknown = raw ? JSON.parse(raw) : null;
       if (!Array.isArray(parsed)) return;
@@ -218,12 +242,18 @@ export function useDraftPanePreferences({
       ...cached,
       modelSelection,
     };
-    // A successful session route becomes the seed for a genuinely new draft;
-    // parked draft panes keep their own per-pane entries unchanged.
-    if (selectionRef.current.kind !== "new") {
+    // A successful session route becomes the seed for every draft that has no
+    // explicit model of its own; explicitly staged draft panes keep their
+    // per-pane entries unchanged.
+    const current = selectionRef.current;
+    const focusedDraftKey = current.kind === "new" ? current.draftId || "default" : "";
+    if (!focusedDraftKey || !draftPanePrefs.current.get(focusedDraftKey)?.modelSelection) {
       newTaskModelSelectionRef.current = modelSelection;
+      setNewTaskModelSelection(modelSelection);
     }
     persistDraftPanePrefs();
+    // Inheriting (null-model) draft panes render the cache live: repaint them.
+    setDraftPrefsVersion((value) => value + 1);
   }, [inheritedDraftPrefs, persistDraftPanePrefs]);
   const stageNewTaskWorkflow = useCallback((workflow: DesktopWorkflowState) => {
     newTaskWorkflowRef.current = workflow;
@@ -256,18 +286,15 @@ export function useDraftPanePreferences({
   const resetNewTaskDraft = useCallback((projectPath: string) => {
     stageNewTaskProject(projectPath);
     // A fresh draft INHERITS the last cached model/workflow instead of
-    // resetting to "Select model" (user rule); it diverges independently
-    // from the first per-pane change.
+    // resetting to "Select model" (user rule). The values are painted but NOT
+    // staged into the entry: the draft keeps following the cache until the
+    // user explicitly diverges this pane.
     const inherited = inheritedDraftPrefs();
     newTaskModelSelectionRef.current = inherited.modelSelection;
     setNewTaskModelSelection(inherited.modelSelection);
     newTaskWorkflowRef.current = inherited.workflow;
     setNewTaskWorkflow(inherited.workflow);
-    rememberDraftPanePrefs({
-      modelSelection: inherited.modelSelection,
-      workflow: inherited.workflow,
-    });
-  }, [inheritedDraftPrefs, rememberDraftPanePrefs, stageNewTaskProject]);
+  }, [inheritedDraftPrefs, stageNewTaskProject]);
   // Focused-draft switch: restore THAT draft's staged prefs into the working
   // singletons (or seed a first-seen draft from the inherited values), so
   // Ctrl+N tabs and pane clicks never bleed prefs into each other.
@@ -275,20 +302,11 @@ export function useDraftPanePreferences({
   useEffect(() => {
     if (!activeDraftKey) return;
     const entry = draftPanePrefs.current.get(activeDraftKey);
+    const resolved = resolvedDraftPrefsFor(activeDraftKey);
     if (entry) {
-      const resolved = resolvedDraftPrefsFor(activeDraftKey);
-      // Older/restored panes may have an explicit null model because no picker
-      // choice was made. Materialize the effective engine default once so a
-      // later pane focus cannot change its visible route.
-      if (!entry.modelSelection && resolved.modelSelection) {
-        draftPanePrefs.current.set(activeDraftKey, {
-          ...entry,
-          modelSelection: resolved.modelSelection,
-        });
-        lastNewTaskPrefs.current = resolved;
-        persistDraftPanePrefs();
-        setDraftPrefsVersion((value) => value + 1);
-      }
+      // A null model/workflow stays INHERITED: resolution falls through to
+      // the stable last-cached settings, so pane focus cannot change the
+      // visible route and later session-route changes keep flowing in.
       newTaskProjectPathRef.current = resolved.projectPath;
       setNewTaskProjectPath(resolved.projectPath);
       newTaskModelSelectionRef.current = resolved.modelSelection;
@@ -297,20 +315,27 @@ export function useDraftPanePreferences({
       setNewTaskWorkflow(resolved.workflow);
       return;
     }
-    // First sight of this draft: seed from the last cached settings and show
-    // them immediately (user rule: new tasks reuse the last settings).
-    const seeded = inheritedDraftPrefs();
-    draftPanePrefs.current.set(activeDraftKey, seeded);
-    if (seeded.modelSelection) lastNewTaskPrefs.current = seeded;
-    newTaskProjectPathRef.current = seeded.projectPath;
-    setNewTaskProjectPath(seeded.projectPath);
-    newTaskModelSelectionRef.current = seeded.modelSelection;
-    setNewTaskModelSelection(seeded.modelSelection);
-    newTaskWorkflowRef.current = seeded.workflow;
-    setNewTaskWorkflow(seeded.workflow);
+    // First sight of this draft: register a null-valued entry and paint the
+    // inherited settings (user rule: new tasks reuse the last settings).
+    // Model/workflow stay INHERITED (null) so later session-route changes
+    // keep flowing in until the user explicitly stages this pane, and
+    // auto-seeding never rewrites lastNewTaskPrefs (which rewound the cache
+    // to stale values — user report: the last session-creation model was
+    // not applied to the next New Task).
+    draftPanePrefs.current.set(activeDraftKey, {
+      projectPath: resolved.projectPath,
+      modelSelection: null,
+      workflow: null,
+    });
+    newTaskProjectPathRef.current = resolved.projectPath;
+    setNewTaskProjectPath(resolved.projectPath);
+    newTaskModelSelectionRef.current = resolved.modelSelection;
+    setNewTaskModelSelection(resolved.modelSelection);
+    newTaskWorkflowRef.current = resolved.workflow;
+    setNewTaskWorkflow(resolved.workflow);
     persistDraftPanePrefs();
     setDraftPrefsVersion((value) => value + 1);
-  }, [activeDraftKey, inheritedDraftPrefs, persistDraftPanePrefs, resolvedDraftPrefsFor]);
+  }, [activeDraftKey, persistDraftPanePrefs, resolvedDraftPrefsFor]);
   useEffect(() => {
     if (!projectCatalogReady) return;
     let changed = false;

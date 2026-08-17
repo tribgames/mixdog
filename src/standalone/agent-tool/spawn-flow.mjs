@@ -2,7 +2,7 @@
 // deferral, admission control), the progress-idle watchdogs, spawn prep
 // (provider/session preparation), and the full runSpawn
 // execution with turn-review collection and terminal accounting.
-import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, positiveInt, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, withCwdHeader, writeAgentStatuslineRoute } from './helpers.mjs';
+import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, positiveInt, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, writeAgentStatuslineRoute } from './helpers.mjs';
 import { createNotify } from './notify.mjs';
 import { reconcileBackgroundTask, sanitizeTaskMeta, startBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
 import { abnormalEmptyFinishError, renderResult } from './render.mjs';
@@ -31,6 +31,8 @@ export function createSpawnFlow({
   cancelReap,
   bindTag,
   emitSubagentEvent,
+  notifyStatusChange = () => {},
+  notifySessionCompletion,
   scheduleReap,
   cfgMod,
   dataDir,
@@ -47,12 +49,24 @@ export function createSpawnFlow({
     forgetTerminalSession(prepared.tag, prepared.session.id);
   }
 
-  // Owner/worker completion notification lives in ./agent-tool/notify.mjs; the
-  // factory captures mgr and registers the canonical completion fallback.
-  const { workerNotifyFn, notifyOwnerAgentCompletionEarly } = createNotify(mgr);
+  // Owner/worker completion notification lives in ./agent-tool/notify.mjs.
+  const { workerNotifyFn, notifyOwnerAgentCompletionEarly } = createNotify(mgr, {
+    notifySessionCompletion,
+  });
 
   function startJob(type, meta, run, notifyContext = null) {
     const clientHostPid = terminalPidForContext(notifyContext);
+    const ownerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
+    const ownerNotifyContext = {
+      callerSessionId: ownerSessionId || null,
+      clientHostPid: clientHostPid || null,
+      notifyFn: ownerSessionId && typeof notifySessionCompletion === 'function'
+        ? (text, completionMeta = {}) => notifySessionCompletion(ownerSessionId, text, {
+            ...(completionMeta && typeof completionMeta === 'object' ? completionMeta : {}),
+            caller_session_id: ownerSessionId,
+          })
+        : null,
+    };
     const jobMeta = sanitizeTaskMeta({
       ...(meta || {}),
       ...(clientHostPid ? { clientHostPid } : {}),
@@ -64,7 +78,7 @@ export function createSpawnFlow({
       operation: type,
       label: jobMeta?.tag || jobMeta?.sessionId || type,
       input: { type, tag: jobMeta?.tag || null, sessionId: jobMeta?.sessionId || null, agent: jobMeta?.agent || null },
-      context: notifyContext,
+      context: ownerNotifyContext,
       meta: jobMeta,
       resultType: 'agent_task_result',
       renderResult: (result) => renderResult(result),
@@ -74,13 +88,13 @@ export function createSpawnFlow({
         if (currentMeta?.sessionId) {
           try { mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel'); } catch {}
         }
+        setImmediate(notifyStatusChange);
       },
       run: async () => {
         const lease = await resourceAdmission.acquire('agent', {
           signal: admissionController.signal,
           label: jobMeta?.tag || type,
-          ownerKey: notifyContext?.callerSessionId || notifyContext?.sessionId
-            || clientHostPid || null,
+          ownerKey: ownerSessionId || clientHostPid || null,
         });
         try {
           // Yield one macrotask before doing agent work. startBackgroundTask uses
@@ -88,17 +102,21 @@ export function createSpawnFlow({
           // before the TUI receives/render the "running" result.
           await new Promise((resolve) => setImmediate(resolve));
           if (task?.status === 'cancelled') return null;
-          return await resourceAdmission.runWithLease(lease, () => run(task));
+          return await resourceAdmission.runWithLease(lease, () => run(task, ownerNotifyContext));
         } finally {
           await lease.release();
+          // startBackgroundTask stamps the terminal state in its next promise
+          // continuation; publish after that continuation, not before it.
+          setImmediate(notifyStatusChange);
         }
       },
     });
+    notifyStatusChange();
     return task;
   }
 
   function startDeferredSpawnJob(args, callerCwd, context, notifyContext, extras = {}) {
-    return startJob('spawn', pendingSpawnMeta(args, extras), async (job) => {
+    return startJob('spawn', pendingSpawnMeta(args, extras), async (job, ownerNotifyContext) => {
       if (job?.status === 'cancelled') return null;
       // prepareSpawn (ensureProvider/prepareAgentSession) runs before runSpawn
       // installs its progress watchdog, so guard prep with an internal env-
@@ -144,11 +162,12 @@ export function createSpawnFlow({
         startedAt: job.startedAt,
         turnStartedAt: new Date().toISOString(),
       });
+      notifyStatusChange();
       if (job?.status === 'cancelled') {
         closePreparedSpawn(prepared);
         return null;
       }
-      return await runSpawn(prepared, notifyContext, job);
+      return await runSpawn(prepared, ownerNotifyContext, job);
     }, notifyContext);
   }
 
@@ -202,7 +221,7 @@ export function createSpawnFlow({
     }
     const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
     const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
-    const prompt = withCwdHeader(await resolvePrompt(args, workerCwd), workerCwd);
+    const prompt = await resolvePrompt(args, workerCwd);
     if (prepState?.timedOut) {
       throw new Error('agent spawn prep timed out before session bind');
     }
@@ -345,6 +364,7 @@ export function createSpawnFlow({
       stage: 'running',
       turnStartedAt: new Date().toISOString(),
     });
+    notifyStatusChange();
     let handoffMsgStart = 0;
     try {
       const completionValue = (result) => {
@@ -477,6 +497,7 @@ export function createSpawnFlow({
         stage: finalStatus,
         finishedAt: new Date().toISOString(),
       });
+      setImmediate(notifyStatusChange);
       // Safety net: if a post-result step (session save) hung or threw after the
       // worker already produced a terminal result, the task could otherwise be
       // stranded in `running`. Reconcile it to a terminal state using the

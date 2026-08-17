@@ -58,6 +58,7 @@ import {
 } from '../runtime/agent/orchestrator/providers/stream-json-pool.mjs';
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelTransport } from './channel-transport.mjs';
+import { createChannelSessionRouter } from './channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
 import { createSessionProtocolClient } from './session-protocol.mjs';
@@ -238,7 +239,7 @@ let sessionRuntimePool = null;
 let localSessionBridge = null;
 let memoryRuntime = null;
 let agentDispatchBroker = null;
-let remoteOwnerState = { enabled: false, sessionId: null };
+let remoteSessionState = { enabled: false, sessionId: null };
 let shuttingDown = false;
 let shutdownRecheckTimer = null;
 let replacementRequested = null;
@@ -442,13 +443,20 @@ async function main() {
   // optional messaging service). A daemon spawned by a TUI starts them exactly
   // as before; a daemon spawned for session views stays dormant until a channels
   // client actually registers, so an app-only service runs no tunnels.
-  let channelsStarted = false;
-  function startChannels() {
-    if (channelsStarted) return;
-    channelsStarted = true;
-    const messaging = String(process.env.MIXDOG_REMOTE_INTENT || '') === 'explicit';
-    void ensureChannels().then((module) => module.start({ messaging }))
-      .catch((e) => log(`channels.start failed (non-fatal): ${e?.message || e}`));
+  let channelsStartPromise = null;
+  function startChannels(options = {}) {
+    if (channelsStartPromise) return channelsStartPromise;
+    const messaging = options.messaging === true
+      || Boolean(transport?.remoteIntentSessionId)
+      || String(process.env.MIXDOG_REMOTE_INTENT || '') === 'explicit';
+    channelsStartPromise = ensureChannels()
+      .then((module) => module.start({ messaging }))
+      .catch((e) => {
+        channelsStartPromise = null;
+        log(`channels.start failed (non-fatal): ${e?.message || e}`);
+        throw e;
+      });
+    return channelsStartPromise;
   }
 
   // Accepted owner controls refresh active-instance context. The transport
@@ -466,28 +474,35 @@ async function main() {
     agentBroker: agentDispatchBroker,
     remoteStatePath: path.join(RUNTIME_ROOT, 'channel-remote-state.json'),
     remoteIntentPath: path.join(RUNTIME_ROOT, 'channel-remote-intent.json'),
-    // If a manual owner disappears without sending OFF, deactivate the service.
-    // No survivor is selected or rebound.
-    dispatchControl: (name, args, ctx) => handleCall(name, args, ctx),
     log,
     // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
     // registry as the liveness signal).
     onClientsEmpty: () => { maybeSelfShutdown('no live channel clients'); },
     // First channels client in: bring the channels runtime up (see startChannels).
     onClientRegistered: () => { startChannels(); },
-    onRemoteOwnerStateChange: (state) => {
-      remoteOwnerState = {
+    onRemoteStateChange: (state) => {
+      remoteSessionState = {
         enabled: state?.enabled === true,
         sessionId: state?.enabled === true && state?.sessionId
           ? String(state.sessionId)
           : null,
       };
-      const frame = { type: 'remote-owner-state', ...remoteOwnerState };
+      const frame = { type: 'remote-session-state', ...remoteSessionState };
       localSessionBridge?.publish(frame);
       sessionTransport?.broadcast(frame);
     },
   });
-  setChannelNotifySink((method, params) => transport.notify(method, params));
+  const routeChannelNotification = createChannelSessionRouter({
+    getSessionService: () => sessionService,
+    // The durable pin is authoritative before provider restoration finishes,
+    // so startup inbound cannot fall into the acquire window.
+    getSessionId: () => transport.remoteIntentSessionId,
+    log,
+  });
+  setChannelNotifySink((method, params) => {
+    if (routeChannelNotification(method, params)) return;
+    transport.notify(method, params);
+  });
   const { port, token } = await transport.start();
   // Memory-cycle agent dispatch is rare and initializes on first use. Eagerly
   // loading its provider graph here consumed the control loop before any
@@ -599,7 +614,7 @@ async function main() {
         refreshFromStorage: options.refreshFromStorage === true,
       });
     },
-    getRemoteOwnerState: () => remoteOwnerState,
+    getRemoteSessionState: () => remoteSessionState,
     desktopRuntime,
     onFrame: (frame, targetTokens) => {
       localSessionBridge?.publish(frame, targetTokens);
@@ -693,6 +708,25 @@ async function main() {
     safeIpcSend(process, { type: 'ready', port, token });
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
+  const bootRemoteSessionId = transport.remoteIntentSessionId;
+  if (bootRemoteSessionId) {
+    void (async () => {
+      // Independent boot legs: the channel worker (provider load + gateway
+      // login) does not need the session runtime, and serializing it behind
+      // materializeSession pushed the Discord connect past the whole
+      // shard-boot+resume window (~15s). Only the intent restore below needs
+      // both.
+      await Promise.all([
+        sessionService.materializeSession(bootRemoteSessionId),
+        startChannels({ messaging: true }),
+      ]);
+      const restored = await transport.restoreRemoteIntent();
+      if (!restored) throw new Error(`remote intent restore refused session=${bootRemoteSessionId}`);
+      log(`daemon boot remote restored session=${bootRemoteSessionId}`);
+    })().catch((error) => {
+      log(`daemon boot remote restore failed session=${bootRemoteSessionId}: ${error?.message || error}`);
+    });
+  }
   eventLoopLagTimer = setInterval(() => {
     const status = eventLoopStatus();
     if (status.eventLoopP99Ms >= 250) {

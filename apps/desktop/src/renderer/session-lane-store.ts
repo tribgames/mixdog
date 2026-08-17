@@ -606,7 +606,7 @@ export function useSessionLane(
   return useSyncExternalStore(subscribe, read);
 }
 
-export function useSessionRemoteOwner(
+export function usePinnedRemoteSession(
   store: SessionLaneStore = defaultSessionLaneStore,
 ): string {
   return useSyncExternalStore(

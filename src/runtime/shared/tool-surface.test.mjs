@@ -29,6 +29,23 @@ test('git batches aggregate without falling through to unknown tools', () => {
   assert.doesNotMatch(header, /Called .* tool/);
 });
 
+test('agent spawn and terminal result use distinct lifecycle labels', () => {
+  assert.equal(
+    formatToolActionHeader('agent', { type: 'spawn', tag: 'review' }),
+    'Called 1 agent',
+  );
+  assert.equal(
+    formatToolActionHeader('agent', { type: 'result', status: 'completed', task_id: 'task-agent-1' }),
+    'Completed 1 agent',
+  );
+  assert.equal(
+    formatAggregateHeader(aggregateDoneCategories([
+      { name: 'agent', args: { type: 'result', status: 'completed', task_id: 'task-agent-1' } },
+    ])),
+    'Completed 1 agent',
+  );
+});
+
 test('deferred tool headers list every selected tool in input order', () => {
   const args = { names: ['grep', 'code_graph', 'grep', 'memory'] };
   assert.deepEqual(toolLoadingTargets('load_tool', args), ['grep', 'code_graph', 'memory']);

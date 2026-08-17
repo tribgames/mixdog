@@ -228,7 +228,7 @@ export class SessionHost implements DesktopService {
     return () => this.sessionStateListeners.delete(listener);
   }
 
-  private snapshotWithRemoteOwner(snapshot: SessionSnapshot): SessionSnapshot {
+  private snapshotWithRemoteSession(snapshot: SessionSnapshot): SessionSnapshot {
     if (!snapshot || typeof snapshot !== 'object') return snapshot;
     return {
       ...snapshot,
@@ -237,7 +237,7 @@ export class SessionHost implements DesktopService {
     };
   }
 
-  private applyRemoteOwnerState(value: unknown): void {
+  private applyRemoteSessionState(value: unknown): void {
     const state = value && typeof value === 'object'
       ? value as Record<string, unknown>
       : {};
@@ -257,7 +257,7 @@ export class SessionHost implements DesktopService {
   }
 
   private publishShell(snapshot: SessionSnapshot): void {
-    const visibleSnapshot = this.snapshotWithRemoteOwner(snapshot);
+    const visibleSnapshot = this.snapshotWithRemoteSession(snapshot);
     this.shellSnapshot = visibleSnapshot;
     for (const listener of [...this.listeners]) {
       try { listener(visibleSnapshot); } catch { /* a presentation listener owns its failure */ }
@@ -284,25 +284,12 @@ export class SessionHost implements DesktopService {
   }
 
   private publishSession(sessionId: string, snapshot: SessionSnapshot): void {
-    const visibleSnapshot = this.snapshotWithRemoteOwner(
+    const visibleSnapshot = this.snapshotWithRemoteSession(
       this.snapshotWithShellJobs(sessionId, snapshot),
     );
     for (const listener of [...this.sessionStateListeners]) {
       try {
         listener({ sessionId, snapshot: visibleSnapshot, frameSource: 'live' });
-      } catch {
-        // A visual client cannot affect service execution.
-      }
-    }
-  }
-
-  private publishSessionReplay(sessionId: string, snapshot: SessionSnapshot): void {
-    const visibleSnapshot = this.snapshotWithRemoteOwner(
-      this.snapshotWithShellJobs(sessionId, snapshot),
-    );
-    for (const listener of [...this.sessionStateListeners]) {
-      try {
-        listener({ sessionId, snapshot: visibleSnapshot, frameSource: 'replay' });
       } catch {
         // A visual client cannot affect service execution.
       }
@@ -331,13 +318,13 @@ export class SessionHost implements DesktopService {
     const nextRevision = Number.isFinite(revision) ? revision : (prior?.revision ?? 0);
     this.sessionProjections.set(id, { revision: nextRevision, snapshot });
     if (publish && id !== this.controlSessionId) this.publishSession(id, snapshot);
-    return this.snapshotWithRemoteOwner(snapshot);
+    return this.snapshotWithRemoteSession(snapshot);
   }
 
   private handleSessionFrame(frame: Record<string, unknown>): void {
     if (this.disposed) return;
-    if (frame.type === 'remote-owner-state') {
-      this.applyRemoteOwnerState(frame);
+    if (frame.type === 'remote-session-state') {
+      this.applyRemoteSessionState(frame);
       return;
     }
     const sessionId = String(frame.sessionId || '');
@@ -502,7 +489,7 @@ export class SessionHost implements DesktopService {
     cwd: string,
     projectPath: string | null,
   ): SessionSnapshot {
-    return this.snapshotWithRemoteOwner({
+    return this.snapshotWithRemoteSession({
       sessionId: '',
       items: [],
       queued: [],
@@ -641,7 +628,7 @@ export class SessionHost implements DesktopService {
       const catalog = await this.sessionClient.list({
         refreshFromStorage: false,
       }, this.callOptions());
-      this.applyRemoteOwnerState(catalog.remoteOwner);
+      this.applyRemoteSessionState(catalog.remoteSession);
       this.rawSessionRows = Array.isArray(catalog.sessions)
         ? catalog.sessions as Array<Record<string, unknown>>
         : [];
@@ -706,33 +693,6 @@ export class SessionHost implements DesktopService {
 
   async prefetchSession(sessionId: string): Promise<boolean> {
     await this.readSession(sessionId);
-    return true;
-  }
-
-  async peekSession(sessionId: string): Promise<boolean> {
-    const id = sessionIdOf(sessionId);
-    const live = this.sessionProjections.get(id);
-    if (live) {
-      this.publishSession(id, live.snapshot);
-      return true;
-    }
-    const store = await this.runtime.loadSessionStore();
-    const snapshot = await store.readStoredSessionTranscript?.(id, {
-      transcriptItemLimit: DESKTOP_TRANSCRIPT_ITEM_LIMIT,
-    });
-    if (!snapshot) return false;
-    // A live projection may have landed while the disk projection was being
-    // prepared. Never let the older replay arrive after that owner frame.
-    const racedLive = this.sessionProjections.get(id);
-    if (racedLive) {
-      this.publishSession(id, racedLive.snapshot);
-      return true;
-    }
-    this.publishSessionReplay(id, {
-      ...snapshot,
-      sessionId: id,
-      queued: Array.isArray(snapshot.queued) ? snapshot.queued : [],
-    } as SessionSnapshot);
     return true;
   }
 

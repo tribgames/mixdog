@@ -49,7 +49,6 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
     case "new": return t("New task");
     case "project": return selection.path;
     case "session": return selection.id;
-    case "agent-session": return selection.title;
     case "file": return selection.rel.split("/").at(-1) || selection.rel;
     case "studio": return "Studio";
     case "terminal": return "Terminal";
@@ -118,14 +117,14 @@ function paneSurfaceKey(leaf: PaneLeaf): string {
 function retainSurfaceForOneFrame(leaf: PaneLeaf): boolean {
   const active = paneActiveSelection(leaf);
   return active?.kind === "session" || active?.kind === "new"
-    || active?.kind === "file" || active?.kind === "agent-session"
+    || active?.kind === "file"
     || active?.kind === "studio" || active?.kind === "terminal"
     || active?.kind === "folder"
     || active?.kind === "diff" || active?.kind === "pull-request";
 }
 
 function parksConversationBehindSelection(selection: WorkspaceSelection | null): boolean {
-  return selection?.kind === "file" || selection?.kind === "agent-session"
+  return selection?.kind === "file"
     || selection?.kind === "studio" || selection?.kind === "terminal"
     || selection?.kind === "folder"
     || selection?.kind === "diff" || selection?.kind === "pull-request";
@@ -161,7 +160,6 @@ export function PaneWorkspace({
   renderActive,
   renderStrip,
   renderConversation,
-  renderAgentSession,
   renderFileEditors,
   renderUtilityTabs,
   onFocusSelection,
@@ -181,13 +179,6 @@ export function PaneWorkspace({
     focused: boolean,
     focusPane: () => void,
     leafId: string,
-  ) => React.ReactNode;
-  /** Child-agent transcript tabs are lane-backed and read-only. They never
-   *  route App's interactive engine or appear in the Sessions sidebar. */
-  renderAgentSession?: (
-    selection: Extract<WorkspaceSelection, { kind: "agent-session" }>,
-    focused: boolean,
-    focusPane: () => void,
   ) => React.ReactNode;
   /** File editors stay mounted in their owning group while dirty. The active
    *  file renders in-place even when another pane has focus. */
@@ -223,10 +214,6 @@ export function PaneWorkspace({
   // the same contract for tests, remote shells, and hot remounts.
   useLayoutEffect(() => defaultSessionLaneStore.start(), []);
   const paneSessionIds = paneSessionTabIds(workspace.leaves, workspace.focusedLeafId);
-  for (const leaf of workspace.leaves) {
-    const active = paneActiveSelection(leaf);
-    if (active?.kind === "agent-session") paneSessionIds.push(active.id);
-  }
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
   const visibleSessionIds = [...new Set([...observedSessionIds, ...paneSessionIds])];
@@ -848,13 +835,6 @@ export function PaneWorkspace({
     const utilityTabs = handoff || !activeHandoff
       ? renderUtilityTabs?.(surfaceLeaf, interactive, focusPane)
       : null;
-    if (active?.kind === "agent-session" && renderAgentSession) {
-      return <>
-        {fileEditors}
-        {utilityTabs}
-        {renderAgentSession(active, interactive, focusPane)}
-      </>;
-    }
     if (active?.kind === "session" || active?.kind === "new") {
       return <>
         {fileEditors}

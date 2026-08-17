@@ -58,6 +58,48 @@ test('eager dispatch serializes Git mutations, file edits, and shell verificatio
     ]);
 });
 
+test('same-file edits serialize while different-file edits stay parallel', async () => {
+    const firstEditGate = gate();
+    const events = [];
+    const executeToolFn = async (name, args) => {
+        events.push(`start:${args.file_path}#${args.old_string}`);
+        if (args.old_string === 'a1') await firstEditGate.promise;
+        events.push(`end:${args.file_path}#${args.old_string}`);
+        return { result: 'ok', explicitSuccess: true };
+    };
+    const dispatcher = createEagerDispatcher({
+        tools: [],
+        cwd: process.cwd(),
+        sessionId: null,
+        sessionRef: {},
+        signal: null,
+        opts: {},
+        crossTurnCalls: new Map(),
+        getIterations: () => 1,
+        getNextIteration: () => 1,
+        repeatFailLimit: 3,
+        executeToolFn,
+    });
+    const calls = [
+        { id: 'e1', name: 'edit', arguments: { file_path: 'a.txt', old_string: 'a1', new_string: 'x' } },
+        { id: 'e2', name: 'edit', arguments: { file_path: 'A.TXT', old_string: 'a2', new_string: 'y' } },
+        { id: 'e3', name: 'edit', arguments: { file_path: 'b.txt', old_string: 'b1', new_string: 'z' } },
+    ];
+
+    dispatcher.startEagerRun(calls, 0, new Set());
+    await new Promise((resolve) => setImmediate(resolve));
+    // e1 runs and blocks. e2 targets the same file (case variant) and must
+    // wait. e3 targets an independent file and must run to completion in
+    // parallel with the blocked e1.
+    assert.ok(events.includes('start:a.txt#a1'));
+    assert.ok(!events.includes('start:A.TXT#a2'));
+    assert.ok(events.includes('end:b.txt#b1'));
+
+    firstEditGate.release();
+    await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
+    assert.ok(events.indexOf('start:A.TXT#a2') > events.indexOf('end:a.txt#a1'));
+});
+
 test('repeat failure signatures normalize paths and detect alternating cycles', () => {
     const cwd = process.cwd();
     const relative = _repeatFailureSig('read', { file_path: 'missing/file.txt' }, cwd);

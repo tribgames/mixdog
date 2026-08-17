@@ -658,9 +658,6 @@ export class DesktopServiceClient implements DesktopService {
   prefetchSession(sessionId: string): Promise<boolean> {
     return this.invokeRead('prefetchSession', [sessionId]);
   }
-  peekSession(sessionId: string): Promise<boolean> {
-    return this.invokeRead('peekSession', [sessionId]);
-  }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     this.visibleSessionIds = [...new Set(sessionIds
       .map((value) => String(value || ''))

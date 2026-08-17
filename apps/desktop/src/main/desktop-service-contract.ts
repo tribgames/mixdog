@@ -54,8 +54,6 @@ export interface DesktopService {
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   deleteSession(sessionId: string): unknown;
   prefetchSession(sessionId: string): Promise<boolean>;
-  /** Read-only pane peek: publish a one-shot lane frame for an idle session. */
-  peekSession?(sessionId: string): Promise<boolean>;
   /** Keep every currently visible pane attached to its external live owner. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
@@ -127,7 +125,6 @@ export const DESKTOP_SERVICE_METHODS = [
   'setSessionArchived',
   'deleteSession',
   'prefetchSession',
-  'peekSession',
   'setVisibleSessions',
   'searchProjectFiles',
   'submitNewTask',

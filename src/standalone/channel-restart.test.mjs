@@ -19,18 +19,8 @@ async function post(endpoint, path, body) {
   return value;
 }
 
-async function waitFor(predicate, label) {
-  const deadline = Date.now() + 2_000;
-  while (Date.now() < deadline) {
-    if (predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`timed out waiting for ${label}`);
-}
-
 function writeIntent(path, {
   sessionId = 'session_restart',
-  ownerLeadPid = 2_147_483_000,
   cwd = process.cwd(),
 } = {}) {
   const transcriptPath = join(tmpdir(), `${sessionId}.jsonl`);
@@ -38,38 +28,32 @@ function writeIntent(path, {
     version: 1,
     sessionId,
     transcriptPath,
-    ownerLeadPid,
     cwd,
     updatedAt: Date.now(),
   }));
   return transcriptPath;
 }
 
-test('dead owner restores only to the same session pin and adopts the new PID', async () => {
+test('daemon boot restores the pinned session without a registered client', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-restart-'));
   const intentPath = join(dir, 'channel-remote-intent.json');
+  const statePath = join(dir, 'channel-remote-state.json');
   const transcriptPath = writeIntent(intentPath);
   const calls = [];
   let transport;
   transport = createChannelTransport({
     remoteIntentPath: intentPath,
+    remoteStatePath: statePath,
     handleCall: async (name, args) => {
       calls.push({ name, args });
-      if (name === 'activate_channel_bridge' && args.active === true) {
-        transport.notify('notifications/mixdog/remote', { state: 'acquired' });
-      }
       return { ok: true };
     },
   });
-  const endpoint = await transport.start();
+  await transport.start();
   try {
-    await post(endpoint, '/client/register', {
-      leadPid: process.pid,
-      cwd: process.cwd(),
-      passive: true,
-      restoreSessionId: 'session_restart',
-    });
-    await waitFor(() => calls.length === 1, 'session-pinned remote restore');
+    assert.equal(transport.remoteIntentSessionId, 'session_restart');
+    assert.equal(transport.remoteSessionId, null);
+    assert.equal(await transport.restoreRemoteIntent(), true);
     assert.deepEqual(calls[0], {
       name: 'activate_channel_bridge',
       args: {
@@ -79,44 +63,42 @@ test('dead owner restores only to the same session pin and adopts the new PID', 
         restore: true,
       },
     });
-    assert.equal(transport._remoteIntentForTest.ownerLeadPid, process.pid);
-    assert.equal(JSON.parse(readFileSync(intentPath, 'utf8')).ownerLeadPid, process.pid);
+    assert.equal(transport.remoteSessionId, 'session_restart');
+    assert.equal(Object.hasOwn(JSON.parse(readFileSync(intentPath, 'utf8')), 'ownerLeadPid'), false);
+    assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).enabled, true);
   } finally {
     await transport.stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test('restart restore rejects a different session or cwd', async () => {
-  for (const registration of [
-    { restoreSessionId: 'session_other', cwd: process.cwd() },
-    { restoreSessionId: 'session_restart', cwd: join(process.cwd(), 'other') },
-  ]) {
-    const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-restart-reject-'));
-    const intentPath = join(dir, 'channel-remote-intent.json');
-    writeIntent(intentPath);
-    const calls = [];
-    const transport = createChannelTransport({
-      remoteIntentPath: intentPath,
-      handleCall: async (name, args) => {
-        calls.push({ name, args });
-        return { ok: true };
-      },
+test('client registration cannot select or replace the pinned session', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-session-pin-'));
+  const intentPath = join(dir, 'channel-remote-intent.json');
+  writeIntent(intentPath);
+  const calls = [];
+  const transport = createChannelTransport({
+    remoteIntentPath: intentPath,
+    handleCall: async (name, args) => {
+      calls.push({ name, args });
+      return { ok: true };
+    },
+  });
+  const endpoint = await transport.start();
+  try {
+    assert.equal(await transport.restoreRemoteIntent(), true);
+    await post(endpoint, '/client/register', {
+      leadPid: process.pid,
+      cwd: join(process.cwd(), 'other'),
+      passive: true,
+      restoreSessionId: 'session_other',
     });
-    const endpoint = await transport.start();
-    try {
-      await post(endpoint, '/client/register', {
-        leadPid: process.pid,
-        passive: true,
-        ...registration,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 30));
-      assert.equal(calls.length, 0);
-      assert.equal(transport._pointerTokenForTest, null);
-    } finally {
-      await transport.stop();
-      rmSync(dir, { recursive: true, force: true });
-    }
+    assert.equal(calls.length, 1);
+    assert.equal(transport.remoteSessionId, 'session_restart');
+    assert.equal(transport._pointerTokenForTest, null);
+  } finally {
+    await transport.stop();
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
