@@ -10,6 +10,7 @@ import {
   recordDeliveredCompletion,
 } from '../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 import { shouldMirrorCompletionToPendingQueue } from './runtime-tool-routing.mjs';
+import { notifyTrace } from '../runtime/shared/notify-trace.mjs';
 
 const sessionNotificationListeners = new Map();
 
@@ -93,6 +94,15 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
     };
     delete ownerMeta.routing_session_id;
     const { handled, modelVisibleDelivered } = emitToListeners(targetListeners, text, ownerMeta);
+    notifyTrace('bus:completion', {
+      session: targetSessionId,
+      exec: meta?.execution_id,
+      status: meta?.status,
+      textLen: String(text || '').length,
+      listeners: targetListeners.length ?? targetListeners.size,
+      handled,
+      mvd: modelVisibleDelivered,
+    });
     if (modelVisibleDelivered) {
       try {
         recordDeliveredCompletion({

@@ -53,13 +53,13 @@ test('shared tool rules keep parallel-default and shell-boundary anchors', () =>
   // failures traced to (serial batching, shell-as-explorer). Update the
   // phrase here when the rule text intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
-  assert.match(full, /independent calls share one batch by default/i);
+  assert.match(full, /issue every independent call together in one message/i);
+  assert.match(full, /read-only `git` \(status\/diff\/log\/show\)/i);
   assert.match(full, /unless explicitly\s+instructed or after verifying that a dedicated tool cannot do the job/i);
   assert.match(full, /Shell otherwise joins investigation only for facts requiring execution or\s+unsupported decoding/i);
   assert.match(full, /environment variable or the home directory\s+are resolved locations/i);
-  assert.match(full, /Opening-round batching never licenses a guessed path/i);
-  assert.match(full, /`glob\.path` must be\s+an established existing directory/i);
-  assert.match(full, /location itself is unknown, use `find` first/i);
+  assert.match(full, /batching never licenses a guessed `glob\.path`/i);
+  assert.match(full, /unknown location → `find` first/i);
   assert.match(full, /Add File itself is the atomic absence check/i);
   assert.match(full, /inspect only if it reports that the target already exists/i);
   assert.match(full, /local Git repository inspection and mutation→`git`/i);

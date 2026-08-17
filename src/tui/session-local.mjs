@@ -131,7 +131,7 @@ function importSessionRuntimeModule() {
 }
 
 export function preloadSessionRuntimeModule() {
-  void importSessionRuntimeModule().catch(() => {
+  return importSessionRuntimeModule().catch(() => {
     // A real load failure surfaces on the authoritative create path.
     sessionRuntimeModulePromise = null;
   });
@@ -146,6 +146,7 @@ export function preloadAgentLoopRuntime() {
     // Reservation-time prewarm retries through the same shared loader.
     agentLoopPrewarmPromise = null;
   });
+  return agentLoopPrewarmPromise;
 }
 
 // Provider init (SDK graph + stored credentials) used to start inside the
@@ -167,6 +168,7 @@ export function preloadProviderRuntime() {
     // Opportunistic: the create path retries provider init on its own.
     providerRuntimePrewarmPromise = null;
   });
+  return providerRuntimePrewarmPromise;
 }
 
 // Memory-runtime attach (PG proxy + embed warmup) measured ~6.5s cold and is
@@ -179,7 +181,9 @@ export function preloadProviderRuntime() {
 let memoryRuntimePrewarmPromise = null;
 export function preloadMemoryRuntime() {
   const bootFlag = String(process.env.MIXDOG_BOOT_CORE_MEMORY ?? '').trim().toLowerCase();
-  if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') return;
+  if (bootFlag === '0' || bootFlag === 'false' || bootFlag === 'no' || bootFlag === 'off') {
+    return Promise.resolve();
+  }
   memoryRuntimePrewarmPromise ??= (async () => {
     const [{ getStandaloneMemoryRuntime }, { getPluginData }, { fileURLToPath }] = await Promise.all([
       import('../standalone/memory-runtime-proxy.mjs'),
@@ -196,6 +200,7 @@ export function preloadMemoryRuntime() {
     // Opportunistic: loadCoreMemoryContext retries through the same proxy.
     memoryRuntimePrewarmPromise = null;
   });
+  return memoryRuntimePrewarmPromise;
 }
 
 // Windows keychain reads go through a DPAPI PowerShell host whose cold start
@@ -203,8 +208,9 @@ export function preloadMemoryRuntime() {
 // into one call, but it only starts that batch when the runtime is created —
 // late enough that the first context switch waits on it. Hosts can start the
 // same batch while their window is still coming up.
+let keychainPrewarmPromise = null;
 export function preloadKeychainSecrets() {
-  void (async () => {
+  keychainPrewarmPromise ??= (async () => {
     try {
       const { createRequire } = await import('node:module');
       const require = createRequire(import.meta.url);
@@ -214,6 +220,7 @@ export function preloadKeychainSecrets() {
       // Prewarm is opportunistic; the runtime still warms on its own path.
     }
   })();
+  return keychainPrewarmPromise;
 }
 
 const TOOL_APPROVAL_TIMEOUT_MS = (() => {
@@ -660,6 +667,25 @@ export async function createLocalSessionRuntime({
       description: synthetic.summary || 'agent notification',
     };
     const isError = synthetic.isError ?? /^(failed|error|timeout|killed|cancelled)$/i.test(label);
+    // True upsert: one completion can reach the transcript twice (live
+    // notification push + queued-twin drain render). Key on task_id + name so
+    // the second arrival patches the existing card instead of duplicating it.
+    const upsertTaskId = String(args?.task_id || synthetic.taskId || '').trim();
+    if (upsertTaskId) {
+      const existing = state.items.findLast((it) => it?.kind === 'tool'
+        && String(it?.args?.task_id || '').trim() === upsertTaskId
+        && (it.name || 'agent') === (synthetic.name || 'agent'));
+      if (existing) {
+        patchItem(existing.id, {
+          args,
+          result: synthetic.result,
+          rawResult: synthetic.rawResult ?? text,
+          isError,
+          completedAt: Date.now(),
+        });
+        return true;
+      }
+    }
     pushItem({
       kind: 'tool',
       id,

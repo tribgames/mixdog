@@ -6,6 +6,7 @@ import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-m
 import { createSessionStats } from './session-stats.mjs';
   import { queuePriorityValue, defaultQueuePriority, isQueuedEntryEditable, isQueuedEntryVisible, isSlashQueuedEntry, notificationDisplayText, sessionActivityTimestamp, promptDisplayText, promptContentImageMeta, mergePromptContents, mergePastedImages, mergePastedTexts, callCommitCallbacks, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { appendTuiSteeringPersist, dropTuiSteeringPersist, drainTuiSteeringPersist } from './tui-steering-persist.mjs';
+import { parseModelVisibleCompletionWrapper } from './agent-envelope.mjs';
 import { hydratePastedAttachments } from '../../runtime/attachments/store.mjs';
 
 export function createSessionFlow(bag) {
@@ -218,11 +219,23 @@ export function createSessionFlow(bag) {
         const ids = new Set(batch.map((e) => e.id));
         const merged = mergePromptContents(batch);
         for (const entry of batch) {
-          if (entry.mode === 'pending-resume') continue;
-          // Live execution completions push their own immediate Response card
-          // at delivery time; the queued twin is model-visible only and must
-          // NOT render a second transcript card here (no fall-back to content).
-          if (entry.suppressDisplay) continue;
+          // Async-completion twins (queued model-visible wrapper) used to be
+          // display-skipped here on the assumption the live notification push
+          // already rendered a card. That push is event-ephemeral and can be
+          // missed (listener race, dedupe state from another surface, daemon
+          // restart), which left completions with NO transcript card at all
+          // (2026-08-17 field report: bench shell output never appeared).
+          // Render the wrapper through the synthetic path instead — the
+          // task_id upsert in upsertSyntheticToolItem patches an
+          // already-rendered card, so the double-delivery case stays
+          // duplicate-free. Non-wrapper entries keep the old skip.
+          if (entry.mode === 'pending-resume' || entry.suppressDisplay) {
+            const twin = typeof entry.content === 'string' ? entry.content : String(entry.text || '');
+            if (parseModelVisibleCompletionWrapper(twin)) {
+              pushUserOrSyntheticItem(twin, entry.id, 'injected');
+            }
+            continue;
+          }
           pushUserOrSyntheticItem(
             entry.text,
             entry.id,
