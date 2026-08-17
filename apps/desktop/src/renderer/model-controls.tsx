@@ -534,6 +534,8 @@ export const ModelSelector = memo(function ModelSelector({
       contextPercent={normalizedContextPercent}
       contextDefaultPercent={contextDefaultPercent}
       contextTokens={contextTokens}
+      contextMaxTokens={maxContextWindow}
+      contextDefaultTokens={defaultContextWindow}
       catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
       catalogError={catalogError} providerSetupError={providerSetupError}
       modelDisabled={modelUnavailable} tuningDisabled={tuningUnavailable}

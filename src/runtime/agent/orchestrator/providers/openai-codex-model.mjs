@@ -26,6 +26,19 @@ function _codexContextWindowFromApi(m) {
         || null;
 }
 
+const VALIDATED_CODEX_1M_MODELS = new Set([
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
+]);
+
+export function _codexMaxContextWindow(id, reportedMaxContextWindow) {
+    const reported = _positiveCodexContextWindow(reportedMaxContextWindow);
+    return VALIDATED_CODEX_1M_MODELS.has(String(id || '').toLowerCase())
+        ? Math.max(reported || 0, 1_000_000)
+        : reported;
+}
+
 export function _codexFamily(id) {
     const s = String(id || '').toLowerCase();
     if (s.includes('nano')) return 'gpt-nano';
@@ -61,7 +74,7 @@ export function _normalizeCodexModel(m) {
         family,
         provider: 'openai-oauth',
         contextWindow: _codexContextWindowFromApi(m),
-        maxContextWindow: _positiveCodexContextWindow(m?.max_context_window),
+        maxContextWindow: _codexMaxContextWindow(id, m?.max_context_window),
         outputTokens: m?.max_output_tokens || m?.output_tokens || 32768,
         autoCompactTokenLimit: m?.auto_compact_token_limit || null,
         effectiveContextWindowPercent: m?.effective_context_window_percent || null,

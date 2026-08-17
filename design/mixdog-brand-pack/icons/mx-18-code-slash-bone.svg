@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx18-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx18-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ec4899" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx18-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx18-slash1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#6366f1"/></linearGradient><linearGradient id="mx18-slash2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ec4899"/><stop offset="100%" stop-color="#f43f5e"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx18-bg)" filter="url(#mx18-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx18-rim)" stroke-width="1.5"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="170" y1="344" x2="270" y2="144" stroke="url(#mx18-slash1)" stroke-width="36"/><line x1="242" y1="344" x2="342" y2="144" stroke="url(#mx18-slash2)" stroke-width="36"/><circle cx="170" cy="344" r="18" fill="#38bdf8"/><circle cx="270" cy="144" r="18" fill="#6366f1"/><circle cx="242" cy="344" r="18" fill="#ec4899"/><circle cx="342" cy="144" r="18" fill="#f43f5e"/><circle cx="256" cy="244" r="10" fill="#ffffff"/></g>
+</svg>

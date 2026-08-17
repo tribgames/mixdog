@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx14-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx14-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#c084fc" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx14-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx14-c1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/></linearGradient><linearGradient id="mx14-c2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#c084fc"/><stop offset="100%" stop-color="#7e22ce"/></linearGradient><linearGradient id="mx14-c3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fb923c"/><stop offset="100%" stop-color="#ea580c"/></linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx14-bg)" filter="url(#mx14-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx14-rim)" stroke-width="1.5"/>
+  <g fill="none" stroke-width="26" stroke-linecap="round"><circle cx="216" cy="210" r="72" stroke="url(#mx14-c1)"/><circle cx="296" cy="210" r="72" stroke="url(#mx14-c2)"/><circle cx="256" cy="290" r="72" stroke="url(#mx14-c3)"/></g><path d="M 226 280 L 256 314 L 286 280" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/><circle cx="256" cy="242" r="9" fill="#ffffff"/>
+</svg>

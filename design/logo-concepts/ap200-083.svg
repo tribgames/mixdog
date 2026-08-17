@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="g183-1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#f43f5e"/><stop offset="100%" stop-color="#fb923c"/></linearGradient>
+               <linearGradient id="g183-2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fb923c"/><stop offset="100%" stop-color="#facc15"/></linearGradient>
+               <linearGradient id="g183-3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#facc15"/><stop offset="100%" stop-color="#f43f5e"/></linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#08090d"/>
+  
+    <g fill="none" stroke-width="22" stroke-linecap="round" >
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#g183-1)"/>
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" stroke="url(#g183-2)"/>
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" stroke="url(#g183-3)"/>
+    </g>
+  
+  <polygon points="128,114 138,120 142,132 134,142 120,138 116,124" fill="#f43f5e" opacity="0.9"/>
+              <circle cx="128" cy="128" r="3" fill="#ffffff"/>
+</svg>

@@ -867,6 +867,7 @@
   "Reset could not be confirmed. Retrying is safe.": "리셋을 확인하지 못했습니다. 다시 시도해도 안전합니다.",
   "Reset credit {{index}}": "리셋 티켓 {{index}}",
   "Reset due": "리셋 예정",
+  "Reset to default ({{percent}}%)": "기본값으로 재설정 ({{percent}}%)",
   "Resets in {{time}}": "{{time}} 후 리셋",
   "Resets soon": "곧 리셋",
   "Resize session sidebar": "세션 사이드바 크기 조절",

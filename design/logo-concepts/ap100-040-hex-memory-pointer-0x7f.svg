@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#0a0d14"/>
+  
+    <g fill="none" stroke-width="22" stroke-linecap="round" >
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="#38bdf8"/>
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" stroke="#818cf8"/>
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" stroke="#0284c7"/>
+    </g>
+  
+  <g id="center-core">
+    <text x="128" y="132" font-family="monospace" font-size="10" font-weight="bold" fill="#38bdf8" text-anchor="middle">0x</text>
+           <circle cx="128" cy="128" r="9" fill="none" stroke="#38bdf8" stroke-width="1.5"/>
+  </g>
+</svg>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx29-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#13141a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="mx29-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#c084fc" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx29-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    <linearGradient id="mx29-plasma" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#00f2fe"/><stop offset="50%" stop-color="#c084fc"/><stop offset="100%" stop-color="#f43f5e"/></linearGradient><filter id="mx29-glow"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx29-bg)" filter="url(#mx29-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx29-rim)" stroke-width="1.5"/>
+  <g filter="url(#mx29-glow)" fill="none" stroke="url(#mx29-plasma)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"><path d="M 136 348 V 204 C 136 150 174 130 206 152 L 256 190 L 306 152 C 338 130 376 150 376 204 V 348"/><path d="M 196 280 L 256 340 L 316 280" stroke="#ffffff" stroke-width="26"/></g><circle cx="256" cy="240" r="10" fill="#00f2fe"/>
+</svg>

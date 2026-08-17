@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="univ-01-g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+    <linearGradient id="univ-01-g2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="univ-01-g3" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ec4899"/>
+      <stop offset="100%" stop-color="#00f2fe"/>
+    </linearGradient>
+    <radialGradient id="univ-01-bg-radial" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#080a10" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="core-opal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/><stop offset="50%" stop-color="#6366f1"/><stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <filter id="core-blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <rect width="256" height="256" rx="60" fill="#080a10"/>
+  <rect width="256" height="256" rx="60" fill="url(#univ-01-bg-radial)"/>
+
+  <g fill="none" stroke-width="22" stroke-linecap="round">
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#univ-01-g1)"/>
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" stroke="url(#univ-01-g2)"/>
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" stroke="url(#univ-01-g3)"/>
+  </g>
+
+  <g id="center-core">
+    <path d="M128 112 Q128 128 112 128 Q128 128 128 144 Q128 128 144 128 Q128 128 128 112 Z" fill="#ffffff"/><circle cx="128" cy="128" r="3" fill="#00f2fe"/>
+  </g>
+</svg>

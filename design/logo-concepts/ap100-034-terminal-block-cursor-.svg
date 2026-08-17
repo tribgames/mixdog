@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#050907"/>
+  
+    <g fill="none" stroke-width="22" stroke-linecap="round" >
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="#22c55e"/>
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" stroke="#10b981"/>
+      <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" stroke="#06b6d4"/>
+    </g>
+  
+  <g id="center-core">
+    <rect x="123" y="121" width="10" height="14" rx="2" fill="#22c55e"/><rect x="125" y="123" width="6" height="10" rx="1" fill="#ffffff"/>
+  </g>
+</svg>

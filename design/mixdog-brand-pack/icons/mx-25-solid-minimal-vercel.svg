@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="mx25-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#09090b"/>
+      <stop offset="50%" stop-color="#040405"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+    <linearGradient id="mx25-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.4)" stop-opacity="0.28"/>
+    </linearGradient>
+    <filter id="mx25-sh" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#000000" flood-opacity="0.88"/>
+    </filter>
+    
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#mx25-bg)" filter="url(#mx25-sh)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#mx25-rim)" stroke-width="1.5"/>
+  <g fill="#ffffff"><path d="M 136 348 V 200 C 136 156 168 136 204 156 L 256 190 L 308 156 C 344 136 376 156 376 200 V 348 H 324 V 236 L 256 288 L 188 236 V 348 H 136 Z"/><circle cx="256" cy="336" r="14" fill="#38bdf8"/></g>
+</svg>

@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mixdog Aperture Triad Universe — 48 Variations</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #06070a;
+      --bg-surface: #0c0e14;
+      --bg-card: #11141d;
+      --bg-card-hover: #181d2a;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(56, 189, 248, 0.4);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --cyan: #38bdf8;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .bg-grid {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image:
+        radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.15) 0%, transparent 60%),
+        radial-gradient(circle at 85% 20%, rgba(236, 72, 153, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 15% 40%, rgba(16, 185, 129, 0.08) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1560px;
+      margin: 0 auto;
+      padding: 48px 24px 120px;
+    }
+
+    header {
+      text-align: center;
+      max-width: 920px;
+      margin: 0 auto 48px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 18px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+    }
+
+    header h1 {
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header p {
+      font-size: 16px;
+      color: var(--text-muted);
+    }
+
+    .inspector-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 32px;
+      margin-bottom: 48px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    .inspector-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .scale-strip {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      padding: 24px;
+      background: #06080c;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      overflow-x: auto;
+    }
+
+    .scale-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .scale-item span {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: #fff;
+      font-size: 13px;
+      min-width: 280px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--cyan);
+    }
+
+    .filter-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      font-size: 12px;
+      padding: 7px 14px;
+      border-radius: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip:hover, .chip.active {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      position: relative;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+      box-shadow: 0 16px 36px rgba(0,0,0,0.6), 0 0 24px rgba(56, 189, 248, 0.15);
+    }
+
+    .card img {
+      width: 140px;
+      height: 140px;
+      margin-bottom: 16px;
+      transition: transform 0.3s ease;
+      filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
+    }
+
+    .card:hover img {
+      transform: scale(1.08);
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 4px;
+      color: #ffffff;
+    }
+
+    .card-cat {
+      font-size: 11px;
+      color: var(--cyan);
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 12px;
+    }
+
+    .color-dots {
+      display: flex;
+      gap: 6px;
+      margin-top: auto;
+    }
+
+    .color-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .card-btn {
+      margin-top: 12px;
+      width: 100%;
+      padding: 6px 0;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .card-btn:hover {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+
+  <div class="container">
+    <header>
+      <div class="badge">🌀 Aperture Triad Universe — 48 Massive Variations</div>
+      <h1>Aperture Triad (131번) 확장 스펙트럼 랩</h1>
+      <p>
+        120° 3개 아크가 하나로 연결되는 <strong>360° Seamless Continuous Loop</strong>와<br>
+        다채로운 중심부 코어 디자인(✦ Spark, Diamond, Terminal >_, Donut Ring, Hexagon IC, Laser 등)을 적용한 48종 에디션입니다.
+      </p>
+    </header>
+
+    <div class="inspector-box">
+      <div class="inspector-top">
+        <div>
+          <strong id="current-title" style="font-size: 18px;">Electric Cyan to Violet 360°</strong>
+          <span id="current-cat" style="margin-left: 10px; font-size: 12px; color: var(--cyan); font-family: 'JetBrains Mono';">Cyber Neon</span>
+        </div>
+        <button class="chip active" onclick="copyCurrentSvg()">📋 현재 선택된 SVG 코드 복사</button>
+      </div>
+
+      <div class="scale-strip">
+        <div class="scale-item">
+          <img id="scale-128" src="./univ-01.svg" style="width: 128px; height: 128px;" />
+          <span>128px (Tile)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-64" src="./univ-01.svg" style="width: 64px; height: 64px;" />
+          <span>64px (Dock)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-48" src="./univ-01.svg" style="width: 48px; height: 48px;" />
+          <span>48px (Taskbar)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-32" src="./univ-01.svg" style="width: 32px; height: 32px;" />
+          <span>32px (Toolbar)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-24" src="./univ-01.svg" style="width: 24px; height: 24px;" />
+          <span>24px (Tab)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-16" src="./univ-01.svg" style="width: 16px; height: 16px;" />
+          <span>16px (CLI)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <input type="text" class="search-input" id="search-input" placeholder="🔍 색상, 스타일, 코어 검색..." oninput="filterGrid()" />
+      <div class="filter-chips">
+        <button class="chip active" onclick="setFilter('all', this)">전체 (48)</button>
+        <button class="chip" onclick="setFilter('Cyber Neon', this)">Cyber Neon (6)</button>
+        <button class="chip" onclick="setFilter('360° Spectrum', this)">360° Spectrum (6)</button>
+        <button class="chip" onclick="setFilter('AI Agent Theme', this)">AI Agent Theme (6)</button>
+        <button class="chip" onclick="setFilter('Luxury Metal', this)">Luxury Metal (6)</button>
+        <button class="chip" onclick="setFilter('Monochrome', this)">Monochrome (6)</button>
+        <button class="chip" onclick="setFilter('Architecture', this)">Architecture (6)</button>
+        <button class="chip" onclick="setFilter('Cosmic', this)">Cosmic (6)</button>
+        <button class="chip" onclick="setFilter('Pastel & Fresh', this)">Pastel & Fresh (6)</button>
+      </div>
+    </div>
+
+    <div class="grid" id="card-grid">
+      
+        <div class="card" data-cat="Cyber Neon" data-title="electric cyan to violet 360°" onclick="selectItem('univ-01', 'Electric Cyan to Violet 360°', 'Cyber Neon')">
+          <img src="./univ-01.svg" alt="Electric Cyan to Violet 360°" />
+          <div class="card-title">Electric Cyan to Violet 360°</div>
+          <div class="card-cat">// Cyber Neon</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #00f2fe;"></div><div class="color-dot" style="background: #6366f1;"></div><div class="color-dot" style="background: #ec4899;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-01.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" data-title="hyperpop magenta & cyan" onclick="selectItem('univ-02', 'Hyperpop Magenta & Cyan', 'Cyber Neon')">
+          <img src="./univ-02.svg" alt="Hyperpop Magenta & Cyan" />
+          <div class="card-title">Hyperpop Magenta & Cyan</div>
+          <div class="card-cat">// Cyber Neon</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #f43f5e;"></div><div class="color-dot" style="background: #06b6d4;"></div><div class="color-dot" style="background: #a855f7;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-02.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" data-title="acid lime & cobalt cyber" onclick="selectItem('univ-03', 'Acid Lime & Cobalt Cyber', 'Cyber Neon')">
+          <img src="./univ-03.svg" alt="Acid Lime & Cobalt Cyber" />
+          <div class="card-title">Acid Lime & Cobalt Cyber</div>
+          <div class="card-cat">// Cyber Neon</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #a3e635;"></div><div class="color-dot" style="background: #0284c7;"></div><div class="color-dot" style="background: #8b5cf6;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-03.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" data-title="synthwave sunset neon" onclick="selectItem('univ-04', 'Synthwave Sunset Neon', 'Cyber Neon')">
+          <img src="./univ-04.svg" alt="Synthwave Sunset Neon" />
+          <div class="card-title">Synthwave Sunset Neon</div>
+          <div class="card-cat">// Cyber Neon</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #ff007a;"></div><div class="color-dot" style="background: #7928ca;"></div><div class="color-dot" style="background: #ff4d4d;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-04.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" data-title="plasma violet energy" onclick="selectItem('univ-05', 'Plasma Violet Energy', 'Cyber Neon')">
+          <img src="./univ-05.svg" alt="Plasma Violet Energy" />
+          <div class="card-title">Plasma Violet Energy</div>
+          <div class="card-cat">// Cyber Neon</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #c084fc;"></div><div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #f43f5e;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-05.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" data-title="laser turquoise arc" onclick="selectItem('univ-06', 'Laser Turquoise Arc', 'Cyber Neon')">
+          <img src="./univ-06.svg" alt="Laser Turquoise Arc" />
+          <div class="card-title">Laser Turquoise Arc</div>
+          <div class="card-cat">// Cyber Neon</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #2dd4bf;"></div><div class="color-dot" style="background: #3b82f6;"></div><div class="color-dot" style="background: #ec4899;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-06.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="360° Spectrum" data-title="pure hsl 360° full rainbow" onclick="selectItem('univ-07', 'Pure HSL 360° Full Rainbow', '360° Spectrum')">
+          <img src="./univ-07.svg" alt="Pure HSL 360° Full Rainbow" />
+          <div class="card-title">Pure HSL 360° Full Rainbow</div>
+          <div class="card-cat">// 360° Spectrum</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #ef4444;"></div><div class="color-dot" style="background: #10b981;"></div><div class="color-dot" style="background: #3b82f6;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-07.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="360° Spectrum" data-title="aurora borealis arctic flow" onclick="selectItem('univ-08', 'Aurora Borealis Arctic Flow', '360° Spectrum')">
+          <img src="./univ-08.svg" alt="Aurora Borealis Arctic Flow" />
+          <div class="card-title">Aurora Borealis Arctic Flow</div>
+          <div class="card-cat">// 360° Spectrum</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #10b981;"></div><div class="color-dot" style="background: #06b6d4;"></div><div class="color-dot" style="background: #8b5cf6;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-08.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="360° Spectrum" data-title="sunset horizon golden glow" onclick="selectItem('univ-09', 'Sunset Horizon Golden Glow', '360° Spectrum')">
+          <img src="./univ-09.svg" alt="Sunset Horizon Golden Glow" />
+          <div class="card-title">Sunset Horizon Golden Glow</div>
+          <div class="card-cat">// 360° Spectrum</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #f59e0b;"></div><div class="color-dot" style="background: #ef4444;"></div><div class="color-dot" style="background: #7c3aed;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-09.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="360° Spectrum" data-title="bioluminescent deep abyss" onclick="selectItem('univ-10', 'Bioluminescent Deep Abyss', '360° Spectrum')">
+          <img src="./univ-10.svg" alt="Bioluminescent Deep Abyss" />
+          <div class="card-title">Bioluminescent Deep Abyss</div>
+          <div class="card-cat">// 360° Spectrum</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #34d399;"></div><div class="color-dot" style="background: #0284c7;"></div><div class="color-dot" style="background: #6366f1;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-10.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="360° Spectrum" data-title="solar flare magma ignition" onclick="selectItem('univ-11', 'Solar Flare Magma Ignition', '360° Spectrum')">
+          <img src="./univ-11.svg" alt="Solar Flare Magma Ignition" />
+          <div class="card-title">Solar Flare Magma Ignition</div>
+          <div class="card-cat">// 360° Spectrum</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #facc15;"></div><div class="color-dot" style="background: #f97316;"></div><div class="color-dot" style="background: #dc2626;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-11.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="360° Spectrum" data-title="twilight sky pastel bloom" onclick="selectItem('univ-12', 'Twilight Sky Pastel Bloom', '360° Spectrum')">
+          <img src="./univ-12.svg" alt="Twilight Sky Pastel Bloom" />
+          <div class="card-title">Twilight Sky Pastel Bloom</div>
+          <div class="card-cat">// 360° Spectrum</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #f472b6;"></div><div class="color-dot" style="background: #c084fc;"></div><div class="color-dot" style="background: #60a5fa;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-12.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="AI Agent Theme" data-title="claude warm terracotta ✦" onclick="selectItem('univ-13', 'Claude Warm Terracotta ✦', 'AI Agent Theme')">
+          <img src="./univ-13.svg" alt="Claude Warm Terracotta ✦" />
+          <div class="card-title">Claude Warm Terracotta ✦</div>
+          <div class="card-cat">// AI Agent Theme</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #f97316;"></div><div class="color-dot" style="background: #ea580c;"></div><div class="color-dot" style="background: #d97706;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-13.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="AI Agent Theme" data-title="cursor prism cyan & indigo" onclick="selectItem('univ-14', 'Cursor Prism Cyan & Indigo', 'AI Agent Theme')">
+          <img src="./univ-14.svg" alt="Cursor Prism Cyan & Indigo" />
+          <div class="card-title">Cursor Prism Cyan & Indigo</div>
+          <div class="card-cat">// AI Agent Theme</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #818cf8;"></div><div class="color-dot" style="background: #6366f1;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-14.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="AI Agent Theme" data-title="ghostty crt phosphor green" onclick="selectItem('univ-15', 'Ghostty CRT Phosphor Green', 'AI Agent Theme')">
+          <img src="./univ-15.svg" alt="Ghostty CRT Phosphor Green" />
+          <div class="card-title">Ghostty CRT Phosphor Green</div>
+          <div class="card-cat">// AI Agent Theme</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #4ade80;"></div><div class="color-dot" style="background: #22c55e;"></div><div class="color-dot" style="background: #15803d;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-15.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="AI Agent Theme" data-title="devin emerald intelligence" onclick="selectItem('univ-16', 'Devin Emerald Intelligence', 'AI Agent Theme')">
+          <img src="./univ-16.svg" alt="Devin Emerald Intelligence" />
+          <div class="card-title">Devin Emerald Intelligence</div>
+          <div class="card-cat">// AI Agent Theme</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #34d399;"></div><div class="color-dot" style="background: #10b981;"></div><div class="color-dot" style="background: #059669;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-16.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="AI Agent Theme" data-title="copilot neon purple & sky" onclick="selectItem('univ-17', 'Copilot Neon Purple & Sky', 'AI Agent Theme')">
+          <img src="./univ-17.svg" alt="Copilot Neon Purple & Sky" />
+          <div class="card-title">Copilot Neon Purple & Sky</div>
+          <div class="card-cat">// AI Agent Theme</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #c084fc;"></div><div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #e879f9;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-17.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="AI Agent Theme" data-title="windsurf cascade wave" onclick="selectItem('univ-18', 'Windsurf Cascade Wave', 'AI Agent Theme')">
+          <img src="./univ-18.svg" alt="Windsurf Cascade Wave" />
+          <div class="card-title">Windsurf Cascade Wave</div>
+          <div class="card-cat">// AI Agent Theme</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #06b6d4;"></div><div class="color-dot" style="background: #3b82f6;"></div><div class="color-dot" style="background: #4f46e5;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-18.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Luxury Metal" data-title="machined titanium & amber led" onclick="selectItem('univ-19', 'Machined Titanium & Amber LED', 'Luxury Metal')">
+          <img src="./univ-19.svg" alt="Machined Titanium & Amber LED" />
+          <div class="card-title">Machined Titanium & Amber LED</div>
+          <div class="card-cat">// Luxury Metal</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #e2e8f0;"></div><div class="color-dot" style="background: #94a3b8;"></div><div class="color-dot" style="background: #64748b;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-19.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Luxury Metal" data-title="champagne gold prestige" onclick="selectItem('univ-20', 'Champagne Gold Prestige', 'Luxury Metal')">
+          <img src="./univ-20.svg" alt="Champagne Gold Prestige" />
+          <div class="card-title">Champagne Gold Prestige</div>
+          <div class="card-cat">// Luxury Metal</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #fde047;"></div><div class="color-dot" style="background: #d97706;"></div><div class="color-dot" style="background: #b45309;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-20.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Luxury Metal" data-title="liquid chrome prism mirror" onclick="selectItem('univ-21', 'Liquid Chrome Prism Mirror', 'Luxury Metal')">
+          <img src="./univ-21.svg" alt="Liquid Chrome Prism Mirror" />
+          <div class="card-title">Liquid Chrome Prism Mirror</div>
+          <div class="card-cat">// Luxury Metal</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #ffffff;"></div><div class="color-dot" style="background: #cbd5e1;"></div><div class="color-dot" style="background: #64748b;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-21.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Luxury Metal" data-title="rose gold & copper satin" onclick="selectItem('univ-22', 'Rose Gold & Copper Satin', 'Luxury Metal')">
+          <img src="./univ-22.svg" alt="Rose Gold & Copper Satin" />
+          <div class="card-title">Rose Gold & Copper Satin</div>
+          <div class="card-cat">// Luxury Metal</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #fda4af;"></div><div class="color-dot" style="background: #f43f5e;"></div><div class="color-dot" style="background: #be123c;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-22.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Luxury Metal" data-title="gunmetal obsidian stealth" onclick="selectItem('univ-23', 'Gunmetal Obsidian Stealth', 'Luxury Metal')">
+          <img src="./univ-23.svg" alt="Gunmetal Obsidian Stealth" />
+          <div class="card-title">Gunmetal Obsidian Stealth</div>
+          <div class="card-cat">// Luxury Metal</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #64748b;"></div><div class="color-dot" style="background: #334155;"></div><div class="color-dot" style="background: #1e293b;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-23.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Luxury Metal" data-title="platinum white & ice blue" onclick="selectItem('univ-24', 'Platinum White & Ice Blue', 'Luxury Metal')">
+          <img src="./univ-24.svg" alt="Platinum White & Ice Blue" />
+          <div class="card-title">Platinum White & Ice Blue</div>
+          <div class="card-cat">// Luxury Metal</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #ffffff;"></div><div class="color-dot" style="background: #e0f2fe;"></div><div class="color-dot" style="background: #38bdf8;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-24.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Monochrome" data-title="pure white minimalist core" onclick="selectItem('univ-25', 'Pure White Minimalist Core', 'Monochrome')">
+          <img src="./univ-25.svg" alt="Pure White Minimalist Core" />
+          <div class="card-title">Pure White Minimalist Core</div>
+          <div class="card-cat">// Monochrome</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #ffffff;"></div><div class="color-dot" style="background: #ffffff;"></div><div class="color-dot" style="background: #ffffff;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-25.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Monochrome" data-title="monochrome shading sequence" onclick="selectItem('univ-26', 'Monochrome Shading Sequence', 'Monochrome')">
+          <img src="./univ-26.svg" alt="Monochrome Shading Sequence" />
+          <div class="card-title">Monochrome Shading Sequence</div>
+          <div class="card-cat">// Monochrome</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #ffffff;"></div><div class="color-dot" style="background: #94a3b8;"></div><div class="color-dot" style="background: #475569;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-26.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Monochrome" data-title="inverted clean ceramic light" onclick="selectItem('univ-27', 'Inverted Clean Ceramic Light', 'Monochrome')">
+          <img src="./univ-27.svg" alt="Inverted Clean Ceramic Light" />
+          <div class="card-title">Inverted Clean Ceramic Light</div>
+          <div class="card-cat">// Monochrome</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #0f172a;"></div><div class="color-dot" style="background: #334155;"></div><div class="color-dot" style="background: #64748b;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-27.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Monochrome" data-title="duo-tone stark white & cyan" onclick="selectItem('univ-28', 'Duo-Tone Stark White & Cyan', 'Monochrome')">
+          <img src="./univ-28.svg" alt="Duo-Tone Stark White & Cyan" />
+          <div class="card-title">Duo-Tone Stark White & Cyan</div>
+          <div class="card-cat">// Monochrome</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #ffffff;"></div><div class="color-dot" style="background: #ffffff;"></div><div class="color-dot" style="background: #00f2fe;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-28.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Monochrome" data-title="hacker terminal black & green" onclick="selectItem('univ-29', 'Hacker Terminal Black & Green', 'Monochrome')">
+          <img src="./univ-29.svg" alt="Hacker Terminal Black & Green" />
+          <div class="card-title">Hacker Terminal Black & Green</div>
+          <div class="card-cat">// Monochrome</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #22c55e;"></div><div class="color-dot" style="background: #16a34a;"></div><div class="color-dot" style="background: #15803d;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-29.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Monochrome" data-title="charcoal minimalist void" onclick="selectItem('univ-30', 'Charcoal Minimalist Void', 'Monochrome')">
+          <img src="./univ-30.svg" alt="Charcoal Minimalist Void" />
+          <div class="card-title">Charcoal Minimalist Void</div>
+          <div class="card-cat">// Monochrome</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #cbd5e1;"></div><div class="color-dot" style="background: #64748b;"></div><div class="color-dot" style="background: #334155;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-30.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Architecture" data-title="ultra-bold chunky 32px arc" onclick="selectItem('univ-31', 'Ultra-Bold Chunky 32px Arc', 'Architecture')">
+          <img src="./univ-31.svg" alt="Ultra-Bold Chunky 32px Arc" />
+          <div class="card-title">Ultra-Bold Chunky 32px Arc</div>
+          <div class="card-cat">// Architecture</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #818cf8;"></div><div class="color-dot" style="background: #f43f5e;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-31.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Architecture" data-title="precision hairline 14px arc" onclick="selectItem('univ-32', 'Precision Hairline 14px Arc', 'Architecture')">
+          <img src="./univ-32.svg" alt="Precision Hairline 14px Arc" />
+          <div class="card-title">Precision Hairline 14px Arc</div>
+          <div class="card-cat">// Architecture</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #00f2fe;"></div><div class="color-dot" style="background: #818cf8;"></div><div class="color-dot" style="background: #c084fc;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-32.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Architecture" data-title="heavy impact 36px block" onclick="selectItem('univ-33', 'Heavy Impact 36px Block', 'Architecture')">
+          <img src="./univ-33.svg" alt="Heavy Impact 36px Block" />
+          <div class="card-title">Heavy Impact 36px Block</div>
+          <div class="card-cat">// Architecture</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #f97316;"></div><div class="color-dot" style="background: #ef4444;"></div><div class="color-dot" style="background: #ec4899;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-33.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Architecture" data-title="micro-serif wireframe arc" onclick="selectItem('univ-34', 'Micro-Serif Wireframe Arc', 'Architecture')">
+          <img src="./univ-34.svg" alt="Micro-Serif Wireframe Arc" />
+          <div class="card-title">Micro-Serif Wireframe Arc</div>
+          <div class="card-cat">// Architecture</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #34d399;"></div><div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #818cf8;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-34.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Architecture" data-title="double pulse neon trace" onclick="selectItem('univ-35', 'Double Pulse Neon Trace', 'Architecture')">
+          <img src="./univ-35.svg" alt="Double Pulse Neon Trace" />
+          <div class="card-title">Double Pulse Neon Trace</div>
+          <div class="card-cat">// Architecture</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #facc15;"></div><div class="color-dot" style="background: #f43f5e;"></div><div class="color-dot" style="background: #8b5cf6;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-35.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Architecture" data-title="feather line 12px blueprint" onclick="selectItem('univ-36', 'Feather Line 12px Blueprint', 'Architecture')">
+          <img src="./univ-36.svg" alt="Feather Line 12px Blueprint" />
+          <div class="card-title">Feather Line 12px Blueprint</div>
+          <div class="card-cat">// Architecture</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #0284c7;"></div><div class="color-dot" style="background: #0369a1;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-36.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cosmic" data-title="cosmic nebula supernova" onclick="selectItem('univ-37', 'Cosmic Nebula Supernova', 'Cosmic')">
+          <img src="./univ-37.svg" alt="Cosmic Nebula Supernova" />
+          <div class="card-title">Cosmic Nebula Supernova</div>
+          <div class="card-cat">// Cosmic</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #e879f9;"></div><div class="color-dot" style="background: #6366f1;"></div><div class="color-dot" style="background: #06b6d4;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-37.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cosmic" data-title="black hole event horizon" onclick="selectItem('univ-38', 'Black Hole Event Horizon', 'Cosmic')">
+          <img src="./univ-38.svg" alt="Black Hole Event Horizon" />
+          <div class="card-title">Black Hole Event Horizon</div>
+          <div class="card-cat">// Cosmic</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #f59e0b;"></div><div class="color-dot" style="background: #dc2626;"></div><div class="color-dot" style="background: #450a0a;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-38.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cosmic" data-title="starlight andromeda galaxy" onclick="selectItem('univ-39', 'Starlight Andromeda Galaxy', 'Cosmic')">
+          <img src="./univ-39.svg" alt="Starlight Andromeda Galaxy" />
+          <div class="card-title">Starlight Andromeda Galaxy</div>
+          <div class="card-cat">// Cosmic</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #ec4899;"></div><div class="color-dot" style="background: #fbbf24;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-39.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cosmic" data-title="quantum entanglement loop" onclick="selectItem('univ-40', 'Quantum Entanglement Loop', 'Cosmic')">
+          <img src="./univ-40.svg" alt="Quantum Entanglement Loop" />
+          <div class="card-title">Quantum Entanglement Loop</div>
+          <div class="card-cat">// Cosmic</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #10b981;"></div><div class="color-dot" style="background: #f43f5e;"></div><div class="color-dot" style="background: #3b82f6;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-40.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cosmic" data-title="interstellar pulsar beam" onclick="selectItem('univ-41', 'Interstellar Pulsar Beam', 'Cosmic')">
+          <img src="./univ-41.svg" alt="Interstellar Pulsar Beam" />
+          <div class="card-title">Interstellar Pulsar Beam</div>
+          <div class="card-cat">// Cosmic</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #a855f7;"></div><div class="color-dot" style="background: #00f2fe;"></div><div class="color-dot" style="background: #ffffff;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-41.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Cosmic" data-title="dark matter void shimmer" onclick="selectItem('univ-42', 'Dark Matter Void Shimmer', 'Cosmic')">
+          <img src="./univ-42.svg" alt="Dark Matter Void Shimmer" />
+          <div class="card-title">Dark Matter Void Shimmer</div>
+          <div class="card-cat">// Cosmic</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #475569;"></div><div class="color-dot" style="background: #818cf8;"></div><div class="color-dot" style="background: #38bdf8;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-42.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Pastel & Fresh" data-title="cotton candy pastel cloud" onclick="selectItem('univ-43', 'Cotton Candy Pastel Cloud', 'Pastel & Fresh')">
+          <img src="./univ-43.svg" alt="Cotton Candy Pastel Cloud" />
+          <div class="card-title">Cotton Candy Pastel Cloud</div>
+          <div class="card-cat">// Pastel & Fresh</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #fbcfe8;"></div><div class="color-dot" style="background: #c4b5fd;"></div><div class="color-dot" style="background: #bae6fd;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-43.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Pastel & Fresh" data-title="matcha tea & fresh mint" onclick="selectItem('univ-44', 'Matcha Tea & Fresh Mint', 'Pastel & Fresh')">
+          <img src="./univ-44.svg" alt="Matcha Tea & Fresh Mint" />
+          <div class="card-title">Matcha Tea & Fresh Mint</div>
+          <div class="card-cat">// Pastel & Fresh</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #86efac;"></div><div class="color-dot" style="background: #6ee7b7;"></div><div class="color-dot" style="background: #93c5fd;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-44.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Pastel & Fresh" data-title="warm peach & strawberry" onclick="selectItem('univ-45', 'Warm Peach & Strawberry', 'Pastel & Fresh')">
+          <img src="./univ-45.svg" alt="Warm Peach & Strawberry" />
+          <div class="card-title">Warm Peach & Strawberry</div>
+          <div class="card-cat">// Pastel & Fresh</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #fdba74;"></div><div class="color-dot" style="background: #fca5a5;"></div><div class="color-dot" style="background: #f472b6;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-45.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Pastel & Fresh" data-title="lemon sorbet & glacier" onclick="selectItem('univ-46', 'Lemon Sorbet & Glacier', 'Pastel & Fresh')">
+          <img src="./univ-46.svg" alt="Lemon Sorbet & Glacier" />
+          <div class="card-title">Lemon Sorbet & Glacier</div>
+          <div class="card-cat">// Pastel & Fresh</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #fef08a;"></div><div class="color-dot" style="background: #a7f3d0;"></div><div class="color-dot" style="background: #7dd3fc;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-46.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Pastel & Fresh" data-title="lavender breeze & violet" onclick="selectItem('univ-47', 'Lavender Breeze & Violet', 'Pastel & Fresh')">
+          <img src="./univ-47.svg" alt="Lavender Breeze & Violet" />
+          <div class="card-title">Lavender Breeze & Violet</div>
+          <div class="card-cat">// Pastel & Fresh</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #e9d5ff;"></div><div class="color-dot" style="background: #c084fc;"></div><div class="color-dot" style="background: #818cf8;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-47.svg')">📋 SVG 복사</button>
+        </div>
+      
+        <div class="card" data-cat="Pastel & Fresh" data-title="midnight obsidian opal" onclick="selectItem('univ-48', 'Midnight Obsidian Opal', 'Pastel & Fresh')">
+          <img src="./univ-48.svg" alt="Midnight Obsidian Opal" />
+          <div class="card-title">Midnight Obsidian Opal</div>
+          <div class="card-cat">// Pastel & Fresh</div>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #38bdf8;"></div><div class="color-dot" style="background: #34d399;"></div><div class="color-dot" style="background: #f43f5e;"></div>
+          </div>
+          <button class="card-btn" onclick="event.stopPropagation(); quickCopy('univ-48.svg')">📋 SVG 복사</button>
+        </div>
+      
+    </div>
+  </div>
+
+  <script>
+    let activeId = 'univ-01';
+    let currentFilter = 'all';
+
+    function selectItem(id, title, cat) {
+      activeId = id;
+      document.getElementById('current-title').innerText = title;
+      document.getElementById('current-cat').innerText = cat;
+      ['scale-128', 'scale-64', 'scale-48', 'scale-32', 'scale-24', 'scale-16'].forEach(elId => {
+        document.getElementById(elId).src = './' + id + '.svg';
+      });
+    }
+
+    async function copyCurrentSvg() {
+      await quickCopy(activeId + '.svg');
+    }
+
+    async function quickCopy(file) {
+      try {
+        const res = await fetch('./' + file);
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        alert('SVG 코드가 클립보드에 복사되었습니다! (' + file + ')');
+      } catch (err) {
+        alert('복사 실패: ' + err.message);
+      }
+    }
+
+    function setFilter(cat, btn) {
+      currentFilter = cat;
+      document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      filterGrid();
+    }
+
+    function filterGrid() {
+      const q = document.getElementById('search-input').value.toLowerCase().trim();
+      const cards = document.querySelectorAll('.card');
+
+      cards.forEach(card => {
+        const cat = card.getAttribute('data-cat');
+        const title = card.getAttribute('data-title');
+
+        const matchCat = (currentFilter === 'all') || (cat === currentFilter);
+        const matchSearch = !q || title.includes(q) || cat.toLowerCase().includes(q);
+
+        if (matchCat && matchSearch) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+  </script>
+</body>
+</html>
