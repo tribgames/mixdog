@@ -575,8 +575,6 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options =
 // whether the pending drain merged it with other queued user content.
 // Single source of truth lives in session-text.mjs (imported above) so the
 // hide-from-UI detection can never drift from the emitted reminder text.
-const LATE_TOOL_REMINDER_SENTINEL = LATE_TOOL_ANNOUNCEMENT_SENTINEL;
-
 function reminderMessageText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
@@ -594,7 +592,7 @@ function committedAnnouncedLateTools(session, lateNames) {
   const blob = msgs
     .filter((m) => m && m.role === 'user')
     .map((m) => reminderMessageText(m.content))
-    .filter((t) => t.includes(LATE_TOOL_REMINDER_SENTINEL))
+    .filter((t) => t.includes(LATE_TOOL_ANNOUNCEMENT_SENTINEL))
     .join('\n');
   if (!blob) return [];
   return names.filter((name) => blob.includes(name));
@@ -626,7 +624,7 @@ function deliverDeferredAnnouncement(session, reminder, options) {
   return null;
 }
 
-export function selectDeferredTools(session, names, mode, options = {}) {
+export function selectDeferredTools(session, names, mode) {
   // Resolve against the union of the boot-frozen catalog and the late-connected
   // MCP catalog so load_tool can load a late tool. Native providers register it
   // independently; canonical fallback providers already expose the full array.

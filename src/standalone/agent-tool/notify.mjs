@@ -2,12 +2,12 @@
 // facade as a factory so the mgr-bound closures stay per agent instance.
 // Behavior-preserving: bodies identical to the originals; deps injected.
 import { modelVisibleToolCompletionMessage, toolCompletionInstruction } from '../../runtime/shared/tool-execution-contract.mjs';
-import { renderBackgroundTask, sanitizeTaskMeta, setBackgroundTaskEnqueueFallback } from '../../runtime/shared/background-tasks.mjs';
+import { renderBackgroundTask, sanitizeTaskMeta } from '../../runtime/shared/background-tasks.mjs';
 import { markCompletionEntry } from '../../runtime/agent/orchestrator/session/manager/pending-messages.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 import { clean } from './helpers.mjs';
 
-export function createNotify(mgr) {
+export function createNotify(mgr, { notifySessionCompletion } = {}) {
   function enqueueCompletionMessage(sessionId, text, meta = {}) {
     const target = clean(sessionId);
     if (!target || typeof mgr.enqueuePendingMessage !== 'function') return false;
@@ -34,43 +34,25 @@ export function createNotify(mgr) {
     }
   }
 
-  // Wire the canonical completion fallback to this agent surface's owner-session
-  // enqueue so notifyTaskCompletion can deliver via callerSessionId when no
-  // notifyFn is present or it declines. Registered once per agent (the closure
-  // captures mgr); signatures align: (callerSessionId, message, meta).
-  setBackgroundTaskEnqueueFallback((sessionId, text, meta) => enqueueCompletionMessage(sessionId, text, meta));
+  function notifyOwner(ownerSessionId, text, meta = {}) {
+    const owner = clean(ownerSessionId);
+    if (!owner || typeof notifySessionCompletion !== 'function') return false;
+    const ownerMeta = {
+      ...(meta && typeof meta === 'object' ? meta : {}),
+      caller_session_id: owner,
+    };
+    delete ownerMeta.routing_session_id;
+    try { return notifySessionCompletion(owner, text, ownerMeta) !== false; }
+    catch { return false; }
+  }
 
   function workerNotifyFn(workerSessionId, notifyContext = {}) {
     const workerId = clean(workerSessionId);
     const ownerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
-    const upstream = typeof notifyContext?.notifyFn === 'function' ? notifyContext.notifyFn : null;
     return (text, meta = {}) => {
-      let ownerDelivered = false;
-      if (upstream) {
-        try {
-          const result = upstream(text, meta);
-          ownerDelivered = result !== false;
-          if (ownerDelivered && result && typeof result.then === 'function') {
-            // Async notifyFn: `ownerDelivered` is optimistic while the delivery
-            // promise is in flight — settlement decides the real outcome. On a
-            // reject or explicit false/0 resolve, rescue via the owner-session
-            // enqueue fallback so the completion is not silently swallowed. A
-            // truthy resolve never enqueues, preserving exact-once delivery.
-            Promise.resolve(result).then((settled) => {
-              if ((settled === false || settled === 0) && ownerSessionId) {
-                enqueueCompletionMessage(ownerSessionId, text, meta);
-              }
-            }).catch(() => {
-              if (ownerSessionId) enqueueCompletionMessage(ownerSessionId, text, meta);
-            });
-          }
-        } catch {
-          ownerDelivered = false;
-        }
-      }
-      if (!ownerDelivered && ownerSessionId) {
-        ownerDelivered = enqueueCompletionMessage(ownerSessionId, text, meta);
-      }
+      const ownerDelivered = ownerSessionId
+        ? notifyOwner(ownerSessionId, text, meta)
+        : false;
       const workerDelivered = workerId && workerId !== ownerSessionId
         ? enqueueCompletionMessage(workerId, text, meta)
         : ownerDelivered;
@@ -81,7 +63,6 @@ export function createNotify(mgr) {
   function notifyOwnerAgentCompletionEarly(job, resultValue, notifyContext = {}) {
     if (!job || job._earlyCompletionNotified === true) return false;
     const ownerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
-    const upstream = typeof notifyContext?.notifyFn === 'function' ? notifyContext.notifyFn : null;
     const finishedAt = new Date().toISOString();
     // An abnormal-empty finish carries an `error` — the early preview must NOT
     // present it as a benign `completed` card, or the Lead sees success before
@@ -116,19 +97,7 @@ export function createNotify(mgr) {
       }),
       ...(ownerSessionId ? { caller_session_id: ownerSessionId } : {}),
     };
-    let delivered = false;
-    if (upstream) {
-      try {
-        const result = upstream(text, meta);
-        delivered = result !== false;
-        if (delivered) Promise.resolve(result).catch(() => {});
-      } catch {
-        delivered = false;
-      }
-    }
-    if (!delivered && ownerSessionId) {
-      delivered = enqueueCompletionMessage(ownerSessionId, text, meta);
-    }
+    const delivered = notifyOwner(ownerSessionId, text, meta);
     if (delivered) {
       // Mark only that a header-only preview fired. The canonical
       // notifyTaskCompletion still owns the single body-carrying notification.

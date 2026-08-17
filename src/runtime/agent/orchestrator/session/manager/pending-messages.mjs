@@ -249,12 +249,15 @@ function isLegacyUnmarkedCompletionNotification(entry) {
 // notification MUST be enqueued through this so drain can discard it on resume
 // (never replay out-of-order). Pass the model-visible completion text (or an
 // existing entry); genuine user/steering messages must NOT be tagged.
-export function markCompletionEntry(text) {
+export function markCompletionEntry(text, options = {}) {
     const value = typeof text === 'string'
         ? text
         : (text && typeof text === 'object' ? (text.text || text.content || '') : '');
     const content = String(value ?? '');
-    return { content, text: content, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Date.now() };
+    const executionId = String(options?.executionId || '').trim();
+    const identity = executionId ? `execution:${executionId}` : `content:${content}`;
+    const id = `completion_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
+    return { id, content, text: content, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Date.now() };
 }
 
 function pendingMessagesPath() {
@@ -490,7 +493,9 @@ function persistPendingMessages(sessionId, messages) {
         const existingIds = new Set(q.map(pendingMessageId).filter(Boolean));
         const additions = committable.filter((entry) => {
             const id = pendingMessageId(entry);
-            return !id || !existingIds.has(id);
+            if (id && existingIds.has(id)) return false;
+            if (id) existingIds.add(id);
+            return true;
         });
         if (additions.length === 0) return undefined;
         q.push(...additions);
@@ -1056,7 +1061,17 @@ export function _mergePendingMessageEntries(entries) {
 export function enqueuePendingMessage(sessionId, message) {
     const normalized = pendingMessageQueueEntry(message);
     // Caller-provided ids are never trusted across sessions/processes.
-    const entry = normalized ? { ...normalized, id: newPendingMessageId() } : null;
+    // Completion ids are content/execution-addressed by markCompletionEntry:
+    // preserving them makes fallback retries idempotent, while genuine
+    // user/steering ids remain freshly generated and session-local.
+    const entry = normalized
+        ? {
+            ...normalized,
+            id: isCompletionNotificationEntry(normalized) && normalized.id
+                ? normalized.id
+                : newPendingMessageId(),
+        }
+        : null;
     if (!sessionId || !entry) return 0;
     // A provider/tool completion that lands after the session was tombstoned
     // must NOT recreate memory/spool state (and never clears the tombstone):
@@ -1069,6 +1084,7 @@ export function enqueuePendingMessage(sessionId, message) {
     // session the new owner already took over.
     runPendingTestHook('enqueue:beforePublish', { sessionId });
     if (pendingLifecycleInvalidated(sessionId, token)) return 0;
+    if (isCompletionNotificationEntry(entry) && pendingIdStillQueued(sessionId, entry.id)) return 1;
     let q = _sessionPendingMessages.get(sessionId);
     if (!q) { q = []; _sessionPendingMessages.set(sessionId, q); }
     q.push(entry);

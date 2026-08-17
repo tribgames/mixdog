@@ -84,7 +84,8 @@ export function createToolCardResults({
     const isError = isCallError;
     const text = isError
       ? toolErrorDisplay(rawText, card?.name || 'tool')
-      : (isExitError ? stripShellExitHeader(rawText) : rawText);
+      // Any parsed exit code (0 included) drops the machine header from display.
+      : (exitCode != null ? stripShellExitHeader(rawText) : rawText);
 
     if (aggregate && card.itemId === aggregate.itemId) {
       if (!callRec) return false;

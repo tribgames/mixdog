@@ -975,8 +975,6 @@ export function registerDesktopIpc(
     host.deleteSession(requiredSessionId(sessionId)));
   handle(DESKTOP_IPC.prefetchSession, (_event, sessionId) =>
     host.prefetchSession(requiredSessionId(sessionId)));
-  handle(DESKTOP_IPC.peekSession, async (_event, sessionId) =>
-    (await host.peekSession?.(requiredSessionId(sessionId))) === true);
   const visibleSessionStateIds = new Set<string>();
   handle(DESKTOP_IPC.setVisibleSessions, async (_event, sessionIds) => {
     if (!Array.isArray(sessionIds) || sessionIds.length > 256) {

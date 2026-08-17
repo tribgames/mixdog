@@ -63,9 +63,7 @@ export function useAppPaneChrome({
           const row = sessions.find((session) => session.id === selection.id);
           return row ? sessionSummaryTitle(row) : selection.title || "Session";
         })()
-        : selection.kind === "agent-session"
-          ? selection.title
-          : selection.kind === "file"
+        : selection.kind === "file"
             ? (selection.rel.split("/").at(-1) || selection.rel)
             : selection.kind === "diff"
               ? `${selection.rel.split("/").at(-1) || selection.rel} (Diff)`
@@ -87,7 +85,7 @@ export function useAppPaneChrome({
   };
 
   const activatePaneSurface = (paneSelection: WorkspaceSelection) => {
-    if (paneSelection.kind === "agent-session" || paneSelection.kind === "studio"
+    if (paneSelection.kind === "studio"
       || paneSelection.kind === "terminal"
       || paneSelection.kind === "folder"
       || paneSelection.kind === "diff" || paneSelection.kind === "pull-request") return;

@@ -69,15 +69,15 @@ export function createRemoteTranscript({
     return writer != null;
   }
 
-  // Bind (or refresh) outbound forwarding only for the manually selected
-  // Remote owner. Session creation, close, or liveness never transfers Remote.
+  // Bind (or refresh) outbound forwarding only for the pinned Remote session.
+  // Session creation, close, or liveness never changes that pin.
   function ensureRemoteTranscriptWriter() {
     const session = getSession();
     if (!isRemoteEnabled() || !session?.id) return false;
-    const owner = getRemoteSessionId();
-    if (!owner) {
+    const pinnedSessionId = getRemoteSessionId();
+    if (!pinnedSessionId) {
       setRemoteSessionId(session.id);
-    } else if (session.id !== owner) {
+    } else if (session.id !== pinnedSessionId) {
       return false;
     }
     if (!ensureSessionTranscriptWriter()) return false;

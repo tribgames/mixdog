@@ -41,7 +41,7 @@ export function createSessionTurnApi(deps) {
     scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, scheduleSearchRuntimeWarmup, refreshSessionForCwdIfNeeded, createCurrentSession,
     ensureSessionTranscriptWriter, ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
     pushTranscriptRebind, flushPendingTranscriptRebind,
-    hooks, hookCommonPayload, mgr, notifyFnForSession, bootProfile,
+    hooks, hookCommonPayload, mgr, notifyFnForSession, subscribeRuntimeNotification, bootProfile,
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
@@ -515,6 +515,9 @@ export function createSessionTurnApi(deps) {
     agentStatus() {
       return agentStatusState();
     },
+    onAgentStatusChange(listener) {
+      return agentTool.onStatusChange?.(listener) || (() => {});
+    },
     // Owner-side injection intake: foreign user messages persisted into the
     // shared spool by an attached surface. Engine pollers call this while
     // idle and run each returned text through the normal submit queue.
@@ -568,6 +571,10 @@ export function createSessionTurnApi(deps) {
     },
     onNotification(listener) {
       if (typeof listener !== 'function') return () => {};
+      const sessionId = getSession()?.id || getReservedSessionId?.() || '';
+      if (typeof subscribeRuntimeNotification === 'function') {
+        return subscribeRuntimeNotification(sessionId, listener);
+      }
       notificationListeners.add(listener);
       return () => notificationListeners.delete(listener);
     },

@@ -237,16 +237,6 @@ export async function createLocalSessionRuntime({
   desktopSession,
   agentSession = null,
 } = {}) {
-  // Agent shard spread workers: host the session on the LIGHTWEIGHT agent
-  // runtime (manager turns + minimal projection) instead of the full Lead
-  // session runtime. MIXDOG_AGENT_HOST_LITE=0 falls back to the full runtime.
-  if (agentSession && typeof agentSession === 'object'
-    && !/^(?:0|false|off|no)$/i.test(String(process.env.MIXDOG_AGENT_HOST_LITE ?? ''))) {
-    const { createAgentHostRuntime } = await import('../standalone/agent-host-runtime.mjs');
-    return createAgentHostRuntime({
-      provider: providerName, model, cwd, agentSession,
-    });
-  }
   const startedAt = performance.now();
   bootProfile('session:create:start', { provider: providerName, model, toolMode, remote });
   // Silence provider/session diagnostics so they cannot tear through the
@@ -284,7 +274,12 @@ export async function createLocalSessionRuntime({
     flushDeferredBeforeImmediatePush: null,
     pendingTranscriptMeta: null,
   };
-  const lifecycle = { runtimePulseTimer: null, unsubscribeRuntimeNotifications: null, unsubscribeRemoteState: null };
+  const lifecycle = {
+    runtimePulseTimer: null,
+    unsubscribeRuntimeNotifications: null,
+    unsubscribeAgentStatus: null,
+    unsubscribeRemoteState: null,
+  };
   const pending = [];
   const pendingNotificationKeys = new Set();
   const displayedExecutionNotificationKeys = new Set();
@@ -859,6 +854,12 @@ export async function createLocalSessionRuntime({
     itemIndexById,
   });
   lifecycle.unsubscribeRuntimeNotifications = subscribeRuntimeNotifications();
+  if (typeof runtime.onAgentStatusChange === 'function') {
+    lifecycle.unsubscribeAgentStatus = runtime.onAgentStatusChange(() => {
+      if (flags.disposed || flags.pendingSessionReset || bag.liveShareMirroring?.()) return;
+      set({ ...agentStatusState({ force: true }) });
+    });
+  }
 
   // Remote seat superseded by another session: runtime already stopped its
   // worker; sync the indicator and tell the user. Non-user-initiated, so a

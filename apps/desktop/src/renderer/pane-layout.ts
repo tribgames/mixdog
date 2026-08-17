@@ -195,13 +195,24 @@ export function filterPaneLayoutSessions(
   return filter(root);
 }
 
-/** Retire the old read-only agent-session tab identity. Agent activity now
- * opens the same normal session surface as the Sessions list. Prefer an
- * already-open normal session, convert agent-only tabs, and keep one owner. */
+type MigratedAgentSelection = Extract<WorkspaceSelection, { kind: "session" }> & {
+  legacyAgentSelection?: true;
+};
+
+function isMigratedAgentSelection(
+  selection: WorkspaceSelection,
+): selection is MigratedAgentSelection {
+  return selection.kind === "session"
+    && (selection as MigratedAgentSelection).legacyAgentSelection === true;
+}
+
+/** Keep only one normal tab per durable session address. Prefer an existing
+ * normal tab over a migrated legacy agent tab regardless of tree order. */
 export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
   const normalIds = new Set(
     paneLeaves(root).flatMap((leaf) =>
-      leaf.tabs.flatMap((tab) => tab.kind === "session" ? [tab.id] : [])),
+      leaf.tabs.flatMap((tab) =>
+        tab.kind === "session" && !isMigratedAgentSelection(tab) ? [tab.id] : [])),
   );
   const seen = new Set<string>();
   const normalize = (node: PaneNode): PaneNode | null => {
@@ -216,15 +227,19 @@ export function normalizePaneLayoutSessions(root: PaneNode): PaneNode | null {
     }
     const tabs: WorkspaceSelection[] = [];
     for (const tab of node.tabs) {
-      if (tab.kind === "agent-session" && normalIds.has(tab.id)) continue;
-      const next: WorkspaceSelection = tab.kind === "agent-session"
-        ? { kind: "session", id: tab.id, title: tab.title }
-        : tab;
-      if (next.kind === "session") {
-        if (seen.has(next.id)) continue;
-        seen.add(next.id);
+      if (tab.kind !== "session") {
+        tabs.push(tab);
+        continue;
       }
-      tabs.push(next);
+      if (isMigratedAgentSelection(tab) && normalIds.has(tab.id)) continue;
+      if (seen.has(tab.id)) continue;
+      seen.add(tab.id);
+      if (isMigratedAgentSelection(tab)) {
+        const { legacyAgentSelection: _legacy, ...session } = tab;
+        tabs.push(session);
+      } else {
+        tabs.push(tab);
+      }
     }
     if (tabs.length === 0) return null;
     const keys = new Set(tabs.map((tab) => navigationKey(tab)));
@@ -937,14 +952,13 @@ function parsedSelection(value: unknown): WorkspaceSelection | null {
         : null;
     case "agent-session":
       return typeof record.id === "string" && record.id
-        && typeof record.ownerSessionId === "string" && record.ownerSessionId
         && typeof record.title === "string" && record.title
         ? {
-          kind: "agent-session",
+          kind: "session",
           id: record.id,
-          ownerSessionId: record.ownerSessionId,
           title: record.title,
-        }
+          legacyAgentSelection: true,
+        } as MigratedAgentSelection
         : null;
     case "file":
       return typeof record.project === "string" && record.project

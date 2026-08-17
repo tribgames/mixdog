@@ -172,9 +172,17 @@ test('Lead lifecycle uses only lead-workers.json and removes the idle lease on r
       createdAt: new Date().toISOString(),
     };
     assert.equal(index.upsertLeadSession(lead, { status: 'running', stage: 'running' }), true);
+    assert.equal(index.upsertLeadSession({
+      ...lead,
+      id: 'worker-runtime',
+      owner: 'agent',
+      agent: 'worker',
+      ownerSessionId: lead.id,
+    }, { status: 'running', stage: 'running' }), false);
     assert.equal(existsSync(join(root, 'agent-workers.json')), false);
     let stored = JSON.parse(readFileSync(join(root, 'lead-workers.json'), 'utf8'));
     assert.equal(stored.workers['lead-runtime'].status, 'running');
+    assert.equal(stored.workers['worker-runtime'], undefined);
 
     assert.equal(index.upsertLeadSession(lead, { status: 'idle', stage: 'idle' }), true);
     stored = JSON.parse(readFileSync(join(root, 'lead-workers.json'), 'utf8'));

@@ -19,7 +19,6 @@ export function navigationKey(selection: WorkspaceSelection) {
       ? `file-access:${selection.accessToken}`
       : `file:${selection.project}:${selection.rel}`;
   }
-  if (selection.kind === "agent-session") return `agent-session:${selection.id}`;
   if (selection.kind === "studio") return `studio:${selection.id}`;
   if (selection.kind === "terminal") return `terminal:${selection.id}`;
   if (selection.kind === "folder") return `folder:${selection.id}`;

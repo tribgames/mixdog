@@ -79,6 +79,17 @@ function lastAssistantText(messages) {
   return '';
 }
 
+export function remoteTurnHandoffReady({
+  turnEnded = false,
+  grew = false,
+  elapsedMs = 0,
+  content = '',
+} = {}) {
+  const completionSignal = turnEnded || grew || elapsedMs > REMOTE_TURN_SETTLE_MS;
+  return completionSignal
+    && (Boolean(String(content || '').trim()) || elapsedMs > REMOTE_TURN_SETTLE_MS);
+}
+
 class RemoteWorkerHandle {
   constructor({ sessionId, spec, openParams, call, log }) {
     this.sessionId = sessionId;
@@ -252,13 +263,11 @@ class RemoteWorkerHandle {
   async fetchMessages() {
     const result = await this.callTransport('session.read', {
       sessionId: this.sessionId,
-      action: 'peekSessionMessages',
-      args: [this.sessionId, {}],
       open: this.openParams,
       baseRevision: null,
+      messageStart: 0,
     }, { callId: randomUUID() });
-    const value = result?.value;
-    const messages = Array.isArray(value?.messages) ? value.messages : [];
+    const messages = Array.isArray(result?.messages) ? result.messages : [];
     this.facade.messages = messages;
     return messages;
   }
@@ -353,8 +362,9 @@ class RemoteWorkerHandle {
           if (turnEnded && turnEndMs < 0) turnEndMs = Date.now() - askStartedAt;
           const messages = await this.fetchMessages();
           const grew = messages.length > baselineCount;
-          if (turnEnded || grew || Date.now() - submitAt > REMOTE_TURN_SETTLE_MS) {
-            const content = lastAssistantText(messages.slice(baselineCount));
+          const elapsedMs = Date.now() - submitAt;
+          const content = lastAssistantText(messages.slice(baselineCount));
+          if (remoteTurnHandoffReady({ turnEnded, grew, elapsedMs, content })) {
             // Terminal metadata rides the turndone marker so the Lead-side
             // abnormal-finish classifier (iteration_cap/truncated/empty) sees
             // the same terminationReason an in-process ask would return.
@@ -363,6 +373,13 @@ class RemoteWorkerHandle {
               + `turnEnd=${turnEndMs}ms total=${Date.now() - askStartedAt}ms`);
             try { askOpts.onTerminalResult?.(result); } catch { /* caller callback */ }
             return result;
+          }
+          // turndone is published with busy=false before the durable session
+          // save necessarily becomes readable. Recheck quickly instead of
+          // accepting an empty handoff from that short commit/save gap.
+          if (turnEnded || grew) {
+            await this.waitChange(100);
+            continue;
           }
         }
         await this.waitChange(REMOTE_WAIT_SLICE_MS);

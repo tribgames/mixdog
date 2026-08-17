@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { clean, hasOwn, sessionHasConversationMessages, tombstoneOnClose } from './session-text.mjs';
-import { isKnownProvider } from '../standalone/provider-admin.mjs';
 import { serializeFrontmatterDoc } from '../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
 import {
@@ -33,7 +32,7 @@ import { canonicalizeAgentRouteStorage } from '../runtime/shared/agent-route-con
 export function createWorkflowAgentsApi(deps) {
   const {
     getConfig, getRoute, setRouteState, getSession, setSession,
-    cfgMod, reg, mgr, STANDALONE_DATA_DIR,
+    cfgMod, mgr, STANDALONE_DATA_DIR,
     resolveRoute, lookupModelMeta, adoptConfig, saveConfigAndAdopt, displayConfig, ensureProvidersReady,
     agentRouteFromConfig, loadAgentDefinition, activeWorkflowId, listWorkflowPacks,
     loadWorkflowPack, workflowSummary, listCustomAgentIds,
@@ -129,7 +128,7 @@ export function createWorkflowAgentsApi(deps) {
         ...agent,
         locked: true,
         userOverride: existsSync(join(dataDir, 'agents', agent.id, 'AGENT.md')),
-        route: agentRouteFromConfig(config, agent.id, dataDir),
+        route: agentRouteFromConfig(config, agent.id),
         definition: loadAgentDefinition(dataDir, agent.id),
       }));
       // Starter and user-authored custom agents are discovered from
@@ -142,7 +141,7 @@ export function createWorkflowAgentsApi(deps) {
           description: definition?.description || '',
           custom: true,
           userOverride: existsSync(join(dataDir, 'agents', id, 'AGENT.md')),
-          route: agentRouteFromConfig(config, id, dataDir),
+          route: agentRouteFromConfig(config, id),
           definition,
         };
       });
@@ -317,7 +316,7 @@ export function createWorkflowAgentsApi(deps) {
         body: definition.body,
         custom: !FIXED_AGENT_SLOTS.some((agent) => agent.id === id),
         userOverride: existsSync(join(dataDir, 'agents', id, 'AGENT.md')),
-        route: agentRouteFromConfig(getConfig(), id, dataDir),
+        route: agentRouteFromConfig(getConfig(), id),
       };
     },
     async saveAgentDefinition(payload = {}) {
@@ -407,8 +406,7 @@ export function createWorkflowAgentsApi(deps) {
       // rewrote Main's effort/fast for the next session. Read the agent's own
       // stored route as the fallback instead, and never write the bucket here.
       const requested = { ...(next || {}) };
-      const routeDataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-      const stored = agentRouteFromConfig(getConfig(), id, routeDataDir) || {};
+      const stored = agentRouteFromConfig(getConfig(), id) || {};
       // No provider means no explicit override. Remove the stored route so the
       // agent follows Main dynamically; never synthesize a provider.
       if (!clean(requested.provider)) {

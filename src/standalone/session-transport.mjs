@@ -1,7 +1,8 @@
 // Machine-global session HTTP + SSE transport (server side).
 //
 // Sibling of channel-transport.mjs, deliberately separate: the channels
-// transport routes notifies to ONE pointer client (remote ownership), while
+// transport handles control-client state while channel messages route by the
+// durable pinned session, and
 // session frames are shared state — every attached client (terminal TUI and the
 // desktop app at the same time) must observe the same snapshot stream. Mixing
 // the two routing rules into one server would put the pointer semantics on a

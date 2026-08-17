@@ -589,8 +589,21 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'git':
       return unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' });
     case 'agent':
-    case 'bridge':
+    case 'bridge': {
+      const type = String(a.type || a.action || '').toLowerCase();
+      const status = String(a.status || '').toLowerCase();
+      const count = queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1;
+      if (type === 'result') {
+        if (/^(?:failed|error|timeout|killed|denied)$/.test(status)) {
+          return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Failed', noun: 'agent' });
+        }
+        if (/^(?:cancelled|canceled)$/.test(status)) {
+          return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Cancelled', noun: 'agent' });
+        }
+        return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Completed', noun: 'agent' });
+      }
       return unitDescriptor('Agent', { count: queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1, noun: 'agent' });
+    }
     case 'task': {
       const action = String(a.action || '').toLowerCase();
       if (action === 'cancel') return unitDescriptor('Task', { count: queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1, active: 'Cancelling', done: 'Cancelled', noun: 'task' });

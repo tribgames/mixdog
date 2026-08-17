@@ -199,7 +199,6 @@ const api: DesktopApi = {
   getRemoteAccessInfo: () => ipcRenderer.invoke(DESKTOP_IPC.remoteAccessInfo),
   rotateRemoteAccess: () => ipcRenderer.invoke(DESKTOP_IPC.rotateRemoteAccess),
   prefetchSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId),
-  peekSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.peekSession, sessionId),
   setVisibleSessions: (sessionIds) =>
     ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>

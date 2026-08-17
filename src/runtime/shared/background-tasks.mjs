@@ -19,14 +19,6 @@ const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const tasks = new Map();
 let seq = 0;
 
-// Owner-injected fallback used by notifyToolCompletion: when no notifyFn is
-// available (or it declines), enqueue the completion onto the caller session so
-// the owner is never left waiting on a canonical completion that never arrives.
-let _enqueueFallback = null;
-export function setBackgroundTaskEnqueueFallback(fn) {
-  _enqueueFallback = typeof fn === 'function' ? fn : null;
-}
-
 function clean(value) {
   return String(value ?? '').trim();
 }
@@ -357,7 +349,6 @@ export function notifyTaskCompletion(task, instruction) {
     resultType: task.resultType || `${task.surface}_task_result`,
     instruction,
     context: task.notifyContext,
-    enqueueFallback: _enqueueFallback || undefined,
     logPrefix: `background-${task.surface}`,
     // Async notifyFn: `sent` is reported optimistically while the delivery
     // promise is still in flight, so mark delivered now but let settlement
@@ -440,7 +431,6 @@ export function notifyBackgroundTaskProgress(taskOrId, {
     resultType: resultType || `${task.surface}_task_progress`,
     instruction,
     context: task.notifyContext,
-    enqueueFallback: _enqueueFallback || undefined,
     logPrefix: `background-${task.surface}`,
   });
   if (sent && once) task.progressNotifiedKeys.add(progressKey);

@@ -8,12 +8,6 @@ export type NavigationSelection =
  * They still use the same tab/split/persistence model as task and file tabs. */
 export type WorkspaceSelection =
   | NavigationSelection
-  | {
-    kind: "agent-session";
-    id: string;
-    ownerSessionId: string;
-    title: string;
-  }
   | { kind: "studio"; id: string }
   | { kind: "terminal"; id: string; cwd?: string }
   | { kind: "folder"; id: string; path: string }

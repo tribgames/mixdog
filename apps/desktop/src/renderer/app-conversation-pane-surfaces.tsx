@@ -1,10 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 
-import type { WorkspaceSelection } from "./navigation";
-import {
-  AgentSessionConversation,
-  PaneConversation,
-} from "./app-snapshot-views";
+import { PaneConversation } from "./app-snapshot-views";
 import { shouldFocusSurfaceInput } from "./surface-input-focus";
 
 export function AppConversationPaneSurface({
@@ -51,36 +47,6 @@ export function AppConversationPaneSurface({
       <div className="pane-surface-body">
         <div className="pane-chat-surface">
           <PaneConversation {...conversationProps} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function AppAgentSessionPaneSurface({
-  paneSelection,
-  focused,
-  focusPane,
-}: {
-  paneSelection: Extract<WorkspaceSelection, { kind: "agent-session" }>;
-  focused: boolean;
-  focusPane(): void;
-}) {
-  return (
-    <div className="workspace agent-session-workspace"
-      data-agent-session-id={paneSelection.id}
-      onPointerDownCapture={focused ? undefined : (event) => {
-        if (event.button === 0) focusPane();
-      }}>
-      <header className="session-header" aria-label="Agent session">
-        <div className="session-header-content">
-          <h1 data-tooltip={paneSelection.title}>{paneSelection.title}</h1>
-          <span className="session-project-badge">Read only</span>
-        </div>
-      </header>
-      <div className="pane-surface-body">
-        <div className="pane-chat-surface">
-          <AgentSessionConversation sessionId={paneSelection.id} />
         </div>
       </div>
     </div>

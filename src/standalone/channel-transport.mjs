@@ -50,12 +50,11 @@ export function createChannelTransport({
   sweepMs = 5_000,
   onClientsEmpty = null,
   getStatus = () => ({}),
-  dispatchControl = null,
   registrationReplayTtlMs = 60_000,
   remoteStatePath = null,
   remoteIntentPath = null,
   onClientRegistered = null,
-  onRemoteOwnerStateChange = null,
+  onRemoteStateChange = null,
   agentBroker = null,
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
@@ -64,23 +63,23 @@ export function createChannelTransport({
   const resolvedRemoteIntentPath = remoteIntentPath;
   // token -> { token, leadPid, cwd, sse, lastSeen, registeredAt }
   const clients = new Map();
-  // The routing pointer is set ONLY by an explicit manual Remote ON. Client
-  // registration, transcript rebind, and owner death never select a successor.
+  // UI control pointer only. The durable session pin, not this client token,
+  // is the channel routing authority.
   let pointerToken = null;
   let boundPort = null;
   // Sticky replay cache for the bridge remote-state notify. The daemon emits
   // 'notifications/mixdog/remote' {state:'acquired'} at boot (and 'superseded'
   // on repoint). That is a STATE signal, not an inbound message: every TUI must
   // observe the current remote-enabled state, and a late/non-pointer TUI that
-  // attaches after the one-shot notify would otherwise never learn it. We stash
-  // the latest such frame and replay it to each client as it attaches. Only the
-  // remote-state notify is cached/replayed — inbound notifies
-  // (notifications/claude/channel) stay pointer-targeted, never broadcast.
+  // attaches after the one-shot notify would otherwise never learn it. Inbound
+  // channel messages bypass this transport and submit directly to the pinned
+  // session through the daemon session service.
   const REMOTE_STATE_METHOD = 'notifications/mixdog/remote';
   let stickyRemoteFrame = null;
   let remoteAcquired = false;
   let remoteStateSignature = '';
   let remoteIntent = readRemoteIntent();
+  let pinnedSessionId = remoteIntent?.sessionId ?? null;
   let remoteRestorePromise = null;
   // Idempotency cache: callId -> { promise }. A retried /call with the SAME
   // callId awaits/returns the ORIGINAL run's result, so a transport-failure
@@ -132,16 +131,14 @@ export function createChannelTransport({
     if (!value || typeof value !== 'object') return null;
     const sessionId = String(value.sessionId || '').trim();
     const transcriptPath = String(value.transcriptPath || '').trim();
-    const ownerLeadPid = parsePid(value.ownerLeadPid);
     const cwd = value.cwd == null ? null : String(value.cwd);
-    if (!ownerLeadPid || !/^[A-Za-z0-9_-]+$/.test(sessionId) || !transcriptPath) return null;
+    if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || !transcriptPath) return null;
     const inferredSessionId = basename(transcriptPath).replace(/\.[^.]+$/, '');
     if (inferredSessionId !== sessionId) return null;
     return {
       version: 1,
       sessionId,
       transcriptPath,
-      ownerLeadPid,
       cwd,
       updatedAt: Number(value.updatedAt) || nowMs(),
     };
@@ -151,9 +148,6 @@ export function createChannelTransport({
     if (!resolvedRemoteIntentPath) return null;
     try {
       const intent = normalizeRemoteIntent(JSON.parse(readFileSync(resolvedRemoteIntentPath, 'utf8')));
-      // The owner PID is an ephemeral live-takeover guard, not the durable
-      // identity. A restarted session has a new PID and claims this intent by
-      // presenting the same sessionId + cwd below.
       if (!intent) {
         try { rmSync(resolvedRemoteIntentPath, { force: true }); } catch {}
         return null;
@@ -165,17 +159,17 @@ export function createChannelTransport({
     }
   }
 
-  function writeRemoteIntent(client, args, sessionId) {
+  function writeRemoteIntent(args, sessionId, cwd = null) {
+    pinnedSessionId = sessionId;
     if (!resolvedRemoteIntentPath) return;
     const intent = normalizeRemoteIntent({
       sessionId,
       transcriptPath: args?.transcriptPath,
-      ownerLeadPid: client?.leadPid,
-      cwd: client?.cwd ?? null,
+      cwd,
       updatedAt: nowMs(),
     });
     if (!intent) {
-      log(`remote intent not persisted: session/transcript mismatch for lead=${client?.leadPid ?? '?'}`);
+      log(`remote intent not persisted: session/transcript mismatch session=${sessionId || '?'}`);
       return;
     }
     remoteIntent = intent;
@@ -186,12 +180,10 @@ export function createChannelTransport({
     }
   }
 
-  function clearRemoteIntent(reason, client = null) {
-    if (client && remoteIntent && (
-      remoteIntent.ownerLeadPid !== client.leadPid
-      || remoteIntent.cwd !== (client.cwd || null)
-      || remoteIntent.sessionId !== String(client.remoteSessionId || '')
-    )) return false;
+  function clearRemoteIntent(reason, sessionId = null) {
+    const expectedSessionId = String(sessionId || '').trim();
+    if (expectedSessionId && pinnedSessionId !== expectedSessionId) return false;
+    pinnedSessionId = null;
     remoteIntent = null;
     if (resolvedRemoteIntentPath) {
       try { rmSync(resolvedRemoteIntentPath, { force: true }); }
@@ -201,22 +193,13 @@ export function createChannelTransport({
     return true;
   }
 
-  function maybeRestoreRemoteIntent(client) {
+  function restoreRemoteIntent() {
     const intent = remoteIntent;
-    if (closed || remoteRestorePromise || pointerToken || remoteAcquired || !intent) return;
-    const sameLiveOwner = isPidAlive(intent.ownerLeadPid)
-      && client.leadPid === intent.ownerLeadPid;
-    const sameSessionClaim = client.restoreSessionId === intent.sessionId;
-    if ((client.cwd || null) !== intent.cwd || (!sameLiveOwner && !sameSessionClaim)) return;
-    // A live owner can only restore its own intent. Session pinning permits a
-    // new PID only after the old owner is gone, preventing live takeover.
-    if (isPidAlive(intent.ownerLeadPid) && client.leadPid !== intent.ownerLeadPid) return;
-    const token = client.token;
-    remoteRestorePromise = Promise.resolve().then(async () => {
-      if (closed || pointerToken || remoteAcquired || remoteIntent !== intent
-          || clients.get(token) !== client || !isPidAlive(client.leadPid)) return;
-      client.remoteSessionId = intent.sessionId;
-      movePointer(token, 'daemon restart restore', { notifyDisplaced: false });
+    if (closed || !intent) return Promise.resolve(false);
+    if (remoteAcquired) return Promise.resolve(true);
+    if (remoteRestorePromise) return remoteRestorePromise;
+    const restore = Promise.resolve().then(async () => {
+      if (closed || remoteIntent !== intent || pinnedSessionId !== intent.sessionId) return false;
       try {
         const result = await handleCall(ACTIVATE_TOOL, {
           active: true,
@@ -224,62 +207,63 @@ export function createChannelTransport({
           transcriptPath: intent.transcriptPath,
           restore: true,
         }, {
-          clientToken: token,
-          leadPid: client.leadPid,
-          cwd: client.cwd,
+          clientToken: null,
+          leadPid: null,
+          cwd: intent.cwd,
         });
         if (result?.isError === true) {
           throw new Error(result?.content?.[0]?.text || 'restored activation failed');
         }
-        if (pointerToken === token && remoteIntent === intent) {
-          writeRemoteIntent(client, { transcriptPath: intent.transcriptPath }, intent.sessionId);
-          log(`remote intent restored session=${intent.sessionId} lead=${client.leadPid}`);
-          publishRemoteOwnerState();
+        if (!closed && remoteIntent === intent) {
+          remoteAcquired = true;
+          pinnedSessionId = intent.sessionId;
+          stickyRemoteFrame = JSON.stringify({
+            type: 'notify',
+            method: REMOTE_STATE_METHOD,
+            params: { state: 'acquired' },
+          });
+          log(`remote intent restored session=${intent.sessionId}`);
+          publishRemoteState();
+          return true;
         }
       } catch (err) {
-        if (pointerToken === token) {
-          pointerToken = null;
-          client.remoteSessionId = null;
-          remoteAcquired = false;
-          stickyRemoteFrame = null;
-          publishRemoteOwnerState();
-        }
         log(`remote intent restore failed session=${intent.sessionId}: ${err?.message || err}`);
       }
+      return false;
     }).finally(() => {
-      remoteRestorePromise = null;
+      if (remoteRestorePromise === restore) remoteRestorePromise = null;
     });
+    remoteRestorePromise = restore;
+    return restore;
   }
 
-  function publishRemoteOwnerState() {
-    const owner = pointerToken ? clients.get(pointerToken) : null;
-    const sessionId = String(owner?.remoteSessionId || '');
+  function publishRemoteState() {
+    const pointerClient = pointerToken ? clients.get(pointerToken) : null;
+    const sessionId = String(remoteAcquired ? pinnedSessionId : '');
     const state = {
-      enabled: remoteAcquired === true && Boolean(owner) && Boolean(sessionId),
-      sessionId: remoteAcquired === true && owner && sessionId ? sessionId : null,
-      ownerLeadPid: owner?.leadPid ?? null,
-      cwd: owner?.cwd ?? null,
+      enabled: remoteAcquired === true && Boolean(sessionId),
+      sessionId: remoteAcquired === true && sessionId ? sessionId : null,
+      cwd: pointerClient?.cwd ?? remoteIntent?.cwd ?? null,
       daemonPid: process.pid,
       updatedAt: nowMs(),
     };
     const signature = JSON.stringify([
       state.enabled,
       state.sessionId,
-      state.ownerLeadPid,
       state.cwd,
       state.daemonPid,
     ]);
     if (signature === remoteStateSignature) return;
     remoteStateSignature = signature;
-    if (typeof onRemoteOwnerStateChange === 'function') {
-      try { onRemoteOwnerStateChange(state); }
-      catch (err) { log(`remote owner state listener failed: ${err?.message || err}`); }
+    if (typeof onRemoteStateChange === 'function') {
+      try { onRemoteStateChange(state); }
+      catch (err) { log(`remote session state listener failed: ${err?.message || err}`); }
     }
     if (!resolvedRemoteStatePath) return;
     try {
       writeJsonAtomicSync(resolvedRemoteStatePath, state, { compact: true });
     } catch (err) {
-      log(`remote owner state write failed: ${err?.message || err}`);
+      log(`remote session state write failed: ${err?.message || err}`);
     }
   }
 
@@ -289,7 +273,7 @@ export function createChannelTransport({
       // it has not re-registered within a grace window. pid death is the
       // authoritative signal for client liveness.
       if (!isPidAlive(c.leadPid)) {
-        dropClient(token, 'pid dead', { preserveRemoteIntent: true });
+        dropClient(token, 'pid dead');
       }
     }
   }
@@ -302,38 +286,15 @@ export function createChannelTransport({
     return out;
   }
 
-  function dropClient(token, reason, options = {}) {
+  function dropClient(token, reason) {
     const c = clients.get(token);
     if (!c) return;
-    const wasPointer = pointerToken === token;
-    const shouldDeactivate = wasPointer && remoteAcquired;
     removeClientRecord(token);
     if (pointerToken === token) pointerToken = null;
     log(`client ${token} (lead=${c.leadPid}) removed: ${reason}`);
-    // Owner removal always means Remote OFF. Never auto-select or rebind a
-    // survivor; explicitly deactivate the shared provider if the owner vanished
-    // without first sending its normal active:false command.
-    if (wasPointer) {
-      remoteAcquired = false;
-      stickyRemoteFrame = null;
-      if (reason !== 'transport stop' && options.preserveRemoteIntent !== true) {
-        clearRemoteIntent(`owner removed: ${reason}`, c);
-      }
-    }
-    publishRemoteOwnerState();
-    if (shouldDeactivate && !closed && options.suppressDeactivate !== true
-        && typeof dispatchControl === 'function') {
-      try {
-        Promise.resolve()
-          .then(() => dispatchControl(ACTIVATE_TOOL, {
-            active: false,
-            sessionId: c.remoteSessionId || null,
-          }, { clientToken: c.token, leadPid: c.leadPid, cwd: c.cwd }))
-          .catch((err) => log(`owner deactivate failed for lead=${c.leadPid}: ${err?.message || err}`));
-      } catch (err) {
-        log(`owner deactivate failed for lead=${c.leadPid}: ${err?.message || err}`);
-      }
-    }
+    // Client presence is not channel authority. The durable session pin stays
+    // active until that same session explicitly turns Remote OFF.
+    publishRemoteState();
     maybeArmGrace('client removed');
   }
 
@@ -342,10 +303,7 @@ export function createChannelTransport({
     drainingReason = String(reason || 'daemon replacement');
     cancelGrace();
     for (const token of [...clients.keys()]) {
-      dropClient(token, drainingReason, {
-        preserveRemoteIntent: true,
-        suppressDeactivate: true,
-      });
+      dropClient(token, drainingReason);
     }
     return true;
   }
@@ -434,8 +392,8 @@ export function createChannelTransport({
     sweepTimer.unref?.();
   }
 
-  // Resolve the ONE manually enabled client. With no explicit owner, drop the
-  // notify; registration and liveness never invent a routing destination.
+  // Resolve the active UI pointer for state delivery only. Session routing
+  // never depends on this client.
   function resolveTarget() {
     if (pointerToken) {
       const c = clients.get(pointerToken);
@@ -449,12 +407,12 @@ export function createChannelTransport({
   // Write a targeted remote-state frame to ONE client's SSE. If that client has
   // no live stream yet (e.g. displaced mid-reconnect), BUFFER the frame on its
   // pending queue and flush it when the stream (re)attaches — otherwise the
-  // 'superseded' signal is silently lost and the old owner keeps its badge.
+  // 'superseded' signal is silently lost and the displaced UI keeps its badge.
   function writeRemoteStateTo(client, state) {
     if (!client) return false;
     const frame = JSON.stringify({ type: 'notify', method: REMOTE_STATE_METHOD, params: { state } });
     if (!client.sse) {
-      // This is state, not an event log. Ownership churn before an SSE
+      // This is state, not an event log. Control-state churn before an SSE
       // reconnect only needs the newest transition; retaining every displaced
       // frame lets one disconnected client grow without bound.
       client.pendingRemoteStateFrame = frame;
@@ -464,22 +422,20 @@ export function createChannelTransport({
     catch (err) { log(`remote-state '${state}' write failed for lead=${client.leadPid}: ${err?.message || err}`); return false; }
   }
 
-  // Manual ON is the only ownership transition. It may temporarily point at
-  // the claimant before provider activation so a synchronous acquired notify is
-  // routed correctly; the displaced owner is notified only after activation
-  // succeeds.
+  // Manual ON may temporarily select its control client before provider
+  // activation so a synchronous acquired state reaches the right UI.
   function movePointer(newToken, reason, { notifyDisplaced = true } = {}) {
     const oldToken = pointerToken;
     if (oldToken === newToken) {
       pointerToken = newToken;
-      publishRemoteOwnerState();
+      publishRemoteState();
       return oldToken;
     }
     pointerToken = newToken;
     const oldClient = oldToken ? clients.get(oldToken) : null;
     const newClient = clients.get(newToken);
     log(`routing pointer -> token=${newToken} lead=${newClient?.leadPid ?? '?'} via ${reason}`);
-    publishRemoteOwnerState();
+    publishRemoteState();
     if (notifyDisplaced && oldClient && oldClient !== newClient && isPidAlive(oldClient.leadPid)) {
       if (writeRemoteStateTo(oldClient, 'superseded')) {
         log(`superseded -> displaced pointer token=${oldToken} lead=${oldClient.leadPid}`);
@@ -492,23 +448,24 @@ export function createChannelTransport({
     if (method === REMOTE_STATE_METHOD) {
       const frame = JSON.stringify({ type: 'notify', method, params });
       if (params?.state === 'acquired') {
-        // 'acquired' is the standing badge state of the CURRENT owner. It is
-        // sticky (cached even with zero live clients, e.g. boot-time notify) so
-        // a late attach that IS the pointer can replay it. Under last-wins the
-        // owner is exactly the pointer client, so deliver ONLY there — a
-        // broadcast would light the badge on displaced/non-owner TUIs.
+        // Cache the standing badge state even with zero clients. A control
+        // client receives the immediate state; session routing is independent.
         const target = resolveTarget();
         if (!target) {
-          remoteAcquired = false;
-          stickyRemoteFrame = null;
-          publishRemoteOwnerState();
-          log('remote-state acquired ignored (no manual owner)');
-          return false;
+          if (!pinnedSessionId) {
+            log('remote-state acquired ignored (no pinned session)');
+            return false;
+          }
+          remoteAcquired = true;
+          stickyRemoteFrame = frame;
+          publishRemoteState();
+          log(`remote-state acquired for session=${pinnedSessionId}`);
+          return true;
         }
         remoteAcquired = true;
         stickyRemoteFrame = frame;
-        publishRemoteOwnerState();
-        if (!target.sse) { log('remote-state acquired not delivered (manual owner has no SSE); sticky set'); return false; }
+        publishRemoteState();
+        if (!target.sse) { log('remote-state acquired not delivered (control client has no SSE); sticky set'); return false; }
         try { target.sse.write(`data: ${frame}\n\n`); return true; }
         catch (err) { log(`remote-state acquired write failed for lead=${target.leadPid}: ${err?.message || err}`); return false; }
       }
@@ -519,7 +476,7 @@ export function createChannelTransport({
       remoteAcquired = false;
       stickyRemoteFrame = null;
       clearRemoteIntent('remote superseded');
-      publishRemoteOwnerState();
+      publishRemoteState();
       let delivered = false;
       for (const [, c] of liveClients()) {
         if (!c.sse) continue;
@@ -590,6 +547,10 @@ export function createChannelTransport({
       registeredAt: nowMs(),
       restoreSessionId: restoreId,
     });
+    const registeredClient = clients.get(token);
+    if (remoteAcquired && restoreId && restoreId === pinnedSessionId) {
+      registeredClient.remoteSessionId = restoreId;
+    }
     everHadClient = true;
     cancelGrace();
     startSweep();
@@ -600,7 +561,6 @@ export function createChannelTransport({
     if (typeof onClientRegistered === 'function') {
       try { onClientRegistered({ token, leadPid: pid, cwd: cwd || null }); } catch {}
     }
-    queueMicrotask(() => maybeRestoreRemoteIntent(clients.get(token)));
     const rememberReplacement = (freshToken) => {
       if (!replayId) return freshToken;
       const replay = {
@@ -613,15 +573,14 @@ export function createChannelTransport({
       return freshToken;
     };
     // A reconnect names the exact token it replaces. Retire it even when it is
-    // not the pointer: retaining a non-owner old token would let it later call,
-    // steal ownership, or accumulate a buffered frame after the fresh client
+    // not the pointer: retaining an old token would let it later call or
+    // accumulate a buffered frame after the fresh client
     // has gone away. Token replacement never crosses leadPid boundaries.
     const replaced = passive && replacementToken ? clients.get(replacementToken) : null;
     if (replaced && replaced.leadPid === pid) {
       const fresh = clients.get(token);
       const replacedWasPointer = pointerToken === replaced.token;
-      // Token-scoped state belongs to the logical client, not only the owner.
-      // A non-owner can hold a buffered superseded frame or stored bind intent.
+      // Token-scoped state belongs to the logical client.
       if (replaced.pendingRemoteStateFrame) {
         fresh.pendingRemoteStateFrame = replaced.pendingRemoteStateFrame;
         replaced.pendingRemoteStateFrame = null;
@@ -662,10 +621,7 @@ export function createChannelTransport({
       c.pendingRemoteStateFrame = null;
       try { res.write(`data: ${frame}\n\n`); } catch {}
     }
-    // Replay the sticky 'acquired' badge ONLY when THIS attaching client is the
-    // current pointer (the owner). A non-pointer late attach must NOT light the
-    // badge — under last-wins only the newest owner holds it. The TUI-side
-    // handler is idempotent, so re-delivery to the owner is safe.
+    // Replay the sticky 'acquired' badge only to the current control client.
     if (stickyRemoteFrame && token === pointerToken) {
       try { res.write(`data: ${stickyRemoteFrame}\n\n`); } catch {}
     }
@@ -733,11 +689,7 @@ export function createChannelTransport({
           return;
         }
         if (body.token) {
-          const preserveRemoteIntent = body.preserveRemoteIntent === true;
-          dropClient(body.token, 'deregister', {
-            preserveRemoteIntent,
-            suppressDeactivate: preserveRemoteIntent,
-          });
+          dropClient(body.token, 'deregister');
         }
         sendJson(res, { ok: true });
         return;
@@ -749,7 +701,7 @@ export function createChannelTransport({
       }
       // Internal memory -> session LLM bridge. It is authenticated with the
       // daemon discovery token but deliberately does NOT register as a channel
-      // client: background memory work must not acquire remote ownership or
+              // registered client: background memory work must not change the pinned session or
       // keep the channels client registry alive. The broker itself owns a
       // parallel fair scheduler and per-call cancellation.
       if (req.method === 'POST' && pathName === '/agent/dispatch') {
@@ -826,20 +778,20 @@ export function createChannelTransport({
                 claimSkipped: true,
               };
             }
-            // A stale displaced session can never turn the new manual owner off.
-            if (deactivating && (pointerToken !== clientToken || !bindingSessionId
-                || c.remoteSessionId !== bindingSessionId)) {
+            const pinnedSessionMatch = Boolean(
+              bindingSessionId
+              && remoteAcquired
+              && pinnedSessionId === bindingSessionId,
+            );
+            if (deactivating && !pinnedSessionMatch) {
               return {
-                content: [{ type: 'text', text: 'channel bridge release skipped: not current owner' }],
+                content: [{ type: 'text', text: 'channel bridge release skipped: session is not pinned' }],
                 releaseSkipped: true,
               };
             }
-            // Transcript refresh is owner-only and session-matched. It may
-            // update forwarding but can never acquire or move the owner.
-            if (rebindCall && (pointerToken !== clientToken || !remoteAcquired
-                || !bindingSessionId || c.remoteSessionId !== bindingSessionId)) {
+            if (rebindCall && !pinnedSessionMatch) {
               return {
-                content: [{ type: 'text', text: 'transcript rebind skipped: not current owner' }],
+                content: [{ type: 'text', text: 'transcript rebind skipped: session is not pinned' }],
                 rebindSkipped: true,
               };
             }
@@ -862,12 +814,11 @@ export function createChannelTransport({
                 const displaced = clients.get(previousPointerToken);
                 if (displaced && isPidAlive(displaced.leadPid)
                     && writeRemoteStateTo(displaced, 'superseded')) {
-                  log(`superseded -> displaced manual owner token=${previousPointerToken} lead=${displaced.leadPid}`);
+                  log(`superseded -> displaced control client token=${previousPointerToken} lead=${displaced.leadPid}`);
                 }
               }
-              if (deactivating && pointerToken === clientToken
-                  && c.remoteSessionId === bindingSessionId) {
-                clearRemoteIntent('explicit Remote OFF', c);
+              if (deactivating) {
+                clearRemoteIntent('explicit Remote OFF', bindingSessionId);
                 pointerToken = null;
                 c.remoteSessionId = null;
                 remoteAcquired = false;
@@ -876,9 +827,10 @@ export function createChannelTransport({
               if (activating && result?.isError !== true
                   && pointerToken === clientToken
                   && c.remoteSessionId === bindingSessionId) {
-                writeRemoteIntent(c, args, bindingSessionId);
+                remoteAcquired = true;
+                writeRemoteIntent(args, bindingSessionId, c.cwd ?? null);
               }
-              publishRemoteOwnerState();
+              publishRemoteState();
               return result;
             } catch (err) {
               if (activating && pointerToken === clientToken
@@ -889,7 +841,7 @@ export function createChannelTransport({
                 c.remoteSessionId = previousRemoteSessionId;
                 remoteAcquired = previousRemoteAcquired;
                 stickyRemoteFrame = previousStickyRemoteFrame;
-                publishRemoteOwnerState();
+                publishRemoteState();
               }
               throw err;
             }
@@ -939,7 +891,7 @@ export function createChannelTransport({
         server.removeListener('error', reject);
         boundPort = server.address().port;
         server.on('error', (err) => log(`server error: ${err?.message || err}`));
-        publishRemoteOwnerState();
+        publishRemoteState();
         log(`daemon transport listening on 127.0.0.1:${boundPort} pid=${process.pid}`);
         resolve({ port: boundPort, token: serverToken });
       });
@@ -955,7 +907,7 @@ export function createChannelTransport({
     for (const [token] of clients) dropClient(token, 'transport stop');
     remoteAcquired = false;
     pointerToken = null;
-    publishRemoteOwnerState();
+    publishRemoteState();
     clearRegistrationReplays();
     if (server) {
       await new Promise((resolve) => { try { server.close(() => resolve()); } catch { resolve(); } });
@@ -967,6 +919,7 @@ export function createChannelTransport({
     start,
     stop,
     notify,
+    restoreRemoteIntent,
     beginDrain,
     get port() { return boundPort; },
     get token() { return serverToken; },
@@ -976,6 +929,12 @@ export function createChannelTransport({
     get activeCount() { return channelCalls.active + channelControlCalls.active; },
     get queuedCount() { return channelCalls.queued + channelControlCalls.queued; },
     get draining() { return Boolean(drainingReason); },
+    get remoteIntentSessionId() {
+      return String(pinnedSessionId || '').trim() || null;
+    },
+    get remoteSessionId() {
+      return String(remoteAcquired ? pinnedSessionId : '').trim() || null;
+    },
     _clientsForTest: clients,
     _registrationReplaysForTest: registrationReplays,
     _resolveTargetForTest: resolveTarget,

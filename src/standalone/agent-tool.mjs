@@ -43,7 +43,6 @@ import {
   rowMatchesContext,
   sessionMatchesContext,
   terminalPidForContext,
-  withCwdHeader,
   writeAgentStatuslineRoute,
 } from './agent-tool/helpers.mjs';
 import { abnormalEmptyFinishError, renderResult } from './agent-tool/render.mjs';
@@ -92,6 +91,7 @@ export function createStandaloneAgent({
   cwd: defaultCwd,
   mcpScopeId = null,
   onSubagentEvent,
+  notifySessionCompletion,
   awaitKeychainPrewarm = async () => {},
   isKeychainPrewarmReady = () => true,
 }) {
@@ -100,6 +100,12 @@ export function createStandaloneAgent({
   // a single session manager. Disabled -> pure delegation to the base mgr.
   const shardSpread = createAgentShardSpread({ mgr: baseMgr });
   const mgr = shardSpread.mgr;
+  const statusListeners = new Set();
+  const notifyStatusChange = () => {
+    for (const listener of [...statusListeners]) {
+      try { listener(); } catch { /* status observers never affect agent lifecycle */ }
+    }
+  };
   // Optional bridge to the standard hook bus for SubagentStart / SubagentStop.
   // Best-effort: a hook error must never affect worker spawn/finish.
   function emitSubagentEvent(phase, agent, extra = {}) {
@@ -221,6 +227,8 @@ export function createStandaloneAgent({
       cancelReap,
       bindTag,
       emitSubagentEvent,
+      notifyStatusChange,
+      notifySessionCompletion,
       scheduleReap,
       cfgMod,
       dataDir,
@@ -418,7 +426,7 @@ export function createStandaloneAgent({
       preset: prepared.session.presetName || null,
       effort: prepared.session.effort || null,
       fast: prepared.session.fast === true,
-    }, (job) => runSend(prepared, notifyContext, job), notifyContext);
+    }, (job, ownerNotifyContext) => runSend(prepared, ownerNotifyContext, job), notifyContext);
     return renderResult({ ...extras, ...renderJob(job, false) });
   }
 
@@ -580,8 +588,7 @@ export function createStandaloneAgent({
           const fallbackTag = clean(args.tag);
           const isDeadTarget = /not found|is closed/i.test(String(err?.message || ''));
           if (!fallbackTag || fallbackTag.startsWith('sess_') || !isDeadTarget) throw err;
-          const prompt = clean(args.message || args.prompt);
-          if (!prompt) throw err;
+          const prompt = await resolvePrompt(args, callerCwd || defaultCwd);
           // A retained row or reap tombstone proves that this terminal owned
           // the tag. Unknown tags stay errors even when the caller supplies an
           // agent/cwd: typo absorption requires persisted same-tag evidence.
@@ -695,6 +702,11 @@ export function createStandaloneAgent({
   return {
     tools: [AGENT_TOOL],
     execute,
+    onStatusChange: (listener) => {
+      if (typeof listener !== 'function') return () => {};
+      statusListeners.add(listener);
+      return () => statusListeners.delete(listener);
+    },
     getStatus: (context = {}) => {
       if (!isKeychainPrewarmReady()) {
         void awaitKeychainPrewarm();
