@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.134 - 2026-08-17
+
 - Provider and tool integrations now include OAuth lifecycle and token recovery
   across Anthropic, Cursor, Grok, and OpenAI, Grok-specific tool schema
   normalization, and decomposed search and grep path/pattern fan-out.
