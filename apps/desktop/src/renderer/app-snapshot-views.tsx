@@ -371,7 +371,7 @@ export function PaneHeaderStatus({
     desktopHeaderSnapshotsEqual,
     !hidden && Boolean(sessionId),
   );
-  const visibleSnapshot = hidden
+  const visibleSnapshot = hidden || !sessionId
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
   return <>

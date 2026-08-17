@@ -606,7 +606,12 @@ export async function runHeadlessExec({
         }
       }
       try {
-        boundary?.cleanup(memoryCleanupFailed ? { preserveRoot: true } : undefined);
+        const cleanupResult = boundary?.cleanup(memoryCleanupFailed
+          ? { preserveRoot: true }
+          : { tolerateRootRemovalFailure: true });
+        if (cleanupResult?.rootRemovalError) {
+          writeErr(`mixdog: shutdown cleanup failed (result unaffected): ${cleanupResult.rootRemovalError?.message || cleanupResult.rootRemovalError}\n`);
+        }
       } catch (error) {
         errors.push(error);
       }

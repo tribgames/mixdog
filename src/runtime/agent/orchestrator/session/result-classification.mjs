@@ -58,9 +58,23 @@ const ZERO_MATCH_PREFIXES = [
     '(no lines in range',
 ];
 
-export function classifyResultKind(result, explicitSuccess = false) {
+const READ_ONLY_NAVIGATION_TOOLS = new Set([
+    'find', 'glob', 'grep', 'list', 'read', 'code_graph',
+]);
+
+const NAVIGATION_MISS_RE = /\b(?:enoent|enotdir)\b|path does not exist|directory does not exist|no such (?:file|path)|not found at this path|file not found in graph/i;
+
+export function isReadOnlyNavigationMiss(toolName, result) {
+    if (!READ_ONLY_NAVIGATION_TOOLS.has(String(toolName || '').toLowerCase())) return false;
+    if (typeof result !== 'string') return false;
+    if (/\b(?:eacces|eperm)\b|access is denied|permission denied|operation not permitted/i.test(result)) return false;
+    return NAVIGATION_MISS_RE.test(result);
+}
+
+export function classifyResultKind(result, explicitSuccess = false, toolName = '') {
     if (explicitSuccess === true) return 'normal';
     if (typeof result !== 'string') return 'normal';
+    if (isReadOnlyNavigationMiss(toolName, result)) return 'zero-match';
     const trimmed = result.trimStart();
     if (/^error(?:\s+\[code\b|\s*:)/i.test(trimmed) || /^\[error/i.test(trimmed)) return 'error';
     for (const prefix of ZERO_MATCH_PREFIXES) {

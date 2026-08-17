@@ -643,6 +643,7 @@ const INLINE_UNSAFE_BODY = /[$`\\]/;
 const INLINE_FILE_RELATIVE = /(?:require|import)\s*\(\s*['"]\.{1,2}\/|from\s+['"]\.{1,2}\/|import\.meta|__dirname|__filename|argv\s*\[\s*1\s*\]/;
 const WINDOWS_INLINE_COMMAND_FILE_THRESHOLD = 24_000;
 const LONG_INLINE_SCRIPT_RE = /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')/i;
+const POWERSHELL_FILE_SEMANTIC_RE = /\$(?:PSScriptRoot|PSCommandPath|MyInvocation)\b|^\s*(?:param\s*\(|#requires\b)/im;
 
 export function planInlineScriptHoist(command) {
     const text = String(command || '');
@@ -700,6 +701,31 @@ export function planLongInlineScriptFileTransport(command, {
         replace(filePath) {
             const normalized = String(filePath || '').replace(/\\/g, '/');
             return text.replace(whole, `${exe}${keptFlags} "${normalized}"`);
+        },
+    };
+}
+
+// Generic oversized PowerShell commands cannot reach powershell.exe on
+// Windows because CreateProcess rejects command lines around 32K UTF-16 code
+// units. Execute a semantics-safe whole-command script from a short path.
+// Script-location/introspection constructs are refused because moving those
+// commands into a file would observably change their values.
+export function planLongShellScriptFileTransport(command, {
+    platform = process.platform,
+    shellType = 'powershell',
+} = {}) {
+    const text = String(command || '');
+    if (platform !== 'win32'
+        || String(shellType || '').toLowerCase() !== 'powershell'
+        || text.length < WINDOWS_INLINE_COMMAND_FILE_THRESHOLD
+        || POWERSHELL_FILE_SEMANTIC_RE.test(text)) return null;
+    return {
+        command: text,
+        extension: '.ps1',
+        body: text,
+        replace(filePath) {
+            const escaped = String(filePath || '').replace(/\\/g, '/').replace(/'/g, "''");
+            return `& '${escaped}'`;
         },
     };
 }

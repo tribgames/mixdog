@@ -36,7 +36,10 @@ const STAT_CACHE_MAX_ENTRIES = 2_000;
 const RAW_CONTENT_CACHE = new Map(); // fullPath → { ts, mtimeMs, ctimeMs, size, rawBuf }
 const RAW_CONTENT_INFLIGHT = new Map(); // canonical path → { generation, promise }
 const RAW_CONTENT_CACHE_TTL_MS = 30_000;
-const RAW_CONTENT_CACHE_MAX_ENTRIES = 16;
+// 64: a parallel read batch fanning out over a component directory easily
+// tops 16 files; at 16 the batch thrashed its own cache before re-reads hit.
+// The 64MB byte cap below still bounds memory.
+const RAW_CONTENT_CACHE_MAX_ENTRIES = 64;
 const PATH_MUTATION_GENERATIONS = new Map(); // canonical path/root → monotonic generation
 const PATH_MUTATION_GENERATION_MAX_ENTRIES = 4096;
 let PATH_MUTATION_GLOBAL_GENERATION = 0;
@@ -124,6 +127,9 @@ export function cacheSet(key, value, meta = {}) {
     // Replace-in-place: clear old entry's byte accounting before write.
     if (RESULT_CACHE.has(key)) resultCacheDelete(key);
     const bytes = estimateResultBytes(value);
+    // An entry at/over the whole byte budget would evict every other entry
+    // and then be evicted itself on the next set — never store it.
+    if (bytes >= RESULT_CACHE_MAX_BYTES) return;
     RESULT_CACHE.set(key, {
         ts: Date.now(),
         value,

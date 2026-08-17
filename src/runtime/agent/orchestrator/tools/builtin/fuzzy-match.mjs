@@ -195,44 +195,99 @@ function retainTopRanked(heap, entry, ordinal, limit) {
  * @returns {Array<{item:object, score:number}>}  sorted desc, then path asc
  */
 export function fuzzyRank(query, items, limit = 0) {
-    const normQuery = normalizeForContains(query);
-    const queryMask = fuzzyAsciiMask(normQuery);
-    const score = prepareFuzzyScore(query);
-    // Floor scales with query length: a scattered subsequence earns ~1 point
-    // per char, while any contiguous run (+5/char) or word-boundary hit
-    // (+8) pushes a genuine match well past 6.5/char.
-    const floor = normQuery.length * SUBSEQUENCE_MIN_PER_CHAR;
+    const state = makeTokenScorer(query);
     const scored = [];
     // Preserve slice's legacy coercion behavior for non-integer public callers;
     // normal tool limits are positive integers and take the bounded fast path.
     const bounded = Number.isInteger(limit) && limit > 0;
     for (let ordinal = 0; ordinal < items.length; ordinal++) {
+        const sc = scoreItemAgainstToken(state, items[ordinal]);
+        if (sc === null) continue;
+        const entry = { item: items[ordinal], score: sc };
+        if (bounded) retainTopRanked(scored, entry, ordinal, limit);
+        else scored.push(entry);
+    }
+    if (!bounded) {
+        scored.sort(compareRanked);
+        return limit > 0 ? scored.slice(0, limit) : scored;
+    }
+    return scored
+        .sort(compareRankedNodes)
+        .map(({ entry }) => entry);
+}
+
+// Prepared per-token scoring state shared by fuzzyRank / fuzzyRankMulti.
+function makeTokenScorer(token) {
+    const normQuery = normalizeForContains(token);
+    return {
+        normQuery,
+        queryMask: fuzzyAsciiMask(normQuery),
+        score: prepareFuzzyScore(token),
+        // Floor scales with query length: a scattered subsequence earns ~1
+        // point per char, while any contiguous run (+5/char) or word-boundary
+        // hit (+8) pushes a genuine match well past 6.5/char.
+        floor: normQuery.length * SUBSEQUENCE_MIN_PER_CHAR,
+    };
+}
+
+// Gate + score ONE candidate against ONE prepared token. Returns the rank
+// score (basename bonus included) or null when the candidate fails the ASCII
+// mask prefilter or the subsequence quality floor.
+function scoreItemAgainstToken(state, item) {
+    const p = String(item.path || '');
+    if (Number.isInteger(item._fuzzyMaskLo)
+        && (((item._fuzzyMaskLo >>> 0) & state.queryMask.lo) >>> 0) !== state.queryMask.lo) return null;
+    if (Number.isInteger(item._fuzzyMaskHi)
+        && (((item._fuzzyMaskHi >>> 0) & state.queryMask.hi) >>> 0) !== state.queryMask.hi) return null;
+    const lastSep = Number.isInteger(item._fuzzyLastSep)
+        ? item._fuzzyLastSep
+        : Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+    const base = p.slice(lastSep + 1);
+    const pathScore = typeof state.score === 'function' ? state.score(p) : state.score;
+    const baseScore = typeof state.score === 'function' ? state.score(base) : state.score;
+    const sc = Math.max(pathScore ?? -Infinity, baseScore === null ? -Infinity : baseScore + 40);
+    if (!Number.isFinite(sc)) return null;
+    // Strong match: the query (separators stripped) is a contiguous
+    // substring of the basename or the full path. These ALWAYS pass so an
+    // exact substring/basename hit can never be starved out as noise.
+    const strong = state.normQuery.length > 0 && normalizeForContains(p).includes(state.normQuery);
+    // Otherwise it is subsequence-only: keep it only if it clears the
+    // per-char floor. Weak scattered matches (the pgAdmin-style junk that
+    // merely contains the query chars in order) fall below it and drop out.
+    // Compare the RAW subsequence score — the +40 basename rank bonus is
+    // for ordering only and must not lift junk over the quality floor.
+    const rawSc = Math.max(pathScore ?? -Infinity, baseScore ?? -Infinity);
+    if (!strong && rawSc < state.floor) return null;
+    return sc;
+}
+
+/** Split a find query into whitespace-separated fragments. */
+export function splitFuzzyQueryTokens(query) {
+    return String(query || '').trim().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Multi-fragment AND ranking: every whitespace-separated fragment of `query`
+ * must independently match a candidate (same gate as fuzzyRank); the rank
+ * score is the fragment sum. Single-fragment queries delegate to fuzzyRank
+ * unchanged.
+ */
+export function fuzzyRankMulti(query, items, limit = 0) {
+    const tokens = splitFuzzyQueryTokens(query);
+    if (tokens.length <= 1) return fuzzyRank(tokens[0] ?? String(query || ''), items, limit);
+    const states = tokens.map(makeTokenScorer);
+    const scored = [];
+    const bounded = Number.isInteger(limit) && limit > 0;
+    for (let ordinal = 0; ordinal < items.length; ordinal++) {
         const item = items[ordinal];
-        const p = String(item.path || '');
-        if (Number.isInteger(item._fuzzyMaskLo)
-            && (((item._fuzzyMaskLo >>> 0) & queryMask.lo) >>> 0) !== queryMask.lo) continue;
-        if (Number.isInteger(item._fuzzyMaskHi)
-            && (((item._fuzzyMaskHi >>> 0) & queryMask.hi) >>> 0) !== queryMask.hi) continue;
-        const lastSep = Number.isInteger(item._fuzzyLastSep)
-            ? item._fuzzyLastSep
-            : Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-        const base = p.slice(lastSep + 1);
-        const pathScore = typeof score === 'function' ? score(p) : score;
-        const baseScore = typeof score === 'function' ? score(base) : score;
-        const sc = Math.max(pathScore ?? -Infinity, baseScore === null ? -Infinity : baseScore + 40);
-        if (!Number.isFinite(sc)) continue;
-        // Strong match: the query (separators stripped) is a contiguous
-        // substring of the basename or the full path. These ALWAYS pass so an
-        // exact substring/basename hit can never be starved out as noise.
-        const strong = normQuery.length > 0 && normalizeForContains(p).includes(normQuery);
-        // Otherwise it is subsequence-only: keep it only if it clears the
-        // per-char floor. Weak scattered matches (the pgAdmin-style junk that
-        // merely contains the query chars in order) fall below it and drop out.
-        // Compare the RAW subsequence score — the +40 basename rank bonus is
-        // for ordering only and must not lift junk over the quality floor.
-        const rawSc = Math.max(pathScore ?? -Infinity, baseScore ?? -Infinity);
-        if (!strong && rawSc < floor) continue;
-        const entry = { item, score: sc };
+        let total = 0;
+        for (const state of states) {
+            const sc = scoreItemAgainstToken(state, item);
+            if (sc === null) { total = null; break; }
+            total += sc;
+        }
+        if (total === null) continue;
+        const entry = { item, score: total };
         if (bounded) retainTopRanked(scored, entry, ordinal, limit);
         else scored.push(entry);
     }

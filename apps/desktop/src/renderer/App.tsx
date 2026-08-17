@@ -857,7 +857,9 @@ export function App() {
     setTabs((current) => {
       let changed = false;
       const next = current.map((tab) => {
-        if (tab.selection.kind !== "session") return tab;
+        // A selection-pinned title (agent tabs) is caller-owned: the catalog
+        // sync must not replace it with the session's auto-generated title.
+        if (tab.selection.kind !== "session" || tab.selection.title) return tab;
         const title = catalogTitles.get(tab.selection.id);
         if (!title || title === tab.title) return tab;
         changed = true;
@@ -1119,13 +1121,18 @@ export function App() {
     if (!defaultSessionLaneStore.get(sessionId)) requestSessionRead(sessionId);
     const session = sessions.find((item) => item.id === sessionId);
     finishPendingConversationHandoff();
+    // An explicit caller title (agent pool rows: "Reviewer · tag") is PINNED
+    // into the selection so pane moves and catalog refreshes cannot swap the
+    // label for the child session's auto-generated title (user: 이동했다 오면
+    // 네이밍이 이상해진다).
+    const pinnedTitle = fallbackTitle.trim();
     activateSelection(
       {
         kind: "session",
         id: sessionId,
-        ...(!session && fallbackTitle.trim() ? { title: fallbackTitle.trim() } : {}),
+        ...(pinnedTitle ? { title: pinnedTitle } : {}),
       },
-      session ? sessionSummaryTitle(session) : fallbackTitle.trim() || "Untitled session",
+      pinnedTitle || (session ? sessionSummaryTitle(session) : "Untitled session"),
     );
   };
   openSessionRef.current = openSession;

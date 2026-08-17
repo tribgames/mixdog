@@ -17,6 +17,7 @@ import {
 } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import {
   planLongInlineScriptFileTransport,
+  planLongShellScriptFileTransport,
   preflightPowerShellHygiene,
 } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
@@ -33,6 +34,7 @@ import {
   classifyToolFailure,
 } from '../src/runtime/agent/orchestrator/agent-trace-format.mjs';
 import { ExecResult, execShellCommand } from '../src/runtime/agent/orchestrator/tools/shell-command.mjs';
+import { TaskOutput } from '../src/runtime/agent/orchestrator/tools/shell-exec-output.mjs';
 import { _composeShellFailure, _shellFailureStatus } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { classifyResultKind, isShellFailureResult } from '../src/runtime/agent/orchestrator/session/result-classification.mjs';
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
@@ -167,6 +169,49 @@ test('long Windows inline scripts use a short file-backed shell loader', () => {
     }), null);
 });
 
+test('generic oversized PowerShell commands use a safe whole-script transport', () => {
+    const command = `$value = 1\n${'# padding\n'.repeat(3000)}Write-Output $value`;
+    const plan = planLongShellScriptFileTransport(command, {
+        platform: 'win32',
+        shellType: 'powershell',
+    });
+    assert.ok(plan);
+    assert.equal(plan.extension, '.ps1');
+    assert.equal(plan.body, command);
+    assert.equal(plan.replace("C:\\Temp\\it's-long.ps1"), "& 'C:/Temp/it''s-long.ps1'");
+    assert.equal(planLongShellScriptFileTransport(
+        `${command}\nWrite-Output $PSScriptRoot`,
+        { platform: 'win32', shellType: 'powershell' },
+    ), null);
+});
+
+test('Windows executes an oversized PowerShell body with non-ASCII text', {
+    skip: process.platform !== 'win32',
+}, async () => {
+    const command = `# ${'패딩'.repeat(9000)}\nWrite-Output '장문-전송-정상'`;
+    const result = normalizeToolEnvelope(await executeBashTool(
+        { command, timeout_ms: 10_000 },
+        process.cwd(),
+    ));
+    assert.equal(result.explicitSuccess, true);
+    assert.match(result.result, /장문-전송-정상/);
+});
+
+test('shell capture blocks binary/control output but preserves normal UTF-8', async () => {
+    const normal = new TaskOutput('shell-text-normal');
+    normal.writeStdout('정상 UTF-8\n');
+    assert.equal(await normal.getStdout(), '정상 UTF-8\n');
+    assert.equal(normal.binaryOutput, null);
+
+    const binary = new TaskOutput('shell-text-binary');
+    binary.writeStdout(`prefix\u0000\u0001suffix`);
+    binary.writeStdout('must-not-follow');
+    assert.deepEqual(binary.binaryOutput, { channel: 'stdout', bytes: 14 });
+    assert.match(await binary.getStdout(), /^\[binary output detected on stdout;/);
+    assert.doesNotMatch(await binary.getStdout(), /\u0000/);
+    assert.doesNotMatch(await binary.getStdout(), /must-not-follow/);
+});
+
 test('Windows executes oversized node inline bodies through a script file', {
     skip: process.platform !== 'win32',
 }, async () => {
@@ -277,6 +322,7 @@ test('native search cancellation acknowledgement disarms forced recycle', async 
         sequence: 1,
         stderrTail: '',
     };
+    const keepAlive = setTimeout(() => {}, 50);
     try {
         await assert.rejects(
             _requestNativeForTest(
@@ -292,6 +338,7 @@ test('native search cancellation acknowledgement disarms forced recycle', async 
         await delay(20);
         assert.equal(killed, false);
     } finally {
+        clearTimeout(keepAlive);
         if (previous === undefined) delete process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS;
         else process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS = previous;
     }
@@ -303,21 +350,39 @@ test('native search soft deadline reserves response-processing grace', () => {
     assert.equal(_softDeadlineMsForTest(100), 1);
 });
 
-test('read-only I/O tools share one hard deadline and receive cancellation', async () => {
+test('read-only I/O deadline returns non-empty cancellation partials with a warning', async () => {
     const previous = process.env.MIXDOG_IO_TOOL_TIMEOUT_MS;
     process.env.MIXDOG_IO_TOOL_TIMEOUT_MS = '5';
     let aborted = false;
     try {
-        await assert.rejects(
-            _runReadOnlyIoWithDeadlineForTest('grep', null, (signal) => new Promise((resolve) => {
+        const result = await _runReadOnlyIoWithDeadlineForTest(
+            'grep',
+            null,
+            (signal) => new Promise((resolve) => {
                 signal.addEventListener('abort', () => {
                     aborted = true;
                     resolve('cancelled');
                 }, { once: true });
+            }),
+        );
+        assert.match(result, /^cancelled\n\[warning\].*PARTIAL results shown/);
+        assert.equal(aborted, true);
+    } finally {
+        if (previous === undefined) delete process.env.MIXDOG_IO_TOOL_TIMEOUT_MS;
+        else process.env.MIXDOG_IO_TOOL_TIMEOUT_MS = previous;
+    }
+});
+
+test('read-only I/O deadline still rejects when cancellation yields no partial', async () => {
+    const previous = process.env.MIXDOG_IO_TOOL_TIMEOUT_MS;
+    process.env.MIXDOG_IO_TOOL_TIMEOUT_MS = '5';
+    try {
+        await assert.rejects(
+            _runReadOnlyIoWithDeadlineForTest('grep', null, (signal) => new Promise((resolve) => {
+                signal.addEventListener('abort', () => resolve(''), { once: true });
             })),
             (error) => error?.code === 'READ_ONLY_IO_TIMEOUT',
         );
-        assert.equal(aborted, true);
     } finally {
         if (previous === undefined) delete process.env.MIXDOG_IO_TOOL_TIMEOUT_MS;
         else process.env.MIXDOG_IO_TOOL_TIMEOUT_MS = previous;
@@ -885,6 +950,11 @@ test('glob missing bases are navigation misses, not runtime failures', () => {
     'Error: path does not exist: C:/missing (ENOENT)',
     'glob',
   ), 'navigation/miss');
+  assert.equal(classifyToolFailure('Error: no such path C:/missing/.', 'find'), 'navigation/miss');
+  assert.equal(classifyToolFailure('Error: ENOENT: no such file or directory, stat C:/missing', 'read'), 'navigation/miss');
+  assert.equal(classifyToolFailure('Error: path does not exist: C:/missing', 'grep'), 'navigation/miss');
+  assert.equal(classifyToolFailure('Error: file not found in graph: src/missing.ts', 'code_graph'), 'navigation/miss');
+  assert.equal(classifyToolFailure('Error: EACCES: permission denied, stat C:/private', 'read'), 'path/permission');
 });
 
 test('apply_patch taxonomy separates parse, context, verification, path and resource guards', () => {
@@ -967,6 +1037,12 @@ test('apply_patch taxonomy separates parse, context, verification, path and reso
   assert.equal(patch(
     'Error: [tool-input-validation] apply_patch received a compacted-history placeholder, not executable patch content.',
   ), 'expected-preflight');
+  assert.equal(patch(
+    'Error: apply_patch: Add File target already exists: src/existing.mjs; read it and use Update File instead',
+  ), 'expected-preflight');
+  assert.equal(patch(
+    'Error: native patch failed — a/src/missing.mjs: stat C:/Project/src/missing.mjs for delete: file not found (os error 2)',
+  ), 'path/enoent');
 });
 
 test('committed or uncertain patch writes outrank lock and permission detail', () => {

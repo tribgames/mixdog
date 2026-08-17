@@ -1,5 +1,5 @@
-// Grok's gRPC tool registry rejects a root anyOf/oneOf when even one branch
-// is not an object. Tool definitions are never mutated.
+// Grok's gRPC tool registry requires flattened anyOf/oneOf schemas. Tool
+// definitions are never mutated.
 
 function schemasDeepEqual(left, right) {
     if (Object.is(left, right)) return true;
@@ -65,10 +65,33 @@ function firstExclusiveRequired(branches) {
     return [];
 }
 
+function normalizeGrokPropertySchema(schema) {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return schema;
+    const branches = [
+        ...(Array.isArray(schema.anyOf) ? schema.anyOf : []),
+        ...(Array.isArray(schema.oneOf) ? schema.oneOf : []),
+    ];
+    if (branches.length) {
+        const first = branches.find(branch => branch && typeof branch === 'object' && !Array.isArray(branch));
+        if (first) {
+            const { anyOf: _anyOf, oneOf: _oneOf, ...siblings } = schema;
+            return normalizeGrokPropertySchema({ ...first, ...siblings });
+        }
+    }
+    if (!schema.properties || typeof schema.properties !== 'object') return schema;
+    let changed = false;
+    const properties = Object.fromEntries(Object.entries(schema.properties).map(([name, propertySchema]) => {
+        const normalized = normalizeGrokPropertySchema(propertySchema);
+        if (normalized !== propertySchema) changed = true;
+        return [name, normalized];
+    }));
+    return changed ? { ...schema, properties } : schema;
+}
+
 function normalizeGrokToolSchema(schema) {
     if (!schema || typeof schema !== 'object' || Array.isArray(schema)
         || (!Array.isArray(schema.anyOf) && !Array.isArray(schema.oneOf))) {
-        return schema;
+        return normalizeGrokPropertySchema(schema);
     }
 
     const { anyOf, oneOf, ...root } = schema;
@@ -83,14 +106,14 @@ function normalizeGrokToolSchema(schema) {
             ...requiredKeys(root),
             ...firstExclusiveRequired(branches),
         ])];
-        return {
+        return normalizeGrokPropertySchema({
             ...root,
             type: 'object',
             ...(required.length ? { required } : {}),
             ...(!Object.prototype.hasOwnProperty.call(root, 'additionalProperties')
                 ? { additionalProperties: true }
                 : {}),
-        };
+        });
     }
 
     const properties = objectBranches.some(branch => branch.properties) || root.properties
@@ -113,13 +136,13 @@ function normalizeGrokToolSchema(schema) {
         required: _branchRequired,
         ...mergedObjectBranchesWithoutPropertiesOrRequired
     } = mergedObjectBranches;
-    return {
+    return normalizeGrokPropertySchema({
         ...mergedObjectBranchesWithoutPropertiesOrRequired,
         ...rootWithoutPropertiesOrRequired,
         type: 'object',
         ...(properties ? { properties } : {}),
         ...(required.length ? { required } : {}),
-    };
+    });
 }
 
 export function normalizeGrokToolSchemas(tools) {

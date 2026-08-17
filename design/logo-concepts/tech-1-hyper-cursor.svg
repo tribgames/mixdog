@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Deep obsidian substrate -->
+    <linearGradient id="t1-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#121318"/>
+      <stop offset="50%" stop-color="#08090c"/>
+      <stop offset="100%" stop-color="#020304"/>
+    </linearGradient>
+
+    <!-- Titanium chamfer border -->
+    <linearGradient id="t1-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="30%" stop-color="#38bdf8" stop-opacity="0.4"/>
+      <stop offset="70%" stop-color="#6366f1" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <!-- Isometric Facet Gradients -->
+    <linearGradient id="t1-left-facet" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="60%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+
+    <linearGradient id="t1-left-dark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+
+    <linearGradient id="t1-right-facet" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="60%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4338ca"/>
+    </linearGradient>
+
+    <linearGradient id="t1-right-dark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#2e1065"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+
+    <!-- Center Intersecting Monolith (White-hot Specular) -->
+    <linearGradient id="t1-apex-specular" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#cbd5e1"/>
+      <stop offset="100%" stop-color="#475569"/>
+    </linearGradient>
+
+    <!-- Core Laser / Quantum Amber Core -->
+    <linearGradient id="t1-laser" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#6366f1"/>
+    </linearGradient>
+
+    <!-- Shadow & Glow -->
+    <filter id="t1-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+
+    <filter id="t1-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Hardware App Squircle -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#t1-bg)" filter="url(#t1-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#t1-border)" stroke-width="1.5"/>
+
+  <!-- High-Tech Coordinate Grid Marks (Subtle IDE/CAD marks) -->
+  <g opacity="0.12" stroke="#ffffff" stroke-width="1">
+    <line x1="72" y1="256" x2="88" y2="256"/>
+    <line x1="424" y1="256" x2="440" y2="256"/>
+    <line x1="256" y1="72" x2="256" y2="88"/>
+    <line x1="256" y1="424" x2="256" y2="440"/>
+    <circle cx="256" cy="256" r="160" fill="none" stroke-dasharray="4 8"/>
+  </g>
+
+  <!-- Central Agent Reactor Glow -->
+  <circle cx="256" cy="256" r="120" fill="url(#t1-laser)" opacity="0.16" filter="url(#t1-glow)"/>
+
+  <!-- 3D Isometric Dual-Cursor Nexus (M + Stealth Hound Silhouette) -->
+  <g id="hyper-cursor-mark">
+    <!-- Left Wing / Outer Titanium Stem -->
+    <polygon points="124,340 124,196 172,132 172,284" fill="url(#t1-left-dark)"/>
+
+    <!-- Left Angular Ear / Cursor Apex -->
+    <polygon points="172,132 232,192 172,228" fill="url(#t1-left-facet)" filter="url(#t1-glow)"/>
+
+    <!-- Left Inner Incline / Code Chute -->
+    <polygon points="172,228 232,192 256,268 208,296" fill="#0284c7"/>
+
+    <!-- Right Wing / Outer Titanium Stem -->
+    <polygon points="388,340 388,196 340,132 340,284" fill="url(#t1-right-dark)"/>
+
+    <!-- Right Angular Ear / Cursor Apex -->
+    <polygon points="340,132 280,192 340,228" fill="url(#t1-right-facet)" filter="url(#t1-glow)"/>
+
+    <!-- Right Inner Incline / Code Chute -->
+    <polygon points="340,228 280,192 256,268 304,296" fill="#4f46e5"/>
+
+    <!-- Center Forward Terminal Dart (Executing Vector / Code Snout) -->
+    <polygon points="208,296 256,268 304,296 256,368" fill="url(#t1-apex-specular)"/>
+
+    <!-- Ultra-Sharp Specular Laser Edges -->
+    <line x1="172" y1="132" x2="232" y2="192" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.95"/>
+    <line x1="340" y1="132" x2="280" y2="192" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.95"/>
+    <line x1="256" y1="268" x2="256" y2="368" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+    <line x1="124" y1="196" x2="172" y2="132" stroke="#38bdf8" stroke-width="2" opacity="0.8"/>
+    <line x1="388" y1="196" x2="340" y2="132" stroke="#c084fc" stroke-width="2" opacity="0.8"/>
+
+    <!-- Cybernetic Optical Core (Center AI Point) -->
+    <circle cx="256" cy="308" r="7" fill="#00f2fe" filter="url(#t1-glow)"/>
+    <circle cx="256" cy="308" r="2.5" fill="#ffffff"/>
+  </g>
+</svg>

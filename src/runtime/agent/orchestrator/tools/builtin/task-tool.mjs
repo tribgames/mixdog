@@ -14,6 +14,38 @@ import {
     renderBackgroundTask,
     renderBackgroundTaskList,
 } from '../../../../shared/background-tasks.mjs';
+import {
+    listShellJobRecords,
+    readShellJobRecord,
+} from './lib/shell-job-records.mjs';
+
+function recoveredTaskMatches(record, options = {}) {
+    const context = options?.context && typeof options.context === 'object'
+        ? { ...options.context, ...options }
+        : options;
+    const sessionIds = new Set([
+        context?.callerSessionId,
+        context?.routingSessionId,
+        context?.sessionId,
+    ].filter(Boolean).map(String));
+    const clientHostPid = Number(context?.clientHostPid) || null;
+    if (sessionIds.size === 0 && !clientHostPid) return true;
+    if (!record?.ownerSessionId && !record?.ownerHostPid) return true;
+    if (record.ownerSessionId && sessionIds.has(String(record.ownerSessionId))) return true;
+    return Boolean(clientHostPid && Number(record.ownerHostPid) === clientHostPid);
+}
+
+function renderRecoveredShellTask(record) {
+    const result = shellJobPublicTaskResult(record);
+    return [
+        'background task',
+        `task_id: ${record.jobId}`,
+        `status: ${record.status}`,
+        'recovered: true',
+        '',
+        JSON.stringify(result, null, 2),
+    ].join('\n');
+}
 
 function shellJobToTaskStatus(status) {
     if (status === 'completed') return 'completed';
@@ -56,7 +88,16 @@ function renderTaskCancelSuccess(taskId, task) {
 export async function executeTaskTool(args, options = {}) {
     const action = typeof args.action === 'string' ? args.action.toLowerCase() : '';
     if (!action) return 'Error: task action is required';
-    if (action === 'list') return renderBackgroundTaskList({ context: options });
+    if (action === 'list') {
+        const rendered = renderBackgroundTaskList({ context: options });
+        const liveIds = new Set([...rendered.matchAll(/^-\s+(\S+)/gm)].map((match) => match[1]));
+        const recovered = (await listShellJobRecords())
+            .filter((record) => recoveredTaskMatches(record, options) && !liveIds.has(record.jobId));
+        if (recovered.length === 0) return rendered;
+        const rows = recovered.map((record) =>
+            `- ${record.jobId} shell ${record.terminal ? record.status : 'state-unavailable'} recovered=true command=${JSON.stringify(record.command || '')}`);
+        return `${rendered}\n[recovered shell tasks]\n${rows.join('\n')}`;
+    }
 
     const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : '';
     if (!taskId) return 'Error: task_id is required';
@@ -67,9 +108,27 @@ export async function executeTaskTool(args, options = {}) {
     if (/^sess_/.test(taskId)) {
         return `Error: "${taskId}" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery.`;
     }
+    if (action !== 'read' && action !== 'cancel') {
+        return `Error: task action must be one of list|read|cancel (got ${JSON.stringify(args.action)})`;
+    }
 
     const task = getBackgroundTask(taskId, { context: options });
-    if (!task) return `Error: task not found: ${taskId}`;
+    if (!task) {
+        const recovered = await readShellJobRecord(taskId);
+        if (!recovered || !recoveredTaskMatches(recovered, options)) {
+            return `Error: task not found: ${taskId}`;
+        }
+        if (action === 'read') {
+            return recovered.terminal
+                ? renderRecoveredShellTask(recovered)
+                : `Error: task state is unavailable after restart: ${taskId}`;
+        }
+        if (action === 'cancel') {
+            return recovered.terminal
+                ? `Error: task already ${recovered.status}: ${taskId}`
+                : `Error: task process control is unavailable after restart: ${taskId}`;
+        }
+    }
     const isShellTask = task.surface === 'shell';
 
     if (action === 'read') {

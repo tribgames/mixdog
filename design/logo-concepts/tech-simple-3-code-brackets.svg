@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Background -->
+    <linearGradient id="s3-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#15161e"/>
+      <stop offset="50%" stop-color="#0c0d12"/>
+      <stop offset="100%" stop-color="#050507"/>
+    </linearGradient>
+
+    <linearGradient id="s3-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Electric Emerald & Cyan (AI Compiler Runtime) -->
+    <linearGradient id="s3-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="50%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+
+    <filter id="s3-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+  </defs>
+
+  <!-- App Tile -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#s3-bg)" filter="url(#s3-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#s3-border)" stroke-width="1.5"/>
+
+  <!-- Concept 3: Code Syntax Brackets < M > Agent Mark -->
+  <g transform="translate(0, 0)">
+    <!-- Left Bracket < forming Left Ear & Stride -->
+    <path d="M 196 148 L 132 248 L 196 348"
+          fill="none"
+          stroke="url(#s3-gradient)"
+          stroke-width="38"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Right Bracket > forming Right Ear & Stride -->
+    <path d="M 316 148 L 380 248 L 316 348"
+          fill="none"
+          stroke="url(#s3-gradient)"
+          stroke-width="38"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Center Forward Terminal Caret ^ forming Center Apex & Dog Snout -->
+    <path d="M 212 284 L 256 220 L 300 284"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="34"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Terminal Prompt Underscore Cursor _ (Blinking Code Agent) -->
+    <line x1="236" y1="336" x2="276" y2="336" stroke="#00f2fe" stroke-width="20" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -1688,6 +1688,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.utility-dock .agent-session-chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--mx-text-faint);
+}
+.utility-dock .agent-session-heading:hover .agent-session-chevron {
+  color: var(--mx-text-soft);
+}
 .utility-dock .agent-activity-page > .workflows-models:first-child > .workflows-section-head {
   margin-top: -6px;
   padding-top: 0;

@@ -240,6 +240,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
     v4aConvertOpts, dryRun, fuzz, fuzzy, rejectPartial,
     readStateScope, abortSignal, mutationPlan,
     toolCallId, sessionId,
+    replayCapture = null,
     continueAfterFailure = false,
     coalesceByFile = false,
   } = ctx;
@@ -377,9 +378,10 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   return withBuiltinPathLocks(lockPaths, () =>
     withAdvisoryLocks(lockPaths, async () => {
       let uiBeforeSnapshots = [];
-      if (!dryRun && toolCallId && sessionId) {
+      if (!dryRun && ((toolCallId && sessionId) || replayCapture)) {
         try {
           uiBeforeSnapshots = capturePatchRollbackState(lockPaths);
+          setPatchReplayPreSnapshots(replayCapture, uiBeforeSnapshots);
         } catch {
           uiBeforeSnapshots = [];
         }
@@ -890,6 +892,7 @@ async function apply_patch(args, cwd, options = {}) {
       readStateScope, abortSignal, mutationPlan,
       toolCallId: options?.toolCallId || null,
       sessionId: options?.sessionId || null,
+      replayCapture: options?.replayCapture || null,
       continueAfterFailure: modelSurfaceFilePartial && !orderedSequenceMode,
       coalesceByFile: modelSurfaceFilePartial && !orderedSequenceMode,
     });
@@ -1045,6 +1048,7 @@ async function apply_patch(args, cwd, options = {}) {
       if (!dryRun) {
         try {
           rollbackSnapshots = capturePatchRollbackState(_lockPaths);
+          setPatchReplayPreSnapshots(options?.replayCapture, rollbackSnapshots);
         } catch (err) {
           return `Error: ${err?.message || String(err)}`;
         }
@@ -1145,38 +1149,116 @@ function patchTargetPaths(patchStr, basePath) {
   return [...new Set(out)];
 }
 
-function maybeCapturePatchReplay(args, cwd, errorText) {
-  // Default ON: every apply_patch failure is frozen for `npm run patch:replay`
-  // (args + target-file snapshots). Set MIXDOG_PATCH_REPLAY_CAPTURE=0 to
-  // disable. Retention is bounded below to the newest records.
-  const _flag = String(process.env.MIXDOG_PATCH_REPLAY_CAPTURE ?? '1').trim().toLowerCase();
-  if (_flag === '0' || _flag === 'false' || _flag === 'off') return;
+const PATCH_REPLAY_ERROR_MAX_CHARS = 64 * 1024;
+
+function patchReplayCaptureEnabled() {
+  const flag = String(process.env.MIXDOG_PATCH_REPLAY_CAPTURE ?? '1').trim().toLowerCase();
+  return flag !== '0' && flag !== 'false' && flag !== 'off';
+}
+
+function preparePatchReplayCapture(args, cwd, options = {}) {
+  if (!patchReplayCaptureEnabled()) return null;
   try {
     const patchStr = typeof args?.patch === 'string' ? args.patch : '';
     const basePath = pathResolve(String(args?.base_path || cwd || process.cwd()));
+    return {
+      patchStr,
+      basePath,
+      args: {
+        patch: patchStr,
+        base_path: args?.base_path ?? null,
+        format: args?.format ?? null,
+        dry_run: args?.dry_run ?? null,
+        fuzzy: args?.fuzzy ?? null,
+        reject_partial: args?.reject_partial ?? null,
+      },
+      targets: patchTargetPaths(patchStr, basePath),
+      fileSnapshots: null,
+      snapshotPhase: null,
+      sessionId: options?.sessionId || null,
+      toolCallId: options?.toolCallId || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function snapshotPatchReplayTargets(capture) {
+  const files = {};
+  for (const rel of capture?.targets || []) {
+    try {
+      const abs = isAbsolute(rel) ? rel : pathResolve(capture.basePath, rel);
+      // Never persist snapshots for targets outside basePath — a malicious
+      // or malformed patch could otherwise exfiltrate arbitrary files.
+      if (isResolvedPathOutsideBase(abs, capture.basePath)) { files[rel] = null; continue; }
+      files[rel] = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+    } catch { files[rel] = null; }
+  }
+  return files;
+}
+
+function setPatchReplayPreSnapshots(capture, snapshots) {
+  if (!capture || capture.snapshotPhase === 'pre') return;
+  const byPath = new Map((snapshots || []).map((snapshot) => [
+    pathResolve(snapshot.fullPath),
+    snapshot,
+  ]));
+  const files = {};
+  for (const rel of capture.targets || []) {
+    try {
+      const abs = pathResolve(isAbsolute(rel) ? rel : pathResolve(capture.basePath, rel));
+      const snapshot = byPath.get(abs);
+      files[rel] = snapshot?.existed
+        ? (Buffer.isBuffer(snapshot.content) ? snapshot.content.toString('utf8') : String(snapshot.content ?? ''))
+        : null;
+    } catch { files[rel] = null; }
+  }
+  capture.fileSnapshots = files;
+  capture.snapshotPhase = 'pre';
+}
+
+function patchReplayOutcome(errorText) {
+  const text = String(errorText || '');
+  const partial = /apply_patch file-level partial:\s*(\d+)\/(\d+) file\(s\) applied to disk \(committed\);\s*(\d+) file\(s\) rejected/i.exec(text);
+  if (!partial) return { kind: 'error' };
+  return {
+    kind: 'partial',
+    applied: Number(partial[1]),
+    total: Number(partial[2]),
+    rejected: Number(partial[3]),
+    rejectedTargets: [...text.matchAll(/^--- rejected file \d+\/\d+:\s*(.+?)\s*---$/gm)].map((match) => match[1]),
+  };
+}
+
+function maybeCapturePatchReplay(capture, errorText) {
+  // Default ON: every apply_patch failure is frozen for `npm run patch:replay`
+  // (args + target-file snapshots). Set MIXDOG_PATCH_REPLAY_CAPTURE=0 to
+  // disable. Retention is bounded below to the newest records.
+  if (!capture || !patchReplayCaptureEnabled()) return;
+  try {
     const dir = patchReplayDir();
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const rels = patchTargetPaths(patchStr, basePath);
-    const files = {};
-    for (const rel of rels) {
-      try {
-        const abs = isAbsolute(rel) ? rel : pathResolve(basePath, rel);
-        // Never persist snapshots for targets outside basePath — a malicious
-        // or malformed patch could otherwise exfiltrate arbitrary files.
-        if (isResolvedPathOutsideBase(abs, basePath)) { files[rel] = null; continue; }
-        files[rel] = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
-      } catch { files[rel] = null; }
+    if (!capture.fileSnapshots) {
+      capture.fileSnapshots = snapshotPatchReplayTargets(capture);
+      capture.snapshotPhase = 'post-no-prestate';
     }
     const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const fullError = String(errorText || '');
     const record = {
       id,
       ts: Date.now(),
       tool: 'apply_patch',
-      args: { patch: patchStr, base_path: args?.base_path ?? null, format: args?.format ?? null, dry_run: args?.dry_run ?? null, fuzzy: args?.fuzzy ?? null, reject_partial: args?.reject_partial ?? null },
-      cwd: basePath,
-      error_first_line: String(errorText || '').split('\n')[0].slice(0, 400),
-      targets: rels,
-      file_snapshots: files,
+      args: capture.args,
+      cwd: capture.basePath,
+      session_id: capture.sessionId,
+      tool_call_id: capture.toolCallId,
+      snapshot_phase: capture.snapshotPhase,
+      outcome: patchReplayOutcome(fullError),
+      error_first_line: fullError.split('\n')[0].slice(0, 400),
+      error_text: fullError.slice(0, PATCH_REPLAY_ERROR_MAX_CHARS),
+      error_truncated: fullError.length > PATCH_REPLAY_ERROR_MAX_CHARS,
+      targets: capture.targets,
+      file_snapshots: capture.fileSnapshots,
     };
     writeFileSync(pathJoin(dir, `${id}.json`), JSON.stringify(record, null, 2), { mode: 0o600 });
     // Retention: keep the newest 40 captures. The id prefix is Date.now() in
@@ -1193,15 +1275,16 @@ async function _executePatchTool(name, args, cwd, options = {}) {
   const effectiveCwd = cwd || process.cwd();
   switch (name) {
     case 'apply_patch': {
+      const replayCapture = preparePatchReplayCapture(args, effectiveCwd, options);
       let result;
       try {
-        result = await apply_patch(args || {}, effectiveCwd, options);
+        result = await apply_patch(args || {}, effectiveCwd, { ...options, replayCapture });
       } catch (err) {
         const errText = `Error: ${err?.message || String(err)}`;
-        maybeCapturePatchReplay(args, effectiveCwd, errText);
+        maybeCapturePatchReplay(replayCapture, errText);
         return errText;
       }
-      if (isPatchErrorText(String(result))) maybeCapturePatchReplay(args, effectiveCwd, String(result));
+      if (isPatchErrorText(String(result))) maybeCapturePatchReplay(replayCapture, String(result));
       if (typeof options?.onProgress === 'function') {
         try {
           const _body = String(result);

@@ -11,6 +11,7 @@ import {
     inspectBinaryFile,
     isBinaryBuffer,
 } from './binary-file.mjs';
+import { extractOoxmlText } from './read-office-files.mjs';
 
 function snapshotBodyWasReturnedByRead(snapshot) {
     return String(snapshot?.source || '').startsWith('read');
@@ -289,6 +290,15 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     const _mediaTextOnly = options?.mediaTextOnly === true;
     const _mediaExt = extname(fullPath).toLowerCase();
     if (_mediaExt === '.pdf') return extractPdfText(fullPath, args.pages, { maxOutputBytes: READ_MAX_OUTPUT_BYTES, textOnly: _mediaTextOnly });
+    if (_mediaExt === '.docx' || _mediaExt === '.pptx') {
+        // OOXML text extraction — always a flat string, so it is batch-safe
+        // without a textOnly split. Snapshot recorded on success only.
+        const _officeOut = await extractOoxmlText(fullPath, { maxOutputBytes: READ_MAX_OUTPUT_BYTES });
+        if (typeof _officeOut === 'string' && !_officeOut.startsWith('Error:')) {
+            _recordReadSnapshot(fullPath, st, readStateScope, { source: 'read', replaceExisting: true });
+        }
+        return _officeOut;
+    }
     if (_mediaExt === '.ipynb') {
         const _ipynbOut = await extractIpynbText(fullPath, { maxOutputBytes: READ_MAX_OUTPUT_BYTES, hasRangeArgs: hasRangeArgs || args.line !== undefined, textOnly: _mediaTextOnly });
         // Record a full-file read snapshot for cache/read-state consistency.

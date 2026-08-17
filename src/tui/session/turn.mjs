@@ -330,7 +330,7 @@ export function createRunTurn(bag) {
         const succeeded = Math.max(0, completed - errors - exitErrors);
         const rawResult = aggregateRawResult(allCalls);
         // Merged count summary (see patchToolCardResult); real failures keep
-        // 'N Failed', shell command-exits render 'Exit N'/'Y Exit'. Raw
+        // 'N Failed'; completed command failures render separately. Raw
         // preserved for ctrl+o expansion.
         const displayDetail = errors > 0 || exitErrors > 0
           ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
@@ -672,7 +672,10 @@ export function createRunTurn(bag) {
         // Tool result text (including HTTP/domain failures, zero matches, task
         // statuses, and shell output) is detail, not a failed invocation. Only
         // the provider's isError/error-tool envelope drives failure counts/red.
-        const { exitCode, isExitError, isCallError } = toolCallOutcome(message, rawText);
+        const { exitCode, isExitError, isCallError } = toolCallOutcome(
+          { ...message, toolName: callRec.name },
+          rawText,
+        );
         const isError = isCallError;
         const text = isError
           ? toolErrorDisplay(rawText, callRec.name || 'tool')

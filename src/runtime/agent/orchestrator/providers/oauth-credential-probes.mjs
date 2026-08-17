@@ -44,6 +44,7 @@ export function hasAnthropicOAuthCredentials() {
         if (oauth?.accessToken) {
             candidates.push({
                 accessToken: oauth.accessToken,
+                refreshToken: oauth.refreshToken || null,
                 expiresAt: Number(oauth.expiresAt ?? oauth.expires_at) || 0,
                 scopes: Array.isArray(oauth.scopes) ? oauth.scopes : [],
             });
@@ -52,7 +53,10 @@ export function hasAnthropicOAuthCredentials() {
     if (!candidates.length) return false;
     candidates.sort((a, b) => (Number(b.expiresAt) || 0) - (Number(a.expiresAt) || 0));
     const chosen = candidates[0];
-    return !!(chosen.accessToken && Array.isArray(chosen.scopes) && chosen.scopes.includes('user:inference'));
+    const hasInferenceScope = Array.isArray(chosen.scopes) && chosen.scopes.includes('user:inference');
+    const expiresAt = Number(chosen.expiresAt) || 0;
+    return !!(chosen.accessToken && hasInferenceScope
+      && (expiresAt === 0 || expiresAt > Date.now() || chosen.refreshToken));
   });
 }
 
@@ -85,14 +89,26 @@ export function hasGrokOAuthCredentials() {
 
 export function hasCursorOAuthCredentials() {
   return memoProbe('cursor-oauth', () => {
-    if (process.env.CURSOR_ACCESS_TOKEN) return true;
+    if (process.env.CURSOR_ACCESS_TOKEN) {
+      const parts = String(process.env.CURSOR_ACCESS_TOKEN).split('.');
+      if (parts.length !== 3 || !parts[1]) return true;
+      try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        const expiresAt = Number(payload?.exp) > 0 ? Number(payload.exp) * 1000 : 0;
+        return expiresAt === 0 || expiresAt > Date.now();
+      } catch {
+        return true;
+      }
+    }
     const paths = [
       process.env.CURSOR_OAUTH_CREDENTIALS_PATH,
       join(resolvePluginData(), 'cursor-oauth.json'),
     ].filter(Boolean);
     return paths.some((path) => {
       const own = readJsonIfExists(path);
-      return Boolean(own?.access_token);
+      if (!own?.access_token) return false;
+      const expiresAt = Number(own.expires_at) || 0;
+      return expiresAt === 0 || expiresAt > Date.now() || Boolean(own.refresh_token);
     });
   });
 }

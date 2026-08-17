@@ -163,6 +163,27 @@ function readArchivedAgentResult(sessionId) {
     };
 }
 
+// Frozen idle stamps: without finishedAt the idle moment fell back to the
+// MUTABLE updatedAt, so every background save advanced the dock's ordering
+// stamp and idle groups kept reshuffling (user: 유휴인데 목록이 깜빡인다).
+// The first observation freezes the fallback; a row seen working clears it so
+// the NEXT idle moment is stamped fresh.
+const stickyIdleSince = new Map(); // sessionId -> stamp
+const STICKY_IDLE_CAP = 512;
+function frozenIdleSince(sessionId, working, fallback) {
+    if (working) {
+        stickyIdleSince.delete(sessionId);
+        return null;
+    }
+    if (stickyIdleSince.has(sessionId)) return stickyIdleSince.get(sessionId);
+    const value = fallback || null;
+    stickyIdleSince.set(sessionId, value);
+    if (stickyIdleSince.size > STICKY_IDLE_CAP) {
+        stickyIdleSince.delete(stickyIdleSince.keys().next().value);
+    }
+    return value;
+}
+
 function activeAgentWorker(row) {
     const statuses = [row?.stage, row?.status]
         .map(cleanValue)
@@ -229,9 +250,11 @@ export function listStoredAgentWorkers() {
             turnStartedAt: row.turnStartedAt || null,
             createdAt: row.createdAt || session?.createdAt || null,
             updatedAt: row.updatedAt || session?.updatedAt || null,
-            idleSince: WORKING_AGENT_STATUS.test(cleanValue(row.stage || row.status))
-                ? null
-                : (row.finishedAt || row.updatedAt || session?.updatedAt || null),
+            idleSince: frozenIdleSince(
+                sessionId,
+                WORKING_AGENT_STATUS.test(cleanValue(row.stage || row.status)),
+                row.finishedAt || row.updatedAt || session?.updatedAt || null,
+            ),
             cwd: cleanValue(row.cwd || session?.cwd) || null,
             clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
             taskId: cleanValue(row.task_id || row.taskId) || null,
@@ -257,6 +280,14 @@ export function listStoredAgentWorkers() {
         const agent = cleanValue(session?.agent);
         if (!ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
         const current = bySessionId.get(sessionId) || {};
+        // The durable index row is authoritative for FINISHED work: a worker's
+        // runtime unloads at turn end but its heartbeat sidecar stays fresh for
+        // up to the 2-minute window, and overwriting an idle row to `running`
+        // here made every completed agent show as working and then flip back —
+        // the dock read as blinking (user: 유휴인데 계속 살아있고 깜빡인다).
+        // The sidecar promotes only rows the index does not already mark idle.
+        const currentStatus = cleanValue(current.stage || current.status);
+        if (currentStatus && !WORKING_AGENT_STATUS.test(currentStatus)) continue;
         bySessionId.set(sessionId, {
             ...current,
             tag: cleanValue(session?.agentTag) || cleanValue(current.tag)
@@ -332,7 +363,7 @@ export function listStoredAgentWorkers() {
             turnStartedAt: working ? (row.turnStartedAt || null) : null,
             createdAt: row.createdAt || null,
             updatedAt: working ? (heartbeatAt || row.updatedAt || null) : (row.updatedAt || null),
-            idleSince: working ? null : (row.finishedAt || row.updatedAt || null),
+            idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || null),
             cwd: cleanValue(row.cwd) || null,
             clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
             taskId: cleanValue(row.task_id || row.taskId) || null,

@@ -12,6 +12,7 @@ import {
   normalizeToolTerminalStatus,
   toolResultTerminalStatus,
 } from '../../runtime/shared/tool-status.mjs';
+import { isReadOnlyNavigationMiss } from '../../runtime/agent/orchestrator/session/result-classification.mjs';
 
 const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
@@ -22,7 +23,12 @@ const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 // prefix `[session: …]`. Returns the numeric exit code, or null otherwise.
 export function shellCommandExitCode(text) {
   const body = String(text || '');
-  const header = body.split('\n').slice(0, 3).join('\n');
+  const lines = body.split('\n');
+  if (/^\[tool output offloaded:\s*shell\b/i.test(String(lines[0] || '').trim())) {
+    lines.shift();
+    while (lines.length > 0 && !String(lines[0] || '').trim()) lines.shift();
+  }
+  const header = lines.slice(0, 6).join('\n');
   // Timeout / signal / abort are NOT a plain command exit — keep them "Failed".
   if (/\[timeout:|\[signal:|timed out|aborted|interrupted/i.test(header)) return null;
   const m = header.match(/^\s*(?:\[session:[^\n]*\]\s*\n)?(?:Error:\s*)?(?:\[shell-run-failed\]\s*)?\[exit code:\s*(\d+)\]/i);
@@ -39,11 +45,15 @@ export function shellCommandExitCode(text) {
 export function toolCallOutcome(message, rawText) {
   const exitCode = shellCommandExitCode(rawText);
   if (exitCode != null) {
-    // Every completed shell result carries `[exit code: N]` — including 0
-    // (bash-tool statusMarker). Only a NON-ZERO code is the neutral "Exit"
-    // state; exit 0 is a plain success and must count as Ok, not into the
-    // exit bucket (which renders "Exit 0" and a warning tone).
-    return { isCallError: false, isExitError: exitCode !== 0, exitCode };
+    // Every completed shell result carries `[exit code: N]` — including 0.
+    // A non-zero code is a command failure unless execution marked a known
+    // successful no-match/no-change outcome.
+    const benignExit = exitCode !== 0
+      && /^\[outcome:\s*(?:no-match|no-change)\]\s*$/im.test(String(rawText || ''));
+    return { isCallError: false, isExitError: exitCode !== 0 && !benignExit, exitCode };
+  }
+  if (isReadOnlyNavigationMiss(message?.toolName || message?.name, rawText)) {
+    return { isCallError: false, isExitError: false, exitCode };
   }
   const isCallError = message?.isError === true || message?.toolKind === 'error';
   return {
@@ -54,16 +64,17 @@ export function toolCallOutcome(message, rawText) {
 }
 
 // Build the collapsed failure/exit detail string. Real tool-call/result
-// failures keep the red-adjacent "Failed" wording; shell command-exits render
-// as the distinct neutral "Exit" state ("Exit N" for a single exit, "Y Exit"
-// grouped). A mixed group surfaces both ("1 Ok · 1 Failed · 1 Exit").
+// failures keep the red "Failed" wording; completed non-zero commands render
+// as the distinct warning "Command failed" state. A mixed group surfaces both.
 export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 0, exitCode } = {}) {
   const parts = [];
   if (succeeded > 0) parts.push(`${succeeded} Ok`);
   if (realErrors > 0) parts.push(`${realErrors} Failed`);
   if (exitErrors > 0) {
     const solo = exitErrors === 1 && realErrors === 0 && succeeded === 0;
-    parts.push(solo && Number.isFinite(exitCode) ? `Exit ${exitCode}` : `${exitErrors} Exit`);
+    parts.push(solo && Number.isFinite(exitCode)
+      ? `Command failed (exit ${exitCode})`
+      : `${exitErrors} Commands failed`);
   }
   return parts.join(' · ');
 }

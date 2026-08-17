@@ -49,6 +49,7 @@ import {
     cacheGet,
     cacheSet,
     runResultCacheInFlight,
+    statPathsForMtime,
 } from './cache-layers.mjs';
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from './arg-guard.mjs';
@@ -463,6 +464,28 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             ),
         });
         if (redirected) return redirected;
+        // Guessed-scope fallback: a RELATIVE single-segment scope ("test",
+        // "docs") with no redirect candidate is a guessed directory name.
+        // Search the project root instead of erroring — the notice keeps the
+        // remap visible. Absolute and multi-segment paths keep the error+hint
+        // contract (a wrong deep path usually flags a wrong assumption).
+        const rawScope = String(searchPath || '');
+        if (!options?._grepRootFallback
+            && rawScope
+            && rawScope !== '.'
+            && !isAbsolute(rawScope)
+            && !/[\\/:]/.test(rawScope)) {
+            const body = await executeGrepTool(
+                { ...args, path: '.' },
+                workDir,
+                executeChildBuiltinTool,
+                readStateScope,
+                { ...options, _grepRootFallback: true },
+            );
+            if (typeof body === 'string' && !/^\s*Error[\s:[]/i.test(body)) {
+                return `[notice] path "${rawScope}" does not exist — searched the project root instead.\n${body}`;
+            }
+        }
         const msg = `Error: path does not exist: ${normalizeOutputPath(grepResolvedPath)} (${err?.code || 'ENOENT'})`;
         let hint = buildNotFoundHint(workDir, grepResolvedPath, 'Search', err?.code, enoentCache);
         if (!hint) hint = await _suggestIndexedPaths(grepResolvedPath, executeChildBuiltinTool, workDir);
@@ -745,6 +768,27 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     ? `\n[warning] rg exit 2 (partial results): ${String(stdout.rgStderr).trim().slice(0, 300)}`
                     : '\n[warning] rg exit 2 (partial results)';
             }
+        }
+        // files_with_matches: newest-first (mtime desc, path tiebreak) so
+        // recently edited files surface first. Statting is bounded (64
+        // workers, 5s deadline); stat-failed entries keep rg traversal order
+        // after the statted ones. Sort covers the shown window — with the
+        // default head limit the common case is the complete result set.
+        if (outputMode === 'files_with_matches' && windowed.length > 1) {
+            const withStat = await statPathsForMtime(windowed, rgSpawnCwd, 64, { deadlineMs: 5000 });
+            const statted = [];
+            const unstatted = [];
+            for (let i = 0; i < windowed.length; i++) {
+                const entry = withStat[i];
+                if (entry?.stat) statted.push({ line: windowed[i], mtimeMs: entry.mtimeMs });
+                else unstatted.push(windowed[i]);
+            }
+            statted.sort((a, b) => {
+                const dm = b.mtimeMs - a.mtimeMs;
+                if (dm !== 0) return dm;
+                return a.line.localeCompare(b.line);
+            });
+            windowed = [...statted.map((e) => e.line), ...unstatted];
         }
         let body = formatGrepOutput({
             windowed,

@@ -232,7 +232,9 @@ test('daemon-owned OAuth flows expose serializable status, completion, and cance
     const cancelledStatus = await registry.cancel(second.flowId);
     assert.equal(cancelledStatus.state, 'cancelled');
     assert.equal(cancelled, 1);
-    assert.throws(() => registry.status(second.flowId), /no longer available/);
+    // Terminal flows stay queryable (oauth-flows.test.mjs owns this contract);
+    // only cancelAll() drops them from the registry.
+    assert.equal(registry.status(second.flowId).state, 'cancelled');
   } finally {
     registry.cancelAll();
   }

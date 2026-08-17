@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Deep Obsidian Tile -->
+    <linearGradient id="orca-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#121319"/>
+      <stop offset="50%" stop-color="#08090d"/>
+      <stop offset="100%" stop-color="#020305"/>
+    </linearGradient>
+
+    <!-- Subtle Ceramic Edge -->
+    <linearGradient id="orca-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.3"/>
+    </linearGradient>
+
+    <!-- Streamline Cyan & Indigo (Orca Deep Sea Glow) -->
+    <linearGradient id="orca-flow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="45%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+
+    <filter id="orca-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.8"/>
+    </filter>
+  </defs>
+
+  <!-- App Tile -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#orca-bg)" filter="url(#orca-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#orca-border)" stroke-width="1.5"/>
+
+  <!-- Orca-inspired Aerodynamic Streamline Silhouette -->
+  <!-- Left Wing & Ear Sweep -->
+  <path d="M 124 352
+           C 124 232 152 144 204 144
+           C 236 144 248 184 256 220
+           C 264 184 276 144 308 144
+           C 360 144 388 232 388 352
+           C 344 352 332 264 304 220
+           C 284 190 270 260 256 296
+           C 242 260 228 190 208 220
+           C 180 264 168 352 124 352 Z"
+        fill="url(#orca-flow)"/>
+
+  <!-- Terminal Prompt Negative / Core Cut (White Specular Snout) -->
+  <path d="M 212 296 L 256 348 L 300 296"
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="28"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>

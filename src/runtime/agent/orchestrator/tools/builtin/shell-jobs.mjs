@@ -21,8 +21,8 @@ import {
     SHELL_JOB_OUTPUT_DISK_CAP,
 } from './lib/shell-job-insights.mjs';
 import {
+    completeShellJobRecord,
     publishShellJobRecord,
-    retireShellJobRecord,
 } from './lib/shell-job-records.mjs';
 import {
     renderShellCompletionEnvelope,
@@ -63,7 +63,7 @@ function trackShellJobRecord(task, options) {
     const settle = (detail) => {
         if (!detail || detail.status === 'running') return;
         try { unsubscribe?.(); } catch {}
-        retireShellJobRecord(jobId);
+        void completeShellJobRecord(jobId, detail);
     };
     unsubscribe = subscribeNativeTask(jobId, settle);
     settle(getNativeTask(jobId) || task);

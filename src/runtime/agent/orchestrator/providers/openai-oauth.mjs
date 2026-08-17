@@ -202,7 +202,7 @@ export function describeOpenAIOAuthCredentials() {
     try {
         const tokens = loadTokens();
         if (!tokens?.access_token) {
-            return { authenticated: false, status: 'Not Set', detail: 'Mixdog token store' };
+            return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Not Set', detail: 'Mixdog token store' };
         }
         const hasRefresh = Boolean(tokens.refresh_token);
         const expiresAt = _normalizeExpiresAt(tokens.expires_at ?? tokens.expiresAt);
@@ -212,16 +212,19 @@ export function describeOpenAIOAuthCredentials() {
         if (!hasRefresh) {
             return {
                 authenticated: expiresAt === 0 || !expired,
+                usable: expiresAt === 0 || !expired,
+                refreshable: false,
+                reauthRequired: expired,
                 status: expired ? 'Reauth Required' : 'Access Only',
                 detail: `${source}; no refresh token`,
                 expiresAt,
             };
         }
-        if (expired) return { authenticated: true, status: 'Refresh Required', detail: source, expiresAt };
-        if (expiring) return { authenticated: true, status: 'Refresh Soon', detail: source, expiresAt };
-        return { authenticated: true, status: 'Valid', detail: source, expiresAt };
+        if (expired) return { authenticated: true, usable: false, refreshable: true, reauthRequired: false, status: 'Refresh Required', detail: source, expiresAt };
+        if (expiring) return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Refresh Soon', detail: source, expiresAt };
+        return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Valid', detail: source, expiresAt };
     } catch (err) {
-        return { authenticated: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
+        return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
     }
 }
 function _normalizeExpiresAt(value) {

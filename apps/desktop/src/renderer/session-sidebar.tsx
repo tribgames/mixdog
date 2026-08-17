@@ -804,11 +804,11 @@ const SessionRow = React.memo(function SessionRow({
   } | null>(null);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const dragSelection = useMemo(
-    () => ({ kind: "session" as const, id: session.id }),
-    [session.id],
-  );
   const dragTitle = sessionLabel(session);
+  const dragSelection = useMemo(
+    () => ({ kind: "session" as const, id: session.id, title: dragTitle }),
+    [dragTitle, session.id],
+  );
   useLayoutEffect(() => {
     if (!editing) return;
     titleInput.current?.focus({ preventScroll: true });

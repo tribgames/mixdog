@@ -685,12 +685,28 @@ export function createSessionService({
 
   async function requestedMessageSlice(params, sessionId) {
     if (!Number.isInteger(params?.messageStart)) return {};
+    const start = Math.max(0, params.messageStart);
+    // Live sessions answer from the runtime (read-your-writes): the shard's
+    // debounced disk save can lag a just-finished turn, and a disk read here
+    // returned a transcript WITHOUT the final assistant message — remote
+    // agent waiters then handed off an empty result for completed work.
+    const live = sessionOwner(sessionId);
+    if (live && typeof live.runtime?.readModelMessages === 'function') {
+      try {
+        const result = await live.runtime.readModelMessages(start);
+        if (result && Array.isArray(result.messages)) {
+          return {
+            messageCount: Math.max(0, Number(result.messageCount) || result.messages.length),
+            messages: sanitizeForWire(result.messages),
+          };
+        }
+      } catch { /* cold fallback below */ }
+    }
     if (typeof readStoredSession !== 'function') {
       throw new Error('session transcript reader is unavailable');
     }
     const stored = await readStoredSession(sessionId, { includeMessages: true });
     const messages = Array.isArray(stored?.messages) ? stored.messages : [];
-    const start = Math.max(0, params.messageStart);
     return {
       messageCount: messages.length,
       messages: sanitizeForWire(start > 0 ? messages.slice(start) : messages),

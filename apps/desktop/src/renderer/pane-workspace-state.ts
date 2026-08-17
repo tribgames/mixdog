@@ -164,27 +164,37 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
         restorePlan.stored!.layout,
         new Set<string>(),
       );
-      try {
-        const listSessions = window.mixdogDesktop?.listSessions;
-        if (typeof listSessions === "function") {
-          const [rows, agents] = await Promise.all([
-            listSessions(),
-            window.mixdogDesktop?.listAgentPool?.() ?? Promise.resolve([]),
-          ]);
-          const knownSessionIds = new Set(
-            [
-              ...(Array.isArray(rows) ? rows : []),
-              ...(Array.isArray(agents) ? agents : []),
-            ].map((row) => String("id" in row ? row.id : row.sessionId || "")),
-          );
-          filtered = filterPaneLayoutSessions(
-            restorePlan.stored!.layout,
-            knownSessionIds,
-          );
+      const listSessions = window.mixdogDesktop?.listSessions;
+      if (typeof listSessions === "function") {
+        // Cold boot: the daemon catalog can lag the first paint by seconds. A
+        // failed read here used to keep the empty-set filter and silently drop
+        // EVERY persisted session tab (user: 첫 부팅때 로딩이 안 되고 탭이
+        // 사라진다). Only a successfully READ catalog is authoritative; retry
+        // briefly before giving up on addressing persisted session tabs.
+        for (let attempt = 0; attempt < 10 && !cancelled; attempt += 1) {
+          try {
+            const [rows, agents] = await Promise.all([
+              listSessions(),
+              window.mixdogDesktop?.listAgentPool?.() ?? Promise.resolve([]),
+            ]);
+            const knownSessionIds = new Set(
+              [
+                ...(Array.isArray(rows) ? rows : []),
+                ...(Array.isArray(agents) ? agents : []),
+              ].map((row) => String("id" in row ? row.id : row.sessionId || "")),
+            );
+            filtered = filterPaneLayoutSessions(
+              restorePlan.stored!.layout,
+              knownSessionIds,
+            );
+            break;
+          } catch {
+            // Catalog unavailable: wait and retry; after the budget, no
+            // persisted session tab is safe to address (non-session tabs
+            // remain available).
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
         }
-      } catch {
-        // No authoritative catalog means no persisted session tab is safe to
-        // address. Non-session tabs remain available.
       }
       if (cancelled) return;
       const layout = filtered ?? createNewTaskPaneLeaf();

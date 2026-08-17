@@ -593,6 +593,9 @@ export function createSessionApiA(bag) {
     contextStatus: () => {
       return runtime.contextStatus?.() || null;
     },
+    readModelMessages: (messageStart = 0) => {
+      return runtime.readModelMessages?.(messageStart) || { messageCount: 0, messages: [] };
+    },
     addHookRule: (rule) => {
       const rules = runtime.addHookRule?.(rule) || [];
       pushNotice(`hook rule added (${rules.length} total)`, 'info');

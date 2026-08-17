@@ -445,15 +445,19 @@ function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
   // status reads as "Checking…" instead.
   const loading = !sectionLoaded(data, 'providerSetup');
   const secretsPending = setup.pendingSecrets === true;
-  const providerStatus = (provider: RecordValue) => (provider.authenticated
-    ? 'Connected'
-    : (secretsPending ? 'Checking…' : String(provider.status || 'Not connected')));
+  const providerStatus = (provider: RecordValue) => {
+    if (secretsPending && !provider.authenticated) return 'Checking…';
+    const status = String(provider.status || '');
+    if (provider.reauthRequired === true) return status || 'Reauth required';
+    if (provider.authenticated && /^(valid|set|access only)$/i.test(status)) return 'Connected';
+    return status || (provider.authenticated ? 'Connected' : 'Not connected');
+  };
   return <>
     <Group title="OAuth providers">{oauthProviders.length ? oauthProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
       description={String(provider.detail || '')}
       status={providerStatus(provider)}
       actions={<><OAuthControl provider={provider} disabled={busy} run={run} />
-        {provider.authenticated && <ActionButton danger disabled={busy} onClick={() => {
+        {(provider.authenticated || provider.reauthRequired) && <ActionButton danger disabled={busy} onClick={() => {
           confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
             confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
         }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} />}</Group>
@@ -582,7 +586,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
     }
   };
   return <>
-    <ActionButton disabled={disabled} onClick={() => void start()}>{provider.authenticated ? 'Reconnect' : 'Connect'}</ActionButton>
+    <ActionButton disabled={disabled} onClick={() => void start()}>{provider.authenticated || provider.reauthRequired ? 'Reconnect' : 'Connect'}</ActionButton>
     {flow && <div className="settings-oauth-layer" onMouseDown={(event) => {
       if (event.target === event.currentTarget) close();
     }}><section className="settings-oauth-dialog" role="dialog" aria-modal="true" data-settings-nested-dialog

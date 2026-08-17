@@ -619,12 +619,15 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
           name, never above the row's actions (user: 커넥티드 위치가 제각각).
           The token file/store location is plumbing, not setup guidance. */}
       {oauthProviders.map((provider) => <div className="onboarding-provider-row" key={String(provider.id)}><div><b>{providerTitle(provider)}</b>
-        <small className={`onboarding-provider-state${provider.authenticated ? ' connected' : ''}`}>
-          {provider.authenticated ? t('Connected') : t('Not connected')}</small></div>
+        <small className={`onboarding-provider-state${provider.usable === true
+          || (provider.usable == null && provider.authenticated && !provider.reauthRequired) ? ' connected' : ''}`}>
+          {t(provider.reauthRequired ? String(provider.status || 'Reauth required')
+            : provider.authenticated && /^(valid|set|access only)$/i.test(String(provider.status || '')) ? 'Connected'
+              : String(provider.status || (provider.authenticated ? 'Connected' : 'Not connected')))}</small></div>
         <span className="onboarding-provider-action">
           <OAuthControl provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onReload} />
         </span>
-        {Boolean(provider.authenticated) && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
+        {Boolean(provider.authenticated || provider.reauthRequired) && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
           void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
             if (result !== undefined) onReload();
           });

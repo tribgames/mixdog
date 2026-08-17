@@ -37,6 +37,7 @@ import {
   nonNegativeInt,
   normalizeAgentName,
   positiveInt,
+  callerSessionForContext,
   presetKey,
   readAgentFrontmatterPermission,
   resolvePrompt,
@@ -713,11 +714,14 @@ export function createStandaloneAgent({
         return { workers: [], jobs: [], scope: null };
       }
       const scopedContext = agentScope({}, context);
+      const ownerSession = callerSessionForContext(scopedContext);
       const pid = terminalPidForContext(scopedContext);
       return {
         workers: list({ scanSessions: false, context: scopedContext }),
         jobs: listJobs(scopedContext),
-        scope: pid ? { clientHostPid: pid } : { allTerminals: true },
+        scope: ownerSession
+          ? { sessionId: ownerSession }
+          : pid ? { clientHostPid: pid } : { allTerminals: true },
       };
     },
     recoverWorkers: (context = {}) => {
