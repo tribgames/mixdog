@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { claimSingletonOwner, handoffSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { readLiveServiceAdvert } from '../runtime/shared/service-discovery.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
+import { sleep as delay } from '../runtime/shared/sleep.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { projectSessionMessagesForIngest } from '../runtime/memory/lib/session-ingest.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -53,10 +54,6 @@ function isPidAlive(pid) {
   } catch (error) {
     return error?.code === 'EPERM';
   }
-}
-
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 const TRANSIENT_MEMORY_RPC_BACKOFF_MS = 400;

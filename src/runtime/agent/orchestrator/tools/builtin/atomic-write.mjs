@@ -7,13 +7,13 @@ import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
 import { hashText } from './hash-utils.mjs';
+import { sleep } from '../../../../shared/sleep.mjs';
 
 const STREAMING_THRESHOLD_BYTES = 1024 * 1024;
 
 const WINDOWS_RENAME_RETRY_CODES = new Set(['EACCES', 'EBUSY', 'EPERM']);
 const WINDOWS_RENAME_RETRY_BACKOFFS_MS = [25, 50, 100, 200, 400, 800, 1200, 1600];
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 function expectedTargetSnapshotChanged(currentStat, expected) {
     if (!expected) return false;

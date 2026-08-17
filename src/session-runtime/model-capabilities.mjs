@@ -119,10 +119,7 @@ export function fastPreferenceFor(config, provider, model) {
   const key = routeFastKey(provider, model);
   if (!key) return false;
   const saved = config?.modelSettings?.[key];
-  if (saved && typeof saved === 'object' && hasOwn(saved, 'fast')) return saved.fast === true;
-  // Pre-modelSettings configs kept the preference in a parallel `fastModels`
-  // map. Reading it keeps those installs working; nothing writes it anymore.
-  return config?.fastModels?.[key] === true;
+  return Boolean(saved && typeof saved === 'object' && saved.fast === true);
 }
 
 export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfig = null } = {}) {
@@ -144,12 +141,6 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   }
   modelSettings[key] = nextSetting;
 
-  // modelSettings is the single source of truth for the fast preference; the
-  // stale mirror in `fastModels` is dropped for the key being written so the
-  // two can never disagree.
-  const fastModels = { ...(nextConfig.fastModels || {}) };
-  delete fastModels[key];
-
-  const savedConfig = { ...nextConfig, modelSettings, fastModels };
+  const savedConfig = { ...nextConfig, modelSettings };
   return savedConfig;
 }

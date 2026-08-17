@@ -20,12 +20,7 @@ export function readMainConfig() {
 
 export function readRecapEnabled() {
   try {
-    let agent = readSection('agent')
-    // The agent section may be double-wrapped ({ agent: { providers, ... } })
-    // in legacy config files; loadConfig() unwraps the same way (config.mjs
-    // `raw.agent && raw.agent.providers`). Mirror it here or a migrated/toggled
-    // recap flag written inside the wrapper would be invisible to the daemon.
-    if (agent?.agent && agent.agent.providers) agent = agent.agent
+    const agent = readSection('agent')
     const recap = agent?.recap
     if (recap && typeof recap === 'object' && recap.enabled === false) return false
     return true
@@ -69,20 +64,8 @@ export function memoryCyclesEnabled() {
 
 export function secondaryPgAdvertised(dataDir) {
   if (!memorySecondaryMode()) return true
-  const runtimeRoot = resolveRuntimeRoot()
-  // Prefer the single-writer PG discovery advert (discovery/pg.json); fall back
-  // to the legacy active-instance.json pg_* fields for cross-version compat.
-  const readAdvert = () => {
-    const advert = readServiceAdvert('pg')
-    if (advert && Number(advert.pg_port) > 0) return advert
-    try {
-      return JSON.parse(fs.readFileSync(path.join(runtimeRoot, 'active-instance.json'), 'utf8'))
-    } catch {
-      return advert
-    }
-  }
   try {
-    const cur = readAdvert()
+    const cur = readServiceAdvert('pg')
     const port = Number(cur?.pg_port)
     const pgdata = cur?.pg_pgdata ? path.resolve(String(cur.pg_pgdata)) : ''
     return Number.isInteger(port) && port > 0 && pgdata === path.resolve(path.join(dataDir, 'pgdata'))

@@ -7,7 +7,7 @@ test('saveModelSettings updates modelSettings without a sync config write', () =
   let saveCalls = 0;
   const cfgMod = {
     loadConfig() {
-      return { modelSettings: {}, fastModels: { 'openai/gpt-5.4': true } };
+      return { modelSettings: {} };
     },
     saveConfig() {
       saveCalls += 1;
@@ -26,7 +26,7 @@ test('saveModelSettings updates modelSettings without a sync config write', () =
     fast: true,
     modelParameters: { context: '1m' },
   });
-  assert.equal(next.fastModels['openai/gpt-5.4'], undefined);
+  assert.equal(next.fastModels, undefined);
 });
 
 function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod }) {

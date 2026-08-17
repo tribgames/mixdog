@@ -1,4 +1,5 @@
 import { __mixdogMemoryLog } from '../memory-log.mjs';
+import { sleep as delay } from '../../../shared/sleep.mjs';
 
 // pg-process.mjs — lower-level PG lifecycle helpers for mixdog 0.4.0
 // Track B can wire these into the supervisor; pg-adapter calls them directly.
@@ -51,7 +52,6 @@ function isTcpPortFree(port) {
 
 const PG_PORT_MIN = 55432
 const PG_PORT_MAX = 55632
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false

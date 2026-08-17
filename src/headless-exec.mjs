@@ -13,15 +13,12 @@ import {
 } from './runtime/shared/pristine-execution.mjs';
 import { hasActiveBackgroundTasks } from './runtime/shared/background-tasks.mjs';
 import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
+import { sleep } from './runtime/shared/sleep.mjs';
 import { stopStandaloneMemoryRuntimesForProcess } from './standalone/memory-runtime-proxy.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
 
 function clean(value) {
   return String(value ?? '').trim();
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function nonNegativeNumber(value) {

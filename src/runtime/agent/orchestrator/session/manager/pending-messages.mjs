@@ -206,43 +206,9 @@ function pendingMessageId(entry) {
     return typeof entry?.id === 'string' && entry.id ? entry.id : null;
 }
 
-// Content-addressed (NO index): an index-keyed id changed whenever the queue
-// shifted, so ack/ledger suppression missed the renamed entry and the foreign
-// drain re-injected it as a duplicate user message. Identical legacy strings
-// now share one id — acceptable, since ack-by-id then clears such duplicate
-// stale rows together.
-function legacyPendingMessageId(sessionId, index, value) {
-    return `legacy_${createHash('sha256').update(`${sessionId}:${value}`).digest('hex').slice(0, 24)}`;
-}
-
 function isCompletionNotificationEntry(entry) {
     return Boolean(entry) && typeof entry === 'object'
         && entry.notificationKind === COMPLETION_NOTIFICATION_KIND;
-}
-
-// Pre-marker completion notifications were persisted as plain strings,
-// indistinguishable from genuine user/steering messages except by their
-// model-visible wrapper shape. Such stale strings must never replay into a
-// resumed session, but they carry no notificationKind marker, so the marker
-// check alone leaves them behind. Because this is a SILENT-drop path, the
-// shared lenient wrapper detector is too broad (a user message quoting a
-// completion card could be dropped), so this uses its OWN strict recognizer:
-// the string must be a verbatim full-card paste and nothing else —
-//   (1) start with the exact instruction preamble + "\n\nResult:\n",
-//   (2) have EVERY non-empty body line quoted with "> " (100%),
-//   (3) carry no extra leading/trailing prose (whitespace-trim only).
-// Conservative by design: a false negative just keeps a legacy string, but a
-// false positive on genuine user text would silently drop a real message.
-const LEGACY_COMPLETION_CARD_PREAMBLE_RE = /^The async \S+ task \S+ has finished \([^)]*\) - review this result in your next step\.\n\nResult:\n/;
-function isLegacyUnmarkedCompletionNotification(entry) {
-    if (typeof entry !== 'string') return false;
-    const value = entry.trim();
-    const match = LEGACY_COMPLETION_CARD_PREAMBLE_RE.exec(value);
-    if (!match) return false;
-    const body = value.slice(match[0].length);
-    const lines = body.split(/\r?\n/).filter((line) => line.length > 0);
-    if (lines.length === 0) return false;
-    return lines.every((line) => line.startsWith('> '));
 }
 
 // Canonical completion-enqueue tagger. Every deferred tool/agent completion
@@ -317,18 +283,12 @@ function normalizePendingStore(raw) {
     const out = { version: 1, updatedAt: storeUpdatedAt, sessions: {}, sessionTouchedAt: {} };
     for (const [sid, value] of Object.entries(sessions)) {
         if (!isValidPendingSessionId(sid) || !Array.isArray(value)) continue;
-        // Legacy string entries carry no timestamp of their own. Age them from
-        // the session's last real enqueue (sessionTouchedAt), NOT the store's
-        // updatedAt — the store refreshes on every unrelated write, which made
-        // days-old legacy entries look permanently fresh to the stale gate.
-        const touchedAt = Number(touchedRaw[sid]);
-        const legacyEnqueuedAt = Number.isFinite(touchedAt) && touchedAt > 0 ? touchedAt : storeUpdatedAt;
+        // Persisted rows are canonical {id, …} objects (persistPendingMessages
+        // normalizes at write time); anything else is dropped, not migrated.
         const q = isTuiSteeringPendingKey(sid)
             ? value.map(normalizeTuiSteeringQueueEntry).filter(Boolean)
-            : value.map((entry, index) => normalizePersistedEntry(entry, {
-                legacyId: legacyPendingMessageId(sid, index, typeof entry === 'string' ? entry : JSON.stringify(entry)),
-                fallbackEnqueuedAt: legacyEnqueuedAt + index,
-            })).filter(Boolean);
+            : value.filter((entry) => entry && typeof entry === 'object' && pendingMessageId(entry))
+                .map((entry) => normalizePersistedEntry(entry)).filter(Boolean);
         if (q.length > 0) {
             out.sessions[sid] = q;
             const touched = Number(touchedRaw[sid]);
@@ -409,23 +369,22 @@ function pendingMessageQueueEntry(entry) {
     return carryLifecycleToken(marker ? { ...base, ...marker } : base, entry);
 }
 
-// Canonical persisted-queue entry: a plain string for user/steering messages,
-// or a { message, notificationKind, enqueuedAt } object for completion/task
-// notifications so the marker survives an on-disk round trip. Accepts either an
-// in-memory queue entry (content/text) or an already-persisted entry
-// (string | { message } legacy | marked object); back-compatible with both.
-function normalizePersistedEntry(entry, options = {}) {
+// Canonical persisted-queue entry: an {id, message|content, enqueuedAt}
+// object, plus a notificationKind marker for completion/task notifications so
+// the marker survives an on-disk round trip. Accepts an in-memory queue entry
+// (string | content/text object) and normalizes it for the spool.
+function normalizePersistedEntry(entry) {
     if (typeof entry === 'string') {
         const message = entry.trim();
         return message ? {
-            id: options.legacyId || newPendingMessageId(),
+            id: newPendingMessageId(),
             message,
-            enqueuedAt: Number(options.fallbackEnqueuedAt) || Date.now(),
+            enqueuedAt: Date.now(),
         } : null;
     }
     if (!entry || typeof entry !== 'object') return null;
-    const id = pendingMessageId(entry) || options.legacyId || newPendingMessageId();
-    const enqueuedAt = Number(entry.enqueuedAt) || Number(options.fallbackEnqueuedAt) || Date.now();
+    const id = pendingMessageId(entry) || newPendingMessageId();
+    const enqueuedAt = Number(entry.enqueuedAt) || Date.now();
     if (isCompletionNotificationEntry(entry)) {
         const message = (typeof entry.message === 'string' && entry.message.trim())
             ? entry.message.trim()
@@ -1231,7 +1190,6 @@ async function _flushForeignDrainBatch() {
                     const text = pendingMessageText(entry);
                     const foreignUser = id && !localIds.has(id)
                         && !isCompletionNotificationEntry(entry)
-                        && !isLegacyUnmarkedCompletionNotification(text)
                         && text && !isInternalRuntimeNotificationText(text);
                     const normalized = normalizePendingMessageEntry(entry);
                     const structured = Array.isArray(normalized?.content) || Boolean(normalized?.options);
@@ -1391,7 +1349,7 @@ export function drainPendingMessages(sessionId) {
         return at - bt || a.source - b.source || a.index - b.index;
     });
     const dropped = ordered.filter(({ entry, source }) => source === 0
-        && (isCompletionNotificationEntry(entry) || isLegacyUnmarkedCompletionNotification(pendingMessageText(entry))))
+        && isCompletionNotificationEntry(entry))
         .map(({ entry }) => entry);
     if (dropped.length > 0) acknowledgePendingMessages(sessionId, dropped);
     const visible = modelVisiblePendingMessages(ordered
