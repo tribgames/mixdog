@@ -356,23 +356,10 @@ function canonicalizeModulesStorage(value) {
     return nonEmptyConfigObject(modules);
 }
 
-function migrateLegacyModelSettings(raw = {}) {
-    const modelSettings = raw.modelSettings && typeof raw.modelSettings === 'object'
+function normalizedModelSettings(raw = {}) {
+    return raw.modelSettings && typeof raw.modelSettings === 'object'
         ? { ...raw.modelSettings }
         : {};
-    const legacyFastModels = raw.fastModels && typeof raw.fastModels === 'object'
-        ? raw.fastModels
-        : {};
-    for (const [key, enabled] of Object.entries(legacyFastModels)) {
-        if (enabled !== true) continue;
-        const current = modelSettings[key];
-        if (!current || typeof current !== 'object' || Array.isArray(current)) {
-            modelSettings[key] = { fast: true };
-        } else if (!Object.prototype.hasOwnProperty.call(current, 'fast')) {
-            modelSettings[key] = { ...current, fast: true };
-        }
-    }
-    return modelSettings;
 }
 
 function canonicalizeLegacyAgentStorage(value = {}) {
@@ -380,7 +367,7 @@ function canonicalizeLegacyAgentStorage(value = {}) {
     next.presets = Array.isArray(next.presets)
         ? next.presets.map((preset) => normalizePreset(preset)).filter(Boolean)
         : [];
-    next.modelSettings = migrateLegacyModelSettings(value);
+    next.modelSettings = normalizedModelSettings(value);
     const autoClear = canonicalizeAutoClearStorage(next.autoClear);
     if (autoClear) next.autoClear = autoClear;
     else delete next.autoClear;
@@ -398,23 +385,11 @@ function canonicalizeLegacyAgentStorage(value = {}) {
         if (skills.disabled.length) next.skills = skills;
         else delete next.skills;
     }
-    if (!next.searchRoute && value?.search && typeof value.search === 'object') {
-        next.searchRoute = value.search;
-    }
     next.searchRoute = normalizeSearchRoute(next.searchRoute);
     const modules = next.modules && typeof next.modules === 'object' && !Array.isArray(next.modules)
         ? { ...next.modules }
         : {};
-    if (Object.prototype.hasOwnProperty.call(modules, 'memory')) {
-        const legacyMemory = modules.memory;
-        if (!(next.recap && typeof next.recap === 'object' && Object.prototype.hasOwnProperty.call(next.recap, 'enabled'))) {
-            const enabled = legacyMemory && typeof legacyMemory === 'object'
-                ? legacyMemory.enabled !== false
-                : legacyMemory !== false;
-            next.recap = { ...(next.recap || {}), enabled };
-        }
-        delete modules.memory;
-    }
+    delete modules.memory;
     const canonicalModules = canonicalizeModulesStorage(modules);
     if (canonicalModules) next.modules = canonicalModules;
     else delete next.modules;
@@ -451,9 +426,6 @@ export function loadConfig(options = {}) {
     if (hasKeys(sectionRaw)) {
         try {
             let raw = sectionRaw;
-            if (raw.agent && raw.agent.providers) {
-                raw = raw.agent;
-            }
             const storageNeedsMigration = agentConfigStorageNeedsMigration(raw);
             raw = canonicalizeLegacyAgentStorage(raw);
             const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
@@ -535,12 +507,7 @@ export function loadConfig(options = {}) {
                 .map(p => normalizePreset(p))
                 .filter(Boolean)
                 .filter(p => p.id !== 'workflow-search');
-            // `fastModels` was the pre-modelSettings Fast preference map.
-            // Fold any still-meaningful true entries into the canonical map,
-            // without overriding an explicit modelSettings.fast value. Keep
-            // the compatibility read here, but never expose/persist the
-            // legacy container again.
-            const modelSettings = migrateLegacyModelSettings(raw);
+            const modelSettings = normalizedModelSettings(raw);
             const workflowRoutes = raw.workflowRoutes && typeof raw.workflowRoutes === 'object' ? { ...raw.workflowRoutes } : {};
             delete workflowRoutes.search;
             // Normalize maintenance slots to routes, then overlay onto the

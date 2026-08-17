@@ -432,15 +432,15 @@ Desktop과 현재 runtime에서 소비되지 않는 아래 key는 사용자 옵�
 | 레거시 key | 처리 |
 |---|---|
 | `agent.workflowRoutes` | `agent.agents`로 이관된 뒤 제거. 수동 편집 금지 |
-| `agent.fastModels` | explicit `modelSettings.<provider/model>.fast`가 없을 때만 `true`를 이관한 뒤 제거 |
+| `agent.fastModels` | 제거 (이관 없음; `modelSettings.<provider/model>.fast`만 유효) |
 | `agent.agentMaintenance`, `agent.runtime` | 제거 |
 | `remote.autoStart` | 제거; Remote는 session header에서 수동 claim |
 | `ui.mouseMode` | 제거; `ui.theme`은 TUI 현행 설정 |
-| `channels.backend` | `channels.provider`로 이관 후 제거 |
+| `channels.backend` | 제거 (이관 없음; `channels.provider`만 유효) |
 | `channels.channel.channelId` | 제거; `discordChannelId` / `telegramChatId`만 유지 |
 | `channels.quiet`, `channels.schedules` | 제거; schedule은 PG가 단일 저장소 |
 | `channels.webhook.ngrokDomain`, `channels.webhook.respectQuiet` | 제거; endpoint URL은 Desktop Webhooks가 발급 |
-| `agent.outputStyle` | 루트 `outputStyle`로 이관 후 제거 |
+| `agent.outputStyle` | 제거 (이관 없음; 루트 `outputStyle`만 유효) |
 
 다음 항목은 레거시처럼 보여도 현행이므로 유지한다: 루트 `outputStyle`, `agent.shell`, `agent.modules`, `channels.channel.discordChannelId/telegramChatId`, compaction의 `type/compactType`과 recall tuning fields.
 

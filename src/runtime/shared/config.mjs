@@ -132,55 +132,31 @@ export function canonicalizeStoredChannelsConfig(value = {}) {
   delete next.interactive
 
   const channel = isPlainObject(next.channel) ? { ...next.channel } : {}
-  next.provider = next.provider === 'telegram' || next.backend === 'telegram'
-    ? 'telegram'
-    : 'discord'
+  next.provider = next.provider === 'telegram' ? 'telegram' : 'discord'
   delete next.backend
   delete channel.channelId
   next.channel = channel
   return next
 }
 
-// Normalize cross-section legacy keys without touching independent domains
+// Scrub retired cross-section keys without touching independent domains
 // (ui/theme, desktop, voice, channels access, memory schedules/embedding, …).
-// Reads use this shape in-memory; every subsequent locked write persists it.
+// No migration: canonical locations are the only ones read, and stale keys
+// from old installs are DROPPED, not folded in. Reads use this shape
+// in-memory; every subsequent locked write persists it.
 export function canonicalizeUnifiedConfig(value = {}) {
   const next = isPlainObject(value) ? { ...value } : {}
   const hadAgent = isPlainObject(next.agent)
   const agent = hadAgent ? { ...next.agent } : {}
 
-  if (!String(next.outputStyle || '').trim() && String(agent.outputStyle || '').trim()) {
-    next.outputStyle = agent.outputStyle
-  }
   delete agent.outputStyle
-
-  for (const key of ['autoClear', 'compaction', 'shell']) {
-    if (!isPlainObject(agent[key]) && isPlainObject(next[key])) agent[key] = next[key]
-    delete next[key]
-  }
-  if (isPlainObject(next.mcpServers)) {
-    agent.mcpServers = {
-      ...next.mcpServers,
-      ...(isPlainObject(agent.mcpServers) ? agent.mcpServers : {}),
-    }
-    delete next.mcpServers
-  }
-  if (!isPlainObject(agent.searchRoute) && isPlainObject(agent.search)) {
-    agent.searchRoute = agent.search
-  }
+  for (const key of ['autoClear', 'compaction', 'shell']) delete next[key]
+  delete next.mcpServers
   delete agent.search
   delete agent.capabilities
 
   const modules = isPlainObject(agent.modules) ? { ...agent.modules } : {}
   if (hasOwn(modules, 'memory')) {
-    const legacyMemory = modules.memory
-    const explicitRecap = isPlainObject(agent.recap) && hasOwn(agent.recap, 'enabled')
-    if (!explicitRecap) {
-      const enabled = isPlainObject(legacyMemory)
-        ? legacyMemory.enabled !== false
-        : legacyMemory !== false
-      agent.recap = { ...(isPlainObject(agent.recap) ? agent.recap : {}), enabled }
-    }
     delete modules.memory
     agent.modules = modules
   }
@@ -188,20 +164,10 @@ export function canonicalizeUnifiedConfig(value = {}) {
   if (isPlainObject(next.memory)) {
     const memory = { ...next.memory }
     const user = isPlainObject(memory.user) ? { ...memory.user } : {}
-    const legacyTitle = String(user.title || '').trim()
-    if (legacyTitle && !String(agent.profile?.title || '').trim()) {
-      agent.profile = { ...(isPlainObject(agent.profile) ? agent.profile : {}), title: legacyTitle }
-    }
     delete user.title
     if (Object.keys(user).length) memory.user = user
     else delete memory.user
-    if (hasOwn(memory, 'enabled')) {
-      const explicitRecap = isPlainObject(agent.recap) && hasOwn(agent.recap, 'enabled')
-      if (!explicitRecap) {
-        agent.recap = { ...(isPlainObject(agent.recap) ? agent.recap : {}), enabled: memory.enabled !== false }
-      }
-      delete memory.enabled
-    }
+    delete memory.enabled
     if (Object.keys(memory).length) next.memory = memory
     else delete next.memory
   }

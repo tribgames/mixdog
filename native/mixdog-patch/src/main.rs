@@ -1887,15 +1887,10 @@ fn apply_invariant_safe_edit_to_path(
         ));
     }
 
-    // code-10 size gate (JS parity): reject a large non-exact (fold) match
-    // without replace_all — a 30+ line curly/NFC/CRLF match is too likely to
-    // have anchored on the wrong block.
-    if !replace_all && tier != EditTier::Exact {
-        let lines = old.split('\n').count();
-        if lines >= 30 {
-            return Err(format!("old_string is {lines} lines (>= 30)."));
-        }
-    }
+    // No size gate on fold-tier matches: every tier in
+    // locate_invariant_safe_spans is invariant-safe (same text, different
+    // encoding), so a large curly/NFC/CRLF match cannot anchor onto a
+    // different region, and ambiguous matches are already rejected above.
 
     // Pure-deletion newline absorption (JS parity): when new is empty and old
     // does not already end in a line terminator, extend each span over its own

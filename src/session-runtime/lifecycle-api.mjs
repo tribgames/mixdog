@@ -71,7 +71,7 @@ export function createLifecycleApi(deps) {
       refreshFromStorage: options?.refreshFromStorage === true,
     }).map(s => {
     const owner = clean(s.owner || 'user').toLowerCase();
-    if (owner && !['cli', 'user', 'mixdog', 'legacy'].includes(owner)) return null;
+    if (owner && !['cli', 'user', 'mixdog'].includes(owner)) return null;
     const sourceType = clean(s.sourceType || '').toLowerCase();
     const sourceName = clean(s.sourceName || '').toLowerCase();
     const agent = clean(s.agent || '').toLowerCase();

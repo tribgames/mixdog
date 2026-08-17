@@ -67,6 +67,15 @@ export async function assertPathReachable(path, deadlineMs = FS_REACHABILITY_DEA
     return result; // Stats on success, null on a clean FS rejection
 }
 
+// Stats a path through the reachability preflight: reuse the preflight's Stats
+// when it resolved one, otherwise fall back to a direct async stat (the
+// preflight returns null on a clean FS rejection such as ENOENT, letting the
+// direct stat surface the real error to the caller).
+export async function statReachable(path) {
+    const reachable = await assertPathReachable(path);
+    return reachable || await stat(path);
+}
+
 // Batch variant: reject if ANY path is unreachable. Runs probes concurrently so
 // the wall-clock cost is one deadline, not N.
 export async function assertPathsReachable(paths, deadlineMs = FS_REACHABILITY_DEADLINE_MS) {

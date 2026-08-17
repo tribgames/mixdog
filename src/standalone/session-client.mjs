@@ -10,6 +10,7 @@ import { fork } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { sleep as delay } from '../runtime/shared/sleep.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -171,7 +172,6 @@ export function readSessionDiscovery(discoveryPath = sessionDiscoveryPath()) {
   return null;
 }
 
-function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function positiveProtocol(value, fallback = 0) {
   const protocol = Number(value);

@@ -1664,8 +1664,8 @@ if (surfaceSize > 17000) {
   throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 17000)`);
 }
 for (const [name, cap] of [
-  ['apply_patch', 1500],
-  ['code_graph', 1550],
+  ['apply_patch', 1600],
+  ['code_graph', 1600],
   ['agent', 2500],
   ['recall', 2400],
   ['search', 3200],

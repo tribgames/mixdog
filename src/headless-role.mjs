@@ -8,16 +8,13 @@ import {
   installProcessSignalCleanup,
   waitWithTimeout,
 } from './runtime/shared/process-shutdown.mjs';
+import { sleep } from './runtime/shared/sleep.mjs';
 
 const TERMINAL_STATUS_RE = /^status:\s*(completed|failed|error|cancelled|canceled)\b/im;
 const FAILURE_STATUS_RE = /^status:\s*(failed|error|cancelled|canceled)\b/im;
 
 function clean(value) {
   return String(value ?? '').trim();
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function taskIdFromOutput(text) {

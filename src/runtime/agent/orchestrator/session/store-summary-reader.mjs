@@ -28,7 +28,7 @@ const AGENT_POOL_HEARTBEAT_FRESH_MS = 2 * 60 * 1000;
 // must never surface worker/agent dispatches (memory ingest chunks, judges,
 // spawned agents) — the authoritative engine excludes them, so a click on
 // such a row dead-ends in "Session is not available." (user report).
-const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog', 'legacy']);
+const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog']);
 
 function isLeadVisibleRow(row) {
     const owner = String(row.owner || 'user').trim().toLowerCase();
@@ -518,13 +518,7 @@ function scanSessionFiles(
                 && retained.storageSize > 0
                 && retained.storageMtimeMs === probe.mtimeMs
                 && retained.storageSize === probe.size;
-            // Older v2 rows predate per-file fingerprints. Their global index
-            // timestamp remains a one-release compatibility fallback; every
-            // later save/rebuild stamps the exact (mtimeMs,size) pair.
-            const legacyUnchanged = retained.storageMtimeMs === 0
-                && indexMtimeMs > 0
-                && (probe.mtimeMs || 0) <= indexMtimeMs;
-            if (exactFingerprint || legacyUnchanged) {
+            if (exactFingerprint) {
                 rows.push(retained);
                 continue;
             }

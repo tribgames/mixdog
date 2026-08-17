@@ -1,7 +1,5 @@
-import { statSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
 import { createHash } from 'crypto';
-import { isAbsolute, resolve } from 'path';
+import { isAbsolute } from 'path';
 import { trueCasePath } from './path-utils.mjs';
 import {
     canonicalizeGlobSlashes,
@@ -10,12 +8,10 @@ import {
     extractGlobBaseDirectory,
     GREP_AUTO_CONTEXT_LINES,
     hasGlobMagic,
-    normalizeGlobArgs,
     normalizeGrepArgs,
     normalizeInputPath,
     normalizeOutputPath,
     normalizeSearchPattern,
-    resolveAgainstCwd,
 } from './path-utils.mjs';
 import {
     _suggestIndexedPaths,
@@ -44,45 +40,34 @@ export {
     uncRefusalMessage,
 } from './search-path-diagnostics.mjs';
 import {
-    buildGlobCacheKey,
     buildGrepCacheKey,
     buildGrepRgArgs,
-    DEFAULT_IGNORE_GLOBS,
 } from './search-builders.mjs';
 import { runRg, runRgWindowedLines, rgSupportsPcre2 } from './native-search-runner.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
 import {
-    normalizeGrepLine,
-    splitGrepCountPrefix,
-} from './grep-formatting.mjs';
-import {
     cacheGet,
     cacheSet,
     runResultCacheInFlight,
-    statPathsForMtime,
 } from './cache-layers.mjs';
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from './arg-guard.mjs';
 import {
-    buildGrepChunkMergePrefix,
-    chunkPatternList,
-    computeGrepChunkAggregateBudget,
-    extractGrepChunkResultLines,
-    mergeGrepChunkLines,
-} from './lib/search-grep-chunks.mjs';
-import {
     expandLegacyEscapedAlternationPattern,
-    relativeGrepLine,
     uniqueStrings,
     isRgRegexParseError,
-    regexPatternToFixedTerms,
     coerceNonNegInt,
-    globMtimeTiePath,
     splitGlobString,
     isRedundantAllFilesGlob,
     parseGrepCountLine,
 } from './lib/search-input-helpers.mjs';
-import { assertPathReachable } from './fs-reachability.mjs';
+import { statReachable } from './fs-reachability.mjs';
+// Fan-out / chunk-merge / rescue sub-flows extracted from this file; each
+// receives `executeGrepTool` as a parameter to avoid an import cycle.
+import { runGrepPathFanout } from './lib/grep-path-fanout.mjs';
+import { runGrepPatternFanout } from './lib/grep-pattern-fanout.mjs';
+import { runGrepChunkMerge } from './lib/grep-chunk-merge.mjs';
+import { runGrepFixedStringFallback } from './lib/grep-fixed-fallback.mjs';
 
 // A single glob string may pack multiple filters
 // separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
@@ -92,10 +77,8 @@ import { assertPathReachable } from './fs-reachability.mjs';
 // Grep output rendering (context-block windowing, fan-out dedupe, notices)
 // lives in lib/grep-output.mjs.
 import {
-    dedupeFanoutMatchLines,
     formatGrepContextOutput,
     formatGrepOutput,
-    globMissingPatternMessage,
     grepMissingPatternMessage,
 } from './lib/grep-output.mjs';
 import {
@@ -103,22 +86,12 @@ import {
     GREP_CONTEXT_CHAR_BUDGET_DEFAULT,
 } from './lib/grep-context-expander.mjs';
 
-async function statReachable(path) {
-    const reachable = await assertPathReachable(path);
-    return reachable || await stat(path);
-}
-
 // Default grep result cap when head_limit is unspecified. 250 is the common
 // harness default; the tool-result offload layer still bounds oversized
 // results. MIXDOG_GREP_DEFAULT_HEAD_LIMIT overrides for A/B runs.
 function _grepDefaultHeadLimit() {
     const parsed = parseInt(process.env.MIXDOG_GREP_DEFAULT_HEAD_LIMIT ?? '', 10);
     return parsed > 0 ? parsed : 250;
-}
-// Same A/B override surface for glob (stock default 100).
-function _globDefaultHeadLimit() {
-    const parsed = parseInt(process.env.MIXDOG_GLOB_DEFAULT_HEAD_LIMIT ?? '', 10);
-    return parsed > 0 ? parsed : 100;
 }
 
 function _grepContextCharBudget(options = {}) {
@@ -143,227 +116,19 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             .map(p => typeof p === 'string' ? p.trim() : '')
             .filter(p => p && !seen.has(p) && seen.add(p));
         if (list.length > 1) {
-            const capped = list;
-            // Combined single-spawn path[] fan-out (mirrors the pattern[]
-            // combined path below): ONE rg run with every path as a positional
-            // operand, then normalized-prefix attribution rebuilds the
-            // per-path sections — P paths cost 1 child spawn instead of P.
-            // Narrow eligibility: single pattern, no glob/type, default
-            // flags, content-ish or files_with_matches mode, every path
-            // resolving to an existing non-UNC file/dir. Anything else falls
-            // through to the legacy bounded-concurrency fan-out (which owns
-            // per-path ENOENT/UNC diagnostics). MIXDOG_GREP_PATH_COMBINED=0
-            // disables.
-            combinedPaths: if (process.env.MIXDOG_GREP_PATH_COMBINED !== '0'
-                && !args.glob
-                && !args.type
-                && args.multiline !== true
-                && args['-o'] !== true
-                && args['-n'] !== false
-                && args['-A'] === undefined
-                && args['-B'] === undefined) {
-                const rawPat = coerceShapeFlex(args.pattern);
-                const singleList = Array.isArray(rawPat)
-                    ? rawPat.filter((p) => typeof p === 'string' && p)
-                    : (typeof rawPat === 'string' && rawPat ? [rawPat] : []);
-                if (singleList.length !== 1) break combinedPaths;
-                const pattern = normalizeSearchPattern(singleList[0]);
-                if (!pattern || /\\n/.test(pattern) || hasUnsupportedRipgrepRegex([pattern])) break combinedPaths;
-                const rawMode = typeof args.output_mode === 'string' ? args.output_mode.trim() : '';
-                if (!['', 'content', 'content_with_context', 'files_with_matches'].includes(rawMode)) break combinedPaths;
-                const outMode = rawMode === 'files_with_matches' ? 'files_with_matches' : 'content';
-                // Keep in sync with the canonical single-path parsing below.
-                const hlRaw = coerceNonNegInt(args.head_limit);
-                if (Number.isNaN(hlRaw)) break combinedPaths;
-                const headLimit = hlRaw === null ? _grepDefaultHeadLimit() : (hlRaw === 0 ? Infinity : hlRaw);
-                const offRaw = coerceNonNegInt(args.offset);
-                if (Number.isNaN(offRaw)) break combinedPaths;
-                const offset = offRaw === null ? 0 : offRaw;
-                const ctxRaw = args['-C'] !== undefined && args['-C'] !== null && args['-C'] !== ''
-                    ? args['-C']
-                    : args.context;
-                let contextN = null;
-                if (ctxRaw !== undefined && ctxRaw !== null && ctxRaw !== '') {
-                    const n = Number(ctxRaw);
-                    if (!Number.isFinite(n) || n < 0) break combinedPaths;
-                    contextN = Math.min(Math.floor(n), GREP_CONTEXT_MAX);
-                }
-                if (outMode === 'content' && contextN === null && (rawMode === '' || rawMode === 'content_with_context')) {
-                    contextN = GREP_AUTO_CONTEXT_LINES;
-                }
-                const caseInsensitive = args['-i'] === true;
-                const roots = [];
-                for (const p of capped) {
-                    const cleaned = stripEmbeddedPathQuotes(normalizeInputPath(p));
-                    if (hasGlobMagic(cleaned)) break combinedPaths;
-                    const resolved = resolveSearchScope(cleaned, workDir);
-                    if (isUncOrSmbPath(cleaned) || isUncOrSmbPath(resolved)) break combinedPaths;
-                    let st;
-                    try { st = await statReachable(resolved); } catch { break combinedPaths; }
-                    roots.push({
-                        arg: p,
-                        abs: normalizeOutputPath(isAbsolute(resolved) ? await trueCasePath(resolved) : resolved),
-                        isDir: st.isDirectory(),
-                    });
-                }
-                const rgArgs = buildGrepRgArgs({
-                    patterns: [pattern],
-                    searchPath: workDir,
-                    globPatterns: [],
-                    outputMode: outMode,
-                    caseInsensitive,
-                    showLineNumbers: true,
-                    beforeN: null,
-                    afterN: null,
-                    contextN: null,
-                    multilineMode: false,
-                    fileType: '',
-                    onlyMatching: false,
-                    pcre2: false,
-                    withFilename: true,
-                    candidateFiles: roots.map((r) => r.abs),
-                });
-                const perWindow = headLimit === Infinity ? 300 : (offset + headLimit + 4);
-                const cap = Math.min(4000, Math.max(400, perWindow * roots.length));
-                let streamed;
-                try {
-                    streamed = await runRgWindowedLines(
-                        rgArgs,
-                        { cwd: workDir, signal: options.signal },
-                        { offset: 0, limit: cap, summaryLimit: 0 },
-                    );
-                } catch { break combinedPaths; }
-                if (!streamed.complete || streamed.partial) break combinedPaths;
-                // rg echoes each match under the operand path exactly as
-                // passed (normalized absolute), so normalized-prefix compare
-                // is exact. Nested roots duplicate a line into every
-                // containing section, matching legacy independent scans.
-                const ci = process.platform === 'win32';
-                const keyOf = (s) => (ci ? s.toLowerCase() : s);
-                const wdFwd = normalizeOutputPath(workDir).replace(/\/+$/, '');
-                const byRoot = roots.map(() => []);
-                for (const line of streamed.lines) {
-                    const norm = line.replace(/\\/g, '/');
-                    const lineKey = keyOf(norm);
-                    for (let i = 0; i < roots.length; i++) {
-                        const rootKey = keyOf(roots[i].abs);
-                        if (lineKey === rootKey
-                            || lineKey.startsWith(rootKey + '/')
-                            || lineKey.startsWith(rootKey + ':')) {
-                            // Re-relativize against workDir so section bodies
-                            // render like a workDir-rooted search.
-                            const rel = lineKey.startsWith(keyOf(wdFwd) + '/')
-                                ? norm.slice(wdFwd.length + 1)
-                                : line;
-                            byRoot[i].push(rel);
-                        }
-                    }
-                }
-                const perBudget = Math.max(512, Math.floor(callContextCharBudget / roots.length));
-                const sections = [];
-                const noMatchRoots = [];
-                for (let i = 0; i < roots.length; i++) {
-                    const r = roots[i];
-                    const linesFor = byRoot[i];
-                    const noMatch = `(no matches) pattern=${JSON.stringify(pattern)} path=${r.arg}; path exists (${r.isDir ? 'dir' : 'file'})`;
-                    let body;
-                    if (linesFor.length === 0) {
-                        noMatchRoots.push(r.arg);
-                        continue;
-                    } else if (outMode === 'content' && contextN > 0) {
-                        const ctx = await expandGrepAnchorContextOutput({
-                            allLines: linesFor,
-                            workDir,
-                            rgSpawnCwd: wdFwd,
-                            grepResolvedPath: r.abs,
-                            searchPath: r.arg,
-                            outputMode: outMode,
-                            filenameOmitted: false,
-                            headLimit,
-                            offset,
-                            totalKnown: true,
-                            requestedContext: contextN,
-                            maxContext: GREP_AUTO_CONTEXT_LINES,
-                            patterns: [pattern],
-                            caseInsensitive,
-                            charBudget: perBudget,
-                            signal: options.signal,
-                        });
-                        body = ctx.text || noMatch;
-                    } else {
-                        const post = offset > 0 ? linesFor.slice(offset) : linesFor;
-                        const windowedLines = headLimit === Infinity ? post : post.slice(0, headLimit);
-                        // Match the legacy per-path presentation: a FILE root
-                        // drops the filename prefix (its section header already
-                        // names the file) and a DIR root keeps grouped-by-file
-                        // rendering.
-                        const rootRel = keyOf(r.abs).startsWith(keyOf(wdFwd) + '/')
-                            ? r.abs.slice(wdFwd.length + 1)
-                            : r.abs;
-                        const rendered = r.isDir
-                            ? windowedLines
-                            : windowedLines.map((l) => {
-                                const lineFwd = l.replace(/\\/g, '/');
-                                return keyOf(lineFwd).startsWith(keyOf(rootRel) + ':')
-                                    ? lineFwd.slice(rootRel.length + 1)
-                                    : l;
-                            });
-                        body = formatGrepOutput({
-                            windowed: rendered,
-                            totalWindowed: post.length,
-                            totalKnown: true,
-                            headLimit,
-                            offset,
-                            outputMode: outMode,
-                            patterns: [pattern],
-                            beforeN: null,
-                            afterN: null,
-                            contextN,
-                            searchPath: r.arg,
-                            grepResolvedPath: r.abs,
-                            workDir,
-                            globPatterns: [],
-                            fileType: '',
-                            filenameOmitted: !r.isDir,
-                            prefix: '',
-                        });
-                    }
-                    sections.push(`# grep ${r.arg}\n${body}`);
-                }
-                if (noMatchRoots.length > 0) {
-                    sections.push(`(no matches) pattern=${JSON.stringify(pattern)} paths: ${noMatchRoots.join(', ')}; paths exist`);
-                }
-                return sections.join('\n\n');
-            }
-            const nestedOptions = {
-                ...options,
-                _grepPathFanout: true,
-                _grepContextCharBudget: Math.max(512, Math.floor(callContextCharBudget / capped.length)),
-            };
-            const configuredOutputCap = Number(options?.toolOutputMaxBytes) > 0
-                ? Math.trunc(Number(options.toolOutputMaxBytes))
-                : Math.trunc(Number(process.env.MIXDOG_TOOL_OUTPUT_MAX_BYTES));
-            const bodies = await Promise.all(capped.map(async (p) => {
-                try {
-                    return await executeGrepTool(
-                        { ...args, path: p },
-                        workDir,
-                        executeChildBuiltinTool,
-                        readStateScope,
-                        nestedOptions,
-                    );
-                } catch (err) {
-                    return `Error: ${err && err.message ? err.message : err}`;
-                }
-            }));
-            const parts = capped.map((p, index) => `# grep ${p}\n${bodies[index]}`);
-            const output = parts.join('\n\n');
-            if (configuredOutputCap > 0
-                && Buffer.byteLength(output, 'utf8') > configuredOutputCap
-                && options?.scopedCacheOutcome) {
-                markScopedCacheIncomplete(options.scopedCacheOutcome);
-            }
-            return output;
+            // Multi-root fan-out (combined single-spawn or legacy bounded
+            // recursion) lives in lib/grep-path-fanout.mjs.
+            return await runGrepPathFanout({
+                list,
+                args,
+                workDir,
+                executeChildBuiltinTool,
+                readStateScope,
+                options,
+                callContextCharBudget,
+                defaultHeadLimit: _grepDefaultHeadLimit(),
+                executeGrepTool,
+            });
         }
         args.path = list[0];
     }
@@ -576,334 +341,60 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         && outputMode === 'content'
         && !options._grepChunkMerge
         && !options._grepPatternFanout) {
-        // Fan-out prefilter, started CONCURRENTLY with the combined attempt
-        // below: ONE rg --files-with-matches pass over ALL patterns yields
-        // every file any pattern touches. The combined single-spawn path
-        // returns without ever awaiting it; the frequent match-heavy bail
-        // path (cap/partial) used to pay this pass as a THIRD serial rg wave
-        // — overlapping it with the combined attempt removes one full spawn
-        // round-trip (~100ms on win32) from every bailed multi-pattern grep.
-        // Owner-fair gating keeps the speculative spawn a self-cost of this
-        // call. Best-effort: any failure/cap/partial falls back to the
-        // unscoped fan-out unchanged. MIXDOG_GREP_FANOUT_PREFILTER=0 disables.
-        const GREP_FANOUT_PREFILTER_FILE_CAP = 400;
-        const startFanoutPrefilter = async () => {
-            try {
-                let preSpawnCwd = workDir;
-                let preSearchPath = searchPath;
-                const preStat = await statReachable(grepResolvedPath);
-                if (!preStat.isDirectory()) return null;
-                if (isAbsolute(preSearchPath)) {
-                    preSearchPath = await trueCasePath(preSearchPath);
-                    preSpawnCwd = preSearchPath;
-                }
-                const prefilterArgs = buildGrepRgArgs({
-                    patterns,
-                    searchPath: preSearchPath,
-                    globPatterns: normalizedGlobPatterns,
-                    outputMode: 'files_with_matches',
-                    caseInsensitive,
-                    showLineNumbers: false,
-                    beforeN: null,
-                    afterN: null,
-                    contextN: null,
-                    multilineMode,
-                    fileType,
-                    onlyMatching: false,
-                    pcre2: pcre2Mode,
-                    withFilename: false,
-                });
-                const pre = await runRgWindowedLines(
-                    prefilterArgs,
-                    { cwd: preSpawnCwd, signal: options.signal },
-                    { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0 },
-                );
-                return pre.complete && !pre.partial ? pre.lines : null;
-            } catch { return null; }
-        };
-        const fanoutPrefilterPromise = process.env.MIXDOG_GREP_FANOUT_PREFILTER !== '0'
-            ? startFanoutPrefilter()
-            : null;
-        // Combined single-spawn fan-out: ONE rg run carrying every pattern
-        // (-e p1 -e p2 …), then JS-side attribution of each matched line back
-        // to its pattern(s) rebuilds the per-pattern sections. K patterns cost
-        // 1 child spawn instead of K: under the win32 child-spawn gate the
-        // per-spawn queue/AV overhead — not scan size — dominates fan-out
-        // cost. Eligibility mirrors the per-pattern paths this replaces;
-        // anything exotic (multiline, -o, hidden line numbers, JS-alien
-        // regex, non-dir scope, capped/partial stream) falls through to the
-        // legacy per-pattern fan-out below. MIXDOG_GREP_FANOUT_COMBINED=0
-        // disables.
-        combined: if (process.env.MIXDOG_GREP_FANOUT_COMBINED !== '0'
-            && !multilineMode
-            && args['-o'] !== true
-            && showLineNumbers) {
-            let jsRegexps;
-            try {
-                jsRegexps = patterns.map((p) => new RegExp(p, caseInsensitive ? 'i' : ''));
-            } catch { break combined; }
-            let preStat;
-            try { preStat = await statReachable(grepResolvedPath); } catch { break combined; }
-            if (!preStat.isDirectory()) break combined;
-            let rgCwd = workDir;
-            let rgSearchPath = searchPath;
-            if (isAbsolute(rgSearchPath)) {
-                rgSearchPath = await trueCasePath(rgSearchPath);
-                rgCwd = rgSearchPath;
-            }
-            const combinedArgs = buildGrepRgArgs({
-                patterns,
-                searchPath: rgSearchPath,
-                globPatterns: normalizedGlobPatterns,
-                outputMode,
-                caseInsensitive,
-                showLineNumbers: true,
-                beforeN: null,
-                afterN: null,
-                contextN: null,
-                multilineMode: false,
-                fileType,
-                onlyMatching: false,
-                pcre2: pcre2Mode,
-                withFilename: true,
-            });
-            const perPatternWindow = headLimit === Infinity ? 300 : (offset + headLimit + 4);
-            const combinedCap = Math.min(4000, Math.max(400, perPatternWindow * patterns.length));
-            let streamed;
-            try {
-                streamed = await runRgWindowedLines(
-                    combinedArgs,
-                    { cwd: rgCwd, signal: options.signal },
-                    { offset: 0, limit: combinedCap, summaryLimit: 0 },
-                );
-            } catch { break combined; }
-            if (!streamed.complete || streamed.partial) break combined;
-            const adaptive = contextN > 0 && !(beforeN > 0) && !(afterN > 0);
-            const byPattern = patterns.map(() => []);
-            const residual = [];
-            for (const line of streamed.lines) {
-                const m = /^(.*?):(\d+):(.*)$/.exec(line);
-                const text = m ? m[3] : line;
-                let hitAny = false;
-                for (let i = 0; i < jsRegexps.length; i++) {
-                    if (jsRegexps[i].test(text)) { byPattern[i].push(line); hitAny = true; }
-                }
-                if (!hitAny) residual.push(line);
-            }
-            const seenCombined = new Set();
-            const perBudget = Math.max(512, Math.floor(callContextCharBudget / patterns.length));
-            const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-            const noMatchBody = (p) => `(no matches) pattern=${JSON.stringify(p)} path=${searchPath}${globStr}; path exists (dir)`;
-            const sections = [];
-            const noMatchPatterns = [];
-            for (let i = 0; i < patterns.length; i++) {
-                const p = patterns[i];
-                const linesFor = byPattern[i];
-                let body;
-                if (linesFor.length === 0) {
-                    noMatchPatterns.push(p);
-                    continue;
-                } else if (adaptive) {
-                    const ctx = await expandGrepAnchorContextOutput({
-                        allLines: linesFor,
-                        workDir,
-                        rgSpawnCwd: rgCwd,
-                        grepResolvedPath,
-                        searchPath,
-                        outputMode,
-                        filenameOmitted: false,
-                        headLimit,
-                        offset,
-                        totalKnown: true,
-                        requestedContext: contextN,
-                        maxContext: GREP_AUTO_CONTEXT_LINES,
-                        patterns: [p],
-                        caseInsensitive,
-                        charBudget: perBudget,
-                        signal: options.signal,
-                    });
-                    body = ctx.text || noMatchBody(p);
-                } else {
-                    const post = offset > 0 ? linesFor.slice(offset) : linesFor;
-                    const windowedLines = headLimit === Infinity ? post : post.slice(0, headLimit);
-                    body = formatGrepOutput({
-                        windowed: windowedLines,
-                        totalWindowed: post.length,
-                        totalKnown: true,
-                        headLimit,
-                        offset,
-                        outputMode,
-                        patterns: [p],
-                        beforeN,
-                        afterN,
-                        contextN,
-                        searchPath,
-                        grepResolvedPath,
-                        workDir,
-                        globPatterns: normalizedGlobPatterns,
-                        fileType,
-                        filenameOmitted: false,
-                        prefix: '',
-                        disableContentGrouping: true,
-                    });
-                }
-                sections.push(`# grep pattern:${JSON.stringify(p)}\n${dedupeFanoutMatchLines(body, seenCombined)}`);
-            }
-            if (noMatchPatterns.length > 0) {
-                sections.push(`(no matches) pattern=${JSON.stringify(noMatchPatterns)} path=${searchPath}${globStr}; path exists`);
-            }
-            if (residual.length > 0) {
-                // Rust/JS regex divergence or --max-columns truncation left
-                // matches no pattern claimed; surface them rather than drop.
-                sections.push(`# grep (unattributed matches)\n${residual.slice(0, 40).join('\n')}`);
-            }
-            return patternCapNote + sections.join('\n\n');
-        }
-        // Prefilter result (started above, overlapped with the combined
-        // attempt): when it completed under the cap, each per-pattern grep
-        // below scopes to that candidate list — K patterns cost 1 repo walk +
-        // K file-list scans instead of K full walks. Zero candidates
-        // short-circuits with no further spawns.
-        let fanoutCandidateFiles = null;
-        if (fanoutPrefilterPromise) {
-            const pre = await fanoutPrefilterPromise;
-            if (pre) {
-                if (pre.length === 0) {
-                    const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-                    return `${patternCapNote}(no matches) pattern=${JSON.stringify(patterns)} path=${searchPath}${globStr}; path exists (dir)`;
-                }
-                fanoutCandidateFiles = pre;
-            }
-        }
-        const seen = new Set();
-        const subOptions = {
-            ...options,
-            _grepPatternFanout: true,
-            _grepContextCharBudget: Math.max(512, Math.floor(callContextCharBudget / patterns.length)),
-            ...(fanoutCandidateFiles ? { _grepCandidateFiles: fanoutCandidateFiles } : {}),
-        };
-        // Each pattern is an INDEPENDENT grep; run them concurrently and then
-        // apply dedup/section assembly in the original pattern order so the
-        // shared `seen` set and output text stay byte-identical to the
-        // sequential version.
-        const runPattern = async (p) => {
-            try {
-                return await executeGrepTool({ ...args, pattern: p }, workDir, executeChildBuiltinTool, readStateScope, subOptions);
-            } catch (err) {
-                return `Error: ${err && err.message ? err.message : err}`;
-            }
-        };
-        const subs = options._grepPathFanout
-            ? await patterns.reduce(async (all, p) => [...await all, await runPattern(p)], Promise.resolve([]))
-            : await Promise.all(patterns.map(runPattern));
-        // Consolidate single-line no-match sub-results: K missed patterns
-        // collapse into ONE summary line instead of K header+body sections.
-        const parts = [];
-        const missedPatterns = [];
-        for (let i = 0; i < patterns.length; i++) {
-            const body = dedupeFanoutMatchLines(subs[i], seen);
-            if (typeof body === 'string' && body.startsWith('(no matches) ') && !body.includes('\n')) {
-                missedPatterns.push(patterns[i]);
-                continue;
-            }
-            parts.push(`# grep pattern:${JSON.stringify(patterns[i])}\n${body}`);
-        }
-        if (missedPatterns.length > 0) {
-            const missGlob = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-            parts.push(`(no matches) pattern=${JSON.stringify(missedPatterns)} path=${searchPath}${missGlob}; path exists`);
-        }
-        return patternCapNote + parts.join('\n\n');
+        // pattern[] fan-out (speculative prefilter + combined single-spawn +
+        // legacy per-pattern recursion) lives in lib/grep-pattern-fanout.mjs.
+        return await runGrepPatternFanout({
+            args,
+            patterns,
+            workDir,
+            executeChildBuiltinTool,
+            readStateScope,
+            options,
+            callContextCharBudget,
+            patternCapNote,
+            searchPath,
+            grepResolvedPath,
+            normalizedGlobPatterns,
+            outputMode,
+            headLimit,
+            offset,
+            caseInsensitive,
+            showLineNumbers,
+            beforeN,
+            afterN,
+            contextN,
+            multilineMode,
+            pcre2Mode,
+            fileType,
+            executeGrepTool,
+        });
     }
 
     const patternChunkCap = multilineMode ? GREP_MULTILINE_PATTERN_CAP : GREP_ARRAY_PATTERN_CAP;
     if (patterns.length > patternChunkCap) {
-        const patternChunks = chunkPatternList(patterns, patternChunkCap);
-        const aggregateBudget = computeGrepChunkAggregateBudget(offset, headLimit, headLimitCoerced);
-        let truncatedAggregate = false;
-        const chunkBaseArgs = {
-            ...args,
-            offset: 0,
-            ...(outputMode === 'count' ? { output_mode: 'content' } : {}),
-        };
-        const chunkMergeOptions = { ...options, _grepChunkMerge: true };
-        // Fetch every chunk concurrently with the full aggregate budget, then
-        // replay the sequential room-based accumulation over the results in
-        // chunk order. rg output order is deterministic, so slicing this
-        // superset by the sequential `room` yields identical lines, and the
-        // re-extract with `room` reproduces the same truncation flags — the
-        // merged output and `truncatedAggregate` are byte-identical to the
-        // old serial loop while the grep calls overlap.
-        const chunkBodies = await Promise.all(patternChunks.map((chunk) => executeGrepTool(
-            { ...chunkBaseArgs, pattern: chunk, head_limit: aggregateBudget },
+        // Chunked pattern[] fetch + deterministic merge replay lives in
+        // lib/grep-chunk-merge.mjs.
+        return await runGrepChunkMerge({
+            args,
+            patterns,
+            patternChunkCap,
             workDir,
             executeChildBuiltinTool,
             readStateScope,
-            chunkMergeOptions,
-        )));
-        const mergedRaw = [];
-        for (const chunkBody of chunkBodies) {
-            if (mergedRaw.length >= aggregateBudget) {
-                truncatedAggregate = true;
-                break;
-            }
-            const room = aggregateBudget - mergedRaw.length;
-            const extracted = extractGrepChunkResultLines(chunkBody, room);
-            if (extracted.error) return extracted.error.startsWith('Error:') ? extracted.error : `Error: ${extracted.error}`;
-            const slice = extracted.lines.slice(0, room);
-            mergedRaw.push(...slice);
-            if (extracted.truncated || extracted.lines.length > room) truncatedAggregate = true;
-        }
-        const chunkPrefix = buildGrepChunkMergePrefix(
-            patternChunks.length,
-            truncatedAggregate,
-            aggregateBudget,
-            outputMode,
-        );
-        const merged = mergeGrepChunkLines(mergedRaw, {
-            outputMode,
-            beforeN,
-            afterN,
-            contextN,
-        });
-        const sliced = offset > 0 ? merged.slice(offset) : merged;
-        const limit = headLimit === Infinity ? sliced.length : headLimit;
-        const windowed = limit === Infinity ? sliced : sliced.slice(0, limit);
-        // Cache-outcome fidelity: the concurrent chunk fetches run with the full
-        // aggregateBudget as head_limit, so a child may report itself complete
-        // even though the replay above trimmed its lines to a smaller `room`
-        // (truncatedAggregate), the final head_limit window dropped lines, or an
-        // offset paged past earlier matches. Mirror the other grep return paths
-        // and mark the scoped cache incomplete so a partial/paged chunk-merge
-        // result is never cached as whole.
-        if (options?.scopedCacheOutcome && (truncatedAggregate || offset > 0 || windowed.length < sliced.length)) {
-            markScopedCacheIncomplete(options.scopedCacheOutcome);
-        }
-        if (!windowed.length) {
-            const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
-            const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-            return `${patternCapNote}${chunkPrefix}(no matches) pattern=${patternStr} path=${searchPath}${globStr}`;
-        }
-        return formatGrepOutput({
-            windowed,
-            // POST-offset total so formatGrepOutput's remaining/total math (which
-            // re-adds `offset`) does not conjure phantom "more" results from the
-            // offset-skipped prefix.
-            totalWindowed: sliced.length,
-            totalKnown: !truncatedAggregate,
-            headLimit,
-            offset,
-            outputMode,
-            patterns,
-            beforeN,
-            afterN,
-            contextN,
+            options,
+            patternCapNote,
             searchPath,
             grepResolvedPath,
-            workDir,
-            globPatterns: normalizedGlobPatterns,
+            normalizedGlobPatterns,
+            outputMode,
+            headLimit,
+            headLimitCoerced,
+            offset,
+            beforeN,
+            afterN,
+            contextN,
             fileType,
-            filenameOmitted: false,
-            prefix: patternCapNote + chunkPrefix,
+            executeGrepTool,
         });
     }
 
@@ -1317,91 +808,33 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     catch (err) {
         if (sharedSignal?.aborted) throw err;
         if (isRgRegexParseError(err) && !multilineMode) {
-            const fixedPatterns = uniqueStrings(patterns.flatMap(regexPatternToFixedTerms));
-            if (fixedPatterns.length > 0) {
-                try {
-                    const fallbackArgs = buildGrepRgArgs({
-                        patterns: fixedPatterns,
-                        searchPath,
-                        globPatterns: normalizedGlobPatterns,
-                        outputMode,
-                        caseInsensitive,
-                        showLineNumbers,
-                        beforeN,
-                        afterN,
-                        contextN,
-                        multilineMode: false,
-                        fileType,
-                        onlyMatching: args['-o'] === true,
-                        fixedStrings: true,
-                        withFilename: forceGrepFilename,
-                        candidateFiles: scopedCandidateFiles,
-                    });
-                    const effectiveHeadLimit = headLimit === Infinity
-                        ? (outputMode === 'content' ? GREP_CONTENT_HARD_CAP : Infinity)
-                        : headLimit;
-                    let windowed;
-                    let totalWindowed = 0;
-                    let totalKnown = true;
-                    let rgPartialSuffix = '';
-                    if (effectiveHeadLimit !== Infinity) {
-                        const streamed = await runRgWindowedLines(fallbackArgs, { cwd: rgSpawnCwd, signal: sharedSignal }, {
-                            offset,
-                            limit: effectiveHeadLimit,
-                            summaryLimit: outputMode === 'content' ? 120 : 0,
-                        });
-                        windowed = streamed.lines;
-                        totalWindowed = streamed.totalSeen;
-                        totalKnown = streamed.complete;
-                        if (streamed.partial) {
-                            totalKnown = false;
-                            rgPartialSuffix = streamed.timeout
-                                ? '\n[warning] rg timed out; partial fixed-string fallback results shown.'
-                                : streamed.rgStderr
-                                ? `\n[warning] rg exit 2 (partial fixed-string fallback results): ${String(streamed.rgStderr).trim().slice(0, 300)}`
-                                : '\n[warning] rg exit 2 (partial fixed-string fallback results)';
-                        }
-                    } else {
-                        const stdout = await runRg(fallbackArgs, { cwd: rgSpawnCwd, signal: sharedSignal });
-                        const allLines = String(stdout).split('\n').filter(Boolean);
-                        windowed = offset > 0 ? allLines.slice(offset) : allLines;
-                        totalWindowed = windowed.length;
-                        if (typeof stdout === 'object' && stdout.truncated) totalKnown = false;
-                        if (typeof stdout === 'object' && stdout.partial) {
-                            totalKnown = false;
-                            rgPartialSuffix = stdout.timeout
-                                ? '\n[warning] rg timed out; partial fixed-string fallback results shown.'
-                                : stdout.rgStderr
-                                ? `\n[warning] rg exit 2 (partial fixed-string fallback results): ${String(stdout.rgStderr).trim().slice(0, 300)}`
-                                : '\n[warning] rg exit 2 (partial fixed-string fallback results)';
-                        }
-                    }
-                    const fallbackPrefix = patternCapNote + '[regex parse fallback: fixed-string terms]\n';
-                    let body = formatGrepOutput({
-                        windowed,
-                        totalWindowed,
-                        totalKnown,
-                        headLimit,
-                        offset,
-                        outputMode,
-                        patterns: fixedPatterns,
-                        beforeN,
-                        afterN,
-                        contextN,
-                        searchPath,
-                        grepResolvedPath,
-                        workDir,
-                        globPatterns: normalizedGlobPatterns,
-                        fileType,
-                        filenameOmitted,
-                        prefix: fallbackPrefix,
-                    });
-                    if (!body || (windowed.length === 0 && totalWindowed === 0)) {
-                        body = `${fallbackPrefix}(no matches) fixed_terms=${JSON.stringify(fixedPatterns)} path=${searchPath}`;
-                    }
-                    return body + rgPartialSuffix;
-                } catch { /* fall through to the original rg error */ }
-            }
+            // Fixed-string rescue lives in lib/grep-fixed-fallback.mjs;
+            // null falls through to the original rg error below.
+            const rescued = await runGrepFixedStringFallback({
+                args,
+                patterns,
+                patternCapNote,
+                searchPath,
+                grepResolvedPath,
+                workDir,
+                normalizedGlobPatterns,
+                outputMode,
+                caseInsensitive,
+                showLineNumbers,
+                beforeN,
+                afterN,
+                contextN,
+                fileType,
+                forceGrepFilename,
+                filenameOmitted,
+                scopedCandidateFiles,
+                headLimit,
+                offset,
+                contentHardCap: GREP_CONTENT_HARD_CAP,
+                rgSpawnCwd,
+                signal: sharedSignal,
+            });
+            if (rescued !== null) return rescued;
         }
         const stderr = err?.stderr ? String(err.stderr).trim() : '';
         const msg = stderr || err?.message || String(err);
