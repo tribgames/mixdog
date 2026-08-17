@@ -206,7 +206,7 @@ export function createSessionTitleController(deps = {}) {
     });
   };
 
-  function scheduleFirst(session, prompt) {
+  function scheduleFirst(session, prompt, options = {}) {
     const sessionId = String(session?.id || '');
     if (disposed || !sessionId || firstAttempts.has(sessionId)
       || session?.titleLocked === true
@@ -226,7 +226,20 @@ export function createSessionTitleController(deps = {}) {
       });
       return true;
     }
-    run(sessionId, source, 'first', firstAttempts);
+    const launch = () => {
+      if (disposed) {
+        firstAttempts.delete(sessionId);
+        return;
+      }
+      run(sessionId, source, 'first', firstAttempts);
+    };
+    if (options?.after && typeof options.after.then === 'function') {
+      void Promise.resolve(options.after).then(launch, () => {
+        firstAttempts.delete(sessionId);
+      });
+    } else {
+      launch();
+    }
     return true;
   }
 

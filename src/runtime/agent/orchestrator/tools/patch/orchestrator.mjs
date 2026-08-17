@@ -39,6 +39,8 @@ import { dispatchNativePatch, dispatchJsPatchEntries } from './dispatch.mjs';
 import {
   planV4ARenameSections,
   applyV4ARenameSections,
+  applyV4ARenameSection,
+  validateV4ARenameSection,
   formatV4ARenameSuccessLines,
   convertV4ASectionsToUnifiedPatch,
   isV4ARenameSection,
@@ -255,17 +257,22 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
   const pushSectionUnit = (section) => {
     const displayPath = normalizeOutputPath(section.path);
     const fullPath = resolveV4AEntryPath(basePath, section.path);
-    // A V4A rename cannot be sequenced, but ordered-stop requires we still
-    // apply every section BEFORE it and surface the rename as the failed
-    // section — never abort before earlier sections commit. Defer the
-    // rejection into buildParsed() so the loop marks it failed and keeps
-    // earlier commits.
+    // A V4A rename runs as its own ordered unit through the atomic rename
+    // executor: it validates against the disk state earlier sections left
+    // behind, and the destination path joins the lock set.
     if (isV4ARenameSection(section)) {
       units.push({
         displayPath,
         fullPath,
-        buildParsed: async () => {
-          throw new Error('sequence mode does not support V4A rename (*** Move to:) sections; apply the rename in a separate non-sequence patch');
+        extraLockPaths: [resolveV4AEntryPath(basePath, section.movePath)],
+        execute: async () => {
+          const errText = validateV4ARenameSection(section, basePath, new Set());
+          if (errText) throw new Error(errText);
+          const result = await applyV4ARenameSection(section, basePath, { ...v4aConvertOpts, readStateScope, dryRun });
+          if (dryRun) {
+            return `(dry-run) would rename ${displayPath} → ${normalizeOutputPath(section.movePath)} (~${result.linesChanged} lines touched)`;
+          }
+          return formatV4ARenameSuccessLines([result]).join('\n');
         },
       });
       return;
@@ -364,7 +371,7 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
     return `Error: ${err?.message || String(err)}`;
   }
 
-  const lockPaths = [...new Set(units.map((u) => u.fullPath))];
+  const lockPaths = [...new Set(units.flatMap((u) => [u.fullPath, ...(u.extraLockPaths || [])]))];
   const waveOpts = { fuzz, rejectPartial, dryRun, fuzzy, readStateScope, abortSignal };
 
   return withBuiltinPathLocks(lockPaths, () =>
@@ -396,6 +403,14 @@ async function applyPatchSequence(patchStr, requestedFormat, basePath, ctx) {
         if (failed) { skipped.push(unit.displayPath); continue; }
         if (abortSignal?.aborted) {
           noteFailure(unit, i, 'Error: apply_patch aborted');
+          continue;
+        }
+        if (unit.execute) {
+          try {
+            applied.push({ displayPath: unit.displayPath, text: await unit.execute() });
+          } catch (err) {
+            noteFailure(unit, i, `Error: ${err?.message || String(err)}`);
+          }
           continue;
         }
         let parsed;

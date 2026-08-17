@@ -28,7 +28,7 @@ import {
 } from './read-dedup.mjs';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 import {
-    _stripMcpPrefix, _isReadTool, _isMutationTool, _isScopedCacheableTool,
+    _stripMcpPrefix, _isReadTool, _isMutationTool, _isGitMutationTool, _isScopedCacheableTool,
     _isShellTool, _intraTurnSig, _argShapeSig, _isToolArgShapeFailure,
     _repeatFailureSig, _repeatFailurePatternWouldContinue,
 } from './loop/tool-classify.mjs';
@@ -610,6 +610,15 @@ export async function processToolBatch(ctx) {
             // that throws or fails partway can still leave stale find_symbol / grep entries.
             // Must not be gated on _executeOk or _resultKind.
             if (sessionId && _isShellTool(call.name) && _resultKind !== 'skipped') {
+                clearScopedToolsForSession(sessionId);
+            }
+            // Git mutations (update-ref/reflog expire/gc/reset...) rewrite
+            // .git state and possibly the working tree with no per-path
+            // visibility, so scoped grep/glob/list/code_graph entries go stale:
+            // a cached grep served a pre-mutation match for a deleted
+            // ORIG_HEAD and misled the model into a redundant delete. Clear
+            // the whole session scope, same policy as shell.
+            if (sessionId && _isGitMutationTool(call.name, call.arguments) && _resultKind !== 'skipped') {
                 clearScopedToolsForSession(sessionId);
             }
             _batchCompleted.push({

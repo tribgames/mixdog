@@ -59,6 +59,13 @@ function send(message) {
   return safeIpcSend(process, message);
 }
 
+process.on('mixdog:turn-timing', (row = {}) => {
+  send({
+    type: 'turn-timing',
+    row: sanitizeForWire(row) || {},
+  });
+});
+
 function errorBody(error) {
   return {
     name: String(error?.name || 'Error'),
@@ -160,11 +167,13 @@ async function callRuntime(message) {
 
 async function prewarm() {
   const module = await sessionModule();
-  module.preloadSessionRuntimeModule?.();
-  module.preloadAgentLoopRuntime?.();
-  module.preloadKeychainSecrets?.();
-  module.preloadProviderRuntime?.();
-  module.preloadMemoryRuntime?.();
+  await Promise.allSettled([
+    () => module.preloadSessionRuntimeModule?.(),
+    () => module.preloadAgentLoopRuntime?.(),
+    () => module.preloadKeychainSecrets?.(),
+    () => module.preloadProviderRuntime?.(),
+    () => module.preloadMemoryRuntime?.(),
+  ].map((start) => Promise.resolve().then(start)));
   return { ready: true };
 }
 

@@ -381,7 +381,9 @@ function guardGrep(a) {
     for (const k of patternKeys) {
         if (hasOwn(a, k)) {
             const value = coercePatternStringValues(a[k]);
-            a[k] = stripTrailingPatternArtifacts(value);
+            a[k] = Array.isArray(value)
+                ? value.map(stripTrailingPatternArtifacts)
+                : stripTrailingPatternArtifacts(value);
         }
     }
 
@@ -391,8 +393,8 @@ function guardGrep(a) {
         return 'Error: grep requires pattern (or alias query/regex/needle) or glob.';
     }
     for (const k of patternKeys) {
-        if (hasOwn(a, k) && !isString(a[k])) {
-            return `Error: grep arg "${k}" must be string (got ${describeType(a[k])})`;
+        if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
+            return `Error: grep arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }
     }
     // Lookaround/backreference patterns are no longer hard-rejected here:

@@ -194,6 +194,18 @@ class SessionShard {
       this.proxies.get(String(message.runtimeId || ''))?.applyFrame(message);
       return;
     }
+    if (message.type === 'turn-timing') {
+      const row = message.row && typeof message.row === 'object' ? message.row : {};
+      const ms = (value) => Number.isFinite(Number(value)) ? Math.round(Number(value)) : -1;
+      this.log(
+        `turn timing status=${row.status || 'unknown'} session=${row.sessionId || '-'}`
+        + ` shard=${this.index} e2e=${ms(row.endToEndTtftMs)}ms runtime=${ms(row.ttftMs)}ms`
+        + ` queue=${ms(row.queueMs)}ms route=${ms(row.routeMs)}ms`
+        + ` preflight=${ms(row.preflightMs)}ms mcp=${ms(row.mcpMs)}ms`
+        + ` provider=${ms(row.providerMs)}ms`,
+      );
+      return;
+    }
     if (message.type !== 'response') return;
     const request = this.pending.get(String(message.requestId || ''));
     if (!request) return;

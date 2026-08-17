@@ -205,9 +205,54 @@ function formatEditFailureExcerpt(content, oldStr, errorText) {
         : '';
 }
 
+// 1:1 length-preserving typographic normalization (dashes, curly quotes,
+// unusual spaces → ASCII). Length preservation is what lets a normalized
+// indexOf hit be mapped back onto the file's actual bytes.
+const TYPO_DASH_RE = /[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]/g;
+const TYPO_SINGLE_RE = /[\u2018\u2019\u201A\u201B]/g;
+const TYPO_DOUBLE_RE = /[\u201C\u201D\u201E\u201F]/g;
+const TYPO_SPACE_RE = /[\u00A0\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u202F\u205F\u3000]/g;
+function normalizeTypographicChars(s) {
+    return String(s)
+        .replace(TYPO_DASH_RE, '-')
+        .replace(TYPO_SINGLE_RE, "'")
+        .replace(TYPO_DOUBLE_RE, '"')
+        .replace(TYPO_SPACE_RE, ' ');
+}
+
+function isOpeningQuoteContext(prev) {
+    return prev === undefined || prev === ' ' || prev === '\t' || prev === '\n' || prev === '\r'
+        || prev === '(' || prev === '[' || prev === '{' || prev === '\u2014' || prev === '\u2013';
+}
+
+// Mirror the matched span's curly-quote style onto replacement text: plain
+// quotes become open/close curly quotes by position; an apostrophe between
+// two letters stays a closing single quote (contraction).
+function applyFileQuoteStyle(actualSpan, replacement) {
+    const hasDouble = /[\u201C\u201D]/.test(actualSpan);
+    const hasSingle = /[\u2018\u2019]/.test(actualSpan);
+    if (!hasDouble && !hasSingle) return replacement;
+    const chars = [...replacement];
+    const out = [];
+    for (let i = 0; i < chars.length; i++) {
+        const c = chars[i];
+        if (c === '"' && hasDouble) {
+            out.push(isOpeningQuoteContext(chars[i - 1]) ? '\u201C' : '\u201D');
+        } else if (c === "'" && hasSingle) {
+            const prevIsLetter = i > 0 && /\p{L}/u.test(chars[i - 1]);
+            const nextIsLetter = i + 1 < chars.length && /\p{L}/u.test(chars[i + 1]);
+            if (prevIsLetter && nextIsLetter) out.push('\u2019');
+            else out.push(isOpeningQuoteContext(chars[i - 1]) ? '\u2018' : '\u2019');
+        } else {
+            out.push(c);
+        }
+    }
+    return out.join('');
+}
+
 async function adaptStrReplace(args, workDir, options) {
-    const oldStr = args?.old_string;
-    const newStr = args?.new_string;
+    let oldStr = args?.old_string;
+    let newStr = args?.new_string;
     if (typeof oldStr !== 'string' || typeof newStr !== 'string') return null;
     if (oldStr === newStr) return 'Error: old_string and new_string are exactly the same';
     const replaceAll = args?.replace_all === true
@@ -267,6 +312,39 @@ async function adaptStrReplace(args, workDir, options) {
         recordEditSnapshot(fullPath, options);
         await recordEditUiDiff(options, workDir, fullPath, content, newStr);
         return `Updated ${fullPath} (filled empty file)`;
+    }
+    // Dialect normalization (skipped for same-anchor batch members whose
+    // occurrence accounting is bound to the original old_string):
+    if (!options?.editOccurrence) {
+        // Replacement-text trailing-whitespace hygiene; markdown keeps
+        // trailing double-space hard line breaks.
+        if (!/\.(md|mdx)$/i.test(fullPath)) {
+            newStr = newStr.replace(/[ \t]+(?=\r?\n|$)/g, '');
+        }
+        // Typographic rematch: old_string missed byte-exact but matches after
+        // 1:1 normalization of dashes/curly quotes/odd spaces. Rebase
+        // old_string onto the file's actual bytes and mirror the file's curly
+        // quote style into the replacement; replace_all requires every span to
+        // be byte-identical so no occurrence is silently skipped.
+        if (oldStr.length > 0 && !content.includes(oldStr)) {
+            const normContent = normalizeTypographicChars(content);
+            const normOld = normalizeTypographicChars(oldStr);
+            const spans = [];
+            for (let at = normContent.indexOf(normOld); at !== -1 && spans.length < 64; at = normContent.indexOf(normOld, at + 1)) {
+                spans.push(content.slice(at, at + oldStr.length));
+            }
+            if (spans.length > 0 && spans[0] !== oldStr && (!replaceAll || spans.every((span) => span === spans[0]))) {
+                newStr = applyFileQuoteStyle(spans[0], newStr);
+                oldStr = spans[0];
+            }
+        }
+        // Deleting a block absorbs its trailing newline so the deletion does
+        // not leave an empty line behind.
+        if (newStr === '' && oldStr.length > 0 && !oldStr.endsWith('\n')) {
+            if (content.includes(`${oldStr}\r\n`)) oldStr += '\r\n';
+            else if (content.includes(`${oldStr}\n`)) oldStr += '\n';
+        }
+        if (oldStr === newStr) return 'Error: old_string and new_string are exactly the same';
     }
     // Batch sequential occupation (tool-batch `_editSeqGroups`): this call is
     // the next member of a same-anchor edit batch and exactly `expected`
