@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="tp-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141419"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="tp-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="tp-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <filter id="tp-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#tp-bg)" filter="url(#tp-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#tp-rim)" stroke-width="1.5"/>
+
+  <!-- Code Tag Paw (Terminal Bracket & AI Nodes) -->
+  <g id="code-tag-paw">
+    <!-- Main Center Prompt Pad: Diamond Chevron (Terminal Execution Pad) -->
+    <path d="M 200 272 L 256 216 L 312 272 L 256 328 Z" fill="url(#tp-grad)"/>
+    <path d="M 216 328 L 256 368 L 296 328" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    
+    <!-- 4 Code Token Toe Nodes (AST Syntax Nodes) -->
+    <!-- Far Left: Code Bracket < -->
+    <path d="M 172 176 L 144 204 L 172 232" fill="none" stroke="#38bdf8" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Top Left Toe: Git Node -->
+    <circle cx="216" cy="148" r="22" fill="url(#tp-grad)"/>
+    <!-- Top Right Toe: Git Node -->
+    <circle cx="296" cy="148" r="22" fill="url(#tp-grad)"/>
+    <!-- Far Right: Code Bracket > -->
+    <path d="M 340 176 L 368 204 L 340 232" fill="none" stroke="#c084fc" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

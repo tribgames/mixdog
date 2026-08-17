@@ -19,12 +19,14 @@ test('saveModelSettings updates modelSettings without a sync config write', () =
     effort: 'high',
     fast: true,
     modelParameters: { context: '1m' },
+    contextPercent: 70,
   }, { fastCapable: true, baseConfig: cfgMod.loadConfig() });
   assert.equal(saveCalls, 0);
   assert.deepEqual(next.modelSettings['openai/gpt-5.4'], {
     effort: 'high',
     fast: true,
     modelParameters: { context: '1m' },
+    contextPercent: 70,
   });
   assert.equal(next.fastModels, undefined);
 });

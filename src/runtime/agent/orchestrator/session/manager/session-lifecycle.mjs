@@ -177,6 +177,10 @@ export function createSession(opts) {
         : (presetObj?.modelParameters && typeof presetObj.modelParameters === 'object'
             ? { ...presetObj.modelParameters }
             : {});
+    const requestedContextPercent = Number(opts.contextPercent);
+    const contextPercent = Number.isFinite(requestedContextPercent) && requestedContextPercent > 0
+        ? Math.max(10, Math.min(100, Math.round(requestedContextPercent / 10) * 10))
+        : null;
     if (!providerName)
         throw new Error('createSession: provider is required');
     if (!modelName)
@@ -396,6 +400,7 @@ export function createSession(opts) {
         effort,
         fast,
         modelParameters,
+        contextPercent,
         selectedContextWindow: opts.selectedContextWindow || null,
         agent: opts.agent,
         owner: opts.owner || 'user',
@@ -464,6 +469,13 @@ export function createSession(opts) {
     return session;
 }
 
+export function contextSeedForRouteUpdate(session, routeChanged, selectedContextWindowProvided = false) {
+    if (!routeChanged) return session;
+    return selectedContextWindowProvided
+        ? { selectedContextWindow: session?.selectedContextWindow || null }
+        : {};
+}
+
 export function updateSessionRoute(id, route = {}) {
     if (!id) return null;
     const session = loadSession(id);
@@ -479,12 +491,29 @@ export function updateSessionRoute(id, route = {}) {
             ? { ...route.modelParameters }
             : {};
     }
-    if (Object.prototype.hasOwnProperty.call(route, 'selectedContextWindow')) {
+    if (Object.prototype.hasOwnProperty.call(route, 'contextPercent')) {
+        const requestedContextPercent = Number(route.contextPercent);
+        session.contextPercent = Number.isFinite(requestedContextPercent) && requestedContextPercent > 0
+            ? Math.max(10, Math.min(100, Math.round(requestedContextPercent / 10) * 10))
+            : null;
+    }
+    const selectedContextWindowProvided = Object.prototype.hasOwnProperty.call(route, 'selectedContextWindow');
+    if (selectedContextWindowProvided) {
         session.selectedContextWindow = Number(route.selectedContextWindow) || null;
     }
+    const routeChanged = (route.provider && route.provider !== previousProvider)
+        || (route.model && route.model !== previousModel);
     const provider = session.provider ? getProvider(session.provider) : null;
     if (provider && session.model) {
-        const contextMeta = resolveSessionContextMeta(provider, session.model, session);
+        // Provider/model windows are derived metadata. Never seed a new route
+        // with the old route's persisted boundary (for example GPT 272k
+        // leaking into Cursor Gemini after an empty-session model switch).
+        const contextSeed = contextSeedForRouteUpdate(
+            session,
+            routeChanged,
+            selectedContextWindowProvided,
+        );
+        const contextMeta = resolveSessionContextMeta(provider, session.model, contextSeed);
         session.contextWindow = contextMeta.contextWindow;
         session.rawContextWindow = contextMeta.rawContextWindow;
         session.effectiveContextWindowPercent = contextMeta.effectiveContextWindowPercent;
@@ -505,8 +534,6 @@ export function updateSessionRoute(id, route = {}) {
         delete session.autoCompactTokenLimit;
         delete session.compactBoundaryTokens;
     }
-    const routeChanged = (route.provider && route.provider !== previousProvider)
-        || (route.model && route.model !== previousModel);
     if (routeChanged) {
         const now = Date.now();
         session.promptCacheKey = providerCacheKey(session.provider);

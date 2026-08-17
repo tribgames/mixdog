@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="rp-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18110e"/>
+      <stop offset="50%" stop-color="#0f0907"/>
+      <stop offset="100%" stop-color="#030101"/>
+    </linearGradient>
+    <linearGradient id="rp-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#f97316" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="rp-fire-1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#facc15"/>
+      <stop offset="50%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+    <linearGradient id="rp-fire-2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#fdba74"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <radialGradient id="rp-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="rp-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#rp-bg)" filter="url(#rp-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#rp-rim)" stroke-width="1.5"/>
+  <circle cx="256" cy="256" r="160" fill="url(#rp-glow)"/>
+
+  <!-- Interlocking Modular Flame Blocks forming Hound M -->
+  <g id="replit-flame-blocks">
+    <!-- Left Stride Flame Block -->
+    <rect x="124" y="216" width="56" height="144" rx="16" fill="url(#rp-fire-1)"/>
+    <polygon points="124,216 180,216 180,144 124,188" fill="url(#rp-fire-2)"/>
+
+    <!-- Right Stride Flame Block -->
+    <rect x="332" y="216" width="56" height="144" rx="16" fill="url(#rp-fire-1)"/>
+    <polygon points="388,216 332,216 332,144 388,188" fill="url(#rp-fire-2)"/>
+
+    <!-- Central Interlocking Code Block (Ember Core) -->
+    <rect x="228" y="172" width="56" height="116" rx="16" fill="#ffffff"/>
+    
+    <!-- Forward Execution Flame Dart Snout -->
+    <polygon points="188,296 256,364 324,296 256,324" fill="url(#rp-fire-2)"/>
+
+    <!-- Ember Synapse Core -->
+    <circle cx="256" cy="228" r="12" fill="#ea580c"/>
+    <circle cx="256" cy="228" r="5" fill="#facc15"/>
+  </g>
+</svg>

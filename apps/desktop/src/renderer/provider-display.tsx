@@ -210,6 +210,12 @@ export function modelContextWindow(model: DesktopModelOption): number {
   return 0;
 }
 
+export function modelMaxContextWindow(model: DesktopModelOption): number {
+  const current = modelContextWindow(model);
+  const raw = Number(model.maxContextWindow);
+  return Math.max(current, Number.isFinite(raw) && raw > 0 ? raw : 0);
+}
+
 export function formatContextWindow(tokens: number): string {
   const value = Number(tokens);
   if (!Number.isFinite(value) || value <= 0) return "";
@@ -226,10 +232,7 @@ export function formatContextWindow(tokens: number): string {
 }
 
 export function modelOptionDescription(model: DesktopModelOption): string {
-  // Keep provider-authoritative limits and the provider's own description
-  // together. Cursor tooltips often repeat the context window as one dot
-  // segment, so remove only that duplicate before composing the secondary line.
-  const context = formatContextWindow(modelContextWindow(model));
+  // Context belongs in the model's internal tuning menu, not the model list.
   const description = String(model.description || "")
     .replace(/<br\s*\/?>/gi, " · ")
     .replace(/<[^>]+>/g, "")
@@ -243,7 +246,7 @@ export function modelOptionDescription(model: DesktopModelOption): string {
     .split(" · ")
     .filter((part) => !/^\d+(?:\.\d+)?\s*[km]\s+context window$/i.test(part))
     .join(" · ");
-  return [context, description, model.fastCapable ? t("Fast Available") : ""]
+  return [description, model.fastCapable ? t("Fast Available") : ""]
     .filter(Boolean).join(" · ");
 }
 
@@ -254,7 +257,6 @@ export function modelDetailTooltip(model: DesktopModelOption): string {
   return [
     providerDisplayName(model.provider),
     model.model,
-    formatContextWindow(modelContextWindow(model)),
     effort.length > 0 ? t("Reasoning {{levels}}", { levels: effort.join("/") }) : "",
     model.fastCapable ? t("Fast available") : "",
     model.latest ? t("Latest") : "",

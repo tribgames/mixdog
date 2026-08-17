@@ -422,7 +422,7 @@ function storeBlob(conversation, bytes) {
     return id;
 }
 
-function buildRunRequest({ model, modelParameters = [], systems, history, userText, userImages = [], tools, conversation }) {
+function buildRunRequest({ model, modelParameters = [], maxMode = false, systems, history, userText, userImages = [], tools, conversation }) {
     const prompts = systems.length ? systems : ['You are a helpful assistant.'];
     const rootPromptMessagesJson = [];
     for (const content of prompts) {
@@ -458,6 +458,7 @@ function buildRunRequest({ model, modelParameters = [], systems, history, userTe
             action,
             requestedModel: {
                 modelId: cursorModel,
+                maxMode: maxMode === true,
                 parameters: modelParameters,
             },
             mcpTools: { mcpTools: tools },
@@ -1142,6 +1143,7 @@ export async function handleChatCompletion(body, accessToken) {
     }
     const model = body.model || 'auto';
     const modelParameters = requestModelParameters(body);
+    const maxMode = body.mixdog_max_mode === true;
     const sessionId = String(body.mixdog_session_id || '');
     const key = runKey(model, body.messages, sessionId);
     const active = activeRuns.get(key);
@@ -1161,6 +1163,7 @@ export async function handleChatCompletion(body, accessToken) {
     const requestBytes = buildRunRequest({
         model,
         modelParameters,
+        maxMode,
         systems: parsed.systems,
         history: parsed.history,
         userText: parsed.userText,

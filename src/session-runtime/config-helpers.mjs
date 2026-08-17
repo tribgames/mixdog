@@ -43,8 +43,14 @@ function cleanModelParameters(value) {
     .filter(([key, entry]) => key && entry));
 }
 
+function cleanContextPercent(value) {
+  const percent = Number(value);
+  if (!Number.isFinite(percent) || percent <= 0) return undefined;
+  return Math.max(10, Math.min(100, Math.round(percent / 10) * 10));
+}
+
 export function makeResolveRoute(resolveDefaultProvider) {
-  return function resolveRoute(config, { provider, model, effort, fast, modelParameters } = {}) {
+  return function resolveRoute(config, { provider, model, effort, fast, modelParameters, contextPercent } = {}) {
     const explicitProvider = clean(provider);
     const explicitModel = clean(model);
     const hasExplicitEffort = effort !== undefined;
@@ -52,6 +58,7 @@ export function makeResolveRoute(resolveDefaultProvider) {
     const hasExplicitFast = fast !== undefined;
     const explicitFast = fast === true;
     const hasExplicitModelParameters = modelParameters !== undefined;
+    const hasExplicitContextPercent = contextPercent !== undefined;
 
     if (explicitModel && !explicitProvider) {
       const preset = findPreset(config, explicitModel);
@@ -69,6 +76,9 @@ export function makeResolveRoute(resolveDefaultProvider) {
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
+            contextPercent: hasExplicitContextPercent
+              ? cleanContextPercent(contextPercent)
+              : cleanContextPercent(saved.contextPercent ?? preset.contextPercent),
           };
         }
       }
@@ -91,6 +101,9 @@ export function makeResolveRoute(resolveDefaultProvider) {
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
+            contextPercent: hasExplicitContextPercent
+              ? cleanContextPercent(contextPercent)
+              : cleanContextPercent(saved.contextPercent ?? preset.contextPercent),
           };
         }
       }
@@ -108,6 +121,9 @@ export function makeResolveRoute(resolveDefaultProvider) {
       modelParameters: hasExplicitModelParameters
         ? cleanModelParameters(modelParameters)
         : cleanModelParameters(saved.modelParameters),
+      contextPercent: hasExplicitContextPercent
+        ? cleanContextPercent(contextPercent)
+        : cleanContextPercent(saved.contextPercent),
     };
   };
 }

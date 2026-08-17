@@ -282,7 +282,12 @@ export function createSessionService({
         if (entry.subscribers?.size > 0) { entry.retainedAt = null; continue; }
         if (sessionBusy(entry)) { entry.retainedAt = now; continue; }
         if (now - entry.retainedAt < (entry.agentSession ? AGENT_IDLE_EVICT_MS : IDLE_EVICT_MS)) continue;
-        void destroy(entry, 'idle and unwatched');
+        // Eviction is a MEMORY reclaim, never a user teardown: the runtime's
+        // agent workers and background jobs are daemon-owned work that must
+        // survive the owner's idle eviction (observed: switching desktop tabs
+        // evicted the Lead after 2 minutes and its teardown closed every idle
+        // worker with reap time left — and cancelled running ones).
+        void destroy(entry, 'idle and unwatched', { keepBackgroundWork: true });
       }
       stopEvictionSweepIfIdle();
     }, EVICT_SWEEP_MS);

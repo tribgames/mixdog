@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="cl-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a1412"/>
+      <stop offset="50%" stop-color="#100b09"/>
+      <stop offset="100%" stop-color="#050302"/>
+    </linearGradient>
+    <linearGradient id="cl-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="40%" stop-color="#f97316" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="cl-terracotta" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="50%" stop-color="#ea580c"/>
+      <stop offset="100%" stop-color="#c2410c"/>
+    </linearGradient>
+    <linearGradient id="cl-charcoal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fafaf9"/>
+      <stop offset="100%" stop-color="#d6d3d1"/>
+    </linearGradient>
+    <radialGradient id="cl-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ea580c" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cl-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#cl-bg)" filter="url(#cl-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#cl-rim)" stroke-width="1.5"/>
+  <circle cx="256" cy="256" r="160" fill="url(#cl-glow)"/>
+
+  <!-- Anthropic Asterisk Spark Meets Hound M Monogram -->
+  <g id="claude-spark-hound">
+    <!-- Left Brutalist Ear Column -->
+    <rect x="124" y="148" width="44" height="216" rx="22" fill="url(#cl-charcoal)"/>
+    <polygon points="124,200 168,148 216,200" fill="url(#cl-terracotta)"/>
+
+    <!-- Right Brutalist Ear Column -->
+    <rect x="344" y="148" width="44" height="216" rx="22" fill="url(#cl-charcoal)"/>
+    <polygon points="388,200 344,148 296,200" fill="url(#cl-terracotta)"/>
+
+    <!-- Center Intelligence Asterisk Node (* Spark) -->
+    <!-- Vertical Beam -->
+    <rect x="240" y="172" width="32" height="152" rx="16" fill="url(#cl-terracotta)"/>
+    <!-- Diagonal Beam 1 -->
+    <rect x="240" y="172" width="32" height="152" rx="16" transform="rotate(60 256 248)" fill="url(#cl-terracotta)" opacity="0.9"/>
+    <!-- Diagonal Beam 2 -->
+    <rect x="240" y="172" width="32" height="152" rx="16" transform="rotate(-60 256 248)" fill="url(#cl-terracotta)" opacity="0.9"/>
+
+    <!-- Central Focus Core / Snout Point -->
+    <circle cx="256" cy="248" r="18" fill="#ffffff"/>
+    <circle cx="256" cy="248" r="8" fill="#ea580c"/>
+
+    <!-- Terminal Prompt Chevron Snout Underlay -->
+    <path d="M 200 312 L 256 364 L 312 312" fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

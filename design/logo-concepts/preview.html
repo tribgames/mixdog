@@ -3,513 +3,2970 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mixdog - Benchmark Logos (Orca, Cursor, Codex, Paseo)</title>
+  <title>Mixdog Logo Design System & Global AI Coding Agent Benchmarks</title>
   <style>
     :root {
       --bg: #07080b;
-      --card-bg: #0e1017;
-      --card-inner: #08090d;
+      --bg-surface: #0e1118;
+      --bg-card: #131722;
+      --bg-card-hover: #1a2030;
       --border: rgba(255, 255, 255, 0.08);
-      --border-hover: rgba(56, 189, 248, 0.45);
+      --border-accent: rgba(56, 189, 248, 0.4);
       --text: #f8fafc;
       --text-muted: #94a3b8;
-      --accent-cyan: #38bdf8;
-      --accent-emerald: #10b981;
-      --accent-purple: #a855f7;
+      --text-dim: #64748b;
+      --cyan: #38bdf8;
+      --indigo: #818cf8;
+      --violet: #c084fc;
+      --rose: #f43f5e;
+      --emerald: #10b981;
+      --amber: #fbbf24;
+      --orange: #f97316;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 56px 24px 96px;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    .bg-grid {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image:
+        radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.14) 0%, transparent 60%),
+        radial-gradient(circle at 85% 20%, rgba(217, 70, 239, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 15% 40%, rgba(16, 185, 129, 0.08) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 48px 24px 120px;
     }
 
     header {
       text-align: center;
-      max-width: 840px;
-      margin-bottom: 56px;
+      max-width: 980px;
+      margin: 0 auto 56px;
     }
 
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 5px 14px;
+      gap: 8px;
+      padding: 6px 18px;
       border-radius: 999px;
       background: rgba(56, 189, 248, 0.1);
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      color: var(--accent-cyan);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--cyan);
       font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      margin-bottom: 16px;
-    }
-
-    header h1 {
-      font-size: 42px;
-      font-weight: 800;
-      letter-spacing: -0.035em;
-      line-height: 1.15;
-      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 16px;
-    }
-
-    header p {
-      color: var(--text-muted);
-      font-size: 16px;
-      line-height: 1.6;
-    }
-
-    .container {
-      width: 100%;
-      max-width: 1240px;
-      display: flex;
-      flex-direction: column;
-      gap: 56px;
-    }
-
-    .ref-bar {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 32px;
-      padding: 16px 28px;
-      background: rgba(255, 255, 255, 0.02);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      font-size: 13px;
-      color: var(--text-muted);
-      flex-wrap: wrap;
-    }
-
-    .ref-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .ref-item strong {
-      color: #ffffff;
-      font-weight: 600;
-    }
-
-    .concepts-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 24px;
-    }
-
-    .concept-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 28px;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-      position: relative;
-    }
-
-    .concept-card:hover {
-      transform: translateY(-6px);
-      border-color: var(--border-hover);
-      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.7), 0 0 30px rgba(56, 189, 248, 0.15);
-    }
-
-    .concept-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .concept-tag {
-      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      padding: 4px 10px;
-      border-radius: 6px;
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--accent-cyan);
+      margin-bottom: 20px;
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
     }
 
-    .concept-tag.rec {
-      background: rgba(56, 189, 248, 0.15);
-      border: 1px solid rgba(56, 189, 248, 0.3);
+    header h1 {
+      font-size: 48px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
 
-    .preview-container {
-      background: var(--card-inner);
-      border: 1px solid rgba(255, 255, 255, 0.04);
-      border-radius: 18px;
-      height: 220px;
+    header p {
+      font-size: 16px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .section-title {
       display: flex;
       align-items: center;
-      justify-content: center;
-      position: relative;
-      overflow: hidden;
+      justify-content: space-between;
+      margin: 64px 0 28px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
     }
 
-    .preview-container img {
-      width: 156px;
-      height: 156px;
-      object-fit: contain;
-      filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.6));
-    }
-
-    .info h3 {
-      font-size: 20px;
+    .section-title h2 {
+      font-size: 24px;
       font-weight: 700;
       letter-spacing: -0.02em;
-      margin-bottom: 6px;
-      color: #ffffff;
-    }
-
-    .info .bench {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--accent-cyan);
-      margin-bottom: 10px;
-    }
-
-    .info p {
-      font-size: 13px;
-      color: var(--text-muted);
-      line-height: 1.55;
-    }
-
-    /* Section Headers */
-    .section-title {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      margin-bottom: 20px;
       display: flex;
       align-items: center;
       gap: 12px;
     }
 
-    .section-title span {
+    .section-title .desc {
       font-size: 13px;
-      font-weight: 500;
       color: var(--text-muted);
     }
 
-    /* Lockups Grid */
-    .lockup-grid {
+    .deepdive-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 24px;
+      margin-bottom: 48px;
     }
 
-    .lockup-card {
-      background: var(--card-bg);
+    .deepdive-card {
+      background: var(--bg-card);
       border: 1px solid var(--border);
-      border-radius: 18px;
+      border-radius: var(--radius-lg);
       padding: 24px;
       display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .lockup-icon {
-      width: 46px;
-      height: 46px;
-      flex-shrink: 0;
-    }
-
-    .lockup-text {
-      display: flex;
       flex-direction: column;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
     }
 
-    .lockup-text .brand-name {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      color: #ffffff;
-      display: flex;
-      align-items: center;
-      gap: 2px;
+    .deepdive-card:hover {
+      transform: translateY(-6px);
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(56, 189, 248, 0.15);
     }
 
-    .lockup-text .brand-name .accent-dot {
-      color: var(--accent-cyan);
+    .deepdive-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      background: var(--card-accent, var(--cyan));
+      opacity: 0.8;
     }
 
-    .lockup-text .brand-sub {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-    }
-
-    /* Monochrome Row */
-    .mono-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 20px;
-    }
-
-    .mono-box {
-      background: #000000;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      padding: 24px 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .mono-box svg {
-      width: 52px;
-      height: 52px;
-    }
-
-    .mono-box span {
-      font-size: 12px;
-      font-weight: 600;
-      color: #94a3b8;
-    }
-
-    /* Scale Strip */
-    .scale-strip {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 28px 36px;
+    .card-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 24px;
+      margin-bottom: 16px;
     }
 
-    .scale-item {
+    .agent-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .card-img-wrap {
+      background: #090a0f;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+      position: relative;
+    }
+
+    .card-img-wrap img {
+      width: 140px;
+      height: 140px;
+      transition: transform 0.3s ease;
+    }
+
+    .deepdive-card:hover .card-img-wrap img {
+      transform: scale(1.06);
+    }
+
+    .card-content h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #ffffff;
+    }
+
+    .card-content .philosophy {
+      font-size: 12px;
+      color: var(--cyan);
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 12px;
+    }
+
+    .card-content .breakdown {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.55;
+      margin-bottom: 16px;
+      flex-grow: 1;
+    }
+
+    .card-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-dim);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .table-container {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow-x: auto;
+      margin-bottom: 56px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+      font-weight: 600;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+
+    td {
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text);
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    .table-thumb {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      background: #000;
+      vertical-align: middle;
+      margin-right: 12px;
+    }
+
+    .sim-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 36px;
+      margin-bottom: 56px;
+    }
+
+    .sim-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .sim-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .sim-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .sim-btn:hover, .sim-btn.active {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .ide-window {
+      background: #11131a;
+      border: 1px solid #232838;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+    }
+
+    .ide-titlebar {
+      height: 40px;
+      background: #0d0f15;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      border-bottom: 1px solid #1c212f;
+      gap: 12px;
+    }
+
+    .ide-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .ide-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .dot-r { background: #ef4444; }
+    .dot-y { background: #eab308; }
+    .dot-g { background: #22c55e; }
+
+    .ide-tab {
+      background: #11131a;
+      border: 1px solid #232838;
+      border-bottom: none;
+      padding: 6px 14px;
+      border-radius: 6px 6px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      color: #e2e8f0;
+    }
+
+    .ide-tab img {
+      width: 16px;
+      height: 16px;
+    }
+
+    .ide-body {
+      padding: 24px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.7;
+    }
+
+    .code-hl { color: var(--cyan); }
+    .code-str { color: #a7f3d0; }
+    .code-kw { color: #f472b6; }
+    .code-fn { color: #60a5fa; }
+
+    .dock-container {
+      margin-top: 32px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 24px;
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .dock {
+      background: rgba(20, 24, 35, 0.75);
+      backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+
+    .dock-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 12px;
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .dock-icon:hover {
+      transform: scale(1.3) translateY(-8px);
+    }
+
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .search-input {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: #fff;
+      font-size: 13px;
+      min-width: 280px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--cyan);
+    }
+
+    .filter-chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      font-size: 12px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip:hover, .chip.active {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+      font-weight: 600;
+    }
+
+    .catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .catalog-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
     }
 
-    .scale-item span {
-      font-size: 11px;
+    .catalog-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+    }
+
+    .catalog-card img {
+      width: 90px;
+      height: 90px;
+      margin-bottom: 12px;
+    }
+
+    .catalog-title {
+      font-size: 12px;
       font-weight: 600;
-      color: var(--text-muted);
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      width: 100%;
+      color: #e2e8f0;
+    }
+
+    .catalog-tag {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(12px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 24px;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal-card {
+      background: #11141d;
+      border: 1px solid #23293a;
+      border-radius: var(--radius-xl);
+      max-width: 780px;
+      width: 100%;
+      padding: 36px;
+      position: relative;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.8);
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 20px; right: 20px;
+      background: rgba(255, 255, 255, 0.08);
+      border: none;
+      color: #fff;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 16px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+
+    .modal-flex {
+      display: flex;
+      gap: 32px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .modal-hero {
+      width: 220px;
+      height: 220px;
+      background: #080a0e;
+      border-radius: 20px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-hero img { width: 100%; height: 100%; }
+
+    .modal-details {
+      flex: 1;
+      min-width: 280px;
+    }
+
+    .modal-scales {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 20px 0;
+      background: #090b10;
+      padding: 12px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .btn-primary {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 700;
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      font-size: 13px;
     }
   </style>
 </head>
 <body>
-  <header>
-    <div class="badge">Next-Gen Coding Agent Benchmark</div>
-    <h1>Mixdog Agent Logo System</h1>
-    <p>글로벌 탑급 코딩 에이전트(<strong>Orca, Cursor, Codex, Paseo</strong>)의 핵심 디자인 문법과 기하학을 분석하여 재해석한 4대 심플 테크 로고</p>
-  </header>
+  <div class="bg-grid"></div>
 
   <div class="container">
-    <!-- Design Benchmark Reference Bar -->
-    <div class="ref-bar">
-      <div class="ref-item">🐋 <strong>Orca</strong>: 유선형 실루엣 & 네거티브 스페이스</div>
-      <div class="ref-item">🧊 <strong>Cursor</strong>: 정밀 3D 아이소메트릭 각면 & 빛 굴절</div>
-      <div class="ref-item">⚡ <strong>Codex</strong>: 회전 대칭 토폴로지 & 헥사곤 노드</div>
-      <div class="ref-item">➰ <strong>Paseo</strong>: 유연한 연속 단일 폐곡선 리본</div>
+    <header>
+      <div class="badge">🚀 2026 Next-Gen Coding Agent Benchmark Suite</div>
+      <h1>Mixdog Global AI Agent Logo System</h1>
+      <p>
+        글로벌 톱티어 코딩 에이전트(Cursor, Windsurf, Claude Code, Devin, GitHub Copilot, OpenAI Operator 등)의<br>
+        핵심 디자인 철학 및 비주얼 아이덴티티를 분석하여 믹스독(Mixdog) 브랜드에 정밀하게 접목한 종합 쇼케이스입니다.
+      </p>
+    </header>
+
+    <div class="section-title">
+      <h2>🤖 12대 글로벌 코딩 에이전트 심층 분석 & 믹스독 베리에이션</h2>
+      <span class="desc">각 에이전트의 시각 언어(3D 큐브, 캐스케이드, 아스테리스크, DAG 노드 등)를 재해석한 콘셉트</span>
     </div>
 
-    <!-- 4 Main Concepts Grid -->
-    <div class="concepts-grid">
-      <!-- Concept 1: Orca Style -->
-      <div class="concept-card">
-        <div class="concept-header">
-          <span class="concept-tag">01 • Orca Benchmark</span>
+    <div class="deepdive-grid">
+
+        <div class="deepdive-card" style="--card-accent: #38bdf8" onclick="openInspector('agent-v2-1-cursor-hypercube.svg', '3D Isometric Hyper-Prism', 'Cursor (Anysphere)')">
+          <div class="card-top">
+            <span class="agent-pill">Cursor (Anysphere)</span>
+            <span style="font-size: 11px; color: #38bdf8; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-1-cursor-hypercube.svg" alt="3D Isometric Hyper-Prism" />
+          </div>
+          <div class="card-content">
+            <h3>3D Isometric Hyper-Prism</h3>
+            <div class="philosophy">// 아이소메트릭 큐브, 광학 굴절 프리즘, 3D 공간감, 티타늄 다크모드</div>
+            <p class="breakdown">Cursor 특유의 30°/60° 아이소메트릭 큐브를 하운드의 쫑긋한 귀로 변환. 중앙에 즉각적인 코드 실행을 상징하는 사이언/인디고 프리즘 셰브론 배치.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#3D Prism</span><span class="tag">#Isometric Cube</span><span class="tag">#Optical Seam</span>
+          </div>
         </div>
-        <div class="preview-container">
-          <img src="./agent-ref-1-orca-streamline.svg" alt="Orca Streamline" />
+
+        <div class="deepdive-card" style="--card-accent: #06b6d4" onclick="openInspector('agent-v2-2-windsurf-flow-cascade.svg', 'Cascade Flow & Jet Stream', 'Windsurf (Codeium)')">
+          <div class="card-top">
+            <span class="agent-pill">Windsurf (Codeium)</span>
+            <span style="font-size: 11px; color: #06b6d4; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-2-windsurf-flow-cascade.svg" alt="Cascade Flow & Jet Stream" />
+          </div>
+          <div class="card-content">
+            <h3>Cascade Flow & Jet Stream</h3>
+            <div class="philosophy">// Cascade 다중 에이전트 병렬 기류, 유체역학적 서핑 곡선, 고속 제트 스트림</div>
+            <p class="breakdown">Windsurf의 Cascade 병렬 실행 스트림에서 착안한 듀얼 에어로포일 곡선. M 실루엣을 따라 흐르며 중앙 셰브론 노즐로 합류.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Cascade Wave</span><span class="tag">#Parallel Streams</span><span class="tag">#Aerodynamic</span>
+          </div>
         </div>
-        <div class="info">
-          <h3>Streamline Hound</h3>
-          <div class="bench">Orca Style • Aerodynamic Silhouette</div>
-          <p><strong>Orca의 유선형 디자인 철학</strong>. 범고래의 날렵한 지느러미 곡선처럼 매끄럽게 흐르는 M 하운드 실루엣과 중앙의 터미널 셰브론 네거티브 컷.</p>
+
+        <div class="deepdive-card" style="--card-accent: #f97316" onclick="openInspector('agent-v2-3-claude-spark-brutalist.svg', 'Intelligent Asterisk & Brutalism', 'Claude Code (Anthropic)')">
+          <div class="card-top">
+            <span class="agent-pill">Claude Code (Anthropic)</span>
+            <span style="font-size: 11px; color: #f97316; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-3-claude-spark-brutalist.svg" alt="Intelligent Asterisk & Brutalism" />
+          </div>
+          <div class="card-content">
+            <h3>Intelligent Asterisk & Brutalism</h3>
+            <div class="philosophy">// 지능형 아스테리스크(*), 웜 테라코타 & 차콜, 모던 브루탈리즘</div>
+            <p class="breakdown">Anthropic의 시그니처 6방향 지능 스파크(*)와 단단한 브루탈리스트 M 기둥의 융합. 따뜻한 오렌지/테라코타 톤의 인간 중심 에이전트.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Asterisk *</span><span class="tag">#Warm Terracotta</span><span class="tag">#Brutalism</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #10b981" onclick="openInspector('agent-v2-4-devin-dag-matrix.svg', 'Autonomous Task Graph (DAG)', 'Devin (Cognition)')">
+          <div class="card-top">
+            <span class="agent-pill">Devin (Cognition)</span>
+            <span style="font-size: 11px; color: #10b981; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-4-devin-dag-matrix.svg" alt="Autonomous Task Graph (DAG)" />
+          </div>
+          <div class="card-content">
+            <h3>Autonomous Task Graph (DAG)</h3>
+            <div class="philosophy">// 방향성 비순환 그래프(DAG) 실행 트리, 에메랄드 형광, 엔드투엔드 자율성</div>
+            <p class="breakdown">복잡한 소프트웨어 엔지니어링 문제를 분할 해결하는 DAG 태스크 노드 5개가 M자형으로 연결되어 스스로 문제를 해결하는 지능형 그래프 형성.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#DAG Task Tree</span><span class="tag">#Emerald Nodes</span><span class="tag">#Autonomous Loop</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #d946ef" onclick="openInspector('agent-v2-5-copilot-cyber-visor.svg', 'Cyber Visor & Pair Pilot', 'GitHub Copilot (Workspace)')">
+          <div class="card-top">
+            <span class="agent-pill">GitHub Copilot (Workspace)</span>
+            <span style="font-size: 11px; color: #d946ef; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-5-copilot-cyber-visor.svg" alt="Cyber Visor & Pair Pilot" />
+          </div>
+          <div class="card-content">
+            <h3>Cyber Visor & Pair Pilot</h3>
+            <div class="philosophy">// 페어 프로그래밍, 헬멧/바이저 HUD, 일렉트릭 마젠타-퍼플 네온</div>
+            <p class="breakdown">인간 개발자와 AI가 함께 코딩하는 페어 파일럿 감성. 듀얼 네온 안테나 귀와 중앙의 사이버네틱 레이저 바이저 슬릿 HUD.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Pair Pilot</span><span class="tag">#Neon HUD</span><span class="tag">#Visor Slit</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #ffffff" onclick="openInspector('agent-v2-6-operator-singularity-loop.svg', 'Singularity Parabolic Ring', 'OpenAI Operator / Codex')">
+          <div class="card-top">
+            <span class="agent-pill">OpenAI Operator / Codex</span>
+            <span style="font-size: 11px; color: #ffffff; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-6-operator-singularity-loop.svg" alt="Singularity Parabolic Ring" />
+          </div>
+          <div class="card-content">
+            <h3>Singularity Parabolic Ring</h3>
+            <div class="philosophy">// 단일 폐곡선 럭셔리 곡률, 중앙 자율 코어, 플래티넘 미니멀리즘</div>
+            <p class="breakdown">코드 브래킷(&lt; &gt;)과 포물선(Parabola)이 하나로 이어지는 완벽한 폐곡선. 중심에 위치한 싱귤래리티 펄스 코어로 무한한 자율 실행 표현.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Singularity Ring</span><span class="tag">#Parabolic Curve</span><span class="tag">#Platinum Luxury</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #22c55e" onclick="openInspector('agent-v2-7-ghostty-zero-phosphor.svg', 'Zero-Latency CRT Phosphor', 'Ghostty (Mitchellh)')">
+          <div class="card-top">
+            <span class="agent-pill">Ghostty (Mitchellh)</span>
+            <span style="font-size: 11px; color: #22c55e; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-7-ghostty-zero-phosphor.svg" alt="Zero-Latency CRT Phosphor" />
+          </div>
+          <div class="card-content">
+            <h3>Zero-Latency CRT Phosphor</h3>
+            <div class="philosophy">// 네이티브 C/Rust 가속, 인광체 그린 CRT 스캔라인, 해커 터미널 글리프</div>
+            <p class="breakdown">하드웨어 레벨의 극한 성능과 CRT 모니터의 그린 인광체 잔상을 재현한 래스터 픽셀 슬릿 하운드. 순수 터미널 CLI 감성 극대화.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#CRT Phosphor</span><span class="tag">#Scanline Matrix</span><span class="tag">#Zero-Latency</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #ea580c" onclick="openInspector('agent-v2-8-replit-flame-monolith.svg', 'Fire Ember & Interlocking Block', 'Replit Agent')">
+          <div class="card-top">
+            <span class="agent-pill">Replit Agent</span>
+            <span style="font-size: 11px; color: #ea580c; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-8-replit-flame-monolith.svg" alt="Fire Ember & Interlocking Block" />
+          </div>
+          <div class="card-content">
+            <h3>Fire Ember & Interlocking Block</h3>
+            <div class="philosophy">// 타오르는 불꽃(Flame/Ember), 기하학 블록 결합, 하이 콘트라스트</div>
+            <p class="breakdown">모듈식 기하학 블록 3개가 맞물리며 하운드와 불꽃(Ember)을 동시에 형상화. 즉각적이고 역동적인 풀스택 프로토타이핑 에너지.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Flame Ember</span><span class="tag">#Interlock Blocks</span><span class="tag">#High Contrast</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #facc15" onclick="openInspector('agent-v2-9-bolt-thunder-apex.svg', 'Lightning WebContainer Spark', 'Bolt.new (StackBlitz)')">
+          <div class="card-top">
+            <span class="agent-pill">Bolt.new (StackBlitz)</span>
+            <span style="font-size: 11px; color: #facc15; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-9-bolt-thunder-apex.svg" alt="Lightning WebContainer Spark" />
+          </div>
+          <div class="card-content">
+            <h3>Lightning WebContainer Spark</h3>
+            <div class="philosophy">// 썬더볼트 번개, 초고속 웹컨테이너 런타임, 일렉트릭 옐로우 & 블루</div>
+            <p class="breakdown">M 심볼의 중심을 관통하는 고전압 썬더볼트 셰브론. 브라우저 내 즉시 풀스택 환경을 기동하는 초고속 스피드 표현.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Thunderbolt</span><span class="tag">#High-Voltage</span><span class="tag">#Instant Runtime</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #38bdf8" onclick="openInspector('agent-v2-10-aider-git-fork.svg', 'Git Branch-Merge & Diff Patch', 'Aider (CLI Pair)')">
+          <div class="card-top">
+            <span class="agent-pill">Aider (CLI Pair)</span>
+            <span style="font-size: 11px; color: #38bdf8; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-10-aider-git-fork.svg" alt="Git Branch-Merge & Diff Patch" />
+          </div>
+          <div class="card-content">
+            <h3>Git Branch-Merge & Diff Patch</h3>
+            <div class="philosophy">// Git 브랜치 분기/병합(Fork & Merge), 터미널 diff 문법, CLI 협업</div>
+            <p class="breakdown">좌우의 피처 브랜치(Feature)와 메인 브랜치가 M 라인을 그리며 중앙 머지 커밋(Merge Node)으로 수렴하는 Git 토폴로지 구조.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Git Topology</span><span class="tag">#Branch Fork</span><span class="tag">#Merge Node</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #94a3b8" onclick="openInspector('agent-v2-11-zed-super-speed-chevron.svg', 'High-Performance Rust Monoline', 'Zed (Rust Speed)')">
+          <div class="card-top">
+            <span class="agent-pill">Zed (Rust Speed)</span>
+            <span style="font-size: 11px; color: #94a3b8; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-11-zed-super-speed-chevron.svg" alt="High-Performance Rust Monoline" />
+          </div>
+          <div class="card-content">
+            <h3>High-Performance Rust Monoline</h3>
+            <div class="philosophy">// Rust 기반 극한의 경량/고속, 날카로운 30° 챔퍼, 인더스트리얼 스틸</div>
+            <p class="breakdown">불필요한 장식을 완전히 배제한 정밀 30° 각면 모노라인. 네이티브 GPU 렌더링 수준의 칼같은 시인성과 날렵함.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Rust Precision</span><span class="tag">#30° Chamfer</span><span class="tag">#Steel Monoline</span>
+          </div>
+        </div>
+
+        <div class="deepdive-card" style="--card-accent: #00f2fe" onclick="openInspector('agent-v2-12-mixdog-supreme-nexus.svg', 'Multi-Model Nexus Core', 'Mixdog Supreme (Synthesis)')">
+          <div class="card-top">
+            <span class="agent-pill">Mixdog Supreme (Synthesis)</span>
+            <span style="font-size: 11px; color: #00f2fe; font-weight: 700;">PRO TIER</span>
+          </div>
+          <div class="card-img-wrap">
+            <img src="./agent-v2-12-mixdog-supreme-nexus.svg" alt="Multi-Model Nexus Core" />
+          </div>
+          <div class="card-content">
+            <h3>Multi-Model Nexus Core</h3>
+            <div class="philosophy">// 모든 에이전트의 정수(3D 프리즘 + 유체 리본 + 터미널 프롬프트) 융합</div>
+            <p class="breakdown">사이언-인디고의 멀티 모델 윙과 중앙의 고굴절 다이아몬드 코어가 어우러진 믹스독의 궁극적 마스터피스 엠블럼.</p>
+          </div>
+          <div class="card-tags">
+            <span class="tag">#Multi-Model Nexus</span><span class="tag">#Diamond Refraction</span><span class="tag">#Masterpiece</span>
+          </div>
+        </div>
+
+    </div>
+
+    <div class="section-title">
+      <h2>📊 코딩 에이전트 시각 언어 & 믹스독 접목 매트릭스</h2>
+      <span class="desc">글로벌 에이전트들의 비주얼 토큰과 믹스독 구현 방식 비교</span>
+    </div>
+
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>로고</th>
+            <th>벤치마크 에이전트</th>
+            <th>핵심 디자인 DNA</th>
+            <th>믹스독 브랜드 접목 포인트</th>
+            <th>추천 적용 환경</th>
+          </tr>
+        </thead>
+        <tbody>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-1-cursor-hypercube.svg" /></td>
+              <td><strong>Cursor (Anysphere)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">아이소메트릭 큐브, 광학 굴절 프리즘, 3D 공간감, 티타늄 다크모드</td>
+              <td style="color: #cbd5e1;">Cursor 특유의 30°/60° 아이소메트릭 큐브를 하운드의 쫑긋한 귀로 변환. 중앙에 즉각적인 코드 실행을 상징하는 사이언/인디고 프리즘 셰브론 배치.</td>
+              <td><span class="tag">3D Prism</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-2-windsurf-flow-cascade.svg" /></td>
+              <td><strong>Windsurf (Codeium)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">Cascade 다중 에이전트 병렬 기류, 유체역학적 서핑 곡선, 고속 제트 스트림</td>
+              <td style="color: #cbd5e1;">Windsurf의 Cascade 병렬 실행 스트림에서 착안한 듀얼 에어로포일 곡선. M 실루엣을 따라 흐르며 중앙 셰브론 노즐로 합류.</td>
+              <td><span class="tag">Cascade Wave</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-3-claude-spark-brutalist.svg" /></td>
+              <td><strong>Claude Code (Anthropic)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">지능형 아스테리스크(*), 웜 테라코타 & 차콜, 모던 브루탈리즘</td>
+              <td style="color: #cbd5e1;">Anthropic의 시그니처 6방향 지능 스파크(*)와 단단한 브루탈리스트 M 기둥의 융합. 따뜻한 오렌지/테라코타 톤의 인간 중심 에이전트.</td>
+              <td><span class="tag">Asterisk *</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-4-devin-dag-matrix.svg" /></td>
+              <td><strong>Devin (Cognition)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">방향성 비순환 그래프(DAG) 실행 트리, 에메랄드 형광, 엔드투엔드 자율성</td>
+              <td style="color: #cbd5e1;">복잡한 소프트웨어 엔지니어링 문제를 분할 해결하는 DAG 태스크 노드 5개가 M자형으로 연결되어 스스로 문제를 해결하는 지능형 그래프 형성.</td>
+              <td><span class="tag">DAG Task Tree</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-5-copilot-cyber-visor.svg" /></td>
+              <td><strong>GitHub Copilot (Workspace)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">페어 프로그래밍, 헬멧/바이저 HUD, 일렉트릭 마젠타-퍼플 네온</td>
+              <td style="color: #cbd5e1;">인간 개발자와 AI가 함께 코딩하는 페어 파일럿 감성. 듀얼 네온 안테나 귀와 중앙의 사이버네틱 레이저 바이저 슬릿 HUD.</td>
+              <td><span class="tag">Pair Pilot</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-6-operator-singularity-loop.svg" /></td>
+              <td><strong>OpenAI Operator / Codex</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">단일 폐곡선 럭셔리 곡률, 중앙 자율 코어, 플래티넘 미니멀리즘</td>
+              <td style="color: #cbd5e1;">코드 브래킷(&lt; &gt;)과 포물선(Parabola)이 하나로 이어지는 완벽한 폐곡선. 중심에 위치한 싱귤래리티 펄스 코어로 무한한 자율 실행 표현.</td>
+              <td><span class="tag">Singularity Ring</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-7-ghostty-zero-phosphor.svg" /></td>
+              <td><strong>Ghostty (Mitchellh)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">네이티브 C/Rust 가속, 인광체 그린 CRT 스캔라인, 해커 터미널 글리프</td>
+              <td style="color: #cbd5e1;">하드웨어 레벨의 극한 성능과 CRT 모니터의 그린 인광체 잔상을 재현한 래스터 픽셀 슬릿 하운드. 순수 터미널 CLI 감성 극대화.</td>
+              <td><span class="tag">CRT Phosphor</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-8-replit-flame-monolith.svg" /></td>
+              <td><strong>Replit Agent</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">타오르는 불꽃(Flame/Ember), 기하학 블록 결합, 하이 콘트라스트</td>
+              <td style="color: #cbd5e1;">모듈식 기하학 블록 3개가 맞물리며 하운드와 불꽃(Ember)을 동시에 형상화. 즉각적이고 역동적인 풀스택 프로토타이핑 에너지.</td>
+              <td><span class="tag">Flame Ember</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-9-bolt-thunder-apex.svg" /></td>
+              <td><strong>Bolt.new (StackBlitz)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">썬더볼트 번개, 초고속 웹컨테이너 런타임, 일렉트릭 옐로우 & 블루</td>
+              <td style="color: #cbd5e1;">M 심볼의 중심을 관통하는 고전압 썬더볼트 셰브론. 브라우저 내 즉시 풀스택 환경을 기동하는 초고속 스피드 표현.</td>
+              <td><span class="tag">Thunderbolt</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-10-aider-git-fork.svg" /></td>
+              <td><strong>Aider (CLI Pair)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">Git 브랜치 분기/병합(Fork & Merge), 터미널 diff 문법, CLI 협업</td>
+              <td style="color: #cbd5e1;">좌우의 피처 브랜치(Feature)와 메인 브랜치가 M 라인을 그리며 중앙 머지 커밋(Merge Node)으로 수렴하는 Git 토폴로지 구조.</td>
+              <td><span class="tag">Git Topology</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-11-zed-super-speed-chevron.svg" /></td>
+              <td><strong>Zed (Rust Speed)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">Rust 기반 극한의 경량/고속, 날카로운 30° 챔퍼, 인더스트리얼 스틸</td>
+              <td style="color: #cbd5e1;">불필요한 장식을 완전히 배제한 정밀 30° 각면 모노라인. 네이티브 GPU 렌더링 수준의 칼같은 시인성과 날렵함.</td>
+              <td><span class="tag">Rust Precision</span></td>
+            </tr>
+
+            <tr>
+              <td><img class="table-thumb" src="./agent-v2-12-mixdog-supreme-nexus.svg" /></td>
+              <td><strong>Mixdog Supreme (Synthesis)</strong></td>
+              <td style="color: var(--cyan); font-family: 'JetBrains Mono', monospace; font-size: 12px;">모든 에이전트의 정수(3D 프리즘 + 유체 리본 + 터미널 프롬프트) 융합</td>
+              <td style="color: #cbd5e1;">사이언-인디고의 멀티 모델 윙과 중앙의 고굴절 다이아몬드 코어가 어우러진 믹스독의 궁극적 마스터피스 엠블럼.</td>
+              <td><span class="tag">Multi-Model Nexus</span></td>
+            </tr>
+
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title">
+      <h2>🖥️ 실제 환경 실시간 시뮬레이터 (IDE Editor & macOS Dock)</h2>
+      <span class="desc">로고를 선택하여 실제 코딩 에디터 타이틀바, 탭(16px), 앱 독(64px)에서의 시인성을 테스트하세요.</span>
+    </div>
+
+    <div class="sim-card">
+      <div class="sim-header">
+        <strong style="font-size: 16px;">에셋 실시간 변경:</strong>
+        <div class="sim-selector" id="sim-controls">
+
+            <button class="sim-btn active" onclick="switchSimLogo('agent-v2-1-cursor-hypercube.svg', this)">Cursor</button>
+
+            <button class="sim-btn " onclick="switchSimLogo('agent-v2-2-windsurf-flow-cascade.svg', this)">Windsurf</button>
+
+            <button class="sim-btn " onclick="switchSimLogo('agent-v2-3-claude-spark-brutalist.svg', this)">Claude</button>
+
+            <button class="sim-btn " onclick="switchSimLogo('agent-v2-4-devin-dag-matrix.svg', this)">Devin</button>
+
+            <button class="sim-btn " onclick="switchSimLogo('agent-v2-5-copilot-cyber-visor.svg', this)">GitHub</button>
+
+            <button class="sim-btn " onclick="switchSimLogo('agent-v2-6-operator-singularity-loop.svg', this)">OpenAI</button>
+
+          <button class="sim-btn" onclick="switchSimLogo('agent-v2-12-mixdog-supreme-nexus.svg', this)">Supreme</button>
         </div>
       </div>
 
-      <!-- Concept 2: Cursor Style -->
-      <div class="concept-card">
-        <div class="concept-header">
-          <span class="concept-tag rec">02 • Cursor Benchmark</span>
+      <div class="ide-window">
+        <div class="ide-titlebar">
+          <div class="ide-dots">
+            <div class="ide-dot dot-r"></div>
+            <div class="ide-dot dot-y"></div>
+            <div class="ide-dot dot-g"></div>
+          </div>
+          <div class="ide-tab">
+            <img id="ide-tab-icon" src="./agent-v2-1-cursor-hypercube.svg" />
+            <span>mixdog-agent.ts</span>
+          </div>
         </div>
-        <div class="preview-container">
-          <img src="./agent-ref-2-cursor-cube.svg" alt="Cursor Prism" />
-        </div>
-        <div class="info">
-          <h3>Isometric Prism</h3>
-          <div class="bench">Cursor Style • 3D Geometric Facets</div>
-          <p><strong>Cursor의 3D Isometric 큐브 감성</strong>. 상단 귀를 형성하는 2개의 삼각 프리즘과 코드를 즉각 실행하는 전면 화살표 셰브론 각면의 완벽한 결합.</p>
-        </div>
-      </div>
-
-      <!-- Concept 3: Codex Style -->
-      <div class="concept-card">
-        <div class="concept-header">
-          <span class="concept-tag">03 • Codex Benchmark</span>
-        </div>
-        <div class="preview-container">
-          <img src="./agent-ref-3-codex-vortex.svg" alt="Codex Vortex" />
-        </div>
-        <div class="info">
-          <h3>Radial Code Vortex</h3>
-          <div class="bench">OpenAI Codex • Symmetrical Topology</div>
-          <p><strong>OpenAI Codex의 회전 대칭 토폴로지</strong>. 6개의 정밀 코드 블레이드가 맞물리며 중앙에 M 모노그램과 터미널 프롬프트를 형성하는 에이전트 마크.</p>
+        <div class="ide-body">
+          <div><span class="code-kw">import</span> { <span class="code-hl">MixdogOrchestrator</span> } <span class="code-kw">from</span> <span class="code-str">'@mixdog/runtime'</span>;</div>
+          <div><span class="code-kw">const</span> <span class="code-fn">agent</span> = <span class="code-kw">new</span> <span class="code-hl">MixdogOrchestrator</span>({</div>
+          <div>&nbsp;&nbsp;models: [<span class="code-str">'claude-3-7-sonnet'</span>, <span class="code-str">'gpt-4.5'</span>, <span class="code-str">'o3-mini'</span>],</div>
+          <div>&nbsp;&nbsp;mode: <span class="code-str">'autonomous-pair-programmer'</span>,</div>
+          <div>&nbsp;&nbsp;vision: <span class="code-str">'high-velocity-code-generation'</span></div>
+          <div>});</div>
+          <div><span class="code-kw">await</span> agent.<span class="code-fn">executeTask</span>(<span class="code-str">'Build next-gen autonomous architecture'</span>);</div>
         </div>
       </div>
 
-      <!-- Concept 4: Modern Dual-Slash (Copilot/Linear) -->
-      <div class="concept-card">
-        <div class="concept-header">
-          <span class="concept-tag rec">04 • Modern Hybrid</span>
-        </div>
-        <div class="preview-container">
-          <img src="./agent-ref-4-dual-slash.svg" alt="Dual Slash" />
-        </div>
-        <div class="info">
-          <h3>Dual-Slash M</h3>
-          <div class="bench">Linear / Copilot • 45° Chamfer Precision</div>
-          <p><strong>개발자 코드 문법</strong>. 코드 주석 슬래시(//)와 터미널 실행 셰브론(&gt;)이 만나 강아지의 쫑긋한 귀를 완성하는 극도로 절제된 모던 미니멀리즘.</p>
+      <div class="dock-container">
+        <div class="dock">
+          <img class="dock-icon" id="dock-main-icon" src="./agent-v2-1-cursor-hypercube.svg" title="Mixdog" />
+          <img class="dock-icon" src="./agent-v2-2-windsurf-flow-cascade.svg" title="Windsurf Variant" />
+          <img class="dock-icon" src="./agent-v2-3-claude-spark-brutalist.svg" title="Claude Variant" />
+          <img class="dock-icon" src="./agent-v2-4-devin-dag-matrix.svg" title="Devin Variant" />
+          <img class="dock-icon" src="./agent-v2-12-mixdog-supreme-nexus.svg" title="Mixdog Supreme" />
         </div>
       </div>
     </div>
 
-    <!-- Wordmark & Horizontal Lockup Preview -->
-    <div>
-      <div class="section-title">
-        Horizontal Brand Lockups <span>웹사이트 헤더, 깃허브 README, 에디터 상단용 텍스트 조합</span>
-      </div>
-      <div class="lockup-grid">
-        <div class="lockup-card">
-          <img class="lockup-icon" src="./agent-ref-2-cursor-cube.svg" />
-          <div class="lockup-text">
-            <div class="brand-name">mixdog<span class="accent-dot">.</span></div>
-            <div class="brand-sub">AI Coding Agent</div>
-          </div>
-        </div>
-        <div class="lockup-card">
-          <img class="lockup-icon" src="./agent-ref-4-dual-slash.svg" />
-          <div class="lockup-text">
-            <div class="brand-name">MIXDOG</div>
-            <div class="brand-sub">Multi-Model Orchestrator</div>
-          </div>
-        </div>
-        <div class="lockup-card">
-          <img class="lockup-icon" src="./agent-ref-1-orca-streamline.svg" />
-          <div class="lockup-text">
-            <div class="brand-name">mixdog</div>
-            <div class="brand-sub">Autonomous Workspace</div>
-          </div>
-        </div>
-        <div class="lockup-card">
-          <img class="lockup-icon" src="./agent-ref-3-codex-vortex.svg" />
-          <div class="lockup-text">
-            <div class="brand-name">&lt;mixdog/&gt;</div>
-            <div class="brand-sub">Runtime Core</div>
-          </div>
-        </div>
+    <div class="section-title">
+      <h2>📦 전체 로고 베리에이션 카탈로그</h2>
+      <span class="desc">실시간 필터 및 검색 지원</span>
+    </div>
+
+    <div class="filter-bar">
+      <input type="text" class="search-input" id="search-input" placeholder="🔍 로고 이름, 태그 또는 카테고리 검색..." oninput="filterCatalog()" />
+      <div class="filter-chips">
+        <button class="chip active" onclick="setFilter('all', this)">전체 (300)</button>
+        <button class="chip" onclick="setFilter('aperture360', this)" style="border-color: rgba(56, 189, 248, 0.5); color: var(--cyan); font-weight: 700;">🌈 360° Loop (18)</button>
+        <button class="chip" onclick="setFilter('aperture', this)">🌀 Aperture Triad (13)</button>
+        <button class="chip" onclick="setFilter('deepdive', this)">2026 에이전트 (12)</button>
+        <button class="chip" onclick="setFilter('benchmarks', this)">벤치마크</button>
+        <button class="chip" onclick="setFilter('sleek', this)">Sleek 2026</button>
+        <button class="chip" onclick="setFilter('metal', this)">Hardware Metal</button>
+        <button class="chip" onclick="setFilter('cyber', this)">Cyber & Future</button>
+        <button class="chip" onclick="setFilter('canine', this)">Hound / Dog</button>
+        <button class="chip" onclick="setFilter('cli', this)">Terminal / CLI</button>
       </div>
     </div>
 
-    <!-- Monochrome 1-Color Pure Glyphs -->
-    <div>
-      <div class="section-title">
-        Monochrome 1-Color Glyphs <span>에디터 타이틀바, TUI, 단색 워터마크, 깃허브 README용 단색 마크</span>
-      </div>
-      <div class="mono-grid">
-        <!-- 1. Orca mono -->
-        <div class="mono-box">
-          <svg viewBox="0 0 256 256" fill="#ffffff">
-            <path d="M 64 176 C 64 116 78 72 104 72 C 120 72 126 92 130 110 C 134 92 140 72 156 72 C 182 72 196 116 196 176 C 174 176 168 132 154 110 C 144 95 137 130 130 148 C 123 130 116 95 106 110 C 92 132 86 176 64 176 Z"/>
-            <path d="M 108 148 L 130 174 L 152 148" fill="none" stroke="#000000" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span>01. Streamline (Orca)</span>
+    <div class="catalog-grid" id="catalog-container">
+
+        <div class="catalog-card" data-cat="classic" data-title="m round current" onclick="openInspector('01-m-round-current.svg', 'M Round Current', 'Geometric Monogram')">
+          <img src="./01-m-round-current.svg" loading="lazy" alt="M Round Current" />
+          <div class="catalog-title">M Round Current</div>
+          <div class="catalog-tag">Geometric Monogram</div>
         </div>
 
-        <!-- 2. Cursor mono -->
-        <div class="mono-box">
-          <svg viewBox="0 0 256 256" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="64,174 64,104 89,74 89,144" fill="#334155" stroke="none" />
-            <polygon points="89,74 122,104 89,118" fill="#ffffff" stroke="none" />
-            <polygon points="192,174 192,104 167,74 167,144" fill="#334155" stroke="none" />
-            <polygon points="167,74 134,104 167,118" fill="#ffffff" stroke="none" />
-            <polygon points="95,146 128,132 161,146 128,182" fill="#ffffff" stroke="none" />
-          </svg>
-          <span>02. Isometric (Cursor)</span>
+        <div class="catalog-card" data-cat="cli" data-title="m sharp vscode" onclick="openInspector('02-m-sharp-vscode.svg', 'M Sharp Vscode', 'Terminal & Code Syntax')">
+          <img src="./02-m-sharp-vscode.svg" loading="lazy" alt="M Sharp Vscode" />
+          <div class="catalog-title">M Sharp Vscode</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
         </div>
 
-        <!-- 3. Codex mono -->
-        <div class="mono-box">
-          <svg viewBox="0 0 256 256" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M 70 172 L 70 108 L 102 76 L 128 102 L 102 128 L 90 128 L 90 172 Z" fill="#ffffff" stroke="none"/>
-            <path d="M 186 172 L 186 108 L 154 76 L 128 102 L 154 128 L 166 128 L 166 172 Z" fill="#ffffff" stroke="none"/>
-            <path d="M 98 140 L 128 170 L 158 140" stroke="#ffffff" stroke-width="16"/>
-          </svg>
-          <span>03. Vortex (Codex)</span>
+        <div class="catalog-card" data-cat="ribbon" data-title="m ribbon fold" onclick="openInspector('03-m-ribbon-fold.svg', 'M Ribbon Fold', 'Ribbon & Continuous Fold')">
+          <img src="./03-m-ribbon-fold.svg" loading="lazy" alt="M Ribbon Fold" />
+          <div class="catalog-title">M Ribbon Fold</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
         </div>
 
-        <!-- 4. Dual Slash mono -->
-        <div class="mono-box">
-          <svg viewBox="0 0 256 256" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M 74 174 L 74 106 L 108 72 L 128 92" stroke-width="20"/>
-            <path d="M 182 174 L 182 106 L 148 72 L 128 92" stroke-width="20"/>
-            <path d="M 97 140 L 128 171 L 159 140" stroke-width="18"/>
-            <circle cx="128" cy="121" r="5" fill="#ffffff" stroke="none"/>
-          </svg>
-          <span>04. Dual-Slash (Hybrid)</span>
+        <div class="catalog-card" data-cat="classic" data-title="m wave orca" onclick="openInspector('04-m-wave-orca.svg', 'M Wave Orca', 'Geometric Monogram')">
+          <img src="./04-m-wave-orca.svg" loading="lazy" alt="M Wave Orca" />
+          <div class="catalog-title">M Wave Orca</div>
+          <div class="catalog-tag">Geometric Monogram</div>
         </div>
-      </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="m inverted" onclick="openInspector('05-m-inverted.svg', 'M Inverted', 'Geometric Monogram')">
+          <img src="./05-m-inverted.svg" loading="lazy" alt="M Inverted" />
+          <div class="catalog-title">M Inverted</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="m dot accent" onclick="openInspector('06-m-dot-accent.svg', 'M Dot Accent', 'Geometric Monogram')">
+          <img src="./06-m-dot-accent.svg" loading="lazy" alt="M Dot Accent" />
+          <div class="catalog-title">M Dot Accent</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="bone slash" onclick="openInspector('100-bone-slash.svg', 'Bone Slash', 'Canine & Hound Motif')">
+          <img src="./100-bone-slash.svg" loading="lazy" alt="Bone Slash" />
+          <div class="catalog-title">Bone Slash</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="chat hound" onclick="openInspector('101-chat-hound.svg', 'Chat Hound', 'Canine & Hound Motif')">
+          <img src="./101-chat-hound.svg" loading="lazy" alt="Chat Hound" />
+          <div class="catalog-title">Chat Hound</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="tag collar" onclick="openInspector('102-tag-collar.svg', 'Tag Collar', 'Canine & Hound Motif')">
+          <img src="./102-tag-collar.svg" loading="lazy" alt="Tag Collar" />
+          <div class="catalog-title">Tag Collar</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="blob negative m" onclick="openInspector('103-blob-negative-m.svg', 'Blob Negative M', 'Geometric Monogram')">
+          <img src="./103-blob-negative-m.svg" loading="lazy" alt="Blob Negative M" />
+          <div class="catalog-title">Blob Negative M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="chrome ears" onclick="openInspector('104-chrome-ears.svg', 'Chrome Ears', 'Canine & Hound Motif')">
+          <img src="./104-chrome-ears.svg" loading="lazy" alt="Chrome Ears" />
+          <div class="catalog-title">Chrome Ears</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="brutalist cut" onclick="openInspector('105-brutalist-cut.svg', 'Brutalist Cut', 'Geometric Monogram')">
+          <img src="./105-brutalist-cut.svg" loading="lazy" alt="Brutalist Cut" />
+          <div class="catalog-title">Brutalist Cut</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="split invert" onclick="openInspector('106-split-invert.svg', 'Split Invert', 'Geometric Monogram')">
+          <img src="./106-split-invert.svg" loading="lazy" alt="Split Invert" />
+          <div class="catalog-title">Split Invert</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="dog ears m" onclick="openInspector('11-dog-ears-m.svg', 'Dog Ears M', 'Canine & Hound Motif')">
+          <img src="./11-dog-ears-m.svg" loading="lazy" alt="Dog Ears M" />
+          <div class="catalog-title">Dog Ears M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="ear mark" onclick="openInspector('111-ear-mark.svg', 'Ear Mark', 'Canine & Hound Motif')">
+          <img src="./111-ear-mark.svg" loading="lazy" alt="Ear Mark" />
+          <div class="catalog-title">Ear Mark</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="ear mark light" onclick="openInspector('112-ear-mark-light.svg', 'Ear Mark Light', 'Canine & Hound Motif')">
+          <img src="./112-ear-mark-light.svg" loading="lazy" alt="Ear Mark Light" />
+          <div class="catalog-title">Ear Mark Light</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="m ears flat" onclick="openInspector('113-m-ears-flat.svg', 'M Ears Flat', 'Canine & Hound Motif')">
+          <img src="./113-m-ears-flat.svg" loading="lazy" alt="M Ears Flat" />
+          <div class="catalog-title">M Ears Flat</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="monoline hound" onclick="openInspector('114-monoline-hound.svg', 'Monoline Hound', 'Canine & Hound Motif')">
+          <img src="./114-monoline-hound.svg" loading="lazy" alt="Monoline Hound" />
+          <div class="catalog-title">Monoline Hound</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="paw minimal" onclick="openInspector('115-paw-minimal.svg', 'Paw Minimal', 'Canine & Hound Motif')">
+          <img src="./115-paw-minimal.svg" loading="lazy" alt="Paw Minimal" />
+          <div class="catalog-title">Paw Minimal</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="bone minimal" onclick="openInspector('116-bone-minimal.svg', 'Bone Minimal', 'Canine & Hound Motif')">
+          <img src="./116-bone-minimal.svg" loading="lazy" alt="Bone Minimal" />
+          <div class="catalog-title">Bone Minimal</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="prompt chevron" onclick="openInspector('117-prompt-chevron.svg', 'Prompt Chevron', 'Terminal & Code Syntax')">
+          <img src="./117-prompt-chevron.svg" loading="lazy" alt="Prompt Chevron" />
+          <div class="catalog-title">Prompt Chevron</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="split ear" onclick="openInspector('118-split-ear.svg', 'Split Ear', 'Canine & Hound Motif')">
+          <img src="./118-split-ear.svg" loading="lazy" alt="Split Ear" />
+          <div class="catalog-title">Split Ear</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="badge m" onclick="openInspector('119-badge-m.svg', 'Badge M', 'Geometric Monogram')">
+          <img src="./119-badge-m.svg" loading="lazy" alt="Badge M" />
+          <div class="catalog-title">Badge M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="dog face m" onclick="openInspector('12-dog-face-m.svg', 'Dog Face M', 'Canine & Hound Motif')">
+          <img src="./12-dog-face-m.svg" loading="lazy" alt="Dog Face M" />
+          <div class="catalog-title">Dog Face M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="bracket face" onclick="openInspector('120-bracket-face.svg', 'Bracket Face', 'Terminal & Code Syntax')">
+          <img src="./120-bracket-face.svg" loading="lazy" alt="Bracket Face" />
+          <div class="catalog-title">Bracket Face</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="wordmark clean" onclick="openInspector('121-wordmark-clean.svg', 'Wordmark Clean', 'Wordmark & Lockup')">
+          <img src="./121-wordmark-clean.svg" loading="lazy" alt="Wordmark Clean" />
+          <div class="catalog-title">Wordmark Clean</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="lockup clean" onclick="openInspector('122-lockup-clean.svg', 'Lockup Clean', 'Wordmark & Lockup')">
+          <img src="./122-lockup-clean.svg" loading="lazy" alt="Lockup Clean" />
+          <div class="catalog-title">Lockup Clean</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="m tail flick" onclick="openInspector('13-m-tail-flick.svg', 'M Tail Flick', 'Canine & Hound Motif')">
+          <img src="./13-m-tail-flick.svg" loading="lazy" alt="M Tail Flick" />
+          <div class="catalog-title">M Tail Flick</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="aperture triad" onclick="openInspector('131-aperture-triad.svg', 'Aperture Triad', 'Aperture Triad')">
+          <img src="./131-aperture-triad.svg" loading="lazy" alt="Aperture Triad" />
+          <div class="catalog-title">Aperture Triad</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="notch square" onclick="openInspector('132-notch-square.svg', 'Notch Square', 'Geometric Monogram')">
+          <img src="./132-notch-square.svg" loading="lazy" alt="Notch Square" />
+          <div class="catalog-title">Notch Square</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="corner fold" onclick="openInspector('133-corner-fold.svg', 'Corner Fold', 'Ribbon & Continuous Fold')">
+          <img src="./133-corner-fold.svg" loading="lazy" alt="Corner Fold" />
+          <div class="catalog-title">Corner Fold</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="aurora ear" onclick="openInspector('134-aurora-ear.svg', 'Aurora Ear', 'Canine & Hound Motif')">
+          <img src="./134-aurora-ear.svg" loading="lazy" alt="Aurora Ear" />
+          <div class="catalog-title">Aurora Ear</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="visual" data-title="gradient m" onclick="openInspector('135-gradient-m.svg', 'Gradient M', 'Glass & Optical Glow')">
+          <img src="./135-gradient-m.svg" loading="lazy" alt="Gradient M" />
+          <div class="catalog-title">Gradient M</div>
+          <div class="catalog-tag">Glass & Optical Glow</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="glass ears" onclick="openInspector('136-glass-ears.svg', 'Glass Ears', 'Canine & Hound Motif')">
+          <img src="./136-glass-ears.svg" loading="lazy" alt="Glass Ears" />
+          <div class="catalog-title">Glass Ears</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="layer stack" onclick="openInspector('137-layer-stack.svg', 'Layer Stack', 'Geometric Monogram')">
+          <img src="./137-layer-stack.svg" loading="lazy" alt="Layer Stack" />
+          <div class="catalog-title">Layer Stack</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="arc sweep" onclick="openInspector('138-arc-sweep.svg', 'Arc Sweep', 'Geometric Monogram')">
+          <img src="./138-arc-sweep.svg" loading="lazy" alt="Arc Sweep" />
+          <div class="catalog-title">Arc Sweep</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="split ring" onclick="openInspector('139-split-ring.svg', 'Split Ring', 'Geometric Monogram')">
+          <img src="./139-split-ring.svg" loading="lazy" alt="Split Ring" />
+          <div class="catalog-title">Split Ring</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="mix overlap" onclick="openInspector('14-mix-overlap.svg', 'Mix Overlap', 'Geometric Monogram')">
+          <img src="./14-mix-overlap.svg" loading="lazy" alt="Mix Overlap" />
+          <div class="catalog-title">Mix Overlap</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="signal ears" onclick="openInspector('140-signal-ears.svg', 'Signal Ears', 'Canine & Hound Motif')">
+          <img src="./140-signal-ears.svg" loading="lazy" alt="Signal Ears" />
+          <div class="catalog-title">Signal Ears</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="wordmark modern" onclick="openInspector('141-wordmark-modern.svg', 'Wordmark Modern', 'Wordmark & Lockup')">
+          <img src="./141-wordmark-modern.svg" loading="lazy" alt="Wordmark Modern" />
+          <div class="catalog-title">Wordmark Modern</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="lockup stacked" onclick="openInspector('142-lockup-stacked.svg', 'Lockup Stacked', 'Wordmark & Lockup')">
+          <img src="./142-lockup-stacked.svg" loading="lazy" alt="Lockup Stacked" />
+          <div class="catalog-title">Lockup Stacked</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="dog ears accent" onclick="openInspector('15-dog-ears-accent.svg', 'Dog Ears Accent', 'Canine & Hound Motif')">
+          <img src="./15-dog-ears-accent.svg" loading="lazy" alt="Dog Ears Accent" />
+          <div class="catalog-title">Dog Ears Accent</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="oneline m" onclick="openInspector('151-oneline-m.svg', 'Oneline M', 'Geometric Monogram')">
+          <img src="./151-oneline-m.svg" loading="lazy" alt="Oneline M" />
+          <div class="catalog-title">Oneline M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="split m" onclick="openInspector('152-split-m.svg', 'Split M', 'Geometric Monogram')">
+          <img src="./152-split-m.svg" loading="lazy" alt="Split M" />
+          <div class="catalog-title">Split M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="negative m" onclick="openInspector('153-negative-m.svg', 'Negative M', 'Geometric Monogram')">
+          <img src="./153-negative-m.svg" loading="lazy" alt="Negative M" />
+          <div class="catalog-title">Negative M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="arch m" onclick="openInspector('154-arch-m.svg', 'Arch M', 'Geometric Monogram')">
+          <img src="./154-arch-m.svg" loading="lazy" alt="Arch M" />
+          <div class="catalog-title">Arch M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="mirror mw" onclick="openInspector('155-mirror-mw.svg', 'Mirror Mw', 'Geometric Monogram')">
+          <img src="./155-mirror-mw.svg" loading="lazy" alt="Mirror Mw" />
+          <div class="catalog-title">Mirror Mw</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="chevron m" onclick="openInspector('156-chevron-m.svg', 'Chevron M', 'Geometric Monogram')">
+          <img src="./156-chevron-m.svg" loading="lazy" alt="Chevron M" />
+          <div class="catalog-title">Chevron M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="stencil m" onclick="openInspector('157-stencil-m.svg', 'Stencil M', 'Geometric Monogram')">
+          <img src="./157-stencil-m.svg" loading="lazy" alt="Stencil M" />
+          <div class="catalog-title">Stencil M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="extruded m" onclick="openInspector('158-extruded-m.svg', 'Extruded M', 'Geometric Monogram')">
+          <img src="./158-extruded-m.svg" loading="lazy" alt="Extruded M" />
+          <div class="catalog-title">Extruded M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="dot matrix m" onclick="openInspector('159-dot-matrix-m.svg', 'Dot Matrix M', 'Geometric Monogram')">
+          <img src="./159-dot-matrix-m.svg" loading="lazy" alt="Dot Matrix M" />
+          <div class="catalog-title">Dot Matrix M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="hound cloud" onclick="openInspector('16-hound-cloud.svg', 'Hound Cloud', 'Canine & Hound Motif')">
+          <img src="./16-hound-cloud.svg" loading="lazy" alt="Hound Cloud" />
+          <div class="catalog-title">Hound Cloud</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="bar m" onclick="openInspector('160-bar-m.svg', 'Bar M', 'Geometric Monogram')">
+          <img src="./160-bar-m.svg" loading="lazy" alt="Bar M" />
+          <div class="catalog-title">Bar M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="coin m" onclick="openInspector('161-coin-m.svg', 'Coin M', 'Geometric Monogram')">
+          <img src="./161-coin-m.svg" loading="lazy" alt="Coin M" />
+          <div class="catalog-title">Coin M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="fold m" onclick="openInspector('162-fold-m.svg', 'Fold M', 'Ribbon & Continuous Fold')">
+          <img src="./162-fold-m.svg" loading="lazy" alt="Fold M" />
+          <div class="catalog-title">Fold M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="bauhaus primitive" onclick="openInspector('171-bauhaus-primitive.svg', 'Bauhaus Primitive', 'Geometric Monogram')">
+          <img src="./171-bauhaus-primitive.svg" loading="lazy" alt="Bauhaus Primitive" />
+          <div class="catalog-title">Bauhaus Primitive</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="swiss grid" onclick="openInspector('172-swiss-grid.svg', 'Swiss Grid', 'Geometric Monogram')">
+          <img src="./172-swiss-grid.svg" loading="lazy" alt="Swiss Grid" />
+          <div class="catalog-title">Swiss Grid</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="kamon crest" onclick="openInspector('173-kamon-crest.svg', 'Kamon Crest', 'Geometric Monogram')">
+          <img src="./173-kamon-crest.svg" loading="lazy" alt="Kamon Crest" />
+          <div class="catalog-title">Kamon Crest</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="emblem seal" onclick="openInspector('174-emblem-seal.svg', 'Emblem Seal', 'Geometric Monogram')">
+          <img src="./174-emblem-seal.svg" loading="lazy" alt="Emblem Seal" />
+          <div class="catalog-title">Emblem Seal</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="visual" data-title="neon tube" onclick="openInspector('175-neon-tube.svg', 'Neon Tube', 'Glass & Optical Glow')">
+          <img src="./175-neon-tube.svg" loading="lazy" alt="Neon Tube" />
+          <div class="catalog-title">Neon Tube</div>
+          <div class="catalog-tag">Glass & Optical Glow</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="synthwave" onclick="openInspector('176-synthwave.svg', 'Synthwave', 'Geometric Monogram')">
+          <img src="./176-synthwave.svg" loading="lazy" alt="Synthwave" />
+          <div class="catalog-title">Synthwave</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="ink brush m" onclick="openInspector('177-ink-brush-m.svg', 'Ink Brush M', 'Geometric Monogram')">
+          <img src="./177-ink-brush-m.svg" loading="lazy" alt="Ink Brush M" />
+          <div class="catalog-title">Ink Brush M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="origami dog" onclick="openInspector('178-origami-dog.svg', 'Origami Dog', 'Canine & Hound Motif')">
+          <img src="./178-origami-dog.svg" loading="lazy" alt="Origami Dog" />
+          <div class="catalog-title">Origami Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="circuit node" onclick="openInspector('179-circuit-node.svg', 'Circuit Node', 'Terminal & Code Syntax')">
+          <img src="./179-circuit-node.svg" loading="lazy" alt="Circuit Node" />
+          <div class="catalog-title">Circuit Node</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="knot m" onclick="openInspector('180-knot-m.svg', 'Knot M', 'Ribbon & Continuous Fold')">
+          <img src="./180-knot-m.svg" loading="lazy" alt="Knot M" />
+          <div class="catalog-title">Knot M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="halftone orb" onclick="openInspector('181-halftone-orb.svg', 'Halftone Orb', 'Geometric Monogram')">
+          <img src="./181-halftone-orb.svg" loading="lazy" alt="Halftone Orb" />
+          <div class="catalog-title">Halftone Orb</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="ascii terminal" onclick="openInspector('182-ascii-terminal.svg', 'Ascii Terminal', 'Terminal & Code Syntax')">
+          <img src="./182-ascii-terminal.svg" loading="lazy" alt="Ascii Terminal" />
+          <div class="catalog-title">Ascii Terminal</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="mixer faders" onclick="openInspector('191-mixer-faders.svg', 'Mixer Faders', 'Geometric Monogram')">
+          <img src="./191-mixer-faders.svg" loading="lazy" alt="Mixer Faders" />
+          <div class="catalog-title">Mixer Faders</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="waveform m" onclick="openInspector('192-waveform-m.svg', 'Waveform M', 'Geometric Monogram')">
+          <img src="./192-waveform-m.svg" loading="lazy" alt="Waveform M" />
+          <div class="catalog-title">Waveform M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="metaball merge" onclick="openInspector('193-metaball-merge.svg', 'Metaball Merge', 'Geometric Monogram')">
+          <img src="./193-metaball-merge.svg" loading="lazy" alt="Metaball Merge" />
+          <div class="catalog-title">Metaball Merge</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="venn blend" onclick="openInspector('194-venn-blend.svg', 'Venn Blend', 'Geometric Monogram')">
+          <img src="./194-venn-blend.svg" loading="lazy" alt="Venn Blend" />
+          <div class="catalog-title">Venn Blend</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="braid strands" onclick="openInspector('195-braid-strands.svg', 'Braid Strands', 'Geometric Monogram')">
+          <img src="./195-braid-strands.svg" loading="lazy" alt="Braid Strands" />
+          <div class="catalog-title">Braid Strands</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="particle m" onclick="openInspector('196-particle-m.svg', 'Particle M', 'Geometric Monogram')">
+          <img src="./196-particle-m.svg" loading="lazy" alt="Particle M" />
+          <div class="catalog-title">Particle M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="tangram dog" onclick="openInspector('197-tangram-dog.svg', 'Tangram Dog', 'Canine & Hound Motif')">
+          <img src="./197-tangram-dog.svg" loading="lazy" alt="Tangram Dog" />
+          <div class="catalog-title">Tangram Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="blueprint m" onclick="openInspector('198-blueprint-m.svg', 'Blueprint M', 'Geometric Monogram')">
+          <img src="./198-blueprint-m.svg" loading="lazy" alt="Blueprint M" />
+          <div class="catalog-title">Blueprint M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="clay 3d" onclick="openInspector('199-clay-3d.svg', 'Clay 3d', 'Geometric Monogram')">
+          <img src="./199-clay-3d.svg" loading="lazy" alt="Clay 3d" />
+          <div class="catalog-title">Clay 3d</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="kaomoji face" onclick="openInspector('200-kaomoji-face.svg', 'Kaomoji Face', 'Geometric Monogram')">
+          <img src="./200-kaomoji-face.svg" loading="lazy" alt="Kaomoji Face" />
+          <div class="catalog-title">Kaomoji Face</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="module code" onclick="openInspector('201-module-code.svg', 'Module Code', 'Terminal & Code Syntax')">
+          <img src="./201-module-code.svg" loading="lazy" alt="Module Code" />
+          <div class="catalog-title">Module Code</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="script ligature" onclick="openInspector('202-script-ligature.svg', 'Script Ligature', 'Wordmark & Lockup')">
+          <img src="./202-script-ligature.svg" loading="lazy" alt="Script Ligature" />
+          <div class="catalog-title">Script Ligature</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="pixel dog" onclick="openInspector('21-pixel-dog.svg', 'Pixel Dog', 'Canine & Hound Motif')">
+          <img src="./21-pixel-dog.svg" loading="lazy" alt="Pixel Dog" />
+          <div class="catalog-title">Pixel Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="geometric m" onclick="openInspector('211-geometric-m.svg', 'Geometric M', 'Geometric Monogram')">
+          <img src="./211-geometric-m.svg" loading="lazy" alt="Geometric M" />
+          <div class="catalog-title">Geometric M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="condensed m" onclick="openInspector('212-condensed-m.svg', 'Condensed M', 'Geometric Monogram')">
+          <img src="./212-condensed-m.svg" loading="lazy" alt="Condensed M" />
+          <div class="catalog-title">Condensed M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="extended m" onclick="openInspector('213-extended-m.svg', 'Extended M', 'Geometric Monogram')">
+          <img src="./213-extended-m.svg" loading="lazy" alt="Extended M" />
+          <div class="catalog-title">Extended M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="apex m" onclick="openInspector('214-apex-m.svg', 'Apex M', 'Geometric Monogram')">
+          <img src="./214-apex-m.svg" loading="lazy" alt="Apex M" />
+          <div class="catalog-title">Apex M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="splayed m" onclick="openInspector('215-splayed-m.svg', 'Splayed M', 'Geometric Monogram')">
+          <img src="./215-splayed-m.svg" loading="lazy" alt="Splayed M" />
+          <div class="catalog-title">Splayed M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="soft monoline m" onclick="openInspector('216-soft-monoline-m.svg', 'Soft Monoline M', 'Geometric Monogram')">
+          <img src="./216-soft-monoline-m.svg" loading="lazy" alt="Soft Monoline M" />
+          <div class="catalog-title">Soft Monoline M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="hairline m" onclick="openInspector('217-hairline-m.svg', 'Hairline M', 'Geometric Monogram')">
+          <img src="./217-hairline-m.svg" loading="lazy" alt="Hairline M" />
+          <div class="catalog-title">Hairline M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="contrast m" onclick="openInspector('218-contrast-m.svg', 'Contrast M', 'Geometric Monogram')">
+          <img src="./218-contrast-m.svg" loading="lazy" alt="Contrast M" />
+          <div class="catalog-title">Contrast M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="chamfer m" onclick="openInspector('219-chamfer-m.svg', 'Chamfer M', 'Geometric Monogram')">
+          <img src="./219-chamfer-m.svg" loading="lazy" alt="Chamfer M" />
+          <div class="catalog-title">Chamfer M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="one line dog" onclick="openInspector('22-one-line-dog.svg', 'One Line Dog', 'Canine & Hound Motif')">
+          <img src="./22-one-line-dog.svg" loading="lazy" alt="One Line Dog" />
+          <div class="catalog-title">One Line Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="heavy m" onclick="openInspector('220-heavy-m.svg', 'Heavy M', 'Geometric Monogram')">
+          <img src="./220-heavy-m.svg" loading="lazy" alt="Heavy M" />
+          <div class="catalog-title">Heavy M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="italic m" onclick="openInspector('221-italic-m.svg', 'Italic M', 'Geometric Monogram')">
+          <img src="./221-italic-m.svg" loading="lazy" alt="Italic M" />
+          <div class="catalog-title">Italic M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="stencil gap m" onclick="openInspector('222-stencil-gap-m.svg', 'Stencil Gap M', 'Geometric Monogram')">
+          <img src="./222-stencil-gap-m.svg" loading="lazy" alt="Stencil Gap M" />
+          <div class="catalog-title">Stencil Gap M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="layered m" onclick="openInspector('223-layered-m.svg', 'Layered M', 'Geometric Monogram')">
+          <img src="./223-layered-m.svg" loading="lazy" alt="Layered M" />
+          <div class="catalog-title">Layered M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="duo outline m" onclick="openInspector('224-duo-outline-m.svg', 'Duo Outline M', 'Geometric Monogram')">
+          <img src="./224-duo-outline-m.svg" loading="lazy" alt="Duo Outline M" />
+          <div class="catalog-title">Duo Outline M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="visual" data-title="gradient edge m" onclick="openInspector('225-gradient-edge-m.svg', 'Gradient Edge M', 'Glass & Optical Glow')">
+          <img src="./225-gradient-edge-m.svg" loading="lazy" alt="Gradient Edge M" />
+          <div class="catalog-title">Gradient Edge M</div>
+          <div class="catalog-tag">Glass & Optical Glow</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="inline m" onclick="openInspector('226-inline-m.svg', 'Inline M', 'Geometric Monogram')">
+          <img src="./226-inline-m.svg" loading="lazy" alt="Inline M" />
+          <div class="catalog-title">Inline M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="terminal dog" onclick="openInspector('23-terminal-dog.svg', 'Terminal Dog', 'Canine & Hound Motif')">
+          <img src="./23-terminal-dog.svg" loading="lazy" alt="Terminal Dog" />
+          <div class="catalog-title">Terminal Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="wedge serif m" onclick="openInspector('231-wedge-serif-m.svg', 'Wedge Serif M', 'Geometric Monogram')">
+          <img src="./231-wedge-serif-m.svg" loading="lazy" alt="Wedge Serif M" />
+          <div class="catalog-title">Wedge Serif M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="arc m" onclick="openInspector('232-arc-m.svg', 'Arc M', 'Geometric Monogram')">
+          <img src="./232-arc-m.svg" loading="lazy" alt="Arc M" />
+          <div class="catalog-title">Arc M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="modular m" onclick="openInspector('233-modular-m.svg', 'Modular M', 'Geometric Monogram')">
+          <img src="./233-modular-m.svg" loading="lazy" alt="Modular M" />
+          <div class="catalog-title">Modular M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="broken joint m" onclick="openInspector('234-broken-joint-m.svg', 'Broken Joint M', 'Geometric Monogram')">
+          <img src="./234-broken-joint-m.svg" loading="lazy" alt="Broken Joint M" />
+          <div class="catalog-title">Broken Joint M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="reverse contrast m" onclick="openInspector('235-reverse-contrast-m.svg', 'Reverse Contrast M', 'Geometric Monogram')">
+          <img src="./235-reverse-contrast-m.svg" loading="lazy" alt="Reverse Contrast M" />
+          <div class="catalog-title">Reverse Contrast M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="sideways m" onclick="openInspector('236-sideways-m.svg', 'Sideways M', 'Geometric Monogram')">
+          <img src="./236-sideways-m.svg" loading="lazy" alt="Sideways M" />
+          <div class="catalog-title">Sideways M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="ring m" onclick="openInspector('237-ring-m.svg', 'Ring M', 'Geometric Monogram')">
+          <img src="./237-ring-m.svg" loading="lazy" alt="Ring M" />
+          <div class="catalog-title">Ring M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="hex m" onclick="openInspector('238-hex-m.svg', 'Hex M', 'Geometric Monogram')">
+          <img src="./238-hex-m.svg" loading="lazy" alt="Hex M" />
+          <div class="catalog-title">Hex M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="tapered m" onclick="openInspector('239-tapered-m.svg', 'Tapered M', 'Geometric Monogram')">
+          <img src="./239-tapered-m.svg" loading="lazy" alt="Tapered M" />
+          <div class="catalog-title">Tapered M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="lowpoly dog" onclick="openInspector('24-lowpoly-dog.svg', 'Lowpoly Dog', 'Canine & Hound Motif')">
+          <img src="./24-lowpoly-dog.svg" loading="lazy" alt="Lowpoly Dog" />
+          <div class="catalog-title">Lowpoly Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="dot terminal m" onclick="openInspector('240-dot-terminal-m.svg', 'Dot Terminal M', 'Terminal & Code Syntax')">
+          <img src="./240-dot-terminal-m.svg" loading="lazy" alt="Dot Terminal M" />
+          <div class="catalog-title">Dot Terminal M</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="rounded stem m" onclick="openInspector('241-rounded-stem-m.svg', 'Rounded Stem M', 'Geometric Monogram')">
+          <img src="./241-rounded-stem-m.svg" loading="lazy" alt="Rounded Stem M" />
+          <div class="catalog-title">Rounded Stem M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="peak split m" onclick="openInspector('242-peak-split-m.svg', 'Peak Split M', 'Geometric Monogram')">
+          <img src="./242-peak-split-m.svg" loading="lazy" alt="Peak Split M" />
+          <div class="catalog-title">Peak Split M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="graded m" onclick="openInspector('243-graded-m.svg', 'Graded M', 'Geometric Monogram')">
+          <img src="./243-graded-m.svg" loading="lazy" alt="Graded M" />
+          <div class="catalog-title">Graded M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="script m" onclick="openInspector('244-script-m.svg', 'Script M', 'Geometric Monogram')">
+          <img src="./244-script-m.svg" loading="lazy" alt="Script M" />
+          <div class="catalog-title">Script M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="overlap m" onclick="openInspector('245-overlap-m.svg', 'Overlap M', 'Geometric Monogram')">
+          <img src="./245-overlap-m.svg" loading="lazy" alt="Overlap M" />
+          <div class="catalog-title">Overlap M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="wide counter m" onclick="openInspector('246-wide-counter-m.svg', 'Wide Counter M', 'Geometric Monogram')">
+          <img src="./246-wide-counter-m.svg" loading="lazy" alt="Wide Counter M" />
+          <div class="catalog-title">Wide Counter M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="bubble dog" onclick="openInspector('25-bubble-dog.svg', 'Bubble Dog', 'Canine & Hound Motif')">
+          <img src="./25-bubble-dog.svg" loading="lazy" alt="Bubble Dog" />
+          <div class="catalog-title">Bubble Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="bevel facet m" onclick="openInspector('251-bevel-facet-m.svg', 'Bevel Facet M', 'Geometric Monogram')">
+          <img src="./251-bevel-facet-m.svg" loading="lazy" alt="Bevel Facet M" />
+          <div class="catalog-title">Bevel Facet M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="double line m" onclick="openInspector('252-double-line-m.svg', 'Double Line M', 'Geometric Monogram')">
+          <img src="./252-double-line-m.svg" loading="lazy" alt="Double Line M" />
+          <div class="catalog-title">Double Line M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="chunky round m" onclick="openInspector('253-chunky-round-m.svg', 'Chunky Round M', 'Geometric Monogram')">
+          <img src="./253-chunky-round-m.svg" loading="lazy" alt="Chunky Round M" />
+          <div class="catalog-title">Chunky Round M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="notch block m" onclick="openInspector('254-notch-block-m.svg', 'Notch Block M', 'Geometric Monogram')">
+          <img src="./254-notch-block-m.svg" loading="lazy" alt="Notch Block M" />
+          <div class="catalog-title">Notch Block M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="slot cut m" onclick="openInspector('255-slot-cut-m.svg', 'Slot Cut M', 'Geometric Monogram')">
+          <img src="./255-slot-cut-m.svg" loading="lazy" alt="Slot Cut M" />
+          <div class="catalog-title">Slot Cut M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="stripe fill m" onclick="openInspector('256-stripe-fill-m.svg', 'Stripe Fill M', 'Geometric Monogram')">
+          <img src="./256-stripe-fill-m.svg" loading="lazy" alt="Stripe Fill M" />
+          <div class="catalog-title">Stripe Fill M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="loop terminal m" onclick="openInspector('257-loop-terminal-m.svg', 'Loop Terminal M', 'Ribbon & Continuous Fold')">
+          <img src="./257-loop-terminal-m.svg" loading="lazy" alt="Loop Terminal M" />
+          <div class="catalog-title">Loop Terminal M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="half split m" onclick="openInspector('258-half-split-m.svg', 'Half Split M', 'Geometric Monogram')">
+          <img src="./258-half-split-m.svg" loading="lazy" alt="Half Split M" />
+          <div class="catalog-title">Half Split M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="tilted plane m" onclick="openInspector('259-tilted-plane-m.svg', 'Tilted Plane M', 'Geometric Monogram')">
+          <img src="./259-tilted-plane-m.svg" loading="lazy" alt="Tilted Plane M" />
+          <div class="catalog-title">Tilted Plane M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="neon ears m" onclick="openInspector('26-neon-ears-m.svg', 'Neon Ears M', 'Canine & Hound Motif')">
+          <img src="./26-neon-ears-m.svg" loading="lazy" alt="Neon Ears M" />
+          <div class="catalog-title">Neon Ears M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="ligature md" onclick="openInspector('260-ligature-md.svg', 'Ligature Md', 'Wordmark & Lockup')">
+          <img src="./260-ligature-md.svg" loading="lazy" alt="Ligature Md" />
+          <div class="catalog-title">Ligature Md</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="flat apex m" onclick="openInspector('261-flat-apex-m.svg', 'Flat Apex M', 'Geometric Monogram')">
+          <img src="./261-flat-apex-m.svg" loading="lazy" alt="Flat Apex M" />
+          <div class="catalog-title">Flat Apex M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="squircle frame m" onclick="openInspector('262-squircle-frame-m.svg', 'Squircle Frame M', 'Geometric Monogram')">
+          <img src="./262-squircle-frame-m.svg" loading="lazy" alt="Squircle Frame M" />
+          <div class="catalog-title">Squircle Frame M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="visual" data-title="glow outline m" onclick="openInspector('263-glow-outline-m.svg', 'Glow Outline M', 'Glass & Optical Glow')">
+          <img src="./263-glow-outline-m.svg" loading="lazy" alt="Glow Outline M" />
+          <div class="catalog-title">Glow Outline M</div>
+          <div class="catalog-tag">Glass & Optical Glow</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="diagonal duo m" onclick="openInspector('264-diagonal-duo-m.svg', 'Diagonal Duo M', 'Geometric Monogram')">
+          <img src="./264-diagonal-duo-m.svg" loading="lazy" alt="Diagonal Duo M" />
+          <div class="catalog-title">Diagonal Duo M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="interlock mm" onclick="openInspector('265-interlock-mm.svg', 'Interlock Mm', 'Geometric Monogram')">
+          <img src="./265-interlock-mm.svg" loading="lazy" alt="Interlock Mm" />
+          <div class="catalog-title">Interlock Mm</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="micro serif m" onclick="openInspector('266-micro-serif-m.svg', 'Micro Serif M', 'Geometric Monogram')">
+          <img src="./266-micro-serif-m.svg" loading="lazy" alt="Micro Serif M" />
+          <div class="catalog-title">Micro Serif M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="badge dog" onclick="openInspector('27-badge-dog.svg', 'Badge Dog', 'Canine & Hound Motif')">
+          <img src="./27-badge-dog.svg" loading="lazy" alt="Badge Dog" />
+          <div class="catalog-title">Badge Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="light line dog" onclick="openInspector('28-light-line-dog.svg', 'Light Line Dog', 'Canine & Hound Motif')">
+          <img src="./28-light-line-dog.svg" loading="lazy" alt="Light Line Dog" />
+          <div class="catalog-title">Light Line Dog</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="visual" data-title="mesh blue" onclick="openInspector('31-mesh-blue.svg', 'Mesh Blue', 'Glass & Optical Glow')">
+          <img src="./31-mesh-blue.svg" loading="lazy" alt="Mesh Blue" />
+          <div class="catalog-title">Mesh Blue</div>
+          <div class="catalog-tag">Glass & Optical Glow</div>
+        </div>
+
+        <div class="catalog-card" data-cat="visual" data-title="glass" onclick="openInspector('32-glass.svg', 'Glass', 'Glass & Optical Glow')">
+          <img src="./32-glass.svg" loading="lazy" alt="Glass" />
+          <div class="catalog-title">Glass</div>
+          <div class="catalog-tag">Glass & Optical Glow</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="raycast red" onclick="openInspector('33-raycast-red.svg', 'Raycast Red', 'Geometric Monogram')">
+          <img src="./33-raycast-red.svg" loading="lazy" alt="Raycast Red" />
+          <div class="catalog-title">Raycast Red</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="mono minimal" onclick="openInspector('34-mono-minimal.svg', 'Mono Minimal', 'Geometric Monogram')">
+          <img src="./34-mono-minimal.svg" loading="lazy" alt="Mono Minimal" />
+          <div class="catalog-title">Mono Minimal</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="visual" data-title="aurora" onclick="openInspector('35-aurora.svg', 'Aurora', 'Glass & Optical Glow')">
+          <img src="./35-aurora.svg" loading="lazy" alt="Aurora" />
+          <div class="catalog-title">Aurora</div>
+          <div class="catalog-tag">Glass & Optical Glow</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="metal" onclick="openInspector('36-metal.svg', 'Metal', 'Geometric Monogram')">
+          <img src="./36-metal.svg" loading="lazy" alt="Metal" />
+          <div class="catalog-title">Metal</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="duotone" onclick="openInspector('37-duotone.svg', 'Duotone', 'Geometric Monogram')">
+          <img src="./37-duotone.svg" loading="lazy" alt="Duotone" />
+          <div class="catalog-title">Duotone</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="line ears m" onclick="openInspector('41-line-ears-m.svg', 'Line Ears M', 'Canine & Hound Motif')">
+          <img src="./41-line-ears-m.svg" loading="lazy" alt="Line Ears M" />
+          <div class="catalog-title">Line Ears M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="line nose m" onclick="openInspector('42-line-nose-m.svg', 'Line Nose M', 'Geometric Monogram')">
+          <img src="./42-line-nose-m.svg" loading="lazy" alt="Line Nose M" />
+          <div class="catalog-title">Line Nose M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="line foldear m" onclick="openInspector('43-line-foldear-m.svg', 'Line Foldear M', 'Canine & Hound Motif')">
+          <img src="./43-line-foldear-m.svg" loading="lazy" alt="Line Foldear M" />
+          <div class="catalog-title">Line Foldear M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="line profile m" onclick="openInspector('44-line-profile-m.svg', 'Line Profile M', 'Geometric Monogram')">
+          <img src="./44-line-profile-m.svg" loading="lazy" alt="Line Profile M" />
+          <div class="catalog-title">Line Profile M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="line tail m" onclick="openInspector('45-line-tail-m.svg', 'Line Tail M', 'Canine & Hound Motif')">
+          <img src="./45-line-tail-m.svg" loading="lazy" alt="Line Tail M" />
+          <div class="catalog-title">Line Tail M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="line soft m" onclick="openInspector('46-line-soft-m.svg', 'Line Soft M', 'Geometric Monogram')">
+          <img src="./46-line-soft-m.svg" loading="lazy" alt="Line Soft M" />
+          <div class="catalog-title">Line Soft M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="sharp ribbon m" onclick="openInspector('51-sharp-ribbon-m.svg', 'Sharp Ribbon M', 'Ribbon & Continuous Fold')">
+          <img src="./51-sharp-ribbon-m.svg" loading="lazy" alt="Sharp Ribbon M" />
+          <div class="catalog-title">Sharp Ribbon M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="open chevron m" onclick="openInspector('52-open-chevron-m.svg', 'Open Chevron M', 'Geometric Monogram')">
+          <img src="./52-open-chevron-m.svg" loading="lazy" alt="Open Chevron M" />
+          <div class="catalog-title">Open Chevron M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="split fold m" onclick="openInspector('53-split-fold-m.svg', 'Split Fold M', 'Ribbon & Continuous Fold')">
+          <img src="./53-split-fold-m.svg" loading="lazy" alt="Split Fold M" />
+          <div class="catalog-title">Split Fold M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="prism knot m" onclick="openInspector('54-prism-knot-m.svg', 'Prism Knot M', 'Ribbon & Continuous Fold')">
+          <img src="./54-prism-knot-m.svg" loading="lazy" alt="Prism Knot M" />
+          <div class="catalog-title">Prism Knot M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="ear notch m" onclick="openInspector('55-ear-notch-m.svg', 'Ear Notch M', 'Canine & Hound Motif')">
+          <img src="./55-ear-notch-m.svg" loading="lazy" alt="Ear Notch M" />
+          <div class="catalog-title">Ear Notch M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="fold ear ribbon" onclick="openInspector('56-fold-ear-ribbon.svg', 'Fold Ear Ribbon', 'Canine & Hound Motif')">
+          <img src="./56-fold-ear-ribbon.svg" loading="lazy" alt="Fold Ear Ribbon" />
+          <div class="catalog-title">Fold Ear Ribbon</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="tail cut m" onclick="openInspector('57-tail-cut-m.svg', 'Tail Cut M', 'Canine & Hound Motif')">
+          <img src="./57-tail-cut-m.svg" loading="lazy" alt="Tail Cut M" />
+          <div class="catalog-title">Tail Cut M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="hound aperture m" onclick="openInspector('58-hound-aperture-m.svg', 'Hound Aperture M', 'Canine & Hound Motif')">
+          <img src="./58-hound-aperture-m.svg" loading="lazy" alt="Hound Aperture M" />
+          <div class="catalog-title">Hound Aperture M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="mono wire ribbon" onclick="openInspector('59-mono-wire-ribbon.svg', 'Mono Wire Ribbon', 'Ribbon & Continuous Fold')">
+          <img src="./59-mono-wire-ribbon.svg" loading="lazy" alt="Mono Wire Ribbon" />
+          <div class="catalog-title">Mono Wire Ribbon</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="blue ribbon tile" onclick="openInspector('60-blue-ribbon-tile.svg', 'Blue Ribbon Tile', 'Ribbon & Continuous Fold')">
+          <img src="./60-blue-ribbon-tile.svg" loading="lazy" alt="Blue Ribbon Tile" />
+          <div class="catalog-title">Blue Ribbon Tile</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="signal fold m" onclick="openInspector('61-signal-fold-m.svg', 'Signal Fold M', 'Ribbon & Continuous Fold')">
+          <img src="./61-signal-fold-m.svg" loading="lazy" alt="Signal Fold M" />
+          <div class="catalog-title">Signal Fold M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="duotone cut m" onclick="openInspector('62-duotone-cut-m.svg', 'Duotone Cut M', 'Geometric Monogram')">
+          <img src="./62-duotone-cut-m.svg" loading="lazy" alt="Duotone Cut M" />
+          <div class="catalog-title">Duotone Cut M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="mobius mix" onclick="openInspector('71-mobius-mix.svg', 'Mobius Mix', 'Ribbon & Continuous Fold')">
+          <img src="./71-mobius-mix.svg" loading="lazy" alt="Mobius Mix" />
+          <div class="catalog-title">Mobius Mix</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="interlock knot" onclick="openInspector('72-interlock-knot.svg', 'Interlock Knot', 'Ribbon & Continuous Fold')">
+          <img src="./72-interlock-knot.svg" loading="lazy" alt="Interlock Knot" />
+          <div class="catalog-title">Interlock Knot</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="hex core m" onclick="openInspector('73-hex-core-m.svg', 'Hex Core M', 'Geometric Monogram')">
+          <img src="./73-hex-core-m.svg" loading="lazy" alt="Hex Core M" />
+          <div class="catalog-title">Hex Core M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="asym wing m" onclick="openInspector('74-asym-wing-m.svg', 'Asym Wing M', 'Geometric Monogram')">
+          <img src="./74-asym-wing-m.svg" loading="lazy" alt="Asym Wing M" />
+          <div class="catalog-title">Asym Wing M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="negative dog m" onclick="openInspector('75-negative-dog-m.svg', 'Negative Dog M', 'Canine & Hound Motif')">
+          <img src="./75-negative-dog-m.svg" loading="lazy" alt="Negative Dog M" />
+          <div class="catalog-title">Negative Dog M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="ear aperture" onclick="openInspector('76-ear-aperture.svg', 'Ear Aperture', 'Canine & Hound Motif')">
+          <img src="./76-ear-aperture.svg" loading="lazy" alt="Ear Aperture" />
+          <div class="catalog-title">Ear Aperture</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="hound profile cut" onclick="openInspector('77-hound-profile-cut.svg', 'Hound Profile Cut', 'Canine & Hound Motif')">
+          <img src="./77-hound-profile-cut.svg" loading="lazy" alt="Hound Profile Cut" />
+          <div class="catalog-title">Hound Profile Cut</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="tail orbit m" onclick="openInspector('78-tail-orbit-m.svg', 'Tail Orbit M', 'Canine & Hound Motif')">
+          <img src="./78-tail-orbit-m.svg" loading="lazy" alt="Tail Orbit M" />
+          <div class="catalog-title">Tail Orbit M</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="terminal prompt m" onclick="openInspector('79-terminal-prompt-m.svg', 'Terminal Prompt M', 'Terminal & Code Syntax')">
+          <img src="./79-terminal-prompt-m.svg" loading="lazy" alt="Terminal Prompt M" />
+          <div class="catalog-title">Terminal Prompt M</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="code bracket m" onclick="openInspector('80-code-bracket-m.svg', 'Code Bracket M', 'Terminal & Code Syntax')">
+          <img src="./80-code-bracket-m.svg" loading="lazy" alt="Code Bracket M" />
+          <div class="catalog-title">Code Bracket M</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="cli" data-title="branch node m" onclick="openInspector('81-branch-node-m.svg', 'Branch Node M', 'Terminal & Code Syntax')">
+          <img src="./81-branch-node-m.svg" loading="lazy" alt="Branch Node M" />
+          <div class="catalog-title">Branch Node M</div>
+          <div class="catalog-tag">Terminal & Code Syntax</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="cursor fold m" onclick="openInspector('82-cursor-fold-m.svg', 'Cursor Fold M', 'Ribbon & Continuous Fold')">
+          <img src="./82-cursor-fold-m.svg" loading="lazy" alt="Cursor Fold M" />
+          <div class="catalog-title">Cursor Fold M</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="ribbon" data-title="transparent ribbon" onclick="openInspector('83-transparent-ribbon.svg', 'Transparent Ribbon', 'Ribbon & Continuous Fold')">
+          <img src="./83-transparent-ribbon.svg" loading="lazy" alt="Transparent Ribbon" />
+          <div class="catalog-title">Transparent Ribbon</div>
+          <div class="catalog-tag">Ribbon & Continuous Fold</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="pixel module m" onclick="openInspector('84-pixel-module-m.svg', 'Pixel Module M', 'Geometric Monogram')">
+          <img src="./84-pixel-module-m.svg" loading="lazy" alt="Pixel Module M" />
+          <div class="catalog-title">Pixel Module M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="prism m" onclick="openInspector('85-metal-prism-m.svg', 'Prism M', 'Geometric Monogram')">
+          <img src="./85-metal-prism-m.svg" loading="lazy" alt="Prism M" />
+          <div class="catalog-title">Prism M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="orbit core m" onclick="openInspector('86-orbit-core-m.svg', 'Orbit Core M', 'Geometric Monogram')">
+          <img src="./86-orbit-core-m.svg" loading="lazy" alt="Orbit Core M" />
+          <div class="catalog-title">Orbit Core M</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="sticker hound" onclick="openInspector('91-sticker-hound.svg', 'Sticker Hound', 'Canine & Hound Motif')">
+          <img src="./91-sticker-hound.svg" loading="lazy" alt="Sticker Hound" />
+          <div class="catalog-title">Sticker Hound</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="cyber visor" onclick="openInspector('92-cyber-visor.svg', 'Cyber Visor', 'Geometric Monogram')">
+          <img src="./92-cyber-visor.svg" loading="lazy" alt="Cyber Visor" />
+          <div class="catalog-title">Cyber Visor</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="pixel mascot" onclick="openInspector('93-pixel-mascot.svg', 'Pixel Mascot', 'Geometric Monogram')">
+          <img src="./93-pixel-mascot.svg" loading="lazy" alt="Pixel Mascot" />
+          <div class="catalog-title">Pixel Mascot</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="window hound" onclick="openInspector('94-window-hound.svg', 'Window Hound', 'Canine & Hound Motif')">
+          <img src="./94-window-hound.svg" loading="lazy" alt="Window Hound" />
+          <div class="catalog-title">Window Hound</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="wordmark grotesk" onclick="openInspector('95-wordmark-grotesk.svg', 'Wordmark Grotesk', 'Wordmark & Lockup')">
+          <img src="./95-wordmark-grotesk.svg" loading="lazy" alt="Wordmark Grotesk" />
+          <div class="catalog-title">Wordmark Grotesk</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="wordmark terminal" onclick="openInspector('96-wordmark-terminal.svg', 'Wordmark Terminal', 'Wordmark & Lockup')">
+          <img src="./96-wordmark-terminal.svg" loading="lazy" alt="Wordmark Terminal" />
+          <div class="catalog-title">Wordmark Terminal</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="monogram md" onclick="openInspector('97-monogram-md.svg', 'Monogram Md', 'Wordmark & Lockup')">
+          <img src="./97-monogram-md.svg" loading="lazy" alt="Monogram Md" />
+          <div class="catalog-title">Monogram Md</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="lockup horizontal" onclick="openInspector('98-lockup-horizontal.svg', 'Lockup Horizontal', 'Wordmark & Lockup')">
+          <img src="./98-lockup-horizontal.svg" loading="lazy" alt="Lockup Horizontal" />
+          <div class="catalog-title">Lockup Horizontal</div>
+          <div class="catalog-tag">Wordmark & Lockup</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="paw prompt" onclick="openInspector('99-paw-prompt.svg', 'Paw Prompt', 'Canine & Hound Motif')">
+          <img src="./99-paw-prompt.svg" loading="lazy" alt="Paw Prompt" />
+          <div class="catalog-title">Paw Prompt</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="benchmarks" data-title="orca streamline" onclick="openInspector('agent-ref-1-orca-streamline.svg', 'Orca Streamline', 'Agent Benchmark')">
+          <img src="./agent-ref-1-orca-streamline.svg" loading="lazy" alt="Orca Streamline" />
+          <div class="catalog-title">Orca Streamline</div>
+          <div class="catalog-tag">Agent Benchmark</div>
+        </div>
+
+        <div class="catalog-card" data-cat="benchmarks" data-title="cursor cube" onclick="openInspector('agent-ref-2-cursor-cube.svg', 'Cursor Cube', 'Agent Benchmark')">
+          <img src="./agent-ref-2-cursor-cube.svg" loading="lazy" alt="Cursor Cube" />
+          <div class="catalog-title">Cursor Cube</div>
+          <div class="catalog-tag">Agent Benchmark</div>
+        </div>
+
+        <div class="catalog-card" data-cat="benchmarks" data-title="codex vortex" onclick="openInspector('agent-ref-3-codex-vortex.svg', 'Codex Vortex', 'Agent Benchmark')">
+          <img src="./agent-ref-3-codex-vortex.svg" loading="lazy" alt="Codex Vortex" />
+          <div class="catalog-title">Codex Vortex</div>
+          <div class="catalog-tag">Agent Benchmark</div>
+        </div>
+
+        <div class="catalog-card" data-cat="benchmarks" data-title="dual slash" onclick="openInspector('agent-ref-4-dual-slash.svg', 'Dual Slash', 'Agent Benchmark')">
+          <img src="./agent-ref-4-dual-slash.svg" loading="lazy" alt="Dual Slash" />
+          <div class="catalog-title">Dual Slash</div>
+          <div class="catalog-tag">Agent Benchmark</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="cursor hypercube" onclick="openInspector('agent-v2-1-cursor-hypercube.svg', 'Cursor Hypercube', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-1-cursor-hypercube.svg" loading="lazy" alt="Cursor Hypercube" />
+          <div class="catalog-title">Cursor Hypercube</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="aider git fork" onclick="openInspector('agent-v2-10-aider-git-fork.svg', 'Aider Git Fork', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-10-aider-git-fork.svg" loading="lazy" alt="Aider Git Fork" />
+          <div class="catalog-title">Aider Git Fork</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="zed super speed chevron" onclick="openInspector('agent-v2-11-zed-super-speed-chevron.svg', 'Zed Super Speed Chevron', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-11-zed-super-speed-chevron.svg" loading="lazy" alt="Zed Super Speed Chevron" />
+          <div class="catalog-title">Zed Super Speed Chevron</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="mixdog supreme nexus" onclick="openInspector('agent-v2-12-mixdog-supreme-nexus.svg', 'Mixdog Supreme Nexus', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-12-mixdog-supreme-nexus.svg" loading="lazy" alt="Mixdog Supreme Nexus" />
+          <div class="catalog-title">Mixdog Supreme Nexus</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="windsurf flow cascade" onclick="openInspector('agent-v2-2-windsurf-flow-cascade.svg', 'Windsurf Flow Cascade', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-2-windsurf-flow-cascade.svg" loading="lazy" alt="Windsurf Flow Cascade" />
+          <div class="catalog-title">Windsurf Flow Cascade</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="claude spark brutalist" onclick="openInspector('agent-v2-3-claude-spark-brutalist.svg', 'Claude Spark Brutalist', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-3-claude-spark-brutalist.svg" loading="lazy" alt="Claude Spark Brutalist" />
+          <div class="catalog-title">Claude Spark Brutalist</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="devin dag matrix" onclick="openInspector('agent-v2-4-devin-dag-matrix.svg', 'Devin Dag Matrix', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-4-devin-dag-matrix.svg" loading="lazy" alt="Devin Dag Matrix" />
+          <div class="catalog-title">Devin Dag Matrix</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="copilot cyber visor" onclick="openInspector('agent-v2-5-copilot-cyber-visor.svg', 'Copilot Cyber Visor', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-5-copilot-cyber-visor.svg" loading="lazy" alt="Copilot Cyber Visor" />
+          <div class="catalog-title">Copilot Cyber Visor</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="operator singularity loop" onclick="openInspector('agent-v2-6-operator-singularity-loop.svg', 'Operator Singularity Loop', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-6-operator-singularity-loop.svg" loading="lazy" alt="Operator Singularity Loop" />
+          <div class="catalog-title">Operator Singularity Loop</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="ghostty zero phosphor" onclick="openInspector('agent-v2-7-ghostty-zero-phosphor.svg', 'Ghostty Zero Phosphor', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-7-ghostty-zero-phosphor.svg" loading="lazy" alt="Ghostty Zero Phosphor" />
+          <div class="catalog-title">Ghostty Zero Phosphor</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="replit flame monolith" onclick="openInspector('agent-v2-8-replit-flame-monolith.svg', 'Replit Flame Monolith', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-8-replit-flame-monolith.svg" loading="lazy" alt="Replit Flame Monolith" />
+          <div class="catalog-title">Replit Flame Monolith</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="deepdive" data-title="bolt thunder apex" onclick="openInspector('agent-v2-9-bolt-thunder-apex.svg', 'Bolt Thunder Apex', '2026 Agent Deep-Dive')">
+          <img src="./agent-v2-9-bolt-thunder-apex.svg" loading="lazy" alt="Bolt Thunder Apex" />
+          <div class="catalog-title">Bolt Thunder Apex</div>
+          <div class="catalog-tag">2026 Agent Deep-Dive</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-01" onclick="openInspector('ap-360-01.svg', 'ap-360-01', '360° Gradient Loop')">
+          <img src="./ap-360-01.svg" loading="lazy" alt="ap-360-01" />
+          <div class="catalog-title">ap-360-01</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-02" onclick="openInspector('ap-360-02.svg', 'ap-360-02', '360° Gradient Loop')">
+          <img src="./ap-360-02.svg" loading="lazy" alt="ap-360-02" />
+          <div class="catalog-title">ap-360-02</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-03" onclick="openInspector('ap-360-03.svg', 'ap-360-03', '360° Gradient Loop')">
+          <img src="./ap-360-03.svg" loading="lazy" alt="ap-360-03" />
+          <div class="catalog-title">ap-360-03</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-04" onclick="openInspector('ap-360-04.svg', 'ap-360-04', '360° Gradient Loop')">
+          <img src="./ap-360-04.svg" loading="lazy" alt="ap-360-04" />
+          <div class="catalog-title">ap-360-04</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-05" onclick="openInspector('ap-360-05.svg', 'ap-360-05', '360° Gradient Loop')">
+          <img src="./ap-360-05.svg" loading="lazy" alt="ap-360-05" />
+          <div class="catalog-title">ap-360-05</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-06" onclick="openInspector('ap-360-06.svg', 'ap-360-06', '360° Gradient Loop')">
+          <img src="./ap-360-06.svg" loading="lazy" alt="ap-360-06" />
+          <div class="catalog-title">ap-360-06</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-07" onclick="openInspector('ap-360-07.svg', 'ap-360-07', '360° Gradient Loop')">
+          <img src="./ap-360-07.svg" loading="lazy" alt="ap-360-07" />
+          <div class="catalog-title">ap-360-07</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-08" onclick="openInspector('ap-360-08.svg', 'ap-360-08', '360° Gradient Loop')">
+          <img src="./ap-360-08.svg" loading="lazy" alt="ap-360-08" />
+          <div class="catalog-title">ap-360-08</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-09" onclick="openInspector('ap-360-09.svg', 'ap-360-09', '360° Gradient Loop')">
+          <img src="./ap-360-09.svg" loading="lazy" alt="ap-360-09" />
+          <div class="catalog-title">ap-360-09</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-10" onclick="openInspector('ap-360-10.svg', 'ap-360-10', '360° Gradient Loop')">
+          <img src="./ap-360-10.svg" loading="lazy" alt="ap-360-10" />
+          <div class="catalog-title">ap-360-10</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-11" onclick="openInspector('ap-360-11.svg', 'ap-360-11', '360° Gradient Loop')">
+          <img src="./ap-360-11.svg" loading="lazy" alt="ap-360-11" />
+          <div class="catalog-title">ap-360-11</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-12" onclick="openInspector('ap-360-12.svg', 'ap-360-12', '360° Gradient Loop')">
+          <img src="./ap-360-12.svg" loading="lazy" alt="ap-360-12" />
+          <div class="catalog-title">ap-360-12</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-13" onclick="openInspector('ap-360-13.svg', 'ap-360-13', '360° Gradient Loop')">
+          <img src="./ap-360-13.svg" loading="lazy" alt="ap-360-13" />
+          <div class="catalog-title">ap-360-13</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-14" onclick="openInspector('ap-360-14.svg', 'ap-360-14', '360° Gradient Loop')">
+          <img src="./ap-360-14.svg" loading="lazy" alt="ap-360-14" />
+          <div class="catalog-title">ap-360-14</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-15" onclick="openInspector('ap-360-15.svg', 'ap-360-15', '360° Gradient Loop')">
+          <img src="./ap-360-15.svg" loading="lazy" alt="ap-360-15" />
+          <div class="catalog-title">ap-360-15</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-16" onclick="openInspector('ap-360-16.svg', 'ap-360-16', '360° Gradient Loop')">
+          <img src="./ap-360-16.svg" loading="lazy" alt="ap-360-16" />
+          <div class="catalog-title">ap-360-16</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-17" onclick="openInspector('ap-360-17.svg', 'ap-360-17', '360° Gradient Loop')">
+          <img src="./ap-360-17.svg" loading="lazy" alt="ap-360-17" />
+          <div class="catalog-title">ap-360-17</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture360" data-title="ap-360-18" onclick="openInspector('ap-360-18.svg', 'ap-360-18', '360° Gradient Loop')">
+          <img src="./ap-360-18.svg" loading="lazy" alt="ap-360-18" />
+          <div class="catalog-title">ap-360-18</div>
+          <div class="catalog-tag">360° Gradient Loop</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 01" onclick="openInspector('aperture-color-01.svg', 'Aperture Color 01', 'Geometric Monogram')">
+          <img src="./aperture-color-01.svg" loading="lazy" alt="Aperture Color 01" />
+          <div class="catalog-title">Aperture Color 01</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 02" onclick="openInspector('aperture-color-02.svg', 'Aperture Color 02', 'Geometric Monogram')">
+          <img src="./aperture-color-02.svg" loading="lazy" alt="Aperture Color 02" />
+          <div class="catalog-title">Aperture Color 02</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 03" onclick="openInspector('aperture-color-03.svg', 'Aperture Color 03', 'Geometric Monogram')">
+          <img src="./aperture-color-03.svg" loading="lazy" alt="Aperture Color 03" />
+          <div class="catalog-title">Aperture Color 03</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 04" onclick="openInspector('aperture-color-04.svg', 'Aperture Color 04', 'Geometric Monogram')">
+          <img src="./aperture-color-04.svg" loading="lazy" alt="Aperture Color 04" />
+          <div class="catalog-title">Aperture Color 04</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 05" onclick="openInspector('aperture-color-05.svg', 'Aperture Color 05', 'Geometric Monogram')">
+          <img src="./aperture-color-05.svg" loading="lazy" alt="Aperture Color 05" />
+          <div class="catalog-title">Aperture Color 05</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 06" onclick="openInspector('aperture-color-06.svg', 'Aperture Color 06', 'Geometric Monogram')">
+          <img src="./aperture-color-06.svg" loading="lazy" alt="Aperture Color 06" />
+          <div class="catalog-title">Aperture Color 06</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 07" onclick="openInspector('aperture-color-07.svg', 'Aperture Color 07', 'Geometric Monogram')">
+          <img src="./aperture-color-07.svg" loading="lazy" alt="Aperture Color 07" />
+          <div class="catalog-title">Aperture Color 07</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 08" onclick="openInspector('aperture-color-08.svg', 'Aperture Color 08', 'Geometric Monogram')">
+          <img src="./aperture-color-08.svg" loading="lazy" alt="Aperture Color 08" />
+          <div class="catalog-title">Aperture Color 08</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 09" onclick="openInspector('aperture-color-09.svg', 'Aperture Color 09', 'Geometric Monogram')">
+          <img src="./aperture-color-09.svg" loading="lazy" alt="Aperture Color 09" />
+          <div class="catalog-title">Aperture Color 09</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 10" onclick="openInspector('aperture-color-10.svg', 'Aperture Color 10', 'Geometric Monogram')">
+          <img src="./aperture-color-10.svg" loading="lazy" alt="Aperture Color 10" />
+          <div class="catalog-title">Aperture Color 10</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 11" onclick="openInspector('aperture-color-11.svg', 'Aperture Color 11', 'Geometric Monogram')">
+          <img src="./aperture-color-11.svg" loading="lazy" alt="Aperture Color 11" />
+          <div class="catalog-title">Aperture Color 11</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 12" onclick="openInspector('aperture-color-12.svg', 'Aperture Color 12', 'Geometric Monogram')">
+          <img src="./aperture-color-12.svg" loading="lazy" alt="Aperture Color 12" />
+          <div class="catalog-title">Aperture Color 12</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 13" onclick="openInspector('aperture-color-13.svg', 'Aperture Color 13', 'Geometric Monogram')">
+          <img src="./aperture-color-13.svg" loading="lazy" alt="Aperture Color 13" />
+          <div class="catalog-title">Aperture Color 13</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 14" onclick="openInspector('aperture-color-14.svg', 'Aperture Color 14', 'Geometric Monogram')">
+          <img src="./aperture-color-14.svg" loading="lazy" alt="Aperture Color 14" />
+          <div class="catalog-title">Aperture Color 14</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 15" onclick="openInspector('aperture-color-15.svg', 'Aperture Color 15', 'Geometric Monogram')">
+          <img src="./aperture-color-15.svg" loading="lazy" alt="Aperture Color 15" />
+          <div class="catalog-title">Aperture Color 15</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 16" onclick="openInspector('aperture-color-16.svg', 'Aperture Color 16', 'Geometric Monogram')">
+          <img src="./aperture-color-16.svg" loading="lazy" alt="Aperture Color 16" />
+          <div class="catalog-title">Aperture Color 16</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 17" onclick="openInspector('aperture-color-17.svg', 'Aperture Color 17', 'Geometric Monogram')">
+          <img src="./aperture-color-17.svg" loading="lazy" alt="Aperture Color 17" />
+          <div class="catalog-title">Aperture Color 17</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="classic" data-title="aperture color 18" onclick="openInspector('aperture-color-18.svg', 'Aperture Color 18', 'Geometric Monogram')">
+          <img src="./aperture-color-18.svg" loading="lazy" alt="Aperture Color 18" />
+          <div class="catalog-title">Aperture Color 18</div>
+          <div class="catalog-tag">Geometric Monogram</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="classic refined" onclick="openInspector('aperture-triad-1-classic-refined.svg', 'Classic Refined', 'Aperture Triad')">
+          <img src="./aperture-triad-1-classic-refined.svg" loading="lazy" alt="Classic Refined" />
+          <div class="catalog-title">Classic Refined</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="monoline wireframe" onclick="openInspector('aperture-triad-10-monoline-wireframe.svg', 'Monoline Wireframe', 'Aperture Triad')">
+          <img src="./aperture-triad-10-monoline-wireframe.svg" loading="lazy" alt="Monoline Wireframe" />
+          <div class="catalog-title">Monoline Wireframe</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="hex diaphragm" onclick="openInspector('aperture-triad-11-hex-diaphragm.svg', 'Hex Diaphragm', 'Aperture Triad')">
+          <img src="./aperture-triad-11-hex-diaphragm.svg" loading="lazy" alt="Hex Diaphragm" />
+          <div class="catalog-title">Hex Diaphragm</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="gold obsidian" onclick="openInspector('aperture-triad-12-gold-obsidian.svg', 'Gold Obsidian', 'Aperture Triad')">
+          <img src="./aperture-triad-12-gold-obsidian.svg" loading="lazy" alt="Gold Obsidian" />
+          <div class="catalog-title">Gold Obsidian</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="solid blades" onclick="openInspector('aperture-triad-2-solid-blades.svg', 'Solid Blades', 'Aperture Triad')">
+          <img src="./aperture-triad-2-solid-blades.svg" loading="lazy" alt="Solid Blades" />
+          <div class="catalog-title">Solid Blades</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="hound iris" onclick="openInspector('aperture-triad-3-hound-iris.svg', 'Hound Iris', 'Aperture Triad')">
+          <img src="./aperture-triad-3-hound-iris.svg" loading="lazy" alt="Hound Iris" />
+          <div class="catalog-title">Hound Iris</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="code chevrons" onclick="openInspector('aperture-triad-4-code-chevrons.svg', 'Code Chevrons', 'Aperture Triad')">
+          <img src="./aperture-triad-4-code-chevrons.svg" loading="lazy" alt="Code Chevrons" />
+          <div class="catalog-title">Code Chevrons</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="neon vortex" onclick="openInspector('aperture-triad-5-neon-vortex.svg', 'Neon Vortex', 'Aperture Triad')">
+          <img src="./aperture-triad-5-neon-vortex.svg" loading="lazy" alt="Neon Vortex" />
+          <div class="catalog-title">Neon Vortex</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="machined titanium" onclick="openInspector('aperture-triad-6-machined-titanium.svg', 'Machined Titanium', 'Aperture Triad')">
+          <img src="./aperture-triad-6-machined-titanium.svg" loading="lazy" alt="Machined Titanium" />
+          <div class="catalog-title">Machined Titanium</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="liquid triquetra" onclick="openInspector('aperture-triad-7-liquid-triquetra.svg', 'Liquid Triquetra', 'Aperture Triad')">
+          <img src="./aperture-triad-7-liquid-triquetra.svg" loading="lazy" alt="Liquid Triquetra" />
+          <div class="catalog-title">Liquid Triquetra</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="phosphor matrix" onclick="openInspector('aperture-triad-8-phosphor-matrix.svg', 'Phosphor Matrix', 'Aperture Triad')">
+          <img src="./aperture-triad-8-phosphor-matrix.svg" loading="lazy" alt="Phosphor Matrix" />
+          <div class="catalog-title">Phosphor Matrix</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="aperture" data-title="prism refraction" onclick="openInspector('aperture-triad-9-prism-refraction.svg', 'Prism Refraction', 'Aperture Triad')">
+          <img src="./aperture-triad-9-prism-refraction.svg" loading="lazy" alt="Prism Refraction" />
+          <div class="catalog-title">Prism Refraction</div>
+          <div class="catalog-tag">Aperture Triad</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="cyber hound" onclick="openInspector('concept-1-cyber-hound.svg', 'Cyber Hound', 'Tech Concept')">
+          <img src="./concept-1-cyber-hound.svg" loading="lazy" alt="Cyber Hound" />
+          <div class="catalog-title">Cyber Hound</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="cursor prism" onclick="openInspector('concept-2-cursor-prism.svg', 'Cursor Prism', 'Tech Concept')">
+          <img src="./concept-2-cursor-prism.svg" loading="lazy" alt="Cursor Prism" />
+          <div class="catalog-title">Cursor Prism</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="syntax nodes" onclick="openInspector('concept-3-syntax-nodes.svg', 'Syntax Nodes', 'Tech Concept')">
+          <img src="./concept-3-syntax-nodes.svg" loading="lazy" alt="Syntax Nodes" />
+          <div class="catalog-title">Syntax Nodes</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="neural mobius" onclick="openInspector('concept-4-neural-mobius.svg', 'Neural Mobius', 'Tech Concept')">
+          <img src="./concept-4-neural-mobius.svg" loading="lazy" alt="Neural Mobius" />
+          <div class="catalog-title">Neural Mobius</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="monoline apex" onclick="openInspector('concept-5-monoline-apex.svg', 'Monoline Apex', 'Tech Concept')">
+          <img src="./concept-5-monoline-apex.svg" loading="lazy" alt="Monoline Apex" />
+          <div class="catalog-title">Monoline Apex</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="different" data-title="hound profile" onclick="openInspector('different-1-hound-profile.svg', 'Hound Profile', 'Hound & Canine')">
+          <img src="./different-1-hound-profile.svg" loading="lazy" alt="Hound Profile" />
+          <div class="catalog-title">Hound Profile</div>
+          <div class="catalog-tag">Hound & Canine</div>
+        </div>
+
+        <div class="catalog-card" data-cat="different" data-title="code paw" onclick="openInspector('different-2-code-paw.svg', 'Code Paw', 'Hound & Canine')">
+          <img src="./different-2-code-paw.svg" loading="lazy" alt="Code Paw" />
+          <div class="catalog-title">Code Paw</div>
+          <div class="catalog-tag">Hound & Canine</div>
+        </div>
+
+        <div class="catalog-card" data-cat="different" data-title="dot matrix" onclick="openInspector('different-3-dot-matrix.svg', 'Dot Matrix', 'Hound & Canine')">
+          <img src="./different-3-dot-matrix.svg" loading="lazy" alt="Dot Matrix" />
+          <div class="catalog-title">Dot Matrix</div>
+          <div class="catalog-tag">Hound & Canine</div>
+        </div>
+
+        <div class="catalog-card" data-cat="different" data-title="command rune" onclick="openInspector('different-4-command-rune.svg', 'Command Rune', 'Hound & Canine')">
+          <img src="./different-4-command-rune.svg" loading="lazy" alt="Command Rune" />
+          <div class="catalog-title">Command Rune</div>
+          <div class="catalog-tag">Hound & Canine</div>
+        </div>
+
+        <div class="catalog-card" data-cat="different" data-title="code bone" onclick="openInspector('different-5-code-bone.svg', 'Code Bone', 'Hound & Canine')">
+          <img src="./different-5-code-bone.svg" loading="lazy" alt="Code Bone" />
+          <div class="catalog-title">Code Bone</div>
+          <div class="catalog-tag">Hound & Canine</div>
+        </div>
+
+        <div class="catalog-card" data-cat="different" data-title="model mixer" onclick="openInspector('different-6-model-mixer.svg', 'Model Mixer', 'Hound & Canine')">
+          <img src="./different-6-model-mixer.svg" loading="lazy" alt="Model Mixer" />
+          <div class="catalog-title">Model Mixer</div>
+          <div class="catalog-tag">Hound & Canine</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="origami fold" onclick="openInspector('fresh-1-origami-fold.svg', 'Origami Fold', 'Cyber & Future')">
+          <img src="./fresh-1-origami-fold.svg" loading="lazy" alt="Origami Fold" />
+          <div class="catalog-title">Origami Fold</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="crt phosphor" onclick="openInspector('fresh-2-crt-phosphor.svg', 'Crt Phosphor', 'Cyber & Future')">
+          <img src="./fresh-2-crt-phosphor.svg" loading="lazy" alt="Crt Phosphor" />
+          <div class="catalog-title">Crt Phosphor</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="quantum orbit" onclick="openInspector('fresh-3-quantum-orbit.svg', 'Quantum Orbit', 'Cyber & Future')">
+          <img src="./fresh-3-quantum-orbit.svg" loading="lazy" alt="Quantum Orbit" />
+          <div class="catalog-title">Quantum Orbit</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="cyber aperture" onclick="openInspector('fresh-4-cyber-aperture.svg', 'Cyber Aperture', 'Cyber & Future')">
+          <img src="./fresh-4-cyber-aperture.svg" loading="lazy" alt="Cyber Aperture" />
+          <div class="catalog-title">Cyber Aperture</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="silicon chip" onclick="openInspector('fresh-5-silicon-chip.svg', 'Silicon Chip', 'Cyber & Future')">
+          <img src="./fresh-5-silicon-chip.svg" loading="lazy" alt="Silicon Chip" />
+          <div class="catalog-title">Silicon Chip</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="swiss bauhaus" onclick="openInspector('fresh-6-swiss-bauhaus.svg', 'Swiss Bauhaus', 'Cyber & Future')">
+          <img src="./fresh-6-swiss-bauhaus.svg" loading="lazy" alt="Swiss Bauhaus" />
+          <div class="catalog-title">Swiss Bauhaus</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="liquid glass" onclick="openInspector('fresh-7-liquid-glass.svg', 'Liquid Glass', 'Cyber & Future')">
+          <img src="./fresh-7-liquid-glass.svg" loading="lazy" alt="Liquid Glass" />
+          <div class="catalog-title">Liquid Glass</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="fresh" data-title="token syntax" onclick="openInspector('fresh-8-token-syntax.svg', 'Token Syntax', 'Cyber & Future')">
+          <img src="./fresh-8-token-syntax.svg" loading="lazy" alt="Token Syntax" />
+          <div class="catalog-title">Token Syntax</div>
+          <div class="catalog-tag">Cyber & Future</div>
+        </div>
+
+        <div class="catalog-card" data-cat="metal" data-title="machined titanium" onclick="openInspector('metal-1-machined-titanium.svg', 'Machined Titanium', 'Hardware Metal')">
+          <img src="./metal-1-machined-titanium.svg" loading="lazy" alt="Machined Titanium" />
+          <div class="catalog-title">Machined Titanium</div>
+          <div class="catalog-tag">Hardware Metal</div>
+        </div>
+
+        <div class="catalog-card" data-cat="metal" data-title="liquid chrome prism" onclick="openInspector('metal-2-liquid-chrome-prism.svg', 'Liquid Chrome Prism', 'Hardware Metal')">
+          <img src="./metal-2-liquid-chrome-prism.svg" loading="lazy" alt="Liquid Chrome Prism" />
+          <div class="catalog-title">Liquid Chrome Prism</div>
+          <div class="catalog-tag">Hardware Metal</div>
+        </div>
+
+        <div class="catalog-card" data-cat="metal" data-title="gunmetal monolith" onclick="openInspector('metal-3-gunmetal-monolith.svg', 'Gunmetal Monolith', 'Hardware Metal')">
+          <img src="./metal-3-gunmetal-monolith.svg" loading="lazy" alt="Gunmetal Monolith" />
+          <div class="catalog-title">Gunmetal Monolith</div>
+          <div class="catalog-tag">Hardware Metal</div>
+        </div>
+
+        <div class="catalog-card" data-cat="metal" data-title="mercury ribbon" onclick="openInspector('metal-4-mercury-ribbon.svg', 'Mercury Ribbon', 'Hardware Metal')">
+          <img src="./metal-4-mercury-ribbon.svg" loading="lazy" alt="Mercury Ribbon" />
+          <div class="catalog-title">Mercury Ribbon</div>
+          <div class="catalog-tag">Hardware Metal</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="mixdog mark vector" onclick="openInspector('mixdog-mark-vector.svg', 'Mixdog Mark Vector', 'Canine & Hound Motif')">
+          <img src="./mixdog-mark-vector.svg" loading="lazy" alt="Mixdog Mark Vector" />
+          <div class="catalog-title">Mixdog Mark Vector</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="mixdog monochrome" onclick="openInspector('mixdog-monochrome.svg', 'Mixdog Monochrome', 'Canine & Hound Motif')">
+          <img src="./mixdog-monochrome.svg" loading="lazy" alt="Mixdog Monochrome" />
+          <div class="catalog-title">Mixdog Monochrome</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="canine" data-title="mixdog paseo ribbon" onclick="openInspector('mixdog-paseo-ribbon.svg', 'Mixdog Paseo Ribbon', 'Canine & Hound Motif')">
+          <img src="./mixdog-paseo-ribbon.svg" loading="lazy" alt="Mixdog Paseo Ribbon" />
+          <div class="catalog-title">Mixdog Paseo Ribbon</div>
+          <div class="catalog-tag">Canine & Hound Motif</div>
+        </div>
+
+        <div class="catalog-card" data-cat="radical" data-title="hex runtime" onclick="openInspector('radical-1-hex-runtime.svg', 'Hex Runtime', 'Radical Geometry')">
+          <img src="./radical-1-hex-runtime.svg" loading="lazy" alt="Hex Runtime" />
+          <div class="catalog-title">Hex Runtime</div>
+          <div class="catalog-tag">Radical Geometry</div>
+        </div>
+
+        <div class="catalog-card" data-cat="radical" data-title="negative monolith" onclick="openInspector('radical-2-negative-monolith.svg', 'Negative Monolith', 'Radical Geometry')">
+          <img src="./radical-2-negative-monolith.svg" loading="lazy" alt="Negative Monolith" />
+          <div class="catalog-title">Negative Monolith</div>
+          <div class="catalog-tag">Radical Geometry</div>
+        </div>
+
+        <div class="catalog-card" data-cat="radical" data-title="infinite mobius" onclick="openInspector('radical-3-infinite-mobius.svg', 'Infinite Mobius', 'Radical Geometry')">
+          <img src="./radical-3-infinite-mobius.svg" loading="lazy" alt="Infinite Mobius" />
+          <div class="catalog-title">Infinite Mobius</div>
+          <div class="catalog-tag">Radical Geometry</div>
+        </div>
+
+        <div class="catalog-card" data-cat="radical" data-title="neural starburst" onclick="openInspector('radical-4-neural-starburst.svg', 'Neural Starburst', 'Radical Geometry')">
+          <img src="./radical-4-neural-starburst.svg" loading="lazy" alt="Neural Starburst" />
+          <div class="catalog-title">Neural Starburst</div>
+          <div class="catalog-tag">Radical Geometry</div>
+        </div>
+
+        <div class="catalog-card" data-cat="radical" data-title="aperture iris" onclick="openInspector('radical-5-aperture-iris.svg', 'Aperture Iris', 'Radical Geometry')">
+          <img src="./radical-5-aperture-iris.svg" loading="lazy" alt="Aperture Iris" />
+          <div class="catalog-title">Aperture Iris</div>
+          <div class="catalog-tag">Radical Geometry</div>
+        </div>
+
+        <div class="catalog-card" data-cat="radical" data-title="cli glyph" onclick="openInspector('radical-6-cli-glyph.svg', 'Cli Glyph', 'Radical Geometry')">
+          <img src="./radical-6-cli-glyph.svg" loading="lazy" alt="Cli Glyph" />
+          <div class="catalog-title">Cli Glyph</div>
+          <div class="catalog-tag">Radical Geometry</div>
+        </div>
+
+        <div class="catalog-card" data-cat="sleek" data-title="crystal matrix" onclick="openInspector('sleek-1-crystal-matrix.svg', 'Crystal Matrix', 'Sleek 2026')">
+          <img src="./sleek-1-crystal-matrix.svg" loading="lazy" alt="Crystal Matrix" />
+          <div class="catalog-title">Crystal Matrix</div>
+          <div class="catalog-tag">Sleek 2026</div>
+        </div>
+
+        <div class="catalog-card" data-cat="sleek" data-title="parabolic nexus" onclick="openInspector('sleek-2-parabolic-nexus.svg', 'Parabolic Nexus', 'Sleek 2026')">
+          <img src="./sleek-2-parabolic-nexus.svg" loading="lazy" alt="Parabolic Nexus" />
+          <div class="catalog-title">Parabolic Nexus</div>
+          <div class="catalog-tag">Sleek 2026</div>
+        </div>
+
+        <div class="catalog-card" data-cat="sleek" data-title="thread cascade" onclick="openInspector('sleek-3-thread-cascade.svg', 'Thread Cascade', 'Sleek 2026')">
+          <img src="./sleek-3-thread-cascade.svg" loading="lazy" alt="Thread Cascade" />
+          <div class="catalog-title">Thread Cascade</div>
+          <div class="catalog-tag">Sleek 2026</div>
+        </div>
+
+        <div class="catalog-card" data-cat="sleek" data-title="liquid mobius" onclick="openInspector('sleek-4-liquid-mobius.svg', 'Liquid Mobius', 'Sleek 2026')">
+          <img src="./sleek-4-liquid-mobius.svg" loading="lazy" alt="Liquid Mobius" />
+          <div class="catalog-title">Liquid Mobius</div>
+          <div class="catalog-tag">Sleek 2026</div>
+        </div>
+
+        <div class="catalog-card" data-cat="sleek" data-title="monolith laser" onclick="openInspector('sleek-5-monolith-laser.svg', 'Monolith Laser', 'Sleek 2026')">
+          <img src="./sleek-5-monolith-laser.svg" loading="lazy" alt="Monolith Laser" />
+          <div class="catalog-title">Monolith Laser</div>
+          <div class="catalog-tag">Sleek 2026</div>
+        </div>
+
+        <div class="catalog-card" data-cat="sleek" data-title="spark ligature" onclick="openInspector('sleek-6-spark-ligature.svg', 'Spark Ligature', 'Sleek 2026')">
+          <img src="./sleek-6-spark-ligature.svg" loading="lazy" alt="Spark Ligature" />
+          <div class="catalog-title">Spark Ligature</div>
+          <div class="catalog-tag">Sleek 2026</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="hyper cursor" onclick="openInspector('tech-1-hyper-cursor.svg', 'Hyper Cursor', 'Tech Concept')">
+          <img src="./tech-1-hyper-cursor.svg" loading="lazy" alt="Hyper Cursor" />
+          <div class="catalog-title">Hyper Cursor</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="simple 1 chevron m" onclick="openInspector('tech-simple-1-chevron-m.svg', 'Simple 1 Chevron M', 'Tech Concept')">
+          <img src="./tech-simple-1-chevron-m.svg" loading="lazy" alt="Simple 1 Chevron M" />
+          <div class="catalog-title">Simple 1 Chevron M</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="simple 2 monoline loop" onclick="openInspector('tech-simple-2-monoline-loop.svg', 'Simple 2 Monoline Loop', 'Tech Concept')">
+          <img src="./tech-simple-2-monoline-loop.svg" loading="lazy" alt="Simple 2 Monoline Loop" />
+          <div class="catalog-title">Simple 2 Monoline Loop</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="simple 3 code brackets" onclick="openInspector('tech-simple-3-code-brackets.svg', 'Simple 3 Code Brackets', 'Tech Concept')">
+          <img src="./tech-simple-3-code-brackets.svg" loading="lazy" alt="Simple 3 Code Brackets" />
+          <div class="catalog-title">Simple 3 Code Brackets</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="concept" data-title="simple 4 geometric solid" onclick="openInspector('tech-simple-4-geometric-solid.svg', 'Simple 4 Geometric Solid', 'Tech Concept')">
+          <img src="./tech-simple-4-geometric-solid.svg" loading="lazy" alt="Simple 4 Geometric Solid" />
+          <div class="catalog-title">Simple 4 Geometric Solid</div>
+          <div class="catalog-tag">Tech Concept</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="mx ligature" onclick="openInspector('type-1-mx-ligature.svg', 'Mx Ligature', 'Typography & Code')">
+          <img src="./type-1-mx-ligature.svg" loading="lazy" alt="Mx Ligature" />
+          <div class="catalog-title">Mx Ligature</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="md monogram" onclick="openInspector('type-2-md-monogram.svg', 'Md Monogram', 'Typography & Code')">
+          <img src="./type-2-md-monogram.svg" loading="lazy" alt="Md Monogram" />
+          <div class="catalog-title">Md Monogram</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="m prompt" onclick="openInspector('type-3-m-prompt.svg', 'M Prompt', 'Typography & Code')">
+          <img src="./type-3-m-prompt.svg" loading="lazy" alt="M Prompt" />
+          <div class="catalog-title">M Prompt</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="mix cross" onclick="openInspector('type-4-mix-cross.svg', 'Mix Cross', 'Typography & Code')">
+          <img src="./type-4-mix-cross.svg" loading="lazy" alt="Mix Cross" />
+          <div class="catalog-title">Mix Cross</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="heavy grotesk" onclick="openInspector('type-5-heavy-grotesk.svg', 'Heavy Grotesk', 'Typography & Code')">
+          <img src="./type-5-heavy-grotesk.svg" loading="lazy" alt="Heavy Grotesk" />
+          <div class="catalog-title">Heavy Grotesk</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="slash code" onclick="openInspector('type-6-slash-code.svg', 'Slash Code', 'Typography & Code')">
+          <img src="./type-6-slash-code.svg" loading="lazy" alt="Slash Code" />
+          <div class="catalog-title">Slash Code</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="bracket m" onclick="openInspector('type-7-bracket-m.svg', 'Bracket M', 'Typography & Code')">
+          <img src="./type-7-bracket-m.svg" loading="lazy" alt="Bracket M" />
+          <div class="catalog-title">Bracket M</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
+        <div class="catalog-card" data-cat="typography" data-title="linear apex" onclick="openInspector('type-8-linear-apex.svg', 'Linear Apex', 'Typography & Code')">
+          <img src="./type-8-linear-apex.svg" loading="lazy" alt="Linear Apex" />
+          <div class="catalog-title">Linear Apex</div>
+          <div class="catalog-tag">Typography & Code</div>
+        </div>
+
     </div>
+  </div>
 
-    <!-- Scale & Legibility Test Strip -->
-    <div>
-      <div class="section-title">
-        Scale & Legibility Check <span>Cursor / Dual-Slash 스타일의 16px부터 128px까지 실제 크기 테스트</span>
-      </div>
-      <div class="scale-strip">
-        <div class="scale-item">
-          <img src="./agent-ref-2-cursor-cube.svg" width="128" height="128" />
-          <span>128px (App Tile)</span>
+  <div class="modal-backdrop" id="modal-backdrop" onclick="closeInspector(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeInspector()">✕</button>
+      <div class="modal-flex">
+        <div class="modal-hero">
+          <img id="modal-img" alt="Selected logo preview" />
         </div>
-        <div class="scale-item">
-          <img src="./agent-ref-2-cursor-cube.svg" width="64" height="64" />
-          <span>64px (Dock)</span>
-        </div>
-        <div class="scale-item">
-          <img src="./agent-ref-2-cursor-cube.svg" width="48" height="48" />
-          <span>48px (Taskbar)</span>
-        </div>
-        <div class="scale-item">
-          <img src="./agent-ref-2-cursor-cube.svg" width="32" height="32" />
-          <span>32px (Titlebar)</span>
-        </div>
-        <div class="scale-item">
-          <img src="./agent-ref-2-cursor-cube.svg" width="24" height="24" />
-          <span>24px (Tab Icon)</span>
-        </div>
-        <div class="scale-item">
-          <img src="./agent-ref-2-cursor-cube.svg" width="16" height="16" />
-          <span>16px (Favicon/CLI)</span>
+        <div class="modal-details">
+          <span class="agent-pill" id="modal-category">Category</span>
+          <h2 id="modal-title" style="font-size: 24px; margin: 8px 0 16px;">Title</h2>
+
+          <div style="font-size: 12px; color: var(--text-muted);">멀티 스케일 시인성 테스트:</div>
+          <div class="modal-scales">
+            <div style="text-align: center;"><img id="scale-64" style="width: 64px; height: 64px;" /><div style="font-size: 10px; color: #64748b; margin-top: 4px;">64px</div></div>
+            <div style="text-align: center;"><img id="scale-32" style="width: 32px; height: 32px;" /><div style="font-size: 10px; color: #64748b; margin-top: 4px;">32px</div></div>
+            <div style="text-align: center;"><img id="scale-24" style="width: 24px; height: 24px;" /><div style="font-size: 10px; color: #64748b; margin-top: 4px;">24px</div></div>
+            <div style="text-align: center;"><img id="scale-16" style="width: 16px; height: 16px;" /><div style="font-size: 10px; color: #64748b; margin-top: 4px;">16px</div></div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn-primary" onclick="copySvgCode()">📋 SVG 코드 복사</button>
+            <a id="modal-download" class="btn-secondary" download style="text-decoration: none; display: inline-flex; align-items: center;">⬇️ SVG 다운로드</a>
+          </div>
         </div>
       </div>
     </div>
   </div>
+
+  <script>
+    let currentSvgFile = '';
+
+    function switchSimLogo(file, btn) {
+      document.getElementById('ide-tab-icon').src = './' + file;
+      document.getElementById('dock-main-icon').src = './' + file;
+
+      const buttons = document.querySelectorAll('#sim-controls .sim-btn');
+      buttons.forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+    }
+
+    function openInspector(file, title, cat) {
+      currentSvgFile = file;
+      document.getElementById('modal-img').src = './' + file;
+      document.getElementById('scale-64').src = './' + file;
+      document.getElementById('scale-32').src = './' + file;
+      document.getElementById('scale-24').src = './' + file;
+      document.getElementById('scale-16').src = './' + file;
+      document.getElementById('modal-title').innerText = title;
+      document.getElementById('modal-category').innerText = cat;
+      document.getElementById('modal-download').href = './' + file;
+      document.getElementById('modal-download').setAttribute('download', file);
+      document.getElementById('modal-backdrop').classList.add('open');
+    }
+
+    function closeInspector(e) {
+      document.getElementById('modal-backdrop').classList.remove('open');
+    }
+
+    async function copySvgCode() {
+      if (!currentSvgFile) return;
+      try {
+        const res = await fetch('./' + currentSvgFile);
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        alert('SVG 소스코드가 클립보드에 복사되었습니다!');
+      } catch (err) {
+        alert('복사 실패: ' + err.message);
+      }
+    }
+
+    let currentFilter = 'all';
+
+    function setFilter(filter, btn) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      filterCatalog();
+    }
+
+    function filterCatalog() {
+      const q = document.getElementById('search-input').value.toLowerCase().trim();
+      const cards = document.querySelectorAll('.catalog-card');
+
+      cards.forEach(card => {
+        const cat = card.getAttribute('data-cat');
+        const title = card.getAttribute('data-title');
+
+        let matchFilter = (currentFilter === 'all') ||
+                          (currentFilter === 'aperture360' && cat === 'aperture360') ||
+                          (currentFilter === 'aperture' && (cat === 'aperture' || cat === 'aperture360' || cat === 'aperturecol')) ||
+                          (currentFilter === 'deepdive' && cat === 'deepdive') ||
+                          (currentFilter === 'benchmarks' && cat === 'benchmarks') ||
+                          (currentFilter === 'sleek' && cat === 'sleek') ||
+                          (currentFilter === 'metal' && cat === 'metal') ||
+                          (currentFilter === 'cyber' && (cat === 'fresh' || cat === 'radical')) ||
+                          (currentFilter === 'canine' && cat === 'canine') ||
+                          (currentFilter === 'cli' && cat === 'cli');
+
+        let matchSearch = !q || title.includes(q) || cat.includes(q);
+
+        if (matchFilter && matchSearch) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+  </script>
 </body>
 </html>

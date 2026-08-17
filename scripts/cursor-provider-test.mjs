@@ -170,6 +170,7 @@ test('Cursor parameterized catalog preserves model options and sends RequestedMo
             { id: 'effort', value: 'low' },
             { id: 'fast', value: 'false' },
         ],
+        maxMode: false,
     });
     const request = __cursorWireInternals.decodeMessage('AgentClientMessage',
         __cursorWireInternals.buildRunRequest({
@@ -203,6 +204,135 @@ test('Cursor parameterized catalog preserves model options and sends RequestedMo
         { effort: 'low', modelParameters: { thinking: 'true', context: '1m' } },
     );
     assert.deepEqual(bodies[0].mixdog_model_parameters, selection.parameters);
+});
+
+test('Cursor parameterized catalog separates the default context from Max mode', () => {
+    const wire = {
+        name: 'gemini-3.7-flash',
+        clientDisplayName: 'Gemini 3.7 Flash',
+        supportsMaxMode: true,
+        supportsNonMaxMode: true,
+        supportsThinking: true,
+        tooltipData: { markdownContent: '**Gemini 3.7 Flash**<br /><br />1M context window' },
+        parameterDefinitions: [{
+            id: 'effort',
+            name: 'Effort',
+            parameterType: {
+                enumParameter: {
+                    values: [{ value: 'high', displayName: 'High' }],
+                },
+            },
+        }],
+        variants: [{
+            parameterValues: [{ id: 'effort', value: 'high' }],
+            isDefaultNonMaxConfig: true,
+        }],
+    };
+    const decoded = __cursorWireInternals.decodeMessage(
+        'AvailableModel',
+        __cursorWireInternals.encodeMessage('AvailableModel', wire),
+    );
+    assert.equal(decoded.supportsMaxMode, true);
+    assert.equal(decoded.supportsNonMaxMode, true);
+    const normalized = __cursorWireInternals.normalizeParameterizedModels([decoded]);
+    const catalog = __cursorModelInternals.normalizeCursorCatalog(normalized, 'cursor-oauth');
+    const model = catalog.models.find((entry) => entry.id === 'gemini-3.7-flash');
+    assert.equal(model.contextWindow, 200_000);
+    assert.equal(model.maxContextWindow, 1_000_000);
+    const request = __cursorWireInternals.decodeMessage('AgentClientMessage',
+        __cursorWireInternals.buildRunRequest({
+            model: model.id,
+            modelParameters: [],
+            maxMode: true,
+            systems: [],
+            history: [],
+            userText: 'hello',
+            tools: [],
+            conversation: { id: 'max-mode-test', checkpoint: null, blobs: new Map() },
+        }));
+    assert.equal(request.runRequest.requestedModel.maxMode, true);
+});
+
+test('Cursor models without tuning parameters still preserve Max mode metadata', () => {
+    const catalog = __cursorModelInternals.normalizeCursorCatalog([{
+        id: 'composer-max',
+        name: 'Composer Max',
+        maxContextWindow: 1_000_000,
+        supportsMaxMode: true,
+        supportsNonMaxMode: false,
+        parameterDefinitions: [],
+        variants: [],
+    }], 'cursor-oauth');
+    const model = catalog.models.find((entry) => entry.id === 'composer-max');
+    assert.equal(model.contextWindow, 1_000_000);
+    assert.equal(model.maxContextWindow, undefined);
+    assert.equal(model.supportsMaxMode, true);
+    const selection = __cursorModelInternals.selectParameterizedCursorVariant(
+        catalog.parameterGroups.get('composer-max'),
+        { baseId: 'composer-max' },
+        {},
+    );
+    assert.equal(selection.maxMode, true);
+});
+
+test('Cursor Max mode selects its mode-specific default variant', async () => {
+    const normalized = __cursorWireInternals.normalizeParameterizedModels([{
+        name: 'mode-specific',
+        contextTokenLimit: 200_000,
+        contextTokenLimitForMaxMode: 1_000_000,
+        supportsMaxMode: true,
+        supportsNonMaxMode: true,
+        parameterDefinitions: [{
+            id: 'context',
+            name: 'Context',
+            parameterType: {
+                enumParameter: {
+                    values: [
+                        { value: '200k', displayName: '200K' },
+                        { value: '1m', displayName: '1M' },
+                    ],
+                },
+            },
+        }],
+        variants: [{
+            parameterValues: [{ id: 'context', value: '200k' }],
+            isDefaultNonMaxConfig: true,
+        }, {
+            parameterValues: [{ id: 'context', value: '1m' }],
+            isMaxMode: true,
+            isDefaultMaxConfig: true,
+        }],
+    }]);
+    const catalog = __cursorModelInternals.normalizeCursorCatalog(normalized, 'cursor-oauth');
+    const selection = __cursorModelInternals.selectParameterizedCursorVariant(
+        catalog.parameterGroups.get('mode-specific'),
+        { baseId: 'mode-specific' },
+        { selectedContextWindow: 1_000_000 },
+    );
+    assert.deepEqual(selection, {
+        modelId: 'mode-specific',
+        parameters: [{ id: 'context', value: '1m' }],
+        maxMode: true,
+    });
+    let body = null;
+    const provider = new CursorOAuthProvider({
+        accessToken: 'cursor-oauth-access',
+        runtime: {
+            async getCursorModels() { return normalized; },
+            async handleChatCompletion(nextBody) {
+                body = nextBody;
+                return sseResponse([{ choices: [{ delta: {}, finish_reason: 'stop' }] }]);
+            },
+        },
+    });
+    await provider.send(
+        [{ role: 'user', content: 'hello' }],
+        'mode-specific',
+        [],
+        { selectedContextWindow: 1_000_000 },
+    );
+    assert.equal(body.mixdog_max_mode, true);
+    assert.deepEqual(body.mixdog_model_parameters, [{ id: 'context', value: '1m' }]);
 });
 
 test('Cursor developer messages retain system precedence', () => {

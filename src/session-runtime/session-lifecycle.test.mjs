@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { resolveRouteEffortState } from './session-lifecycle.mjs';
+import { makeResolveRoute } from './config-helpers.mjs';
+import { resolveRouteContextState, resolveRouteEffortState } from './session-lifecycle.mjs';
 
 test('cold route metadata preserves persisted effort and enabled Fast mode', () => {
   assert.deepEqual(resolveRouteEffortState({
@@ -59,4 +60,43 @@ test('resolved Cursor parameter variants validate Fast for the selected effort',
     fastCapable: true,
     metadataResolved: true,
   });
+});
+
+test('context percentage uses a model default and ten-point steps', () => {
+  assert.deepEqual(resolveRouteContextState({}, {
+    contextWindow: 200_000,
+    maxContextWindow: 1_000_000,
+  }), {
+    contextPercent: 20,
+    contextDefaultPercent: 20,
+    selectedContextWindow: 200_000,
+  });
+  assert.deepEqual(resolveRouteContextState({ contextPercent: 34 }, {
+    contextWindow: 200_000,
+    maxContextWindow: 1_000_000,
+  }), {
+    contextPercent: 30,
+    contextDefaultPercent: 20,
+    selectedContextWindow: 300_000,
+  });
+  assert.deepEqual(resolveRouteContextState({ contextPercent: null }, {
+    contextWindow: 200_000,
+    maxContextWindow: 1_000_000,
+  }), {
+    contextPercent: 20,
+    contextDefaultPercent: 20,
+    selectedContextWindow: 200_000,
+  });
+});
+
+test('route config treats a cleared context percentage as model-default intent', () => {
+  const resolveRoute = makeResolveRoute(() => 'cursor-oauth');
+  assert.equal(resolveRoute({
+    modelSettings: {
+      'cursor-oauth/gpt-5.4': { contextPercent: null },
+    },
+  }, {
+    provider: 'cursor-oauth',
+    model: 'gpt-5.4',
+  }).contextPercent, undefined);
 });

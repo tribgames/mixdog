@@ -496,33 +496,46 @@ export function createStandaloneAgent({
     };
   }
 
-  function closeAll(reason = 'cli-agent-close-all') {
-    refreshTagsFromSessions({ scanSessions: false });
+  function closeAll(reason = 'cli-agent-close-all', scope = {}) {
+    // Scoped teardown (one Lead closing/deleting/switching) must close ONLY
+    // that Lead's workers: the worker index and task registry are shared by
+    // every Lead in the process, and the old unscoped sweep wiped sibling
+    // Leads' idle workers mid-window (user: 유휴시간이 남았는데 목록이 날아감).
+    const ownerSessionId = clean(scope.callerSessionId);
+    const context = ownerSessionId ? { callerSessionId: ownerSessionId } : {};
+    refreshTagsFromSessions({ scanSessions: false, context });
     const closed = [];
     const failed = [];
-    for (const { tag, session } of agentSessionEntries({ scanSessions: false, context: {} })) {
+    for (const { tag, session } of agentSessionEntries({ scanSessions: false, context })) {
       try {
-        closed.push(close({ sessionId: session.id }));
+        closed.push(close({ sessionId: session.id }, context));
       } catch (err) {
         failed.push({ tag, error: presentErrorText(err, { surface: 'agent' }) });
       }
     }
-    for (const task of listBackgroundTasks({ surface: 'agent' })) {
+    for (const task of listBackgroundTasks({ surface: 'agent', ...(ownerSessionId ? { context } : {}) })) {
       if (task?.status !== 'running') continue;
       cancelBackgroundTask(task.task_id, reason);
       closed.push({ closed: true, tag: task.tag || null, sessionId: task.sessionId || null, task_id: task.task_id });
     }
-    for (const timer of reapTimers.values()) clearTimeout(timer);
-    reapTimers.clear();
-    tags.clear();
-    tagAgents.clear();
-    tagCwds.clear();
+    if (!ownerSessionId) {
+      for (const timer of reapTimers.values()) clearTimeout(timer);
+      reapTimers.clear();
+      tags.clear();
+      tagAgents.clear();
+      tagCwds.clear();
+    }
+    const closedSessionIds = new Set(closed.map((row) => clean(row.sessionId)).filter(Boolean));
     flushWorkerIndexMutations();
     writeWorkerRows((byKey, tombstonesByKey) => {
       for (const [key, row] of [...byKey.entries()]) {
-        if (!isLeadPoolAgent(row.agent)) byKey.delete(key);
+        if (isLeadPoolAgent(row.agent)) continue;
+        if (ownerSessionId
+          && clean(row.ownerSessionId) !== ownerSessionId
+          && !closedSessionIds.has(clean(row.sessionId))) continue;
+        byKey.delete(key);
       }
-      tombstonesByKey.clear();
+      if (!ownerSessionId) tombstonesByKey.clear();
     });
     return { closed, failed };
   }

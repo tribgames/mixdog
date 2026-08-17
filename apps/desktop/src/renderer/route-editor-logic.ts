@@ -1,4 +1,4 @@
-export type RouteSheetPane = 'model' | 'effort' | 'speed';
+export type RouteSheetPane = 'model' | 'effort' | 'context' | 'speed';
 
 export const ROUTE_PANEL_PADDING = 4;
 export const ROUTE_SHEET_ROW_HEIGHT = 36;
@@ -130,10 +130,12 @@ export function routeFlyoutBox(
 export function routeSheetRows(input: {
   hasModel: boolean;
   effortCount: number;
+  contextVisible: boolean;
   fastVisible: boolean;
 }): RouteSheetPane[] {
   const rows: RouteSheetPane[] = ['model'];
   if (input.hasModel && input.effortCount > 0) rows.push('effort');
+  if (input.hasModel && input.contextVisible) rows.push('context');
   if (input.hasModel && input.fastVisible) rows.push('speed');
   return rows;
 }

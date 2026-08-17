@@ -1819,6 +1819,9 @@ export async function createMixdogSessionRuntime({
     get contextWindow() {
       return rt.session?.contextWindow || null;
     },
+    get contextPercent() {
+      return rt.session?.contextPercent ?? rt.route?.contextPercent ?? null;
+    },
     get rawContextWindow() {
       return rt.session?.rawContextWindow || rt.session?.contextWindow || null;
     },

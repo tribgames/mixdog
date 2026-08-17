@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="s3-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111217"/>
+      <stop offset="50%" stop-color="#08080b"/>
+      <stop offset="100%" stop-color="#020203"/>
+    </linearGradient>
+    <linearGradient id="s3-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="s3-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="50%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="s3-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="s3-white" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+    <filter id="s3-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#s3-bg)" filter="url(#s3-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#s3-rim)" stroke-width="1.5"/>
+
+  <!-- Parallel Agent Thread Stepped Cascade (M + Multi-Lane Execution) -->
+  <g id="agent-thread-cascade">
+    <!-- Thread 1 (Left Outer Lane) -->
+    <rect x="124" y="210" width="36" height="136" rx="18" fill="url(#s3-cyan)"/>
+    
+    <!-- Thread 2 (Left Inner Arch Lane) -->
+    <path d="M 176 196 C 176 160 204 144 228 168 L 244 186" fill="none" stroke="url(#s3-white)" stroke-width="32" stroke-linecap="round"/>
+    
+    <!-- Thread 3 (Right Inner Arch Lane) -->
+    <path d="M 336 196 C 336 160 308 144 284 168 L 268 186" fill="none" stroke="url(#s3-white)" stroke-width="32" stroke-linecap="round"/>
+
+    <!-- Thread 4 (Right Outer Lane) -->
+    <rect x="352" y="210" width="36" height="136" rx="18" fill="url(#s3-emerald)"/>
+
+    <!-- Center Forward Terminal Synthesis Chevron (Consensus Output >) -->
+    <path d="M 194 280 L 256 342 L 318 280" fill="none" stroke="#ffffff" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+    
+    <!-- Active Token Pulse Dot -->
+    <circle cx="256" cy="236" r="8" fill="#34d399"/>
+    <circle cx="256" cy="236" r="3" fill="#ffffff"/>
+  </g>
+</svg>

@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mixdog Aperture Triad 360° Seamless Gradient Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #06070a;
+      --bg-surface: #0c0e14;
+      --bg-card: #11141e;
+      --bg-card-hover: #171c2b;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(56, 189, 248, 0.5);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --cyan: #38bdf8;
+      --indigo: #818cf8;
+      --violet: #c084fc;
+      --pink: #f43f5e;
+      --emerald: #10b981;
+      --amber: #fbbf24;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    /* Ambient 360° Chromatic Halo Background */
+    .bg-grid {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.15) 0%, transparent 60%),
+        radial-gradient(circle at 85% 30%, rgba(244, 63, 94, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 15% 40%, rgba(16, 185, 129, 0.1) 0%, transparent 50%),
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 48px 32px 120px;
+    }
+
+    /* Header */
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 18px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 999px;
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 18px;
+      box-shadow: 0 0 24px rgba(56, 189, 248, 0.2);
+    }
+
+    .pill-badge .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan);
+    }
+
+    h1 {
+      font-size: 46px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #ffffff 20%, #38bdf8 60%, #c084fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 17px;
+      color: var(--text-muted);
+      max-width: 860px;
+      margin: 0 auto 28px;
+    }
+
+    /* Live Scale Tester Panel */
+    .tester-panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 28px 36px;
+      margin-bottom: 56px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+    }
+
+    .tester-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .tester-title {
+      font-size: 16px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .scale-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      gap: 24px;
+      flex-wrap: wrap;
+      padding: 24px;
+      background: #07080c;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .scale-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .scale-item span {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim);
+    }
+
+    /* Filter Bar */
+    .filter-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .filter-chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      padding: 7px 16px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip:hover, .chip.active {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+      font-weight: 700;
+      box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
+    }
+
+    /* Grid */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      transform: translateY(-6px);
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(56, 189, 248, 0.15);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .badge-cat {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+
+    .badge-tag {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--cyan);
+    }
+
+    .img-wrap {
+      background: #080a0f;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: var(--radius-md);
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 18px;
+    }
+
+    .img-wrap img {
+      width: 140px;
+      height: 140px;
+      transition: transform 0.3s ease;
+      filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5));
+    }
+
+    .card:hover .img-wrap img {
+      transform: scale(1.08);
+    }
+
+    .card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.55;
+      margin-bottom: 16px;
+      flex-grow: 1;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .btn {
+      flex: 1;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      color: var(--cyan);
+    }
+
+    .btn-primary:hover {
+      background: var(--cyan);
+      color: #000;
+      font-weight: 700;
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(16px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 24px;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal-card {
+      background: #0f121a;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius-xl);
+      max-width: 760px;
+      width: 100%;
+      padding: 36px;
+      position: relative;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.8);
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 20px; right: 20px;
+      background: rgba(255, 255, 255, 0.08);
+      border: none;
+      color: #fff;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 16px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+    }
+
+    .modal-flex {
+      display: flex;
+      gap: 32px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .modal-hero {
+      width: 220px;
+      height: 220px;
+      background: #07080c;
+      border-radius: 20px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-hero img { width: 100%; height: 100%; }
+
+    .modal-details {
+      flex: 1;
+      min-width: 280px;
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+
+  <div class="container">
+    <header>
+      <div class="pill-badge">
+        <div class="dot"></div>
+        <span>360° Endless Chromatic Orbit Suite</span>
+      </div>
+      <h1>Aperture Triad 360° Seamless Gradient Lab</h1>
+      <p class="subtitle">
+        131번 Aperture Triad의 3개 아크가 120°씩 회전하며 <strong>360도 전 영역을 끊김 없이 하나로 이어지는 완벽한 폐곡선 컬러 루프</strong>로 연결된 에디션입니다.<br>
+        (Arc 1: A &rarr; B, Arc 2: B &rarr; C, Arc 3: C &rarr; A 로 수렴하는 무한 순환 그라데이션)
+      </p>
+    </header>
+
+    <!-- Scale & Legibility Live Inspector -->
+    <div class="tester-panel">
+      <div class="tester-header">
+        <div class="tester-title">
+          <span>🔍 실시간 멀티 스케일 시인성 뷰어:</span>
+          <strong id="active-title" style="color: var(--cyan);">360° Full Chromatic Spectrum</strong>
+        </div>
+      </div>
+      <div class="scale-row">
+        <div class="scale-item">
+          <img id="scale-128" src="./ap-360-01.svg" style="width: 128px; height: 128px;" />
+          <span>128px (Hero App Tile)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-64" src="./ap-360-01.svg" style="width: 64px; height: 64px;" />
+          <span>64px (macOS Dock)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-32" src="./ap-360-01.svg" style="width: 32px; height: 32px;" />
+          <span>32px (Toolbar)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-24" src="./ap-360-01.svg" style="width: 24px; height: 24px;" />
+          <span>24px (Editor Tab)</span>
+        </div>
+        <div class="scale-item">
+          <img id="scale-16" src="./ap-360-01.svg" style="width: 16px; height: 16px;" />
+          <span>16px (CLI Favicon)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <div class="filter-chips">
+        <button class="chip active" onclick="filterCategory('all', this)">전체 (18)</button>
+        <button class="chip" onclick="filterCategory('Full Spectrum', this)">🌈 Full Spectrum</button>
+        <button class="chip" onclick="filterCategory('Cyber Neon', this)">⚡ Cyber Neon</button>
+        <button class="chip" onclick="filterCategory('Sunset & Flame', this)">🔥 Sunset & Flame</button>
+        <button class="chip" onclick="filterCategory('Siri & Fluid', this)">✨ Siri & Fluid</button>
+        <button class="chip" onclick="filterCategory('Ocean & Nature', this)">🌊 Ocean & Nature</button>
+        <button class="chip" onclick="filterCategory('Terminal & CLI', this)">💻 Terminal & CLI</button>
+        <button class="chip" onclick="filterCategory('Metallic & Chrome', this)">🪙 Metallic Chrome</button>
+        <button class="chip" onclick="filterCategory('Warm & Minimal', this)">☕ Warm & Minimal</button>
+      </div>
+    </div>
+
+    <!-- 360 Variations Grid -->
+    <div class="grid" id="card-grid">
+      
+        <div class="card" data-cat="Full Spectrum" onclick="selectVariation('ap-360-01', '360° Full Chromatic Spectrum')">
+          <div class="card-top">
+            <span class="badge-cat">Full Spectrum</span>
+            <span class="badge-tag">Red -> Green -> Blue -> Red</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-01.svg" alt="360° Full Chromatic Spectrum" />
+          </div>
+          <h3>360° Full Chromatic Spectrum</h3>
+          <p>360도 전 영역을 순환하는 순수 HSL 스펙트럼. 빨강에서 에메랄드, 인디고 블루를 거쳐 다시 빨강으로 완벽하게 이어지는 무한 색상환 루프.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-01.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-01.svg" download="ap-360-01.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" onclick="selectVariation('ap-360-02', 'Cyberpunk Neon 360° Endless Flow')">
+          <div class="card-top">
+            <span class="badge-cat">Cyber Neon</span>
+            <span class="badge-tag">Cyan -> Violet -> Hot Pink -> Cyan</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-02.svg" alt="Cyberpunk Neon 360° Endless Flow" />
+          </div>
+          <h3>Cyberpunk Neon 360° Endless Flow</h3>
+          <p>일렉트릭 사이언에서 네온 바이올렛, 핫 마젠타 핑크를 거쳐 다시 사이언으로 끊김 없이 연결되는 하이퍼 사이버네틱 360° 루프.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-02.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-02.svg" download="ap-360-02.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Sunset & Flame" onclick="selectVariation('ap-360-03', 'Sunset Horizon 360° Orbit')">
+          <div class="card-top">
+            <span class="badge-cat">Sunset & Flame</span>
+            <span class="badge-tag">Gold -> Coral Red -> Royal Purple -> Gold</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-03.svg" alt="Sunset Horizon 360° Orbit" />
+          </div>
+          <h3>Sunset Horizon 360° Orbit</h3>
+          <p>골든 아워의 찬란한 황금빛에서 노을빛 코랄 레드, 밤하늘의 딥 인디고를 지나 다시 태양의 금빛으로 수렴하는 360° 황혼 순환.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-03.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-03.svg" download="ap-360-03.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Siri & Fluid" onclick="selectVariation('ap-360-04', 'Apple Intelligence 360° Iridescent')">
+          <div class="card-top">
+            <span class="badge-cat">Siri & Fluid</span>
+            <span class="badge-tag">Soft Pastel Spectrum 360°</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-04.svg" alt="Apple Intelligence 360° Iridescent" />
+          </div>
+          <h3>Apple Intelligence 360° Iridescent</h3>
+          <p>Apple Intelligence 감성의 유려한 파스텔 오로라. 핑크-퍼플-사이언-앰버가 부드러운 글래스 질감으로 360도 순환하며 산란.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-04.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-04.svg" download="ap-360-04.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Ocean & Nature" onclick="selectVariation('ap-360-05', 'Bioluminescent Abyss 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Ocean & Nature</span>
+            <span class="badge-tag">Mint -> Deep Cyan -> Cobalt -> Mint</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-05.svg" alt="Bioluminescent Abyss 360°" />
+          </div>
+          <h3>Bioluminescent Abyss 360°</h3>
+          <p>심해 생물 발광에서 영감을 얻은 쿨톤 360° 루프. 네온 민트에서 터키석 아쿠아, 깊은 코발트 블루로 이어져 다시 민트로 환원.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-05.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-05.svg" download="ap-360-05.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Sunset & Flame" onclick="selectVariation('ap-360-06', 'Plasma Ignition Heat Cycle 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Sunset & Flame</span>
+            <span class="badge-tag">Yellow -> Magma -> Purple -> Yellow</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-06.svg" alt="Plasma Ignition Heat Cycle 360°" />
+          </div>
+          <h3>Plasma Ignition Heat Cycle 360°</h3>
+          <p>고에너지 플라즈마 점화 열역학 사이클. 레몬 옐로우에서 마그마 오렌지, 초고온 바이올렛 플라즈마로 전환되어 다시 옐로우로 폭발.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-06.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-06.svg" download="ap-360-06.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Warm & Minimal" onclick="selectVariation('ap-360-07', 'Anthropic Claude Warm Ember 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Warm & Minimal</span>
+            <span class="badge-tag">Terracotta -> Coral -> Sand Gold -> Terracotta</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-07.svg" alt="Anthropic Claude Warm Ember 360°" />
+          </div>
+          <h3>Anthropic Claude Warm Ember 360°</h3>
+          <p>Claude의 인간적이고 따뜻한 인텔리전스. 웜 테라코타 오렌지에서 딥 코랄, 샌드 골드로 순환하는 360° 아늑한 온열 그라디언트.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-07.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-07.svg" download="ap-360-07.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Terminal & CLI" onclick="selectVariation('ap-360-08', 'Ghostty CRT Phosphor 360° Loop')">
+          <div class="card-top">
+            <span class="badge-cat">Terminal & CLI</span>
+            <span class="badge-tag">Lime 400 -> Emerald 600 -> Jade -> Lime</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-08.svg" alt="Ghostty CRT Phosphor 360° Loop" />
+          </div>
+          <h3>Ghostty CRT Phosphor 360° Loop</h3>
+          <p>터미널 해커의 상징 인광체 CRT 그린의 360° 연속 루프. 고휘도 라임 그린에서 딥 에메랄드를 지나 다시 생생한 형광 그린으로 순환.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-08.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-08.svg" download="ap-360-08.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Motion & Velocity" onclick="selectVariation('ap-360-09', 'Comet Velocity Head-to-Tail 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Motion & Velocity</span>
+            <span class="badge-tag">Bright Head -> Fading Tail -> Next Comet</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-09.svg" alt="Comet Velocity Head-to-Tail 360°" />
+          </div>
+          <h3>Comet Velocity Head-to-Tail 360°</h3>
+          <p>3개의 혜성이 120° 시차를 두고 회전하며 에너지를 전달하는 다이내믹 루프. 각 아크의 빛나는 헤드가 다음 아크의 꼬리로 자연스럽게 연결.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-09.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-09.svg" download="ap-360-09.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Metallic & Chrome" onclick="selectVariation('ap-360-10', 'Liquid Titanium Specular 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Metallic & Chrome</span>
+            <span class="badge-tag">Specular Chrome -> Deep Shadow -> Platinum</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-10.svg" alt="Liquid Titanium Specular 360°" />
+          </div>
+          <h3>Liquid Titanium Specular 360°</h3>
+          <p>원형 360도 광원 축을 따라 회전하는 액체 티타늄 크롬 반사. 100% 백열광 하이라이트에서 딥 건메탈 섀도우를 지나 다시 플래티넘으로 연결.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-10.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-10.svg" download="ap-360-10.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Metallic & Chrome" onclick="selectVariation('ap-360-11', 'Champagne Gold & Amber 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Metallic & Chrome</span>
+            <span class="badge-tag">White Gold -> Bronze Amber -> Rich Gold</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-11.svg" alt="Champagne Gold & Amber 360°" />
+          </div>
+          <h3>Champagne Gold & Amber 360°</h3>
+          <p>최고급 시계 베젤을 연상시키는 360° 샴페인 골드 순환. 화이트 골드 광채에서 깊은 브론즈 앰버, 리치 골드로 매끄럽게 연결되는 프레스티지 엠블럼.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-11.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-11.svg" download="ap-360-11.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Warm & Minimal" onclick="selectVariation('ap-360-12', 'Monochrome Infinite Luminance 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Warm & Minimal</span>
+            <span class="badge-tag">100% White -> 50% Gray -> 10% Charcoal -> 100% White</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-12.svg" alt="Monochrome Infinite Luminance 360°" />
+          </div>
+          <h3>Monochrome Infinite Luminance 360°</h3>
+          <p>컬러를 완전히 배제하고 오직 명도(Luminance)의 360° 연속 변화만으로 조형미를 완성한 궁극의 미니멀리즘. 다크/라이트 모드 모두에 완벽 적응.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-12.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-12.svg" download="ap-360-12.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" onclick="selectVariation('ap-360-13', 'Retro Synthwave Laser 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Cyber Neon</span>
+            <span class="badge-tag">Neon Cyan -> Hot Pink -> Solar Yellow -> Cyan</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-13.svg" alt="Retro Synthwave Laser 360°" />
+          </div>
+          <h3>Retro Synthwave Laser 360°</h3>
+          <p>80년대 레트로 신스웨이브 감성의 초고채도 레이저 360° 루프. 네온 사이언, 핫 핑크, 솔라 옐로우가 만들어내는 폭발적인 레트로퓨처리즘 에너지.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-13.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-13.svg" download="ap-360-13.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Full Spectrum" onclick="selectVariation('ap-360-14', 'Quantum Prism Refraction 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Full Spectrum</span>
+            <span class="badge-tag">Electric Blue -> Emerald -> Rose -> Blue</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-14.svg" alt="Quantum Prism Refraction 360°" />
+          </div>
+          <h3>Quantum Prism Refraction 360°</h3>
+          <p>양자 광학 프리즘 굴절의 360° 순환. 고굴절 다이아몬드 코어와 3개 아크가 서로의 보색을 반사하며 무한 분광 스펙트럼 생성.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-14.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-14.svg" download="ap-360-14.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Warm & Minimal" onclick="selectVariation('ap-360-15', 'Precision Hairline 360° (14px)')">
+          <div class="card-top">
+            <span class="badge-cat">Warm & Minimal</span>
+            <span class="badge-tag">Ultra-Fine Line 360° Spectral Flow</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-15.svg" alt="Precision Hairline 360° (14px)" />
+          </div>
+          <h3>Precision Hairline 360° (14px)</h3>
+          <p>극도로 정밀한 14px 슬림 헤어라인 아크 위로 360도 스펙트럼이 얇고 선명하게 흐르는 하이엔드 테크니컬 드로잉 에디션.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-15.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-15.svg" download="ap-360-15.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Full Spectrum" onclick="selectVariation('ap-360-16', 'Ultra Chunky Bold 360° (30px)')">
+          <div class="card-top">
+            <span class="badge-cat">Full Spectrum</span>
+            <span class="badge-tag">Heavy Stroke 30px Impact Loop</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-16.svg" alt="Ultra Chunky Bold 360° (30px)" />
+          </div>
+          <h3>Ultra Chunky Bold 360° (30px)</h3>
+          <p>30px의 극단적으로 묵직한 볼드 스트로크를 가득 채우는 360도 파워풀 그라디언트. 16px 파비콘이나 초소형 탭에서도 압도적인 시인성 발휘.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-16.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-16.svg" download="ap-360-16.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Warm & Minimal" onclick="selectVariation('ap-360-17', 'Light Ceramic Pure Clean 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Warm & Minimal</span>
+            <span class="badge-tag">Light Tile / Pastel Spectrum 360°</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-17.svg" alt="Light Ceramic Pure Clean 360°" />
+          </div>
+          <h3>Light Ceramic Pure Clean 360°</h3>
+          <p>순백의 세라믹 라이트 타일 위에서 청명하게 회전하는 360도 파스텔 스펙트럼. 라이트 모드 IDE 및 화이트 문서에 최적화된 화사한 비주얼.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-17.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-17.svg" download="ap-360-17.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+        <div class="card" data-cat="Cyber Neon" onclick="selectVariation('ap-360-18', 'Tri-Segment Multi-Core 360°')">
+          <div class="card-top">
+            <span class="badge-cat">Cyber Neon</span>
+            <span class="badge-tag">3-Piece Core matches 3 Outer Arcs</span>
+          </div>
+          <div class="img-wrap">
+            <img src="./ap-360-18.svg" alt="Tri-Segment Multi-Core 360°" />
+          </div>
+          <h3>Tri-Segment Multi-Core 360°</h3>
+          <p>중앙 코어까지 3분할되어 3개 아크의 360도 컬러 흐름과 1:1로 정확히 조응하는 완벽한 기하학적 일체감의 마스터 에디션.</p>
+          <div class="card-actions">
+            <button class="btn btn-primary" onclick="event.stopPropagation(); copySvgCode('ap-360-18.svg')">📋 SVG 복사</button>
+            <a class="btn btn-secondary" href="./ap-360-18.svg" download="ap-360-18.svg" onclick="event.stopPropagation()">⬇️ 다운로드</a>
+          </div>
+        </div>
+      
+    </div>
+  </div>
+
+  <script>
+    function selectVariation(id, title) {
+      document.getElementById('active-title').innerText = title;
+      const file = './' + id + '.svg';
+      document.getElementById('scale-128').src = file;
+      document.getElementById('scale-64').src = file;
+      document.getElementById('scale-32').src = file;
+      document.getElementById('scale-24').src = file;
+      document.getElementById('scale-16').src = file;
+      window.scrollTo({ top: 180, behavior: 'smooth' });
+    }
+
+    function filterCategory(cat, btn) {
+      document.querySelectorAll('.filter-chips .chip').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+
+      const cards = document.querySelectorAll('.card');
+      cards.forEach(card => {
+        const itemCat = card.getAttribute('data-cat');
+        if (cat === 'all' || itemCat === cat) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+
+    async function copySvgCode(filename) {
+      try {
+        const res = await fetch('./' + filename);
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        alert(filename + ' SVG 코드가 클립보드에 복사되었습니다!');
+      } catch (err) {
+        alert('복사 실패: ' + err.message);
+      }
+    }
+  </script>
+</body>
+</html>

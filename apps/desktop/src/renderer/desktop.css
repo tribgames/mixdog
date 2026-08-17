@@ -10098,6 +10098,23 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .route-sheet-slider input { flex: 1; min-width: 0; }
 .route-sheet-slider span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.route-context-stepper {
+  display: grid;
+  grid-template-columns: 38px minmax(112px, 1fr) 38px;
+  gap: 4px;
+  padding: 2px 6px 6px;
+}
+.route-context-stepper > button {
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+}
+.route-context-value {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.route-context-value small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 .route-sheet,
 .route-sheet-flyout { overflow: auto; overscroll-behavior: contain; }
 .route-sheet-flyout--model { overflow: hidden; padding: 0; }

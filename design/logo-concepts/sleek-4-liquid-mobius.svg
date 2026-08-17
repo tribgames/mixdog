@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="s4-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141419"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="s4-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#f43f5e" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.2"/>
+    </linearGradient>
+    <!-- Liquid Titanium Spectrum Gradient -->
+    <linearGradient id="s4-ribbon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="35%" stop-color="#818cf8"/>
+      <stop offset="70%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <radialGradient id="s4-glow" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#818cf8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="s4-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#s4-bg)" filter="url(#s4-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#s4-rim)" stroke-width="1.5"/>
+  <circle cx="256" cy="240" r="140" fill="url(#s4-glow)"/>
+
+  <!-- Fluid Möbius Stream: Single-Stroke Continuous M & Execution Eye -->
+  <g id="mobius-stream">
+    <path d="M 140 348
+             C 116 270 120 160 178 144
+             C 226 130 244 196 256 226
+             C 268 196 286 130 334 144
+             C 392 160 396 270 372 348
+             M 196 276
+             L 256 336
+             L 316 276"
+          fill="none"
+          stroke="url(#s4-ribbon)"
+          stroke-width="36"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- High-Definition White Specular Light Crease on Inner Apex -->
+    <path d="M 196 276 L 256 336 L 316 276"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="3.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <circle cx="256" cy="290" r="6" fill="#38bdf8"/>
+    <circle cx="256" cy="290" r="2.5" fill="#ffffff"/>
+  </g>
+</svg>

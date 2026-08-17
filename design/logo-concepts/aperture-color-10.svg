@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    
+      <linearGradient id="g10-a" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#00f2fe"/><stop offset="100%" stop-color="#4f46e5"/>
+      </linearGradient>
+      <linearGradient id="g10-b" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#f43f5e"/><stop offset="100%" stop-color="#ec4899"/>
+      </linearGradient>
+      <linearGradient id="g10-c" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#cbd5e1"/>
+      </linearGradient>
+    
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#0a0d14"/>
+  <g fill="none" stroke-width="22" stroke-linecap="round">
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#g10-a)" />
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#g10-b)" transform="rotate(120 128 128)"/>
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#g10-c)" transform="rotate(240 128 128)"/>
+  </g>
+  
+      <!-- Hexagonal Kernel Core -->
+      <polygon points="128,114 140,121 140,135 128,142 116,135 116,121" fill="#00f2fe"/>
+      <polygon points="128,120 134,124 134,132 128,136 122,132 122,124" fill="#ffffff"/>
+    
+</svg>

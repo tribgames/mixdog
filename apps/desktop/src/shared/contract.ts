@@ -281,6 +281,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   fast?: boolean;
   fastCapable?: boolean;
   modelParameters?: Readonly<Record<string, string>>;
+  contextPercent?: number;
   desktopSessionTitle?: string;
   agentWorkers?: DesktopAgentWorker[];
   agentJobs?: DesktopAgentJob[];
@@ -384,6 +385,7 @@ export interface DesktopModelOption {
   created?: number;
   releaseDate?: string;
   contextWindow?: number;
+  maxContextWindow?: number;
   family?: string;
   latest?: boolean;
   /** Free-form secondary line; media lanes use it for the provider name. */
@@ -401,6 +403,7 @@ export interface DesktopModelOption {
   parameterVariants?: Array<Record<string, string>>;
   defaultModelParameters?: Record<string, string>;
   savedModelParameters?: Record<string, string>;
+  savedContextPercent?: number;
 }
 
 export interface DesktopModelCatalogOptions {
@@ -415,6 +418,7 @@ export interface DesktopModelSelection {
   effort?: string;
   fast?: boolean;
   modelParameters?: Record<string, string>;
+  contextPercent?: number;
 }
 
 export interface DesktopPromptTextPart {

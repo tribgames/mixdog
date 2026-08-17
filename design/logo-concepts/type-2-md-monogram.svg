@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="t2-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#181920"/>
+      <stop offset="50%" stop-color="#0b0c10"/>
+      <stop offset="100%" stop-color="#030304"/>
+    </linearGradient>
+    <linearGradient id="t2-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#6366f1" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="t2-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#f1f5f9"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+    <filter id="t2-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#t2-bg)" filter="url(#t2-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#t2-border)" stroke-width="1.5"/>
+  
+  <!-- Interlocking 'M' + 'D' Monogram in precision 45-degree cuts -->
+  <g transform="translate(0, 0)">
+    <!-- Left 'M' stem & plunge -->
+    <path d="M 136 348 V 164 L 208 260 L 256 196" 
+          fill="none" stroke="url(#t2-grad)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Right 'D' semi-circle looping back from M apex -->
+    <path d="M 256 196 L 304 260 L 376 164 V 348" 
+          fill="none" stroke="url(#t2-grad)" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Terminal Prompt Accent Dot / Amber status -->
+    <circle cx="256" cy="316" r="14" fill="#f59e0b"/>
+  </g>
+</svg>

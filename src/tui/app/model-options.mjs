@@ -211,7 +211,7 @@ export const effortDisplayLabel = (value) => {
 export const fastDisplayLabel = (enabled = true) => `Fast ${enabled ? 'On' : 'Off'}`;
 
 export const modelDescription = (m) => [
-  formatContextWindow(modelContextWindow(m)) || String(m?.description || '').trim(),
+  String(m?.description || '').trim(),
   m.fastCapable ? 'Fast Available' : '',
 ].filter(Boolean).join(' · ');
 
