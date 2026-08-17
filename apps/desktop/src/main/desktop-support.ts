@@ -98,6 +98,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
     const fastCapable = row.fastCapable === true;
     const created = Number(row.created);
     const contextWindow = Number(row.contextWindow);
+    const maxContextWindow = Number(row.maxContextWindow);
     const releaseDate = typeof row.releaseDate === 'string' ? row.releaseDate.trim() : '';
     const family = typeof row.family === 'string' ? row.family.trim() : '';
     const description = typeof row.description === 'string' ? row.description.trim() : '';
@@ -106,6 +107,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
       ? row.savedEffort
       : undefined;
     const savedFast = typeof row.savedFast === 'boolean' ? row.savedFast : undefined;
+    const savedContextPercent = Number(row.savedContextPercent);
     const modelParameterOptions = Array.isArray(row.modelParameterOptions)
       ? row.modelParameterOptions as DesktopModelOption['modelParameterOptions']
       : [];
@@ -125,6 +127,7 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
       ...(Number.isFinite(created) && created > 0 ? { created } : {}),
       ...(releaseDate ? { releaseDate } : {}),
       ...(Number.isFinite(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
+      ...(Number.isFinite(maxContextWindow) && maxContextWindow > 0 ? { maxContextWindow } : {}),
       ...(family ? { family } : {}),
       ...(row.latest === true ? { latest: true } : {}),
       ...(description ? { description } : {}),
@@ -134,6 +137,9 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
       fastPreferred: fastCapable && (row.fastPreferred === true || row.savedFast === true),
       ...(savedEffort ? { savedEffort } : {}),
       ...(savedFast === undefined ? {} : { savedFast }),
+      ...(Number.isFinite(savedContextPercent) && savedContextPercent >= 10 && savedContextPercent <= 100
+        ? { savedContextPercent }
+        : {}),
       ...(typeof row.defaultEffort === 'string' && row.defaultEffort ? { defaultEffort: row.defaultEffort } : {}),
       ...(row.defaultFast === true ? { defaultFast: true } : {}),
       modelParameterOptions,

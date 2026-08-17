@@ -45,6 +45,26 @@ export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
   return { effectiveEffort, fastCapable, metadataResolved };
 }
 
+export function resolveRouteContextState(targetRoute = {}, modelMeta = null) {
+  const defaultWindow = Math.max(0, Number(modelMeta?.contextWindow) || 0);
+  const maxWindow = Math.max(defaultWindow, Number(modelMeta?.maxContextWindow) || 0);
+  if (!maxWindow) {
+    return { contextPercent: undefined, contextDefaultPercent: undefined, selectedContextWindow: undefined };
+  }
+  const contextDefaultPercent = Math.max(
+    10,
+    Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10),
+  );
+  const requested = Number(targetRoute?.contextPercent);
+  const contextPercent = Number.isFinite(requested) && requested > 0
+    ? Math.max(10, Math.min(100, Math.round(requested / 10) * 10))
+    : contextDefaultPercent;
+  const selectedContextWindow = contextPercent === contextDefaultPercent
+    ? defaultWindow
+    : Math.max(1, Math.floor(maxWindow * contextPercent / 100));
+  return { contextPercent, contextDefaultPercent, selectedContextWindow };
+}
+
 export function createSessionLifecycle({
   rt,
   collectProviderModels,
@@ -119,6 +139,7 @@ export function createSessionLifecycle({
     // metadata is loading. Never let the older completion overwrite it.
     if (expectedRoute && rt.route !== expectedRoute) return null;
     const { effectiveEffort, fastCapable } = resolveRouteEffortState(targetRoute, modelMeta);
+    const contextState = resolveRouteContextState(targetRoute, modelMeta);
     const contextValue = clean(targetRoute.modelParameters?.context);
     const contextOption = (modelMeta?.modelParameterOptions || [])
       .find((option) => option?.id === 'context')?.options
@@ -138,7 +159,13 @@ export function createSessionLifecycle({
       fastCapable,
       effectiveEffort,
       effortOptions: effortItemsFor(rt.route.provider, modelMeta, effectiveEffort),
-      ...(Number(contextOption?.contextWindow) > 0 ? { selectedContextWindow: Number(contextOption.contextWindow) } : {}),
+      contextPercent: contextState.contextPercent,
+      contextDefaultPercent: contextState.contextDefaultPercent,
+      ...(Number(contextState.selectedContextWindow) > 0
+        ? { selectedContextWindow: Number(contextState.selectedContextWindow) }
+        : Number(contextOption?.contextWindow) > 0
+          ? { selectedContextWindow: Number(contextOption.contextWindow) }
+          : {}),
       ...(modelDisplay ? { modelDisplay } : {}),
     };
     return rt.route;
@@ -274,6 +301,7 @@ export function createSessionLifecycle({
         workflowContext,
         fast: rt.route.fast === true,
         modelParameters: rt.route.modelParameters || {},
+        contextPercent: rt.route.contextPercent,
         selectedContextWindow: rt.route.selectedContextWindow || null,
         compaction: rt.config.compaction && typeof rt.config.compaction === 'object'
           ? normalizeCompactionConfig(rt.config.compaction)

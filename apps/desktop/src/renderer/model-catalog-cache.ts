@@ -81,6 +81,9 @@ function modelOption(value: unknown): DesktopModelOption | null {
     ...(typeof option.contextWindow === 'number' && Number.isFinite(option.contextWindow)
       ? { contextWindow: option.contextWindow }
       : {}),
+    ...(typeof option.maxContextWindow === 'number' && Number.isFinite(option.maxContextWindow)
+      ? { maxContextWindow: option.maxContextWindow }
+      : {}),
     ...(typeof option.family === 'string' ? { family: option.family } : {}),
     ...(typeof option.latest === 'boolean' ? { latest: option.latest } : {}),
     ...(typeof option.description === 'string' ? { description: option.description } : {}),
@@ -91,6 +94,9 @@ function modelOption(value: unknown): DesktopModelOption | null {
     fastPreferred: option.fastPreferred === true,
     ...(typeof option.savedEffort === 'string' ? { savedEffort: option.savedEffort } : {}),
     ...(typeof option.savedFast === 'boolean' ? { savedFast: option.savedFast } : {}),
+    ...(typeof option.savedContextPercent === 'number' && Number.isFinite(option.savedContextPercent)
+      ? { savedContextPercent: option.savedContextPercent }
+      : {}),
     ...(typeof option.defaultEffort === 'string' ? { defaultEffort: option.defaultEffort } : {}),
     ...(typeof option.defaultFast === 'boolean' ? { defaultFast: option.defaultFast } : {}),
     modelParameterOptions: parameterOptions(option.modelParameterOptions),

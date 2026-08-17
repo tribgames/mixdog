@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="at1-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14151b"/>
+      <stop offset="50%" stop-color="#090a0e"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="at1-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="at1-arc-1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="at1-arc-2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+    <linearGradient id="at1-arc-3" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <filter id="at1-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#at1-bg)" filter="url(#at1-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#at1-rim)" stroke-width="1.5"/>
+
+  <!-- Precision Guideline Ring -->
+  <circle cx="256" cy="256" r="148" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.08" stroke-dasharray="4 8"/>
+
+  <!-- 3 Precision Swept Aperture Arcs -->
+  <g fill="none" stroke-width="36" stroke-linecap="round">
+    <path d="M 232 122 A 136 136 0 0 1 384 210" stroke="url(#at1-arc-1)"/>
+    <path d="M 232 122 A 136 136 0 0 1 384 210" stroke="url(#at1-arc-2)" transform="rotate(120 256 256)"/>
+    <path d="M 232 122 A 136 136 0 0 1 384 210" stroke="url(#at1-arc-3)" transform="rotate(240 256 256)"/>
+  </g>
+
+  <!-- Central Singularity Iris Kernel -->
+  <circle cx="256" cy="256" r="20" fill="#ffffff" filter="drop-shadow(0 0 12px rgba(56, 189, 248, 0.8))"/>
+  <circle cx="256" cy="256" r="8" fill="#090a0e"/>
+</svg>

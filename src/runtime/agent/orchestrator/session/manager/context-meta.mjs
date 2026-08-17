@@ -43,11 +43,15 @@ const CONTEXT_WINDOWS = {
 // a giant window.
 const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp', 'llama.cpp', 'local', '']);
 function guessContextWindow(model, provider = null) {
-    if (CONTEXT_WINDOWS[model])
-        return CONTEXT_WINDOWS[model];
     const m = String(model || '').toLowerCase();
     const p = String(provider || '').toLowerCase();
     const isLocalProvider = LOCAL_PROVIDERS.has(p);
+    // Cursor's backend defaults to the standard 200k tier when its live
+    // catalog has not warmed yet. Larger Max windows are model metadata, not
+    // a safe cold-start request boundary.
+    if ((p === 'cursor-oauth' || p === 'cursor-api') && m) return 200000;
+    if (CONTEXT_WINDOWS[model])
+        return CONTEXT_WINDOWS[model];
     // Local/self-hosted families — never inflate an unknown local id.
     if (isLocalProvider && (m.includes('llama') || m.includes('mistral') || m.includes('mixtral')
         || m.includes('phi') || m.includes('qwen') || m.includes('gemma')

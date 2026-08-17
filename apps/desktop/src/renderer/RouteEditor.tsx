@@ -14,6 +14,7 @@ import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ModelPicker } from './ModelPicker';
+import { formatContextWindow } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
 import {
   ROUTE_PANEL_PADDING,
@@ -89,6 +90,7 @@ function sheetAnchor(
 function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number): number {
   if (pane === 'model') return 380;
   if (pane === 'effort') return Math.min(300, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 34));
+  if (pane === 'context') return 94;
   return 132;
 }
 
@@ -108,6 +110,10 @@ export function RouteEditor({
   fast,
   fastVisible,
   fastAvailable,
+  contextVisible,
+  contextPercent,
+  contextDefaultPercent,
+  contextTokens,
   catalogLoaded,
   catalogRefreshing,
   catalogError,
@@ -118,6 +124,7 @@ export function RouteEditor({
   onSelectModel,
   onChangeEffort,
   onChangeFast,
+  onChangeContext,
   onOpenProviders,
 }: {
   models: DesktopModelOption[];
@@ -129,6 +136,10 @@ export function RouteEditor({
   fast: boolean;
   fastVisible: boolean;
   fastAvailable: boolean;
+  contextVisible: boolean;
+  contextPercent: number;
+  contextDefaultPercent: number;
+  contextTokens: number;
   catalogLoaded: boolean;
   catalogRefreshing: boolean;
   catalogError: string;
@@ -139,6 +150,7 @@ export function RouteEditor({
   onSelectModel(option: DesktopModelOption): unknown;
   onChangeEffort(value: string): void;
   onChangeFast(enabled: boolean): void;
+  onChangeContext(percent: number): void;
   onOpenProviders(): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -172,6 +184,7 @@ export function RouteEditor({
   const rows = routeSheetRows({
     hasModel: Boolean(provider && model),
     effortCount: effortOptions.length,
+    contextVisible,
     fastVisible,
   });
   const sheetHeight = rows.length * ROUTE_SHEET_ROW_HEIGHT + ROUTE_PANEL_PADDING * 2;
@@ -355,7 +368,7 @@ export function RouteEditor({
   useEffect(() => {
     try {
       void document.fonts.load('400 13px "Pretendard Variable"', [
-        t('Model'), t('Reasoning effort'), t('Speed'), t('Standard'), t('Fast'),
+        t('Model'), t('Reasoning effort'), t('Context'), t('Speed'), t('Standard'), t('Fast'),
         t('Default speed'), t('Increased speed, increased usage'),
         t('Search models…'), t('Loading models…'), t('Select model'),
       ].join(''));
@@ -486,6 +499,7 @@ export function RouteEditor({
         data-state={closing ? 'closing' : 'open'}>
         {row('model', t('Model'), triggerModel)}
         {rows.includes('effort') && row('effort', t('Reasoning effort'), effortLabel || t('Reasoning effort'), tuningDisabled)}
+        {rows.includes('context') && row('context', t('Context'), `${contextPercent}%`, tuningDisabled)}
         {rows.includes('speed') && row('speed', t('Speed'), speedLabel, tuningDisabled)}
       </div>,
       document.body,
@@ -567,6 +581,28 @@ export function RouteEditor({
             </span>}
           </button>;
         })}
+      </div>,
+      document.body,
+    )}
+    {mounted && pane === 'context' && flyoutBox && createPortal(
+      <div ref={optionFlyout} className="route-sheet-flyout" role="menu" aria-label={t('Context')}
+        style={flyoutBox} data-placement={flyoutBox.placement} data-state={closing ? 'closing' : 'open'}>
+        <div className="route-sheet-flyout-title" aria-hidden="true">{t('Context')}</div>
+        <div className="route-context-stepper">
+          <button type="button" className="route-sheet-option" aria-label={t('Decrease context')}
+            disabled={tuningDisabled || contextPercent <= 10}
+            onClick={() => onChangeContext(Math.max(10, contextPercent - 10))}>−</button>
+          <button type="button" className="route-sheet-option route-context-value"
+            aria-label={t('Reset context to default')} disabled={tuningDisabled}
+            onClick={() => onChangeContext(contextDefaultPercent)}>
+            <strong>{contextPercent}%</strong>
+            <small>{formatContextWindow(contextTokens).replace(/ Context$/, '')}
+              {contextPercent === contextDefaultPercent ? ` · ${t('Default')}` : ''}</small>
+          </button>
+          <button type="button" className="route-sheet-option" aria-label={t('Increase context')}
+            disabled={tuningDisabled || contextPercent >= 100}
+            onClick={() => onChangeContext(Math.min(100, contextPercent + 10))}>+</button>
+        </div>
       </div>,
       document.body,
     )}

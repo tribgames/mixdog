@@ -42,7 +42,7 @@ const SUBMIT_OPTION_KEYS = new Set([
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'remote']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
-const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'modelParameters']);
+const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'modelParameters', 'contextPercent']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
@@ -403,6 +403,7 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
   const effort = selection.effort;
   const fast = selection.fast;
   const modelParameters = selection.modelParameters;
+  const contextPercent = selection.contextPercent;
   if (effort !== undefined && typeof effort !== 'string') {
     throw new TypeError('selection.effort must be a string.');
   }
@@ -413,12 +414,19 @@ export function requiredModelSelection(value: unknown): DesktopModelSelection {
     || Object.entries(modelParameters).some(([key, option]) => !key || typeof option !== 'string'))) {
     throw new TypeError('selection.modelParameters must be a string map.');
   }
+  if (contextPercent !== undefined && (typeof contextPercent !== 'number'
+    || !Number.isFinite(contextPercent)
+    || contextPercent < 10 || contextPercent > 100
+    || contextPercent % 10 !== 0)) {
+    throw new TypeError('selection.contextPercent must be a 10-point percentage from 10 to 100.');
+  }
   return {
     provider: requiredString(selection.provider, 'selection.provider', 256),
     model: requiredString(selection.model, 'selection.model', 512),
     ...(effort === undefined ? {} : { effort: requiredString(effort, 'selection.effort', 64) }),
     ...(fast === undefined ? {} : { fast }),
     ...(modelParameters === undefined ? {} : { modelParameters: { ...modelParameters as Record<string, string> } }),
+    ...(contextPercent === undefined ? {} : { contextPercent }),
   };
 }
 

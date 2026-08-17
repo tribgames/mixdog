@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="d-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a1714"/>
+      <stop offset="50%" stop-color="#040c0a"/>
+      <stop offset="100%" stop-color="#010403"/>
+    </linearGradient>
+    <linearGradient id="d-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#10b981" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="d-emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="50%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <radialGradient id="d-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="d-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#d-bg)" filter="url(#d-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#d-rim)" stroke-width="1.5"/>
+  <circle cx="256" cy="256" r="160" fill="url(#d-glow)"/>
+
+  <!-- Autonomous Task Tree (Directed Acyclic Graph) forming Hound M -->
+  <g id="devin-dag-matrix">
+    <!-- Graph Edges / Bus Lines -->
+    <line x1="136" y1="340" x2="168" y2="168" stroke="#10b981" stroke-width="12" stroke-linecap="round"/>
+    <line x1="168" y1="168" x2="256" y2="236" stroke="#34d399" stroke-width="14" stroke-linecap="round"/>
+    <line x1="376" y1="340" x2="344" y2="168" stroke="#10b981" stroke-width="12" stroke-linecap="round"/>
+    <line x1="344" y1="168" x2="256" y2="236" stroke="#34d399" stroke-width="14" stroke-linecap="round"/>
+    
+    <!-- Snout Execution Branch -->
+    <line x1="256" y1="236" x2="256" y2="352" stroke="#ffffff" stroke-width="16" stroke-linecap="round"/>
+    <line x1="184" y1="292" x2="256" y2="352" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+    <line x1="328" y1="292" x2="256" y2="352" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+
+    <!-- Active Task Nodes (Glowing Pulse Rings) -->
+    <!-- Left Stride Node -->
+    <circle cx="136" cy="340" r="18" fill="#064e3b" stroke="#10b981" stroke-width="6"/>
+    <circle cx="136" cy="340" r="7" fill="#34d399"/>
+    
+    <!-- Left Ear Node -->
+    <circle cx="168" cy="168" r="22" fill="#064e3b" stroke="#34d399" stroke-width="7"/>
+    <circle cx="168" cy="168" r="9" fill="#ffffff"/>
+
+    <!-- Right Ear Node -->
+    <circle cx="344" cy="168" r="22" fill="#064e3b" stroke="#34d399" stroke-width="7"/>
+    <circle cx="344" cy="168" r="9" fill="#ffffff"/>
+
+    <!-- Right Stride Node -->
+    <circle cx="376" cy="340" r="18" fill="#064e3b" stroke="#10b981" stroke-width="6"/>
+    <circle cx="376" cy="340" r="7" fill="#34d399"/>
+
+    <!-- Central Orchestrator Core Node -->
+    <circle cx="256" cy="236" r="28" fill="#10b981" stroke="#ffffff" stroke-width="6"/>
+    <circle cx="256" cy="236" r="12" fill="#ffffff"/>
+
+    <!-- Execution Terminal Apex (Snout Tip) -->
+    <polygon points="244,340 268,340 256,364" fill="#34d399"/>
+  </g>
+</svg>

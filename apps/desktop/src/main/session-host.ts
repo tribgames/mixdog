@@ -769,6 +769,9 @@ export class SessionHost implements DesktopService {
           ...(draft.route.effort ? { effort: draft.route.effort } : {}),
           ...(typeof draft.route.fast === 'boolean' ? { fast: draft.route.fast } : {}),
           ...(draft.route.modelParameters ? { modelParameters: draft.route.modelParameters } : {}),
+          ...(typeof draft.route.contextPercent === 'number'
+            ? { contextPercent: draft.route.contextPercent }
+            : {}),
           applyToCurrentSession: true,
         }]);
         const resolvedRoute = routeResult.value && typeof routeResult.value === 'object'

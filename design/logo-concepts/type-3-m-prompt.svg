@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="t3-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14151b"/>
+      <stop offset="50%" stop-color="#090a0d"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+    <linearGradient id="t3-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.12"/>
+    </linearGradient>
+    <filter id="t3-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#t3-bg)" filter="url(#t3-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#t3-border)" stroke-width="1.5"/>
+  
+  <!-- Lowercase 'm' with Prompt Terminal Caret & Dot -->
+  <g transform="translate(0, 0)">
+    <!-- Pure Solid 'm' letterform -->
+    <path d="M 124 348 V 212 C 124 172 152 148 188 148 C 224 148 248 174 248 212 V 348 M 248 212 C 248 172 276 148 312 148 C 348 148 376 172 376 212 V 348" 
+          fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Terminal Square Prompt Dot 'm.' -->
+    <rect x="360" y="330" width="32" height="32" rx="6" fill="#38bdf8"/>
+  </g>
+</svg>

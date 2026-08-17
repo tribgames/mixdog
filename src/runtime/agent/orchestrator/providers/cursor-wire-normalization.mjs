@@ -61,7 +61,9 @@ export function normalizeParameterizedModels(models) {
                 .map((value) => [String(value.id || '').trim(), String(value.value ?? '')])
                 .filter(([key]) => key)),
             displayName: String(variant.displayNameOutsidePicker || variant.displayName || '').trim(),
-            default: variant.isDefaultNonMaxConfig === true,
+            maxMode: variant.isMaxMode === true,
+            defaultMax: variant.isDefaultMaxConfig === true,
+            defaultNonMax: variant.isDefaultNonMaxConfig === true,
             variantString: String(variant.variantStringRepresentation || '').trim(),
             legacySlug: String(variant.legacySlug || '').trim(),
         }));
@@ -71,6 +73,9 @@ export function normalizeParameterizedModels(models) {
             name: model.clientDisplayName || model.inputboxShortModelName || id,
             description: model.tagline || tooltip.markdownContent || tooltip.secondaryText || '',
             contextWindow: Number(model.contextTokenLimit || model.autoContextMaxTokens || 0) || undefined,
+            maxContextWindow: Number(model.contextTokenLimitForMaxMode || model.autoContextExtendedMaxTokens || 0) || undefined,
+            supportsMaxMode: model.supportsMaxMode === true,
+            supportsNonMaxMode: model.supportsNonMaxMode === true,
             supportsVision: model.supportsImages === true,
             supportsReasoning: parameterDefinitions.some((definition) => definition.id === 'effort' || definition.id === 'reasoning')
                 || model.supportsThinking === true,

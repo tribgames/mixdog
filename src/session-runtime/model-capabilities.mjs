@@ -139,6 +139,12 @@ export function saveModelSettings(cfgMod, route, { fastCapable = true, baseConfi
   } else {
     delete nextSetting.modelParameters;
   }
+  const contextPercent = Number(route.contextPercent);
+  if (Number.isFinite(contextPercent) && contextPercent >= 10 && contextPercent <= 100) {
+    nextSetting.contextPercent = Math.round(contextPercent / 10) * 10;
+  } else {
+    delete nextSetting.contextPercent;
+  }
   modelSettings[key] = nextSetting;
 
   const savedConfig = { ...nextConfig, modelSettings };

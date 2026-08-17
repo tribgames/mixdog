@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <filter id="f6-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="#09090b" filter="url(#f6-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="#27272a" stroke-width="1.5"/>
+  <g id="swiss-bauhaus">
+    <!-- Left Stride Pillar (Solid White) -->
+    <rect x="120" y="196" width="56" height="160" rx="12" fill="#ffffff"/>
+    <!-- Left Triangular Ear Wedge -->
+    <polygon points="120,196 176,140 176,196" fill="#ffffff"/>
+    <!-- Right Stride Pillar (Solid White) -->
+    <rect x="336" y="196" width="56" height="160" rx="12" fill="#ffffff"/>
+    <!-- Right Triangular Ear Wedge -->
+    <polygon points="392,196 336,140 336,196" fill="#ffffff"/>
+    <!-- Center Inverted Triangle (M-Apex & Snout) -->
+    <polygon points="204,212 308,212 256,296" fill="#ffffff"/>
+    <!-- Single Pure Electric Blue Geometric Dot (The Agent Nexus) -->
+    <circle cx="256" cy="336" r="22" fill="#2563eb"/>
+  </g>
+</svg>

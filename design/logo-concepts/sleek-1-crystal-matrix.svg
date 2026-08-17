@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="s1-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#121318"/>
+      <stop offset="50%" stop-color="#08090d"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="s1-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="40%" stop-color="#38bdf8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="s1-facet-l1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+    <linearGradient id="s1-facet-l2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#0c4a6e"/>
+    </linearGradient>
+    <linearGradient id="s1-facet-r1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c084fc"/>
+      <stop offset="100%" stop-color="#7e22ce"/>
+    </linearGradient>
+    <linearGradient id="s1-facet-r2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#581c87"/>
+    </linearGradient>
+    <linearGradient id="s1-center-core" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="60%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+    <radialGradient id="s1-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.25"/>
+      <stop offset="60%" stop-color="#a855f7" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="s1-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#s1-bg)" filter="url(#s1-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#s1-rim)" stroke-width="1.5"/>
+  <circle cx="256" cy="256" r="160" fill="url(#s1-glow)"/>
+  
+  <!-- Crystalline Multi-Model Asterisk & Neural Shards -->
+  <g id="crystal-matrix">
+    <!-- Left Shard Cluster (M Left Peak) -->
+    <polygon points="136,336 176,160 226,236 176,286" fill="url(#s1-facet-l1)"/>
+    <polygon points="176,160 256,220 226,236" fill="url(#s1-facet-l2)"/>
+    
+    <!-- Right Shard Cluster (M Right Peak) -->
+    <polygon points="376,336 336,160 286,236 336,286" fill="url(#s1-facet-r1)"/>
+    <polygon points="336,160 256,220 286,236" fill="url(#s1-facet-r2)"/>
+    
+    <!-- Center Precision AI Diamond Execution Dart (Prompt Core) -->
+    <polygon points="226,236 256,190 286,236 256,356" fill="url(#s1-center-core)"/>
+    
+    <!-- Razor Specular Seams -->
+    <line x1="256" y1="190" x2="256" y2="356" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="176" y1="160" x2="226" y2="236" stroke="#ffffff" stroke-width="2" opacity="0.9"/>
+    <line x1="336" y1="160" x2="286" y2="236" stroke="#ffffff" stroke-width="2" opacity="0.9"/>
+    
+    <circle cx="256" cy="270" r="5" fill="#38bdf8"/>
+    <circle cx="256" cy="270" r="2" fill="#ffffff"/>
+  </g>
+</svg>

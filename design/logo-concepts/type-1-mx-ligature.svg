@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="t1-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16171d"/>
+      <stop offset="50%" stop-color="#0a0b0e"/>
+      <stop offset="100%" stop-color="#020304"/>
+    </linearGradient>
+    <linearGradient id="t1-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.25"/>
+    </linearGradient>
+    <linearGradient id="t1-metal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="35%" stop-color="#e2e8f0"/>
+      <stop offset="70%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+    <filter id="t1-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#t1-bg)" filter="url(#t1-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#t1-border)" stroke-width="1.5"/>
+  
+  <!-- 'mx' Modernist Tech Ligature -->
+  <g transform="translate(0, 0)">
+    <!-- 'm' Arch 1 -->
+    <path d="M 124 348 V 196 C 124 164 150 144 182 144 C 214 144 236 168 236 200 V 348" 
+          fill="none" stroke="url(#t1-metal)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- 'm' Arch 2 + Diagonal 'x' Leg crossing -->
+    <path d="M 236 208 C 236 168 258 144 290 144 C 322 144 348 164 348 196 V 348" 
+          fill="none" stroke="url(#t1-metal)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- 'x' Cross slash with electric cyan prompt -->
+    <line x1="282" y1="230" x2="388" y2="348" stroke="#38bdf8" stroke-width="34" stroke-linecap="round"/>
+    <!-- Specular highlight line -->
+    <line x1="282" y1="230" x2="388" y2="348" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.8"/>
+  </g>
+</svg>

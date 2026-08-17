@@ -1046,6 +1046,8 @@ export function Conversation({
           fastCapable={Boolean(routeSnapshot.fastCapable)}
           modelParameters={draftModelSelection?.modelParameters
             || routeSnapshot.modelParameters as Record<string, string> | undefined}
+          contextPercent={draftModelSelection?.contextPercent
+            ?? (Number(routeSnapshot.contextPercent) || undefined)}
           draftMode={draftMode}
           onDraftModelSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied}

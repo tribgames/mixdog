@@ -16,6 +16,8 @@ import {
   providerDisplayName,
   effortDisplayLabel,
   fastDisplayLabel,
+  formatContextWindow,
+  modelContextWindow,
   buildModelProviderItems,
   buildProviderModelItems,
 } from './model-options.mjs';
@@ -122,6 +124,7 @@ export function createModelPicker({
       effort: state.effort,
       fast: state.fast,
       modelParameters: state.modelParameters,
+      contextPercent: state.contextPercent,
     };
     const renderModelPicker = (renderOptions = {}) => {
       if (renderOptions.highlightProvider) {
@@ -168,6 +171,7 @@ export function createModelPicker({
         };
         const selectedFast = new Map();
         const selectedModelParameters = new Map();
+        const selectedContextPercent = new Map();
         const modelParametersFor = (model) => {
           const key = modelKey(model);
           if (selectedModelParameters.has(key)) return selectedModelParameters.get(key);
@@ -185,6 +189,43 @@ export function createModelPicker({
           }));
           selectedModelParameters.set(key, values);
           return values;
+        };
+        const contextSelectionFor = (model) => {
+          const key = modelKey(model);
+          const defaultWindow = modelContextWindow(model);
+          const maxWindow = Math.max(defaultWindow, Number(model?.maxContextWindow) || 0);
+          if (!maxWindow) return null;
+          const defaultPercent = Math.max(
+            10,
+            Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10),
+          );
+          if (!selectedContextPercent.has(key)) {
+            const currentRoute = options.currentRoute || null;
+            const requested = currentRoute?.provider === model.provider && currentRoute?.model === model.id
+              ? currentRoute.contextPercent
+              : model.provider === state.provider && model.id === state.model
+                ? state.contextPercent
+                : model.savedContextPercent;
+            const percent = Number.isFinite(Number(requested)) && Number(requested) > 0
+              ? Math.max(10, Math.min(100, Math.round(Number(requested) / 10) * 10))
+              : defaultPercent;
+            selectedContextPercent.set(key, percent);
+          }
+          const percent = selectedContextPercent.get(key);
+          return {
+            percent,
+            defaultPercent,
+            tokens: percent === defaultPercent
+              ? defaultWindow
+              : Math.floor(maxWindow * percent / 100),
+          };
+        };
+        const changeContext = (model, direction = 1) => {
+          const context = contextSelectionFor(model);
+          if (!context) return;
+          const next = Math.max(10, Math.min(100, context.percent + direction * 10));
+          selectedContextPercent.set(modelKey(model), next);
+          renderProviderModels();
         };
         const fastAvailableFor = (model, effort = getSelectedEffort(model)) => {
           if (!model?.fastCapable) return false;
@@ -253,20 +294,34 @@ export function createModelPicker({
         const modelFooter = (model = null) => {
           const items = model ? effortItemsFor(model) : providerEffortItems();
           const values = items.map((effort) => effort.value).filter(Boolean);
+          const context = model ? contextSelectionFor(model) : null;
+          const contextLine = context
+            ? {
+                glyph: '▣',
+                color: context.percent === context.defaultPercent ? theme.inactive : theme.permission,
+                text: `${context.percent}% · ${formatContextWindow(context.tokens)}${context.percent === context.defaultPercent ? ' · Default' : ''} · C/Shift+C Adjust`,
+              }
+            : null;
           const fastCapable = fastAvailableFor(model);
           const fastOn = fastCapable && getSelectedFast(model);
           const fastLine = fastCapable
             ? { glyph: fastOn ? '●' : '○', color: fastOn ? theme.fastMode : theme.inactive, text: `${fastDisplayLabel(fastOn)} · Tab Toggle` }
             : null;
-          const parameterLines = (model?.modelParameterOptions || []).map((parameter) => {
+          const parameterLines = (model?.modelParameterOptions || [])
+            .filter((parameter) => parameter.id !== 'context')
+            .map((parameter) => {
             const value = modelParametersFor(model)[parameter.id] || '';
             return {
               glyph: '◇',
               color: theme.inactive,
-              text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · ${parameter.id === 'thinking' ? 'T' : 'C'} Toggle`,
+              text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · T Toggle`,
             };
           });
-          if (!values.length) return [...(fastLine ? [fastLine] : []), ...parameterLines];
+          if (!values.length) return [
+            ...(contextLine ? [contextLine] : []),
+            ...(fastLine ? [fastLine] : []),
+            ...parameterLines,
+          ];
           let selectedEffort = getSelectedEffort(model);
           if (!values.includes(selectedEffort)) {
             selectedEffort = modelDefaultEffort(model);
@@ -277,7 +332,12 @@ export function createModelPicker({
             color: effortColor(selectedEffort),
             text: `${effortLabel(selectedEffort)} Effort ←/→ To Adjust`,
           };
-          return [...(fastLine ? [effortLine, fastLine] : [effortLine]), ...parameterLines];
+          return [
+            effortLine,
+            ...(contextLine ? [contextLine] : []),
+            ...(fastLine ? [fastLine] : []),
+            ...parameterLines,
+          ];
         };
         const coerceEffort = (model) => {
           const values = modelEffortValues(model);
@@ -304,6 +364,9 @@ export function createModelPicker({
             provider: selected.provider,
             model: selected.id,
             ...(effort ? { effort } : {}),
+            ...(contextSelectionFor(selected)
+              ? { contextPercent: contextSelectionFor(selected).percent }
+              : {}),
             ...(selected.fastCapable ? { fast: fastCapable && getSelectedFast(selected) } : {}),
             ...((selected.modelParameterOptions || []).length ? { modelParameters: modelParametersFor(selected) } : {}),
           };
@@ -350,8 +413,8 @@ export function createModelPicker({
             description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
             footer: (item) => modelFooter(item?._model),
             help: returnOnNestedCancel && returnTo
-              ? `↑/↓ Select · ←/→ Effort · Tab Fast · C Context · T Thinking · Enter Save · Esc ${returnLabel}`
-              : '↑/↓ Select · ←/→ Effort · Tab Fast · C Context · T Thinking · Enter Save · Esc Back',
+              ? `↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc ${returnLabel}`
+              : '↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc Back',
             indexMode: 'always',
             initialIndex: providerModelInitialIndex,
             pickerKey: `model-picker:provider-models:${provider}`,
@@ -369,7 +432,11 @@ export function createModelPicker({
             onKey: (input, _key, item) => {
               const model = item?._model;
               if (!model || !['c', 'C', 't', 'T'].includes(input)) return;
-              const wanted = input.toLowerCase() === 't' ? 'thinking' : 'context';
+              if (input.toLowerCase() === 'c') {
+                changeContext(model, input === 'C' ? -1 : 1);
+                return;
+              }
+              const wanted = 'thinking';
               const definition = (model.modelParameterOptions || []).find((parameter) => parameter.id === wanted);
               if (!definition?.options?.length) return;
               const parameters = modelParametersFor(model);

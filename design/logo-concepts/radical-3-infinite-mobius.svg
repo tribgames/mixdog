@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="r3-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16171e"/>
+      <stop offset="50%" stop-color="#0a0b0e"/>
+      <stop offset="100%" stop-color="#020204"/>
+    </linearGradient>
+    <linearGradient id="r3-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.25"/>
+    </linearGradient>
+    <linearGradient id="r3-loop-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="35%" stop-color="#6366f1"/>
+      <stop offset="70%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#f43f5e"/>
+    </linearGradient>
+    <linearGradient id="r3-metal-stream" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="30%" stop-color="#cbd5e1"/>
+      <stop offset="60%" stop-color="#64748b"/>
+      <stop offset="100%" stop-color="#e2e8f0"/>
+    </linearGradient>
+    <filter id="r3-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#r3-bg)" filter="url(#r3-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#r3-rim)" stroke-width="1.5"/>
+
+  <!-- Unbroken Infinite Möbius Ribbon (Ear 1 -> Snout -> Ear 2 -> Base) -->
+  <g id="infinite-loop-mark">
+    <!-- Base Ribbon Loop -->
+    <path d="M 144 352
+             C 112 280 112 180 176 136
+             C 224 104 256 184 256 220
+             C 256 184 288 104 336 136
+             C 400 180 400 280 368 352
+             C 336 352 320 270 296 232
+             L 256 272
+             L 216 232
+             C 192 270 176 352 144 352 Z"
+          fill="url(#r3-metal-stream)"/>
+
+    <!-- Inner Continuous Neon Flow Core -->
+    <path d="M 160 336
+             C 136 276 136 196 184 156
+             C 220 128 244 190 256 226
+             C 268 190 292 128 328 156
+             C 376 196 376 276 352 336"
+          fill="none"
+          stroke="url(#r3-loop-grad)"
+          stroke-width="10"
+          stroke-linecap="round"/>
+
+    <!-- Terminal Prompt Cutout Snout (> Execution Point) -->
+    <polygon points="220,296 256,260 292,296 256,348" fill="#ffffff"/>
+    <circle cx="256" cy="296" r="4" fill="#6366f1"/>
+  </g>
+</svg>

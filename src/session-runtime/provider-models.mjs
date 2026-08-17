@@ -156,6 +156,7 @@ export function createProviderModels({
       savedEffort: saved.effort || null,
       savedFast: Object.prototype.hasOwnProperty.call(saved, 'fast') ? saved.fast === true : undefined,
       savedModelParameters: saved.modelParameters || {},
+      savedContextPercent: Number(saved.contextPercent) || undefined,
     };
   }
 

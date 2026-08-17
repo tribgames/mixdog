@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    
+      <linearGradient id="g11-a" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#c084fc"/><stop offset="100%" stop-color="#7e22ce"/>
+      </linearGradient>
+      <linearGradient id="g11-b" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#e879f9"/><stop offset="100%" stop-color="#a21caf"/>
+      </linearGradient>
+      <linearGradient id="g11-c" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0369a1"/>
+      </linearGradient>
+    
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#0e0918"/>
+  <g fill="none" stroke-width="22" stroke-linecap="round">
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#g11-a)" />
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#g11-b)" transform="rotate(120 128 128)"/>
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#g11-c)" transform="rotate(240 128 128)"/>
+  </g>
+  
+      <!-- Pulsing Multi-layer Core -->
+      <circle cx="128" cy="128" r="16" fill="#c084fc" opacity="0.3"/>
+      <circle cx="128" cy="128" r="10" fill="#e879f9"/>
+      <circle cx="128" cy="128" r="4" fill="#ffffff"/>
+    
+</svg>

@@ -628,6 +628,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     effort: session.effort || null,
                     fast: session.fast === true,
                     modelParameters: session.modelParameters || {},
+                    selectedContextWindow: session.selectedContextWindow || session.contextWindow || null,
                     sessionId,
                     onTextDelta: _trackTextDelta,
                     onTextReset: _trackTextReset,

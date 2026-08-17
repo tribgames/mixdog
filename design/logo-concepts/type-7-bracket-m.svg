@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="t7-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16171d"/>
+      <stop offset="50%" stop-color="#090a0d"/>
+      <stop offset="100%" stop-color="#010102"/>
+    </linearGradient>
+    <linearGradient id="t7-border" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.25"/>
+    </linearGradient>
+    <filter id="t7-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.85"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#t7-bg)" filter="url(#t7-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#t7-border)" stroke-width="1.5"/>
+  
+  <!-- Left Angle Bracket '<' merged into 'M' -->
+  <g transform="translate(0, 0)">
+    <!-- Left Opening Bracket '<' forming left stem -->
+    <path d="M 204 148 L 132 250 L 204 352" fill="none" stroke="#38bdf8" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Right Opening Bracket '>' forming right stem -->
+    <path d="M 308 148 L 380 250 L 308 352" fill="none" stroke="#a855f7" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Center V Connector completing 'M' -->
+    <path d="M 204 148 L 256 244 L 308 148" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

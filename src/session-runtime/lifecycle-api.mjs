@@ -271,7 +271,16 @@ export function createLifecycleApi(deps) {
         // session-pinned intent so the resumed session can reclaim it.
         preserveRemoteIntent: true,
       });
-      try { agentTool.closeAll(reason); } catch {}
+      // Agent workers die with a REAL teardown only (process exit, explicit
+      // close). A keepBackgroundWork dispose (daemon idle eviction) reclaims
+      // memory and must leave workers/rows for the re-materialized owner.
+      // Scoped teardown closes only THIS session's workers — the worker index
+      // is shared across every Lead in the process.
+      if (teardownReapsWork) {
+        try {
+          agentTool.closeAll(reason, scopedTeardown ? { callerSessionId: closingSessionId } : {});
+        } catch {}
+      }
       let mcpStop = null;
       try { mcpStop = mcpClient.disconnectAll?.({ scopeId: getMcpScopeId?.() }); } catch {}
       const openaiWsStop = isProcessExit && globalThis.__mixdogOpenaiWsRuntimeLoaded === true
@@ -399,7 +408,7 @@ export function createLifecycleApi(deps) {
           callerSessionId: sessionId,
         });
       } catch {}
-      try { agentTool?.closeAll?.(cleanupReason); } catch {}
+      try { agentTool?.closeAll?.(cleanupReason, { callerSessionId: sessionId }); } catch {}
       statusRoutes?.clearGatewaySessionRoute?.(sessionId);
       // Active sessions retain a tombstone until the normal sweep. Unlinking
       // immediately would let a late provider/save continuation resurrect the
@@ -433,7 +442,7 @@ export function createLifecycleApi(deps) {
             callerSessionId: session.id,
           });
         } catch {}
-        try { agentTool?.closeAll?.(cleanupReason); } catch {}
+        try { agentTool?.closeAll?.(cleanupReason, { callerSessionId: session.id }); } catch {}
         statusRoutes?.clearGatewaySessionRoute?.(session.id);
         const tombstone = !hasUserConversationMessage(session.messages)
           && !hasUserConversationMessage(session.liveTurnMessages);

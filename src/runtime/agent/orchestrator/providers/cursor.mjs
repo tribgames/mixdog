@@ -16,6 +16,7 @@ import {
 let runtimePromise = null;
 const CURSOR_EFFORT_ORDER = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
 const CURSOR_DEFAULT_EFFORT_ORDER = Object.freeze([null, 'medium', 'high', 'low', 'none', 'xhigh', 'max']);
+const CURSOR_DEFAULT_CONTEXT_WINDOW = 200_000;
 
 async function loadCursorRuntime() {
     if (!runtimePromise) {
@@ -221,7 +222,12 @@ function parameterizedCursorModel(entry, provider) {
             normalizeCursorParameterValue(id, value),
         ])),
     }));
-    const defaultVariant = normalizedVariants.find((variant) => variant.default) || normalizedVariants[0] || null;
+    const supportsMaxMode = entry.supportsMaxMode === true;
+    const supportsNonMaxMode = entry.supportsNonMaxMode === true || !supportsMaxMode;
+    const maxOnly = supportsMaxMode && !supportsNonMaxMode;
+    const defaultVariant = normalizedVariants.find((variant) => (
+        maxOnly ? variant.defaultMax === true : variant.defaultNonMax === true
+    )) || normalizedVariants.find((variant) => variant.maxMode === maxOnly) || normalizedVariants[0] || null;
     const efforts = effortDefinition
         ? effortDefinition.values.map((option) => normalizeCursorParameterValue(effortDefinition.id, option.value))
         : [];
@@ -245,16 +251,23 @@ function parameterizedCursorModel(entry, provider) {
     const defaultModelParameters = Object.fromEntries(Object.entries(defaultVariant?.routeParameters || {})
         .filter(([id]) => !['effort', 'fast'].includes(id)));
     const description = cursorModelDescription(entry);
-    const contextWindow = cursorContextWindow(defaultModelParameters.context)
+    const describedContextWindow = cursorDescriptionContextWindow(description);
+    const nonMaxContextWindow = cursorContextWindow(defaultModelParameters.context)
         || Number(entry.contextWindow)
-        || cursorDescriptionContextWindow(description)
-        || 0;
+        || (supportsMaxMode && supportsNonMaxMode ? 0 : describedContextWindow)
+        || CURSOR_DEFAULT_CONTEXT_WINDOW;
+    const maxContextWindow = Number(entry.maxContextWindow)
+        || (supportsMaxMode ? describedContextWindow : 0);
+    const contextWindow = maxOnly
+        ? (maxContextWindow || nonMaxContextWindow)
+        : nonMaxContextWindow;
     return {
         id: entry.id,
         display: cursorPlainText(entry.name || entry.id),
         provider,
         mode: 'chat',
-        ...(contextWindow ? { contextWindow } : {}),
+        contextWindow,
+        ...(maxContextWindow > contextWindow ? { maxContextWindow } : {}),
         description,
         supportsVision: entry.supportsVision === true,
         reasoning: efforts.length > 0 || entry.supportsReasoning === true,
@@ -268,11 +281,16 @@ function parameterizedCursorModel(entry, provider) {
         defaultModelParameters,
         defaultEffort: defaultVariant?.routeParameters?.effort || null,
         defaultFast: defaultVariant?.routeParameters?.fast === 'true',
+        supportsMaxMode,
         _cursorParameterized: {
             id: entry.id,
             definitions,
             effortParameterId: effortDefinition?.id || null,
             variants: normalizedVariants,
+            contextWindow,
+            maxContextWindow: maxContextWindow || contextWindow,
+            supportsMaxMode,
+            supportsNonMaxMode,
         },
     };
 }
@@ -284,7 +302,10 @@ function normalizeCursorCatalog(entries, provider) {
     const parameterGroups = new Map();
     const parameterizedModels = [];
     for (const entry of Array.isArray(entries) ? entries : []) {
-        if (Array.isArray(entry?.parameterDefinitions) && entry.parameterDefinitions.length) {
+        if ((Array.isArray(entry?.parameterDefinitions) && entry.parameterDefinitions.length)
+            || entry?.supportsMaxMode === true
+            || entry?.supportsNonMaxMode === true
+            || Number(entry?.maxContextWindow) > 0) {
             const model = parameterizedCursorModel(entry, provider);
             parameterizedModels.push(model);
             parameterGroups.set(model.id, model._cursorParameterized);
@@ -343,7 +364,14 @@ function normalizeCursorCatalog(entries, provider) {
 
 function selectParameterizedCursorVariant(group, requested, sendOpts = {}) {
     const aliasParameters = requested?.parameters || {};
-    const defaultVariant = group.variants.find((variant) => variant.default) || group.variants[0] || null;
+    const maxMode = group.supportsMaxMode === true
+        && (group.supportsNonMaxMode !== true
+            || Number(sendOpts.selectedContextWindow) > Number(group.contextWindow || 0));
+    const modeVariants = group.variants.filter((variant) => variant.maxMode === maxMode);
+    const availableVariants = modeVariants.length ? modeVariants : group.variants;
+    const defaultVariant = availableVariants.find((variant) => (
+        maxMode ? variant.defaultMax === true : variant.defaultNonMax === true
+    )) || availableVariants[0] || null;
     const parameters = { ...(defaultVariant?.parameters || {}), ...aliasParameters };
     const routeParameters = sendOpts.modelParameters && typeof sendOpts.modelParameters === 'object'
         ? sendOpts.modelParameters
@@ -364,14 +392,15 @@ function selectParameterizedCursorVariant(group, requested, sendOpts = {}) {
         && (requested?.alias !== true || sendOpts.fast === true)) {
         parameters.fast = sendOpts.fast === true ? 'true' : 'false';
     }
-    const selected = group.variants.find((variant) => Object.entries(parameters)
+    const selected = availableVariants.find((variant) => Object.entries(parameters)
         .every(([id, value]) => String(variant.parameters?.[id] ?? '') === String(value)));
-    if (!selected && group.variants.length) {
+    if (!selected && availableVariants.length) {
         throw new Error(`Cursor model ${group.id} does not offer the selected parameter combination`);
     }
     return {
         modelId: group.id,
         parameters: Object.entries(parameters).map(([id, value]) => ({ id, value: String(value) })),
+        maxMode,
     };
 }
 
@@ -423,6 +452,10 @@ class CursorProviderBase {
         return this._cursorCatalog;
     }
 
+    getCachedModelInfo(model) {
+        return this._cursorCatalog?.models?.find((entry) => entry.id === model) || null;
+    }
+
     async _resolveCursorModel(model, sendOpts, runtime, accessToken) {
         const requested = String(model || 'auto').trim() || 'auto';
         const catalog = await this._loadCursorCatalog(runtime, accessToken);
@@ -469,6 +502,7 @@ class CursorProviderBase {
             const body = {
                 model: cursorSelection.modelId,
                 mixdog_model_parameters: cursorSelection.parameters,
+                mixdog_max_mode: cursorSelection.maxMode === true,
                 messages: toCursorMessages(messages, this.name),
                 mixdog_session_id: sessionScope,
                 stream: true,

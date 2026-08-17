@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { normalizedProviderModels } from '../main/desktop-support.ts';
+import { requiredModelSelection } from '../main/ipc-validation.ts';
 import {
   readCachedModelCatalog,
   writeCachedModelCatalog,
@@ -25,6 +26,7 @@ test('desktop model catalog preserves complete picker metadata', () => {
     id: 'grok-4.6',
     display: 'Grok 4.6',
     contextWindow: 500_000,
+    maxContextWindow: 1_000_000,
     description: 'Frontier reasoning model.',
     effortOptions: [],
     defaultModelParameters: { context: '500k' },
@@ -38,19 +40,34 @@ test('desktop model catalog preserves complete picker metadata', () => {
   }]);
 
   assert.equal(model.contextWindow, 500_000);
+  assert.equal(model.maxContextWindow, 1_000_000);
   assert.equal(model.description, 'Frontier reasoning model.');
   assert.deepEqual(model.defaultModelParameters, { context: '500k' });
   assert.equal(model.modelParameterOptions[0].options[0].contextWindow, 500_000);
   assert.deepEqual(model.parameterVariants, [{ context: '500k', fast: 'false' }]);
-  assert.equal(modelOptionDescription(model), '500k Context · Frontier reasoning model.');
+  assert.equal(modelOptionDescription(model), 'Frontier reasoning model.');
+});
+
+test('desktop model route IPC accepts only numeric ten-point context percentages', () => {
+  const selection = { provider: 'grok-oauth', model: 'grok-4.6', contextPercent: 70 };
+  assert.deepEqual(requiredModelSelection(selection), selection);
+  assert.throws(
+    () => requiredModelSelection({ ...selection, contextPercent: '70' }),
+    /selection\.contextPercent/,
+  );
+  assert.throws(
+    () => requiredModelSelection({ ...selection, contextPercent: 75 }),
+    /selection\.contextPercent/,
+  );
 });
 
 test('composer route sheet keeps model first and hides unused rows', () => {
-  assert.deepEqual(routeSheetRows({ hasModel: false, effortCount: 3, fastVisible: true }), ['model']);
-  assert.deepEqual(routeSheetRows({ hasModel: true, effortCount: 0, fastVisible: false }), ['model']);
-  assert.deepEqual(routeSheetRows({ hasModel: true, effortCount: 2, fastVisible: true }), [
+  assert.deepEqual(routeSheetRows({ hasModel: false, effortCount: 3, contextVisible: true, fastVisible: true }), ['model']);
+  assert.deepEqual(routeSheetRows({ hasModel: true, effortCount: 0, contextVisible: false, fastVisible: false }), ['model']);
+  assert.deepEqual(routeSheetRows({ hasModel: true, effortCount: 2, contextVisible: true, fastVisible: true }), [
     'model',
     'effort',
+    'context',
     'speed',
   ]);
 });
@@ -138,7 +155,7 @@ test('Cursor and OpenCode use the canonical labels, order, and Cursor catalog na
     effortOptions: [],
     fastCapable: false,
     fastPreferred: false,
-  }), '1M Context · Gemini 3.7 Flash · Google flash model');
+  }), 'Gemini 3.7 Flash · Google flash model');
   assert.match(renderToStaticMarkup(createElement(ProviderIcon, { provider: 'cursor-oauth' })), /data-provider-icon="cursor"/);
   assert.match(renderToStaticMarkup(createElement(ProviderIcon, { provider: 'opencode-go' })), /data-provider-icon="opencode"/);
 });

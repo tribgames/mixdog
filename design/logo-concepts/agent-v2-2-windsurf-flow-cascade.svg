@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="w-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10131d"/>
+      <stop offset="50%" stop-color="#080a12"/>
+      <stop offset="100%" stop-color="#020306"/>
+    </linearGradient>
+    <linearGradient id="w-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="50%" stop-color="#06b6d4" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="w-stream-1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="40%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="w-stream-2" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <linearGradient id="w-core-stream" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <filter id="w-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#w-bg)" filter="url(#w-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#w-rim)" stroke-width="1.5"/>
+
+  <!-- Parallel Cascade Streamline Ribbons (M + Aerodynamic Hound) -->
+  <g id="windsurf-cascade">
+    <!-- Left Outer Cascade Wave -->
+    <path d="M 124 356 C 124 210 168 136 216 156 C 256 172 256 220 256 220" 
+          fill="none" stroke="url(#w-stream-1)" stroke-width="32" stroke-linecap="round"/>
+    
+    <!-- Right Outer Cascade Wave -->
+    <path d="M 388 356 C 388 210 344 136 296 156 C 256 172 256 220 256 220" 
+          fill="none" stroke="url(#w-stream-2)" stroke-width="32" stroke-linecap="round"/>
+
+    <!-- Inner Parallel Jet Tracks -->
+    <path d="M 172 356 C 172 260 196 200 232 216" 
+          fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.9"/>
+    <path d="M 340 356 C 340 260 316 200 280 216" 
+          fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.9"/>
+
+    <!-- Dynamic Forward Snout Chevron Dart -->
+    <path d="M 196 280 L 256 348 L 316 280" 
+          fill="none" stroke="url(#w-core-stream)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Singularity Flow Emitter -->
+    <circle cx="256" cy="220" r="11" fill="#00f2fe"/>
+    <circle cx="256" cy="220" r="4" fill="#ffffff"/>
+  </g>
+</svg>

@@ -11,7 +11,13 @@ import { t } from "./i18n";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
 import { RouteEditor } from "./RouteEditor";
 import { OpenSelect } from "./OpenSelect";
-import { modelDisplayName, modelFastAvailable, preferredModelParameters } from "./provider-display";
+import {
+  modelContextWindow,
+  modelDisplayName,
+  modelFastAvailable,
+  modelMaxContextWindow,
+  preferredModelParameters,
+} from "./provider-display";
 import { shouldShowFastControl } from "./renderer-logic.mjs";
 import { type SettingsSection } from "./slash-commands";
 import { asRecord } from "./text-format";
@@ -183,7 +189,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
 });
 
 export const ModelSelector = memo(function ModelSelector({
-  provider, model, effort, fast, fastCapable, modelParameters, modelDisabled, tuningDisabled,
+  provider, model, effort, fast, fastCapable, modelParameters, contextPercent, modelDisabled, tuningDisabled,
   invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
   onRoutePreferenceApplied, sessionId,
 }: {
@@ -193,6 +199,7 @@ export const ModelSelector = memo(function ModelSelector({
   fast: boolean;
   fastCapable: boolean;
   modelParameters?: Record<string, string>;
+  contextPercent?: number;
   modelDisabled: boolean;
   tuningDisabled: boolean;
   /** The pane's session. Route changes address it directly, so a background
@@ -246,6 +253,16 @@ export const ModelSelector = memo(function ModelSelector({
   const known = selected || models.find((option) =>
     option.provider === provider && option.model === model);
   const selectedModelParameters = preferredModelParameters(known, modelParameters || {});
+  const defaultContextWindow = known ? modelContextWindow(known) : 0;
+  const maxContextWindow = known ? modelMaxContextWindow(known) : 0;
+  const contextDefaultPercent = maxContextWindow > 0
+    ? Math.max(10, Math.min(100, Math.round((defaultContextWindow / maxContextWindow) * 10) * 10))
+    : 100;
+  const normalizedContextPercent = Math.max(10, Math.min(100,
+    Math.round((Number(contextPercent) || Number(known?.savedContextPercent) || contextDefaultPercent) / 10) * 10));
+  const contextTokens = normalizedContextPercent === contextDefaultPercent
+    ? defaultContextWindow
+    : Math.floor(maxContextWindow * normalizedContextPercent / 100);
   const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable);
   const fastAvailable = fastControlVisible
     && modelFastAvailable(known, effort, selectedModelParameters);
@@ -392,6 +409,14 @@ export const ModelSelector = memo(function ModelSelector({
       option,
       sameModel ? selectedModelParameters : remembered?.modelParameters || {},
     );
+    const optionDefaultWindow = modelContextWindow(option);
+    const optionMaxWindow = modelMaxContextWindow(option);
+    const optionDefaultPercent = optionMaxWindow > 0
+      ? Math.max(10, Math.min(100, Math.round((optionDefaultWindow / optionMaxWindow) * 10) * 10))
+      : 100;
+    const nextContextPercent = sameModel
+      ? normalizedContextPercent
+      : Number(remembered?.contextPercent) || Number(option.savedContextPercent) || optionDefaultPercent;
     const nextFast = requestedFast === undefined
       ? undefined
       : modelFastAvailable(option, nextEffort, nextModelParameters) && requestedFast;
@@ -401,6 +426,7 @@ export const ModelSelector = memo(function ModelSelector({
       ...(nextEffort ? { effort: nextEffort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
       ...(option.modelParameterOptions?.length ? { modelParameters: nextModelParameters } : {}),
+      ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
     });
   };
   const changeFast = async (enabled: boolean) => {
@@ -411,6 +437,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         ...(effort ? { effort } : {}),
         fast: enabled,
+        contextPercent: normalizedContextPercent,
       });
       return;
     }
@@ -446,6 +473,7 @@ export const ModelSelector = memo(function ModelSelector({
         effort,
         ...(nextFast === undefined ? {} : { fast: nextFast }),
         ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+        contextPercent: normalizedContextPercent,
       });
       return;
     }
@@ -456,6 +484,7 @@ export const ModelSelector = memo(function ModelSelector({
         effort,
         fast: false,
         ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+        contextPercent: normalizedContextPercent,
       });
       return;
     }
@@ -475,6 +504,7 @@ export const ModelSelector = memo(function ModelSelector({
           effort,
           ...(nextFast === undefined ? {} : { fast: nextFast }),
           ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+          contextPercent: normalizedContextPercent,
         });
       }
     } finally {
@@ -483,11 +513,27 @@ export const ModelSelector = memo(function ModelSelector({
     }
   };
 
+  const changeContext = async (nextContextPercent: number) => {
+    if (!known || !maxContextWindow || tuningUnavailable || routingGuard.current) return;
+    await route({
+      provider,
+      model,
+      ...(effort ? { effort } : {}),
+      ...(fastControlVisible ? { fast: displayedFast } : {}),
+      ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+      contextPercent: nextContextPercent,
+    });
+  };
+
   return <div className="route-controls">
     <RouteEditor models={selectableModels} provider={provider} model={model}
       triggerModel={triggerModel} effort={effort}
       effortOptions={known?.effortOptions || []}
       fast={displayedFast} fastVisible={fastControlVisible} fastAvailable={fastAvailable}
+      contextVisible={maxContextWindow > 0}
+      contextPercent={normalizedContextPercent}
+      contextDefaultPercent={contextDefaultPercent}
+      contextTokens={contextTokens}
       catalogLoaded={catalogLoaded} catalogRefreshing={catalogRefreshing}
       catalogError={catalogError} providerSetupError={providerSetupError}
       modelDisabled={modelUnavailable} tuningDisabled={tuningUnavailable}
@@ -495,6 +541,7 @@ export const ModelSelector = memo(function ModelSelector({
       onSelectModel={chooseModel}
       onChangeEffort={(value) => void changeEffort(value)}
       onChangeFast={(enabled) => void changeFast(enabled)}
+      onChangeContext={(value) => void changeContext(value)}
       onOpenProviders={() => onOpenSettings("providers")} />
   </div>;
 });

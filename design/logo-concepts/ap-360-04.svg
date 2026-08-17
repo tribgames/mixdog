@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    
+      <linearGradient id="l4-a" x1="0%" y1="0%" x2="100%" y2="60%">
+        <stop offset="0%" stop-color="#ff7eb6"/><stop offset="60%" stop-color="#be95ff"/><stop offset="100%" stop-color="#78a9ff"/>
+      </linearGradient>
+      <linearGradient id="l4-b" x1="0%" y1="0%" x2="100%" y2="60%">
+        <stop offset="0%" stop-color="#78a9ff"/><stop offset="50%" stop-color="#33b1ff"/><stop offset="100%" stop-color="#42be65"/>
+      </linearGradient>
+      <linearGradient id="l4-c" x1="0%" y1="0%" x2="100%" y2="60%">
+        <stop offset="0%" stop-color="#42be65"/><stop offset="50%" stop-color="#f1c21b"/><stop offset="100%" stop-color="#ff7eb6"/>
+      </linearGradient>
+      <radialGradient id="l4-glow" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#be95ff" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="#050608" stop-opacity="0"/>
+      </radialGradient>
+    
+  </defs>
+  <rect width="256" height="256" rx="60" fill="#050608" />
+  <circle cx="128" cy="128" r="80" fill="url(#l4-glow)"/>
+  <g fill="none" stroke-width="24" stroke-linecap="round">
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#l4-a)" />
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#l4-b)" transform="rotate(120 128 128)"/>
+    <path d="M116.2 61A68 68 0 0 1 191.9 104.7" stroke="url(#l4-c)" transform="rotate(240 128 128)"/>
+  </g>
+  
+      <circle cx="128" cy="128" r="13" fill="#ffffff" opacity="0.9"/>
+      <circle cx="128" cy="128" r="7" fill="#be95ff"/>
+    
+</svg>

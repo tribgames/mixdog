@@ -101,6 +101,7 @@ export const Composer = memo(function Composer({
   fast,
   fastCapable,
   modelParameters,
+  contextPercent,
   draftMode,
   onDraftModelSelection,
   onRoutePreferenceApplied,
@@ -139,6 +140,7 @@ export const Composer = memo(function Composer({
   fast: boolean;
   fastCapable: boolean;
   modelParameters?: Record<string, string>;
+  contextPercent?: number;
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
@@ -1906,6 +1908,7 @@ export const Composer = memo(function Composer({
         onClick={() => fileInput.current?.click()}><MxIcon name="plus" size={16} /></button>
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
           modelParameters={modelParameters}
+          contextPercent={contextPercent}
           sessionId={sessionId}
           modelDisabled={commandBusy || transitioning}
           // Effort/Fast stay live during a turn: the running turn already

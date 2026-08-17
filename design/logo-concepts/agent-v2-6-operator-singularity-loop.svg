@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="op-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#15161a"/>
+      <stop offset="50%" stop-color="#0a0a0d"/>
+      <stop offset="100%" stop-color="#020203"/>
+    </linearGradient>
+    <linearGradient id="op-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.4"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="op-platinum" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#94a3b8"/>
+    </linearGradient>
+    <radialGradient id="op-core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="40%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0284c7" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="op-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#op-bg)" filter="url(#op-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#op-rim)" stroke-width="1.5"/>
+
+  <!-- Pure Parabolic Continuous Loop forming Hound M -->
+  <g id="operator-singularity">
+    <!-- Code Bracket Outer Arcs -->
+    <path d="M 140 344 C 140 180 190 132 256 198 C 322 132 372 180 372 344" 
+          fill="none" stroke="url(#op-platinum)" stroke-width="36" stroke-linecap="round"/>
+    
+    <!-- Inverted Inner Parabolic Snout Loop -->
+    <path d="M 196 270 C 220 226 256 226 256 226 C 256 226 292 226 316 270 C 328 294 300 348 256 348 C 212 348 184 294 196 270 Z" 
+          fill="none" stroke="#ffffff" stroke-width="18" stroke-linejoin="round"/>
+
+    <!-- Central Singularity Core -->
+    <circle cx="256" cy="276" r="14" fill="url(#op-core)"/>
+    <circle cx="256" cy="276" r="5" fill="#ffffff"/>
+
+    <!-- Ultra-Sleek Horizon Ray -->
+    <line x1="210" y1="276" x2="302" y2="276" stroke="#ffffff" stroke-width="2" opacity="0.6"/>
+  </g>
+</svg>

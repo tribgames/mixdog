@@ -151,6 +151,7 @@ const LANE_PRESENTATION_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "fast",
   "fastCapable",
   "modelParameters",
+  "contextPercent",
   "workflow",
   "currentProject",
   "project",

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aperture Triad Color & Center Core Lab — Mixdog</title>
+  <style>
+    :root {
+      --bg: #07080b;
+      --bg-surface: #0e1118;
+      --bg-card: #131722;
+      --bg-card-hover: #1a2030;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(56, 189, 248, 0.4);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --cyan: #38bdf8;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    .bg-grid {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image:
+        radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.12) 0%, transparent 60%),
+        radial-gradient(circle at 80% 30%, rgba(244, 63, 94, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 20% 60%, rgba(16, 185, 129, 0.08) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 48px 28px 120px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .pill-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 18px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 999px;
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 44px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: var(--text-muted);
+      max-width: 760px;
+      margin: 0 auto 32px;
+    }
+
+    /* Interactive Live Lab Tester */
+    .lab-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 32px;
+      margin-bottom: 48px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 36px;
+      align-items: center;
+    }
+
+    .lab-hero {
+      background: #090a0f;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: var(--radius-lg);
+      padding: 36px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .lab-hero img {
+      width: 180px;
+      height: 180px;
+      filter: drop-shadow(0 16px 32px rgba(0,0,0,0.6));
+    }
+
+    .lab-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 18px;
+      text-align: center;
+    }
+
+    .lab-tag {
+      font-size: 12px;
+      color: var(--cyan);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 4px;
+    }
+
+    /* Scales preview */
+    .lab-scales {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      background: rgba(0,0,0,0.3);
+      padding: 16px 24px;
+      border-radius: var(--radius-md);
+      margin-top: 20px;
+      width: 100%;
+      justify-content: space-around;
+    }
+
+    .scale-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    /* Filter & Grid */
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+
+    .chips {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .chip-btn {
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .chip-btn:hover, .chip-btn.active {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      border-color: var(--border-accent);
+      background: var(--bg-card-hover);
+      box-shadow: 0 16px 36px rgba(0,0,0,0.6);
+    }
+
+    .card img {
+      width: 130px;
+      height: 130px;
+      margin-bottom: 16px;
+      transition: transform 0.2s ease;
+    }
+
+    .card:hover img {
+      transform: scale(1.06);
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      text-align: center;
+      color: #ffffff;
+      margin-bottom: 4px;
+    }
+
+    .card-tag {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      text-align: center;
+      margin-bottom: 14px;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      margin-top: auto;
+    }
+
+    .btn-sm {
+      flex: 1;
+      padding: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .btn-sm:hover {
+      background: var(--cyan);
+      color: #000;
+      border-color: var(--cyan);
+    }
+
+    @media (max-width: 900px) {
+      .lab-box { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+
+  <div class="container">
+    <header>
+      <div class="pill-badge">🌀 131 Aperture Triad Color & Core Lab</div>
+      <h1>Aperture Triad Color & Center Core Variations</h1>
+      <p class="subtitle">
+        131번 원본 아퍼처 트라이어드(120° 스웹트 아크 3개)의 심플하고 완벽한 기하학을 유지하면서,<br>
+        <strong>다채로운 네온/오로라/메탈 그라디언트</strong>와 <strong>지능형 센터 코어(다이아몬드, 아스테리스크, 프롬프트, 크로스헤어 등)</strong>를 변형한 에셋들입니다.
+      </p>
+    </header>
+
+    <!-- Interactive Top Lab Simulator -->
+    <div class="lab-box">
+      <div class="lab-hero">
+        <img id="active-hero-img" src="./aperture-color-01.svg" alt="Active" />
+        <div class="lab-title" id="active-hero-title">Electric Cyan & Indigo</div>
+        <div class="lab-tag" id="active-hero-tag">Cyan / Indigo / White Core</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; justify-content: center;">
+        <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">실시간 멀티 스케일 시인성 및 디테일 확인</h3>
+        <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+          아래 카드 중 하나를 클릭하면 이곳에 즉시 로드되며, 64px, 32px, 24px, 16px 등 다양한 해상도에서의 아크 선명도와 중심 코어의 시인성을 한눈에 비교할 수 있습니다.
+        </p>
+
+        <div class="lab-scales">
+          <div class="scale-node">
+            <img id="scale-img-64" src="./aperture-color-01.svg" style="width: 64px; height: 64px;" />
+            <span>64px (Dock)</span>
+          </div>
+          <div class="scale-node">
+            <img id="scale-img-32" src="./aperture-color-01.svg" style="width: 32px; height: 32px;" />
+            <span>32px (Toolbar)</span>
+          </div>
+          <div class="scale-node">
+            <img id="scale-img-24" src="./aperture-color-01.svg" style="width: 24px; height: 24px;" />
+            <span>24px (Tab)</span>
+          </div>
+          <div class="scale-node">
+            <img id="scale-img-16" src="./aperture-color-01.svg" style="width: 16px; height: 16px;" />
+            <span>16px (CLI)</span>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; margin-top: 24px;">
+          <button class="btn-sm" style="flex: none; padding: 10px 20px; background: var(--cyan); color: #000; font-weight: 700;" onclick="copyCurrentSvg()">📋 현재 선택 SVG 코드 복사</button>
+          <a id="active-download-btn" href="./aperture-color-01.svg" download="aperture-color-01.svg" class="btn-sm" style="flex: none; padding: 10px 20px;">⬇️ SVG 파일 다운로드</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <div class="chips">
+        <button class="chip-btn active" onclick="filterLab('all', this)">전체 (18)</button>
+        <button class="chip-btn" onclick="filterLab('Cyber Neon', this)">사이버 네온</button>
+        <button class="chip-btn" onclick="filterLab('Aurora & Spectrum', this)">오로라 & 스펙트럼</button>
+        <button class="chip-btn" onclick="filterLab('Warm & Natural', this)">웜 & 앤트로픽</button>
+        <button class="chip-btn" onclick="filterLab('Terminal & Hacker', this)">터미널 & 해커</button>
+        <button class="chip-btn" onclick="filterLab('Hardware & Metal', this)">메탈 & 골드</button>
+        <button class="chip-btn" onclick="filterLab('Monochrome & Minimal', this)">모노크롬 & 미니멀</button>
+      </div>
+    </div>
+
+    <!-- Cards Grid -->
+    <div class="grid" id="cards-container">
+
+        <div class="card" data-cat="Cyber Neon" onclick="setActiveLab('aperture-color-01.svg', 'Electric Cyan & Indigo', 'Cyan / Indigo / White Core')">
+          <img src="./aperture-color-01.svg" alt="Electric Cyan & Indigo" />
+          <div class="card-title">Electric Cyan & Indigo</div>
+          <div class="card-tag">Cyan / Indigo / White Core</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-01.svg')">📋 복사</button>
+            <a href="./aperture-color-01.svg" download="aperture-color-01.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Aurora & Spectrum" onclick="setActiveLab('aperture-color-02.svg', 'Aurora Borealis Flow', 'Emerald / Cyan / Purple')">
+          <img src="./aperture-color-02.svg" alt="Aurora Borealis Flow" />
+          <div class="card-title">Aurora Borealis Flow</div>
+          <div class="card-tag">Emerald / Cyan / Purple</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-02.svg')">📋 복사</button>
+            <a href="./aperture-color-02.svg" download="aperture-color-02.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Cyber Neon" onclick="setActiveLab('aperture-color-03.svg', 'Sunset Synthwave', 'Hot Pink / Violet / Amber')">
+          <img src="./aperture-color-03.svg" alt="Sunset Synthwave" />
+          <div class="card-title">Sunset Synthwave</div>
+          <div class="card-tag">Hot Pink / Violet / Amber</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-03.svg')">📋 복사</button>
+            <a href="./aperture-color-03.svg" download="aperture-color-03.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Warm & Natural" onclick="setActiveLab('aperture-color-04.svg', 'Anthropic Terracotta & Warm Sand', 'Claude Warm Terracotta / Sand')">
+          <img src="./aperture-color-04.svg" alt="Anthropic Terracotta & Warm Sand" />
+          <div class="card-title">Anthropic Terracotta & Warm Sand</div>
+          <div class="card-tag">Claude Warm Terracotta / Sand</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-04.svg')">📋 복사</button>
+            <a href="./aperture-color-04.svg" download="aperture-color-04.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Terminal & Hacker" onclick="setActiveLab('aperture-color-05.svg', 'Hacker Phosphor CRT Green', 'Ghostty / Zero-Latency CRT')">
+          <img src="./aperture-color-05.svg" alt="Hacker Phosphor CRT Green" />
+          <div class="card-title">Hacker Phosphor CRT Green</div>
+          <div class="card-tag">Ghostty / Zero-Latency CRT</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-05.svg')">📋 복사</button>
+            <a href="./aperture-color-05.svg" download="aperture-color-05.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Monochrome & Minimal" onclick="setActiveLab('aperture-color-06.svg', 'Monochrome Stark White & Charcoal', 'Pure Luxury Minimalist')">
+          <img src="./aperture-color-06.svg" alt="Monochrome Stark White & Charcoal" />
+          <div class="card-title">Monochrome Stark White & Charcoal</div>
+          <div class="card-tag">Pure Luxury Minimalist</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-06.svg')">📋 복사</button>
+            <a href="./aperture-color-06.svg" download="aperture-color-06.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Cyber Neon" onclick="setActiveLab('aperture-color-07.svg', 'Prism Diamond Spark', 'Diamond Rhombus Core')">
+          <img src="./aperture-color-07.svg" alt="Prism Diamond Spark" />
+          <div class="card-title">Prism Diamond Spark</div>
+          <div class="card-tag">Diamond Rhombus Core</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-07.svg')">📋 복사</button>
+            <a href="./aperture-color-07.svg" download="aperture-color-07.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Hardware & Metal" onclick="setActiveLab('aperture-color-08.svg', 'Machined Brass & Champagne Gold', 'Gold / Brass / Obsidian')">
+          <img src="./aperture-color-08.svg" alt="Machined Brass & Champagne Gold" />
+          <div class="card-title">Machined Brass & Champagne Gold</div>
+          <div class="card-tag">Gold / Brass / Obsidian</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-08.svg')">📋 복사</button>
+            <a href="./aperture-color-08.svg" download="aperture-color-08.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Monochrome & Minimal" onclick="setActiveLab('aperture-color-09.svg', 'Inverted Clean White Tile', 'Light Mode Pure Ceramic')">
+          <img src="./aperture-color-09.svg" alt="Inverted Clean White Tile" />
+          <div class="card-title">Inverted Clean White Tile</div>
+          <div class="card-tag">Light Mode Pure Ceramic</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-09.svg')">📋 복사</button>
+            <a href="./aperture-color-09.svg" download="aperture-color-09.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Cyber Neon" onclick="setActiveLab('aperture-color-10.svg', 'Hexagonal Cyber Kernel', 'Hexagon Core / Cyan & Rose')">
+          <img src="./aperture-color-10.svg" alt="Hexagonal Cyber Kernel" />
+          <div class="card-title">Hexagonal Cyber Kernel</div>
+          <div class="card-tag">Hexagon Core / Cyan & Rose</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-10.svg')">📋 복사</button>
+            <a href="./aperture-color-10.svg" download="aperture-color-10.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Cyber Neon" onclick="setActiveLab('aperture-color-11.svg', 'Plasma Violet & Deep Magenta', 'Plasma Violet / Pulse Core')">
+          <img src="./aperture-color-11.svg" alt="Plasma Violet & Deep Magenta" />
+          <div class="card-title">Plasma Violet & Deep Magenta</div>
+          <div class="card-tag">Plasma Violet / Pulse Core</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-11.svg')">📋 복사</button>
+            <a href="./aperture-color-11.svg" download="aperture-color-11.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Warm & Natural" onclick="setActiveLab('aperture-color-12.svg', 'Fire & Ember Ignition', 'Flame Ember / Red Core')">
+          <img src="./aperture-color-12.svg" alt="Fire & Ember Ignition" />
+          <div class="card-title">Fire & Ember Ignition</div>
+          <div class="card-tag">Flame Ember / Red Core</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-12.svg')">📋 복사</button>
+            <a href="./aperture-color-12.svg" download="aperture-color-12.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Continuous Flow" onclick="setActiveLab('aperture-color-13.svg', 'Pure Single-Gradient Continuous Loop', 'Continuous Color Sweep')">
+          <img src="./aperture-color-13.svg" alt="Pure Single-Gradient Continuous Loop" />
+          <div class="card-title">Pure Single-Gradient Continuous Loop</div>
+          <div class="card-tag">Continuous Color Sweep</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-13.svg')">📋 복사</button>
+            <a href="./aperture-color-13.svg" download="aperture-color-13.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Hardware & Metal" onclick="setActiveLab('aperture-color-14.svg', 'Holographic Liquid Chrome', 'Ultra-Gloss Chrome / Rainbow Specular')">
+          <img src="./aperture-color-14.svg" alt="Holographic Liquid Chrome" />
+          <div class="card-title">Holographic Liquid Chrome</div>
+          <div class="card-tag">Ultra-Gloss Chrome / Rainbow Specular</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-14.svg')">📋 복사</button>
+            <a href="./aperture-color-14.svg" download="aperture-color-14.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Monochrome & Minimal" onclick="setActiveLab('aperture-color-15.svg', 'Slim Hairline Precision (14px)', 'Refined Slim Stroke & Dot')">
+          <img src="./aperture-color-15.svg" alt="Slim Hairline Precision (14px)" />
+          <div class="card-title">Slim Hairline Precision (14px)</div>
+          <div class="card-tag">Refined Slim Stroke & Dot</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-15.svg')">📋 복사</button>
+            <a href="./aperture-color-15.svg" download="aperture-color-15.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Monochrome & Minimal" onclick="setActiveLab('aperture-color-16.svg', 'Ultra Chunky Bold (30px)', 'Bold Heavyweight Glyph')">
+          <img src="./aperture-color-16.svg" alt="Ultra Chunky Bold (30px)" />
+          <div class="card-title">Ultra Chunky Bold (30px)</div>
+          <div class="card-tag">Bold Heavyweight Glyph</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-16.svg')">📋 복사</button>
+            <a href="./aperture-color-16.svg" download="aperture-color-16.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Terminal & Hacker" onclick="setActiveLab('aperture-color-17.svg', 'Square Pixel Kernel Center', 'Retro Pixel Matrix')">
+          <img src="./aperture-color-17.svg" alt="Square Pixel Kernel Center" />
+          <div class="card-title">Square Pixel Kernel Center</div>
+          <div class="card-tag">Retro Pixel Matrix</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-17.svg')">📋 복사</button>
+            <a href="./aperture-color-17.svg" download="aperture-color-17.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+        <div class="card" data-cat="Monochrome & Minimal" onclick="setActiveLab('aperture-color-18.svg', 'Negative Cut Center (Hollow Donut)', 'Negative Space Donut')">
+          <img src="./aperture-color-18.svg" alt="Negative Cut Center (Hollow Donut)" />
+          <div class="card-title">Negative Cut Center (Hollow Donut)</div>
+          <div class="card-tag">Negative Space Donut</div>
+          <div class="card-actions">
+            <button class="btn-sm" onclick="event.stopPropagation(); copyDirectSvg('aperture-color-18.svg')">📋 복사</button>
+            <a href="./aperture-color-18.svg" download="aperture-color-18.svg" class="btn-sm" onclick="event.stopPropagation()">⬇️ 저장</a>
+          </div>
+        </div>
+
+    </div>
+  </div>
+
+  <script>
+    let activeFile = 'aperture-color-01.svg';
+
+    function setActiveLab(file, title, tag) {
+      activeFile = file;
+      document.getElementById('active-hero-img').src = './' + file;
+      document.getElementById('active-hero-title').innerText = title;
+      document.getElementById('active-hero-tag').innerText = tag;
+
+      document.getElementById('scale-img-64').src = './' + file;
+      document.getElementById('scale-img-32').src = './' + file;
+      document.getElementById('scale-img-24').src = './' + file;
+      document.getElementById('scale-img-16').src = './' + file;
+
+      const dl = document.getElementById('active-download-btn');
+      dl.href = './' + file;
+      dl.download = file;
+    }
+
+    function filterLab(cat, btn) {
+      document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      document.querySelectorAll('.card').forEach(card => {
+        if (cat === 'all' || card.getAttribute('data-cat') === cat) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+
+    async function copyCurrentSvg() {
+      await copyDirectSvg(activeFile);
+    }
+
+    async function copyDirectSvg(file) {
+      try {
+        const res = await fetch('./' + file);
+        const text = await res.text();
+        await navigator.clipboard.writeText(text);
+        alert('SVG 코드가 클립보드에 복사되었습니다! (' + file + ')');
+      } catch (err) {
+        alert('복사 실패: ' + err.message);
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="f2-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0c120f"/>
+      <stop offset="50%" stop-color="#050a08"/>
+      <stop offset="100%" stop-color="#010302"/>
+    </linearGradient>
+    <linearGradient id="f2-rim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#047857" stop-opacity="0.1"/>
+    </linearGradient>
+    <filter id="f2-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="f2-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#f2-bg)" filter="url(#f2-shadow)"/>
+  <rect x="32.5" y="32.5" width="447" height="447" rx="107.5" fill="none" stroke="url(#f2-rim)" stroke-width="1.5"/>
+  <!-- Matrix Grid Glow -->
+  <g fill="#10b981" filter="url(#f2-glow)">
+    <!-- Ears -->
+    <rect x="140" y="140" width="28" height="28" rx="6" opacity="0.9"/>
+    <rect x="176" y="140" width="28" height="28" rx="6" opacity="0.7"/>
+    <rect x="308" y="140" width="28" height="28" rx="6" opacity="0.7"/>
+    <rect x="344" y="140" width="28" height="28" rx="6" opacity="0.9"/>
+    <!-- Head M Level 1 -->
+    <rect x="140" y="176" width="28" height="28" rx="6"/>
+    <rect x="212" y="176" width="28" height="28" rx="6" opacity="0.85"/>
+    <rect x="272" y="176" width="28" height="28" rx="6" opacity="0.85"/>
+    <rect x="344" y="176" width="28" height="28" rx="6"/>
+    <!-- Head M Level 2 -->
+    <rect x="140" y="212" width="28" height="28" rx="6"/>
+    <rect x="176" y="212" width="28" height="28" rx="6" opacity="0.6"/>
+    <rect x="242" y="212" width="28" height="28" rx="6" fill="#34d399"/>
+    <rect x="308" y="212" width="28" height="28" rx="6" opacity="0.6"/>
+    <rect x="344" y="212" width="28" height="28" rx="6"/>
+    <!-- Terminal Prompt Snout (>_) -->
+    <rect x="140" y="248" width="28" height="28" rx="6"/>
+    <rect x="212" y="248" width="28" height="28" rx="6" fill="#ffffff"/>
+    <rect x="272" y="248" width="28" height="28" rx="6" fill="#ffffff"/>
+    <rect x="344" y="248" width="28" height="28" rx="6"/>
+    <!-- Snout Apex -->
+    <rect x="140" y="284" width="28" height="28" rx="6" opacity="0.8"/>
+    <rect x="242" y="284" width="28" height="28" rx="6" fill="#34d399"/>
+    <rect x="344" y="284" width="28" height="28" rx="6" opacity="0.8"/>
+    <!-- Base Stems -->
+    <rect x="140" y="320" width="28" height="28" rx="6" opacity="0.6"/>
+    <rect x="344" y="320" width="28" height="28" rx="6" opacity="0.6"/>
+    <rect x="140" y="356" width="28" height="28" rx="6" opacity="0.3"/>
+    <rect x="344" y="356" width="28" height="28" rx="6" opacity="0.3"/>
+  </g>
+</svg>

@@ -96,6 +96,7 @@ export function providerModelCacheRow(name, m, searchCapableFor) {
     created: typeof m.created === 'number' ? m.created : null,
     releaseDate: m.releaseDate || null,
     contextWindow: m.contextWindow,
+    maxContextWindow: m.maxContextWindow || null,
     outputTokens: m.outputTokens || null,
     family: m.family || null,
     tier: m.tier || null,
@@ -118,8 +119,7 @@ export function providerModelCacheRow(name, m, searchCapableFor) {
       : {},
     defaultEffort: m.defaultEffort || null,
     defaultFast: m.defaultFast === true,
-    defaultEffort: m.defaultEffort || null,
-    defaultFast: m.defaultFast === true,
+    supportsMaxMode: m.supportsMaxMode === true,
     mode: m.mode || null,
   };
 }

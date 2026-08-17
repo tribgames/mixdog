@@ -228,6 +228,7 @@ export function createModelRouteApi(deps) {
           fast: route.fast === true,
           effort: route.effectiveEffort || null,
           modelParameters: route.modelParameters || {},
+          contextPercent: route.contextPercent,
           selectedContextWindow: route.selectedContextWindow || null,
         });
         if (updated) setSession(updated);
@@ -237,6 +238,7 @@ export function createModelRouteApi(deps) {
           session.fast = route.fast === true;
           session.effort = route.effectiveEffort || null;
           session.modelParameters = route.modelParameters || {};
+          session.contextPercent = route.contextPercent;
           session.selectedContextWindow = route.selectedContextWindow || null;
         }
         rebuildDeferredToolSurfaceForProvider(getSession(), route.provider);

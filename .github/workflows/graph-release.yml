@@ -144,6 +144,7 @@ jobs:
     name: build-${{ matrix.pkey }}-primary
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    ext: .exe, rustflags: "-C link-arg=/Brepro" }
@@ -234,6 +235,7 @@ jobs:
     name: build-${{ matrix.pkey }}-comparison
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    ext: .exe, rustflags: "-C link-arg=/Brepro" }
