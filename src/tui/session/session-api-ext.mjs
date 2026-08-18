@@ -532,69 +532,6 @@ export function createSessionApiB(bag) {
         set({ commandBusy: false });
       }
     },
-    // Toggle channel remote mode for the CURRENT session (session-scoped,
-    // user decision). Off → on claims for this session; on + this session
-    // owns → off; on + ANOTHER session owns → move the relay seat here
-    // (last-wins) without restarting the worker.
-    toggleRemote: async () => {
-      const enabled = runtime.isRemoteEnabled?.() === true;
-      const owner = String(runtime.getRemoteSessionId?.() || '');
-      const currentId = String(getState().sessionId || '');
-      // Stale-enabled guard: boot auto-acquire can leave remote reading ON
-      // while the channels worker already self-shut (no live clients). A
-      // toggle in that state must BOOT the worker for this session, not
-      // no-op into a claim or flip a dead relay "off".
-      const workerRunning = runtime.getChannelWorkerStatus?.()?.running === true;
-      if (enabled && !workerRunning) {
-        await runtime.startRemote?.();
-        const next = runtime.isRemoteEnabled?.() === true;
-        set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
-        return next;
-      }
-      if (enabled && owner && currentId && owner !== currentId) {
-        await runtime.startRemote?.();
-        const next = runtime.isRemoteEnabled?.() === true;
-        set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
-        return next;
-      }
-      if (enabled) await runtime.releaseRemote?.();
-      else await runtime.startRemote?.();
-      const next = runtime.isRemoteEnabled?.() === true;
-      set({ remoteEnabled: next, remoteSessionId: runtime.getRemoteSessionId?.() || null });
-      return next;
-    },
-    // Force-claim remote for this session (single-holder, last-wins). Always
-    // turns remote ON here and steals the bridge seat; the previous holder is
-    // superseded and flips itself OFF via onRemoteStateChange. Used by the
-    // `/remote` slash command — repeated /remote just re-claims (idempotent).
-    claimRemote: async () => {
-      // Desired state paints before daemon cold boot. The final read in
-      // `finally` reconciles a skipped/failed claim to the session truth.
-      set({
-        remoteEnabled: true,
-        remoteSessionId: runtime.getRemoteSessionId?.() || getState().sessionId || null,
-      });
-      try {
-        await runtime.startRemote?.();
-      } finally {
-        const next = runtime.isRemoteEnabled?.() === true;
-        set({ remoteEnabled: next, remoteSessionId: next ? runtime.getRemoteSessionId?.() || null : null });
-      }
-      return runtime.isRemoteEnabled?.() === true;
-    },
-    // Idempotent desired-state OFF for desktop controls. Unlike toggleRemote,
-    // a delayed/replayed request can never turn remote back on.
-    releaseRemote: async () => {
-      set({ remoteEnabled: false, remoteSessionId: null });
-      try {
-        await runtime.releaseRemote?.();
-      } finally {
-        const next = runtime.isRemoteEnabled?.() === true;
-        set({ remoteEnabled: next, remoteSessionId: next ? runtime.getRemoteSessionId?.() || null : null });
-      }
-      return runtime.isRemoteEnabled?.() === true;
-    },
-    isRemoteEnabled: () => runtime.isRemoteEnabled?.() === true,
     getVoiceStatus: () => getVoiceStatus(),
     // Desktop push-to-talk dictation: accept a recorded audio payload
     // (base64), stage it as a temp file, and run it through the SAME managed
@@ -805,32 +742,6 @@ export function createSessionApiB(bag) {
       return runtime.getChannelSetup();
     },
     getChannelWorkerStatus: () => runtime.getChannelWorkerStatus?.(),
-    setChannelProvider: (name) => runtime.setChannelProvider?.(name),
-    saveDiscordToken: (token) => {
-      const result = runtime.saveDiscordToken(token);
-      pushNotice('discord token saved', 'info');
-      return result;
-    },
-    forgetDiscordToken: () => {
-      const result = runtime.forgetDiscordToken();
-      pushNotice('discord token forgotten', 'info');
-      return result;
-    },
-    saveTelegramToken: (token) => {
-      const result = runtime.saveTelegramToken?.(token);
-      pushNotice('telegram token saved', 'info');
-      return result;
-    },
-    forgetTelegramToken: () => {
-      const result = runtime.forgetTelegramToken?.();
-      pushNotice('telegram token forgotten', 'info');
-      return result;
-    },
-    setChannel: async (entry) => {
-      const result = await runtime.setChannel(entry);
-      pushNotice('channel saved', 'info');
-      return result;
-    },
     // Media studio (image/video generation). Reads stay quiet; only the
     // generation start posts a notice so the TUI shows background work.
     listMediaLanes: () => runtime.listMediaLanes?.(),

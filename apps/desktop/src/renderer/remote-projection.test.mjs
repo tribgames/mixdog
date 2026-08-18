@@ -25,6 +25,18 @@ test("remote browser owns its tabs and layout independently", () => {
   assert.match(app, /workspace=\{paneWorkspace\}/u);
 });
 
+test("channel corner controls are fully retired from the composer", () => {
+  const css = readFileSync(new URL("./desktop.css", import.meta.url), "utf8");
+  const surface = readFileSync(
+    new URL("./app-conversation-pane-surfaces.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(surface, /composerCornerStatus/u);
+  assert.doesNotMatch(surface, /headerStatus/u);
+  assert.doesNotMatch(css, /\.composer-corner-status/u);
+});
+
 test("mobile right panel keeps its frame separate from scaled content", () => {
   const css = readFileSync(new URL("./desktop.css", import.meta.url), "utf8");
   const layout = readFileSync(
@@ -126,7 +138,7 @@ test("model triggers follow their labels and morph to the sheet width on PC and 
   assert.doesNotMatch(css, /\.model-trigger\s*\{[^}]*max-width: 150px;/su);
 });
 
-test("Dark stays black while the original desktop ramp remains available as Gray", () => {
+test("Dark is the original Mixdog grey ramp and the separate Gray theme is retired", () => {
   const css = readFileSync(new URL("./desktop.css", import.meta.url), "utf8");
   const paneCss = readFileSync(new URL("./pane-layout.css", import.meta.url), "utf8");
   const monaco = readFileSync(new URL("./monaco-setup.ts", import.meta.url), "utf8");
@@ -136,14 +148,15 @@ test("Dark stays black while the original desktop ramp remains available as Gray
   const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
   const manifest = readFileSync(new URL("./public/manifest.webmanifest", import.meta.url), "utf8");
 
-  assert.match(css, /--mx-window-band: #111114;/u);
-  assert.match(css, /--mx-bg-deep: #000000;/u);
-  assert.match(css, /--mx-workspace-sheet: #000000;/u);
-  assert.match(css, /--mx-bg-base: #1c1c1f;/u);
-  assert.match(css, /--mx-bg-layer-1: #222225;/u);
-  assert.match(css, /--mx-bg-layer-2: #2a2a2d;/u);
-  assert.match(css, /--mx-bg-layer-3: #323236;/u);
-  assert.match(css, /:root\[data-mixdog-theme="gray"\]\s*\{[^}]*--mx-bg-deep: #101013;[^}]*--mx-window-band: #151518;[^}]*--mx-workspace-sheet: #1c1c1f;[^}]*--mx-bg-base: #222225;[^}]*--mx-bg-layer-1: #2a2a2d;[^}]*--mx-bg-layer-2: #323236;[^}]*--mx-bg-layer-3: #3d3d41;/su);
+  assert.match(css, /--mx-window-band: #151518;/u);
+  assert.match(css, /--mx-bg-deep: #101013;/u);
+  assert.match(css, /--mx-workspace-sheet: #1c1c1f;/u);
+  assert.match(css, /--mx-bg-base: #222225;/u);
+  assert.match(css, /--mx-bg-layer-1: #2a2a2d;/u);
+  assert.match(css, /--mx-bg-layer-2: #323236;/u);
+  assert.match(css, /--mx-bg-layer-3: #3d3d41;/u);
+  assert.match(css, /html\[data-mixdog-theme="basic"\]\[data-mixdog-mobile-tabs\] \.pane-cell > \.workspace-tabs-shell,[^}]*background: var\(--mx-workspace-sheet\);/su);
+  assert.doesNotMatch(css, /data-mixdog-theme="gray"/u);
   assert.match(css, /--mx-border-structure: rgba\(255, 255, 255, \.16\);/u);
   assert.match(css, /\.activity-rail\s*\{[^}]*border-right: 1px solid var\(--mx-border-structure\);/su);
   assert.match(css, /\.workspace-tab\.active\s*\{[^}]*--workspace-tab-surface: var\(--mx-window-band\);[^}]*box-shadow: inset 1px 0 0 var\(--mx-border\), inset -1px 0 0 var\(--mx-border\);/su);
@@ -154,15 +167,17 @@ test("Dark stays black while the original desktop ramp remains available as Gray
   assert.match(paneCss, /\.bottom-panel\s*\{[^}]*border-top: 1px solid var\(--mx-border-structure\);/su);
   assert.match(paneCss, /\.pane-resize-handle::after\s*\{[^}]*background: var\(--mx-border-structure\);/su);
   assert.match(paneCss, /\.pane-cell > \.workspace-tabs-shell,[\s\S]*?border-bottom: 1px solid var\(--mx-border\);/u);
-  assert.match(monaco, /'editor\.background': '#000000'/u);
-  assert.match(monaco, /resolveThemeColor\('--mx-workspace-sheet', light \? '#fafafa' : '#000000'\)/u);
-  assert.match(monaco, /resolveThemeColor\('--mx-bg-base', light \? '#ffffff' : '#1c1c1f'\)/u);
-  assert.match(themes, /\{ value: DESKTOP_GRAY_THEME_ID, label: 'Gray' \}/u);
-  assert.match(themes, /if \(value === 'system' \|\| value === 'dark' \|\| value === DESKTOP_GRAY_THEME_ID \|\| value === 'white'\) return value;/u);
+  assert.match(monaco, /'editor\.background': '#1c1c1f'/u);
+  assert.match(monaco, /resolveThemeColor\('--mx-workspace-sheet', light \? '#fafafa' : '#1c1c1f'\)/u);
+  assert.match(monaco, /resolveThemeColor\('--mx-bg-base', light \? '#ffffff' : '#222225'\)/u);
+  assert.doesNotMatch(themes, /DESKTOP_GRAY_THEME_ID/u);
+  assert.match(themes, /if \(value === 'gray'\) return 'dark';/u);
+  assert.match(themes, /if \(value === 'system' \|\| value === 'dark' \|\| value === 'white'\) return value;/u);
   assert.match(themes, /function pwaSystemBarColor\(\): string\s*\{\s*return '#000000';/u);
   assert.match(themes, /\.setAttribute\('content', pwaSystemBarColor\(\)\)/u);
-  assert.match(onboarding, /\{ id: 'gray', label: \(\) => t\('Gray'\), hint: \(\) => t\('Original Mixdog ramp'\) \}/u);
-  assert.match(boot, /mixdogThemePref === 'gray'[\s\S]*?dataset\.mixdogTheme = 'gray'/u);
+  assert.doesNotMatch(onboarding, /id: 'gray'/u);
+  assert.match(boot, /mixdogThemePref !== 'gray'/u);
+  assert.doesNotMatch(boot, /dataset\.mixdogTheme = 'gray'/u);
   assert.match(index, /<meta name="theme-color" content="#000000" \/>/u);
   assert.match(manifest, /"background_color": "#000000"/u);
   assert.match(manifest, /"theme_color": "#000000"/u);

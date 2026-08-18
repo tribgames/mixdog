@@ -644,8 +644,8 @@ export async function init() {
       await runtimeReady
     } catch (e) {
       // Runtime init failed AFTER we advertised the HTTP port. Leaving the
-      // listener up would answer discovery with a live 503, which
-      // memory-client treats as a delivered (non-buffered) write — silently
+      // listener up would answer discovery with a live 503, which HTTP
+      // ingest callers treat as a delivered (non-buffered) write — silently
       // dropping entries that would otherwise be buffered when no port is
       // advertised. stop() withdraws the advert (clears _currentAdvertisedPort
       // + cancels the periodic re-advertise) and closes the HTTP server, so

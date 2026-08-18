@@ -332,9 +332,6 @@
   "Disable voice": "Sprache deaktivieren",
   "Disabled": "Deaktiviert",
   "Discombobulating": "Verunsichernd",
-  "Discord and Telegram messaging.": "Discord- und Telegram-Messaging.",
-  "Discord bot token": "Discord-Bot-Token",
-  "Discord channel ID": "Discord-Kanal-ID",
   "Dismiss": "Verwerfen",
   "Dismiss error": "Fehler verwerfen",
   "Dismiss install prompt": "Installationshinweis schließen",
@@ -468,7 +465,6 @@
   "Hello, {{name}} 👋": "Hallo, {{name}} 👋",
   "Herding": "Hüten",
   "Honking": "Hupen",
-  "Hook up Discord or Telegram to reach Mixdog away from your desk.": "Schließen Sie Discord oder Telegram an, um Mixdog auch außerhalb Ihres Schreibtisches zu erreichen.",
   "Hooks": "Hooks",
   "Hourly": "Stündlich",
   "How Mixdog addresses you.": "Wie Mixdog Sie anspricht.",
@@ -1088,8 +1084,6 @@
   "System prompt": "System-Prompt",
   "System tools": "Systemwerkzeuge",
   "Tap Share, then Add to Home Screen.": "Tippen Sie auf Teilen und dann auf Zum Home-Bildschirm.",
-  "Telegram bot token": "Telegram-Bot-Token",
-  "Telegram chat ID": "Telegram-Chat-ID",
   "Tell Mixdog what to call you and which language to answer in.": "Sagen Sie Mixdog, wie er Sie anrufen und in welcher Sprache er antworten soll.",
   "Tempering": "Temperieren",
   "Terminal": "Terminal",
@@ -1242,5 +1236,6 @@
   "Your example commit message appears here.": "Ihre Beispiel-Commit-Nachricht wird hier angezeigt.",
   "Your name or role": "Dein Name oder deine Rolle",
   "Zesting": "Schälen",
-  "Zigzagging": "Im Zickzack"
+  "Zigzagging": "Im Zickzack",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "Die verwaltete Whisper- und ffmpeg-Laufzeit ist bereit für Spracheingaben."
 }

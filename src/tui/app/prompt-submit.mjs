@@ -30,7 +30,6 @@ export function createPromptSubmit({
   oauthSubmitRef,
   clearModelCaches,
   openProviderSetupPicker,
-  openChannelSetupPicker,
   openHooksPicker,
   openSettingsPicker,
   openProjectPicker,
@@ -158,54 +157,8 @@ export function createPromptSubmit({
         return true;
       }
     }
-    if (channelPrompt) {
-      if (state.commandBusy) {
-        store.pushNotice('wait for the current command to finish', 'warn');
-        return false;
-      }
-      try {
-        const resumeAfterChannelPrompt = (prompt) => {
-          const afterSave = prompt?.afterSave;
-          setChannelPrompt(null);
-          if (typeof afterSave === 'function') afterSave();
-          else void openChannelSetupPicker('all');
-        };
-        if (channelPrompt.kind === 'discord-token') {
-          if (!commandText) return false;
-          store.saveDiscordToken(commandText);
-          resumeAfterChannelPrompt(channelPrompt);
-          return true;
-        }
-        if (channelPrompt.kind === 'telegram-token') {
-          if (!commandText) return false;
-          store.saveTelegramToken(commandText);
-          resumeAfterChannelPrompt(channelPrompt);
-          return true;
-        }
-        const parts = commandText.split('|').map((part) => part.trim());
-        if (channelPrompt.kind === 'channel-add') {
-          // Single-channel: the UI asks only for the channel id. Legacy
-          // `name | id | ...` pipe input still parses (the id is the second
-          // field) so old muscle memory does not break.
-          const isPipe = parts.length > 1;
-          const channelId = isPipe ? parts[1] : parts[0];
-          Promise.resolve(store.setChannel({
-            channelId,
-            provider: channelPrompt.provider,
-          }))
-            .then(() => resumeAfterChannelPrompt(channelPrompt))
-            .catch((e) => {
-              store.pushNotice(`channel save failed: ${e?.message || e}`, 'error');
-            });
-          return true;
-        }
-        // schedule-add / webhook-add prompt kinds retired: schedules and
-        // webhooks are managed in the desktop app (user decision).
-      } catch (e) {
-        store.pushNotice(`channels update failed: ${e?.message || e}`, 'error');
-        return false;
-      }
-    }
+    // Channel token/target prompt kinds retired with Discord/Telegram
+    // messaging (user decision: the PWA replaces channels).
     if (hookPrompt) {
       if (state.commandBusy) {
         store.pushNotice('wait for the current command to finish', 'warn');

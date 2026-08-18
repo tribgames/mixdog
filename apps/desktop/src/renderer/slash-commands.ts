@@ -1,6 +1,5 @@
 export type SettingsSection =
-  | 'profile' | 'autoclear' | 'autocompact' | 'compact-type' | 'channels'
-  | 'remote-runtime' | 'channel-provider' | 'channel-setting' | 'output-style'
+  | 'profile' | 'autoclear' | 'autocompact' | 'compact-type' | 'output-style'
   | 'theme' | 'workflow' | 'model' | 'search' | 'providers' | 'mcp'
   | 'plugins' | 'hooks' | 'skills' | 'memory' | 'update';
 
@@ -44,8 +43,6 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations', settingsRow: 'plugins' },
   { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events', settingsRow: 'hooks' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints', settingsRow: 'providers' },
-  { name: 'channels', usage: '/channels', description: 'Manage Discord, Telegram, and voice', settingsRow: 'channels' },
-  { name: 'remote', usage: '/remote', description: 'Claim remote for this session (takes over from any other session)', action: 'remote' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings', action: 'settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title and response language', settingsRow: 'profile' },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog', settingsRow: 'update' },

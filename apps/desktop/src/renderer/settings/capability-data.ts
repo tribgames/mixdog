@@ -67,9 +67,7 @@ export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, u
   ['updateStatus', 'getUpdateStatus'], ['mcp', 'mcpStatus'], ['plugins', 'pluginsStatus'],
   ['hooks', 'hooksStatus'],
   ['skills', 'skillsStatus'], ['disabledSkills', 'getDisabledSkills'],
-  ['remote', 'isRemoteEnabled'], ['channels', 'getChannelSettings', [{ includeStatus: false }]],
-  ['voice', 'getVoiceStatus'], ['channelWorker', 'getChannelWorkerStatus'],
-  ['channelSetup', 'getChannelSetup'],
+  ['voice', 'getVoiceStatus'],
 ];
 
 export interface CachedCapabilitySettings {

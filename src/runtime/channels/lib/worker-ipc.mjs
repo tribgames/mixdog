@@ -67,21 +67,6 @@ export function runWorkerIpc({
       _channelsShutdownHandler('IPC:shutdown')
       return
     }
-    // Silent-to-agent lifecycle forward — parent (server.mjs) asks the
-    // channels worker to post status pings to the active bridge Discord
-    // channel without the Lead-notify hop. Best-effort: unknown channel or
-    // getProvider() failure is swallowed; lifecycle pings are non-critical.
-    if (msg && msg.type === 'forward_to_discord') {
-      try {
-        const target = msg.channelId
-          || (statusState?.read?.().channelId)
-          || null;
-        if (target && getProvider()?.sendMessage && typeof msg.content === 'string' && msg.content) {
-          await getProvider().sendMessage(target, msg.content).catch(() => {});
-        }
-      } catch { /* best-effort */ }
-      return;
-    }
     if (handleMemoryCallResponse(msg)) return;
     if (msg.type === 'cancel' && msg.callId) {
       const entry = _inFlightChannelCalls.get(msg.callId)
@@ -137,7 +122,7 @@ export function runWorkerIpc({
     // A stop landed while we were failing — let clean shutdown proceed, never exit over it.
     if (_channelsStopInFlight) return
     // Terminal failure: do NOT mask as a (degraded) ready. Exit non-zero so the
-    // parent's exit-before-ready path respawns or rejects startRemote instead of
+    // parent's exit-before-ready path respawns or rejects the start instead of
     // silently losing remote output forwarding.
     bootProfile("worker:failed", { ms: (performance.now() - startedAt).toFixed(1), error: lastErr?.message || String(lastErr) })
     process.stderr.write(`[channels-worker] start() giving up after ${MAX_START_ATTEMPTS} attempts: ${lastErr && (lastErr.message || lastErr)}\n`)

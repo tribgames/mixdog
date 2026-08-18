@@ -136,32 +136,32 @@ monaco.editor.defineTheme('mixdog-dark', {
   inherit: true,
   rules: [],
   colors: {
-    'editor.background': '#000000',
+    'editor.background': '#1c1c1f',
     'editor.foreground': '#e9e9e9',
-    'editorGutter.background': '#000000',
+    'editorGutter.background': '#1c1c1f',
     'editorLineNumber.foreground': '#858585',
     'editorLineNumber.activeForeground': '#d0d0d0',
-    'editor.lineHighlightBackground': '#1c1c1f',
-    'editor.selectionBackground': '#323236',
-    'editor.inactiveSelectionBackground': '#2a2a2d',
+    'editor.lineHighlightBackground': '#222225',
+    'editor.selectionBackground': '#3d3d41',
+    'editor.inactiveSelectionBackground': '#323236',
     'editorCursor.foreground': '#e9e9e9',
-    'editorWhitespace.foreground': '#323236',
-    'editorIndentGuide.background1': '#222225',
+    'editorWhitespace.foreground': '#3d3d41',
+    'editorIndentGuide.background1': '#2a2a2d',
     'editorIndentGuide.activeBackground1': '#5c5c61',
-    'minimap.background': '#000000',
-    'editorOverviewRuler.background': '#000000',
+    'minimap.background': '#1c1c1f',
+    'editorOverviewRuler.background': '#1c1c1f',
     'editorOverviewRuler.border': '#00000000',
     'scrollbar.shadow': '#00000000',
     'scrollbarSlider.background': '#85858533',
     'scrollbarSlider.hoverBackground': '#a8a8a855',
     'scrollbarSlider.activeBackground': '#d0d0d066',
-    'editorWidget.background': '#1c1c1f',
-    'editorWidget.border': '#323236',
-    'editorSuggestWidget.background': '#1c1c1f',
-    'editorSuggestWidget.border': '#323236',
-    'editorSuggestWidget.selectedBackground': '#2a2a2d',
-    'editorHoverWidget.background': '#1c1c1f',
-    'editorHoverWidget.border': '#323236',
+    'editorWidget.background': '#222225',
+    'editorWidget.border': '#3d3d41',
+    'editorSuggestWidget.background': '#222225',
+    'editorSuggestWidget.border': '#3d3d41',
+    'editorSuggestWidget.selectedBackground': '#323236',
+    'editorHoverWidget.background': '#222225',
+    'editorHoverWidget.border': '#3d3d41',
     'menu.background': '#101013',
     'menu.foreground': '#cccccc',
     'menu.selectionBackground': '#0078d4',
@@ -264,14 +264,14 @@ function withAlpha(color: string, alpha: string): string {
 }
 
 function currentMonacoColors(light: boolean): Record<string, string> {
-  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#fafafa' : '#000000');
+  const sheet = resolveThemeColor('--mx-workspace-sheet', light ? '#fafafa' : '#1c1c1f');
   const text = resolveThemeColor('--mx-text', light ? '#17181a' : '#e9e9e9');
   const faint = resolveThemeColor('--mx-text-faint', light ? '#717171' : '#808080');
   const icon = resolveThemeColor('--mx-icon', light ? '#3f4348' : '#d0d0d0');
-  const base = resolveThemeColor('--mx-bg-base', light ? '#ffffff' : '#1c1c1f');
-  const layer1 = resolveThemeColor('--mx-bg-layer-1', light ? '#f7f7f7' : '#222225');
-  const layer2 = resolveThemeColor('--mx-bg-layer-2', light ? '#f0f0f0' : '#2a2a2d');
-  const layer3 = resolveThemeColor('--mx-bg-layer-3', light ? '#e8e8e8' : '#323236');
+  const base = resolveThemeColor('--mx-bg-base', light ? '#ffffff' : '#222225');
+  const layer1 = resolveThemeColor('--mx-bg-layer-1', light ? '#f7f7f7' : '#2a2a2d');
+  const layer2 = resolveThemeColor('--mx-bg-layer-2', light ? '#f0f0f0' : '#323236');
+  const layer3 = resolveThemeColor('--mx-bg-layer-3', light ? '#e8e8e8' : '#3d3d41');
   const contrast = resolveThemeColor('--mx-bg-contrast', light ? '#b0b0b0' : '#5c5c61');
   const focus = resolveThemeColor('--mx-focus', light ? '#005fb8' : '#0078d4');
   const scrollbarThumb = resolveThemeColor('--mx-scrollbar-thumb', withAlpha(faint, '33'));

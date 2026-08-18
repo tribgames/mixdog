@@ -400,6 +400,7 @@ export default function TerminalPane({
     let retryTimer = 0;
     let retryDelay = 1000;
     let noticeShown = false;
+    let ensureInFlight: Promise<void> | null = null;
     let pendingRestore: TerminalViewState | null = null;
     const view = terminalView(key);
     const { term } = view;
@@ -506,29 +507,46 @@ export default function TerminalPane({
     // Surface it once, reveal the pane, and keep retrying: TerminalHost
     // lazily respawns its worker on the next ensure().
     const attemptEnsure = () => {
-      void runEnsure().catch(() => {
-        if (disposed) return;
-        // Notice/reveal are best-effort (the terminal may already be
-        // disposed); retry scheduling must always run.
-        if (!noticeShown) {
-          noticeShown = true;
+      if (disposed || ensureInFlight) return;
+      ensureInFlight = runEnsure();
+      void ensureInFlight
+        .catch(() => {
+          if (disposed) return;
+          // Notice/reveal are best-effort (the terminal may already be
+          // disposed); retry scheduling must always run.
+          if (!noticeShown) {
+            noticeShown = true;
+            try {
+              term.write("\r\n\x1b[31mterminal service unavailable — retrying…\x1b[0m\r\n");
+            } catch { /* xterm disposed mid-failure */ }
+          }
           try {
-            term.write("\r\n\x1b[31mterminal service unavailable — retrying…\x1b[0m\r\n");
-          } catch { /* xterm disposed mid-failure */ }
-        }
-        try {
-          onReadyRef.current?.();
-        } catch { /* gate consumer threw */ }
-        retryTimer = window.setTimeout(() => {
-          retryTimer = 0;
-          if (!disposed) attemptEnsure();
-        }, retryDelay);
-        retryDelay = Math.min(retryDelay * 2, 5000);
-      });
+            onReadyRef.current?.();
+          } catch { /* gate consumer threw */ }
+          retryTimer = window.setTimeout(() => {
+            retryTimer = 0;
+            if (!disposed) attemptEnsure();
+          }, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 5000);
+        })
+        .finally(() => {
+          ensureInFlight = null;
+        });
     };
+    const onRemoteReconnected = () => {
+      if (retryTimer) {
+        window.clearTimeout(retryTimer);
+        retryTimer = 0;
+      }
+      retryDelay = 1000;
+      view.localEcho?.reset();
+      attemptEnsure();
+    };
+    window.addEventListener('mixdog:remote-reconnected', onRemoteReconnected);
     attemptEnsure();
     return () => {
       disposed = true;
+      window.removeEventListener('mixdog:remote-reconnected', onRemoteReconnected);
       if (fitFrame) window.cancelAnimationFrame(fitFrame);
       window.clearTimeout(revealTimer);
       window.clearTimeout(persistTimer);

@@ -1,6 +1,7 @@
 // Predictive local echo: validation gating, echo consumption, rollback, and
 // carry across split frames.
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { TerminalLocalEcho } from './terminal-local-echo.ts';
 
@@ -104,4 +105,15 @@ test('cursor-moving output is a mismatch, never consumed', () => {
   echo.onInput('c');
   assert.equal(echo.onIncoming('\x1b[2Dabc'), '\x1b[11G\x1b[K\x1b[2Dabc');
   echo.reset();
+});
+
+test('remote reconnect re-ensures mounted terminals without duplicate attempts', async () => {
+  const [shim, pane] = await Promise.all([
+    readFile(new URL('./remote-shim.ts', import.meta.url), 'utf8'),
+    readFile(new URL('./TerminalPane.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.match(shim, /dispatchEvent\(new Event\('mixdog:remote-reconnected'\)\)/);
+  assert.match(pane, /if \(disposed \|\| ensureInFlight\) return;/);
+  assert.match(pane, /addEventListener\('mixdog:remote-reconnected', onRemoteReconnected\)/);
+  assert.match(pane, /removeEventListener\('mixdog:remote-reconnected', onRemoteReconnected\)/);
 });

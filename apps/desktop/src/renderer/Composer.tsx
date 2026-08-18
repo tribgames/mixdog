@@ -122,6 +122,7 @@ export const Composer = memo(function Composer({
   onOpenProjects,
   onOpenSettings,
   onOpenCommandSurface,
+  contextStatus,
   dropTargetRef,
 }: {
   turnBusy: boolean;
@@ -164,6 +165,8 @@ export const Composer = memo(function Composer({
   onOpenProjects: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
+  /** Context gauge attached right of the model selector (user placement). */
+  contextStatus?: React.ReactNode;
   dropTargetRef: React.RefObject<HTMLElement | null>;
 }) {
   const [draft, setDraft] = useState("");
@@ -1088,7 +1091,6 @@ export const Composer = memo(function Composer({
     else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
     else if (name === 'compact') await commandCapability('compact');
     else if (name === 'doctor') onOpenCommandSurface('doctor');
-    else if (name === 'remote') await commandCapability('claimRemote');
     else if (name === 'settings') onOpenSettings();
     // Desktop /quit leaves THIS task, not the app (user): it rides the same
     // close path as Ctrl+W, so unsaved-close guards and group collapse apply.
@@ -1932,6 +1934,7 @@ export const Composer = memo(function Composer({
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied} />
+        {contextStatus && <div className="composer-context-status">{contextStatus}</div>}
         <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}

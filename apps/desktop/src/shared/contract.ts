@@ -494,10 +494,6 @@ export interface DesktopNewTaskDraft {
   projectPath?: string;
   route?: DesktopModelSelection;
   workflowId?: string;
-  /** One-shot channel-relay reservation: claim the remote seat for the
-   *  just-created session at creation time (user decision: the New-task
-   *  Remote toggle must attach immediately, not after a renderer round-trip). */
-  remote?: boolean;
 }
 
 export interface DesktopNewTaskSubmitResult {
@@ -532,8 +528,6 @@ export const DESKTOP_CAPABILITIES = [
   'getToolModuleSettings',
   'setWebSearchEnabled',
   'setMemoryToolsEnabled',
-  'getChannelSettings',
-  'setChannelsEnabled',
   'getVoiceStatus',
   'toggleVoice',
   'agentControl',
@@ -581,10 +575,6 @@ export const DESKTOP_CAPABILITIES = [
   'listOutputStyles',
   'setOutputStyle',
   'setWorkflow',
-  'toggleRemote',
-  'claimRemote',
-  'releaseRemote',
-  'isRemoteEnabled',
   'listThemes',
   'getTheme',
   'setTheme',
@@ -619,13 +609,6 @@ export const DESKTOP_CAPABILITIES = [
   'authenticateProvider',
   'forgetProviderAuth',
   'getChannelSetup',
-  'getChannelWorkerStatus',
-  'setChannelProvider',
-  'saveDiscordToken',
-  'forgetDiscordToken',
-  'saveTelegramToken',
-  'forgetTelegramToken',
-  'setChannel',
   'setWebhookConfig',
   'saveSchedule',
   'deleteSchedule',
@@ -659,7 +642,6 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getCompactionSettings',
   'getRecapSettings',
   'getToolModuleSettings',
-  'getChannelSettings',
   'getVoiceStatus',
   'toolsStatus',
   'getSystemShell',
@@ -680,7 +662,6 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getAgentDefinition',
   'getOutputStyle',
   'listOutputStyles',
-  'isRemoteEnabled',
   'listThemes',
   'getTheme',
   'listProviders',
@@ -690,7 +671,6 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getOnboardingStatus',
   'getOAuthProviderLoginStatus',
   'getChannelSetup',
-  'getChannelWorkerStatus',
   'listMediaLanes',
   'listMediaAssets',
   'readMediaAsset',

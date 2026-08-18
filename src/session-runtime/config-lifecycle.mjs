@@ -11,7 +11,6 @@
 // same-tick readers see fresh state, and DEBOUNCE the disk write so a burst of
 // toggles collapses into one persist. Three independent debounce channels:
 //   - config save  (cfgMod.saveConfig, agent-section serialize)
-//   - channel provider save (channel-admin setChannelProvider, file-locked RMW)
 //   - outputStyle  (sharedCfgMod.updateConfig whole-root RMW — cfgMod.saveConfig
 //                   only serializes agent-section fields, so a top-level
 //                   outputStyle would never reach disk via that path)
@@ -30,7 +29,6 @@ export function createConfigLifecycle({
   // shared modules / helpers
   cfgMod,
   sharedCfgMod,
-  setChannelProviderAsync,
   setConfiguredShell,
   normalizeSystemShellConfig,
   normalizeSearchRouteConfig,
@@ -188,42 +186,6 @@ export function createConfigLifecycle({
     return adopted;
   }
 
-  // --- debounced channel provider switch ----------------------------------------------
-  let pendingChannelProvider = null;
-  let channelProviderSaveTimer = null;
-  let channelProviderFlushInFlight = null;
-
-  async function runChannelProviderFlushAsync() {
-    while (pendingChannelProvider !== null) {
-      const name = pendingChannelProvider;
-      try {
-        await setChannelProviderAsync(name);
-      } catch (err) {
-        process.stderr.write(`[channels] async setChannelProvider failed: ${err?.message || err}\n`);
-        if (pendingChannelProvider === name) pendingChannelProvider = null;
-        break;
-      }
-      if (pendingChannelProvider === name) pendingChannelProvider = null;
-    }
-  }
-
-  function flushChannelProviderSaveAsync() {
-    if (channelProviderSaveTimer) { clearTimeout(channelProviderSaveTimer); channelProviderSaveTimer = null; }
-    const start = () => runChannelProviderFlushAsync();
-    const p = channelProviderFlushInFlight ? channelProviderFlushInFlight.then(start, start) : start();
-    channelProviderFlushInFlight = p;
-    const clear = () => { if (channelProviderFlushInFlight === p) channelProviderFlushInFlight = null; };
-    p.then(clear, clear);
-    return p;
-  }
-
-  function scheduleChannelProviderSave(name) {
-    pendingChannelProvider = name;
-    if (channelProviderSaveTimer) clearTimeout(channelProviderSaveTimer);
-    channelProviderSaveTimer = setTimeout(() => { flushChannelProviderSaveAsync(); }, CONFIG_SAVE_DEBOUNCE_MS);
-    channelProviderSaveTimer.unref?.();
-  }
-
   // --- debounced skills.disabled persist -------------------------------------
   // In-memory skills state is adopted synchronously by setDisabledSkills; the
   // heavy in-lock file RMW (cfgMod.patchSkillsDisabled) is deferred here so a
@@ -326,11 +288,10 @@ export function createConfigLifecycle({
   async function flushAllConfigSavesAsync() {
     await Promise.all([
       flushConfigSaveAsync(),
-      flushChannelProviderSaveAsync(),
       flushOutputStyleSaveAsync(),
     ]);
     // The shared config layer also tracks writes started directly by channel,
-    // webhook, voice, Discord access, and future async RMW callers.
+    // webhook, voice, and future async RMW callers.
     await sharedCfgMod.pendingConfigWrites();
   }
 
@@ -420,8 +381,6 @@ export function createConfigLifecycle({
     // Every lifecycle flush uses the async lock path. A synchronous waiter on
     // the same lock would block the event loop needed by an in-flight async
     // writer, so callers must await this before a dependent read/start.
-    flushChannelProviderSave: flushChannelProviderSaveAsync,
-    scheduleChannelProviderSave,
     flushSkillsSave,
     scheduleSkillsSave,
     flushOutputStyleSave,

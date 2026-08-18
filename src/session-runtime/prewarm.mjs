@@ -13,8 +13,6 @@ export function createPrewarmSchedulers({
   getActiveTurnCount,
   getSessionCreatePromise,
   getSession,
-  isRemoteEnabled,
-  channelsEnabled,
   hasActiveAutomation,
   getCodeGraphModule,
   createCurrentSession,
@@ -194,15 +192,12 @@ export function createPrewarmSchedulers({
       if (isCloseRequested()) return;
       // Channels-module and remote toggles gate MESSAGING; automation
       // (enabled schedules/webhooks) keeps the worker boot alive — its
-      // channel provider runs headless when messaging is off or unconfigured.
+      // channel worker runs headless: only active automation boots it.
       const automation = await hasActiveAutomation().catch(() => false);
-      if (!channelsEnabled() && !automation) {
+      if (!automation) {
         bootProfile('channels:start-disabled');
         return;
       }
-      // A deferred start may straddle a stopRemote(); re-check before booting so
-      // a turned-off session neither starts channels nor keeps rescheduling.
-      if (!isRemoteEnabled() && !automation) return;
       if (isCloseRequested()) return;
       if (getActiveTurnCount() > 0 || getSessionCreatePromise()) {
         bootProfile('channels:start-deferred', { reason: getActiveTurnCount() > 0 ? 'turn-active' : 'session-create' });

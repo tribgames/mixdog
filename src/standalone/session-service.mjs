@@ -852,9 +852,7 @@ export function createSessionService({
 
   async function configureSession(params = {}, ctx = null) {
     const revision = Math.max(0, Number(ctx?.revision) || 0);
-    const action = revision < 1 && params?.action === 'setBackend'
-      ? 'setChannelProvider'
-      : params?.action;
+    const action = params?.action;
     // Revision 0 desktop adapters routed some reads through configure because
     // their local read list lagged the session surface. A newer daemon accepts
     // those reads without weakening the current revision's finite lanes.

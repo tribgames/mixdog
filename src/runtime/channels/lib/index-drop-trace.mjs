@@ -2,11 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { DATA_DIR } from "./config.mjs";
 
-// Drop-trace instrumentation for channels/index.mjs.
-// Extracted verbatim (behavior-preserving). Distinct from lib/drop-trace.mjs
-// (which the output-forwarder uses): this instance is owned by index.mjs and
-// keeps its own buffered writer + `preview` helper so the two trace streams
-// stay byte-identical to the pre-split behavior.
+// Drop-trace instrumentation for channels/index.mjs: buffered writer +
+// `preview` helper owned by index.mjs.
 const _dropTraceLog = path.join(DATA_DIR, "drop-trace.log");
 const DROP_TRACE_ENABLED =
   process.env.MIXDOG_DROP_TRACE === "1" ||

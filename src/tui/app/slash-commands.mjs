@@ -25,8 +25,6 @@ export const SLASH_COMMANDS = [
   { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations' },
   { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints' },
-  { name: 'channels', usage: '/channels', description: 'Manage Discord, Telegram, and voice' },
-  { name: 'remote', usage: '/remote', description: 'Claim remote for this session (takes over from any other session)' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title and response language' },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog' },

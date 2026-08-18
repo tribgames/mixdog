@@ -3,25 +3,21 @@ import type { ComponentProps, ReactNode } from "react";
 import { PaneConversation } from "./app-snapshot-views";
 import { shouldFocusSurfaceInput } from "./surface-input-focus";
 
-export function AppConversationPaneSurface({
-  focused,
-  focusPane,
-  handoffActive,
-  title,
-  projectLabel,
-  titleContent,
-  headerStatus,
-  conversationProps,
-}: {
+export function AppConversationPaneSurface(props: {
   focused: boolean;
   focusPane(): void;
   handoffActive: boolean;
   title: string;
   projectLabel: string;
   titleContent: ReactNode;
-  headerStatus: ReactNode;
   conversationProps: ComponentProps<typeof PaneConversation>;
 }) {
+  const {
+    focused,
+    focusPane,
+    handoffActive,
+    conversationProps,
+  } = props;
   return (
     <div className="workspace"
       data-conversation-handoff={handoffActive ? "true" : undefined}
@@ -37,13 +33,6 @@ export function AppConversationPaneSurface({
           .querySelector<HTMLTextAreaElement>("form.composer textarea")
           ?.focus({ preventScroll: true });
       }}>
-      <header className="session-header" aria-label="Current task">
-        <div className="session-header-content">
-          <h1 data-tooltip={title}>{titleContent}</h1>
-          {projectLabel && <span className="session-project-badge">{projectLabel}</span>}
-          <div className="session-header-status">{headerStatus}</div>
-        </div>
-      </header>
       <div className="pane-surface-body">
         <div className="pane-chat-surface">
           <PaneConversation {...conversationProps} />

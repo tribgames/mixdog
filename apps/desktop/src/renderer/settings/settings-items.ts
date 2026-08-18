@@ -27,10 +27,9 @@ export const SETTINGS_ITEMS = [
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
   { value: 'hooks', label: 'Hooks', description: '0 before-tool rules', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
-  { value: 'channels', label: 'Channels enabled', description: 'Discord and Telegram messaging.', kind: 'toggle' },
-  { value: 'channel-provider', label: 'Channel', description: 'Left/Right or Enter changes channel type (Discord or Telegram).', kind: 'cycle' },
-  { value: 'channel-setting', label: 'Setting', description: 'Configure credentials and main channel/chat for the active type.', kind: 'open' },
-  { value: 'remote-runtime', label: 'Remote Runtime', description: 'Stopped. Manual ON claims remote from any other session.', kind: 'toggle' },
+  // Voice transcription graduated from the retired Channels page into General
+  // (user: 음성전사만 일반으로): the managed Whisper runtime powers voice input.
+  { value: 'voice', label: 'Voice transcription', description: 'Managed Whisper runtime for voice input.', kind: 'open' },
   // 'system-shell' stays TUI-only: the desktop hides the override (user
   // decision — automatic platform selection is the only sensible desktop
   // default; the shared config key remains editable from the TUI).
@@ -41,7 +40,7 @@ export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
 
 export type SettingsCategory =
   | 'general' | 'context' | 'output-style'
-  | 'providers' | 'git' | 'channels' | 'connection' | 'mcp' | 'plugins' | 'hooks' | 'skills'
+  | 'providers' | 'git' | 'connection' | 'mcp' | 'plugins' | 'hooks' | 'skills'
   | 'system' | 'shortcuts' | 'about';
 
 export interface SettingsCategoryItem {
@@ -56,7 +55,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'general',
     label: 'General',
     group: 'Mixdog',
-    items: ['profile', 'theme', 'web-search-enabled', 'memory-enabled'],
+    items: ['profile', 'theme', 'web-search-enabled', 'memory-enabled', 'voice'],
   },
   // Context owns session lifecycle. The Memory master itself lives once in
   // General; curated memories are managed with their project.
@@ -105,12 +104,6 @@ export const SETTINGS_CATEGORIES = [
     items: ['output-style'],
   },
   {
-    value: 'channels',
-    label: 'Channels',
-    group: 'Integrations',
-    items: ['channels', 'channel-provider', 'channel-setting'],
-  },
-  {
     value: 'hooks',
     label: 'Hooks',
     group: 'Integrations',
@@ -120,7 +113,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'system',
     label: 'System',
     group: 'Support',
-    items: ['remote-runtime', 'update'],
+    items: ['update'],
   },
   // Desktop-only surface (no TUI settings-item counterpart): a read-only
   // keybind reference for the workspace shortcuts.
@@ -148,7 +141,6 @@ export const SETTINGS_CATEGORIES = [
 
 const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>([
   'providers',
-  'channels',
 ]);
 const REMOTE_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
   (category) => !REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value),

@@ -42,7 +42,6 @@ export function createSlashDispatch({
   openPluginsPicker,
   openHooksPicker,
   openProviderSetupPicker,
-  openChannelSetupPicker,
   openMemoryCorePicker,
   parseMemoryCommand,
   openSettingsPicker,
@@ -97,19 +96,6 @@ export function createSlashDispatch({
           .then(ok => store.pushNotice(ok ? modelSwitchNotice() : 'Model switch is already running.', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         return true;
-      case 'remote': {
-        // /remote = force-claim, not toggle: always turns remote ON for THIS
-        // session and steals the seat from any other session (which flips
-        // itself OFF via the superseded notification). Turn off via /channels.
-        // Promise-shaped on a daemon-backed store: comparing the call result to
-        // `true` synchronously always reported "unavailable".
-        void Promise.resolve(store.claimRemote?.())
-          .then((enabled) => {
-            store.pushNotice(enabled === true ? 'Remote mode ON — this session owns remote now.' : 'Remote mode unavailable.', 'info');
-          })
-          .catch((e) => store.pushNotice(`Remote claim failed: ${e?.message || e}`, 'error'));
-        return true;
-      }
       case 'search':
         // No busy guard: /search only picks the search provider/model (a config
         // save consumed by the NEXT search tool call). It never touches the
@@ -266,9 +252,6 @@ export function createSlashDispatch({
         return true;
       case 'providers':
         void openProviderSetupPicker();
-        return true;
-      case 'channels':
-        void openChannelSetupPicker('all');
         return true;
       case 'schedules':
       case 'webhooks':

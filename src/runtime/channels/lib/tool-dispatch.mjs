@@ -1,29 +1,19 @@
-import { OutputForwarder } from "./output-forwarder.mjs";
-
-// Worker/HTTP tool-call dispatch + bridge auto-connect retry wrapper.
-// Extracted verbatim from channels/index.mjs (behavior-preserving). The
-// `handleToolCall` switch is entangled with ~8 runtime-lifecycle functions
-// (claim/refresh ownership, stop owned runtime, transcript rebind, config
-// reload) plus mutable owner state (channelBridgeActive, bridgeRuntimeConnected)
-// and the forwarder. Those are threaded in as a `lifecycle` bag of lazy
-// getters/functions so the module reads the live file-level references at
-// call time — matching the original in-file closure semantics.
+// Worker/HTTP runtime-lifecycle dispatch (activate_channel_bridge /
+// reload_config). Channel messaging — forwarder, transcript binding, typing —
+// is deleted with Discord/Telegram; only the automation lifecycle remains.
+// Lifecycle functions are threaded in as a bag of lazy getters so the module
+// reads the live file-level references at call time.
 function createToolDispatch({
-  getForwarder,
   isChannelsDegraded,
   lifecycle,
 }) {
   const {
-    getBridgeRuntimeConnected,
     getChannelBridgeActive,
     getOwned,
     setChannelBridgeActive,
     writeBridgeState,
-    stopServerTyping,
     notifyRemoteAcquired,
     refreshBridgeOwnership,
-    bindPersistedTranscriptIfAny,
-    rebindCurrentTranscript,
     startChannelBridge,
     stopOwnedRuntime,
     reloadRuntimeConfig,
@@ -46,8 +36,6 @@ function createToolDispatch({
               // (getOwned() is always true), so activate never needs to claim a
               // seat or pre-notify — the not-connected -> connected transition
               // inside startOwnedRuntime fires notifyRemoteAcquired exactly once.
-              // refreshBridgeOwnership still re-pins the forwarder binding onto
-              // THIS session.
               if (getOwned?.() !== true) {
                 notifyRemoteAcquired?.();
               }
@@ -57,17 +45,12 @@ function createToolDispatch({
                 } else {
                   await refreshBridgeOwnership({ restoreBinding: true });
                 }
-                // An already-connected owner returns early from
-                // startOwnedRuntime(), so rebind explicitly to follow the
-                // current (parent-chain) session transcript.
-                if (getBridgeRuntimeConnected()) await bindPersistedTranscriptIfAny();
               } catch (e) {
                 process.stderr.write(`mixdog: bridge activate refresh failed (non-fatal): ${e?.message || e}\n`);
               }
             }
             if (!active && wasActive) {
-              stopServerTyping();
-              // Tear down the owner-side runtime so Discord/scheduler/webhook/
+              // Tear down the owner-side runtime so scheduler/webhook/
               // event-pipeline don't keep running on a deactivated bridge.
               try { await stopOwnedRuntime("bridge deactivated"); } catch (e) {
                 process.stderr.write(`mixdog: stopOwnedRuntime on deactivate failed: ${e?.message || e}\n`);
@@ -99,13 +82,9 @@ function createToolDispatch({
             break;
           }
         case "rebind_current_transcript": {
-            // Lead-pushed repoint to the transcript it just created/rebound.
-            // Best-effort + idempotent: absent channelId or path => no-op; a
-            // bind failure is swallowed by the outer try so lead paths never
-            // throw. Same binding path as the inbound steal.
-            const transcriptPath = typeof args.transcriptPath === "string" ? args.transcriptPath.trim() : "";
-            if (transcriptPath) await rebindCurrentTranscript(transcriptPath);
-            result = { content: [{ type: "text", text: `transcript rebind ${transcriptPath ? "pushed" : "skipped (no path)"}` }] };
+            // Transcript forwarding is retired with channel messaging: accept
+            // and no-op so legacy lead-side pushes never surface an error.
+            result = { content: [{ type: "text", text: "transcript rebind retired" }] };
             break;
         }
         // memory — handled by memory-service.mjs MCP
@@ -125,32 +104,10 @@ function createToolDispatch({
     return result;
   }
 
-  // Bridge auto-connect retry + forwarder-aware tool dispatch wrapper. Used by
-  // both the HTTP MCP path (createHttpMcpServer's CallTool handler can call this)
-  // and the worker IPC handler at the bottom of index.mjs.
-  // Last timestamp a forwardNewText() call was dispatched (debounce for item 4).
-  let _lastForwardMs = 0;
-
+  // IPC/HTTP wrapper: with channel messaging retired there is no transcript
+  // pre-flush or tool-log relay — plain dispatch.
   async function handleToolCallWithBridgeRetry(toolName, args, signal) {
-    const forwarder = getForwarder();
-    // Debounce: only forward when ≥250 ms have elapsed since the last forward,
-    // to avoid one HTTP roundtrip per tool call on rapid-fire sequences.
-    const now = Date.now();
-    // The transcript rebind op must repoint the forwarder BEFORE any flush;
-    // running the pre-flush first would send stale-transcript text ahead of the
-    // rebind. Skip the pre-flush for it so rebinding always precedes forwarding.
-    if (toolName !== 'rebind_current_transcript' && now - _lastForwardMs >= 250) {
-      _lastForwardMs = now;
-      await forwarder.forwardNewText();
-    }
-    const result = await handleToolCall(toolName, args, signal);
-    const toolLine = OutputForwarder.buildToolLine(toolName, args);
-    if (toolLine) {
-      // Distinct from the dispatch-log ok line (server-main.mjs): this forwards
-      // a human-readable tool summary to Discord for the user, not operator stdout.
-      void forwarder.forwardToolLog(toolLine, toolName, args);
-    }
-    return result;
+    return handleToolCall(toolName, args, signal);
   }
 
   return { handleToolCall, handleToolCallWithBridgeRetry };

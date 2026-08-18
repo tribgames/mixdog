@@ -332,9 +332,6 @@
   "Disable voice": "停用語音",
   "Disabled": "已停用",
   "Discombobulating": "混亂的",
-  "Discord and Telegram messaging.": "Discord 與 Telegram 訊息。",
-  "Discord bot token": "Discord 機器人權杖",
-  "Discord channel ID": "Discord 頻道 ID",
   "Dismiss": "關閉",
   "Dismiss error": "關閉錯誤",
   "Dismiss install prompt": "關閉安裝提示",
@@ -468,7 +465,6 @@
   "Hello, {{name}} 👋": "你好，{{name}}👋",
   "Herding": "羊群效應",
   "Honking": "鳴喇叭",
-  "Hook up Discord or Telegram to reach Mixdog away from your desk.": "連接 Discord 或 Telegram，在遠離辦公桌的地方聯絡 Mixdog。",
   "Hooks": "掛鉤",
   "Hourly": "每小時",
   "How Mixdog addresses you.": "Mixdog 如何稱呼您。",
@@ -1088,8 +1084,6 @@
   "System prompt": "系統提示詞",
   "System tools": "系統工具",
   "Tap Share, then Add to Home Screen.": "點一下「分享」，然後選擇「加入主畫面」。",
-  "Telegram bot token": "Telegram 機器人權杖",
-  "Telegram chat ID": "Telegram 聊天 ID",
   "Tell Mixdog what to call you and which language to answer in.": "告訴 Mixdog 給您打電話以及用哪種語言接聽。",
   "Tempering": "回火",
   "Terminal": "終端機",
@@ -1242,5 +1236,6 @@
   "Your example commit message appears here.": "您的提交訊息範例會顯示在此處。",
   "Your name or role": "你的名字或角色",
   "Zesting": "熱情",
-  "Zigzagging": "之字形"
+  "Zigzagging": "之字形",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "託管的 Whisper 與 ffmpeg 執行環境已準備好進行語音輸入。"
 }

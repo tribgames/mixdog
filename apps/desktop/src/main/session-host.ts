@@ -817,9 +817,6 @@ export class SessionHost implements DesktopService {
         sessionId,
         promptTitle(prompt, options.displayText || ''),
       );
-      if (draft.remote === true) {
-        void this.invokeSession(sessionId, 'claimRemote').catch(() => undefined);
-      }
       this.pendingCatalogSessionIds.delete(sessionId);
       void this.publishCatalogs();
       return { accepted: true, sessionId, snapshot };

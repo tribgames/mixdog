@@ -30,12 +30,10 @@ export function createSessionApi(bag) {
       systemShell: await read(api.getSystemShell),
       outputStyle: (await read(api.getOutputStyle)) || (await read(api.listOutputStyles)),
       channelWorker: await read(api.getChannelWorkerStatus),
-      remoteEnabled: (await read(api.isRemoteEnabled)) === true,
       profile: await read(api.getProfile),
       updateSettings: await read(api.getUpdateSettings),
     };
     if (heavy) {
-      snapshot.channelProvider = (await read(api.getChannelSetup))?.provider || 'discord';
       snapshot.mcp = await read(api.mcpStatus);
       snapshot.hooks = await read(api.hooksStatus);
       snapshot.plugins = await read(api.pluginsStatus);

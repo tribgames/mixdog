@@ -3,7 +3,6 @@ import {
   deleteSchedule,
   deleteWebhook,
   getWebhookSecret,
-  setChannelAsync,
   saveSchedule,
   saveWebhook,
   setScheduleEnabled,
@@ -13,37 +12,21 @@ import {
 import { getSchedule } from '../runtime/shared/schedules-db.mjs';
 import { runScheduleSession } from '../runtime/shared/schedule-session-run.mjs';
 
-// Channel/webhook/schedule config surface. Extracted verbatim from the runtime
+// Webhook/schedule config surface. Extracted verbatim from the runtime
 // API object; the mutating admin helpers are imported directly here and the
-// runtime injects only the closure-owned callbacks (channel provider flush, channel
-// worker handle, soft reload).
+// runtime injects only the closure-owned callbacks (channel worker handle,
+// soft reload).
 export function createChannelConfigApi({
-  flushChannelProviderSave,
   channels,
   reloadChannelsSoon,
   ensureAutomationRuntime = () => {},
-  awaitKeychainPrewarm = async () => {},
 }) {
   return {
     async getChannelSetup() {
-      // Flush a pending debounced channel provider switch first so setup readers
-      // (Settings → Channel Setting, remote toggles) never observe the
-      // previous provider during the 150ms debounce window.
-      try { await flushChannelProviderSave(); } catch {}
-      // Bot tokens live in the OS keychain. Reading them before the batch
-      // prewarm lands costs one SYNCHRONOUS PowerShell DPAPI decrypt each
-      // (measured 971ms + 579ms on a cold desktop boot, blocking the whole
-      // event loop); waiting for the prewarm serves both from its cache.
-      try { await awaitKeychainPrewarm(); } catch {}
       return channelSetup();
     },
     getChannelWorkerStatus() {
       return channels.status();
-    },
-    async setChannel(entry) {
-      const result = await setChannelAsync(entry);
-      reloadChannelsSoon();
-      return result;
     },
     async setWebhookConfig(patch) {
       const result = await setWebhookConfigAsync(patch);

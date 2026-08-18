@@ -1,10 +1,9 @@
 /**
- * Transcript writer for remote (Discord) mode.
+ * Session transcript writer (JSONL).
  *
- * The channel worker's OutputForwarder tails a newline-delimited JSON
- * transcript and forwards the "surface" view (assistant text + one-line tool
- * summaries) to Discord. Nothing wrote that file for standalone sessions, so
- * remote outbound never worked. This module writes the JSONL in the exact
+ * Writes the newline-delimited JSON transcript consumed by the memory
+ * transcript watcher and session tooling. (The channel forwarder that
+ * originally tailed this file is retired.) This module writes the JSONL in the exact
  * schema the forwarder parses (see channels/lib/output-forwarder.mjs
  * extractNewText) plus a session record the forwarder's discovery reads
  * (channels/lib/session-discovery.mjs readSessionRecord).
@@ -226,10 +225,7 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     });
   }
 
-  // User prompt row. The channel forwarder ignores plain user text rows
-  // (output-forwarder extractNewText only surfaces assistant rows and
-  // user rows carrying tool_result), so this never echoes back to the
-  // channel — it exists so the memory transcript watcher ingests BOTH
+  // User prompt row. It exists so the memory transcript watcher ingests BOTH
   // sides of the conversation (user rows were previously never written,
   // leaving recall unable to reconstruct recent sessions).
   function appendUser(text) {
@@ -263,8 +259,7 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
 
   // Idempotently create the transcript file as an empty 0-byte file if it
   // does not already exist. Called on every remote turn (before the first
-  // append) so the channel worker's fs.watch can attach to the path right
-  // away instead of waiting on schedulePendingTranscriptRearm(). Never
+  // append) so watchers can attach to the path right away. Never
   // truncates an existing transcript: guarded by existsSync + the 'wx'
   // (exclusive-create) flag, and any EEXIST/other error is swallowed via
   // logOnce like the other writers.

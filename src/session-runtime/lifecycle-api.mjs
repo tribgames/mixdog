@@ -53,8 +53,7 @@ export function createLifecycleApi(deps) {
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     beginRoutePreparation, clearRoutePreparation,
-    pushTranscriptRebind, scheduleRemoteIntentRestore,
-    notificationListeners, clearRuntimeNotifications, remoteStateListeners,
+    notificationListeners, clearRuntimeNotifications,
     disposeSessionTitles, abortActiveTurns, getReservedSessionId,
   } = deps;
   const closeSurfaceSession = (session, reason, options) => {
@@ -321,7 +320,6 @@ export function createLifecycleApi(deps) {
       invalidateContextStatusCache();
       if (typeof clearRuntimeNotifications === 'function') clearRuntimeNotifications();
       else notificationListeners?.clear?.();
-      remoteStateListeners?.clear?.();
       const shellJobsStop = teardownReapsWork && globalThis.__mixdogShellJobsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
           .then((mod) => mod?.shutdownShellJobs?.(reason, {
@@ -431,7 +429,6 @@ export function createLifecycleApi(deps) {
       invalidateContextStatusCache();
       invalidatePreSessionToolSurface();
       await createCurrentSession();
-      pushTranscriptRebind?.();
       return true;
     },
     async switchContext({ cwd, desktopSession: nextDesktopSession, forResume = false } = {}) {
@@ -489,10 +486,6 @@ export function createLifecycleApi(deps) {
       }
       invalidateContextStatusCache();
       await createCurrentSession();
-      // New session.id => the worker's binding (and persisted status) now point
-      // at the previous session's transcript. Push the current transcript so
-      // outbound forwarding repoints immediately (best-effort, remote-gated).
-      pushTranscriptRebind?.();
       return getSession().id;
     },
     prefetchSession(id) {
@@ -572,17 +565,6 @@ export function createLifecycleApi(deps) {
       invalidatePreSessionToolSurface();
       invalidateContextStatusCache();
       setSessionNeedsCwdRefresh(false);
-      // Session swapped to the resumed one: repoint the worker to the current
-      // transcript instead of waiting for the next inbound steal.
-      pushTranscriptRebind?.();
-      // Daemon-boot restore resumes the pinned session AFTER the runtime's
-      // one-shot boot probe may have fired with no session (it returns without
-      // re-arming). Re-check now that the session identity is final; the probe
-      // self-guards (intent match, one-shot, remote already on), so this is a
-      // no-op for every non-pinned resume. Without it the runtime stays
-      // non-remote after a restart: tool_use rows are never mirrored and the
-      // channel shows text without tool markers (user report).
-      scheduleRemoteIntentRestore?.(0);
       return {
         id: resumed.id,
         messages: resumed.messages || [],

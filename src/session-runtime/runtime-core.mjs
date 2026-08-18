@@ -14,12 +14,10 @@ import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { createStandaloneChannelWorker } from '../standalone/channel-worker.mjs';
 import { createStandaloneHookBus } from '../standalone/hook-bus.mjs';
 import { getStandaloneMemoryRuntime } from '../standalone/memory-runtime-proxy.mjs';
-import { createRemoteTransitionQueue } from './remote-transition-queue.mjs';
 import { writeLastSessionCwd } from '../runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
-import { remoteIntentMatchesSession } from '../runtime/shared/remote-intent.mjs';
 import { checkLatestVersion, localPackageVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
 import { spawnStagedInstall, runStagedInstall, isStagedComplete } from '../runtime/shared/staged-update.mjs';
 import {
@@ -59,19 +57,11 @@ import {
   toResponsesCustomTool,
 } from '../runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
 import {
-  channelSetup,
   deleteSchedule,
   deleteWebhook,
-  forgetDiscordToken,
-  forgetTelegramToken,
   hasActiveAutomation,
-  setChannel,
-  saveDiscordToken,
-  saveTelegramToken,
   saveSchedule,
   saveWebhook,
-  setChannelProvider,
-  setChannelProviderAsync,
   setScheduleEnabled,
   setWebhookEnabled,
   setWebhookConfig,
@@ -252,8 +242,6 @@ import { createModelRouteApi } from './model-route-api.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
 import { createSelfUpdateController } from './self-update.mjs';
 import { createSkillsApi } from './skills-api.mjs';
-import { createRemoteTranscript } from './remote-transcript.mjs';
-import { createRemoteControl } from './remote-control.mjs';
 import { createNotificationBus } from './notification-bus.mjs';
 import { createToolSurface } from './tool-surface.mjs';
 import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
@@ -344,14 +332,6 @@ export async function createMixdogSessionRuntime({
   // (session-lifecycle) instead of the Lead session shape.
   rt.agentSessionSpec = agentSession && typeof agentSession === 'object' ? agentSession : null;
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
-  rt.remoteEnabled = remote === true;
-  // SESSION-SCOPED Remote is manual-only. Explicit ON selects/overrides; no
-  // registration, turn, session death, or process death transfers ownership.
-  rt.remoteSessionId = null;
-  // Desktop/TUI Remote toggles are desired-state transitions. Serialize the
-  // daemon deactivate/detach and reconnect/activate chains so an OFF that is
-  // still stopping can never tear down the worker created by the following ON.
-  const remoteTransitions = createRemoteTransitionQueue();
   // Last assistant text handed to the transcript writer (via onAssistantText),
   // so the post-turn final-content append can skip an exact duplicate.
   rt._lastAppendedAssistant = '';
@@ -620,14 +600,6 @@ export async function createMixdogSessionRuntime({
   rt.codeGraphFirstTurnPrewarmDone = false;
   const modelMetaByRoute = new Map();
   const notificationListeners = new Set();
-  // Remote seat listeners (TUI): fired when remote mode flips outside a direct
-  // user action — currently only the superseded (seat stolen) path.
-  const remoteStateListeners = new Set();
-  function emitRemoteStateChange(enabled, reason = '') {
-    for (const listener of [...remoteStateListeners]) {
-      try { listener({ enabled: enabled === true, reason: String(reason || '') }); } catch {}
-    }
-  }
   const providerModelCaches = {
     providerModelsCache: { models: null, at: 0 },
     providerModelsPromise: null,
@@ -866,16 +838,6 @@ export async function createMixdogSessionRuntime({
     // session-pinned channel-link restore for exactly the session that owns it.
     getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
     onNotify: (msg) => {
-      // Single-holder remote: the worker reports it lost the bridge seat to a
-      // newer remote session. Drop remote mode entirely on this session (no
-      // handover, no retry) and tell UI listeners so the indicator updates.
-      if (msg?.method === 'notifications/mixdog/remote') {
-        if (msg?.params?.state === 'superseded' && rt.remoteEnabled) {
-          stopRemote('superseded-by-newer-remote-session');
-          emitRemoteStateChange(false, 'superseded');
-        }
-        return;
-      }
       if (msg?.method !== 'notifications/claude/channel') return;
       const params = msg?.params && typeof msg.params === 'object' ? msg.params : {};
       const meta = params.meta && typeof params.meta === 'object' ? params.meta : {};
@@ -1056,8 +1018,6 @@ export async function createMixdogSessionRuntime({
     adoptConfig,
     saveConfigAndAdopt,
     flushConfigSave,
-    flushChannelProviderSave,
-    scheduleChannelProviderSave,
     scheduleSkillsSave,
     flushSkillsSave,
     flushOutputStyleSave,
@@ -1077,8 +1037,6 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     cfgMod,
     sharedCfgMod,
-    setChannelProvider,
-    setChannelProviderAsync,
     setConfiguredShell,
     normalizeSystemShellConfig,
     normalizeSearchRouteConfig,
@@ -1318,47 +1276,6 @@ export async function createMixdogSessionRuntime({
     agentTool,
   });
   const ensureSessionTranscriptWriter = () => remoteTranscript.ensureSessionTranscriptWriter();
-  const ensureRemoteTranscriptWriter = () => remoteTranscript.ensureRemoteTranscriptWriter();
-  const pushTranscriptRebind = () => remoteTranscript.pushTranscriptRebind();
-  const flushPendingTranscriptRebind = () => remoteTranscript.flushPendingTranscriptRebind();
-
-  // Remote (channel relay) claim/release/stop live in remote-control.mjs; the
-  // facade injects the mutable session + remote state they mutate.
-  const remoteControl = createRemoteControl({
-    getSession: () => rt.session,
-    isRemoteEnabled: () => rt.remoteEnabled,
-    setRemoteEnabled: (next) => { rt.remoteEnabled = next; },
-    getRemoteSessionId: () => rt.remoteSessionId,
-    setRemoteSessionId: (next) => { rt.remoteSessionId = next; },
-    isCloseRequested: () => rt.closeRequested,
-    clearChannelStartTimer: () => {
-      if (prewarmTimers.channelStartTimer) {
-        clearTimeout(prewarmTimers.channelStartTimer);
-        prewarmTimers.channelStartTimer = null;
-      }
-    },
-    remoteTransitions,
-    channels,
-    channelsEnabled,
-    hasActiveAutomation,
-    flushChannelProviderSave,
-    invokeChannelStart,
-    createCurrentSession,
-    ensureSessionTranscriptWriter,
-    ensureRemoteTranscriptWriter,
-    getTranscriptPath: () => remoteTranscript.transcriptWriter?.transcriptPath || null,
-    emitRemoteStateChange,
-    getMemoryModule,
-    bootProfile,
-    envFlag,
-  });
-  const startRemote = (options) => remoteControl.startRemote(options);
-  const releaseRemote = (reason) => remoteControl.releaseRemote(reason);
-  const stopRemote = (reason) => remoteControl.stopRemote(reason);
-
-  function isRemoteEnabled() {
-    return rt.remoteEnabled;
-  }
 
   function withTeardownDeadline(promise, ms, fallback = false) {
     let timer = null;
@@ -1391,61 +1308,18 @@ export async function createMixdogSessionRuntime({
     scheduleModelCatalogWarmup();
     scheduleStatuslineUsageWarmup();
   }
-  // Channels are opt-in: only boot the worker when this session started in (or
-  // was toggled into) remote mode. Non-remote sessions never contend for the
-  // channel; see startRemote()/stopRemote() and the `/remote` toggle.
-  // A manual `mixdog --remote` request is deferred past the TUI's
-  // first frame. startRemote() front-loads memory initialization
-  // (PG + forced ONNX embed warmup in the child), eager session create, and
-  // the channel-worker fork — and running it inline here interleaves that
-  // CPU/disk load with engine boot, visibly delaying the first ink frame by
-  // seconds. The deferred timer reuses prewarmTimers.channelStartTimer so an
-  // early /remote (startRemote clears it), stopRemote(), and close() all
-  // cancel it through the existing clearTimeout paths. Runtime /remote calls
-  // still start immediately (user-initiated, UI already painted).
-  // Reconnect restore: a session that owned the channel link before the app or
-  // daemon restarted reclaims it by itself. The durable intent used to be
-  // consumed only by the daemon's register-time restore, which never ran for a
-  // non-remote, automation-free session — so the link looked silently dropped
-  // until the user toggled Remote by hand.
-  let remoteIntentRestoreTimer = null;
-  function scheduleRemoteIntentRestore(delayMs = remoteAutoStartDelayMs) {
-    if (rt.agentSessionSpec || rt.remoteIntentRestoreDone) return;
-    if (rt.closeRequested || rt.remoteEnabled || remoteIntentRestoreTimer) return;
-    remoteIntentRestoreTimer = setTimeout(() => {
-      remoteIntentRestoreTimer = null;
-      if (rt.remoteIntentRestoreDone || rt.closeRequested || rt.remoteEnabled) return;
-      const sessionId = rt.session?.id || rt.reservedSessionId || null;
-      if (!sessionId || !remoteIntentMatchesSession(sessionId, rt.currentCwd)) return;
-      rt.remoteIntentRestoreDone = true;
-      bootProfile('channels:remote-intent-restore', { sessionId });
-      void startRemote();
-    }, delayMs);
-    remoteIntentRestoreTimer?.unref?.();
-  }
-
   if (rt.agentSessionSpec) {
     // Worker sessions never run channels or schedule automation probes.
-  } else if (rt.remoteEnabled) {
-    bootProfile('channels:manual-start-deferred', { delayMs: remoteAutoStartDelayMs });
-    prewarmTimers.channelStartTimer = setTimeout(() => {
-      prewarmTimers.channelStartTimer = null;
-      if (rt.closeRequested || !rt.remoteEnabled) return;
-      startRemote();
-    }, remoteAutoStartDelayMs);
-    prewarmTimers.channelStartTimer.unref?.();
   } else {
-    scheduleRemoteIntentRestore();
     // Automation decoupling (user decision): enabled schedules/webhooks boot
-    // the worker on their own — no remote flag, no remote.autoStart, and no
-    // messaging provider. A later explicit Remote ON promotes the same
-    // daemon without restarting schedules or webhooks.
+    // the worker on their own — no messaging provider. The worker runs
+    // headless (scheduler/webhooks/voice only).
     prewarmTimers.channelStartTimer = setTimeout(() => {
       prewarmTimers.channelStartTimer = null;
-      if (rt.closeRequested || rt.remoteEnabled) return;
+      if (rt.closeRequested) return;
       void hasActiveAutomation()
         .then((active) => {
-          if (!active || rt.closeRequested || rt.remoteEnabled) return;
+          if (!active || rt.closeRequested) return;
           bootProfile('channels:automation-autostart');
           void invokeChannelStart();
         })
@@ -1455,8 +1329,8 @@ export async function createMixdogSessionRuntime({
   }
 
   // Pure settings-delegate methods (onboarding status/skip, autoClear, profile,
-  // compaction, recap/memory, channels, systemShell, update settings, channel
-  // token save/forget, setChannelProvider). Extracted to session-runtime/settings-api.mjs
+  // compaction, recap/memory, channels, systemShell, update settings).
+  // Extracted to session-runtime/settings-api.mjs
   // and SPREAD into the API object below so the external surface is unchanged.
   const { refreshEmptySessionToolPolicy } = createToolPolicyRefresh({
     getSession: () => rt.session,
@@ -1475,10 +1349,8 @@ export async function createMixdogSessionRuntime({
     getConfig: () => rt.config,
     getRoute: () => rt.route,
     getSession: () => rt.session,
-    getRemoteEnabled: () => rt.remoteEnabled,
     adoptConfig,
     saveConfigAndAdopt,
-    scheduleChannelProviderSave,
     scheduleSkillsSave,
     cfgMod,
     hasOwn,
@@ -1519,21 +1391,14 @@ export async function createMixdogSessionRuntime({
     runUpdateNowInternal: (...a) => runUpdateNowInternal(...a),
     reloadChannelsSoon: (...a) => reloadChannelsSoon(...a),
     ONBOARDING_VERSION,
-    saveDiscordToken,
-    forgetDiscordToken,
-    saveTelegramToken,
-    forgetTelegramToken,
-    setChannelProvider,
   });
 
   const channelConfigApi = createChannelConfigApi({
-    flushChannelProviderSave,
     channels,
     reloadChannelsSoon,
     // Automation saved mid-session boots the worker (claim-if-vacant) even
     // though the boot-time autostart window has already passed.
     ensureAutomationRuntime: () => scheduleChannelStart(0),
-    awaitKeychainPrewarm,
   });
   const providerAuthApi = createProviderAuthApi({
     cfgMod,
@@ -1582,17 +1447,10 @@ export async function createMixdogSessionRuntime({
     statusRoutes,
     channels,
     agentTool,
-    pushTranscriptRebind,
-    // Post-resume remote-intent recheck (hoisted declaration below). The boot
-    // probe can fire before the daemon-driven resume has established
-    // rt.session/cwd and then never re-arms; a completed resume is the first
-    // moment the pinned session can actually reclaim its channel link.
-    scheduleRemoteIntentRestore,
     mcpClient,
     warmupTimers,
     prewarmTimers,
     flushConfigSave,
-    flushChannelProviderSave,
     flushOutputStyleSave,
     flushAllConfigSavesAsync,
     withTeardownDeadline,
@@ -1666,7 +1524,6 @@ export async function createMixdogSessionRuntime({
     invalidateProviderCaches,
     createCurrentSession,
     invalidatePreSessionToolSurface,
-    pushTranscriptRebind,
     collectSearchProviderModels,
   });
   const workflowAgentsApi = createWorkflowAgentsApi({
@@ -1713,10 +1570,8 @@ export async function createMixdogSessionRuntime({
     getCodeGraphFirstTurnPrewarmDone: () => rt.codeGraphFirstTurnPrewarmDone,
     setCodeGraphFirstTurnPrewarmDone: (v) => { rt.codeGraphFirstTurnPrewarmDone = v; },
     codeGraphPrewarmLazy,
-    getRemoteEnabled: () => rt.remoteEnabled,
     getCloseRequested: () => rt.closeRequested,
     getTranscriptWriter: () => remoteTranscript.transcriptWriter,
-    getTwKey: () => remoteTranscript.transcriptKey,
     getLastAppendedAssistant: () => rt._lastAppendedAssistant,
     setLastAppendedAssistant: (v) => { rt._lastAppendedAssistant = v; },
     scheduleCodeGraphPrewarm,
@@ -1725,11 +1580,6 @@ export async function createMixdogSessionRuntime({
     refreshSessionForCwdIfNeeded,
     createCurrentSession,
     ensureSessionTranscriptWriter,
-    ensureRemoteTranscriptWriter,
-    pushTranscriptRebind,
-    flushPendingTranscriptRebind,
-    channelsEnabled,
-    invokeChannelStart,
     channels,
     hooks,
     hookCommonPayload,
@@ -1748,7 +1598,6 @@ export async function createMixdogSessionRuntime({
     resolveCwdPath,
     agentStatusState,
     notificationListeners,
-    remoteStateListeners,
     awaitInitialMcpConnect,
     mcpTurnGraceMs,
     awaitRoutePreparation: () => routePreparation.wait(),
@@ -1793,10 +1642,6 @@ export async function createMixdogSessionRuntime({
       }
       rt.reservedSessionId = id;
       bindRuntimeNotificationSession(id);
-      // First moment this runtime knows WHICH session it is: re-check the
-      // channel-link intent, since the boot probe may have run before the
-      // daemon addressed this session.
-      scheduleRemoteIntentRestore();
       // Reservation is the earliest safe point to prepare keychain, memory,
       // provider metadata, hooks, and the provider transport. This starts no
       // model response and therefore incurs no inference/token usage. The first
@@ -1888,30 +1733,6 @@ export async function createMixdogSessionRuntime({
     },
     renameSessionTitle(sessionId, title) {
       return mgr.updateSessionManualTitle(sessionId, title);
-    },
-    startRemote() {
-      return startRemote();
-    },
-    stopRemote(reason) {
-      return stopRemote(reason);
-    },
-    releaseRemote(reason) {
-      return releaseRemote(reason);
-    },
-    isRemoteEnabled() {
-      return isRemoteEnabled();
-    },
-    // Session-scoped remote: the owning session id (null when off/unassigned).
-    getRemoteSessionId() {
-      return rt.remoteSessionId;
-    },
-    // Subscribe to non-user-initiated remote flips (seat superseded). Returns
-    // an unsubscribe function. TUI uses this to sync its Remote indicator and
-    // show a "remote taken over" notice.
-    onRemoteStateChange(listener) {
-      if (typeof listener !== 'function') return () => {};
-      remoteStateListeners.add(listener);
-      return () => remoteStateListeners.delete(listener);
     },
     get clientHostPid() {
       return rt.session?.clientHostPid || process.pid;

@@ -31,7 +31,7 @@ const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
-  'setAutoUpdate', 'setRecapEnabled', 'setWebSearchEnabled', 'setMemoryToolsEnabled', 'setChannelsEnabled',
+  'setAutoUpdate', 'setRecapEnabled', 'setWebSearchEnabled', 'setMemoryToolsEnabled',
 ]);
 const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
   'setMcpServerEnabled', 'setHookRuleEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
@@ -40,7 +40,7 @@ const SUBMIT_OPTION_KEYS = new Set([
   'id', 'submittedAt', 'displayText', 'priority', 'pastedImages', 'pastedTexts',
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
-const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId', 'remote']);
+const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId']);
 const CAPABILITY_REQUEST_KEYS = new Set(['capability', 'args', 'sessionId']);
 const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'modelParameters', 'contextPercent']);
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
@@ -53,7 +53,6 @@ const CAPABILITY_ARITY = {
   runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
   setRecapEnabled: [1, 1], getToolModuleSettings: [0, 0], setWebSearchEnabled: [1, 1], setMemoryToolsEnabled: [1, 1],
-  getChannelSettings: [0, 1], setChannelsEnabled: [1, 1],
   getVoiceStatus: [0, 0], toggleVoice: [0, 0],
   agentControl: [0, 2], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
   setSystemShell: [1, 1], mcpStatus: [0, 0], reconnectMcp: [0, 0], addMcpServer: [1, 1],
@@ -66,7 +65,7 @@ const CAPABILITY_ARITY = {
   setModel: [1, 1],
   getSearchRoute: [0, 0], listSearchModels: [0, 1], setSearchRoute: [1, 1], listAgents: [0, 0],
   listWorkflows: [0, 0], getOutputStyle: [0, 0], listOutputStyles: [0, 0], setOutputStyle: [1, 1],
-  setWorkflow: [1, 1], toggleRemote: [0, 0], claimRemote: [0, 0], releaseRemote: [0, 0], isRemoteEnabled: [0, 0],
+  setWorkflow: [1, 1],
   getWorkflowPack: [1, 1], saveWorkflowPack: [1, 1], createWorkflow: [1, 1], deleteWorkflow: [1, 1],
   getAgentDefinition: [1, 1], saveAgentDefinition: [1, 1], deleteAgentDefinition: [1, 1],
   listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
@@ -78,10 +77,8 @@ const CAPABILITY_ARITY = {
   getOAuthProviderLoginStatus: [1, 1], completeOAuthProviderLogin: [2, 2], cancelOAuthProviderLogin: [1, 1],
   saveProviderApiKey: [2, 2], saveOpenCodeGoUsageAuth: [1, 1], loginOpenCodeGoUsage: [0, 0],
   saveOpenAIUsageSessionKey: [1, 1], setLocalProvider: [2, 2], authenticateProvider: [2, 2],
-  forgetProviderAuth: [1, 1], getChannelSetup: [0, 0], getChannelWorkerStatus: [0, 0],
-  setChannelProvider: [1, 1], saveDiscordToken: [1, 1], forgetDiscordToken: [0, 0],
-  saveTelegramToken: [1, 1], forgetTelegramToken: [0, 0],
-  setChannel: [1, 1], setWebhookConfig: [1, 1],
+  forgetProviderAuth: [1, 1], getChannelSetup: [0, 0],
+  setWebhookConfig: [1, 1],
   saveSchedule: [1, 1], deleteSchedule: [1, 1], setScheduleEnabled: [2, 2], runScheduleNow: [1, 1], saveWebhook: [1, 1],
   deleteWebhook: [1, 1], setWebhookEnabled: [2, 2], clear: [0, 0], transcribeAudio: [1, 1],
   resizeImage: [1, 1],
@@ -352,8 +349,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (capability === 'saveProviderApiKey' || capability === 'authenticateProvider') {
     validateSecret(args[1], 'provider secret');
   }
-  if (capability === 'saveOpenAIUsageSessionKey' || capability === 'saveDiscordToken' ||
-    capability === 'saveTelegramToken') {
+  if (capability === 'saveOpenAIUsageSessionKey') {
     validateSecret(args[0], 'secret');
   }
   if (capability === 'saveOpenCodeGoUsageAuth') {

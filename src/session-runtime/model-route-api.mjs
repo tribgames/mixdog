@@ -61,7 +61,6 @@ export function createModelRouteApi(deps) {
     refreshStatuslineUsageSnapshot, scheduleStatuslineUsageRefresh,
     invalidateContextStatusCache, invalidateProviderCaches,
     createCurrentSession, invalidatePreSessionToolSurface,
-    pushTranscriptRebind,
     collectSearchProviderModels,
   } = deps;
   function persistAdoptedModelSettings(route) {
@@ -212,7 +211,6 @@ export function createModelRouteApi(deps) {
         setSession(null);
         invalidatePreSessionToolSurface?.();
         await createCurrentSession('model-switch-empty');
-        pushTranscriptRebind?.();
         invalidateContextStatusCache();
         return getRoute();
       }

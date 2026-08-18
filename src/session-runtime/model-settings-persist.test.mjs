@@ -63,7 +63,6 @@ function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod }) {
     invalidateProviderCaches: () => {},
     createCurrentSession: async () => {},
     invalidatePreSessionToolSurface: () => {},
-    pushTranscriptRebind: () => {},
     collectSearchProviderModels: async () => [],
   });
 }
