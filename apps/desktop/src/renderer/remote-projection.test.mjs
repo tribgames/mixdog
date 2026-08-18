@@ -133,6 +133,8 @@ test("Dark stays black while the original desktop ramp remains available as Gray
   const themes = readFileSync(new URL("./desktop-theme.ts", import.meta.url), "utf8");
   const onboarding = readFileSync(new URL("./settings/OnboardingWizard.tsx", import.meta.url), "utf8");
   const boot = readFileSync(new URL("./public/boot.js", import.meta.url), "utf8");
+  const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+  const manifest = readFileSync(new URL("./public/manifest.webmanifest", import.meta.url), "utf8");
 
   assert.match(css, /--mx-window-band: #111114;/u);
   assert.match(css, /--mx-bg-deep: #000000;/u);
@@ -157,6 +159,11 @@ test("Dark stays black while the original desktop ramp remains available as Gray
   assert.match(monaco, /resolveThemeColor\('--mx-bg-base', light \? '#ffffff' : '#1c1c1f'\)/u);
   assert.match(themes, /\{ value: DESKTOP_GRAY_THEME_ID, label: 'Gray' \}/u);
   assert.match(themes, /if \(value === 'system' \|\| value === 'dark' \|\| value === DESKTOP_GRAY_THEME_ID \|\| value === 'white'\) return value;/u);
+  assert.match(themes, /function pwaSystemBarColor\(\): string\s*\{\s*return '#000000';/u);
+  assert.match(themes, /\.setAttribute\('content', pwaSystemBarColor\(\)\)/u);
   assert.match(onboarding, /\{ id: 'gray', label: \(\) => t\('Gray'\), hint: \(\) => t\('Original Mixdog ramp'\) \}/u);
   assert.match(boot, /mixdogThemePref === 'gray'[\s\S]*?dataset\.mixdogTheme = 'gray'/u);
+  assert.match(index, /<meta name="theme-color" content="#000000" \/>/u);
+  assert.match(manifest, /"background_color": "#000000"/u);
+  assert.match(manifest, /"theme_color": "#000000"/u);
 });
