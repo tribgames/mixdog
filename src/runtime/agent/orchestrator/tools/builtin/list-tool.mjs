@@ -37,7 +37,7 @@ import {
     TOOL_OUTPUT_MAX_BYTES,
 } from './tool-output-limit.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
-import { tryServeFuzzySearch } from './native-search-client.mjs';
+import { tryServeFuzzySearch, tryServeListMetadata } from './native-search-client.mjs';
 import { fuzzyRankMulti, prepareFuzzyItems, splitFuzzyQueryTokens } from './fuzzy-match.mjs';
 import {
     recordLocalSearchBackend,
@@ -129,6 +129,95 @@ function _metaModeOctal(mode) {
     return (mode & 0o7777).toString(8).padStart(3, '0');
 }
 
+async function listMetadataForPaths(paths, workDir, options = {}) {
+    if (!Array.isArray(paths) || paths.length === 0) return [];
+    const nativeImpl = typeof options?.__tryServeListMetadata === 'function'
+        ? options.__tryServeListMetadata
+        : tryServeListMetadata;
+    try {
+        const entries = await nativeImpl(paths, {
+            cwd: workDir,
+            signal: options?.signal || options?.abortSignal || null,
+            timeout: 5_000,
+        });
+        if (Array.isArray(entries) && entries.length === paths.length) {
+            return entries.map((entry, index) => ({
+                fullPath: paths[index],
+                type: entry && !entry.error ? String(entry.type || '') : '',
+                stat: entry && !entry.error ? { mode: Number(entry.mode) || 0 } : null,
+                size: entry && !entry.error ? Math.max(0, Number(entry.size) || 0) : 0,
+                mtimeMs: entry && !entry.error ? Math.max(0, Number(entry.mtimeMs) || 0) : 0,
+            }));
+        }
+    } catch {
+        // Older/unavailable native helpers preserve the existing JS fallback.
+    }
+    return lstatPathsForMtime(paths, workDir, 64, { deadlineMs: 5000 });
+}
+
+async function tryNativeDeepListRows({
+    fullPath,
+    workDir,
+    depth,
+    hidden,
+    includeNoise,
+    signal,
+    options,
+}) {
+    if (depth <= 1 || typeof options?.readdirImpl === 'function') return null;
+    const rgArgs = ['--files', '--directories', '--no-ignore', '--no-require-git'];
+    if (hidden) rgArgs.push('--hidden');
+    rgArgs.push('--max-depth', String(depth));
+    if (!includeNoise) {
+        for (const glob of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', glob);
+    }
+    rgArgs.push('--', fullPath);
+    try {
+        const served = await runRgWindowedLines(
+            rgArgs,
+            { cwd: workDir, timeout: LIST_WALK_TIMEOUT_MS, signal },
+            { offset: 0, limit: LIST_ABSOLUTE_CAP, nativeInventory: true },
+        );
+        if (served?.complete !== true || served?.partial === true || !Array.isArray(served?.lines)) {
+            return null;
+        }
+        const paths = Array.from(new Set(served.lines.map((line) => (
+            isAbsolute(line) ? line : resolveAgainstCwd(line, workDir)
+        )))).filter((path) => path !== fullPath);
+        const metadata = await listMetadataForPaths(paths, workDir, options);
+        if (!Array.isArray(metadata) || metadata.length !== paths.length) return null;
+        const rows = paths.map((path, index) => {
+            const item = metadata[index] || {};
+            const type = ['file', 'dir', 'symlink', 'other'].includes(item.type)
+                ? item.type
+                : (item.stat?.isDirectory?.()
+                    ? 'dir'
+                    : (item.stat?.isFile?.()
+                        ? 'file'
+                        : (item.stat?.isSymbolicLink?.() ? 'symlink' : 'other')));
+            return {
+                path,
+                type,
+                size: Number(item.size) || 0,
+                mtimeMs: Number(item.mtimeMs) || 0,
+                mode: Number(item.mode) || 0,
+                fullPath: path,
+            };
+        });
+        return {
+            rows,
+            walkResult: {
+                entriesVisited: rows.length,
+                directoriesVisited: rows.filter((row) => row.type === 'dir').length,
+                aborted: false,
+                nativeInventory: true,
+            },
+        };
+    } catch {
+        return null;
+    }
+}
+
 export async function executeListTool(args, workDir, options = {}) {
     if (typeof args.fuzzy === 'string' && args.fuzzy.length > 0) {
         return executeFuzzyFindTool({ ...args, query: args.fuzzy }, workDir, options);
@@ -216,37 +305,56 @@ export async function executeListTool(args, workDir, options = {}) {
     let truncatedByCap = false;
     const walkWarnings = [];
     const walkDeadline = Date.now() + LIST_WALK_TIMEOUT_MS;
-    const walkResult = await walkDir(fullPath, {
+    const nativeDeep = await tryNativeDeepListRows({
+        fullPath,
+        workDir,
+        depth,
         hidden,
-        maxDepth: depth,
-        excludeDirNames: includeNoise ? null : NOISE_DIR_NAMES,
+        includeNoise,
         signal: options.signal,
-        readdirImpl: options.readdirImpl,
-        onWarn: (dir, error, context) => walkWarnings.push({ dir, error, root: Boolean(context?.root) }),
-        visit: (ent, entPath) => {
-            if (Date.now() > walkDeadline) { truncatedByCap = true; return false; }
-            const isDir = ent.isDirectory();
-            const isFile = ent.isFile();
-            if (typeFilter === 'file' && !isFile) return;
-            if (typeFilter === 'dir' && !isDir) return;
-            const entType = isDir ? 'dir' : (isFile ? 'file' : (ent.isSymbolicLink() ? 'symlink' : 'other'));
-            rows.push({
-                path: entPath,
-                type: entType,
-                size: 0,
-                mtimeMs: 0,
-                mode: 0,
-                fullPath: entPath,
-            });
-            if (rows.length >= LIST_ABSOLUTE_CAP) {
-                truncatedByCap = true;
-                return false;
-            }
-            // Pre-sort truncation removed: a global name sort needs all
-            // candidates collected before slicing, otherwise the visible
-            // window depends on traversal order rather than sort order.
-        },
+        options,
     });
+    let walkResult;
+    if (nativeDeep) {
+        for (const row of nativeDeep.rows) {
+            if (typeFilter === 'file' && row.type !== 'file') continue;
+            if (typeFilter === 'dir' && row.type !== 'dir') continue;
+            rows.push(row);
+        }
+        walkResult = nativeDeep.walkResult;
+    } else {
+        walkResult = await walkDir(fullPath, {
+            hidden,
+            maxDepth: depth,
+            excludeDirNames: includeNoise ? null : NOISE_DIR_NAMES,
+            signal: options.signal,
+            readdirImpl: options.readdirImpl,
+            onWarn: (dir, error, context) => walkWarnings.push({ dir, error, root: Boolean(context?.root) }),
+            visit: (ent, entPath) => {
+                if (Date.now() > walkDeadline) { truncatedByCap = true; return false; }
+                const isDir = ent.isDirectory();
+                const isFile = ent.isFile();
+                if (typeFilter === 'file' && !isFile) return;
+                if (typeFilter === 'dir' && !isDir) return;
+                const entType = isDir ? 'dir' : (isFile ? 'file' : (ent.isSymbolicLink() ? 'symlink' : 'other'));
+                rows.push({
+                    path: entPath,
+                    type: entType,
+                    size: 0,
+                    mtimeMs: 0,
+                    mode: 0,
+                    fullPath: entPath,
+                });
+                if (rows.length >= LIST_ABSOLUTE_CAP) {
+                    truncatedByCap = true;
+                    return false;
+                }
+                // Pre-sort truncation removed: a global name sort needs all
+                // candidates collected before slicing, otherwise the visible
+                // window depends on traversal order rather than sort order.
+            },
+        });
+    }
     throwIfDirectoryWalkAborted(options.signal, walkResult, 'list walk');
     const rootFailure = walkWarnings.find((warning) => warning.root);
     if (rootFailure) {
@@ -257,9 +365,9 @@ export async function executeListTool(args, workDir, options = {}) {
     }
     recordShardDirectoryReadSuccess();
 
-    if (needsGlobalStat && rows.length > 0) {
+    if (!nativeDeep && needsGlobalStat && rows.length > 0) {
         // lstat: symlinks should report own metadata, not the target's.
-        const stats = await lstatPathsForMtime(rows.map((row) => row.fullPath), workDir, 64, { deadlineMs: 5000 });
+        const stats = await listMetadataForPaths(rows.map((row) => row.fullPath), workDir, options);
         for (let i = 0; i < rows.length; i++) {
             const item = stats[i];
             if (!item?.stat) continue;
@@ -281,8 +389,8 @@ export async function executeListTool(args, workDir, options = {}) {
     // stat just the visible window (a global stat already ran for
     // mtime/size sorts); `sliced` shares row objects with `rows`, so the
     // assignments land on the rendered entries.
-    if (meta && !needsGlobalStat && sliced.length > 0) {
-        const stats = await lstatPathsForMtime(sliced.map((row) => row.fullPath), workDir, 64, { deadlineMs: 5000 });
+    if (!nativeDeep && meta && !needsGlobalStat && sliced.length > 0) {
+        const stats = await listMetadataForPaths(sliced.map((row) => row.fullPath), workDir, options);
         for (let i = 0; i < sliced.length; i++) {
             const item = stats[i];
             if (!item?.stat) continue;
@@ -940,15 +1048,11 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     const nativeFuzzyImpl = typeof options?.__tryServeFuzzySearch === 'function'
         ? options.__tryServeFuzzySearch
         : tryServeFuzzySearch;
-    // Space-separated fragments AND-match one path. The native fuzzy matcher
-    // scores the query as ONE string (paths contain no spaces, so it would
-    // always miss); multi-fragment queries go straight to the broad
-    // enumeration + fuzzyRankMulti path below.
+    // Space-separated fragments AND-match one path. The native matcher handles
+    // every token independently and sums exact per-token scores.
     const queryTokens = splitFuzzyQueryTokens(query);
-    const multiToken = queryTokens.length > 1;
     if (
         headLimit > 0
-        && !multiToken
         && (
             typeof options?.__runRg !== 'function'
             || typeof options?.__tryServeFuzzySearch === 'function'
@@ -978,6 +1082,9 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
                     ? [`(no fuzzy match for "${query}")`]
                     : [...matches, ...(hasMore ? [`... (top ${headLimit}; raise limit for more)`] : [])];
                 const result = lines.join('\n');
+                if (served.cacheSafe !== false) {
+                    cacheSet(cacheKey, result, { scopes: [fullPath] });
+                }
                 if (typeof options?.onProgress === 'function') {
                     try { options.onProgress(`${matches.length} candidates`); } catch {}
                 }
@@ -1333,8 +1440,10 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     if (options?.scopedCacheOutcome && (truncatedByCap || windowed.length > sliced.length)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
-    const findIncomplete = truncatedByCap || windowed.length > sliced.length;
-    if (!findIncomplete) {
+    // A bounded page is still an exact result because offset/limit are keyed
+    // and watcher invalidation covers the scope. Only the absolute safety cap
+    // makes the computation incomplete.
+    if (!truncatedByCap) {
         cacheSet(cacheKey, out, { scopes: [fullPath] });
     }
     return out;

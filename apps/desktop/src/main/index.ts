@@ -457,6 +457,13 @@ async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {
   return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
 }
 
+async function revokeRemoteAccessClient(clientId: string): Promise<DesktopRemoteAccessInfo | null> {
+  const descriptor = await host.invokeDesktopOperation('remoteAccessRevokeClient', [clientId]);
+  if (!descriptor || typeof descriptor !== 'object') return null;
+  const { buildRemoteAccessInfo } = await import('./remote-access-window');
+  return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
+}
+
 function scheduleDeferredDesktopServices(window: BrowserWindow): void {
   if (deferredServicesScheduled || deferredServicesPromise) return;
   deferredServicesScheduled = true;
@@ -720,6 +727,7 @@ async function createWindow(): Promise<void> {
     terminals: serviceTerminalManager,
     remoteAccessInfo,
     rotateRemoteAccess,
+    revokeRemoteAccessClient,
   });
   diagnostics?.write('window-created', {
     totalMs: Date.now() - startupStartedAt,

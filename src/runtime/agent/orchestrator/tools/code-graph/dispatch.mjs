@@ -3,6 +3,7 @@
 // race), isCodeGraphTool. Extracted verbatim from code-graph.mjs.
 import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, extname } from 'node:path';
 import { homedir as osHomedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { normalizeInputPath, toDisplayPath } from '../builtin.mjs';
@@ -29,6 +30,8 @@ import {
   _stripEmptyArgs,
 } from './project-root.mjs';
 import { buildCodeGraphAsync, prewarmCodeGraph, prewarmCodeGraphSymbols } from './build.mjs';
+import { _fileInfoFromRustRecord, _runGraphFiles } from './graph-binary.mjs';
+import { _attachGraphRuntimeCaches } from './graph-model.mjs';
 import {
   _isFilesystemRootPath,
   collectTrustedCodeGraphRoots,
@@ -85,6 +88,74 @@ function _outlineLanguageForPath(file) {
   if (ext === 'zig') return 'zig';
   if (ext === 'r' || ext === 'R') return 'r';
   return null;
+}
+
+const _exactFileGraphInflight = new Map();
+const _exactFileGraphCache = new Map();
+const EXACT_FILE_GRAPH_CACHE_MAX = 64;
+
+async function _buildExactFileGraph(cwd, abs, signal = null) {
+  const root = pathResolve(cwd);
+  const file = pathResolve(abs);
+  const rel = _graphRel(file, root);
+  const key = `${root}\0${rel}`;
+  const sourceText = await readFile(file, { encoding: 'utf8', signal: signal || undefined });
+  const sourceHash = createHash('sha256').update(sourceText).digest('hex');
+  const cached = _exactFileGraphCache.get(key);
+  if (cached?.sourceHash === sourceHash) {
+    _exactFileGraphCache.delete(key);
+    _exactFileGraphCache.set(key, cached);
+    return cached.graph;
+  }
+  const existing = _exactFileGraphInflight.get(key);
+  if (existing?.sourceHash === sourceHash) return existing.promise;
+  const pending = (async () => {
+    const records = await _runGraphFiles(root, [rel], [], signal);
+    const record = records.find((item) => _graphRel(pathResolve(root, item.rel), root) === rel);
+    if (!record) return null;
+    const info = _fileInfoFromRustRecord(record, root);
+    const node = {
+      abs: info.abs,
+      rel: info.rel,
+      lang: info.lang,
+      fingerprint: info.fingerprint,
+      rawImports: info.rawImports,
+      resolvedImportsRel: [],
+      resolvedImports: [],
+      importedBy: [],
+      packageName: info.packageName,
+      namespaceName: info.namespaceName,
+      goPackageName: info.goPackageName,
+      topLevelTypes: info.topLevelTypes,
+      tokenSymbols: info.tokenSymbols,
+      symbols: Array.isArray(info.symbols) ? info.symbols : [],
+    };
+    const graph = _attachGraphRuntimeCaches({
+      cwd: root,
+      nodes: new Map([[node.rel, node]]),
+      reverse: new Map(),
+      builtAt: Date.now(),
+      signature: info.fingerprint || '',
+      truncated: false,
+    });
+    graph._sourceTextCache.set(node.rel, {
+      fingerprint: node.fingerprint || '',
+      text: sourceText,
+    });
+    _exactFileGraphCache.delete(key);
+    _exactFileGraphCache.set(key, { sourceHash, graph });
+    while (_exactFileGraphCache.size > EXACT_FILE_GRAPH_CACHE_MAX) {
+      _exactFileGraphCache.delete(_exactFileGraphCache.keys().next().value);
+    }
+    return graph;
+  })();
+  const inflight = { sourceHash, promise: pending };
+  _exactFileGraphInflight.set(key, inflight);
+  try {
+    return await pending;
+  } finally {
+    if (_exactFileGraphInflight.get(key) === inflight) _exactFileGraphInflight.delete(key);
+  }
 }
 
 async function _mapWithConcurrency(values, mapper) {
@@ -693,9 +764,17 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
     else prewarmCodeGraph(cwd);
     return `prewarm scheduled: cwd=${cwd} symbols=${symbols.length}${symbols.length ? ` (${symbols.slice(0, 5).join(',')}${symbols.length > 5 ? `,+${symbols.length - 5}` : ''})` : ''}`;
   }
-  const graph = await buildCodeGraphAsync(cwd, signal, {
-    excludedProjectRoots: options?.excludedProjectRoots,
-  });
+  const normFile = normalizeInputPath(args?.file);
+  const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
+  let exactFile = false;
+  if (abs && _outlineLanguageForPath(abs)) {
+    try { exactFile = statSync(abs).isFile(); } catch { exactFile = false; }
+  }
+  const graph = exactFile
+    ? await _buildExactFileGraph(cwd, abs, signal)
+    : await buildCodeGraphAsync(cwd, signal, {
+        excludedProjectRoots: options?.excludedProjectRoots,
+      });
   if (!graph) throw new Error(`find_symbol: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
   if (options?.scopedCacheOutcome && graph.truncated) {
     markScopedCacheIncomplete(options.scopedCacheOutcome);
@@ -703,8 +782,6 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
   const symbol = String(args?.symbol || '').trim();
   const language = String(args?.language || '').trim() || null;
   const limit = Math.max(1, Math.min(50, Number(args?.limit || 20)));
-  const normFile = normalizeInputPath(args?.file);
-  const abs = normFile ? (isAbsolute(normFile) ? pathResolve(normFile) : pathResolve(cwd, normFile)) : null;
   const fileRel = abs ? _graphRel(abs, cwd) : null;
   if (fileRel && !graph.nodes.get(fileRel)) {
     return _appendSameBasenameHint(`Error: find_symbol: file not found in graph: ${normFile}`, normFile, graph);

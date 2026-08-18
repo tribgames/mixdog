@@ -32,6 +32,7 @@ use tree_sitter::{Parser, Query, QueryCursor};
 
 mod lang;
 mod serve_search;
+mod serve_search_usn;
 
 use lang::{comment_family, lang_for, lang_static, CommentFamily};
 
@@ -1472,7 +1473,7 @@ fn collect_source_files(root: &Path) -> Vec<SrcFile> {
             })
         })
         .collect();
-    files.sort_by(|a, b| a.path.cmp(&b.path));
+    files.par_sort_unstable_by(|a, b| a.path.cmp(&b.path));
     files
 }
 

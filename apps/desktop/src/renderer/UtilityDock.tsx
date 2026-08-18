@@ -1,5 +1,7 @@
 import {
   Bot,
+  ChevronDown,
+  ChevronRight,
   GitBranch,
   GitCompare,
   Github,
@@ -42,6 +44,15 @@ import {
   scheduleLayoutFrame,
 } from "./interaction-frame-scheduler";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
+import {
+  DEFAULT_UTILITY_DOCK_VIEW_ORDER,
+  UTILITY_DOCK_GROUP_MIME,
+  UTILITY_DOCK_VIEW_MIME,
+  utilityDockGroupDragId,
+  utilityDockViewDragId,
+  useUtilityDockViewLayout,
+  type UtilityDockViewPlacement,
+} from "./utility-dock-view-layout";
 
 const MemoSourceControlDock = memo(SourceControlDock);
 const EMPTY_CHANGED_FILES = new Set<string>();
@@ -76,6 +87,152 @@ export const DESKTOP_UTILITY_DOCK_MAX_WIDTH = 560;
 // The visible right-side order is Agents → Search → Source Control.
 // Pull Requests remains feature-locked as the optional fourth Git surface.
 export type UtilityDockTab = 'agents' | 'search' | 'source-control' | 'pull-requests';
+
+type DockGitState = {
+  projectPath: string;
+  status: DesktopGitStatus | null;
+  loading: boolean;
+  ready: boolean;
+  error: string;
+};
+
+/** Git status outlives each movable Dock view. Workbench categories are
+ * separate component instances, so a module cache lets the idle Agents/Search
+ * preload become Source Control's first paint instead of another blank wait. */
+const dockGitCache = new Map<string, DockGitState>();
+const dockGitRequests = new Map<string, Promise<DockGitState>>();
+
+function readCachedDockGitState(projectPath: string): DockGitState {
+  if (!projectPath) {
+    return { projectPath: "", status: null, loading: false, ready: true, error: "" };
+  }
+  return dockGitCache.get(projectPath) ?? {
+    projectPath,
+    status: null,
+    loading: false,
+    ready: false,
+    error: "",
+  };
+}
+
+function requestDockGitState(projectPath: string): Promise<DockGitState> {
+  const pending = dockGitRequests.get(projectPath);
+  if (pending) return pending;
+  const gitStatus = window.mixdogDesktop?.gitStatus;
+  const request = (typeof gitStatus !== "function"
+    ? Promise.resolve({
+      projectPath,
+      status: null,
+      loading: false,
+      ready: true,
+      error: "",
+    } satisfies DockGitState)
+    : gitStatus(projectPath).then((status) => ({
+      projectPath,
+      status: status ?? null,
+      loading: false,
+      ready: true,
+      error: "",
+    } satisfies DockGitState), (reason) => ({
+      projectPath,
+      status: null,
+      loading: false,
+      ready: true,
+      error: reason instanceof Error ? reason.message : String(reason),
+    } satisfies DockGitState)))
+    .then((state) => {
+      dockGitCache.set(projectPath, state);
+      return state;
+    });
+  dockGitRequests.set(projectPath, request);
+  void request.finally(() => {
+    if (dockGitRequests.get(projectPath) === request) dockGitRequests.delete(projectPath);
+  });
+  return request;
+}
+
+function UtilityDockViewSection({
+  id,
+  label,
+  active,
+  sectioned,
+  order,
+  dragProps,
+  onMoveView,
+  actionsRef,
+  children,
+}: {
+  id: UtilityDockTab;
+  label: string;
+  active: boolean;
+  sectioned: boolean;
+  order?: number;
+  dragProps: React.HTMLAttributes<HTMLElement>;
+  onMoveView(
+    sourceId: UtilityDockTab,
+    targetId: UtilityDockTab,
+    placement: UtilityDockViewPlacement,
+  ): void;
+  actionsRef?: React.Ref<HTMLSpanElement>;
+  children(active: boolean): ReactNode;
+}) {
+  const storageKey = `mixdog.desktop.utility-dock-section.${id}.collapsed.v1`;
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return window.localStorage.getItem(storageKey) === "true"; }
+    catch { return false; }
+  });
+  const [dropOver, setDropOver] = useState(false);
+  const sectionActive = active && (!sectioned || !collapsed);
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      try { window.localStorage.setItem(storageKey, String(next)); }
+      catch { /* section state remains live for this renderer */ }
+      return next;
+    });
+  };
+  return <section className="utility-dock-view-section"
+    style={order === undefined ? undefined : { order }}
+    data-active={active ? "true" : "false"}
+    data-sectioned={sectioned ? "true" : "false"}
+    data-collapsed={collapsed ? "true" : "false"}
+    data-drop-over={dropOver ? "true" : undefined}>
+    <div {...dragProps} className="utility-dock-view-section-header"
+      hidden={!sectioned}
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes(UTILITY_DOCK_VIEW_MIME)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDropOver(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropOver(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        const sourceId = utilityDockViewDragId(event.nativeEvent);
+        if (sourceId && sourceId !== id) onMoveView(sourceId, id, "inside");
+        setDropOver(false);
+      }}
+      onDragEnd={(event) => {
+        dragProps.onDragEnd?.(event);
+        setDropOver(false);
+      }}>
+      <button type="button" className="utility-dock-view-section-toggle"
+        aria-expanded={!collapsed} onClick={toggleCollapsed}>
+        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+        <span>{t(label)}</span>
+      </button>
+      <span className="utility-dock-view-section-actions" ref={actionsRef} />
+    </div>
+    <div className="utility-dock-view-section-body"
+      inert={sectionActive ? undefined : true}
+      aria-hidden={sectionActive ? undefined : true}>
+      {children(sectionActive)}
+    </div>
+  </section>;
+}
+
 export function clampDockWidth(value: number): number {
   return clampDesktopPanelWidth(
     value,
@@ -334,6 +491,7 @@ export const UtilityDock = memo(function UtilityDock({
   sessions = [],
   activeSessionIds = [],
   unreadSessionIds,
+  onPrefetchSession,
   onOpenLeadSession,
   onOpenAgentSession,
   entering = false,
@@ -341,7 +499,9 @@ export const UtilityDock = memo(function UtilityDock({
   side = "right",
   showTabs = true,
   title,
+  titleDragProps,
   metricSurface = side === "left" ? "sidebar" : "dock",
+  availableViews,
 }: {
   open: boolean;
   width: number;
@@ -355,6 +515,7 @@ export const UtilityDock = memo(function UtilityDock({
   /** Recent-list unread sessions: the Agents pane shows their idle rows as
    *  completed work instead of plain rest. */
   unreadSessionIds?: ReadonlySet<string>;
+  onPrefetchSession?(sessionId: string): void;
   projectPath?: string;
   workspaceFolders?: readonly DesktopWorkspaceFolder[];
   /** Main App owns the shared Search / Source Control / Pull Requests
@@ -375,10 +536,26 @@ export const UtilityDock = memo(function UtilityDock({
   /** Activity Bar owns view selection in the coding workbench. */
   showTabs?: boolean;
   title?: string;
+  titleDragProps?: React.HTMLAttributes<HTMLElement>;
   metricSurface?: "sidebar" | "dock";
+  availableViews?: readonly UtilityDockTab[];
 }) {
   const resolvedOpenFileAt = onOpenFileAt
     ?? onOpenFile as ((project: string, rel: string, line?: number) => void) | undefined;
+  const availableDockViewKey = (availableViews ?? DEFAULT_UTILITY_DOCK_VIEW_ORDER).join("\0");
+  const availableDockViews = useMemo(
+    () => (availableViews ?? DEFAULT_UTILITY_DOCK_VIEW_ORDER)
+      .filter(desktopUtilityDockTabEnabled),
+    [availableDockViewKey],
+  );
+  const dockViewLayout = useUtilityDockViewLayout(availableDockViews);
+  const presentedGroup = dockViewLayout.groups.find((group) => group.includes(tab)) ?? [tab];
+  const presentedTab = presentedGroup[0] ?? tab;
+  const dockSectioned = presentedGroup.length > 1;
+  const [dockDrop, setDockDrop] = useState<{
+    target: UtilityDockTab;
+    placement: UtilityDockViewPlacement;
+  } | null>(null);
   // A controlled App shares one selection across Search / Source Control /
   // Pull Requests. Standalone mounts retain the historical local override.
   const [localProjectOverride, setLocalProjectOverride] = useState("");
@@ -449,82 +626,39 @@ export const UtilityDock = memo(function UtilityDock({
     "pull-requests": `pull-requests:${dockProjectPath}`,
   };
   const gitRequestEpoch = useRef(0);
-  const [dockGitState, setDockGitState] = useState<{
-    projectPath: string;
-    status: DesktopGitStatus | null;
-    loading: boolean;
-    ready: boolean;
-    error: string;
-  }>({
-    projectPath: "",
-    status: null,
-    loading: false,
-    ready: false,
-    error: "",
-  });
+  const [dockGitState, setDockGitState] = useState<DockGitState>(
+    () => readCachedDockGitState(dockProjectPath),
+  );
   const refreshDockGitStatus = useCallback(async (showLoading = false) => {
     const currentProject = dockProjectPath;
     const epoch = ++gitRequestEpoch.current;
     if (!currentProject) {
-      setDockGitState({
-        projectPath: "",
-        status: null,
-        loading: false,
-        ready: true,
-        error: "",
-      });
+      setDockGitState(readCachedDockGitState(""));
       return;
     }
     if (showLoading) {
       setDockGitState((current) => ({
+        ...(current.projectPath === currentProject
+          ? current
+          : readCachedDockGitState(currentProject)),
         projectPath: currentProject,
-        status: current.projectPath === currentProject ? current.status : null,
         loading: true,
         // A visible/cached snapshot remains authoritative while its silent
         // refresh runs. Invalidating it here replayed the full Preparing
         // Source Control cover on every tab re-entry.
-        ready: current.projectPath === currentProject && current.ready,
-        error: current.projectPath === currentProject ? current.error : "",
       }));
     }
-    const gitStatus = window.mixdogDesktop?.gitStatus;
-    if (typeof gitStatus !== "function") {
-      setDockGitState({
-        projectPath: currentProject,
-        status: null,
-        loading: false,
-        ready: true,
-        error: "",
-      });
-      return;
-    }
-    try {
-      const status = await gitStatus(currentProject) ?? null;
-      if (epoch !== gitRequestEpoch.current) return;
-      setDockGitState({
-        projectPath: currentProject,
-        status,
-        loading: false,
-        ready: true,
-        error: "",
-      });
-    } catch (reason) {
-      if (epoch !== gitRequestEpoch.current) return;
-      setDockGitState({
-        projectPath: currentProject,
-        status: null,
-        loading: false,
-        ready: true,
-        error: reason instanceof Error ? reason.message : String(reason),
-      });
-    }
+    const next = await requestDockGitState(currentProject);
+    if (epoch !== gitRequestEpoch.current) return;
+    setDockGitState(next);
   }, [dockProjectPath]);
   // Git I/O follows INTENT, not mere dock presence: while Agents is selected
   // (or a Git surface was never opened) the dock issues no gitStatus at all.
   // The first Git tab selection loads it, and the silent 2s poll runs only
   // while a Git surface is the presented one. The cached snapshot survives in
   // dockGitState, so re-entry stays instant without background traffic.
-  const gitSurfaceSelected = tab === "source-control" || tab === "pull-requests";
+  const gitSurfaceSelected = presentedGroup.includes("source-control")
+    || presentedGroup.includes("pull-requests");
   useEffect(() => {
     if (!open || !contentReady || !dockProjectPath || !gitSurfaceSelected) return undefined;
     void refreshDockGitStatus(true);
@@ -547,6 +681,10 @@ export const UtilityDock = memo(function UtilityDock({
   useEffect(() => {
     if (!dockProjectPath || gitSurfaceSelected) return undefined;
     if (warmedGitProject.current === dockProjectPath) return undefined;
+    if (readCachedDockGitState(dockProjectPath).ready) {
+      warmedGitProject.current = dockProjectPath;
+      return undefined;
+    }
     const host = window as typeof window & {
       requestIdleCallback?(callback: () => void, options?: { timeout: number }): number;
       cancelIdleCallback?(handle: number): void;
@@ -569,23 +707,25 @@ export const UtilityDock = memo(function UtilityDock({
       if (timer) window.clearTimeout(timer);
     };
   }, [dockProjectPath, gitSurfaceSelected, refreshDockGitStatus]);
-  const dockGitMatchesProject = dockGitState.projectPath === dockProjectPath;
-  const dockGitStatus = dockGitMatchesProject ? dockGitState.status : null;
-  const dockGitStatusReady = !dockProjectPath || (dockGitMatchesProject && dockGitState.ready);
-  const dockGitLoading = dockGitMatchesProject && dockGitState.loading;
-  const dockGitError = dockGitMatchesProject ? dockGitState.error : "";
+  const effectiveDockGitState = dockGitState.projectPath === dockProjectPath
+    ? dockGitState
+    : readCachedDockGitState(dockProjectPath);
+  const dockGitStatus = effectiveDockGitState.status;
+  const dockGitStatusReady = !dockProjectPath || effectiveDockGitState.ready;
+  const dockGitLoading = effectiveDockGitState.loading;
+  const dockGitError = effectiveDockGitState.error;
   // PR context-row branch switcher (user: 저기서도 브랜치 바꿀 수 있어야):
   // local branches load with the PR tab and refresh when the checked-out
   // branch moves; checkout rides the same status refresh path as SCM.
   const [prBranches, setPrBranches] = useState<DesktopGitBranch[]>([]);
   useEffect(() => {
-    if (!open || tab !== "pull-requests" || !dockProjectPath) return undefined;
+    if (!open || !presentedGroup.includes("pull-requests") || !dockProjectPath) return undefined;
     let live = true;
     void window.mixdogDesktop?.gitBranches?.(dockProjectPath)
       .then((rows) => { if (live) setPrBranches(rows ?? []); })
       .catch(() => { /* the row simply keeps the current branch only */ });
     return () => { live = false; };
-  }, [open, tab, dockProjectPath, dockGitStatus?.branch]);
+  }, [open, presentedGroup, dockProjectPath, dockGitStatus?.branch]);
   const prBranchOptions = useMemo(() => {
     const names = prBranches.filter((branch) => !branch.remote).map((branch) => branch.name);
     const current = dockGitStatus?.branch || "";
@@ -624,7 +764,7 @@ export const UtilityDock = memo(function UtilityDock({
     [setPaneReady],
   );
   const selectedSurfaceReady = contentReady
-    && (tab === "source-control" || tab === "pull-requests" ? dockGitStatusReady : true);
+    && (gitSurfaceSelected ? dockGitStatusReady : true);
   // Visited/revealed state is DERIVED during render and committed in an
   // effect: a render that React throws away (interrupted concurrent work,
   // StrictMode double invoke) must not poison the set, while the selected tab
@@ -632,27 +772,27 @@ export const UtilityDock = memo(function UtilityDock({
   const [committedRevealed, setCommittedRevealed] =
     useState<ReadonlySet<UtilityDockTab>>(() => new Set());
   const revealedTabs = useMemo(() => {
-    if (!selectedSurfaceReady || committedRevealed.has(tab)) return committedRevealed;
-    return new Set([...committedRevealed, tab]);
-  }, [committedRevealed, selectedSurfaceReady, tab]);
+    if (!selectedSurfaceReady
+      || presentedGroup.every((pane) => committedRevealed.has(pane))) return committedRevealed;
+    return new Set([...committedRevealed, ...presentedGroup]);
+  }, [committedRevealed, presentedGroup, selectedSurfaceReady]);
   useEffect(() => {
     if (revealedTabs !== committedRevealed) setCommittedRevealed(revealedTabs);
   }, [committedRevealed, revealedTabs]);
   const selectedSurfaceVisible = contentReady
-    && (selectedSurfaceReady || revealedTabs.has(tab));
+    && (selectedSurfaceReady || presentedGroup.every((pane) => revealedTabs.has(pane)));
   useEffect(() => {
     if (!open || !contentReady) return;
-    beginBootSurface(metricSurface, tab);
-    reportBootSurfaceStage(metricSurface, tab, "module");
+    beginBootSurface(metricSurface, presentedTab);
+    reportBootSurfaceStage(metricSurface, presentedTab, "module");
     if (!selectedSurfaceReady) return;
-    reportBootSurfaceStage(metricSurface, tab, "data");
-    reportBootSurfaceReady(metricSurface, tab);
-  }, [contentReady, metricSurface, open, selectedSurfaceReady, tab]);
-  const loadingLabel = tab === "search" ? t("Preparing Search…")
-    : tab === "source-control" ? t("Preparing Source Control…")
-      : tab === "pull-requests" ? t("Preparing Pull Requests…")
+    reportBootSurfaceStage(metricSurface, presentedTab, "data");
+    reportBootSurfaceReady(metricSurface, presentedTab);
+  }, [contentReady, metricSurface, open, presentedTab, selectedSurfaceReady]);
+  const loadingLabel = presentedTab === "search" ? t("Preparing Search…")
+    : presentedTab === "source-control" ? t("Preparing Source Control…")
+      : presentedTab === "pull-requests" ? t("Preparing Pull Requests…")
         : t("Preparing Agents…");
-  const presentedTab = tab;
   // Instant switching (user: 탭 전환이 즉시 되어야 한다): a tab the user has
   // actually opened keeps its layer mounted for the life of the dock, so a
   // round trip re-presents the SAME DOM with its tree/SCM/PR expansion,
@@ -664,14 +804,15 @@ export const UtilityDock = memo(function UtilityDock({
   const [committedTabs, setCommittedTabs] =
     useState<ReadonlySet<UtilityDockTab>>(() => new Set());
   const mountedTabs = useMemo(() => {
-    if (!open || !contentReady || committedTabs.has(tab)) return committedTabs;
-    return new Set([...committedTabs, tab]);
-  }, [committedTabs, contentReady, open, tab]);
+    if (!open || !contentReady
+      || presentedGroup.every((pane) => committedTabs.has(pane))) return committedTabs;
+    return new Set([...committedTabs, ...presentedGroup]);
+  }, [committedTabs, contentReady, open, presentedGroup]);
   useEffect(() => {
     if (mountedTabs !== committedTabs) setCommittedTabs(mountedTabs);
   }, [committedTabs, mountedTabs]);
   const paneMounted = (pane: UtilityDockTab) => contentReady && mountedTabs.has(pane);
-  const paneActive = (pane: UtilityDockTab) => open && presentedTab === pane;
+  const paneActive = (pane: UtilityDockTab) => open && presentedGroup.includes(pane);
   const dockNode = useRef<HTMLElement | null>(null);
   const resizeWidth = useRef(width);
   const resizeActive = useRef(false);
@@ -785,11 +926,27 @@ export const UtilityDock = memo(function UtilityDock({
     : presentedTab === "search" ? "Search"
     : presentedTab === "pull-requests" ? "Pull Requests"
         : "Source Control");
-  if (!open || !desktopUtilityDockTabEnabled(tab)) return null;
+  const dockViewDescriptors: Readonly<Record<UtilityDockTab, {
+    label: string;
+    tooltip: string;
+    icon: typeof Bot;
+  }>> = {
+    agents: { label: "Agents", tooltip: "Agents", icon: Bot },
+    search: { label: "Search", tooltip: "Search", icon: Search },
+    "source-control": { label: "Source Control", tooltip: "Source Control", icon: GitCompare },
+    "pull-requests": {
+      label: "Pull Requests",
+      tooltip: "GitHub Pull Requests",
+      icon: Github,
+    },
+  };
+  if (!desktopUtilityDockTabEnabled(tab)) return null;
   return <aside ref={dockNode}
     className="utility-dock utility-dock--persistent"
-    data-state="open" data-entering={entering ? "true" : undefined}
+    data-state={open ? "open" : "closed"} data-entering={entering ? "true" : undefined}
     data-side={side} data-show-tabs={showTabs ? "true" : "false"}
+    aria-hidden={open ? undefined : true}
+    inert={open ? undefined : true}
     style={{
       "--utility-dock-width": `${displayedWidth}px`,
       "--utility-dock-min-width": `${DESKTOP_UTILITY_DOCK_MIN_WIDTH}px`,
@@ -808,43 +965,95 @@ export const UtilityDock = memo(function UtilityDock({
       aria-label={t("Resize utility panel")} onPointerDown={startResize} />
     {showTabs && <header className="utility-dock-tabs-header" data-active-tab={presentedTab}>
       <nav className="utility-dock-tabs" aria-label={t("Utility panel tabs")}>
-        {desktopUtilityDockTabEnabled("agents") && <button type="button" className={presentedTab === "agents" ? "active" : ""}
-          aria-label={t("Agents")} aria-current={presentedTab === "agents" ? "page" : undefined}
-          data-tooltip={t("Agents")}
-          onClick={() => onTab("agents")}><Bot size={18} aria-hidden="true" /></button>}
-        {desktopUtilityDockTabEnabled("search") && <button type="button" className={presentedTab === "search" ? "active" : ""}
-          aria-label={t("Search")} aria-current={presentedTab === "search" ? "page" : undefined}
-          data-tooltip={t("Search")}
-          onClick={() => onTab("search")}><Search size={18} aria-hidden="true" /></button>}
-        {desktopUtilityDockTabEnabled("source-control") && <button type="button" className={presentedTab === "source-control" ? "active" : ""}
-          aria-label={t("Source Control")}
-          aria-current={presentedTab === "source-control" ? "page" : undefined}
-          data-tooltip={t("Source Control")}
-          onClick={() => onTab("source-control")}><GitCompare size={18} aria-hidden="true" /></button>}
-        {desktopUtilityDockTabEnabled("pull-requests") && <button type="button" className={presentedTab === "pull-requests" ? "active" : ""}
-          aria-label={t("GitHub Pull Requests")}
-          aria-current={presentedTab === "pull-requests" ? "page" : undefined}
-          data-tooltip={t("GitHub Pull Requests")}
-          onClick={() => onTab("pull-requests")}><Github size={18} aria-hidden="true" /></button>}
+        {dockViewLayout.groups.map((group) => {
+          const root = group[0];
+          const descriptor = root ? dockViewDescriptors[root] : null;
+          if (!root || !descriptor) return null;
+          const Icon = descriptor.icon;
+          const active = group.includes(tab);
+          return <button key={root} type="button" className={active ? "active" : ""}
+            aria-label={t(descriptor.label)}
+            aria-current={active ? "page" : undefined}
+            data-tooltip={t(descriptor.tooltip)}
+            data-drop-position={dockDrop?.target === root ? dockDrop.placement : undefined}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(UTILITY_DOCK_GROUP_MIME, root);
+              event.dataTransfer.setData("text/plain", root);
+            }}
+            onDragOver={(event) => {
+              const types = Array.from(event.dataTransfer.types);
+              const groupDrag = types.includes(UTILITY_DOCK_GROUP_MIME);
+              const viewDrag = types.includes(UTILITY_DOCK_VIEW_MIME);
+              if (!groupDrag && !viewDrag) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              const bounds = event.currentTarget.getBoundingClientRect();
+              const ratio = (event.clientX - bounds.left) / Math.max(1, bounds.width);
+              const placement: UtilityDockViewPlacement = groupDrag
+                ? ratio < .5 ? "before" : "after"
+                : ratio < .25 ? "before" : ratio > .75 ? "after" : "inside";
+              setDockDrop({ target: root, placement });
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setDockDrop((current) => current?.target === root ? null : current);
+              }
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const placement = dockDrop?.target === root ? dockDrop.placement : "inside";
+              const groupSource = utilityDockGroupDragId(event.nativeEvent);
+              const viewSource = utilityDockViewDragId(event.nativeEvent);
+              if (groupSource && placement !== "inside") {
+                dockViewLayout.moveGroup(groupSource, root, placement);
+              } else if (viewSource) {
+                dockViewLayout.moveView(viewSource, root, placement);
+                if (placement === "inside" && !active) onTab(root);
+              }
+              setDockDrop(null);
+            }}
+            onDragEnd={() => setDockDrop(null)}
+            onClick={() => onTab(root)}>
+            <Icon size={18} aria-hidden="true" />
+          </button>;
+        })}
       </nav>
     </header>}
-    {!showTabs && <header className="utility-dock-header"><b>{dockTitle}</b></header>}
+    {!showTabs && <header {...titleDragProps} className="utility-dock-header">
+      <b>{dockTitle}</b>
+    </header>}
     <div className="stable-surface-switch utility-dock-body"
       data-ready={selectedSurfaceVisible ? "true" : "false"}
       data-transitioning="false">
-      {desktopUtilityDockTabEnabled("agents") && paneMounted("agents") && <DockPane tab="agents" active={paneActive("agents")}>
-      {showTabs && <header className="utility-dock-header" data-panel-header="agents">
+      {desktopUtilityDockTabEnabled("agents") && paneMounted("agents") &&
+      <UtilityDockViewSection id="agents" label="Agents"
+        active={paneActive("agents")} sectioned={dockSectioned}
+        order={presentedGroup.indexOf("agents")}
+        dragProps={dockViewLayout.getViewDragProps("agents")}
+        onMoveView={dockViewLayout.moveView}>
+      {(sectionActive) => <DockPane tab="agents" active={sectionActive}>
+      {showTabs && !dockSectioned && <header className="utility-dock-header" data-panel-header="agents">
         <div className="utility-dock-title"><b>{t(title || "Agents")}</b></div>
       </header>}
-      <AgentActivityPane active={paneActive("agents")}
+      <AgentActivityPane active={sectionActive}
         sessions={sessions}
         activeSessionIds={activeSessionIds}
         unreadSessionIds={unreadSessionIds}
+        onPrefetchSession={onPrefetchSession}
         onOpenLeadSession={onOpenLeadSession}
         onOpenSession={onOpenAgentSession} />
       </DockPane>}
-      {desktopUtilityDockTabEnabled("search") && paneMounted("search") && <DockPane tab="search" active={paneActive("search")}>
-      {showTabs && <header className="utility-dock-header" data-panel-header="search">
+      </UtilityDockViewSection>}
+      {desktopUtilityDockTabEnabled("search") && paneMounted("search") &&
+      <UtilityDockViewSection id="search" label="Search"
+        active={paneActive("search")} sectioned={dockSectioned}
+        order={presentedGroup.indexOf("search")}
+        dragProps={dockViewLayout.getViewDragProps("search")}
+        onMoveView={dockViewLayout.moveView}>
+      {(sectionActive) => <DockPane tab="search" active={sectionActive}>
+      {showTabs && !dockSectioned && <header className="utility-dock-header" data-panel-header="search">
         <div className="utility-dock-title"><b>{t(title || "Search")}</b></div>
       </header>}
       {showTabs && dockProjectOptions.length > 0 && <div className="utility-dock-project-row"
@@ -854,12 +1063,19 @@ export const UtilityDock = memo(function UtilityDock({
       <SearchPane
         projectPath={dockProjectPath}
         gitStatus={dockGitStatus}
-        active={paneActive("search")}
+        active={sectionActive}
         onOpenFile={onOpenFile} onOpenFileAt={resolvedOpenFileAt} />
       </DockPane>}
+      </UtilityDockViewSection>}
       {desktopUtilityDockTabEnabled("source-control") && paneMounted("source-control")
-        && <DockPane tab="source-control" active={paneActive("source-control")}>
-      {showTabs && <header className="utility-dock-header" data-panel-header="source-control">
+        && <UtilityDockViewSection id="source-control" label="Source Control"
+          active={paneActive("source-control")} sectioned={dockSectioned}
+          order={presentedGroup.indexOf("source-control")}
+          dragProps={dockViewLayout.getViewDragProps("source-control")}
+          onMoveView={dockViewLayout.moveView}
+          actionsRef={dockSectioned ? setHeaderActionsSlot : undefined}>
+      {(sectionActive) => <DockPane tab="source-control" active={sectionActive}>
+      {showTabs && !dockSectioned && <header className="utility-dock-header" data-panel-header="source-control">
         <div className="utility-dock-title"><b>{t(title || "Source Control")}</b></div>
         <span className="utility-dock-header-actions utility-dock-scm-actions"
           ref={setHeaderActionsSlot} />
@@ -876,15 +1092,22 @@ export const UtilityDock = memo(function UtilityDock({
         statusError={dockGitError}
         onRefreshStatus={refreshDockGitStatus}
         headerSlot={showTabs ? headerActionsSlot : null}
-        active={paneActive("source-control")}
+        active={sectionActive}
         readinessKey={surfaceKeys["source-control"]}
         onReadyChange={setSourceControlReady}
         onOpenFile={onOpenFile}
         onOpenDiff={onOpenDiff} />
       </DockPane>}
+      </UtilityDockViewSection>}
       {desktopUtilityDockTabEnabled("pull-requests") && paneMounted("pull-requests")
-        && <DockPane tab="pull-requests" active={paneActive("pull-requests")}>
-      {showTabs && <header className="utility-dock-header" data-panel-header="pull-requests">
+        && <UtilityDockViewSection id="pull-requests" label="Pull Requests"
+          active={paneActive("pull-requests")} sectioned={dockSectioned}
+          order={presentedGroup.indexOf("pull-requests")}
+          dragProps={dockViewLayout.getViewDragProps("pull-requests")}
+          onMoveView={dockViewLayout.moveView}
+          actionsRef={dockSectioned ? setReviewHeaderActionsSlot : undefined}>
+      {(sectionActive) => <DockPane tab="pull-requests" active={sectionActive}>
+      {showTabs && !dockSectioned && <header className="utility-dock-header" data-panel-header="pull-requests">
         <div className="utility-dock-title"><b>{t(title || "Pull Requests")}</b></div>
         <span className="utility-dock-header-actions utility-dock-scm-actions"
           ref={setReviewHeaderActionsSlot} />
@@ -919,13 +1142,14 @@ export const UtilityDock = memo(function UtilityDock({
         statusError={dockGitError}
         onRefreshStatus={refreshDockGitStatus}
         headerSlot={showTabs ? reviewHeaderActionsSlot : null}
-        active={paneActive("pull-requests")}
+        active={sectionActive}
         readinessKey={surfaceKeys["pull-requests"]}
         onReadyChange={setSourceGraphReady}
         onOpenFile={onOpenFile}
         onOpenPullRequest={onOpenPullRequest}
         onOpenDiff={onOpenDiff} />
       </DockPane>}
+      </UtilityDockViewSection>}
       {!selectedSurfaceVisible && <div className="pane-surface-cover"
         role={tab === "source-control" ? "status" : undefined}
         aria-label={tab === "source-control" ? loadingLabel : undefined}>

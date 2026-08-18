@@ -41,8 +41,9 @@ import { InlineErrors } from "./notifications";
 import { asRecord } from "./text-format";
 import { TranscriptList } from "./TranscriptList";
 import {
+  appendLiveTranscriptRows,
   isCompletionTranscriptItem,
-  projectTranscriptRows,
+  projectSettledTranscriptRows,
   turnPromptText,
   type TranscriptRowModel,
 } from "./transcript-rows";
@@ -618,11 +619,18 @@ export function Conversation({
   ), [precomputedTurnKeys, settledItems]);
   // ONE projection owns visibility, completion folding, and failed-turn status
   // rows, so the virtual list never carries invisible or zero-height rows.
-  const transcriptRows = useMemo(() => projectTranscriptRows({
+  // The settled half re-runs only when settled items change; each streaming
+  // tick appends the live tail onto the memoized settled rows instead of
+  // re-projecting the whole transcript.
+  const settledProjection = useMemo(() => projectSettledTranscriptRows({
     sessionKey: transcriptIdentity.current,
     items: settledRowItems,
     turnKeys: settledTurnKeys,
     failedTurns,
+  }), [failedTurns, settledRowItems, settledTurnKeys, transcriptSessionKey]);
+  const transcriptRows = useMemo(() => appendLiveTranscriptRows({
+    sessionKey: transcriptIdentity.current,
+    settled: settledProjection,
     pendingItems: transcriptPendingPromptItems,
     liveItem: activeStreamingTail,
     thinking: Boolean(
@@ -632,15 +640,12 @@ export function Conversation({
       || optimisticActivityStartedAt
     ),
   }), [
-    failedTurns,
     optimisticActivityStartedAt,
+    settledProjection,
     transcriptPendingPromptItems,
-    settledRowItems,
-    settledTurnKeys,
     snapshot.busy,
     snapshot.commandBusy,
     activeStreamingTail,
-    transcriptSessionKey,
   ]);
   const completionAnimationKeyByItem = useMemo(() => {
     const keys = new Map<TranscriptItem, string>();

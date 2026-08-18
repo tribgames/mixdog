@@ -1321,9 +1321,9 @@ if (!editTool
   throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
 }
 const shellProps = shellTool?.inputSchema?.properties || {};
-if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'run_in_background'])
+if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'run_in_background'])
   || shellProps.run_in_background?.default !== false) {
-  throw new Error(`shell schema must expose command, timeout_ms, and default-false run_in_background: ${JSON.stringify(shellProps)}`);
+  throw new Error(`shell schema must expose command and default-false run_in_background: ${JSON.stringify(shellProps)}`);
 }
 for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr']) {
   const err = validateBuiltinArgs('shell', { command: 'node --version', [retired]: retired === 'mode' ? 'async' : true });
@@ -1331,13 +1331,8 @@ for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent
     throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
   }
 }
-const shellTimeoutDescription = shellTool?.inputSchema?.properties?.timeout_ms?.description || '';
-if (shellTimeoutDescription !== 'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.') {
-  throw new Error(`shell timeout_ms contract must use the approved optional deadline description: ${shellTimeoutDescription}`);
-}
-if (shellTool?.inputSchema?.properties?.timeout_ms?.type !== 'integer'
-  || shellTool?.inputSchema?.properties?.timeout_ms?.minimum !== 0) {
-  throw new Error('shell timeout_ms schema must expose its non-negative integer contract, including the 0 sentinel');
+if (shellTool?.inputSchema?.properties?.timeout_ms !== undefined) {
+  throw new Error('shell timeout_ms must stay internal and out of the model-facing schema');
 }
 const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: 0 });
 const shellNegativeTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: -1 });

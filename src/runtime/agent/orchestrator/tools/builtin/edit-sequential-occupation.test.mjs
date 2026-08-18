@@ -8,7 +8,9 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { tryExecuteExternalToolAdapter } from './external-tool-adapters.mjs';
+import { executeBuiltinTool } from '../builtin.mjs';
 import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
+import { executePatchTool } from '../patch.mjs';
 import { closeNativePatchServerForTests } from '../patch/native-server.mjs';
 
 const ANCHOR = '#if 0\n"""\n#endif';
@@ -55,6 +57,44 @@ test('count drift falls through to the strict ambiguity reject', async (t) => {
     }, dir, { editOccurrence: { expected: 2 } });
     assert.match(String(result), /old_string found 3 times/);
     assert.match(String(result), /current file excerpt lines/);
+});
+
+test('successful edit snapshot makes a follow-up read return unchanged', async (t) => {
+    const { dir, file } = makeTempFile('alpha\nkeep\n');
+    const sessionId = `edit-known-current-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const result = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: 'alpha',
+        new_string: 'omega',
+    }, dir, { sessionId });
+    assert.match(String(result), /^Updated /);
+
+    const reread = await executeBuiltinTool('read', { path: file }, dir, { sessionId });
+    assert.equal(reread, `[file unchanged: ${file.replaceAll('\\', '/')}]`);
+});
+
+test('successful apply_patch snapshot makes a follow-up read return unchanged', async (t) => {
+    const { dir, file } = makeTempFile('alpha\nkeep\n');
+    const sessionId = `patch-known-current-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const result = await executePatchTool('apply_patch', {
+        base_path: dir,
+        patch: `*** Begin Patch
+*** Update File: poly.c
+@@
+-alpha
++omega
+ keep
+*** End Patch
+`,
+    }, dir, { sessionId });
+    assert.match(String(result), /^Applied 1 File \(Native\)/);
+
+    const reread = await executeBuiltinTool('read', { path: file }, dir, { sessionId });
+    assert.equal(reread, `[file unchanged: ${file.replaceAll('\\', '/')}]`);
 });
 
 test('stale read snapshot does not block a still-unique current old_string', async (t) => {

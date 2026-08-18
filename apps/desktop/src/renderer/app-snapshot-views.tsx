@@ -30,6 +30,7 @@ import {
 import { PaneSurfaceCover } from "./PaneSurfaceGate";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
 import { asRecord } from "./text-format";
+import { t } from "./i18n";
 import {
   conversationCoverIdentity,
   conversationSwitchPaintGate,
@@ -201,6 +202,16 @@ export const PaneConversation = memo(function PaneConversation({
   const contentReady = hidden || !sessionId || promotingFromDraft
     || (!markdownPending && lane !== null);
   const incomingPaintId = sessionId || "draft";
+  const switchArrivalRef = useRef({
+    id: incomingPaintId,
+    ready: contentReady,
+  });
+  if (switchArrivalRef.current.id !== incomingPaintId) {
+    switchArrivalRef.current = {
+      id: incomingPaintId,
+      ready: contentReady,
+    };
+  }
   const [heldPaintId, setHeldPaintId] = useState(incomingPaintId);
   const presentedSessionId = conversationPresentedSessionId(
     heldPaintId === "draft" ? "" : heldPaintId,
@@ -225,6 +236,7 @@ export const PaneConversation = memo(function PaneConversation({
     hidden,
     promotingFromDraft,
     contentReady,
+    preparedBeforeSwitch: switchArrivalRef.current.ready,
   });
   useLayoutEffect(() => {
     if (paintGate.adoptNow) {
@@ -290,14 +302,14 @@ export const PaneConversation = memo(function PaneConversation({
         hidden={hidden} />}
       {...props}
     />
-    <PaneSurfaceCover ready={surfaceReady} label="Loading conversation…"
+    <PaneSurfaceCover ready={surfaceReady} label={t("Loading conversation…")}
       transitionKey={coverKey} showSpinner={false} />
     {readUnavailable && lane === null && !hidden
       ? <div className="pane-surface-cover session-unavailable" role="alert">
         <div className="session-unavailable-card">
-          <strong>Session unavailable</strong>
-          <span>The transcript could not be loaded.</span>
-          <button type="button" onClick={() => setReadRetry((value) => value + 1)}>Retry</button>
+          <strong>{t("Session unavailable")}</strong>
+          <span>{t("The transcript could not be loaded.")}</span>
+          <button type="button" onClick={() => setReadRetry((value) => value + 1)}>{t("Retry")}</button>
         </div>
       </div>
       : null}
@@ -513,13 +525,13 @@ function RemoteToggleButton({
     className="session-dock-toggle remote-toggle"
     aria-pressed={on} aria-busy={busy || undefined}
     aria-label={draft
-      ? on ? "Turn remote off for this new task" : "Turn remote on for this new task"
-      : on ? "Turn channel relay off"
-        : elsewhere ? "Override the channel relay with this session"
-          : "Turn channel relay on"}
-    data-tooltip={busy ? "Updating remote…"
-      : draft ? on ? "Remote on for new task" : "Remote off for new task"
-        : on ? "Remote on" : elsewhere ? "Remote on elsewhere — click to override" : "Remote off"}
+      ? on ? t("Turn remote off for this new task") : t("Turn remote on for this new task")
+      : on ? t("Turn channel relay off")
+        : elsewhere ? t("Override the channel relay with this session")
+          : t("Turn channel relay on")}
+    data-tooltip={busy ? t("Updating remote…")
+      : draft ? on ? t("Remote on for new task") : t("Remote off for new task")
+        : on ? t("Remote on") : elsewhere ? t("Remote on elsewhere — click to override") : t("Remote off")}
     onClick={() => {
       if (draft) {
         void onChange(!on);

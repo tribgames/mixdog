@@ -17,7 +17,7 @@
 // Auth: desktops self-register on first connect (trust-on-first-use device
 // id + secret, hashes persisted under DATA_DIR); phones present the client
 // token the desktop registered. Payloads are relayed without inspection.
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   chmodSync,
   mkdirSync,
@@ -110,7 +110,17 @@ export const MAX_PHONE_CONNECTIONS_PER_MINUTE = 120;
 const PHONE_CONNECT_RATE_WINDOW_MS = 60_000;
 const MAX_REGISTERED_DEVICES = 5000;
 export const MAX_PHONE_CLIENTS_PER_DEVICE = 32;
+const MAX_PAIRED_CLIENTS_PER_DEVICE = 256;
 export const MAX_RATE_KEYS = 10_000;
+
+// Branding/installability files served without the pairing gate (see
+// serveStatic): manifest + icons referenced by index.html and the manifest.
+export const PUBLIC_APP_ASSETS = new Set([
+  '/manifest.webmanifest',
+  '/mixdog.svg',
+  '/mixdog-192.png',
+  '/mixdog-512.png',
+]);
 
 export function phoneClientCapacityAvailable(clientCount) {
   return Number(clientCount) < MAX_PHONE_CLIENTS_PER_DEVICE;
@@ -554,10 +564,24 @@ export class DeviceStore {
         if (!/^[0-9a-f-]{8,64}$/.test(id)
           || !row || typeof row !== 'object' || Array.isArray(row)
           || !/^[0-9a-f]{64}$/.test(String(row.secretHash || ''))
-          || (row.clientTokenHash && !/^[0-9a-f]{64}$/.test(String(row.clientTokenHash)))) {
+          || (row.clientTokenHash && !/^[0-9a-f]{64}$/.test(String(row.clientTokenHash)))
+          || (row.clients && (typeof row.clients !== 'object' || Array.isArray(row.clients)))) {
           throw new TypeError('device store row is invalid');
         }
         if (!row.clientTokenHash) row.clientTokenHash = '';
+        if (!row.clients) row.clients = {};
+        for (const [clientId, client] of Object.entries(row.clients)) {
+          if (!/^[0-9a-f-]{8,64}$/.test(clientId)
+            || !client || typeof client !== 'object' || Array.isArray(client)
+            || !/^[0-9a-f]{64}$/.test(String(client.tokenHash || ''))) {
+            throw new TypeError('device store client row is invalid');
+          }
+          client.name = String(client.name || 'Browser').slice(0, 80);
+          client.platform = String(client.platform || '').slice(0, 80);
+          client.browser = String(client.browser || '').slice(0, 80);
+          client.createdAt = Number.isFinite(client.createdAt) ? client.createdAt : Date.now();
+          client.lastSeenAt = Number.isFinite(client.lastSeenAt) ? client.lastSeenAt : client.createdAt;
+        }
         this.devices.set(id, row);
       }
     } catch (error) {
@@ -570,8 +594,12 @@ export class DeviceStore {
     // with fleet size. Indexing by digest keeps lookup O(1) and leaks nothing
     // useful: matching a key requires the token preimage.
     this.tokenIndex = new Map();
+    this.clientTokenIndex = new Map();
     for (const [id, row] of this.devices) {
       if (row.clientTokenHash) this.tokenIndex.set(row.clientTokenHash, id);
+      for (const [clientId, client] of Object.entries(row.clients)) {
+        this.clientTokenIndex.set(client.tokenHash, { deviceId: id, clientId });
+      }
     }
     this.saveTimer = null;
   }
@@ -619,7 +647,7 @@ export class DeviceStore {
     const known = this.devices.get(deviceId);
     if (!known) {
       if (this.devices.size >= MAX_REGISTERED_DEVICES) return false;
-      this.devices.set(deviceId, { secretHash: sha256(secret), clientTokenHash: '' });
+      this.devices.set(deviceId, { secretHash: sha256(secret), clientTokenHash: '', clients: {} });
       this.scheduleSave();
       return true;
     }
@@ -643,6 +671,9 @@ export class DeviceStore {
     const known = this.devices.get(deviceId);
     if (!known) return false;
     if (known.clientTokenHash) this.tokenIndex.delete(known.clientTokenHash);
+    for (const client of Object.values(known.clients || {})) {
+      this.clientTokenIndex.delete(client.tokenHash);
+    }
     this.devices.delete(deviceId);
     // The acknowledgement is the durability boundary for Unpair: persist
     // synchronously before telling the desktop that the registration is gone.
@@ -651,9 +682,164 @@ export class DeviceStore {
   }
 
   deviceIdForClientToken(token) {
-    if (!token) return null;
-    return this.tokenIndex.get(sha256(token)) ?? null;
+    return this.clientAccessForToken(token)?.deviceId ?? null;
   }
+
+  clientAccessForToken(token) {
+    if (!token) return null;
+    const hash = sha256(token);
+    const deviceId = this.tokenIndex.get(hash);
+    if (deviceId) return { deviceId, clientId: null };
+    return this.clientTokenIndex.get(hash) ?? null;
+  }
+
+  registerClient(deviceId, clientId, profile = {}) {
+    const known = this.devices.get(deviceId);
+    if (!known || !/^[0-9a-f-]{8,64}$/.test(clientId)) return null;
+    known.clients ||= {};
+    if (!known.clients[clientId]
+      && Object.keys(known.clients).length >= MAX_PAIRED_CLIENTS_PER_DEVICE) return null;
+    const previous = known.clients[clientId];
+    if (previous?.tokenHash) this.clientTokenIndex.delete(previous.tokenHash);
+    const token = randomBytes(32).toString('hex');
+    const now = Date.now();
+    const client = {
+      tokenHash: sha256(token),
+      name: String(profile.name || 'Browser').slice(0, 80),
+      platform: String(profile.platform || '').slice(0, 80),
+      browser: String(profile.browser || '').slice(0, 80),
+      createdAt: previous?.createdAt || now,
+      lastSeenAt: now,
+    };
+    known.clients[clientId] = client;
+    this.clientTokenIndex.set(client.tokenHash, { deviceId, clientId });
+    this.save();
+    return { token, client: { id: clientId, ...client } };
+  }
+
+  touchClient(deviceId, clientId, profile = {}) {
+    const client = this.devices.get(deviceId)?.clients?.[clientId];
+    if (!client) return false;
+    client.lastSeenAt = Date.now();
+    if (profile.name) client.name = String(profile.name).slice(0, 80);
+    if (profile.platform) client.platform = String(profile.platform).slice(0, 80);
+    if (profile.browser) client.browser = String(profile.browser).slice(0, 80);
+    this.scheduleSave();
+    return true;
+  }
+
+  listClients(deviceId, online = new Set()) {
+    const clients = this.devices.get(deviceId)?.clients || {};
+    return Object.entries(clients)
+      .map(([id, client]) => ({
+        id,
+        name: client.name,
+        platform: client.platform,
+        browser: client.browser,
+        createdAt: client.createdAt,
+        lastSeenAt: client.lastSeenAt,
+        online: online.has(id),
+      }))
+      .sort((left, right) => right.lastSeenAt - left.lastSeenAt);
+  }
+
+  revokeClient(deviceId, clientId) {
+    const known = this.devices.get(deviceId);
+    const client = known?.clients?.[clientId];
+    if (!known || !client) return false;
+    this.clientTokenIndex.delete(client.tokenHash);
+    delete known.clients[clientId];
+    this.save();
+    return true;
+  }
+}
+
+function requestToken(request, url) {
+  const authorization = String(request.headers.authorization || '');
+  const bearer = authorization.match(/^Bearer\s+([0-9a-f]{32,128})$/i)?.[1] || '';
+  return bearer || url.searchParams.get('token') || parseCookieToken(request.headers.cookie);
+}
+
+function readBoundedJson(request, maxBytes = 8 * 1024) {
+  return new Promise((resolveBody, rejectBody) => {
+    const chunks = [];
+    let size = 0;
+    request.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        rejectBody(new Error('request body too large'));
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on('end', () => {
+      try {
+        resolveBody(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+      } catch {
+        rejectBody(new Error('invalid json'));
+      }
+    });
+    request.on('error', rejectBody);
+  });
+}
+
+async function handleClientRegistration(store, unauthorizedLimiter, request, response) {
+  if (request.method !== 'POST') {
+    response.writeHead(405).end();
+    return;
+  }
+  if (!browserSocketOriginAllowed(request)) {
+    response.writeHead(403).end();
+    return;
+  }
+  let url;
+  let body;
+  try {
+    url = new URL(request.url || '/', 'http://localhost');
+    body = await readBoundedJson(request);
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+  const token = requestToken(request, url);
+  const access = store.clientAccessForToken(token);
+  const clientId = String(body?.clientId || '');
+  if (!access || !/^[0-9a-f-]{8,64}$/.test(clientId)) {
+    if (!unauthorizedLimiter.allow(clientIp(request))) {
+      response.writeHead(429, { 'Retry-After': '60' }).end();
+      return;
+    }
+    response.writeHead(401).end();
+    return;
+  }
+  const profile = {
+    name: body?.name,
+    platform: body?.platform,
+    browser: body?.browser,
+  };
+  if (access.clientId) {
+    if (access.clientId !== clientId) {
+      response.writeHead(401).end();
+      return;
+    }
+    store.touchClient(access.deviceId, clientId, profile);
+    response.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    }).end(JSON.stringify({ clientId }));
+    return;
+  }
+  const registered = store.registerClient(access.deviceId, clientId, profile);
+  if (!registered) {
+    response.writeHead(409).end();
+    return;
+  }
+  response.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
+    ...pairingCookieHeaders(registered.token, request),
+  }).end(JSON.stringify({ clientId, token: registered.token }));
 }
 
 function serveStatic(rendererDir, store, unauthorizedLimiter, request, response) {
@@ -677,9 +863,12 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
   // Token gate: the web app is for paired browsers only. The pairing QR
   // carries ?token= on the entry URL; a cookie forwards it to asset requests.
   // Bots probing GET / see 401, never the app shell.
+  // Installability metadata is exempt: browsers fetch the manifest and its
+  // icons WITHOUT credentials, and a 401 there silently downgrades "install
+  // app" to an icon-less shortcut. These assets carry no user data.
   const queryToken = url.searchParams.get('token') || '';
   const token = queryToken || parseCookieToken(request.headers.cookie);
-  if (!token || !store.deviceIdForClientToken(token)) {
+  if (!PUBLIC_APP_ASSETS.has(pathname) && (!token || !store.deviceIdForClientToken(token))) {
     // Bounded probing: a scanner hammering the gate gets throttled instead of
     // buying unlimited token guesses and log noise.
     if (!unauthorizedLimiter.allow(clientIp(request))) {
@@ -736,6 +925,10 @@ export async function startRelay({
     // HMAC signature verified on the agent side.
     if ((request.url || '').startsWith('/hook/')) {
       handleHookRequest(liveHooks, hookLimiter, request, response);
+      return;
+    }
+    if ((request.url || '').startsWith('/client/register')) {
+      void handleClientRegistration(store, unauthorizedLimiter, request, response);
       return;
     }
     // Media is a byte lane: it answers before the app shell so a gallery tile
@@ -820,9 +1013,26 @@ export async function startRelay({
         return;
       }
       const token = url.searchParams.get('token') || '';
-      const deviceId = store.deviceIdForClientToken(token);
-      const entry = deviceId ? liveDesktops.get(deviceId) : null;
+      const access = store.clientAccessForToken(token);
+      // Clean break (v2): /ws accepts ONLY the per-browser credential minted
+      // by /client/register. A missing, stale, or legacy shared token is not
+      // retryable — finish the handshake and close 4005 so the phone drops
+      // its stored pairing and shows the QR scanner instead of retrying.
+      if (!access?.clientId) {
+        if (!unauthorizedLimiter.allow(clientIp(request))) {
+          reject(429, 'Too Many Requests');
+          return;
+        }
+        wss.handleUpgrade(request, rawSocket, head, (socket) => {
+          try { socket.close(4005, 'pairing rescan required'); } catch { /* already gone */ }
+        });
+        return;
+      }
+      const deviceId = access.deviceId;
+      const entry = liveDesktops.get(deviceId);
       if (!entry || entry.socket.readyState !== entry.socket.OPEN) {
+        // Desktop offline is transient: plain reject keeps the phone's
+        // reconnect loop alive without touching its stored pairing.
         reject();
         return;
       }
@@ -834,7 +1044,9 @@ export async function startRelay({
         reject(429, 'Too Many Requests');
         return;
       }
-      wss.handleUpgrade(request, rawSocket, head, (socket) => runClientLeg(entry, sendJson, socket));
+      store.touchClient(deviceId, access.clientId);
+      wss.handleUpgrade(request, rawSocket, head, (socket) =>
+        runClientLeg(entry, sendJson, socket, access.clientId));
       return;
     }
     if (url.pathname === '/hookleg') {
@@ -953,6 +1165,32 @@ function runDesktopLeg(context, deviceId, socket) {
       store.setClientToken(deviceId, message.token);
       return;
     }
+    if (message.type === 'list-clients' && typeof message.requestId === 'string') {
+      const online = new Set(
+        [...entry.clients.values()].map((phone) => phone.browserClientId).filter(Boolean),
+      );
+      sendJson(socket, {
+        type: 'clients-list',
+        requestId: message.requestId,
+        clients: store.listClients(deviceId, online),
+      });
+      return;
+    }
+    if (message.type === 'revoke-client'
+      && typeof message.requestId === 'string'
+      && typeof message.clientId === 'string') {
+      const removed = store.revokeClient(deviceId, message.clientId);
+      for (const phone of entry.clients.values()) {
+        if (phone.browserClientId !== message.clientId) continue;
+        try { phone.close(4003, 'pairing revoked'); } catch { /* already gone */ }
+      }
+      sendJson(socket, {
+        type: 'client-revoked',
+        requestId: message.requestId,
+        ok: removed,
+      });
+      return;
+    }
     // Capability announcement, sent before the leg does anything else. It is
     // ONE bit per lane, not a version number: the relay never branches on a
     // desktop version, it only answers "this host serves media" or not.
@@ -1000,8 +1238,9 @@ function runDesktopLeg(context, deviceId, socket) {
   });
 }
 
-function runClientLeg(entry, sendJson, socket) {
+function runClientLeg(entry, sendJson, socket, browserClientId = null) {
   const clientId = randomUUID();
+  socket.browserClientId = browserClientId;
   entry.clients.set(clientId, socket);
   sendJson(entry.socket, { type: 'client-open', clientId });
   socket.isAlive = true;

@@ -327,6 +327,64 @@ export function modelDisplayName(model: string | null | undefined, provider = ""
   return id ? canonicalModelDisplay(id) || id : "";
 }
 
+export function modelRouteDisplayParts(
+  model: string | null | undefined,
+  effort: string | null | undefined = "",
+  fast = false,
+  effortLabel = "",
+) {
+  const effortValue = String(effort || "").trim();
+  const rawEffortLabel = String(effortLabel || effortValue).trim();
+  const compactEffort = effortValue.toLowerCase() === "xhigh"
+    || /^(?:extra[\s-]*high|xhigh)$/i.test(rawEffortLabel)
+    ? "XHigh"
+    : rawEffortLabel
+      ? `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`
+      : "";
+  return {
+    model: String(model || "").trim(),
+    effort: compactEffort,
+    fast: fast ? "Fast" : "",
+  };
+}
+
+export function modelRouteDisplayName(
+  model: string | null | undefined,
+  effort: string | null | undefined = "",
+  fast = false,
+  effortLabel = "",
+) {
+  const parts = modelRouteDisplayParts(model, effort, fast, effortLabel);
+  return [parts.model, parts.effort, parts.fast]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function ModelRouteLabel({
+  model,
+  effort = "",
+  fast = false,
+  effortLabel = "",
+}: {
+  model: string | null | undefined;
+  effort?: string | null | undefined;
+  fast?: boolean;
+  effortLabel?: string;
+}) {
+  const parts = modelRouteDisplayParts(model, effort, fast, effortLabel);
+  return <span className="model-route-label">
+    {parts.model && <span className="model-route-label-model">{parts.model}</span>}
+    {parts.effort && <>
+      {parts.model && " "}
+      <span className="model-route-label-effort">{parts.effort}</span>
+    </>}
+    {parts.fast && <>
+      {(parts.model || parts.effort) && " "}
+      <span className="model-route-label-fast">{parts.fast}</span>
+    </>}
+  </span>;
+}
+
 export function modelOptionLabel(model: { provider: string; model: string; display: string }) {
   const display = modelDisplayName(model.model, model.provider, model.display) || t("Unnamed model");
   return `${display} · ${providerDisplayName(model.provider)}`;

@@ -15,6 +15,7 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
 
@@ -84,6 +85,92 @@ export function inspectShellTextChunk(value, channel = 'stdout') {
     binary: false,
     bytes,
   };
+}
+
+function detectShellTextEncoding(buffer, final = false) {
+  if (buffer.length >= 2) {
+    if (buffer[0] === 0xff && buffer[1] === 0xfe) return { encoding: 'utf16le', bom: 2 };
+    if (buffer[0] === 0xfe && buffer[1] === 0xff) return { encoding: 'utf16be', bom: 2 };
+  }
+  const pairs = Math.min(Math.floor(buffer.length / 2), 128);
+  if (pairs >= 4) {
+    let evenNuls = 0;
+    let oddNuls = 0;
+    let printablePartners = 0;
+    for (let i = 0; i < pairs * 2; i += 2) {
+      if (buffer[i] === 0) evenNuls++;
+      if (buffer[i + 1] === 0) oddNuls++;
+      const partner = buffer[i] === 0 ? buffer[i + 1] : buffer[i];
+      if (partner === 9 || partner === 10 || partner === 13 || (partner >= 0x20 && partner <= 0x7e)) {
+        printablePartners++;
+      }
+    }
+    const dominantNuls = Math.max(evenNuls, oddNuls);
+    const minorityNuls = Math.min(evenNuls, oddNuls);
+    if (
+      dominantNuls / pairs >= 0.6
+      && minorityNuls / pairs <= 0.1
+      && printablePartners / pairs >= 0.75
+    ) {
+      return { encoding: oddNuls > evenNuls ? 'utf16le' : 'utf16be', bom: 0 };
+    }
+  }
+  if (!final && buffer.length < 4) return null;
+  return { encoding: 'utf8', bom: 0 };
+}
+
+export class ShellTextDecoder {
+  constructor() {
+    this.encoding = null;
+    this.decoder = null;
+    this.pending = Buffer.alloc(0);
+    this.byteRemainder = Buffer.alloc(0);
+  }
+
+  _decode(buffer) {
+    if (this.encoding !== 'utf16be') return this.decoder.write(buffer);
+    const joined = this.byteRemainder.length > 0
+      ? Buffer.concat([this.byteRemainder, buffer])
+      : buffer;
+    const evenLength = joined.length - (joined.length % 2);
+    this.byteRemainder = evenLength < joined.length ? joined.subarray(evenLength) : Buffer.alloc(0);
+    if (evenLength === 0) return '';
+    return this.decoder.write(Buffer.from(joined.subarray(0, evenLength)).swap16());
+  }
+
+  _start(final = false) {
+    const detected = detectShellTextEncoding(this.pending, final);
+    if (!detected) return '';
+    this.encoding = detected.encoding;
+    this.decoder = new StringDecoder(this.encoding === 'utf16be' ? 'utf16le' : this.encoding);
+    const buffered = this.pending.subarray(detected.bom);
+    this.pending = Buffer.alloc(0);
+    return this._decode(buffered);
+  }
+
+  write(value) {
+    if (value == null || value.length === 0) return '';
+    if (typeof value === 'string') {
+      const prefix = this.encoding ? '' : this._start(true);
+      return prefix + value;
+    }
+    const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    if (!this.encoding) {
+      this.pending = this.pending.length > 0 ? Buffer.concat([this.pending, buffer]) : buffer;
+      return this._start(false);
+    }
+    return this._decode(buffer);
+  }
+
+  end() {
+    let text = this.encoding ? '' : this._start(true);
+    if (this.encoding === 'utf16be' && this.byteRemainder.length > 0) {
+      text += '\uFFFD';
+      this.byteRemainder = Buffer.alloc(0);
+    }
+    if (this.decoder) text += this.decoder.end();
+    return text;
+  }
 }
 
 // Delegate process-tree termination to the native manager.

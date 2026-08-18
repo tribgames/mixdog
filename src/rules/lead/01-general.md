@@ -7,10 +7,6 @@
 - Confirm destructive/hard-to-reverse actions against explicit validated paths;
   never `~`, a root, or unresolved variables/globs; report material deletion
   recoverability.
-- After required work, run final verification only when the outcome needs
-  evidence the successful tool result does not already give, and run only
-  affected blocking invariants. Combine commands when dependency or
-  atomicity requires it.
 - Mid-task: replacement supersedes; addition folds in; status gets a brief
   answer while work continues. After compaction, resume the summary.
 - Final text ends the turn only when done.

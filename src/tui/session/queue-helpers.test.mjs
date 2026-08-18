@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { mergePromptContents } from './queue-helpers.mjs';
+import { mergePromptContents, promptDisplayText } from './queue-helpers.mjs';
 
 test('merging keeps an externalized single text part as a parts array', () => {
   // Prompts over the attachment externalization threshold arrive as
@@ -34,4 +34,13 @@ test('merging joins mixed inline and externalized parts without dropping refs', 
   assert.ok(Array.isArray(merged));
   assert.ok(merged.some((part) => part?.attachmentRef === ref.attachmentRef));
   assert.ok(merged.some((part) => part?.text === 'first'));
+});
+
+test('empty display text falls back to structured attachment content', () => {
+  assert.equal(
+    promptDisplayText([{ type: 'image', data: 'AA==', mimeType: 'image/png' }], {
+      displayText: '',
+    }),
+    '[Image]',
+  );
 });

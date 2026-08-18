@@ -40,6 +40,7 @@ import {
   setEndpointEnabled as dbSetEndpointEnabled,
 } from '../runtime/shared/webhooks-db.mjs';
 import { normalizeAutomationAttachments } from '../runtime/shared/automation-attachments.mjs';
+import { resolveScheduleTimezone, validateScheduleCron } from '../runtime/shared/schedule-time.mjs';
 import { readHookPublicBase } from '../runtime/channels/lib/webhook/relay-tunnel.mjs';
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -401,14 +402,17 @@ export async function saveSchedule({
   if (overwrite !== true && (await dbGetSchedule(id))) {
     throw new Error(`schedule "${id}" already exists`);
   }
-  const whenCron = hasTime ? foldDaysIntoCron(normalizeCron(time), days) : null;
+  const whenCron = hasTime
+    ? validateScheduleCron(foldDaysIntoCron(normalizeCron(time), days))
+    : null;
   const whenAt = hasAt ? parseAtDatetime(at) : null;
+  const scheduleTimezone = hasTime ? resolveScheduleTimezone(timezone) : null;
   const saved = await upsertSchedule({
     name: id,
     description: String(description || '').trim(),
     whenCron,
     whenAt,
-    timezone: timezone ? String(timezone).trim() : null,
+    timezone: scheduleTimezone,
     target: mode === 'app' ? 'session' : 'channel',
     channelId: channel ? String(channel).trim() : null,
     model: model ? String(model).trim() : null,
@@ -418,6 +422,7 @@ export async function saveSchedule({
     delivery: mode,
     prompt: body,
     enabled: enabled !== false,
+    nextFireAt: whenAt,
   });
   return scheduleToDisplay(saved);
 }

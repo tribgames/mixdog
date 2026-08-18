@@ -9,13 +9,14 @@
 // Request : {"id":1,"cwd":"C:/repo","args":["--color","never",...],"offset":0,"limit":400}
 // Response: {"id":1,"lines":[...],"complete":true,"totalSeen":N}
 //         | {"id":1,"unsupported":"reason"} | {"id":1,"error":"..."}
-use std::collections::{HashMap, VecDeque};
-use std::fs::File;
-use std::io::{self, BufRead, Read, Write};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::{self, File};
+use std::hash::{Hash, Hasher};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -52,6 +53,14 @@ const DEFAULT_AIMD_TARGET_MS: usize = 250;
 const DEFAULT_AIMD_INCREASE_EVERY: usize = 8;
 const WALK_ERROR_DETAIL_MAX: usize = 8;
 const WALK_ERROR_DETAIL_CHARS: usize = 300;
+const CONTENT_SIGNATURE_BITS: usize = 16_384;
+const CONTENT_SIGNATURE_WORDS: usize = CONTENT_SIGNATURE_BITS / 64;
+const CONTENT_SIGNATURE_CACHE_MAX: usize = 16_384;
+const CONTENT_SIGNATURE_CACHE_SHARDS: usize = 64;
+const CONTENT_SIGNATURE_SNAPSHOT_MAGIC: &[u8; 8] = b"MDCSIG02";
+const CONTENT_SIGNATURE_SNAPSHOT_VERSION: u32 = 2;
+const CONTENT_SIGNATURE_SNAPSHOT_MAX_BYTES: u64 = 256 * 1024 * 1024;
+const CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES: usize = 1024 * 1024;
 
 fn bounded_env_usize(name: &str, default: usize, min: usize, max: usize) -> usize {
     std::env::var(name)
@@ -181,6 +190,29 @@ fn normalized_operand(operand: &Path) -> PathBuf {
     std::fs::canonicalize(operand).unwrap_or_else(|_| operand.to_path_buf())
 }
 
+fn path_starts_with(rooted: &Path, root: &Path) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let rooted = rooted.to_string_lossy();
+        let root = root.to_string_lossy();
+        let rooted = rooted.strip_prefix(r"\\?\").unwrap_or(&rooted);
+        let root = root.strip_prefix(r"\\?\").unwrap_or(&root);
+        let rooted = rooted.as_bytes();
+        let root = root.as_bytes();
+        if rooted.eq_ignore_ascii_case(root) {
+            return true;
+        }
+        if rooted.len() <= root.len() || !rooted[..root.len()].eq_ignore_ascii_case(root) {
+            return false;
+        }
+        matches!(rooted[root.len()], b'\\' | b'/')
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        rooted.starts_with(root)
+    }
+}
+
 fn wire_path(path: &Path) -> String {
     let value = path.to_string_lossy();
     #[cfg(windows)]
@@ -275,11 +307,12 @@ struct ReadyEntry {
     generation: u64,
     touched_at: Instant,
     estimated_bytes: usize,
+    root_identity: Option<crate::serve_search_usn::FileIdentity>,
 }
 
 struct FuzzyIndexedPath {
     path: String,
-    matcher_text: Utf32String,
+    ascii_mask: Option<(u64, u64)>,
 }
 
 struct FuzzyCorpus {
@@ -300,6 +333,259 @@ fn paths_storage_bytes(files: &[PathBuf]) -> usize {
     })
 }
 
+const INVENTORY_SNAPSHOT_MAGIC: &[u8; 8] = b"MDINV001";
+const INVENTORY_SNAPSHOT_VERSION: u32 = 2;
+const INVENTORY_SNAPSHOT_MAX_BYTES: u64 = 256 * 1024 * 1024;
+const INVENTORY_SNAPSHOT_MAX_STRING_BYTES: usize = 1024 * 1024;
+
+fn inventory_snapshot_path() -> Option<PathBuf> {
+    content_signature_snapshot_path().map(|path| path.with_file_name("file-inventories-v1.bin"))
+}
+
+fn read_snapshot_string<R: Read>(reader: &mut R) -> io::Result<String> {
+    let len = read_snapshot_u32(reader)? as usize;
+    if len == 0 || len > INVENTORY_SNAPSHOT_MAX_STRING_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "inventory string length",
+        ));
+    }
+    let mut bytes = vec![0u8; len];
+    reader.read_exact(&mut bytes)?;
+    String::from_utf8(bytes)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "inventory utf8"))
+}
+
+fn write_snapshot_string<W: Write>(writer: &mut W, value: &Path) -> io::Result<()> {
+    let value = value.to_string_lossy();
+    let bytes = value.as_bytes();
+    if bytes.is_empty() || bytes.len() > INVENTORY_SNAPSHOT_MAX_STRING_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "inventory path length",
+        ));
+    }
+    writer.write_all(&(bytes.len() as u32).to_le_bytes())?;
+    writer.write_all(bytes)
+}
+
+fn load_file_list_snapshot() -> (
+    HashMap<WalkKey, ReadyEntry>,
+    Option<Vec<crate::serve_search_usn::JournalCheckpoint>>,
+) {
+    ensure_content_signature_cache_loaded();
+    let Some(ttl) = file_list_ttl() else {
+        return (HashMap::new(), None);
+    };
+    let Some(path) = inventory_snapshot_path() else {
+        return (HashMap::new(), None);
+    };
+    if fs::metadata(&path)
+        .ok()
+        .is_none_or(|metadata| metadata.len() > INVENTORY_SNAPSHOT_MAX_BYTES)
+    {
+        return (HashMap::new(), None);
+    }
+    let Ok(file) = File::open(path) else {
+        return (HashMap::new(), None);
+    };
+    let loaded = (|| -> io::Result<_> {
+        let mut reader = BufReader::new(file);
+        let mut magic = [0u8; 8];
+        reader.read_exact(&mut magic)?;
+        if &magic != INVENTORY_SNAPSHOT_MAGIC
+            || read_snapshot_u32(&mut reader)? != INVENTORY_SNAPSHOT_VERSION
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "inventory header",
+            ));
+        }
+        let checkpoint_count = read_snapshot_u32(&mut reader)? as usize;
+        let entry_count = read_snapshot_u32(&mut reader)? as usize;
+        if checkpoint_count > 256 || entry_count > FILE_LIST_CACHE_MAX {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "inventory counts",
+            ));
+        }
+        let mut checkpoints = Vec::with_capacity(checkpoint_count);
+        for _ in 0..checkpoint_count {
+            checkpoints.push(crate::serve_search_usn::JournalCheckpoint {
+                volume: read_snapshot_u16(&mut reader)?,
+                volume_serial: read_snapshot_u32(&mut reader)?,
+                journal_id: read_snapshot_u64(&mut reader)?,
+                next_usn: read_snapshot_i64(&mut reader)?,
+            });
+        }
+        let mut ready = HashMap::new();
+        let now = Instant::now();
+        let mut total_bytes = 0usize;
+        for _ in 0..entry_count {
+            let operand = PathBuf::from(read_snapshot_string(&mut reader)?);
+            let root_identity = Some(crate::serve_search_usn::FileIdentity {
+                volume: read_snapshot_u32(&mut reader)?,
+                file_id: read_snapshot_u64(&mut reader)?,
+            });
+            let mut flags = [0u8; 1];
+            reader.read_exact(&mut flags)?;
+            let max_depth = read_snapshot_u32(&mut reader)?;
+            let prune_count = read_snapshot_u32(&mut reader)? as usize;
+            let file_count = read_snapshot_u32(&mut reader)? as usize;
+            if prune_count > 4096 || file_count > 2_000_000 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "inventory entry counts",
+                ));
+            }
+            let mut prune = Vec::with_capacity(prune_count);
+            for _ in 0..prune_count {
+                prune.push(read_snapshot_string(&mut reader)?);
+            }
+            let mut files = Vec::with_capacity(file_count);
+            for _ in 0..file_count {
+                files.push(PathBuf::from(read_snapshot_string(&mut reader)?));
+            }
+            let estimated_bytes = paths_storage_bytes(&files);
+            total_bytes = total_bytes.saturating_add(estimated_bytes);
+            if total_bytes > file_list_cache_bytes() {
+                continue;
+            }
+            ready.insert(
+                WalkKey {
+                    operand,
+                    hidden: flags[0] & 1 != 0,
+                    no_ignore: flags[0] & 2 != 0,
+                    no_require_git: flags[0] & 4 != 0,
+                    directories: flags[0] & 8 != 0,
+                    max_depth: (max_depth != u32::MAX).then_some(max_depth as usize),
+                    prune,
+                },
+                ReadyEntry {
+                    files: Arc::new(files),
+                    expires_at: now + ttl,
+                    generation: 0,
+                    touched_at: now,
+                    estimated_bytes,
+                    root_identity,
+                },
+            );
+        }
+        Ok((ready, checkpoints))
+    })();
+    match loaded {
+        Ok((ready, checkpoints)) if !checkpoints.is_empty() => {
+            crate::serve_search_usn::restore_journal_checkpoints(&checkpoints);
+            (ready, Some(checkpoints))
+        }
+        _ => (HashMap::new(), None),
+    }
+}
+
+fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, ReadyEntry>>) {
+    let Some(path) = inventory_snapshot_path() else {
+        return;
+    };
+    let checkpoints = crate::serve_search_usn::journal_checkpoints();
+    if checkpoints.is_empty() {
+        return;
+    }
+    let entries = ready_cache
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .iter()
+        .filter_map(|(key, entry)| {
+            entry
+                .root_identity
+                .map(|identity| (key.clone(), Arc::clone(&entry.files), identity))
+        })
+        .collect::<Vec<_>>();
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let written = (|| -> io::Result<()> {
+        let file = File::create(&temp)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(INVENTORY_SNAPSHOT_MAGIC)?;
+        writer.write_all(&INVENTORY_SNAPSHOT_VERSION.to_le_bytes())?;
+        writer.write_all(&(checkpoints.len() as u32).to_le_bytes())?;
+        writer.write_all(&0u32.to_le_bytes())?;
+        for checkpoint in &checkpoints {
+            writer.write_all(&checkpoint.volume.to_le_bytes())?;
+            writer.write_all(&checkpoint.volume_serial.to_le_bytes())?;
+            writer.write_all(&checkpoint.journal_id.to_le_bytes())?;
+            writer.write_all(&checkpoint.next_usn.to_le_bytes())?;
+        }
+        let mut count = 0u32;
+        for (key, files, root_identity) in &entries {
+            write_snapshot_string(&mut writer, &key.operand)?;
+            writer.write_all(&root_identity.volume.to_le_bytes())?;
+            writer.write_all(&root_identity.file_id.to_le_bytes())?;
+            let flags = u8::from(key.hidden)
+                | (u8::from(key.no_ignore) << 1)
+                | (u8::from(key.no_require_git) << 2)
+                | (u8::from(key.directories) << 3);
+            writer.write_all(&[flags])?;
+            writer.write_all(
+                &key.max_depth
+                    .map(|depth| depth as u32)
+                    .unwrap_or(u32::MAX)
+                    .to_le_bytes(),
+            )?;
+            writer.write_all(&(key.prune.len() as u32).to_le_bytes())?;
+            writer.write_all(&(files.len() as u32).to_le_bytes())?;
+            for prune in &key.prune {
+                write_snapshot_string(&mut writer, Path::new(prune))?;
+            }
+            for file in files.iter() {
+                write_snapshot_string(&mut writer, file)?;
+            }
+            count = count.saturating_add(1);
+        }
+        writer.flush()?;
+        writer.seek(SeekFrom::Start(16))?;
+        writer.write_all(&count.to_le_bytes())?;
+        writer.flush()
+    })()
+    .is_ok();
+    if !written
+        || (path.exists() && fs::remove_file(&path).is_err())
+        || fs::rename(&temp, &path).is_err()
+    {
+        let _ = fs::remove_file(temp);
+    }
+}
+
+static INVENTORY_SNAPSHOT_DIRTY: AtomicBool = AtomicBool::new(false);
+static INVENTORY_SNAPSHOT_WRITING: AtomicBool = AtomicBool::new(false);
+
+fn schedule_file_list_snapshot(ready: Arc<Mutex<HashMap<WalkKey, ReadyEntry>>>) {
+    INVENTORY_SNAPSHOT_DIRTY.store(true, Ordering::Release);
+    if INVENTORY_SNAPSHOT_WRITING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+    std::thread::spawn(move || {
+        loop {
+            INVENTORY_SNAPSHOT_DIRTY.store(false, Ordering::Release);
+            persist_file_list_snapshot(&ready);
+            if !INVENTORY_SNAPSHOT_DIRTY.swap(false, Ordering::AcqRel) {
+                break;
+            }
+        }
+        INVENTORY_SNAPSHOT_WRITING.store(false, Ordering::Release);
+        if INVENTORY_SNAPSHOT_DIRTY.load(Ordering::Acquire) {
+            schedule_file_list_snapshot(ready);
+        }
+    });
+}
+
 fn fuzzy_storage_bytes(corpus: &FuzzyCorpus) -> usize {
     corpus
         .paths
@@ -307,7 +593,7 @@ fn fuzzy_storage_bytes(corpus: &FuzzyCorpus) -> usize {
         .fold(std::mem::size_of::<FuzzyCorpus>(), |total, indexed| {
             total
                 .saturating_add(std::mem::size_of::<FuzzyIndexedPath>())
-                .saturating_add(indexed.path.len().saturating_mul(5))
+                .saturating_add(indexed.path.len())
         })
 }
 
@@ -329,6 +615,7 @@ struct LiveWalk {
     files_cond: Condvar,
     waiters: AtomicUsize,
     cancelled: AtomicBool,
+    enumeration_done: AtomicBool,
     keep_warm: AtomicBool,
     cacheable: AtomicBool,
     walk_errors: AtomicUsize,
@@ -337,13 +624,845 @@ struct LiveWalk {
 }
 
 struct FileListStore {
-    ready: Mutex<HashMap<WalkKey, ReadyEntry>>,
+    ready: Arc<Mutex<HashMap<WalkKey, ReadyEntry>>>,
+    persisted_checkpoints: Mutex<Option<Vec<crate::serve_search_usn::JournalCheckpoint>>>,
     live: Mutex<HashMap<WalkKey, Arc<LiveWalk>>>,
     fuzzy: Mutex<HashMap<FuzzyKey, FuzzyEntry>>,
     generations: Mutex<HashMap<PathBuf, u64>>,
+    pending_repairs: Mutex<HashMap<WalkKey, PendingInventoryRepair>>,
+    repair_worker_running: AtomicBool,
+    repair_changed: Condvar,
     watcher: Mutex<Option<RecommendedWatcher>>,
     watcher_healthy: AtomicBool,
     watched_roots: Mutex<HashMap<PathBuf, Instant>>,
+    noise_sensitive_roots: Mutex<HashSet<PathBuf>>,
+}
+
+struct PendingInventoryRepair {
+    base: Arc<Vec<PathBuf>>,
+    paths: HashSet<PathBuf>,
+    processing: bool,
+}
+
+#[derive(Clone)]
+struct TrigramSignature {
+    bits: [u64; CONTENT_SIGNATURE_WORDS],
+    folded_bits: [u64; CONTENT_SIGNATURE_WORDS],
+    previous: [u8; 2],
+    folded_previous: [u8; 2],
+    seen: usize,
+    complete: bool,
+}
+
+impl TrigramSignature {
+    fn new() -> Self {
+        Self {
+            bits: [0; CONTENT_SIGNATURE_WORDS],
+            folded_bits: [0; CONTENT_SIGNATURE_WORDS],
+            previous: [0; 2],
+            folded_previous: [0; 2],
+            seen: 0,
+            complete: false,
+        }
+    }
+
+    fn push(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            if self.seen >= 2 {
+                let (first, second) = trigram_bits(self.previous[0], self.previous[1], byte);
+                self.bits[first / 64] |= 1u64 << (first % 64);
+                self.bits[second / 64] |= 1u64 << (second % 64);
+                let folded = byte.to_ascii_lowercase();
+                let (folded_first, folded_second) =
+                    trigram_bits(self.folded_previous[0], self.folded_previous[1], folded);
+                self.folded_bits[folded_first / 64] |= 1u64 << (folded_first % 64);
+                self.folded_bits[folded_second / 64] |= 1u64 << (folded_second % 64);
+            }
+            self.previous[0] = self.previous[1];
+            self.previous[1] = byte;
+            self.folded_previous[0] = self.folded_previous[1];
+            self.folded_previous[1] = byte.to_ascii_lowercase();
+            self.seen = self.seen.saturating_add(1);
+        }
+    }
+
+    fn contains(&self, first: usize, second: usize, folded: bool) -> bool {
+        let bits = if folded {
+            &self.folded_bits
+        } else {
+            &self.bits
+        };
+        (bits[first / 64] & (1u64 << (first % 64))) != 0
+            && (bits[second / 64] & (1u64 << (second % 64))) != 0
+    }
+}
+
+#[derive(Clone)]
+struct ContentSignatureEntry {
+    size: u64,
+    modified_ns: u128,
+    identity: Option<crate::serve_search_usn::FileIdentity>,
+    persisted: bool,
+    signature: TrigramSignature,
+}
+
+#[derive(Clone)]
+struct FileMetadataEntry {
+    size: u64,
+    modified_ns: u128,
+    mtime_ms: u128,
+    identity: Option<crate::serve_search_usn::FileIdentity>,
+}
+
+static CONTENT_SIGNATURE_CACHE: OnceLock<
+    [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS],
+> = OnceLock::new();
+static CONTENT_SIGNATURE_CACHE_LOADED: OnceLock<()> = OnceLock::new();
+static CONTENT_SIGNATURE_CACHE_DIRTY: AtomicUsize = AtomicUsize::new(0);
+static CONTENT_SIGNATURE_CACHE_PERSISTING: AtomicBool = AtomicBool::new(false);
+static FILE_METADATA_CACHE: OnceLock<
+    [Mutex<HashMap<PathBuf, FileMetadataEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS],
+> = OnceLock::new();
+static TRUSTED_USN_VOLUMES: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
+static TRUSTED_WATCH_ROOTS: OnceLock<RwLock<HashSet<PathBuf>>> = OnceLock::new();
+
+fn content_signature_cache(
+) -> &'static [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
+    ensure_content_signature_cache_loaded();
+    raw_content_signature_cache()
+}
+
+fn raw_content_signature_cache(
+) -> &'static [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
+    CONTENT_SIGNATURE_CACHE.get_or_init(|| std::array::from_fn(|_| Mutex::new(HashMap::new())))
+}
+
+fn content_signature_snapshot_path() -> Option<PathBuf> {
+    let data_dir = std::env::var_os("MIXDOG_DATA_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let home = std::env::var_os("MIXDOG_HOME")
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))?;
+            Some(home.join(if std::env::var_os("MIXDOG_HOME").is_some() {
+                "data"
+            } else {
+                ".mixdog/data"
+            }))
+        })?;
+    Some(data_dir.join("search-index/content-signatures-v2.bin"))
+}
+
+fn read_snapshot_u16<R: Read>(reader: &mut R) -> io::Result<u16> {
+    let mut bytes = [0u8; 2];
+    reader.read_exact(&mut bytes)?;
+    Ok(u16::from_le_bytes(bytes))
+}
+
+fn read_snapshot_u32<R: Read>(reader: &mut R) -> io::Result<u32> {
+    let mut bytes = [0u8; 4];
+    reader.read_exact(&mut bytes)?;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+fn read_snapshot_u64<R: Read>(reader: &mut R) -> io::Result<u64> {
+    let mut bytes = [0u8; 8];
+    reader.read_exact(&mut bytes)?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+fn read_snapshot_u128<R: Read>(reader: &mut R) -> io::Result<u128> {
+    let mut bytes = [0u8; 16];
+    reader.read_exact(&mut bytes)?;
+    Ok(u128::from_le_bytes(bytes))
+}
+
+fn read_snapshot_i64<R: Read>(reader: &mut R) -> io::Result<i64> {
+    let mut bytes = [0u8; 8];
+    reader.read_exact(&mut bytes)?;
+    Ok(i64::from_le_bytes(bytes))
+}
+
+fn load_content_signature_cache_binary(path: &Path) -> bool {
+    if fs::metadata(path)
+        .ok()
+        .is_none_or(|metadata| metadata.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_BYTES)
+    {
+        return false;
+    }
+    let Ok(file) = File::open(path) else {
+        return false;
+    };
+    let mut reader = BufReader::new(file);
+    let mut inserted = Vec::new();
+    let loaded = (|| -> io::Result<Vec<crate::serve_search_usn::JournalCheckpoint>> {
+        let mut magic = [0u8; 8];
+        reader.read_exact(&mut magic)?;
+        if &magic != CONTENT_SIGNATURE_SNAPSHOT_MAGIC
+            || read_snapshot_u32(&mut reader)? != CONTENT_SIGNATURE_SNAPSHOT_VERSION
+            || read_snapshot_u32(&mut reader)? as usize != CONTENT_SIGNATURE_WORDS
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "signature snapshot header",
+            ));
+        }
+        let checkpoint_count = read_snapshot_u32(&mut reader)? as usize;
+        let entry_count = read_snapshot_u32(&mut reader)? as usize;
+        if checkpoint_count > 256 || entry_count > CONTENT_SIGNATURE_CACHE_MAX {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "signature snapshot count",
+            ));
+        }
+        let mut checkpoints = Vec::with_capacity(checkpoint_count);
+        for _ in 0..checkpoint_count {
+            checkpoints.push(crate::serve_search_usn::JournalCheckpoint {
+                volume: read_snapshot_u16(&mut reader)?,
+                volume_serial: read_snapshot_u32(&mut reader)?,
+                journal_id: read_snapshot_u64(&mut reader)?,
+                next_usn: read_snapshot_i64(&mut reader)?,
+            });
+        }
+        inserted.reserve(entry_count);
+        for _ in 0..entry_count {
+            let path_len = read_snapshot_u32(&mut reader)? as usize;
+            if path_len == 0 || path_len > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "signature snapshot path",
+                ));
+            }
+            let mut path_bytes = vec![0u8; path_len];
+            reader.read_exact(&mut path_bytes)?;
+            let path = PathBuf::from(String::from_utf8(path_bytes).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, "signature snapshot utf8")
+            })?);
+            let size = read_snapshot_u64(&mut reader)?;
+            let modified_ns = read_snapshot_u128(&mut reader)?;
+            let identity = crate::serve_search_usn::FileIdentity {
+                volume: read_snapshot_u32(&mut reader)?,
+                file_id: read_snapshot_u64(&mut reader)?,
+            };
+            let mut bits = [0u64; CONTENT_SIGNATURE_WORDS];
+            let mut folded_bits = [0u64; CONTENT_SIGNATURE_WORDS];
+            for word in &mut bits {
+                *word = read_snapshot_u64(&mut reader)?;
+            }
+            for word in &mut folded_bits {
+                *word = read_snapshot_u64(&mut reader)?;
+            }
+            raw_content_signature_cache()[content_signature_shard(&path)]
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(
+                    path.clone(),
+                    ContentSignatureEntry {
+                        size,
+                        modified_ns,
+                        identity: Some(identity),
+                        persisted: true,
+                        signature: TrigramSignature {
+                            bits,
+                            folded_bits,
+                            previous: [0; 2],
+                            folded_previous: [0; 2],
+                            seen: 0,
+                            complete: true,
+                        },
+                    },
+                );
+            inserted.push(path);
+        }
+        Ok(checkpoints)
+    })();
+    match loaded {
+        Ok(checkpoints) if !checkpoints.is_empty() => {
+            crate::serve_search_usn::restore_journal_checkpoints(&checkpoints);
+            true
+        }
+        _ => {
+            for path in inserted {
+                raw_content_signature_cache()[content_signature_shard(&path)]
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .remove(&path);
+            }
+            false
+        }
+    }
+}
+
+fn ensure_content_signature_cache_loaded() {
+    CONTENT_SIGNATURE_CACHE_LOADED.get_or_init(|| {
+        let Some(path) = content_signature_snapshot_path() else {
+            return;
+        };
+        let _ = load_content_signature_cache_binary(&path);
+    });
+}
+
+fn persist_content_signature_cache() {
+    let dirty = CONTENT_SIGNATURE_CACHE_DIRTY.swap(0, Ordering::AcqRel);
+    if dirty == 0 {
+        return;
+    }
+    let mut volumes = HashSet::new();
+    for shard in content_signature_cache() {
+        let cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+        for path in cache.keys() {
+            if let Some(volume) = crate::serve_search_usn::volume_for_path(path) {
+                volumes.insert(volume);
+            }
+        }
+    }
+    for volume in volumes {
+        apply_content_signature_journal_sync(crate::serve_search_usn::sync_volume(volume));
+    }
+    let checkpoints = crate::serve_search_usn::journal_checkpoints();
+    if checkpoints.is_empty() {
+        return;
+    }
+    let trusted_serials = checkpoints
+        .iter()
+        .map(|checkpoint| checkpoint.volume_serial)
+        .collect::<HashSet<_>>();
+    let Some(path) = content_signature_snapshot_path() else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if fs::create_dir_all(parent).is_err() {
+        CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(dirty, Ordering::Relaxed);
+        return;
+    }
+    let temp = path.with_extension(format!("tmp-{}", std::process::id()));
+    let written = (|| -> io::Result<()> {
+        let file = File::create(&temp)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(CONTENT_SIGNATURE_SNAPSHOT_MAGIC)?;
+        writer.write_all(&CONTENT_SIGNATURE_SNAPSHOT_VERSION.to_le_bytes())?;
+        writer.write_all(&(CONTENT_SIGNATURE_WORDS as u32).to_le_bytes())?;
+        writer.write_all(&(checkpoints.len() as u32).to_le_bytes())?;
+        writer.write_all(&0u32.to_le_bytes())?;
+        for checkpoint in &checkpoints {
+            writer.write_all(&checkpoint.volume.to_le_bytes())?;
+            writer.write_all(&checkpoint.volume_serial.to_le_bytes())?;
+            writer.write_all(&checkpoint.journal_id.to_le_bytes())?;
+            writer.write_all(&checkpoint.next_usn.to_le_bytes())?;
+        }
+        let mut entry_count = 0u32;
+        for shard in content_signature_cache() {
+            let cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+            for (path, entry) in cache.iter() {
+                let Some(identity) = entry
+                    .identity
+                    .filter(|identity| trusted_serials.contains(&identity.volume))
+                else {
+                    continue;
+                };
+                let path_bytes = path.to_string_lossy();
+                let path_bytes = path_bytes.as_bytes();
+                if path_bytes.is_empty()
+                    || path_bytes.len() > CONTENT_SIGNATURE_SNAPSHOT_MAX_PATH_BYTES
+                {
+                    continue;
+                }
+                writer.write_all(&(path_bytes.len() as u32).to_le_bytes())?;
+                writer.write_all(path_bytes)?;
+                writer.write_all(&entry.size.to_le_bytes())?;
+                writer.write_all(&entry.modified_ns.to_le_bytes())?;
+                writer.write_all(&identity.volume.to_le_bytes())?;
+                writer.write_all(&identity.file_id.to_le_bytes())?;
+                for word in entry.signature.bits {
+                    writer.write_all(&word.to_le_bytes())?;
+                }
+                for word in entry.signature.folded_bits {
+                    writer.write_all(&word.to_le_bytes())?;
+                }
+                entry_count = entry_count.saturating_add(1);
+            }
+        }
+        writer.flush()?;
+        writer.seek(SeekFrom::Start(20))?;
+        writer.write_all(&entry_count.to_le_bytes())?;
+        writer.flush()
+    })()
+    .is_ok();
+    if !written
+        || (path.exists() && fs::remove_file(&path).is_err())
+        || fs::rename(&temp, &path).is_err()
+    {
+        let _ = fs::remove_file(&temp);
+        CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(dirty, Ordering::Relaxed);
+    }
+}
+
+fn schedule_content_signature_cache_persist() {
+    if CONTENT_SIGNATURE_CACHE_DIRTY.load(Ordering::Acquire) == 0
+        || CONTENT_SIGNATURE_CACHE_PERSISTING
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+    {
+        return;
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(50));
+        persist_content_signature_cache();
+        CONTENT_SIGNATURE_CACHE_PERSISTING.store(false, Ordering::Release);
+        if CONTENT_SIGNATURE_CACHE_DIRTY.load(Ordering::Acquire) > 0 {
+            schedule_content_signature_cache_persist();
+        }
+    });
+}
+
+fn file_metadata_cache(
+) -> &'static [Mutex<HashMap<PathBuf, FileMetadataEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS] {
+    FILE_METADATA_CACHE.get_or_init(|| std::array::from_fn(|_| Mutex::new(HashMap::new())))
+}
+
+fn trusted_usn_volumes() -> &'static Mutex<HashSet<u32>> {
+    TRUSTED_USN_VOLUMES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn trusted_watch_roots() -> &'static RwLock<HashSet<PathBuf>> {
+    TRUSTED_WATCH_ROOTS.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+#[derive(Clone)]
+struct TrustSnapshot {
+    usn_volumes: Arc<HashSet<u32>>,
+    watch_roots: Arc<Vec<PathBuf>>,
+}
+
+impl TrustSnapshot {
+    fn capture() -> Self {
+        Self {
+            usn_volumes: Arc::new(
+                trusted_usn_volumes()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .clone(),
+            ),
+            watch_roots: Arc::new(
+                trusted_watch_roots()
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .iter()
+                    .cloned()
+                    .collect(),
+            ),
+        }
+    }
+
+    fn watcher_covers(&self, path: &Path) -> bool {
+        self.watch_roots
+            .iter()
+            .any(|root| path.starts_with(root) || path_starts_with(path, root))
+    }
+}
+
+fn apply_content_signature_journal_sync(result: crate::serve_search_usn::SyncResult) {
+    let mut trusted = trusted_usn_volumes()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let Some(serial) = result.volume_serial.filter(|_| result.trusted) else {
+        trusted.clear();
+        drop(trusted);
+        for shard in raw_content_signature_cache() {
+            shard
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .retain(|_, entry| !entry.persisted);
+        }
+        CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
+        return;
+    };
+    trusted.insert(serial);
+    drop(trusted);
+    if result.changed.is_empty() {
+        return;
+    }
+    CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
+    for shard in content_signature_cache() {
+        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+        cache.retain(|_, entry| {
+            !entry.identity.is_some_and(|identity| {
+                identity.volume == serial && result.changed.contains(&identity.file_id)
+            })
+        });
+    }
+    for shard in file_metadata_cache() {
+        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+        cache.retain(|_, entry| {
+            !entry.identity.is_some_and(|identity| {
+                identity.volume == serial && result.changed.contains(&identity.file_id)
+            })
+        });
+    }
+}
+
+fn refresh_content_signature_journals(targets: &[String], cwd: &Path) {
+    ensure_content_signature_cache_loaded();
+    let absolute_targets = targets
+        .iter()
+        .map(|target| {
+            let target_path = Path::new(target);
+            if target_path.is_absolute() {
+                target_path.to_path_buf()
+            } else {
+                cwd.join(target_path)
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut volumes = HashSet::new();
+    for absolute in absolute_targets {
+        if let Some(volume) = crate::serve_search_usn::volume_for_path(&absolute) {
+            volumes.insert(volume);
+        }
+    }
+    for volume in volumes {
+        apply_content_signature_journal_sync(crate::serve_search_usn::sync_volume(volume));
+    }
+}
+
+fn content_signature_shard(path: &Path) -> usize {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    hasher.finish() as usize & (CONTENT_SIGNATURE_CACHE_SHARDS - 1)
+}
+
+fn trigram_bits(first: u8, second: u8, third: u8) -> (usize, usize) {
+    let packed = ((first as u32) << 16) | ((second as u32) << 8) | third as u32;
+    let one = packed.wrapping_mul(0x9E37_79B1) as usize & (CONTENT_SIGNATURE_BITS - 1);
+    let two =
+        packed.rotate_left(13).wrapping_mul(0x85EB_CA6B) as usize & (CONTENT_SIGNATURE_BITS - 1);
+    (one, two)
+}
+
+fn literal_trigram_requirements(parsed: &ParsedArgs) -> Option<Vec<Vec<(usize, usize)>>> {
+    if parsed.patterns.is_empty() {
+        return None;
+    }
+    let mut all = Vec::with_capacity(parsed.patterns.len());
+    for pattern in &parsed.patterns {
+        let literal = if parsed.fixed_strings {
+            pattern.as_bytes().to_vec()
+        } else {
+            mandatory_regex_literal(pattern)?
+        };
+        if literal.len() < 3 || (parsed.case_insensitive && !literal.is_ascii()) {
+            return None;
+        }
+        let folded;
+        let bytes = if parsed.case_insensitive {
+            folded = literal
+                .iter()
+                .map(|byte| byte.to_ascii_lowercase())
+                .collect::<Vec<_>>();
+            folded.as_slice()
+        } else {
+            literal.as_slice()
+        };
+        all.push(
+            bytes
+                .windows(3)
+                .map(|window| trigram_bits(window[0], window[1], window[2]))
+                .collect(),
+        );
+    }
+    Some(all)
+}
+
+fn mandatory_regex_literal(pattern: &str) -> Option<Vec<u8>> {
+    let bytes = pattern.as_bytes();
+    let mut index = usize::from(bytes.first() == Some(&b'^'));
+    let end = bytes
+        .len()
+        .saturating_sub(usize::from(bytes.last() == Some(&b'$')));
+    let mut runs = Vec::<Vec<u8>>::new();
+    let mut current = Vec::new();
+    while index < end {
+        if bytes[index] == b'\\' {
+            index += 1;
+            let escaped = *bytes.get(index)?;
+            if !b".*+?()[]{}|^$\\".contains(&escaped) {
+                return None;
+            }
+            current.push(escaped);
+            index += 1;
+            continue;
+        }
+        if bytes[index] == b'.' {
+            if !current.is_empty() {
+                runs.push(std::mem::take(&mut current));
+            }
+            index += 1;
+            if index < end && matches!(bytes[index], b'*' | b'+') {
+                index += 1;
+            }
+            continue;
+        }
+        if b"*+?()[]{}|^$".contains(&bytes[index]) {
+            return None;
+        }
+        current.push(bytes[index]);
+        index += 1;
+    }
+    if !current.is_empty() {
+        runs.push(current);
+    }
+    runs.into_iter().max_by_key(Vec::len)
+}
+
+fn file_content_fingerprint(path: &Path) -> Option<(u64, u128)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified_ns = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some((metadata.len(), modified_ns))
+}
+
+fn file_mtime_ms(path: &Path, trust: &TrustSnapshot) -> Option<u128> {
+    let shard = content_signature_shard(path);
+    let cached = {
+        let cache = file_metadata_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        cache.get(path).cloned()
+    };
+    if let Some(entry) = cached.as_ref() {
+        if entry
+            .identity
+            .is_some_and(|identity| trust.usn_volumes.contains(&identity.volume))
+        {
+            return Some(entry.mtime_ms);
+        }
+    }
+    let (metadata, identity) = crate::serve_search_usn::metadata_and_identity(path)?;
+    let modified_ns = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    if cached
+        .as_ref()
+        .is_some_and(|entry| entry.size == metadata.len() && entry.modified_ns == modified_ns)
+    {
+        return cached.map(|entry| entry.mtime_ms);
+    }
+    let entry = FileMetadataEntry {
+        size: metadata.len(),
+        modified_ns,
+        mtime_ms: modified_ns / 1_000_000,
+        identity,
+    };
+    let mtime_ms = entry.mtime_ms;
+    file_metadata_cache()[shard]
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(path.to_path_buf(), entry);
+    Some(mtime_ms)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CachedSignatureState {
+    Missing,
+    Reusable,
+    Excludes,
+}
+
+fn cached_signature_state(
+    path: &Path,
+    requirements: &[Vec<(usize, usize)>],
+    folded: bool,
+    trust: &TrustSnapshot,
+) -> CachedSignatureState {
+    let shard = content_signature_shard(path);
+    let watcher_trusted = trust.watcher_covers(path);
+    let entry = {
+        let cache = content_signature_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(entry) = cache.get(path) else {
+            return CachedSignatureState::Missing;
+        };
+        let usn_trusted = entry
+            .identity
+            .is_some_and(|identity| trust.usn_volumes.contains(&identity.volume));
+        if usn_trusted || (!entry.persisted && watcher_trusted) {
+            return if !requirements.is_empty()
+                && signature_excludes_requirements(&entry.signature, requirements, folded)
+            {
+                CachedSignatureState::Excludes
+            } else {
+                CachedSignatureState::Reusable
+            };
+        }
+        entry.clone()
+    };
+    let Some((size, modified_ns)) = file_content_fingerprint(path) else {
+        return CachedSignatureState::Missing;
+    };
+    if entry.size != size || entry.modified_ns != modified_ns {
+        let mut cache = content_signature_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        cache.remove(path);
+        return CachedSignatureState::Missing;
+    }
+    if !requirements.is_empty()
+        && signature_excludes_requirements(&entry.signature, requirements, folded)
+    {
+        CachedSignatureState::Excludes
+    } else {
+        CachedSignatureState::Reusable
+    }
+}
+
+fn signature_excludes_requirements(
+    signature: &TrigramSignature,
+    requirements: &[Vec<(usize, usize)>],
+    folded: bool,
+) -> bool {
+    requirements.iter().all(|pattern| {
+        pattern
+            .iter()
+            .any(|&(first, second)| !signature.contains(first, second, folded))
+    })
+}
+
+fn remember_content_signature(
+    path: &Path,
+    signature: &TrigramSignature,
+    identity: Option<crate::serve_search_usn::FileIdentity>,
+) {
+    if !signature.complete {
+        return;
+    }
+    let Some((size, modified_ns)) = file_content_fingerprint(path) else {
+        return;
+    };
+    let mut cache = content_signature_cache()[content_signature_shard(path)]
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if cache.len() >= CONTENT_SIGNATURE_CACHE_MAX / CONTENT_SIGNATURE_CACHE_SHARDS {
+        if let Some(oldest) = cache.keys().next().cloned() {
+            cache.remove(&oldest);
+        }
+    }
+    cache.insert(
+        path.to_path_buf(),
+        ContentSignatureEntry {
+            size,
+            modified_ns,
+            identity,
+            persisted: false,
+            signature: signature.clone(),
+        },
+    );
+    CONTENT_SIGNATURE_CACHE_DIRTY.fetch_add(1, Ordering::Relaxed);
+}
+
+static SIGNATURE_PREWARM_RUNNING: AtomicBool = AtomicBool::new(false);
+
+fn schedule_signature_prewarm(files: Arc<Vec<PathBuf>>) {
+    if SIGNATURE_PREWARM_RUNNING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+    std::thread::spawn(move || {
+        let mut total_bytes = 0u64;
+        let mut buffer = vec![0u8; 256 * 1024];
+        for path in files.iter().take(8_192) {
+            if raw_content_signature_cache()[content_signature_shard(path)]
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .contains_key(path)
+            {
+                continue;
+            }
+            let Ok(metadata) = fs::metadata(path) else {
+                continue;
+            };
+            total_bytes = total_bytes.saturating_add(metadata.len());
+            if total_bytes > 256 * 1024 * 1024 {
+                break;
+            }
+            let Ok(mut file) = File::open(path) else {
+                continue;
+            };
+            let identity = crate::serve_search_usn::file_identity(&file);
+            let mut signature = TrigramSignature::new();
+            loop {
+                match file.read(&mut buffer) {
+                    Ok(0) => {
+                        signature.complete = true;
+                        break;
+                    }
+                    Ok(read) => signature.push(&buffer[..read]),
+                    Err(_) => break,
+                }
+            }
+            remember_content_signature(path, &signature, identity);
+        }
+        SIGNATURE_PREWARM_RUNNING.store(false, Ordering::Release);
+    });
+}
+
+fn invalidate_content_signatures(paths: &[PathBuf], recursive: bool) {
+    if !recursive && !paths.is_empty() {
+        for path in paths {
+            raw_content_signature_cache()[content_signature_shard(path)]
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(path);
+        }
+        return;
+    }
+    for shard in content_signature_cache() {
+        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+        if paths.is_empty() {
+            cache.clear();
+        } else {
+            cache.retain(|cached, _| {
+                !paths
+                    .iter()
+                    .any(|changed| FileListStore::paths_overlap(cached, changed))
+            });
+        }
+    }
+}
+
+fn invalidate_file_metadata(paths: &[PathBuf], recursive: bool) {
+    if !recursive && !paths.is_empty() {
+        for path in paths {
+            file_metadata_cache()[content_signature_shard(path)]
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(path);
+        }
+        return;
+    }
+    for shard in file_metadata_cache() {
+        let mut cache = shard.lock().unwrap_or_else(|error| error.into_inner());
+        if paths.is_empty() {
+            cache.clear();
+        } else {
+            cache.retain(|cached, _| {
+                !paths
+                    .iter()
+                    .any(|changed| FileListStore::paths_overlap(cached, changed))
+            });
+        }
+    }
 }
 
 struct LiveWaiterGuard<'a> {
@@ -359,16 +1478,91 @@ impl Drop for LiveWaiterGuard<'_> {
 }
 
 impl FileListStore {
+    #[cfg(test)]
     fn new() -> Self {
         Self {
-            ready: Mutex::new(HashMap::new()),
+            ready: Arc::new(Mutex::new(HashMap::new())),
+            persisted_checkpoints: Mutex::new(None),
             live: Mutex::new(HashMap::new()),
             fuzzy: Mutex::new(HashMap::new()),
             generations: Mutex::new(HashMap::new()),
+            pending_repairs: Mutex::new(HashMap::new()),
+            repair_worker_running: AtomicBool::new(false),
+            repair_changed: Condvar::new(),
             watcher: Mutex::new(None),
             watcher_healthy: AtomicBool::new(false),
             watched_roots: Mutex::new(HashMap::new()),
+            noise_sensitive_roots: Mutex::new(HashSet::new()),
         }
+    }
+
+    fn new_persistent() -> Self {
+        let (ready, persisted_checkpoints) = load_file_list_snapshot();
+        Self {
+            ready: Arc::new(Mutex::new(ready)),
+            persisted_checkpoints: Mutex::new(persisted_checkpoints),
+            live: Mutex::new(HashMap::new()),
+            fuzzy: Mutex::new(HashMap::new()),
+            generations: Mutex::new(HashMap::new()),
+            pending_repairs: Mutex::new(HashMap::new()),
+            repair_worker_running: AtomicBool::new(false),
+            repair_changed: Condvar::new(),
+            watcher: Mutex::new(None),
+            watcher_healthy: AtomicBool::new(false),
+            watched_roots: Mutex::new(HashMap::new()),
+            noise_sensitive_roots: Mutex::new(HashSet::new()),
+        }
+    }
+
+    fn validate_persisted_ready(&self) {
+        let checkpoints = self
+            .persisted_checkpoints
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        let Some(checkpoints) = checkpoints else {
+            return;
+        };
+        let mut changed_paths = HashMap::new();
+        for checkpoint in &checkpoints {
+            let result = crate::serve_search_usn::sync_volume(checkpoint.volume);
+            let trusted = result.trusted && result.volume_serial == Some(checkpoint.volume_serial);
+            let current = crate::serve_search_usn::journal_checkpoints()
+                .into_iter()
+                .find(|current| current.volume == checkpoint.volume);
+            let continuous = trusted
+                && current.is_some_and(|current| {
+                    current.volume_serial == checkpoint.volume_serial
+                        && current.journal_id == checkpoint.journal_id
+                        && current.next_usn >= checkpoint.next_usn
+                });
+            let resolved = if continuous {
+                let mut ids = result.changed.clone();
+                ids.extend(result.parents.iter().copied());
+                crate::serve_search_usn::resolve_file_ids(checkpoint.volume, &ids)
+            } else {
+                None
+            };
+            apply_content_signature_journal_sync(result);
+            changed_paths.insert(checkpoint.volume, resolved);
+        }
+        self.ready
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retain(|key, entry| {
+                let Some(volume) = crate::serve_search_usn::volume_for_path(&key.operand) else {
+                    return false;
+                };
+                let Some(Some(paths)) = changed_paths.get(&volume) else {
+                    return false;
+                };
+                if entry.root_identity != crate::serve_search_usn::path_identity(&key.operand) {
+                    return false;
+                }
+                !paths
+                    .iter()
+                    .any(|path| Self::paths_overlap(path, &key.operand))
+            });
     }
 
     fn generation(&self, operand: &Path) -> u64 {
@@ -381,15 +1575,15 @@ impl FileListStore {
     }
 
     fn paths_overlap(left: &Path, right: &Path) -> bool {
-        left == right || left.starts_with(right) || right.starts_with(left)
+        path_starts_with(left, right) || path_starts_with(right, left)
     }
 
     fn has_noise_root(&self) -> bool {
-        self.watched_roots
+        !self
+            .noise_sensitive_roots
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .any(|root| is_noise_path(root))
+            .is_empty()
     }
 
     fn affected_roots(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -411,6 +1605,186 @@ impl FileListStore {
         }
         self.invalidate_roots(&roots);
         roots
+    }
+
+    fn schedule_inventory_repairs(self: &Arc<Self>, paths: &[PathBuf]) -> Vec<PathBuf> {
+        let roots = self.affected_roots(paths);
+        if roots.is_empty() {
+            return roots;
+        }
+        let repair_paths = if paths.iter().any(|path| {
+            matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some(".gitignore" | ".ignore" | "exclude")
+            )
+        }) {
+            roots.clone()
+        } else {
+            paths.to_vec()
+        };
+        let cached = self
+            .ready
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .iter()
+            .filter(|(key, _)| {
+                roots
+                    .iter()
+                    .any(|root| Self::paths_overlap(&key.operand, root))
+            })
+            .map(|(key, entry)| (key.clone(), Arc::clone(&entry.files)))
+            .collect::<Vec<_>>();
+        {
+            let mut pending = self
+                .pending_repairs
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            for (key, entry) in pending.iter_mut() {
+                if roots
+                    .iter()
+                    .any(|root| Self::paths_overlap(&key.operand, root))
+                {
+                    entry.paths.extend(repair_paths.iter().cloned());
+                }
+            }
+            for (key, base) in cached {
+                let entry = pending
+                    .entry(key)
+                    .or_insert_with(|| PendingInventoryRepair {
+                        base,
+                        paths: HashSet::new(),
+                        processing: false,
+                    });
+                entry.paths.extend(repair_paths.iter().cloned());
+            }
+        }
+        self.invalidate_roots(&roots);
+        self.start_inventory_repair_worker();
+        roots
+    }
+
+    fn start_inventory_repair_worker(self: &Arc<Self>) {
+        if self
+            .repair_worker_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+        let store = Arc::clone(self);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_millis(50));
+                let jobs = {
+                    let mut pending = store
+                        .pending_repairs
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    pending
+                        .iter_mut()
+                        .filter(|(_, entry)| !entry.processing && !entry.paths.is_empty())
+                        .map(|(key, entry)| {
+                            entry.processing = true;
+                            (
+                                key.clone(),
+                                Arc::clone(&entry.base),
+                                entry.paths.drain().collect::<Vec<_>>(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                };
+                if jobs.is_empty() {
+                    break;
+                }
+                for (key, base, paths) in jobs {
+                    let repaired = repair_inventory(&key, &base, &paths);
+                    let mut pending = store
+                        .pending_repairs
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    let Some(entry) = pending.get_mut(&key) else {
+                        continue;
+                    };
+                    match repaired {
+                        Ok(files) => {
+                            entry.base = files;
+                            entry.processing = false;
+                            if entry.paths.is_empty() {
+                                let files = Arc::clone(&entry.base);
+                                let generation = store.generation(&key.operand);
+                                store.remember(key.clone(), files, generation);
+                                pending.remove(&key);
+                                store.repair_changed.notify_all();
+                            }
+                        }
+                        Err(_) => {
+                            pending.remove(&key);
+                            store.repair_changed.notify_all();
+                        }
+                    }
+                }
+            }
+            store.repair_worker_running.store(false, Ordering::Release);
+            let restart = store
+                .pending_repairs
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .values()
+                .any(|entry| !entry.processing && !entry.paths.is_empty());
+            if restart {
+                store.start_inventory_repair_worker();
+            }
+        });
+    }
+
+    fn schedule_noise_prewarm(self: &Arc<Self>) {
+        let keys = self
+            .ready
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .keys()
+            .filter(|key| key.no_ignore)
+            .cloned()
+            .collect::<Vec<_>>();
+        if keys.is_empty() {
+            return;
+        }
+        let store = Arc::clone(self);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            let cancelled = AtomicBool::new(false);
+            for key in keys {
+                let parsed = ParsedArgs {
+                    patterns: Vec::new(),
+                    globs: Vec::new(),
+                    iglobs: Vec::new(),
+                    targets: vec![key.operand.to_string_lossy().into_owned()],
+                    before: 0,
+                    after: 0,
+                    case_insensitive: false,
+                    fixed_strings: false,
+                    hidden: key.hidden,
+                    no_ignore: key.no_ignore,
+                    no_require_git: key.no_require_git,
+                    max_depth: key.max_depth,
+                    line_numbers: false,
+                    with_filename: false,
+                    files_with_matches: false,
+                    count: false,
+                    only_matching: false,
+                    pcre2: false,
+                    multiline: false,
+                    multiline_dotall: false,
+                    file_types: Vec::new(),
+                    files_list: true,
+                    directories: key.directories,
+                    max_columns: 0,
+                    literal_trigrams: None,
+                };
+                let _ =
+                    complete_operand_files(&store, &key.operand, &parsed, &cancelled, None, true);
+            }
+        });
     }
 
     fn invalidate_roots(&self, roots: &[PathBuf]) {
@@ -473,7 +1847,7 @@ impl FileListStore {
         }
     }
 
-    fn watch_root(self: &Arc<Self>, operand: &Path) -> bool {
+    fn watch_root(self: &Arc<Self>, operand: &Path, include_noise: bool) -> bool {
         let watch_operand = if operand.is_file() {
             operand.parent().unwrap_or(operand)
         } else {
@@ -491,7 +1865,16 @@ impl FileListStore {
                 } else {
                     *watcher = None;
                     let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
-                    roots.drain().map(|(path, _)| path).collect::<Vec<_>>()
+                    let stale = roots.drain().map(|(path, _)| path).collect::<Vec<_>>();
+                    self.noise_sensitive_roots
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clear();
+                    trusted_watch_roots()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clear();
+                    stale
                 }
             };
             if !stale_roots.is_empty() {
@@ -513,6 +1896,12 @@ impl FileListStore {
                 .find(|existing| root.starts_with(existing.as_path()))
                 .cloned()
             {
+                if include_noise {
+                    self.noise_sensitive_roots
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(covering.clone());
+                }
                 roots.insert(covering, Instant::now());
                 return true;
             }
@@ -554,11 +1943,23 @@ impl FileListStore {
                         }
                         Err(_) => {
                             store.watcher_healthy.store(false, Ordering::Release);
+                            trusted_watch_roots()
+                                .write()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .clear();
                             (Vec::new(), true)
                         }
                     };
+                    invalidate_content_signatures(&paths, inventory_changed);
+                    invalidate_file_metadata(&paths, inventory_changed);
                     let changed = if inventory_changed {
-                        store.invalidate_paths(&paths)
+                        if paths.is_empty() {
+                            // Watcher failure/overflow has no exact repair
+                            // boundary; preserve correctness with full eviction.
+                            store.invalidate_paths(&paths)
+                        } else {
+                            store.schedule_inventory_repairs(&paths)
+                        }
                     } else {
                         // Content/metadata changes invalidate JS grep and mtime
                         // result caches, but the file-name inventory is still
@@ -594,6 +1995,14 @@ impl FileListStore {
                     .map(|(path, _)| path.clone());
                 if let Some(oldest) = oldest.as_ref() {
                     roots.remove(oldest);
+                    self.noise_sensitive_roots
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(oldest);
+                    trusted_watch_roots()
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(oldest);
                 }
                 oldest
             } else {
@@ -614,19 +2023,62 @@ impl FileListStore {
             .as_mut()
             .is_some_and(|watcher| watcher.watch(&root, RecursiveMode::Recursive).is_ok());
         if watched {
+            let mut trusted = trusted_watch_roots()
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            trusted.insert(root.clone());
+            trusted.insert(watch_operand.to_path_buf());
+            drop(trusted);
             self.watched_roots
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .insert(root, Instant::now());
+                .insert(root.clone(), Instant::now());
+            if include_noise {
+                self.noise_sensitive_roots
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(root);
+            }
         }
         watched
     }
 
     fn take_ready(&self, key: &WalkKey) -> Option<Arc<Vec<PathBuf>>> {
+        self.validate_persisted_ready();
+        {
+            let deadline = Instant::now() + Duration::from_millis(250);
+            let mut pending = self
+                .pending_repairs
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            while pending.contains_key(key) {
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                pending = self
+                    .repair_changed
+                    .wait_timeout(pending, deadline.saturating_duration_since(now))
+                    .unwrap_or_else(|error| error.into_inner())
+                    .0;
+            }
+        }
         let generation = self.generation(&key.operand);
+        let watched_roots = self
+            .watched_roots
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
         let mut ready = self.ready.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        ready.retain(|_, entry| entry.expires_at > now);
+        ready.retain(|ready_key, entry| {
+            entry.expires_at > now
+                || watched_roots
+                    .iter()
+                    .any(|root| Self::paths_overlap(&ready_key.operand, root))
+        });
         if !ready.contains_key(key) {
             self.fuzzy
                 .lock()
@@ -645,14 +2097,27 @@ impl FileListStore {
         if self.generation(&key.operand) != generation {
             return;
         }
+        let root_identity = crate::serve_search_usn::path_identity(&key.operand);
         let estimated_bytes = paths_storage_bytes(&files);
         let bytes_limit = file_list_cache_bytes();
         if estimated_bytes > bytes_limit {
             return;
         }
+        let watched_roots = self
+            .watched_roots
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
         let mut ready = self.ready.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        ready.retain(|_, entry| entry.expires_at > now);
+        ready.retain(|ready_key, entry| {
+            entry.expires_at > now
+                || watched_roots
+                    .iter()
+                    .any(|root| Self::paths_overlap(&ready_key.operand, root))
+        });
         ready.remove(&key);
         while !ready.is_empty()
             && (ready.len() >= FILE_LIST_CACHE_MAX
@@ -678,8 +2143,11 @@ impl FileListStore {
                 generation,
                 touched_at: now,
                 estimated_bytes,
+                root_identity,
             },
         );
+        drop(ready);
+        schedule_file_list_snapshot(Arc::clone(&self.ready));
         self.fuzzy
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -707,13 +2175,22 @@ impl FileListStore {
                 .map(|file| {
                     let relative = file.strip_prefix(root).unwrap_or(file);
                     let path = relative.to_string_lossy().replace('\\', "/");
-                    FuzzyIndexedPath {
-                        matcher_text: Utf32String::from(path.clone()),
-                        path,
-                    }
+                    let ascii_mask = fuzzy_ascii_presence(&path);
+                    FuzzyIndexedPath { path, ascii_mask }
                 })
                 .collect(),
         });
+        self.remember_fuzzy_corpus(key, corpus)
+    }
+
+    fn take_fuzzy_corpus(&self, key: &FuzzyKey) -> Option<Arc<FuzzyCorpus>> {
+        let mut fuzzy = self.fuzzy.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = fuzzy.get_mut(key)?;
+        entry.touched_at = Instant::now();
+        Some(Arc::clone(&entry.corpus))
+    }
+
+    fn remember_fuzzy_corpus(&self, key: &FuzzyKey, corpus: Arc<FuzzyCorpus>) -> Arc<FuzzyCorpus> {
         let estimated_bytes = fuzzy_storage_bytes(&corpus);
         let bytes_limit = fuzzy_cache_bytes();
         if estimated_bytes > bytes_limit {
@@ -771,6 +2248,7 @@ impl FileListStore {
             files_cond: Condvar::new(),
             waiters: AtomicUsize::new(1),
             cancelled: AtomicBool::new(false),
+            enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(keep_warm),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
@@ -845,6 +2323,9 @@ impl FileListStore {
                 if cacheable {
                     self.remember(key, Arc::clone(&files), live.generation);
                 }
+                if live.keep_warm.load(Ordering::Acquire) {
+                    schedule_signature_prewarm(Arc::clone(&files));
+                }
                 LiveState::Done(files)
             }
             Err(Some(err)) => LiveState::Failed(err),
@@ -885,6 +2366,8 @@ struct ServeRequest {
     // the bulk lane so they cannot saturate the interactive worker pool.
     #[serde(default, rename = "bulkHint")]
     bulk_hint: bool,
+    #[serde(default, rename = "mtimeTopK")]
+    mtime_top_k: bool,
     #[serde(default)]
     fuzzy: Option<String>,
     #[serde(default)]
@@ -897,9 +2380,85 @@ struct ServeRequest {
     exclude: Vec<String>,
 }
 
+#[cfg(unix)]
+fn list_metadata_mode(metadata: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    metadata.mode()
+}
+
+#[cfg(not(unix))]
+fn list_metadata_mode(metadata: &std::fs::Metadata) -> u32 {
+    if metadata.is_dir() {
+        0o777
+    } else if metadata.permissions().readonly() {
+        0o444
+    } else {
+        0o666
+    }
+}
+
+fn list_metadata_response(id: u64, cwd: &str, paths: &[String]) -> serde_json::Value {
+    if paths.len() > 50_000 {
+        return serde_json::json!({
+            "id": id,
+            "error": "list metadata request exceeds 50000 paths",
+        });
+    }
+    let cwd = Path::new(cwd);
+    let entries = paths
+        .iter()
+        .map(|raw| {
+            let input = Path::new(raw);
+            let path = if input.is_absolute() {
+                input.to_path_buf()
+            } else {
+                cwd.join(input)
+            };
+            match std::fs::symlink_metadata(&path) {
+                Ok(metadata) => {
+                    let file_type = metadata.file_type();
+                    let kind = if file_type.is_dir() {
+                        "dir"
+                    } else if file_type.is_file() {
+                        "file"
+                    } else if file_type.is_symlink() {
+                        "symlink"
+                    } else {
+                        "other"
+                    };
+                    let mtime_ms = metadata
+                        .modified()
+                        .ok()
+                        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|value| value.as_millis().min(u64::MAX as u128) as u64)
+                        .unwrap_or(0);
+                    serde_json::json!({
+                        "path": raw,
+                        "type": kind,
+                        "size": metadata.len(),
+                        "mtimeMs": mtime_ms,
+                        "mode": list_metadata_mode(&metadata),
+                    })
+                }
+                Err(error) => serde_json::json!({
+                    "path": raw,
+                    "error": error.to_string(),
+                }),
+            }
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({ "id": id, "entries": entries })
+}
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum WireRequest {
+    ListMetadata {
+        id: u64,
+        cwd: String,
+        #[serde(rename = "listMetadata")]
+        list_metadata: Vec<String>,
+    },
     Search(ServeRequest),
     Cancel {
         cancel: u64,
@@ -937,6 +2496,7 @@ struct ParsedArgs {
     files_list: bool,
     directories: bool,
     max_columns: usize,
+    literal_trigrams: Option<Vec<Vec<(usize, usize)>>>,
 }
 
 struct PathFilter {
@@ -1031,6 +2591,7 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
         files_list: false,
         directories: false,
         max_columns: 0,
+        literal_trigrams: None,
     };
     let mut i = 0usize;
     let mut options = true;
@@ -1106,6 +2667,7 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     if p.targets.is_empty() {
         return Err("no target path".to_string());
     }
+    p.literal_trigrams = literal_trigram_requirements(&p);
     Ok(p)
 }
 
@@ -1204,15 +2766,22 @@ struct CancellableReader<'a, R> {
     cancelled: &'a AtomicBool,
     deadline_at: Option<Instant>,
     chunk_bytes: usize,
+    signature: Option<&'a mut TrigramSignature>,
 }
 
 impl<'a, R> CancellableReader<'a, R> {
-    fn new(inner: R, cancelled: &'a AtomicBool, deadline_at: Option<Instant>) -> Self {
+    fn new(
+        inner: R,
+        cancelled: &'a AtomicBool,
+        deadline_at: Option<Instant>,
+        signature: Option<&'a mut TrigramSignature>,
+    ) -> Self {
         Self {
             inner,
             cancelled,
             deadline_at,
             chunk_bytes: search_reader_chunk_bytes(),
+            signature,
         }
     }
 }
@@ -1229,7 +2798,15 @@ impl<R: Read> Read for CancellableReader<'_, R> {
             return Err(io::Error::new(io::ErrorKind::TimedOut, SOFT_TIMEOUT));
         }
         let bounded = buffer.len().min(self.chunk_bytes);
-        self.inner.read(&mut buffer[..bounded])
+        let read = self.inner.read(&mut buffer[..bounded])?;
+        if let Some(signature) = self.signature.as_deref_mut() {
+            if read == 0 {
+                signature.complete = true;
+            } else {
+                signature.push(&buffer[..read]);
+            }
+        }
+        Ok(read)
     }
 }
 
@@ -1261,6 +2838,7 @@ fn scan_standard<M: Matcher>(
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
     match_limit: Option<usize>,
+    build_signature: bool,
     scan_errors: &AtomicUsize,
 ) -> Option<Vec<String>> {
     let mut printer_builder = StandardBuilder::new();
@@ -1282,7 +2860,11 @@ fn scan_standard<M: Matcher>(
             return None;
         }
     };
-    let reader = CancellableReader::new(file, cancelled, deadline_at);
+    let mut signature = build_signature.then(TrigramSignature::new);
+    let identity = signature
+        .as_ref()
+        .and_then(|_| crate::serve_search_usn::file_identity(&file));
+    let mut reader = CancellableReader::new(file, cancelled, deadline_at, signature.as_mut());
     let result = if prefix.is_empty() {
         let inner = printer.sink(matcher);
         let mut sink = CancelSink {
@@ -1291,7 +2873,7 @@ fn scan_standard<M: Matcher>(
             match_limit,
             matches: 0,
         };
-        searcher.search_reader(matcher, reader, &mut sink)
+        searcher.search_reader(matcher, &mut reader, &mut sink)
     } else {
         let printer_path = PathBuf::from(prefix);
         let inner = printer.sink_with_path(matcher, &printer_path);
@@ -1301,8 +2883,9 @@ fn scan_standard<M: Matcher>(
             match_limit,
             matches: 0,
         };
-        searcher.search_reader(matcher, reader, &mut sink)
+        searcher.search_reader(matcher, &mut reader, &mut sink)
     };
+    drop(reader);
     if cancelled.load(Ordering::Relaxed) {
         return None;
     }
@@ -1315,6 +2898,9 @@ fn scan_standard<M: Matcher>(
         }
         return None;
     }
+    if let Some(signature) = signature.as_ref() {
+        remember_content_signature(path, signature, identity);
+    }
     output_lines(printer.into_inner().into_inner())
 }
 
@@ -1325,6 +2911,7 @@ fn scan_summary<M: Matcher>(
     p: &ParsedArgs,
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
+    build_signature: bool,
     scan_errors: &AtomicUsize,
 ) -> Option<Vec<String>> {
     let kind = if p.files_with_matches {
@@ -1347,7 +2934,11 @@ fn scan_summary<M: Matcher>(
             return None;
         }
     };
-    let reader = CancellableReader::new(file, cancelled, deadline_at);
+    let mut signature = build_signature.then(TrigramSignature::new);
+    let identity = signature
+        .as_ref()
+        .and_then(|_| crate::serve_search_usn::file_identity(&file));
+    let mut reader = CancellableReader::new(file, cancelled, deadline_at, signature.as_mut());
     let result = if prefix.is_empty() {
         let inner = printer.sink(matcher);
         let mut sink = CancelSink {
@@ -1356,7 +2947,7 @@ fn scan_summary<M: Matcher>(
             match_limit: None,
             matches: 0,
         };
-        searcher.search_reader(matcher, reader, &mut sink)
+        searcher.search_reader(matcher, &mut reader, &mut sink)
     } else {
         let printer_path = PathBuf::from(prefix);
         let inner = printer.sink_with_path(matcher, &printer_path);
@@ -1366,8 +2957,9 @@ fn scan_summary<M: Matcher>(
             match_limit: None,
             matches: 0,
         };
-        searcher.search_reader(matcher, reader, &mut sink)
+        searcher.search_reader(matcher, &mut reader, &mut sink)
     };
+    drop(reader);
     if cancelled.load(Ordering::Relaxed) {
         return None;
     }
@@ -1377,6 +2969,9 @@ fn scan_summary<M: Matcher>(
             scan_errors.fetch_add(1, Ordering::Relaxed);
         }
         return None;
+    }
+    if let Some(signature) = signature.as_ref() {
+        remember_content_signature(path, signature, identity);
     }
     output_lines(printer.into_inner().into_inner())
 }
@@ -1389,8 +2984,19 @@ fn scan_file(
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
     match_limit: Option<usize>,
+    trust: &TrustSnapshot,
     scan_errors: &AtomicUsize,
 ) -> Option<Vec<String>> {
+    let signature_state = cached_signature_state(
+        path,
+        parsed.literal_trigrams.as_deref().unwrap_or(&[]),
+        parsed.case_insensitive,
+        trust,
+    );
+    if signature_state == CachedSignatureState::Excludes {
+        return None;
+    }
+    let build_signature = signature_state == CachedSignatureState::Missing;
     macro_rules! scan {
         ($matcher:expr) => {
             if parsed.files_with_matches || parsed.count {
@@ -1401,6 +3007,7 @@ fn scan_file(
                     parsed,
                     cancelled,
                     deadline_at,
+                    build_signature,
                     scan_errors,
                 )
             } else {
@@ -1412,6 +3019,7 @@ fn scan_file(
                     cancelled,
                     deadline_at,
                     match_limit,
+                    build_signature,
                     scan_errors,
                 )
             }
@@ -1451,6 +3059,7 @@ fn append_scanned_matches(
     all_lines: &mut Vec<String>,
     emitted_blocks: &mut usize,
     collect_until: usize,
+    trust: &TrustSnapshot,
     scan_errors: &AtomicUsize,
     files_scanned: &AtomicUsize,
 ) -> bool {
@@ -1480,6 +3089,7 @@ fn append_scanned_matches(
                 cancelled,
                 deadline_at,
                 (collect_until != usize::MAX).then_some(collect_until),
+                trust,
                 scan_errors,
             )
         })
@@ -1514,6 +3124,7 @@ fn append_scanned_matches_unordered(
     all_lines: &mut Vec<String>,
     emitted_blocks: &mut usize,
     collect_until: usize,
+    trust: &TrustSnapshot,
     scan_errors: &AtomicUsize,
     files_scanned: &AtomicUsize,
 ) -> bool {
@@ -1545,6 +3156,7 @@ fn append_scanned_matches_unordered(
             cancelled,
             deadline_at,
             Some(remaining),
+            trust,
             scan_errors,
         ) else {
             return;
@@ -1720,6 +3332,138 @@ impl Drop for WorkerWalkBatch<'_> {
     }
 }
 
+fn merge_sorted_inventory(left: &[PathBuf], right: &[PathBuf]) -> Vec<PathBuf> {
+    let mut merged = Vec::with_capacity(left.len().saturating_add(right.len()));
+    let (mut left_index, mut right_index) = (0usize, 0usize);
+    while left_index < left.len() || right_index < right.len() {
+        let next = match (left.get(left_index), right.get(right_index)) {
+            (Some(left), Some(right)) if left <= right => {
+                left_index += 1;
+                left
+            }
+            (Some(_), Some(right)) => {
+                right_index += 1;
+                right
+            }
+            (Some(left), None) => {
+                left_index += 1;
+                left
+            }
+            (None, Some(right)) => {
+                right_index += 1;
+                right
+            }
+            (None, None) => break,
+        };
+        if merged.last() != Some(next) {
+            merged.push(next.clone());
+        }
+    }
+    merged
+}
+
+fn repair_anchors(root: &Path, paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut anchors = paths
+        .iter()
+        .map(|path| {
+            if path_starts_with(path, root) {
+                path.clone()
+            } else if path_starts_with(root, path) {
+                root.to_path_buf()
+            } else {
+                path.clone()
+            }
+        })
+        .filter(|path| FileListStore::paths_overlap(path, root))
+        .collect::<Vec<_>>();
+    anchors.sort_by_key(|path| path.components().count());
+    let mut minimal: Vec<PathBuf> = Vec::new();
+    for path in anchors {
+        if !minimal
+            .iter()
+            .any(|ancestor| path_starts_with(&path, ancestor))
+        {
+            minimal.push(path);
+        }
+    }
+    minimal
+}
+
+fn scan_inventory_subtree(key: &WalkKey, anchor: &Path) -> Result<Vec<PathBuf>, String> {
+    if !anchor.exists() {
+        return Ok(Vec::new());
+    }
+    let relative_depth = anchor
+        .strip_prefix(&key.operand)
+        .ok()
+        .map(|relative| relative.components().count())
+        .unwrap_or(0);
+    if key
+        .max_depth
+        .is_some_and(|max_depth| relative_depth > max_depth)
+    {
+        return Ok(Vec::new());
+    }
+    let mut walk = WalkBuilder::new(anchor);
+    walk.hidden(!key.hidden).threads(inventory_walk_threads());
+    if key.no_ignore {
+        walk.ignore(false)
+            .git_ignore(false)
+            .git_global(false)
+            .git_exclude(false);
+    } else if key.no_require_git {
+        walk.require_git(false);
+    }
+    if let Some(max_depth) = key.max_depth {
+        walk.max_depth(Some(max_depth.saturating_sub(relative_depth)));
+    }
+    if let Some(overrides) = prune_overrides(&key.operand, &key.prune) {
+        walk.overrides(overrides);
+    }
+    let mut files = Vec::new();
+    for entry in walk.build() {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !path_starts_with(entry.path(), &key.operand) {
+            continue;
+        }
+        let (is_file, is_dir) = if let Some(kind) = entry.file_type() {
+            (kind.is_file(), kind.is_dir())
+        } else {
+            let metadata = entry.metadata().map_err(|error| error.to_string())?;
+            (metadata.is_file(), metadata.is_dir())
+        };
+        if is_file || key.directories && is_dir && entry.path() != key.operand {
+            files.push(entry.into_path());
+        }
+    }
+    files.par_sort_unstable();
+    files.dedup();
+    Ok(files)
+}
+
+fn repair_inventory(
+    key: &WalkKey,
+    base: &[PathBuf],
+    changed_paths: &[PathBuf],
+) -> Result<Arc<Vec<PathBuf>>, String> {
+    let anchors = repair_anchors(&key.operand, changed_paths);
+    if anchors.is_empty() {
+        return Ok(Arc::new(base.to_vec()));
+    }
+    let retained = base
+        .iter()
+        .filter(|path| !anchors.iter().any(|anchor| path_starts_with(path, anchor)))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut additions = Vec::new();
+    for anchor in &anchors {
+        additions.extend(scan_inventory_subtree(key, anchor)?);
+    }
+    additions.par_sort_unstable();
+    additions.dedup();
+    Ok(Arc::new(merge_sorted_inventory(&retained, &additions)))
+}
+
 fn start_live_walk(
     store: Arc<FileListStore>,
     key: WalkKey,
@@ -1732,6 +3476,8 @@ fn start_live_walk(
             if operand.is_file() {
                 let files = vec![operand];
                 publish_live_files(&live, &files);
+                live.enumeration_done.store(true, Ordering::Release);
+                live.files_cond.notify_all();
                 return Ok(Arc::new(files));
             }
             if !operand.is_dir() {
@@ -1800,11 +3546,21 @@ fn start_live_walk(
             if live.cancelled.load(Ordering::Acquire) {
                 return Err(CANCELLED.to_string());
             }
+            // Fuzzy consumers rank the published stream in discovery order and
+            // do not depend on inventory ordering. Let them return as soon as
+            // enumeration is complete while this worker finishes the
+            // deterministic sorted cache in the background.
+            live.enumeration_done.store(true, Ordering::Release);
+            live.files_cond.notify_all();
             let collected = collected
                 .into_inner()
                 .map_err(|_| "parallel file collector poisoned".to_string())?;
             let mut files = collected.files;
-            files.sort();
+            // Inventory order is deterministic but duplicate paths are
+            // equivalent, so stability buys nothing. Parallel unstable sort
+            // removes the single-core tail that cold broad finds previously
+            // paid after the parallel walk had already completed.
+            files.par_sort_unstable();
             Ok(Arc::new(files))
         });
         match result {
@@ -1857,7 +3613,7 @@ fn complete_operand_files(
     deadline_at: Option<Instant>,
     keep_warm: bool,
 ) -> Result<(Arc<Vec<PathBuf>>, bool, usize, Vec<String>, bool), String> {
-    let watched = store.watch_root(operand_path);
+    let watched = store.watch_root(operand_path, parsed.no_ignore);
     // A walk abandoned by cache invalidation restarts from scratch. Under
     // continuous writes under the root that can repeat until the request
     // deadline, so cap it: after one restart the partial snapshot is served
@@ -1940,7 +3696,8 @@ fn scan_limited_operand(
     scan_errors: &AtomicUsize,
     files_scanned: &AtomicUsize,
 ) -> Result<(bool, bool, bool, Vec<String>), String> {
-    let watched = store.watch_root(operand_path);
+    let watched = store.watch_root(operand_path, parsed.no_ignore);
+    let trust = TrustSnapshot::capture();
     if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
         return Ok((false, true, watched, Vec::new()));
     }
@@ -1959,6 +3716,7 @@ fn scan_limited_operand(
             all_lines,
             emitted_blocks,
             collect_until,
+            &trust,
             scan_errors,
             files_scanned,
         );
@@ -2046,6 +3804,7 @@ fn scan_limited_operand(
             all_lines,
             emitted_blocks,
             collect_until,
+            &trust,
             scan_errors,
             files_scanned,
         );
@@ -2064,6 +3823,100 @@ fn scan_limited_operand(
 struct FuzzyHit {
     score: u32,
     path: String,
+}
+
+// Nucleo fuzzy matching requires every ASCII query byte to occur in order.
+// Rejecting paths that fail that necessary condition is exact, not heuristic.
+// Keep non-ASCII paths on the full matcher path because Smart normalization
+// may fold Unicode characters onto an ASCII query.
+fn fuzzy_ascii_subsequence_possible(query: &str, path: &str) -> bool {
+    if !query.is_ascii() || !path.is_ascii() {
+        return true;
+    }
+    let mut query = query.bytes().map(|byte| byte.to_ascii_lowercase());
+    let mut wanted = query.next();
+    if wanted.is_none() {
+        return true;
+    }
+    for byte in path.bytes() {
+        if Some(byte.to_ascii_lowercase()) == wanted {
+            wanted = query.next();
+            if wanted.is_none() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn fuzzy_ascii_presence(value: &str) -> Option<(u64, u64)> {
+    if !value.is_ascii() {
+        return None;
+    }
+    let mut low = 0u64;
+    let mut high = 0u64;
+    for byte in value.bytes().map(|byte| byte.to_ascii_lowercase()) {
+        if byte < 64 {
+            low |= 1u64 << byte;
+        } else {
+            high |= 1u64 << (byte - 64);
+        }
+    }
+    Some((low, high))
+}
+
+struct FuzzyQueryToken {
+    text: String,
+    mask: Option<(u64, u64)>,
+    pattern: Pattern,
+}
+
+fn retain_fuzzy_path(
+    tokens: &[FuzzyQueryToken],
+    path: &str,
+    path_mask: Option<(u64, u64)>,
+    matcher: &mut FuzzyMatcher,
+    matches: &mut std::collections::BinaryHeap<FuzzyHit>,
+    limit: usize,
+    total_matches: &mut usize,
+) {
+    for token in tokens {
+        if let (Some((query_low, query_high)), Some((path_low, path_high))) =
+            (token.mask, path_mask)
+        {
+            if path_low & query_low != query_low || path_high & query_high != query_high {
+                return;
+            }
+        }
+        if !fuzzy_ascii_subsequence_possible(&token.text, path) {
+            return;
+        }
+    }
+    let matcher_text = Utf32String::from(path.to_string());
+    let mut score = 0u32;
+    for token in tokens {
+        let Some(token_score) = token.pattern.score(matcher_text.slice(..), matcher) else {
+            return;
+        };
+        score = score.saturating_add(token_score);
+    }
+    *total_matches += 1;
+    let candidate = FuzzyHit {
+        score,
+        path: path.to_string(),
+    };
+    if matches.len() < limit {
+        matches.push(candidate);
+        return;
+    }
+    let replace = matches.peek().is_some_and(|worst| {
+        candidate.score > worst.score
+            || (candidate.score == worst.score && candidate.path < worst.path)
+    });
+    if replace {
+        matches.pop();
+        matches.push(candidate);
+    }
 }
 
 impl Ord for FuzzyHit {
@@ -2121,73 +3974,184 @@ fn handle_fuzzy(
         files_list: true,
         directories: true,
         max_columns: 0,
+        literal_trigrams: None,
     };
     let root = Path::new(&req.cwd);
     let key = fuzzy_key(root, &parsed);
     let filter = PathFilter::new(root, &parsed)?;
-    let (files, walk_complete, walk_errors, walk_error_details, cache_safe) =
-        complete_operand_files(store, root, &parsed, cancelled, deadline_at, req.keep_warm)?;
-    let inventory_complete = walk_complete && walk_errors == 0;
-    let corpus = if inventory_complete {
-        store.fuzzy_corpus(&key, &files, root, &filter)
-    } else {
-        Arc::new(FuzzyCorpus {
-            paths: files
-                .iter()
-                .filter(|file| filter.allows(file))
-                .map(|file| {
-                    let relative = file.strip_prefix(root).unwrap_or(file);
-                    let path = relative.to_string_lossy().replace('\\', "/");
-                    FuzzyIndexedPath {
-                        matcher_text: Utf32String::from(path.clone()),
-                        path,
-                    }
-                })
-                .collect(),
+    let tokens = query
+        .split_whitespace()
+        .map(|text| FuzzyQueryToken {
+            text: text.to_string(),
+            mask: fuzzy_ascii_presence(text),
+            pattern: Pattern::new(
+                text,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            ),
         })
-    };
-    let pattern = Pattern::new(
-        query,
-        CaseMatching::Ignore,
-        Normalization::Smart,
-        AtomKind::Fuzzy,
-    );
+        .collect::<Vec<_>>();
     let mut matcher = FuzzyMatcher::new(FuzzyConfig::DEFAULT.match_paths());
     let mut matches = BinaryHeap::with_capacity(limit + 1);
     let mut total_matches = 0usize;
     let mut total_seen = 0usize;
-    let mut timed_out = !walk_complete;
-    for (index, indexed) in corpus.paths.iter().enumerate() {
-        if index & 1023 == 0 {
-            if cancelled.load(Ordering::Relaxed) {
-                return Err(CANCELLED.to_string());
+    let mut timed_out = false;
+    let mut walk_complete = false;
+    let mut walk_errors = 0usize;
+    let mut walk_error_details = Vec::new();
+    let mut cache_safe = true;
+    let mut rank_ms = 0.0;
+    let inventory_started_at = Instant::now();
+    let cached_corpus = store.take_fuzzy_corpus(&key).or_else(|| {
+        store
+            .take_ready(&key.walk)
+            .map(|files| store.fuzzy_corpus(&key, &files, root, &filter))
+    });
+    if let Some(corpus) = cached_corpus {
+        walk_complete = true;
+        let rank_started_at = Instant::now();
+        for (index, indexed) in corpus.paths.iter().enumerate() {
+            if index & 1023 == 0 {
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err(CANCELLED.to_string());
+                }
+                if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                    timed_out = true;
+                    walk_complete = false;
+                    break;
+                }
             }
-            if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-                timed_out = true;
+            total_seen = index + 1;
+            retain_fuzzy_path(
+                &tokens,
+                &indexed.path,
+                indexed.ascii_mask,
+                &mut matcher,
+                &mut matches,
+                limit,
+                &mut total_matches,
+            );
+        }
+        rank_ms += rank_started_at.elapsed().as_secs_f64() * 1_000.0;
+    } else {
+        let watched = store.watch_root(root, parsed.no_ignore);
+        cache_safe = watched;
+        let walk_key = key.walk.clone();
+        let (live, owner) = store.begin_live(walk_key.clone(), req.keep_warm);
+        if !watched {
+            live.cacheable.store(false, Ordering::Release);
+        }
+        let _waiter = store.waiter_guard(walk_key.clone(), Arc::clone(&live));
+        if owner {
+            start_live_walk(
+                Arc::clone(store),
+                walk_key,
+                Arc::clone(&live),
+                root.to_path_buf(),
+                parsed.clone(),
+            );
+        }
+        let mut cursor = 0usize;
+        let mut streamed_paths = Vec::new();
+        'stream: loop {
+            let batch = {
+                let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
+                while cursor >= files.len() {
+                    if live.enumeration_done.load(Ordering::Acquire) {
+                        walk_complete = true;
+                        break 'stream;
+                    }
+                    let state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+                    match &*state {
+                        LiveState::Done(_) => {
+                            walk_complete = true;
+                            break 'stream;
+                        }
+                        LiveState::Abandoned => break 'stream,
+                        LiveState::Failed(error) => return Err(error.clone()),
+                        LiveState::Running => {}
+                    }
+                    drop(state);
+                    files = live
+                        .files_cond
+                        .wait_timeout(files, Duration::from_millis(10))
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0;
+                    if cancelled.load(Ordering::Relaxed) {
+                        return Err(CANCELLED.to_string());
+                    }
+                    if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                        timed_out = true;
+                        break 'stream;
+                    }
+                }
+                // Materialize the wire-relative strings once while advancing
+                // the published cursor. The old path cloned every PathBuf into
+                // a temporary batch and then allocated the same strings, which
+                // was costly across hundreds of thousands of broad candidates.
+                let batch: Vec<String> = files[cursor..]
+                    .iter()
+                    .filter(|file| filter.allows(file))
+                    .map(|file| {
+                        file.strip_prefix(root)
+                            .unwrap_or(file)
+                            .to_string_lossy()
+                            .replace('\\', "/")
+                    })
+                    .collect::<Vec<_>>();
+                cursor = files.len();
+                batch
+            };
+            let rank_started_at = Instant::now();
+            for path in batch {
+                if total_seen & 1023 == 0 {
+                    if cancelled.load(Ordering::Relaxed) {
+                        return Err(CANCELLED.to_string());
+                    }
+                    if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                        timed_out = true;
+                        break;
+                    }
+                }
+                total_seen += 1;
+                let ascii_mask = fuzzy_ascii_presence(&path);
+                retain_fuzzy_path(
+                    &tokens,
+                    &path,
+                    ascii_mask,
+                    &mut matcher,
+                    &mut matches,
+                    limit,
+                    &mut total_matches,
+                );
+                streamed_paths.push(FuzzyIndexedPath { path, ascii_mask });
+            }
+            rank_ms += rank_started_at.elapsed().as_secs_f64() * 1_000.0;
+            if timed_out {
                 break;
             }
         }
-        total_seen = index + 1;
-        let score = pattern.score(indexed.matcher_text.slice(..), &mut matcher);
-        let Some(score) = score else { continue };
-        total_matches += 1;
-        let candidate = FuzzyHit {
-            score,
-            path: indexed.path.clone(),
-        };
-        if matches.len() < limit {
-            matches.push(candidate);
-            continue;
+        walk_errors = live.walk_errors.load(Ordering::Acquire);
+        walk_error_details = live_walk_error_details(&live);
+        cache_safe &= live.cacheable.load(Ordering::Acquire);
+        if walk_complete {
+            // The response no longer waits for deterministic inventory sort;
+            // retain the completed walk until finish_live installs its cache.
+            live.keep_warm.store(true, Ordering::Release);
         }
-        let replace = matches.peek().is_some_and(|worst| {
-            candidate.score > worst.score
-                || (candidate.score == worst.score && candidate.path < worst.path)
-        });
-        if replace {
-            matches.pop();
-            matches.push(candidate);
+        if walk_complete && walk_errors == 0 && cache_safe {
+            store.remember_fuzzy_corpus(
+                &key,
+                Arc::new(FuzzyCorpus {
+                    paths: streamed_paths,
+                }),
+            );
         }
     }
+
+    let inventory_ms = inventory_started_at.elapsed().as_secs_f64() * 1_000.0;
+    let inventory_complete = walk_complete && walk_errors == 0;
     let mut matches = matches.into_vec();
     matches.sort_by(|left, right| {
         right
@@ -2203,11 +4167,255 @@ fn handle_fuzzy(
         "totalMatches": total_matches,
         "totalSeen": total_seen,
         "complete": inventory_complete && !timed_out,
-        "partial": timed_out || walk_errors > 0,
+        "partial": !walk_complete || timed_out || walk_errors > 0,
         "timeout": timed_out,
         "scanErrors": walk_errors,
         "walkErrorDetails": walk_error_details,
         "inventoryChecked": inventory_complete,
+        "cacheSafe": cache_safe,
+        "inventoryMs": inventory_ms,
+        "rankMs": rank_ms,
+    }))
+}
+
+#[derive(Eq, PartialEq)]
+struct MtimeHit {
+    mtime_ms: u128,
+    path: String,
+}
+
+impl Ord for MtimeHit {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .mtime_ms
+            .cmp(&self.mtime_ms)
+            .then_with(|| self.path.cmp(&other.path))
+    }
+}
+
+impl PartialOrd for MtimeHit {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Eq, PartialEq)]
+struct UnstattedHit {
+    index: usize,
+    path: String,
+}
+
+impl Ord for UnstattedHit {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&other.index)
+    }
+}
+
+impl PartialOrd for UnstattedHit {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn retain_bounded<T: Ord>(heap: &mut std::collections::BinaryHeap<T>, candidate: T, cap: usize) {
+    if heap.len() < cap {
+        heap.push(candidate);
+    } else if heap.peek().is_some_and(|worst| candidate < *worst) {
+        heap.pop();
+        heap.push(candidate);
+    }
+}
+
+fn collect_mtime_candidates(
+    files: &[PathBuf],
+    base_index: usize,
+    operand: &str,
+    operand_path: &Path,
+    filter: &PathFilter,
+    trust: &TrustSnapshot,
+) -> Vec<(usize, String, Option<u128>)> {
+    files
+        .par_iter()
+        .enumerate()
+        .filter(|(_, file)| filter.allows(file))
+        .map(|(index, file)| {
+            let path = display_path(operand, operand_path, file);
+            let mtime_ms = file_mtime_ms(file, trust);
+            (base_index + index, path, mtime_ms)
+        })
+        .collect()
+}
+
+fn handle_mtime_inventory(
+    req: &ServeRequest,
+    parsed: &ParsedArgs,
+    cancelled: &AtomicBool,
+    store: &Arc<FileListStore>,
+    deadline_at: Option<Instant>,
+) -> Result<serde_json::Value, String> {
+    use std::collections::BinaryHeap;
+
+    let cwd = Path::new(&req.cwd);
+    refresh_content_signature_journals(&parsed.targets, cwd);
+    let cap = req.offset.saturating_add(req.limit.max(1));
+    let mut statted = BinaryHeap::with_capacity(cap + 1);
+    let mut unstatted = BinaryHeap::with_capacity(cap + 1);
+    let mut total_seen = 0usize;
+    let mut timed_out = false;
+    let mut scan_error_count = 0usize;
+    let mut walk_error_details = Vec::new();
+    let mut cache_safe = true;
+
+    for operand in &parsed.targets {
+        let operand_path = if Path::new(operand).is_absolute() {
+            PathBuf::from(operand)
+        } else {
+            cwd.join(operand)
+        };
+        let filter = PathFilter::new(&operand_path, parsed)?;
+        let watched = store.watch_root(&operand_path, parsed.no_ignore);
+        let trust = TrustSnapshot::capture();
+        cache_safe &= watched;
+        let walk_key = walk_key(&operand_path, parsed);
+        if let Some(files) = store.take_ready(&walk_key) {
+            let candidates =
+                collect_mtime_candidates(&files, 0, operand, &operand_path, &filter, &trust);
+            total_seen = total_seen.saturating_add(candidates.len());
+            for (index, path, mtime_ms) in candidates {
+                if let Some(mtime_ms) = mtime_ms {
+                    retain_bounded(&mut statted, MtimeHit { mtime_ms, path }, cap);
+                } else {
+                    retain_bounded(&mut unstatted, UnstattedHit { index, path }, cap);
+                }
+            }
+            continue;
+        }
+
+        let (live, owner) = store.begin_live(walk_key.clone(), req.keep_warm);
+        if !watched {
+            live.cacheable.store(false, Ordering::Release);
+        }
+        let _waiter = store.waiter_guard(walk_key.clone(), Arc::clone(&live));
+        if owner {
+            start_live_walk(
+                Arc::clone(store),
+                walk_key,
+                Arc::clone(&live),
+                operand_path.clone(),
+                parsed.clone(),
+            );
+        }
+        let mut cursor = 0usize;
+        let mut operand_complete = false;
+        'stream: loop {
+            let (batch_start, batch) = {
+                let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
+                while cursor >= files.len() {
+                    if live.enumeration_done.load(Ordering::Acquire) {
+                        operand_complete = true;
+                        break 'stream;
+                    }
+                    let state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+                    match &*state {
+                        LiveState::Done(_) => {
+                            operand_complete = true;
+                            break 'stream;
+                        }
+                        LiveState::Abandoned => break 'stream,
+                        LiveState::Failed(error) => return Err(error.clone()),
+                        LiveState::Running => {}
+                    }
+                    drop(state);
+                    files = live
+                        .files_cond
+                        .wait_timeout(files, Duration::from_millis(10))
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0;
+                    if cancelled.load(Ordering::Relaxed) {
+                        return Err(CANCELLED.to_string());
+                    }
+                    if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                        timed_out = true;
+                        break 'stream;
+                    }
+                }
+                let start = cursor;
+                let batch: Vec<PathBuf> = files[cursor..]
+                    .iter()
+                    .filter(|file| filter.allows(file))
+                    .cloned()
+                    .collect();
+                cursor = files.len();
+                (start, batch)
+            };
+            let candidates = collect_mtime_candidates(
+                &batch,
+                batch_start,
+                operand,
+                &operand_path,
+                &filter,
+                &trust,
+            );
+            total_seen = total_seen.saturating_add(candidates.len());
+            for (index, path, mtime_ms) in candidates {
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err(CANCELLED.to_string());
+                }
+                if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+                    timed_out = true;
+                    break;
+                }
+                if let Some(mtime_ms) = mtime_ms {
+                    retain_bounded(&mut statted, MtimeHit { mtime_ms, path }, cap);
+                } else {
+                    retain_bounded(&mut unstatted, UnstattedHit { index, path }, cap);
+                }
+            }
+            if timed_out {
+                break;
+            }
+        }
+        let walk_errors = live.walk_errors.load(Ordering::Acquire);
+        scan_error_count = scan_error_count.saturating_add(walk_errors);
+        append_walk_error_details(&mut walk_error_details, live_walk_error_details(&live));
+        cache_safe &= live.cacheable.load(Ordering::Acquire);
+        if operand_complete {
+            live.keep_warm.store(true, Ordering::Release);
+        } else {
+            timed_out = true;
+        }
+        if timed_out {
+            break;
+        }
+    }
+
+    let mut statted = statted.into_vec();
+    statted.sort_by(|left, right| {
+        right
+            .mtime_ms
+            .cmp(&left.mtime_ms)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    let mut unstatted = unstatted.into_vec();
+    unstatted.sort_by_key(|entry| entry.index);
+    let ordered: Vec<String> = statted
+        .into_iter()
+        .map(|entry| entry.path)
+        .chain(unstatted.into_iter().map(|entry| entry.path))
+        .skip(req.offset)
+        .take(req.limit.max(1))
+        .collect();
+    let complete = !timed_out && scan_error_count == 0;
+    Ok(serde_json::json!({
+        "id": req.id,
+        "lines": ordered,
+        "complete": complete,
+        "totalSeen": total_seen,
+        "partial": timed_out || scan_error_count > 0,
+        "timeout": timed_out,
+        "scanErrors": scan_error_count,
+        "walkErrorDetails": walk_error_details,
+        "inventoryChecked": complete,
         "cacheSafe": cache_safe,
     }))
 }
@@ -2222,6 +4430,10 @@ fn handle(
         return handle_fuzzy(req, cancelled, store, deadline_at);
     }
     let parsed = parse_args(&req.args)?;
+    refresh_content_signature_journals(&parsed.targets, Path::new(&req.cwd));
+    if parsed.files_list && req.mtime_top_k && req.limit > 0 {
+        return handle_mtime_inventory(req, &parsed, cancelled, store, deadline_at);
+    }
     let collect_until = if req.limit > 0 {
         req.offset.saturating_add(req.limit).saturating_add(1)
     } else {
@@ -2249,7 +4461,7 @@ fn handle(
             } else {
                 cwd.join(operand)
             };
-            let watched = store.watch_root(&operand_path);
+            let watched = store.watch_root(&operand_path, parsed.no_ignore);
             cache_safe &= watched;
             let filter = PathFilter::new(&operand_path, &parsed)?;
             if collect_until == usize::MAX {
@@ -2376,6 +4588,7 @@ fn handle(
     }
     let matcher = build_matcher(&parsed)?;
     let cwd = Path::new(&req.cwd);
+    refresh_content_signature_journals(&parsed.targets, cwd);
     let multi_target = parsed.targets.len() > 1;
     let mut all_lines: Vec<String> = Vec::new();
     let mut emitted_blocks = 0usize;
@@ -2454,6 +4667,7 @@ fn handle(
         if walk_errors > 0 {
             scan_errors.fetch_add(walk_errors, Ordering::Relaxed);
         }
+        let trust = TrustSnapshot::capture();
         for file_chunk in files.chunks(chunk_size) {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(CANCELLED.to_string());
@@ -2475,6 +4689,7 @@ fn handle(
                 &mut all_lines,
                 &mut emitted_blocks,
                 collect_until,
+                &trust,
                 &scan_errors,
                 &files_scanned,
             ) {
@@ -2508,7 +4723,7 @@ fn handle(
         && scan_error_count == 0
         && all_lines.len() < collect_until
         && (req.limit == 0 || total_after_offset <= req.limit);
-    Ok(serde_json::json!({
+    let response = serde_json::json!({
         "id": req.id,
         "lines": window,
         "complete": complete,
@@ -2520,7 +4735,9 @@ fn handle(
         "filesScanned": files_scanned.load(Ordering::Relaxed),
         "inventoryChecked": complete,
         "cacheSafe": cache_safe,
-    }))
+    });
+    schedule_content_signature_cache_persist();
+    Ok(response)
 }
 
 fn server_parallelism() -> usize {
@@ -3298,8 +5515,10 @@ fn process_snapshot(id: u64) -> serde_json::Value {
 }
 
 pub fn run() {
+    std::thread::spawn(ensure_content_signature_cache_loaded);
     write_control_response(&serde_json::json!({ "ready": true }));
-    let file_lists = Arc::new(FileListStore::new());
+    let file_lists = Arc::new(FileListStore::new_persistent());
+    file_lists.schedule_noise_prewarm();
     let cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let scheduler = SearchScheduler::new(Arc::clone(&file_lists), Arc::clone(&cancellations));
@@ -3310,6 +5529,15 @@ pub fn run() {
             continue;
         }
         match serde_json::from_str::<WireRequest>(&line) {
+            Ok(WireRequest::ListMetadata {
+                id,
+                cwd,
+                list_metadata,
+            }) => {
+                std::thread::spawn(move || {
+                    write_control_response(&list_metadata_response(id, &cwd, &list_metadata));
+                });
+            }
             Ok(WireRequest::Cancel { cancel }) => {
                 let running = cancellations
                     .lock()
@@ -3364,12 +5592,14 @@ pub fn run() {
         }
     }
     scheduler.shutdown();
+    persist_file_list_snapshot(&file_lists.ready);
     flush_responses();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn request(args: &[&str], limit: usize) -> ServeRequest {
         ServeRequest {
@@ -3381,12 +5611,178 @@ mod tests {
             deadline_ms: None,
             keep_warm: false,
             bulk_hint: false,
+            mtime_top_k: false,
             fuzzy: None,
             hidden: false,
             include_noise: false,
             max_depth: None,
             exclude: Vec::new(),
         }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn path_prefix_checks_are_utf8_boundary_safe() {
+        assert!(path_starts_with(
+            Path::new(r"C:\한\child"),
+            Path::new(r"C:\한"),
+        ));
+        assert!(!path_starts_with(
+            Path::new(r"C:\€\child"),
+            Path::new(r"C:\é"),
+        ));
+    }
+
+    #[test]
+    fn journal_sync_evicts_changed_signatures_and_metadata() {
+        let serial = u32::MAX - 17;
+        let file_id = u64::MAX - 19;
+        let path = PathBuf::from(format!("mixdog-journal-eviction-{file_id}"));
+        let identity = crate::serve_search_usn::FileIdentity {
+            volume: serial,
+            file_id,
+        };
+        let shard = content_signature_shard(&path);
+        raw_content_signature_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                path.clone(),
+                ContentSignatureEntry {
+                    size: 1,
+                    modified_ns: 1,
+                    identity: Some(identity),
+                    persisted: true,
+                    signature: TrigramSignature::new(),
+                },
+            );
+        file_metadata_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                path.clone(),
+                FileMetadataEntry {
+                    size: 1,
+                    modified_ns: 1,
+                    mtime_ms: 1,
+                    identity: Some(identity),
+                },
+            );
+        apply_content_signature_journal_sync(crate::serve_search_usn::SyncResult {
+            trusted: true,
+            volume_serial: Some(serial),
+            changed: HashSet::from([file_id]),
+            parents: HashSet::new(),
+        });
+        assert!(!raw_content_signature_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&path));
+        assert!(!file_metadata_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(&path));
+        trusted_usn_volumes()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&serial);
+    }
+
+    #[test]
+    fn binary_signature_payload_stays_within_the_memory_budget() {
+        assert_eq!(
+            CONTENT_SIGNATURE_WORDS * std::mem::size_of::<u64>() * 2,
+            4096
+        );
+        assert!(
+            CONTENT_SIGNATURE_WORDS * std::mem::size_of::<u64>() * 2 * CONTENT_SIGNATURE_CACHE_MAX
+                <= 64 * 1024 * 1024
+        );
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        bytes.write_all(&(u128::MAX - 7).to_le_bytes()).unwrap();
+        bytes.set_position(0);
+        assert_eq!(read_snapshot_u128(&mut bytes).unwrap(), u128::MAX - 7);
+    }
+
+    #[test]
+    fn trusted_cached_signature_is_reused_without_rebuilding() {
+        let serial = u32::MAX - 31;
+        let file_id = u64::MAX - 37;
+        let path = PathBuf::from(format!("mixdog-signature-reuse-{file_id}"));
+        let mut signature = TrigramSignature::new();
+        signature.push(b"prefix needle suffix");
+        signature.complete = true;
+        let shard = content_signature_shard(&path);
+        raw_content_signature_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                path.clone(),
+                ContentSignatureEntry {
+                    size: 1,
+                    modified_ns: 1,
+                    identity: Some(crate::serve_search_usn::FileIdentity {
+                        volume: serial,
+                        file_id,
+                    }),
+                    persisted: false,
+                    signature,
+                },
+            );
+        let trust = TrustSnapshot {
+            usn_volumes: Arc::new(HashSet::from([serial])),
+            watch_roots: Arc::new(Vec::new()),
+        };
+        let present = b"needle"
+            .windows(3)
+            .map(|window| trigram_bits(window[0], window[1], window[2]))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            cached_signature_state(&path, &[present], false, &trust),
+            CachedSignatureState::Reusable
+        );
+        raw_content_signature_cache()[shard]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&path);
+    }
+
+    #[test]
+    fn exact_watcher_invalidation_does_not_scan_or_remove_siblings() {
+        let changed = PathBuf::from("src/change.rs");
+        let sibling = PathBuf::from("src/change.rs.backup");
+        for path in [&changed, &sibling] {
+            raw_content_signature_cache()[content_signature_shard(path)]
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .insert(
+                    path.clone(),
+                    ContentSignatureEntry {
+                        size: 1,
+                        modified_ns: 1,
+                        identity: None,
+                        persisted: false,
+                        signature: TrigramSignature::new(),
+                    },
+                );
+        }
+        invalidate_content_signatures(std::slice::from_ref(&changed), false);
+        assert!(
+            !raw_content_signature_cache()[content_signature_shard(&changed)]
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .contains_key(&changed)
+        );
+        assert!(
+            raw_content_signature_cache()[content_signature_shard(&sibling)]
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .contains_key(&sibling)
+        );
+        raw_content_signature_cache()[content_signature_shard(&sibling)]
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&sibling);
     }
 
     #[test]
@@ -3422,16 +5818,79 @@ mod tests {
     }
 
     #[test]
+    fn fuzzy_ascii_prefilter_rejects_only_impossible_candidates() {
+        assert!(fuzzy_ascii_subsequence_possible(
+            "TLSMOKE",
+            "scripts/tool-smoke.mjs"
+        ));
+        assert!(!fuzzy_ascii_subsequence_possible(
+            "tool-smoke",
+            "scripts/trace-store.mjs"
+        ));
+        // Unicode stays on Nucleo's Smart-normalization path.
+        assert!(fuzzy_ascii_subsequence_possible("resume", "src/résumé.rs"));
+    }
+
+    #[test]
+    fn trigram_signature_only_excludes_impossible_literal_patterns() {
+        let mut signature = TrigramSignature::new();
+        signature.push(b"prefix needle suffix");
+        signature.complete = true;
+        let present = b"needle"
+            .windows(3)
+            .map(|window| trigram_bits(window[0], window[1], window[2]))
+            .collect::<Vec<_>>();
+        let absent = b"definitely-absent"
+            .windows(3)
+            .map(|window| trigram_bits(window[0], window[1], window[2]))
+            .collect::<Vec<_>>();
+        assert!(!signature_excludes_requirements(
+            &signature,
+            &[present],
+            false
+        ));
+        assert!(signature_excludes_requirements(
+            &signature,
+            &[absent],
+            false
+        ));
+        let folded = b"NEEDLE"
+            .windows(3)
+            .map(|window| {
+                trigram_bits(
+                    window[0].to_ascii_lowercase(),
+                    window[1].to_ascii_lowercase(),
+                    window[2].to_ascii_lowercase(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(!signature_excludes_requirements(
+            &signature,
+            &[folded],
+            true
+        ));
+    }
+
+    #[test]
+    fn literal_prefilter_accepts_utf8_and_extracts_mandatory_regex_runs() {
+        let utf8 = parse_args(&request(&["-F", "-e", "한글", "."], 10).args).unwrap();
+        assert!(utf8.literal_trigrams.is_some());
+
+        let regex = parse_args(&request(&["-e", "log.*Error", "."], 10).args).unwrap();
+        assert!(regex.literal_trigrams.is_some());
+        assert_eq!(mandatory_regex_literal("log.*Error").unwrap(), b"Error");
+        assert!(mandatory_regex_literal("(optional)?required").is_none());
+
+        let utf8_folded = parse_args(&request(&["-i", "-F", "-e", "한글", "."], 10).args).unwrap();
+        assert!(utf8_folded.literal_trigrams.is_none());
+    }
+
+    #[test]
     fn negative_globs_prune_the_walk_and_split_the_inventory_key() {
         let plain = parse_args(&request(&["--files", "."], 20).args).unwrap();
-        let excluded = parse_args(
-            &request(
-                &["--files", "--glob", "!**/node_modules/**", "."],
-                20,
-            )
-            .args,
-        )
-        .unwrap();
+        let excluded =
+            parse_args(&request(&["--files", "--glob", "!**/node_modules/**", "."], 20).args)
+                .unwrap();
         let prune = prune_globs(Path::new("."), &excluded);
         // The directory entry itself must be rejected, otherwise the walker
         // descends into node_modules before discarding its contents.
@@ -3457,8 +5916,8 @@ mod tests {
         let dir = std::env::temp_dir().join("mixdog-watch-cover-test");
         let sub = dir.join("sub");
         std::fs::create_dir_all(&sub).unwrap();
-        assert!(store.watch_root(&dir));
-        assert!(store.watch_root(&sub));
+        assert!(store.watch_root(&dir, false));
+        assert!(store.watch_root(&sub, false));
         assert_eq!(
             store
                 .watched_roots
@@ -3513,6 +5972,7 @@ mod tests {
             files_cond: Condvar::new(),
             waiters: AtomicUsize::new(0),
             cancelled: AtomicBool::new(false),
+            enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
@@ -3535,6 +5995,7 @@ mod tests {
             files_cond: Condvar::new(),
             waiters: AtomicUsize::new(0),
             cancelled: AtomicBool::new(false),
+            enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
@@ -3572,6 +6033,10 @@ mod tests {
             &cancelled,
             None,
             None,
+            &TrustSnapshot {
+                usn_volumes: Arc::new(HashSet::new()),
+                watch_roots: Arc::new(Vec::new()),
+            },
             &scan_errors,
         )
         .is_none());
@@ -3745,6 +6210,69 @@ mod tests {
     }
 
     #[test]
+    fn watched_inventory_survives_ttl_until_watch_is_removed() {
+        let store = FileListStore::new();
+        let root = PathBuf::from("watched-ttl-root");
+        let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
+        let key = walk_key(&root, &parsed);
+        store
+            .watched_roots
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(root.clone(), Instant::now());
+        store
+            .ready
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                key.clone(),
+                ReadyEntry {
+                    files: Arc::new(vec![root.join("cached.rs")]),
+                    expires_at: Instant::now() - Duration::from_secs(1),
+                    generation: 0,
+                    touched_at: Instant::now(),
+                    estimated_bytes: 1,
+                    root_identity: None,
+                },
+            );
+
+        assert_eq!(store.take_ready(&key).map(|files| files.len()), Some(1));
+        store
+            .watched_roots
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        assert!(store.take_ready(&key).is_none());
+    }
+
+    #[test]
+    fn incremental_inventory_repair_splices_changed_paths() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "mixdog-inventory-repair-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("fixture root");
+        let keep = root.join("keep.rs");
+        let removed = root.join("removed.rs");
+        let added = root.join("added.rs");
+        std::fs::write(&keep, "keep").expect("keep");
+        std::fs::write(&added, "added").expect("added");
+        let parsed =
+            parse_args(&request(&["--files", root.to_string_lossy().as_ref()], 20).args).unwrap();
+        let key = walk_key(&root, &parsed);
+        let mut base = vec![keep.clone(), removed.clone()];
+        base.sort();
+
+        let repaired = repair_inventory(&key, &base, &[removed, added.clone()]).expect("repair");
+        assert_eq!(repaired.as_ref(), &vec![added, keep]);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn internal_abandonment_returns_an_error_instead_of_silence() {
         let response = response_for_handler_result(7, Err(CANCELLED.to_string()), false).unwrap();
         assert_eq!(response["id"], 7);
@@ -3782,7 +6310,7 @@ mod tests {
     fn single_file_reader_checks_cancellation_between_bounded_chunks() {
         let cancelled = AtomicBool::new(false);
         let source = std::io::Cursor::new(vec![b'x'; search_reader_chunk_bytes() * 2]);
-        let mut reader = CancellableReader::new(source, &cancelled, None);
+        let mut reader = CancellableReader::new(source, &cancelled, None, None);
         let mut buffer = vec![0u8; search_reader_chunk_bytes() * 2];
         assert_eq!(
             reader.read(&mut buffer).unwrap(),

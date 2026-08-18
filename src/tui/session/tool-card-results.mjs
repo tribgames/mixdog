@@ -48,7 +48,7 @@ export function createToolCardResults({
   function finalizedErrorFallbackBody(body, text, exitCode) {
     if (String(body || '').trim()) return body;
     if (String(text || '').trim()) return text;
-    if (exitCode != null) return `Command failed (exit ${exitCode})`;
+    if (exitCode != null) return `Exited ${exitCode}`;
     return 'Failed';
   }
   function patchToolItem(id, patch) {

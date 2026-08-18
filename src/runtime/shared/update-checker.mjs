@@ -13,10 +13,11 @@
  * the child exits, reporting the resolved version on success.
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { writeJsonAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 import { detachedSpawnOpts } from './spawn-flags.mjs';
 
@@ -78,7 +79,11 @@ function writeCache(dataDir, payload) {
   try {
     const dir = dataDir || resolvePluginData();
     mkdirSync(dir, { recursive: true });
-    writeFileSync(cacheFilePath(dataDir), JSON.stringify(payload), 'utf8');
+    writeJsonAtomicSync(cacheFilePath(dataDir), payload, {
+      compact: true,
+      lock: true,
+      fsyncDir: true,
+    });
   } catch {
     // Best-effort — cache miss just means the next call re-fetches.
   }

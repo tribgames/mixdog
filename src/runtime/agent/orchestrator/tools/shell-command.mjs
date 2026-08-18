@@ -35,7 +35,7 @@ export {
 // renders a path marker instead of pasting the tail. Matches the
 // SHELL_OUTPUT_MAX_CHARS used by the smart-truncate renderer in
 // builtin.mjs so spilled output and inline output share the same boundary.
-import { SHELL_OUTPUT_INLINE_CAP, SHELL_OUTPUT_DISK_CAP, stripAnsi, treeKill, TaskOutput, ExecResult } from './shell-exec-output.mjs';
+import { SHELL_OUTPUT_INLINE_CAP, SHELL_OUTPUT_DISK_CAP, stripAnsi, treeKill, TaskOutput, ExecResult, ShellTextDecoder } from './shell-exec-output.mjs';
 export { stripAnsi, ExecResult } from './shell-exec-output.mjs';
 
 async function _execPolicyBlockMessage(command) {
@@ -221,6 +221,8 @@ export function execShellCommand({
     };
     const taskId = `shell_${randomUUID().slice(0, 8)}`;
     const taskOutput = new TaskOutput(taskId);
+    const stdoutDecoder = new ShellTextDecoder();
+    const stderrDecoder = new ShellTextDecoder();
     let timedOut = false;
     let killed = false;
     let killCause = null;
@@ -379,6 +381,7 @@ export function execShellCommand({
         env,
         cwd,
         outputLimit: SHELL_OUTPUT_DISK_CAP,
+        rawOutput: true,
         // NOTE (child-spawn-gate): the full command lifetime is intentionally
         // NOT gated — bash/pwsh commands can run for minutes and would starve
         // rg/code_graph. Only the spawn window above holds a slot.
@@ -429,21 +432,21 @@ export function execShellCommand({
     }
 
     const _stdoutData = (chunk) => {
-      taskOutput.writeStdout(chunk);
+      const text = stdoutDecoder.write(chunk);
+      if (text) taskOutput.writeStdout(text);
       if (taskOutput.binaryOutput && !settled && !autoBackgrounded) _treeKillForceSettle('binary-output');
       if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
     };
     const _stderrData = (chunk) => {
-      taskOutput.writeStderr(chunk);
+      const text = stderrDecoder.write(chunk);
+      if (text) taskOutput.writeStderr(text);
       if (taskOutput.binaryOutput && !settled && !autoBackgrounded) _treeKillForceSettle('binary-output');
       if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
     };
     if (child.stdout) {
-      child.stdout.setEncoding('utf-8');
       child.stdout.on('data', _stdoutData);
     }
     if (child.stderr) {
-      child.stderr.setEncoding('utf-8');
       child.stderr.on('data', _stderrData);
     }
 
@@ -460,6 +463,10 @@ export function execShellCommand({
         autoBgTimer = null;
       }
       detachAbortHandler();
+      const stdoutTail = stdoutDecoder.end();
+      const stderrTail = stderrDecoder.end();
+      if (stdoutTail) taskOutput.writeStdout(stdoutTail);
+      if (stderrTail) taskOutput.writeStderr(stderrTail);
       // getStdout/getStderr can throw on a spilled-file read failure (EBADF
       // after unlink race, EACCES). Without this catch the rejection bubbles
       // up and leaves the outer settle promise unresolved, hanging the call.

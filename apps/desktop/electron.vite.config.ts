@@ -2,7 +2,10 @@
 // Third-party derivation notices: NOTICE.md at the repository root.
 import { resolve } from 'node:path';
 
-import react from '@vitejs/plugin-react';
+// SWC transform (user: 빌드 과정이 느리다): no custom babel plugins exist, so
+// the babel-based @vitejs/plugin-react only cost time — SWC cuts the 3600-
+// module renderer transform roughly in half.
+import react from '@vitejs/plugin-react-swc';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { Plugin } from 'vite';
 

@@ -91,6 +91,8 @@ struct SpawnRequest {
     output_limit: usize,
     #[serde(default)]
     merge_stderr: bool,
+    #[serde(default)]
+    raw_output: bool,
     // Keep the child's stdin as a writable pipe (warm shell standby feeds the
     // script text after spawn). Default false preserves Stdio::null().
     #[serde(default)]
@@ -437,12 +439,47 @@ fn arm_timeout(managed: Arc<ManagedProcess>, timeout_ms: u64) {
     });
 }
 
+fn encode_base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    let mut index = 0;
+    while index + 3 <= bytes.len() {
+        let bits = ((bytes[index] as u32) << 16)
+            | ((bytes[index + 1] as u32) << 8)
+            | bytes[index + 2] as u32;
+        out.push(TABLE[((bits >> 18) & 0x3f) as usize] as char);
+        out.push(TABLE[((bits >> 12) & 0x3f) as usize] as char);
+        out.push(TABLE[((bits >> 6) & 0x3f) as usize] as char);
+        out.push(TABLE[(bits & 0x3f) as usize] as char);
+        index += 3;
+    }
+    match bytes.len() - index {
+        1 => {
+            let bits = (bytes[index] as u32) << 16;
+            out.push(TABLE[((bits >> 18) & 0x3f) as usize] as char);
+            out.push(TABLE[((bits >> 12) & 0x3f) as usize] as char);
+            out.push('=');
+            out.push('=');
+        }
+        2 => {
+            let bits = ((bytes[index] as u32) << 16) | ((bytes[index + 1] as u32) << 8);
+            out.push(TABLE[((bits >> 18) & 0x3f) as usize] as char);
+            out.push(TABLE[((bits >> 12) & 0x3f) as usize] as char);
+            out.push(TABLE[((bits >> 6) & 0x3f) as usize] as char);
+            out.push('=');
+        }
+        _ => {}
+    }
+    out
+}
+
 fn pump_pipe(
     id: u64,
     kind: &'static str,
     mut pipe: impl Read,
     managed: Arc<ManagedProcess>,
     stream: bool,
+    raw_output: bool,
 ) {
     let mut buf = [0u8; 8192];
     loop {
@@ -455,8 +492,16 @@ fn pump_pipe(
                     .map(|mut state| state.append(kind, &buf[..n]))
                     .unwrap_or(false);
                 if stream {
-                    let text = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    emit(&json!({ "id": id, "event": kind, "text": text }));
+                    if raw_output {
+                        emit(&json!({
+                            "id": id,
+                            "event": kind,
+                            "dataBase64": encode_base64(&buf[..n]),
+                        }));
+                    } else {
+                        let text = String::from_utf8_lossy(&buf[..n]).into_owned();
+                        emit(&json!({ "id": id, "event": kind, "text": text }));
+                    }
                 }
                 if exceeded {
                     if let Ok(mut state) = managed.state.lock() {
@@ -615,13 +660,14 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stream = !req.background;
+    let raw_output = req.raw_output;
     let out_done = Arc::new(AtomicBool::new(stdout.is_none()));
     let err_done = Arc::new(AtomicBool::new(stderr.is_none()));
     let out_thread = stdout.map(|pipe| {
         let managed = Arc::clone(&managed);
         let done = Arc::clone(&out_done);
         thread::spawn(move || {
-            pump_pipe(id, "stdout", pipe, managed, stream);
+            pump_pipe(id, "stdout", pipe, managed, stream, raw_output);
             done.store(true, Ordering::Release);
         })
     });
@@ -629,7 +675,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         let managed = Arc::clone(&managed);
         let done = Arc::clone(&err_done);
         thread::spawn(move || {
-            pump_pipe(id, "stderr", pipe, managed, stream);
+            pump_pipe(id, "stderr", pipe, managed, stream, raw_output);
             done.store(true, Ordering::Release);
         })
     });
@@ -797,7 +843,11 @@ fn main() {
                 let manager = Arc::clone(&manager);
                 thread::spawn(move || run_spawn(req, manager));
             }
-            Ok(WireRequest::StdinWrite { stdin_write, data, close }) => {
+            Ok(WireRequest::StdinWrite {
+                stdin_write,
+                data,
+                close,
+            }) => {
                 let managed = manager
                     .live
                     .lock()

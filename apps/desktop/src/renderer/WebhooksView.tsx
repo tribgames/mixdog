@@ -16,7 +16,12 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { modelDisplayName, normalizeModelOptions, preferredModelParameters } from './provider-display';
+import {
+  ModelRouteLabel,
+  modelDisplayName,
+  normalizeModelOptions,
+  preferredModelParameters,
+} from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { acquireTitleBarDim } from './titlebar-dim';
@@ -121,23 +126,24 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
 }
 
 // Sub-line: parser first, then delivery route, model, and paused state.
-function webhookMeta(webhook: RecordValue): string {
-  const parts = [String(webhook.parser || 'github')];
-  parts.push(webhook.channel ? `channel ${String(webhook.channel)}` : 'session');
+function webhookMeta(webhook: RecordValue) {
+  const parser = String(webhook.parser || 'github');
+  const delivery = webhook.channel ? `channel ${String(webhook.channel)}` : 'session';
   const ref = parseModelRef(String(webhook.model || ''));
+  let route: { model: string; effort: string; fast: boolean } | null = null;
   if (ref.route) {
     const slash = ref.route.indexOf('/');
     const model = slash > 0
       ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash))
       : ref.route;
-    const effort = ref.effort
-      ? `${ref.effort.slice(0, 1).toLocaleUpperCase()}${ref.effort.slice(1)}`
-      : '';
-    parts.push([model, effort, ref.fast ? t('Fast') : ''].filter(Boolean).join(' · '));
+    route = { model, effort: ref.effort || '', fast: ref.fast };
   }
-  if (webhook.secretSet !== true) parts.push('secret missing');
-  if (webhook.enabled === false) parts.push('paused');
-  return parts.filter(Boolean).join(' · ');
+  return <>
+    {parser} · {delivery}
+    {route && <> · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} /></>}
+    {webhook.secretSet !== true && <> · {t('secret missing')}</>}
+    {webhook.enabled === false && <> · {t('paused')}</>}
+  </>;
 }
 
 function endpointUrl(publicBase: string, name: string): string {

@@ -6,6 +6,7 @@ import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'rea
 import type {
   DesktopModelOption
 } from '../../shared/contract';
+import { registerMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
 import { modelDisplayName, providerDisplayName } from '../provider-display';
 // The primitives translate their OWN string props: every settings panel that
@@ -177,9 +178,12 @@ export function ActionButton({ children, danger, disabled, onClick }: {
 
 export function SettingsConfirmDialog({ options, onClose }: { options: SettingsConfirmation; onClose(): void }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => { cancelRef.current?.focus(); }, []);
   // Fullscreen scrim: the native caption controls dim with it.
   useEffect(() => acquireTitleBarDim(), []);
+  useEffect(() => registerMobileBack(() => onCloseRef.current()), []);
   const accept = () => {
     onClose();
     void options.onConfirm();

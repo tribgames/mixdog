@@ -1,7 +1,7 @@
 import type { DesktopApi, DesktopRemoteAccessInfo } from '../../shared/contract';
 
 export type ConnectionInfoApi = Partial<Pick<DesktopApi,
-  'getRemoteAccessInfo' | 'rotateRemoteAccess'>>;
+  'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'>>;
 
 interface ConnectionInfoCacheEntry {
   value?: DesktopRemoteAccessInfo | null;

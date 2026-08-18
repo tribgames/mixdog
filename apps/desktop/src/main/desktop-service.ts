@@ -1,4 +1,7 @@
 import type {
+  DesktopRemoteProjectionInput,
+  DesktopRemoteProjectionState,
+  DesktopRemoteClientInfo,
   DesktopSessionStateUpdate,
   SessionSnapshot,
 } from '../shared/contract';
@@ -92,10 +95,66 @@ export async function createDesktopService(
     emit: (event) => emit({ kind: 'desktop-event', ...event }),
   });
   const settingsStore = operations.settingsStore;
+  const desktopEventListeners = new Set<
+    (event: { name: string; value: unknown }) => void
+  >();
+  let remoteProjection: DesktopRemoteProjectionState | null = null;
+  const publishDesktopEvent = (name: string, value: unknown): void => {
+    emit({ kind: 'desktop-event', name, value });
+    for (const listener of desktopEventListeners) listener({ name, value });
+  };
+  const setRemoteProjection = (value: unknown): DesktopRemoteProjectionState => {
+    if (!value || typeof value !== 'object') {
+      throw new TypeError('remote projection is invalid.');
+    }
+    const input = value as Partial<DesktopRemoteProjectionInput>;
+    const sourceId = String(input.sourceId || '');
+    const sidebarPanels = new Set([
+      'utilities', 'schedules', 'webhooks', 'projects', 'workflows',
+    ]);
+    const dockTabs = new Set(['agents', 'search', 'source-control', 'pull-requests']);
+    const encoded = JSON.stringify(input.selection ?? null);
+    if (!/^[A-Za-z0-9:_-]{8,128}$/u.test(sourceId)
+      || encoded.length > 32_768
+      || (input.sidebarPanel !== null && !sidebarPanels.has(String(input.sidebarPanel)))
+      || !dockTabs.has(String(input.dockTab))
+      || typeof input.sidebarOpen !== 'boolean'
+      || typeof input.dockOpen !== 'boolean'
+      || typeof input.bottomPanelOpen !== 'boolean'
+      || typeof input.bottomPanelTab !== 'string'
+      || input.bottomPanelTab.length > 64) {
+      throw new TypeError('remote projection is invalid.');
+    }
+    remoteProjection = {
+      sourceId,
+      selection: JSON.parse(encoded) as unknown,
+      sidebarOpen: input.sidebarOpen,
+      sidebarPanel: input.sidebarPanel === null ? null : String(input.sidebarPanel),
+      dockOpen: input.dockOpen,
+      dockTab: String(input.dockTab),
+      bottomPanelOpen: input.bottomPanelOpen,
+      bottomPanelTab: input.bottomPanelTab,
+      revision: (remoteProjection?.revision ?? 0) + 1,
+      updatedAt: Date.now(),
+    };
+    publishDesktopEvent('remote-projection-state', remoteProjection);
+    return remoteProjection;
+  };
+  const invokeProjectedOperation = (name: string, args: unknown[] = []): unknown => {
+    if (name === 'getRemoteProjection') return remoteProjection;
+    if (name === 'setRemoteProjection') return setRemoteProjection(args[0]);
+    return operations.invoke(name, args);
+  };
   const remoteHost = new Proxy(host, {
     get(target, property) {
       if (property === 'invokeDesktopOperation') {
-        return (name: string, args: unknown[] = []) => operations.invoke(name, args);
+        return invokeProjectedOperation;
+      }
+      if (property === 'subscribeDesktopEvents') {
+        return (listener: (event: { name: string; value: unknown }) => void) => {
+          desktopEventListeners.add(listener);
+          return () => desktopEventListeners.delete(listener);
+        };
       }
       const value = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
@@ -103,13 +162,16 @@ export async function createDesktopService(
   }) as unknown as DesktopService;
   let remoteRelay: RemoteRelayHandle | null = null;
   let remoteServicesPromise: Promise<void> | null = null;
-  const remoteDescriptor = () => {
+  const remoteDescriptor = async () => {
     if (!remoteRelay) return null;
+    let clients: DesktopRemoteClientInfo[] = [];
+    try { clients = await remoteRelay.listClients(); } catch { /* relay may still be connecting */ }
     return {
       relay: {
         clientUrl: remoteRelay.clientUrl,
         token: remoteRelay.token,
         pairing: remoteRelay.pairing,
+        clients,
       },
     };
   };
@@ -240,12 +302,19 @@ export async function createDesktopService(
           return remoteDescriptor();
         }
         if (operation === 'remoteAccessRotate') return rotateRemoteAccess();
+        if (operation === 'remoteAccessRevokeClient') {
+          await startRemoteServices();
+          const clientId = String(operationArgs[0] || '');
+          if (!remoteRelay) return null;
+          await remoteRelay.revokeClient(clientId);
+          return remoteDescriptor();
+        }
         if (operation === 'remoteAccessResume') {
           if (remoteRelay) remoteRelay.resume();
           else await startRemoteServices();
           return null;
         }
-        return operations.invoke(operation, operationArgs);
+        return invokeProjectedOperation(operation, operationArgs);
       }
       if (method === 'setVisibleSessions') {
         visibleSessionIds.clear();
@@ -303,6 +372,7 @@ export async function createDesktopService(
       latestSessionStates.clear();
       latestSessionProvenance.clear();
       visibleSessionIds.clear();
+      desktopEventListeners.clear();
       try { await remoteRelay?.close(); } catch {}
       remoteRelay = null;
       await operations.dispose();

@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS scheduler.schedules (
   enabled        boolean NOT NULL DEFAULT true,
   status         text NOT NULL DEFAULT 'active' CHECK (status IN ('active','done')),
   last_fired_at  timestamptz,
+  last_scheduled_at timestamptz,
+  last_started_at   timestamptz,
+  last_success_at   timestamptz,
+  last_failed_at    timestamptz,
   next_fire_at   timestamptz,
   deferred_until timestamptz,
   skipped_until  timestamptz,
@@ -51,6 +55,10 @@ ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS cwd text;
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS workflow text;
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS attachments jsonb;
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS delivery text;
+ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS last_scheduled_at timestamptz;
+ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS last_started_at timestamptz;
+ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS last_success_at timestamptz;
+ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS last_failed_at timestamptz;
 `;
 
 async function getDb(dataDir = resolvePluginData()) {
@@ -95,6 +103,10 @@ function rowToDef(row) {
     enabled:       row.enabled,
     status:        row.status,
     lastFiredAt:   row.last_fired_at,
+    lastScheduledAt: row.last_scheduled_at,
+    lastStartedAt: row.last_started_at,
+    lastSuccessAt: row.last_success_at,
+    lastFailedAt: row.last_failed_at,
     nextFireAt:    row.next_fire_at,
     deferredUntil: row.deferred_until,
     skippedUntil:  row.skipped_until,
@@ -103,7 +115,7 @@ function rowToDef(row) {
   };
 }
 
-const COLS = 'name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, delivery, prompt, enabled, status, last_fired_at, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
+const COLS = 'name, description, when_at, when_cron, timezone, target, channel_id, model, cwd, workflow, attachments, delivery, prompt, enabled, status, last_fired_at, last_scheduled_at, last_started_at, last_success_at, last_failed_at, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -172,6 +184,10 @@ export async function upsertSchedule(def, { dataDir } = {}) {
        deferred_until = NULL,
        skipped_until  = NULL,
        last_fired_at  = NULL,
+       last_scheduled_at = NULL,
+       last_started_at = NULL,
+       last_success_at = NULL,
+       last_failed_at = NULL,
        updated_at   = now()
      RETURNING ${COLS}`,
     params,
@@ -198,6 +214,62 @@ export async function markFired(name, ts = new Date(), { dataDir } = {}) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
     `UPDATE scheduler.schedules SET last_fired_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
+    [name, ts],
+  );
+  return rowToDef(rows[0]);
+}
+
+export async function setNextFire(name, ts, { dataDir } = {}) {
+  const db = await getDb(dataDir);
+  const { rows } = await db.query(
+    `UPDATE scheduler.schedules SET next_fire_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
+    [name, ts ?? null],
+  );
+  return rowToDef(rows[0]);
+}
+
+export async function advanceScheduleCursor(name, scheduledAt, nextFireAt, { dataDir } = {}) {
+  const db = await getDb(dataDir);
+  const { rows } = await db.query(
+    `UPDATE scheduler.schedules
+       SET last_scheduled_at = $2, next_fire_at = $3, updated_at = now()
+     WHERE name = $1
+       AND status = 'active' AND enabled = true
+       AND (last_scheduled_at IS NULL OR last_scheduled_at < $2)
+     RETURNING ${COLS}`,
+    [name, scheduledAt, nextFireAt ?? null],
+  );
+  return rowToDef(rows[0]);
+}
+
+export async function claimScheduleRun(name, scheduledAt, startedAt, nextFireAt, { dataDir } = {}) {
+  const db = await getDb(dataDir);
+  const { rows } = await db.query(
+    `UPDATE scheduler.schedules
+       SET last_scheduled_at = $2, last_started_at = $3, last_fired_at = $3,
+           next_fire_at = $4, updated_at = now()
+     WHERE name = $1
+       AND status = 'active' AND enabled = true
+       AND (last_scheduled_at IS NULL OR last_scheduled_at < $2)
+     RETURNING ${COLS}`,
+    [name, scheduledAt, startedAt, nextFireAt ?? null],
+  );
+  return rowToDef(rows[0]);
+}
+
+export async function markScheduleSuccess(name, ts = new Date(), { dataDir } = {}) {
+  const db = await getDb(dataDir);
+  const { rows } = await db.query(
+    `UPDATE scheduler.schedules SET last_success_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
+    [name, ts],
+  );
+  return rowToDef(rows[0]);
+}
+
+export async function markScheduleFailure(name, ts = new Date(), { dataDir } = {}) {
+  const db = await getDb(dataDir);
+  const { rows } = await db.query(
+    `UPDATE scheduler.schedules SET last_failed_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
     [name, ts],
   );
   return rowToDef(rows[0]);

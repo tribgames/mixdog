@@ -891,8 +891,8 @@ function GitStep({ api }: { api: DesktopApi }) {
   </div>;
 }
 
-// Desktop surface modes only (user decision): System / Dark / White, the same
-// desktop-local preference Settings → General writes. Gray IS Dark now.
+// Desktop surface modes only: the same desktop-local preference
+// Settings → General writes.
 const THEME_MODES: ReadonlyArray<{
   id: DesktopThemePreference;
   label(): string;
@@ -900,13 +900,15 @@ const THEME_MODES: ReadonlyArray<{
 }> = [
   { id: 'system', label: () => t('System'), hint: () => t('Match OS') },
   { id: 'dark', label: () => t('Dark'), hint: () => t('Neutral charcoal') },
+  { id: 'gray', label: () => t('Gray'), hint: () => t('Original Mixdog ramp') },
   { id: 'white', label: () => t('White'), hint: () => t('Bright & crisp') },
 ];
 
 /** The desktop surface ramps, mirrored from desktop.css for the mini preview
  *  (the TUI registry palette knows nothing about the desktop ramps). */
 const SURFACE_PREVIEW: Record<string, { deep: string; base: string; text: string; border: string }> = {
-  dark: { deep: '#101013', base: '#222225', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
+  dark: { deep: '#000000', base: '#1c1c1f', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
+  gray: { deep: '#101013', base: '#222225', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
   white: { deep: '#f5f5f5', base: '#ffffff', text: '#17181a', border: 'rgba(0,0,0,.14)' },
 };
 

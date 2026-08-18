@@ -11,14 +11,44 @@ import {
 } from './model-catalog-cache.ts';
 import { usagePinEntries } from './SidebarUsage.tsx';
 import {
+  ModelRouteLabel,
   modelDisplayName,
   modelOptionDescription,
+  modelRouteDisplayName,
   ProviderIcon,
   providerDisplayName,
   providerDisplayRank,
 } from './provider-display.tsx';
 import { displayUsagePercent } from './usage-percent.ts';
 import { routeSheetRows } from './route-editor-logic.ts';
+
+test('model route labels use one compact TASK-style string', () => {
+  assert.equal(
+    modelRouteDisplayName('GPT-5.6-Sol', 'high', true, 'High'),
+    'GPT-5.6-Sol High Fast',
+  );
+  assert.equal(
+    modelRouteDisplayName('GPT-5.6-Sol', 'xhigh', true, 'Extra High'),
+    'GPT-5.6-Sol XHigh Fast',
+  );
+  assert.equal(
+    modelRouteDisplayName('GPT-5.6-Sol', 'xhigh'),
+    'GPT-5.6-Sol XHigh',
+  );
+});
+
+test('model route labels preserve semantic effort and Fast colors', () => {
+  const markup = renderToStaticMarkup(createElement(ModelRouteLabel, {
+    model: 'GPT-5.6-Sol',
+    effort: 'xhigh',
+    fast: true,
+    effortLabel: 'Extra High',
+  }));
+  assert.match(markup, /class="model-route-label-model"/);
+  assert.match(markup, /class="model-route-label-effort">XHigh/);
+  assert.match(markup, /class="model-route-label-fast">Fast/);
+  assert.doesNotMatch(markup, /·|⚡/);
+});
 
 test('desktop model catalog preserves complete picker metadata', () => {
   const [model] = normalizedProviderModels([{

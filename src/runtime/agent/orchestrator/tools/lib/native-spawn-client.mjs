@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { dirname, resolve as pathResolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
+import { fileURLToPath } from 'node:url';
 import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
 import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureSpawnBinary, findCachedSpawnBinary } from '../spawn-binary-fetcher.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
+const SERVER_READY_TIMEOUT_MS = 5_000;
 
 let _server = null;
 let _binaryPath = undefined;
@@ -57,22 +60,24 @@ function acceptTask(message) {
 class LineStream extends EventEmitter {
   constructor() {
     super();
-    this._pending = '';
+    this._pending = [];
   }
   setEncoding() { return this; }
   emit(event, ...args) {
     if (event === 'data' && this.listenerCount('data') === 0) {
-      this._pending += args[0] == null ? '' : String(args[0]);
+      if (args[0] != null) this._pending.push(args[0]);
       return false;
     }
     return super.emit(event, ...args);
   }
   on(event, listener) {
     const ret = super.on(event, listener);
-    if (event === 'data' && this._pending) {
+    if (event === 'data' && this._pending.length > 0) {
       const pending = this._pending;
-      this._pending = '';
-      queueMicrotask(() => listener(pending));
+      this._pending = [];
+      queueMicrotask(() => {
+        for (const chunk of pending) listener(chunk);
+      });
     }
     return ret;
   }
@@ -140,6 +145,17 @@ function _resolveBinary() {
   const explicit = String(process.env.MIXDOG_SPAWN_SERVER_BIN || '').trim();
   if (explicit && existsSync(explicit)) {
     _binaryPath = explicit;
+    return _binaryPath;
+  }
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const binName = process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn';
+  const localBuild = pathResolve(
+    moduleDir,
+    '../../../../../../native/mixdog-spawn/target/release',
+    binName,
+  );
+  if (existsSync(localBuild)) {
+    _binaryPath = localBuild;
     return _binaryPath;
   }
   const installed = packageNativeToolPath('spawn');
@@ -243,13 +259,23 @@ function _ensureServer() {
     _lastFailureAt = Date.now();
     return null;
   }
-  const server = { child, pending: new Map(), sequence: 0 };
+  const server = { child, pending: new Map(), sequence: 0, ready: false, caps: {} };
+  let resolveReady;
+  server.readyPromise = new Promise((resolve) => { resolveReady = resolve; });
+  const settleReady = (value) => {
+    if (!resolveReady) return;
+    const resolve = resolveReady;
+    resolveReady = null;
+    resolve(value);
+  };
   const lines = createInterface({ input: child.stdout });
   lines.on('line', (line) => {
     let message;
     try { message = JSON.parse(line); } catch { return; }
     if (message?.ready === true) {
       server.caps = (message.caps && typeof message.caps === 'object') ? message.caps : {};
+      server.ready = true;
+      settleReady(true);
       return;
     }
     if (String(message?.event || '').startsWith('task_')) acceptTask(message);
@@ -257,8 +283,14 @@ function _ensureServer() {
     if (!pending) return;
     pending.onMessage(message);
   });
-  child.on('error', (error) => { if (_server === server) _teardown(error); });
-  child.on('exit', () => { if (_server === server) _teardown(); });
+  child.on('error', (error) => {
+    settleReady(false);
+    if (_server === server) _teardown(error);
+  });
+  child.on('exit', () => {
+    settleReady(false);
+    if (_server === server) _teardown();
+  });
   child.stdin.on('error', (error) => { if (_server === server) _teardown(error); });
   _setServerReferenced(server, false);
   _server = server;
@@ -274,16 +306,39 @@ export async function warmNativeSpawnServer() {
 }
 
 export async function ensureNativeSpawnServer() {
-  if (_server) return true;
+  if (_server?.ready) return true;
   let binary = _resolveBinary();
   if (!binary) {
     binary = await ensureSpawnBinary(getPluginData());
     _binaryPath = binary;
   }
-  if (!_ensureServer()) {
+  const server = _ensureServer();
+  if (!server) {
     throw Object.assign(new Error('verified native spawn server could not be started'), {
       code: 'NATIVE_SPAWN_UNAVAILABLE',
     });
+  }
+  if (!server.ready) {
+    let timer;
+    let ready;
+    _setServerReferenced(server, true);
+    try {
+      ready = await Promise.race([
+        server.readyPromise,
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(false), SERVER_READY_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (_server === server) _recomputeServerRef(server);
+    }
+    if (!ready) {
+      if (_server === server) _teardown(new Error('native spawn server ready timeout'));
+      throw Object.assign(new Error('verified native spawn server did not become ready'), {
+        code: 'NATIVE_SPAWN_UNAVAILABLE',
+      });
+    }
   }
   return true;
 }
@@ -311,6 +366,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
     timeoutMs: Math.max(0, Number(spawnOptions.timeoutMs) || 0),
     outputLimit: Math.max(0, Number(spawnOptions.outputLimit) || 0),
     mergeStderr: spawnOptions.mergeStderr === true,
+    rawOutput: spawnOptions.rawOutput === true,
     ...(spawnOptions.stdinPipe === true ? { stdinPipe: true } : {}),
     command: spawnOptions.command || undefined,
     shellType: spawnOptions.shellType || undefined,
@@ -338,8 +394,18 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
         fake.emit('spawn');
         return;
       }
-      if (event === 'stdout' && message.text) fake.stdout.emit('data', String(message.text));
-      else if (event === 'stderr' && message.text) fake.stderr.emit('data', String(message.text));
+      if (event === 'stdout' && (message.dataBase64 || message.text)) {
+        const chunk = message.dataBase64
+          ? Buffer.from(String(message.dataBase64), 'base64')
+          : String(message.text);
+        fake.stdout.emit('data', chunk);
+      }
+      else if (event === 'stderr' && (message.dataBase64 || message.text)) {
+        const chunk = message.dataBase64
+          ? Buffer.from(String(message.dataBase64), 'base64')
+          : String(message.text);
+        fake.stderr.emit('data', chunk);
+      }
       else if (event === 'root_exit') {
         fake.exitCode = message.code == null ? null : Number(message.code);
         fake.signalCode = message.signal || null;

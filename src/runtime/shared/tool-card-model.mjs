@@ -108,7 +108,7 @@ export function deriveToolOutcomeTone({
 export function displayTerminalStatus(value) {
   // 'exit' is a shell-only pseudo-status (command RAN but exited non-zero); it
   // is intentionally NOT a normalized terminal status so it never colors red.
-  if (String(value || '').trim().toLowerCase() === 'exit') return 'Command failed';
+  if (String(value || '').trim().toLowerCase() === 'exit') return 'Exited';
   const status = normalizeTerminalStatus(value);
   if (status === 'running') return 'Running';
   if (status === 'completed') return 'Finished';

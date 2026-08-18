@@ -85,16 +85,16 @@
      +3 blue offset — a perfectly equal-channel grey reads warm next to the
      shell's amber/orange content (user: 갈색빛이 있다), and the offset
      cancels it while still measuring as neutral grey.
-     Band = rails/titlebar vs sheet = workspace (VS Code Dark Modern
-     separation); the composer/menu surface (base) sits one step LIGHTER
-     than the sheet so inputs and cards visibly float. */
-  --mx-bg-deep: #101013;
-  --mx-window-band: #151518;
-  --mx-workspace-sheet: #1c1c1f;
-  --mx-bg-base: #222225;
-  --mx-bg-layer-1: #2a2a2d;
-  --mx-bg-layer-2: #323236;
-  --mx-bg-layer-3: #3d3d41;
+     Band = rails/titlebar/window bezel vs sheet = workspace. The central
+     TASK/Studio/editor canvas is pure black while chrome stays one grey step
+     above it; the composer/menu surface remains lighter so cards float. */
+  --mx-bg-deep: #000000;
+  --mx-window-band: #111114;
+  --mx-workspace-sheet: #000000;
+  --mx-bg-base: #1c1c1f;
+  --mx-bg-layer-1: #222225;
+  --mx-bg-layer-2: #2a2a2d;
+  --mx-bg-layer-3: #323236;
   --mx-bg-contrast: #5c5c61;
   /* Surface-base: translucent plate used by chat bubbles. */
   --mx-surface-plate: rgba(255, 255, 255, .035);
@@ -102,21 +102,21 @@
   --mx-terminal-bg: #121215;
 
   /* ── Type scale ── */
-  /* One chrome ramp on FIVE real sizes — 11 badge · 12 meta · 13 item ·
-     14 category · 15 panel title. The semantic aliases below are the shared
+  /* One chrome ramp on FIVE real sizes — 11 badge · 13 meta · 14 item ·
+     15 category · 16 panel title. The semantic aliases below are the shared
      contract for left, right, and bottom rails; local surfaces should not
      collapse panel and category headings onto the same size.
      micro is RESERVED for counters/badges/pills — readable sentences,
      captions with names, and button labels start at meta. Content scales
      (markdown headings, onboarding hero, editor titles) stay literal. */
   --mx-font-micro: 11px;
-  --mx-font-meta: 12px;
-  --mx-font-minor: 13px;
+  --mx-font-meta: 13px;
+  --mx-font-minor: 14px;
   --mx-font-code: 13px;
-  --mx-font-ui: 13px;
-  --mx-font-emphasis: 14px;
+  --mx-font-ui: 14px;
+  --mx-font-emphasis: 15px;
   --mx-font-body: 15px;
-  --mx-font-panel-title: var(--mx-font-body);
+  --mx-font-panel-title: 16px;
   --mx-font-category: var(--mx-font-emphasis);
   --mx-font-item: var(--mx-font-ui);
   --mx-font-supporting: var(--mx-font-meta);
@@ -192,6 +192,7 @@
      sidebar/dock/tab-strip seams read crisply (VS Code #2b2b2b-class). */
   --mx-border-muted: rgba(255, 255, 255, .09);
   --mx-border: rgba(255, 255, 255, .125);
+  --mx-border-structure: rgba(255, 255, 255, .16);
   --mx-border-strong: rgba(255, 255, 255, .24);
 
   /* ── 4. Interaction ── */
@@ -301,6 +302,19 @@
   --vvh: 100vh;
 }
 
+:root[data-mixdog-theme="gray"] {
+  /* Original Mixdog desktop ramp, retained as an explicit Desktop-only
+     alternative to the black Codex-style Dark theme. */
+  --mx-bg-deep: #101013;
+  --mx-window-band: #151518;
+  --mx-workspace-sheet: #1c1c1f;
+  --mx-bg-base: #222225;
+  --mx-bg-layer-1: #2a2a2d;
+  --mx-bg-layer-2: #323236;
+  --mx-bg-layer-3: #3d3d41;
+  --mx-bg-contrast: #5c5c61;
+}
+
 :root[data-mixdog-theme="light"] {
   /* NEUTRAL paper (user: 웹으로 볼 때 갈색빛이 많이 돈다): the warm
      re-tint used to be corrected by a desktop-only surface override, so the
@@ -335,6 +349,7 @@
   /* Neutral hairlines: the warm alpha set pulled every seam brown. */
   --mx-border-muted: rgba(23, 24, 26, .10);
   --mx-border: rgba(23, 24, 26, .14);
+  --mx-border-structure: rgba(23, 24, 26, .20);
   --mx-border-strong: rgba(23, 24, 26, .26);
 
   /* ── 4. Interaction ── */
@@ -631,7 +646,8 @@ html[data-mixdog-remote] .titlebar-caption-space {
   -webkit-app-region: no-drag;
 }
 .sidebar-toggle-icon {
-  display: block;
+  display: grid;
+  place-items: center;
   width: 18px;
   height: 18px;
   flex: 0 0 18px;
@@ -639,11 +655,29 @@ html[data-mixdog-remote] .titlebar-caption-space {
      lucide stroke read chunky at this size. */
   stroke-width: 1.25px;
 }
+/* Codicon layout glyphs (B안): the font draws on its native 16px grid, so
+   16px EXACTLY keeps every line on device pixels — never resize these. The
+   selector doubles up to outrank codicon.css's own font shorthand. */
+.sidebar-toggle-icon.codicon { font-size: 16px; }
+/* Rail destinations draw codicons at VS Code's activity-bar 24px. */
+.activity-rail .codicon { font-size: 24px; }
 /* One rail icon voice: the toggle, dock glyphs and the utility-dock tab row
    share the 18px frame + thin stroke (user: 사이드탭 아이콘이 더 작은 게
    이해가 안 된다 — the dock tabs sat at 16px beside 18px header toggles).
    svg.lucide qualifier outranks the global 1.75px lucide rule. */
-.toolbar-sidebar { color: var(--mx-text); }
+/* The three layout toggles read one ink step QUIETER than content icons
+   (user: 여는 메뉴만 눈에 띄게 밝다 — 색감 통일): codicon glyphs carry more
+   ink than the old 1.25px lucide strokes, so soft ink restores the old
+   optical weight; interaction states re-ink to full text. */
+.toolbar-sidebar,
+.toolbar-panel,
+.toolbar-dock { color: var(--mx-text-soft); }
+.toolbar-sidebar:hover,
+.toolbar-panel:hover,
+.toolbar-dock:hover,
+.toolbar-sidebar:focus-visible,
+.toolbar-panel:focus-visible,
+.toolbar-dock:focus-visible { color: var(--mx-text); }
 .toolbar-sidebar svg.lucide,
 .session-dock-toggle svg.lucide,
 .utility-dock-tabs button svg.lucide {
@@ -659,6 +693,21 @@ html[data-mixdog-remote] .titlebar-caption-space {
 .remote-toggle-spinner { animation: remote-toggle-spin 800ms linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   .remote-toggle-spinner { animation: none; }
+}
+/* Brand mark in the old sidebar-toggle slot (VS Code grammar): a quiet,
+   non-interactive glyph that stays part of the drag band. */
+.titlebar-brand {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 100%;
+}
+.titlebar-brand > img {
+  width: 24px;
+  height: 24px;
+  opacity: 0.9;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 .workspace-tabs {
   height: 35px;
@@ -907,7 +956,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
 /* The active tab merges with the sheet. Focus ownership is communicated by
    one inset accent only — never by a second outline around the whole pane. */
 .workspace-tab.active {
-  --workspace-tab-surface: var(--mx-workspace-sheet);
+  --workspace-tab-surface: var(--mx-window-band);
   color: var(--mx-text);
   background: var(--workspace-tab-surface);
   /* Chrome-style contour (user: 선택 라벨 좌우 윤곽선이 없어 구분이 안
@@ -986,13 +1035,18 @@ html[data-mixdog-remote] .titlebar-caption-space {
   background: transparent;
 }
 /* Glyph carries the 26px hover pill inside the tall hit box. */
-.workspace-tab-new svg {
+.workspace-tab-new svg,
+.workspace-tab-new .codicon {
   box-sizing: content-box;
   padding: 5px;
   border-radius: var(--mx-radius-md);
 }
+/* Codicon add: native 16px grid, pixel-crisp like Chrome's own +. */
+.workspace-tab-new .codicon { font-size: 16px; }
 .workspace-tab-new:hover svg,
-.workspace-tab-new:focus-visible svg { background: var(--mx-hover); }
+.workspace-tab-new:hover .codicon,
+.workspace-tab-new:focus-visible svg,
+.workspace-tab-new:focus-visible .codicon { background: var(--mx-hover); }
 .workspace-tab-new-menu {
   position: fixed;
   z-index: 10020;
@@ -1078,6 +1132,8 @@ html[data-mixdog-remote] .titlebar-caption-space {
   height: 14px;
   stroke-width: 1.75px;
 }
+/* Codicon close at its native 16px (VS Code tab grammar) — pixel-aligned. */
+.workspace-tab-close .codicon { font-size: 16px; }
 .workspace-tab-close:hover {
   color: var(--mx-text);
   background: var(--mx-hover);
@@ -1093,7 +1149,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
      and hairlines carry the structure. The top line lives here (not on the
      topbar) so the Windows caption overlay cannot cover it. */
   padding: 0;
-  border-top: 1px solid var(--mx-border-muted);
+  border-top: 1px solid var(--mx-border-structure);
   background: var(--mx-window-band);
 }
 /* The narrow desktop shell promotes this otherwise layout-transparent group
@@ -1103,11 +1159,11 @@ html[data-mixdog-remote] .titlebar-caption-space {
 /* Flat layout: the dock separates with a hairline instead of a band gap. */
 .desktop-body > .utility-dock[data-side="right"] {
   margin-left: 0;
-  border-left: 1px solid var(--mx-border-muted);
+  border-left: 1px solid var(--mx-border-structure);
 }
 .desktop-body > .utility-dock[data-side="left"] {
   margin-right: 0;
-  border-right: 1px solid var(--mx-border-muted);
+  border-right: 1px solid var(--mx-border-structure);
 }
 /* Floor-overlap state (UtilityDock syncDockOverlay): past the workspace
    min-width floor the dock covers the pane edge instead of pushing the
@@ -1192,7 +1248,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  border-right: 1px solid var(--mx-border-muted);
+  border-right: 1px solid var(--mx-border-structure);
   /* VS Code activity-bar ink, exact upstream values (user: 색감): inactive
      = activityBar.inactiveForeground #ffffff66 (40%), hover/active = full
      foreground via the button rules below. */
@@ -1253,7 +1309,932 @@ html[data-mixdog-remote] .titlebar-caption-space {
   opacity: 1;
   transform: scaleY(1);
 }
+.activity-rail > nav > button[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus);
+}
+.activity-rail > nav > button[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus);
+}
+.activity-rail > nav > button[data-drop-position="inside"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.activity-rail > nav > button[draggable="true"],
+.session-panel-title[draggable="true"],
+.sidebar-view-section-header[draggable="true"] { cursor: grab; }
+.activity-rail > nav > button[draggable="true"]:active,
+.session-panel-title[draggable="true"]:active,
+.sidebar-view-section-header[draggable="true"]:active { cursor: grabbing; }
+.activity-rail > .workbench-side-icon-bar.is-vertical,
+.activity-rail > nav.workbench-side-icon-bar.is-vertical {
+  display: flex;
+  flex-direction: column;
+  min-height: 48px;
+}
+.workbench-side-icon-bar.is-vertical > button {
+  position: relative;
+  width: 47px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+.workbench-side-icon-bar.is-vertical > button:hover,
+.workbench-side-icon-bar.is-vertical > button.active {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.workbench-side-icon-bar.is-vertical > button.active::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--mx-text);
+}
+.workbench-side-icon-bar.is-vertical > button[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus);
+}
+.workbench-side-icon-bar.is-vertical > button[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus);
+}
+.workbench-side-icon-bar.is-vertical > button[data-drop-position="inside"] {
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
 .activity-rail-spacer { flex: 1; }
+
+.workbench-side-panel {
+  position: relative;
+  width: var(--workbench-side-panel-width);
+  min-width: var(--workbench-side-panel-min-width);
+  max-width: var(--workbench-side-panel-max-width);
+  height: 100%;
+  flex: 0 0 var(--workbench-side-panel-width);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--mx-text);
+  background: var(--mx-window-band);
+}
+.workbench-side-panel-content {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The closed panel carries the `hidden` attribute; without this override the
+   class's display:flex beats the UA [hidden] rule and a collapsed side panel
+   lingers as an empty, inert strip. */
+.workbench-side-panel[hidden] { display: none; }
+
+/* Chrome-Android toolbar on the projected phone (user: 크롬 모바일처럼 +
+   해상도): every metric is written in Chrome's dp grammar — 56dp toolbar row,
+   40dp address pill, 26dp count box with a 2dp contour, 24dp glyphs — and
+   multiplied by the runtime projection factor (--mx-device-scale = layout px
+   per device dp), so the row lands at native size on ANY phone. Order matches
+   Chrome: [pill][+][count][menu/trailing]. */
+/* The desktop title band is dead weight on a phone (user: 상단 상태줄 하나
+   날리고 최상단): the Chrome toolbar IS the top row. */
+html[data-mixdog-mobile-tabs] .topbar { display: none; }
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] {
+  gap: calc(8px * var(--mx-device-scale, 2.5));
+  padding: calc(8px * var(--mx-device-scale, 2.5));
+  padding-top: max(calc(8px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top));
+}
+/* Trailing cluster (user: ⋮ 말고 숫자·하단·우측 3버튼, 똑같은 사이즈):
+   [home][pill][N][하단][우측] — three equal 40dp boxes with 24dp glyphs;
+   New task stays inside the grid overview. */
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .workspace-tab-new {
+  display: none;
+}
+.workspace-tab-home,
+.workspace-tab-mobile-panel,
+.workspace-tab-mobile-dock {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--mx-text-soft);
+  background: transparent;
+  cursor: pointer;
+}
+/* PC narrow-pane compact keeps the same controls at strip scale. */
+.workspace-tab-home,
+.workspace-tab-mobile-panel,
+.workspace-tab-mobile-dock { width: 28px; height: 28px; }
+.workspace-tab-home-mark { display: block; width: 20px; height: 20px; }
+.workspace-tab-mobile-panel .codicon,
+.workspace-tab-mobile-dock .codicon { font-size: 16px; }
+html[data-mixdog-mobile-tabs] .workspace-tab-home {
+  order: 0;
+  width: calc(40px * var(--mx-device-scale, 2.5));
+  height: calc(40px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
+  /* Chrome-glyph optical size (계측: ~20dp); the frameless mark inks its
+     full box, so 24dp bounds land at the same visual weight. */
+  width: calc(24px * var(--mx-device-scale, 2.5));
+  height: calc(24px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel,
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock {
+  width: calc(40px * var(--mx-device-scale, 2.5));
+  height: calc(40px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel { order: 4; }
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock { order: 5; }
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel .codicon,
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock .codicon {
+  /* 22dp font → ~19-20dp optical ink (codicon 16-grid margin), matching
+     Chrome's measured glyph weight. */
+  font-size: calc(22px * var(--mx-device-scale, 2.5));
+}
+/* Measured against the user's Chrome screenshot (pill/toolbar = 0.58 →
+   ~33dp; glyph optical ~20dp; count box ~22dp — Chrome's 24dp icons carry
+   built-in padding): one optical step DOWN from the old 40/24/24. */
+html[data-mixdog-mobile-tabs] .workspace-tab-compact-current {
+  order: 1;
+  height: calc(34px * var(--mx-device-scale, 2.5));
+  padding: 0 calc(14px * var(--mx-device-scale, 2.5));
+  gap: calc(8px * var(--mx-device-scale, 2.5));
+  border-radius: 999px;
+  background: var(--mx-hover);
+  font-size: calc(14px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
+  /* One step down with the 34dp pill. */
+  width: calc(18px * var(--mx-device-scale, 2.5));
+  height: calc(18px * var(--mx-device-scale, 2.5));
+}
+/* Count joins the two panel toggles at ONE control size (user: 똑같은
+   사이즈): a 40dp box like its neighbors, with the Chrome contour drawn as
+   a centered 24dp square so the three glyphs read identical. */
+html[data-mixdog-mobile-tabs] .workspace-tab-count {
+  order: 3;
+  position: relative;
+  width: calc(40px * var(--mx-device-scale, 2.5));
+  height: calc(40px * var(--mx-device-scale, 2.5));
+  border-radius: 999px;
+  box-shadow: none;
+  font-size: calc(11px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-count::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* Chrome's measured count box: ~22dp with a 2dp contour. */
+  width: calc(22px * var(--mx-device-scale, 2.5));
+  height: calc(22px * var(--mx-device-scale, 2.5));
+  transform: translate(-50%, -50%);
+  border-radius: calc(5px * var(--mx-device-scale, 2.5));
+  box-shadow: inset 0 0 0 calc(2px * var(--mx-device-scale, 2.5)) currentColor;
+}
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .workspace-tabs-trailing {
+  order: 6;
+}
+/* Chrome has NO hairlines above/below its toolbar (user: 상하 테두리 없네);
+   the band COLOR is the phone's status-bar ink — one surface with the system
+   bar above, visibly separate from the chat sheet below (user: 위쪽 휴대폰
+   색깔이랑 맞게, 아래 채팅영역이랑 분리). #111114 = theme-color/manifest. */
+html[data-mixdog-mobile-tabs] .desktop-body { border-top: 0; padding-inline: 0; }
+html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell,
+html[data-mixdog-mobile-tabs] .pane-strip-row > .workspace-tabs-shell {
+  border-top: 0;
+  border-bottom: 0;
+  background: var(--mx-window-band);
+}
+
+/* ── Mobile session drawer (user: 사이드탭은 전체 안 가리게 비율로, 상하는
+   전체 높이) ── the ≤760px drawer grammar re-scoped for the PROJECTED phone
+   viewport (~1040 layout px, so that media never fires). The frame carries
+   `zoom: --mx-device-scale`, which renders the desktop-metric rail and list
+   at native phone size; its own width divides the factor back out so the
+   drawer still spans a stable 78% of the real screen. */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
+  position: fixed;
+  z-index: 150;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(78vw / var(--mx-device-scale, 2.5));
+  min-width: 0;
+  display: flex;
+  zoom: var(--mx-device-scale, 2.5);
+  padding-top: env(safe-area-inset-top, 0px);
+  background: var(--mx-window-band);
+  border-radius: 0 var(--mx-radius-sheet) var(--mx-radius-sheet) 0;
+  box-shadow: 24px 0 24px var(--mx-alpha-dark-24);
+  transform: translateX(-110%);
+  visibility: hidden;
+  transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+}
+/* Children clip to the rounded sheet (user: 둥근 테두리 뒤로 긴 선이 보임 —
+   the desktop-width side panel and its resize separator painted past the
+   corner radius). */
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame { overflow: hidden; }
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .workbench-side-panel {
+  width: calc(100% - 48px);
+  min-width: 0;
+  max-width: none;
+  flex: 1 1 auto;
+  background: transparent;
+  /* Same stray hairline as the right sheet (border-right over the radius). */
+  border: 0;
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: 47px;
+  width: 1px;
+  background: var(--mx-border-muted);
+  pointer-events: none;
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  pointer-events: none;
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-state="open"] {
+  transform: none;
+  visibility: visible;
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame[data-motion="instant"] { transition: none; }
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .activity-rail {
+  position: relative;
+  z-index: auto;
+  width: 48px;
+  min-width: 48px;
+  height: 100%;
+  flex: 0 0 48px;
+  border-right: 0;
+  box-shadow: none;
+}
+html[data-mixdog-mobile-tabs] .sidebar-drawer-frame > .sidebar.session-sidebar,
+html[data-mixdog-mobile-tabs] .sidebar-collapsed .sidebar-drawer-frame > .sidebar.session-sidebar {
+  position: relative;
+  z-index: auto;
+  inset: auto;
+  width: calc(100% - 48px);
+  min-width: 0;
+  max-width: none !important;
+  height: 100%;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
+  border: 0;
+  border-radius: 0 var(--mx-radius-sheet) var(--mx-radius-sheet) 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  transition: none;
+}
+html[data-mixdog-mobile-tabs] .sidebar.session-sidebar > .session-panel-header::after { display: none; }
+html[data-mixdog-mobile-tabs] .sidebar-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 149;
+  border: 0;
+  padding: 0;
+  /* Invisible outside-tap catcher (user decision: side sheets do not dim). */
+  background: transparent;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+}
+html[data-mixdog-mobile-tabs] .sidebar-backdrop[data-state="open"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+html[data-mixdog-mobile-tabs] .session-sidebar-resize { display: none; }
+
+/* ── Mobile right drawer (user: 우측이 좌우 전체를 덮는다 — 왼쪽처럼
+   일부만, 상하는 다 채워서) ── the agents panel is the workbench side panel,
+   NOT a bare utility dock: fix THAT element to a 78% right sheet at native
+   phone metrics; the backdrop provides outside-tap dismissal. */
+html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"] {
+  position: fixed;
+  z-index: 150;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: 78vw !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: auto;
+  padding: 0;
+  background: var(--mx-window-band);
+  /* The desktop border-left hairline drew a straight line across the
+     rounded corners (user: 둥근 테두리 뒤 긴 선). */
+  border: 0;
+  border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
+  box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
+  overflow: clip;
+  contain: paint;
+  clip-path: inset(0 round var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet));
+}
+html[data-mixdog-mobile-tabs]
+  .workbench-side-panel[data-side="right"] > .workbench-side-panel-content {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% / var(--mx-device-scale, 2.5));
+  height: calc(100% / var(--mx-device-scale, 2.5));
+  min-width: 0;
+  min-height: 0;
+  transform: scale(var(--mx-device-scale, 2.5));
+  transform-origin: top left;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+html[data-mixdog-mobile-tabs]
+  .workbench-side-panel[data-side="right"] :is(
+    .workbench-side-panel-body,
+    .workbench-side-section,
+    .workbench-side-section-body,
+    .utility-dock,
+    .utility-dock-body,
+    .utility-dock-pane,
+    .agent-activity-page
+  ) {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  clip-path: none !important;
+  outline: 0 !important;
+}
+html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"]::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  pointer-events: none;
+}
+/* The edge resize separator IS the stray long line behind the rounded
+   corners (user: 둥근 테두리 뒤에 긴 선) — both drawers hide it; the sheet
+   width is fixed by ratio on the phone anyway. */
+html[data-mixdog-mobile-tabs] .workbench-side-panel-resize { display: none; }
+html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock {
+  position: fixed;
+  z-index: 150;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: calc(78vw / var(--mx-device-scale, 2.5)) !important;
+  min-width: 0;
+  max-width: none;
+  flex-basis: auto !important;
+  zoom: var(--mx-device-scale, 2.5);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
+  box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
+}
+html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  pointer-events: none;
+}
+html[data-mixdog-mobile-tabs] .utility-dock > .utility-dock-tabs-header,
+html[data-mixdog-mobile-tabs] .utility-dock > .utility-dock-header,
+html[data-mixdog-mobile-tabs] .utility-dock > .utility-dock-body {
+  align-self: stretch;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+html[data-mixdog-mobile-tabs] .utility-dock-resize { display: none; }
+html[data-mixdog-mobile-tabs] .dock-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 149;
+  border: 0;
+  padding: 0;
+  /* Outside-tap catcher only (user decision: side sheets do not dim). */
+  background: transparent;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+html[data-mixdog-mobile-tabs] .dock-backdrop[data-state="open"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* ── Mobile dialogs (user: 팝업이 중앙정렬 안 되고 스크롤됨 — 전체 팝업
+   정렬) ── the modal layer zooms to native phone metrics like the drawers;
+   its own box is restated in pre-zoom units so it still covers exactly the
+   real screen, and every dialog inside is clamped to the screen and stays
+   dead-centered. */
+html[data-mixdog-mobile-tabs] .mixdog-settings-layer {
+  --settings-layer-safe-top: 12px;
+  --settings-layer-safe-bottom: 12px;
+  zoom: var(--mx-device-scale, 2.5);
+  width: calc(100vw / var(--mx-device-scale, 2.5));
+  height: calc(var(--vvh, 100vh) / var(--mx-device-scale, 2.5));
+  padding: 12px;
+  place-items: center;
+  overscroll-behavior: contain;
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings-layer > * {
+  max-width: calc(100vw / var(--mx-device-scale, 2.5) - 24px) !important;
+  max-height: calc(var(--vvh, 100vh) / var(--mx-device-scale, 2.5) - 24px) !important;
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings-layer {
+  padding: 0;
+  place-items: stretch;
+}
+html[data-mixdog-mobile-tabs] .mixdog-settings-layer > .mixdog-settings-v2 {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ── 1-pane surface tab overview (Chrome-mobile grid) ── */
+.mobile-tab-overview {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  overflow: hidden;
+  background: var(--mx-window-band);
+}
+.mobile-tab-overview-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+.mobile-tab-overview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+}
+.mobile-tab-overview-head button {
+  border: 0;
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  cursor: pointer;
+}
+.mobile-tab-overview-new {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+}
+.mobile-tab-overview-count {
+  margin-left: auto;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+}
+.mobile-tab-overview-count > i {
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 3px;
+  border: 1.5px solid currentColor;
+  border-radius: 6px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+}
+.mobile-tab-overview-close {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+}
+.mobile-tab-overview-search {
+  margin: 0 14px;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  font-size: 15px;
+}
+.mobile-tab-overview-search::placeholder { color: var(--mx-text-muted); }
+.mobile-tab-overview-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-content: start;
+  padding: 2px 14px calc(16px + env(safe-area-inset-bottom));
+}
+.mobile-tab-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+  overflow: hidden;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 16px;
+  background: var(--mx-window-band);
+}
+.mobile-tab-card.active {
+  border-color: var(--mx-focus);
+  box-shadow: 0 0 0 1px var(--mx-focus);
+}
+.mobile-tab-card > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  flex: 0 0 40px;
+  padding: 0 4px 0 12px;
+}
+.mobile-tab-card > header > b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: var(--mx-weight-medium);
+}
+.mobile-tab-card > header > button {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  color: var(--mx-text-soft);
+  background: transparent;
+}
+.mobile-tab-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 12px;
+  border: 0;
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+/* The kind glyph OWNS the preview area (user: 카드 안이 검정으로 비어
+   있었다): centered, faint, Chrome-card composition without thumbnails. */
+.mobile-tab-card-body .mobile-tab-card-glyph {
+  flex: 1;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  color: var(--mx-text-faint);
+}
+.mobile-tab-card-meta {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+.mobile-tab-card-state.is-working { color: var(--mx-text); }
+.mobile-tab-card-state.is-unread { color: var(--mx-text-soft); }
+.workbench-side-panel[data-side="left"] { border-right: 1px solid var(--mx-border-structure); }
+.workbench-side-panel[data-side="right"] { border-left: 1px solid var(--mx-border-structure); }
+.workbench-side-empty-drop {
+  position: absolute;
+  z-index: 9;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+}
+.workbench-side-empty-drop[data-side="right"] { right: 0; }
+.workbench-side-empty-drop > .workbench-side-icon-bar {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+}
+.workbench-side-empty-drop:has(.workbench-side-icon-bar:hover) {
+  background: color-mix(in srgb, var(--mx-focus) 18%, transparent);
+}
+.workbench-side-panel-resize {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+}
+.workbench-side-panel[data-side="left"] > .workbench-side-panel-resize { right: -4px; }
+.workbench-side-panel[data-side="right"] > .workbench-side-panel-resize { left: -4px; }
+.workbench-side-panel-tabs,
+.workbench-side-panel-title {
+  min-width: 0;
+  height: 36px;
+  flex: 0 0 36px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.workbench-side-icon-bar.is-horizontal {
+  min-width: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+}
+.workbench-side-icon-bar.is-horizontal > button {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+}
+.workbench-side-icon-bar.is-horizontal > button.active::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 0;
+  height: 2px;
+  background: var(--mx-text);
+}
+.workbench-side-icon-bar.is-horizontal > button[data-drop-position="before"] {
+  box-shadow: inset 2px 0 0 var(--mx-focus);
+}
+.workbench-side-icon-bar.is-horizontal > button[data-drop-position="after"] {
+  box-shadow: inset -2px 0 0 var(--mx-focus);
+}
+.workbench-side-icon-bar.is-horizontal > button[data-drop-position="inside"] {
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.workbench-side-icon-drag-image {
+  position: fixed;
+  z-index: -1;
+  top: -10000px;
+  left: -10000px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  pointer-events: none;
+}
+.workbench-side-panel-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workbench-side-panel-content > .workbench-side-panel-body[hidden] { display: none; }
+.workbench-side-section {
+  position: relative;
+  min-width: 0;
+  min-height: 68px;
+  flex: 1 1 var(--workbench-side-section-basis, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workbench-side-section[data-sectioned="true"] {
+  border-bottom: 0;
+}
+.workbench-side-section[data-sectioned="true"]:last-child { border-bottom: 0; }
+.workbench-side-section[data-sectioned="false"] { flex: 1 1 100%; }
+.workbench-side-section-header {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--mx-text-soft);
+  background: var(--mx-window-band);
+  cursor: grab;
+}
+.workbench-side-section-header:active { cursor: grabbing; }
+.workbench-side-pane-drop-overlay {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--mx-focus) 12%, transparent);
+}
+.workbench-side-pane-drop-overlay > span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--mx-focus);
+}
+.workbench-side-section-label {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-medium);
+  text-align: left;
+}
+.workbench-side-section-label {
+  line-height: 34px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-side-section-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  isolation: isolate;
+}
+.workbench-side-sash {
+  position: relative;
+  z-index: 6;
+  height: 5px;
+  flex: 0 0 5px;
+  margin-block: -2px;
+  cursor: row-resize;
+  touch-action: none;
+}
+.workbench-side-sash::after {
+  content: "";
+  position: absolute;
+  inset: 2px 0;
+  background: var(--mx-border-structure);
+  transition: background-color 100ms ease-out;
+}
+.workbench-side-sash:hover::after,
+.workbench-side-sash:active::after {
+  background: var(--mx-focus);
+}
+.workbench-side-section-body > .sidebar.session-sidebar,
+.workbench-side-section-body > .utility-dock {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 100%;
+  flex: 1 1 auto !important;
+  border: 0 !important;
+}
+.workbench-side-section-body > .sidebar.session-sidebar {
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+.workbench-side-section-body .session-sidebar-resize,
+.workbench-side-section-body .utility-dock-resize,
+.workbench-side-section-body .utility-dock-tabs-header {
+  display: none;
+}
+.workbench-side-section-body .utility-dock-view-section-header[hidden],
+.workbench-side-section-body .sidebar-view-section-header[hidden] { display: none; }
+.workbench-side-section-body > .utility-dock > .utility-dock-header,
+.workbench-side-section-body > .utility-dock > .utility-dock-body {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+.workbench-side-section-body > .utility-dock .utility-dock-header {
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 0 36px;
+  height: 36px;
+  margin: 0;
+  gap: 6px;
+  padding: 0 4px 0 6px;
+  font-size: var(--mx-font-panel-title);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+  letter-spacing: 0;
+  cursor: grab;
+  user-select: none;
+}
+.workbench-side-section-body > .utility-dock .utility-dock-header > b {
+  font-size: var(--mx-font-panel-title);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+  letter-spacing: 0;
+}
+.workbench-side-section-body > .utility-dock .utility-dock-header:active { cursor: grabbing; }
+.workbench-side-section-body > .utility-dock .utility-dock-header::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: -8px;
+  right: -8px;
+  height: 1px;
+  background: var(--mx-border-muted);
+}
+.workbench-side-section-body .utility-dock-body {
+  width: 100%;
+  min-width: 0;
+  align-self: stretch;
+}
+.workbench-side-section-body > .utility-dock .utility-dock-pane {
+  box-sizing: border-box;
+  padding-top: 0;
+}
+.workbench-side-section-body > .utility-dock .utility-dock-pane[data-tab="agents"] {
+  padding-top: 12px;
+}
+.workbench-side-section-body > .utility-dock .dock-scm-toolbar {
+  box-sizing: border-box;
+  height: 36px;
+  flex-basis: 36px;
+  padding: 4px 12px;
+}
+.workbench-side-section-body > .workbench-side-native-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}
+.workbench-side-section-body .agent-activity-page {
+  box-sizing: border-box;
+}
+.workbench-side-section-body .agent-activity-page
+  > .workflows-models:first-child > .workflows-section-head {
+  margin-top: 0;
+}
+@media (max-width: 940px) {
+  .workbench-side-panel[data-side="right"] {
+    position: fixed;
+    z-index: 38;
+    top: var(--titlebar-height);
+    right: 0;
+    bottom: 0;
+    height: auto;
+    box-shadow: var(--mx-overlay);
+  }
+}
+@media (max-width: 760px) {
+  .sidebar-drawer-frame > .workbench-side-panel {
+    width: calc(100% - 48px);
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+  }
+}
 /* Pinned usage (user: 핀모드): the rail button trades the pie glyph for a
    per-brand stack — one icon with its worst-window percentage beneath. */
 .activity-rail > .sidebar-usage-toggle.is-pinned {
@@ -1354,7 +2335,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
   border: 0;
   /* Orca-style structure line: the session rail separates from the main
      area with a hairline instead of relying on the band gap alone. */
-  border-right: 1px solid var(--mx-border-muted);
+  border-right: 1px solid var(--mx-border-structure);
   border-radius: 0;
   /* Grok-web rail, BOTH themes: the sidebar sits flat on the window band —
      no card, no shadow — so only the content sheet floats. */
@@ -1485,6 +2466,85 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   pointer-events: auto;
 }
 .session-sidebar-panels { display: flex; flex-direction: column; }
+.sidebar-view-section[data-active="false"] { display: none; }
+.sidebar-view-section[data-active="true"][data-sectioned="false"],
+.sidebar-view-section[data-active="true"][data-sectioned="false"] > .sidebar-view-section-body {
+  display: contents;
+}
+.session-sidebar-panels:has(.sidebar-view-section[data-active="true"][data-sectioned="true"]) {
+  overflow: hidden;
+  padding-block: 0;
+}
+.sidebar-view-section[data-active="true"][data-sectioned="true"] {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 34px;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.sidebar-view-section[data-active="true"][data-sectioned="true"]:last-of-type {
+  border-bottom: 0;
+}
+.sidebar-view-section[data-sectioned="true"][data-collapsed="true"] {
+  flex: 0 0 34px;
+}
+.sidebar-view-section-header {
+  min-width: 0;
+  height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--mx-text-soft);
+  background: var(--mx-window-band);
+}
+.sidebar-view-section[data-drop-over="true"] > .sidebar-view-section-header {
+  color: var(--mx-text);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.sidebar-view-section-toggle {
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-view-section-toggle > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-view-section-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sidebar-view-section-body {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+.sidebar-view-section[data-collapsed="true"] > .sidebar-view-section-body {
+  display: none;
+}
+.sidebar-view-section-body > .stable-takeover-surface {
+  position: relative;
+  inset: auto;
+  min-height: 100%;
+}
 .session-sidebar-panels .stable-takeover-surface { width: 100%; }
 .session-sidebar-panels .stable-takeover-surface[data-surface-active="false"] {
   position: absolute;
@@ -1570,13 +2630,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
    6px gap already separates the blocks, so the added margin doubled the gap
    between Common Instructions and the first project card (12px vs 6px). */
 .session-sidebar-panels .projects-common-instructions { margin-bottom: 0; }
-/* Common Instructions is a utility entry, not a project: it drops the card
-   frame entirely (user: 프레임 아예 빼자) and reads as a quiet flat row above
-   the real project cards; hover alone reveals its surface. */
-.session-sidebar-panels .projects-common-instructions .schedules-row {
-  background: transparent;
-  box-shadow: none;
-}
 .session-sidebar-panels .schedules-row {
   gap: 8px;
   /* Two-line cards: vertical air against the md radius, 12px BOX LINE gutter. */
@@ -2309,10 +3362,10 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .session-sidebar .recent-session-list .sidebar-section-empty { padding-left: 8px; }
 /* Titles start at the compact rail inset; the trailing working status overlays
    the existing fade instead of reserving a permanent leading column. */
-/* No leading indent anywhere in the rail: session titles share the heading's
-   left line instead of stepping in per group (user: 들여쓰기 없이 붙이자). */
+/* Session labels keep a small inner inset so text never collides with the
+   rounded hover/selection frame. */
 .session-sidebar .project-group .session-row,
-.session-sidebar .standalone-session-list .session-row { padding-left: 0; }
+.session-sidebar .standalone-session-list .session-row { padding-left: 8px; }
 /* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
    comfortable while the list stops reading airy (user request). */
 .session-sidebar .session-row { height: 31px; min-height: 31px; }
@@ -2347,7 +3400,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 8px;
   border: 1px solid var(--mx-border-muted);
   border-radius: var(--mx-radius-lg);
-  background: var(--mx-bg-layer-1);
+  background: var(--mx-window-band);
   box-shadow: var(--mx-floating);
   animation: mx-menu-in 120ms ease-out;
 }
@@ -2435,7 +3488,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-bottom: 1px solid color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
   border-radius: 0;
   color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-bg-layer-2) 48%, transparent);
+  background: transparent;
   text-align: left;
 }
 .sidebar-usage-row:last-child { border-bottom: 0; }
@@ -2549,7 +3602,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 8px;
   border: 1px solid var(--mx-border-muted);
   border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-bg-layer-2) 48%, transparent);
+  background: transparent;
 }
 .sidebar-usage-reset-heading {
   min-width: 0;
@@ -2812,6 +3865,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   padding: 12px var(--pane-inset);
   gap: 8px;
 }
+/* Studio and the TASK header consume the full pane width. The TASK
+   conversation keeps its desktop 800/1000px reading column; projected mobile
+   explicitly fills the pane below. */
+.workspace > .session-header,
+.studio-shell {
+  --pane-column: 100%;
+  --pane-scroll-column: 100%;
+  --pane-card: 100%;
+}
+html[data-mixdog-mobile-tabs] .conversation {
+  --pane-column: 100%;
+  --pane-scroll-column: 100%;
+  --pane-card: 100%;
+}
 /* Conversation title is important info: one step up from tab chrome. */
 .session-header h1 { color: var(--mx-text); font-size: var(--mx-font-panel-title); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-emphasis); letter-spacing: 0; }
 .session-title-mode {
@@ -2928,10 +3995,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   width: 100%;
   max-width: var(--pane-scroll-column);
   margin-inline: auto;
-  /* The pane ladder owns the inset; the scrollbar reserve is subtracted from
-     the right one so the text column matches the composer at EVERY width. */
+  /* Desktop restores the former reading inset: 24px pane gutter plus the
+     composer's 16px text inset. The scrollbar reserve is paid on the right. */
   padding-left: calc(var(--pane-inset) + var(--composer-text-inset));
   padding-right: calc(var(--pane-inset) + var(--composer-text-inset) - var(--mx-scrollbar-size));
+}
+html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="UserMessage"],
+html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="AssistantPart"],
+html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="Thinking"],
+html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="Error"] {
+  padding-left: var(--pane-inset);
+  padding-right: calc(var(--pane-inset) - var(--mx-scrollbar-size));
 }
 .transcript-virtual-row-content[data-tag="UserMessage"],
 .transcript-virtual-row-content[data-tag="AssistantPart"],
@@ -4012,7 +5086,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .composer-project-context,
 .composer-workflow-context {
   min-width: 112px;
-  height: 24px;
+  height: 28px;
   gap: 0;
   padding-left: 8px;
   border-radius: var(--mx-radius-md);
@@ -4029,7 +5103,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 }
 .context-pill-select .mx-select-trigger {
   width: 100%;
-  height: 24px;
+  height: 28px;
   gap: 4px;
   padding: 0 6px 0 4px;
   border: 0;
@@ -4923,12 +5997,11 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   background: transparent;
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
-  line-height: 1;
+  line-height: var(--mx-line-ui);
   text-align: left;
   cursor: default;
   transition: background 85ms ease-out, box-shadow 85ms ease-out;
 }
-.mx-menu[aria-label="Project context"] .mx-menu-item { line-height: var(--mx-line-ui); }
 .mx-menu-item:hover, .mx-menu-item:focus-visible, .mx-menu-item[data-active="true"] {
   outline: 0;
   background: var(--mx-hover);
@@ -6421,6 +7494,17 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   --mx-focus: var(--mx-border-strong);
 }
 ::selection { color: var(--mx-bg-base); background: var(--mx-text); }
+/* Android Chromium paints the IME's composing syllable with the ::selection
+   COLOR but not its background, so the inverted ink above rendered each
+   composing character invisible on the dark surface (user: 타이핑한 글자가
+   투명이 됨). Editable fields on touch devices keep their own ink and take a
+   translucent highlight that reads for both selection and composition. */
+@media (pointer: coarse) {
+  input::selection, textarea::selection {
+    color: var(--mx-text);
+    background: color-mix(in srgb, var(--mx-text) 28%, transparent);
+  }
+}
 .studio-composer[data-dropping="true"] { box-shadow: var(--mx-raised), inset 0 0 0 1.5px var(--mx-border-strong); }
 .dock-terminal-surface[data-dropping="true"],
 .pane-cell[data-file-dropping="true"] .pane-surface-stack {
@@ -6690,10 +7774,27 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   inset: 0;
   display: flex;
   background: var(--mx-window-band);
+  opacity: 1;
+  transition: opacity 160ms ease-out;
 }
+.desktop-boot-cover[data-leaving="true"] { opacity: 0; pointer-events: none; }
 .desktop-boot-cover > .desktop-loading-surface {
   border-radius: 0;
   box-shadow: none;
+}
+/* Native/PWA splash and the in-app watermark use different coordinate
+   spaces. Never show both marks at once: the cover exits first, then the
+   final content-space mark fades in without appearing to jump position. */
+.desktop-boot-gate[data-brand-handoff] .welcome-logo {
+  animation: desktop-boot-brand-in 180ms 20ms ease-out both;
+}
+@keyframes desktop-boot-brand-in {
+  from { opacity: 0; }
+  to { opacity: .08; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-boot-cover { transition: none; }
+  .desktop-boot-gate[data-brand-handoff] .welcome-logo { animation: none; }
 }
 /* Detail view: media on the stage, metadata and actions in a side rail. */
 .studio-detail {
@@ -8918,14 +10019,14 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     font-size: 16px;
   }
   .studio-composer-bar { height: 48px; }
-  /* Composer pills must WRAP their text: when the footer row crowds, the
-     model trigger shrinks with an ellipsis inside the shape instead of the
-     label painting past the pill edge (user: "Claude F" spilling out). */
-  .model-trigger { min-width: 0; max-width: 38vw; overflow: hidden; }
+  /* The closed trigger follows its label instead of painting the footer's
+     entire remaining lane. Opening still supplies the sheet width inline. */
+  .route-editor { width: max-content; min-width: 0; max-width: 100%; flex: 0 1 auto; }
+  .model-trigger { width: max-content; min-width: 0; max-width: 100%; flex: 0 1 auto; }
   .model-trigger > span {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
+    text-overflow: clip;
     white-space: nowrap;
   }
   /* Model / effort / fast stay LEFT-PACKED as one cluster. The Fast control
@@ -8942,6 +10043,21 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
     min-width: 28px;
     flex: 0 0 28px;
   }
+}
+
+/* Remote/PWA phones project a canonical desktop viewport, so width media
+   queries alone cannot identify them. The mobile marker guarantees the model
+   lane uses all space left by the fixed composer actions. */
+html[data-mixdog-mobile-tabs] .route-editor {
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+html[data-mixdog-mobile-tabs] .model-trigger {
+  width: max-content;
+  max-width: 100%;
+  flex: 0 1 auto;
 }
 
 @media (max-width: 640px) {
@@ -9733,36 +10849,42 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
 }
 .model-trigger {
-  width: auto;
+  width: max-content;
   min-width: 0;
-  max-width: min(220px, 100%);
+  max-width: 100%;
   flex: 0 1 auto;
 }
 .model-trigger > span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
-.route-editor { position: relative; min-width: 0; display: inline-flex; }
+.route-editor {
+  position: relative;
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+  display: inline-flex;
+}
 .route-trigger-copy {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  overflow: hidden;
+  overflow: visible;
 }
-.route-trigger-model,
-.route-trigger-effort,
-.route-trigger-fast {
+.model-route-label {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: inline-block;
+  overflow: visible;
+  text-overflow: clip;
   white-space: nowrap;
 }
-.route-trigger-model { flex: 1 1 auto; }
-.route-trigger-effort { max-width: 96px; flex: 0 0 auto; color: var(--mx-text-muted); }
-.route-trigger-fast { flex: 0 0 auto; color: var(--mx-text-accent); }
+.route-trigger-copy > .model-route-label { flex: 1 1 auto; }
+.model-route-label-effort { color: var(--mx-text-muted); }
+.model-route-label-fast { color: var(--mx-text-accent); }
 .route-editor > .model-trigger > svg { flex: 0 0 auto; }
 .route-sheet,
 .route-sheet-flyout {
@@ -10246,6 +11368,9 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
 .command-surface[data-surface="context"] {
   width: min(680px, calc(100vw - 32px));
   height: auto;
+  /* Stable frame (user: 작은 프레임에서 튀며 생성): the loading state keeps
+     the dialog at its settled height so content arrival never resizes it. */
+  min-height: min(380px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
   max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
   border-radius: var(--mx-radius-xl);
 }
@@ -10310,7 +11435,6 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   .composer textarea { padding-inline: 12px; }
   .studio-composer textarea { padding-inline: 12px; }
   .route-controls { max-width: calc(100% - 56px); }
-  .model-trigger { max-width: 150px; }
   .command-surface .mixdog-settings__body { padding: 20px 16px 24px; }
   .command-surface .settings-group-body { padding-inline: 14px; }
   .command-surface .settings-resource { align-items: stretch; flex-direction: column; }
@@ -10769,6 +11893,20 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   opacity: 1;
   transform: scaleX(1);
 }
+.utility-dock-tabs button[data-drop-position="before"] {
+  box-shadow: inset 2px 0 0 var(--mx-focus);
+}
+.utility-dock-tabs button[data-drop-position="after"] {
+  box-shadow: inset -2px 0 0 var(--mx-focus);
+}
+.utility-dock-tabs button[data-drop-position="inside"] {
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.utility-dock-tabs button[draggable="true"],
+.utility-dock-view-section-header[draggable="true"] { cursor: grab; }
+.utility-dock-tabs button[draggable="true"]:active,
+.utility-dock-view-section-header[draggable="true"]:active { cursor: grabbing; }
 /* Problems count rides the icon as a compact badge. */
 .utility-dock-tab-count {
   position: absolute;
@@ -10885,6 +12023,103 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   overflow: hidden;
   padding: 0;
   contain: paint;
+}
+.utility-dock-view-section[data-active="false"] { display: none; }
+.utility-dock-view-section[data-active="true"][data-sectioned="false"],
+.utility-dock-view-section[data-active="true"][data-sectioned="false"] > .utility-dock-view-section-body {
+  display: contents;
+}
+.utility-dock-body:has(.utility-dock-view-section[data-active="true"][data-sectioned="true"]) {
+  display: flex;
+  flex-direction: column;
+}
+.utility-dock-view-section[data-active="true"][data-sectioned="true"] {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  flex: 1 1 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.utility-dock-view-section[data-active="true"][data-sectioned="true"]:last-of-type {
+  border-bottom: 0;
+}
+.utility-dock-view-section[data-sectioned="true"][data-collapsed="true"] {
+  flex: 0 0 34px;
+}
+.utility-dock-view-section-header {
+  min-width: 0;
+  height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--mx-text-soft);
+  background: var(--mx-window-band);
+}
+.utility-dock-view-section[data-drop-over="true"] > .utility-dock-view-section-header {
+  color: var(--mx-text);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.utility-dock-view-section-toggle {
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.utility-dock-view-section-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-dock-view-section-actions {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.utility-dock-view-section-actions > button,
+.utility-dock-view-section-actions .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+}
+.utility-dock-view-section-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.utility-dock-view-section[data-collapsed="true"] > .utility-dock-view-section-body {
+  display: none;
+}
+.utility-dock-view-section[data-sectioned="true"] .utility-dock-pane {
+  position: absolute;
+  inset: 0;
 }
 /* ONE pane box for every tab (user: 탭별로 레이아웃이 튀지 않게): a flex
    column that owns the scroll, with the same 4px top inset everywhere. The
@@ -11366,7 +12601,7 @@ body.session-sidebar-resizing { cursor: col-resize; user-select: none; }
   border-top: 1px solid var(--mx-border-muted);
   border-radius: 0;
   /* :11 `background-color: var(--box-alt-background-color)` — ONE tone darker
-     than the panel sheet (--mx-workspace-sheet #1c1c1f / #fafafa) in both
+     than the panel sheet (--mx-workspace-sheet #101013 / #fafafa) in both
      themes, so the form reads as its own region under the list. */
   background: var(--mx-window-band);
   box-shadow: none;
@@ -15233,6 +16468,10 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .workspace-tab.active { color: var(--mx-text); }
 .session-sidebar-panels .schedules-row-copy small,
 .utility-dock .agent-activity-copy small { color: var(--mx-text-muted); }
+.session-sidebar-panels .agent-route-summary .model-route-label-model,
+.utility-dock .agent-activity-page .agent-route-summary .model-route-label-model {
+  color: var(--mx-text);
+}
 .session-panel-section-title,
 .sidebar-section-title {
   color: var(--mx-text);
@@ -15273,9 +16512,12 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .session-sidebar .session-group h2,
 .session-sidebar .sidebar-section-heading,
 .session-sidebar .project-group-heading { padding-inline: 0; }
-/* Recent/Automations/Remote/Archived rows all start flush on the heading
-   line; only the trailing gutter stays for the spinner/unread column. */
-.session-sidebar .session-row { padding-inline: 0 var(--mx-rail-gutter); }
+/* Recent/Automations/Remote/Archived rows share one inner frame inset while
+   the trailing gutter stays reserved for spinner/unread/actions. */
+.session-sidebar .session-row { padding-inline: 8px var(--mx-rail-gutter); }
+/* Automation run rows are the second level beneath their disclosure group:
+   8px base inset + 12px hierarchy step. */
+.session-sidebar .automation-group-past .session-row { padding-left: 20px; }
 .session-sidebar-panels .session-row,
 .utility-dock .session-row { padding-inline: var(--mx-rail-gutter); }
 .session-sidebar-panels .schedules-row,

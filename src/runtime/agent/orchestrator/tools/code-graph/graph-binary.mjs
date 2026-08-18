@@ -248,7 +248,7 @@ export function _runGraphWalk(absRoot) { return _runGraphBinaryJsonl(absRoot, []
 // topLevelTypes}. Rust builds the index + resolves over ALL nodes (fresh +
 // reused) and emits fresh rels as full records, reused rels as lightweight
 // {rel, resolvedImports, importedBy}.
-export function _runGraphFiles(absRoot, rels, reusedMetas) {
+export function _runGraphFiles(absRoot, rels, reusedMetas, signal = null) {
   const lines = Array.isArray(reusedMetas)
     ? reusedMetas.map((m) => JSON.stringify({
         rel: m.rel,
@@ -260,7 +260,7 @@ export function _runGraphFiles(absRoot, rels, reusedMetas) {
         topLevelTypes: Array.isArray(m.topLevelTypes) ? m.topLevelTypes : [],
       }))
     : [];
-  return _runGraphBinaryJsonl(absRoot, ['--files', ...rels], lines);
+  return _runGraphBinaryJsonl(absRoot, ['--files', ...rels], lines, signal);
 }
 
 // Map a Rust FileRecord (rel/lang/fp/tokens/rawImports/resolvedImports/

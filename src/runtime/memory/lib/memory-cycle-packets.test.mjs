@@ -36,8 +36,14 @@ test('cycle2 can place 50 roots without lineage in one disposable agent packet',
   assert.equal(packed.deferredIds.length, 0)
 })
 
-test('periodic cycles do not catch up immediately when the runtime starts', () => {
+test('a never-run periodic cycle gets one startup interval of grace', () => {
   const startedAt = 1_000_000
   assert.equal(periodicCycleDue(0, startedAt, 600_000, startedAt + 599_999), false)
   assert.equal(periodicCycleDue(0, startedAt, 600_000, startedAt + 600_000), true)
+})
+
+test('an overdue periodic cycle stays due across a runtime restart', () => {
+  const lastSuccess = 1_000_000
+  const restartedAt = 2_000_000
+  assert.equal(periodicCycleDue(lastSuccess, restartedAt, 600_000, restartedAt), true)
 })

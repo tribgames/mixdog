@@ -287,7 +287,10 @@ export function usePromptHandlers({
 
     let result;
     try {
-      const options = { restorePrompt: String(currentText ?? '') === '' };
+      // Match Claude Code: Esc interrupts the active turn but never
+      // resurrects the submitted prompt. Idle queue recall stays a separate
+      // Escape path handled above.
+      const options = { restorePrompt: false };
       result = typeof store.abortAsync === 'function' ? store.abortAsync(options) : store.abort?.(options);
     } catch (error) {
       store.pushNotice?.(`interrupt failed: ${error?.message || error}`, 'error');

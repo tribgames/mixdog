@@ -16,7 +16,13 @@ import {
   attachmentsFromRecords,
   type AutomationAttachment,
 } from './automation-attachments';
-import { modelDisplayName, modelFastAvailable, normalizeModelOptions, preferredModelParameters } from './provider-display';
+import {
+  ModelRouteLabel,
+  modelDisplayName,
+  modelFastAvailable,
+  normalizeModelOptions,
+  preferredModelParameters,
+} from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { acquireTitleBarDim } from './titlebar-dim';
@@ -142,23 +148,25 @@ function describeSchedule(schedule: RecordValue): string {
 }
 
 // Sub-line: schedule first, then model, project, and paused state.
-function scheduleMeta(schedule: RecordValue): string {
-  const parts = [describeSchedule(schedule)];
+function scheduleMeta(schedule: RecordValue) {
+  const scheduleLabel = describeSchedule(schedule);
   const ref = parseModelRef(String(schedule.model || ''));
+  let route: { model: string; effort: string; fast: boolean } | null = null;
   if (ref.route) {
     const slash = ref.route.indexOf('/');
     const model = slash > 0
       ? modelDisplayName(ref.route.slice(slash + 1), ref.route.slice(0, slash))
       : ref.route;
-    const effort = ref.effort
-      ? `${ref.effort.slice(0, 1).toLocaleUpperCase()}${ref.effort.slice(1)}`
-      : '';
-    parts.push([model, effort, ref.fast ? t('Fast') : ''].filter(Boolean).join(' · '));
+    route = { model, effort: ref.effort || '', fast: ref.fast };
   }
   const cwd = String(schedule.cwd || '');
-  if (cwd) parts.push(cwd.split(/[\\/]/).filter(Boolean).pop() || cwd);
-  if (schedule.enabled === false) parts.push('paused');
-  return parts.filter(Boolean).join(' · ');
+  const cwdLabel = cwd ? cwd.split(/[\\/]/).filter(Boolean).pop() || cwd : '';
+  return <>
+    {scheduleLabel}
+    {route && <> · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} /></>}
+    {cwdLabel && <> · {cwdLabel}</>}
+    {schedule.enabled === false && <> · {t('paused')}</>}
+  </>;
 }
 
 // Map the engine's schedule display shape (channel-admin scheduleToDisplay)

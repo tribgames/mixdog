@@ -520,7 +520,13 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     // Skipped for pattern arrays and when `-i` is already set.
     const caseHintSuffix = async () => {
         const caseInsensitive = args['-i'] === true;
-        if (caseInsensitive || patterns.length !== 1 || !/[A-Za-z]/.test(patterns[0])) return '';
+        // A broad no-match must not trigger a second whole-tree scan just to
+        // produce an advisory casing hint. The requested case-sensitive result
+        // is already complete; retain the hint only for explicit file scopes.
+        if (grepStat.isDirectory()
+            || caseInsensitive
+            || patterns.length !== 1
+            || !/[A-Za-z]/.test(patterns[0])) return '';
         try {
             const probeArgs = buildGrepRgArgs({
                 patterns,

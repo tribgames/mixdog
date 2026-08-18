@@ -10,6 +10,18 @@ import React, {
   useState,
   useSyncExternalStore
 } from "react";
+import {
+  Bot,
+  Clock,
+  GitCompare,
+  Github,
+  Layers3,
+  MessageSquare,
+  PanelsTopLeft,
+  Search,
+  WandSparkles,
+  Webhook,
+} from "lucide-react";
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import type {
@@ -65,6 +77,7 @@ import {
 import { WorkspaceEmptyState } from "./WorkspaceEmptyState";
 
 import { ActivityRail, type ActivityRailWorkbenchSurface } from "./ActivityRail";
+import { preloadAgentPool } from "./AgentActivityPane";
 import {
   markBootStage,
 } from "./boot-metrics";
@@ -76,6 +89,8 @@ import {
   desktopUtilityDockTabEnabled,
 } from "./desktop-feature-config";
 import { primeEditorFileLoad } from "./editor-file-loader";
+import { isMobileRemoteSurface } from "./MobileTabOverview";
+import { registerMobileBack } from "./mobile-back";
 import {
   getEditorCommandCapabilities,
   subscribeEditorLanguageStore,
@@ -185,8 +200,6 @@ const CommandSurface = lazy(() => import("./CommandSurface")
   .then((module) => ({ default: module.CommandSurface })));
 // Startup chunk warm-up (markdown now, diff on idle) lives in
 // app-idle-warmup.ts; importing it arms the schedule.
-import { schedulePostInteractionIdle } from "./app-idle-warmup";
-
 import {
   DraftConversation,
   PaneHeaderStatus,
@@ -213,6 +226,20 @@ import { useStableEvent } from "./use-stable-event";
 import { useUnreadSessions } from "./app-unread-sessions";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { useWorkbenchWorkspace } from "./workbench-workspace";
+import {
+  DEFAULT_SIDEBAR_VIEW_ORDER,
+  useSidebarViewLayout,
+} from "./sidebar-view-layout";
+import {
+  WorkbenchSideIconBar,
+  WorkbenchSidePanel,
+  useWorkbenchSideViewLayout,
+  type WorkbenchSide,
+  type WorkbenchSideTitleDragProps,
+  type WorkbenchSideViewDescriptor,
+  type WorkbenchSideViewId,
+  type WorkbenchSideViewPlacement,
+} from "./workbench-side-view-layout";
 
 export function App() {
   markBootStage("app-render");
@@ -246,7 +273,6 @@ export function App() {
     dismissSheetsForBottomPanel,
     dockOpen,
     dockOpenIntent,
-    dockSettled,
     dockTab,
     dockWidth,
     failedSidebarPanels,
@@ -291,6 +317,26 @@ export function App() {
     webhooksOpen,
     workflowsOpen,
   } = useAppShellPanels();
+  const enabledSidebarViews = useMemo(
+    () => DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) =>
+      desktopSidebarDestinationEnabled(panel)),
+    [],
+  );
+  const sidebarViewLayout = useSidebarViewLayout(enabledSidebarViews);
+  const availableSideViews = useMemo<WorkbenchSideViewId[]>(() => [
+    ...(desktopFeatureEnabled("sessions") ? ["sessions" as const] : []),
+    ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) =>
+      desktopSidebarDestinationEnabled(panel)),
+    ...(["agents", "search", "source-control", "pull-requests"] as const)
+      .filter((panel) => desktopUtilityDockTabEnabled(panel)),
+  ], []);
+  const workbenchSideLayout = useWorkbenchSideViewLayout(availableSideViews);
+  const [activeSideViews, setActiveSideViews] = useState<
+    Record<WorkbenchSide, WorkbenchSideViewId | null>
+  >({
+    left: desktopFeatureEnabled("sessions") ? "sessions" : enabledSidebarViews[0] ?? null,
+    right: desktopUtilityDockTabEnabled(dockTab) ? dockTab : null,
+  });
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
@@ -559,28 +605,16 @@ export function App() {
     void loadSettingsViewModule().catch(() => {});
   }, []);
   useEffect(() => {
+    preloadAgentPool(window.mixdogDesktop);
+  }, []);
+  useEffect(() => {
     if (!desktopFeatureEnabled("settings")) return undefined;
-    // Stage 1 warms the settings chunk on idle. Stage 2 (separate idle slot,
-    // 1.5s quiet window): hydrate the
-    // capability/git/connection caches after the chunk exists, so the first
-    // settings open paints from cache instead of holding the dialog behind
-    // the hydrate spinner (user: 옵션이 스피너만 보이고 늦게 뜬다). An
-    // earlier always-on hydrate collided with the first typing interactions;
-    // the quiet window plus interaction-postponed idle keeps the sweep out
-    // of the user's way, and open-time refresh still replaces stale values
-    // without a spinner.
     const host = window.mixdogDesktop;
-    if (!host) return schedulePostInteractionIdle(warmSettingsView);
-    let cancelData: (() => void) | undefined;
-    const cancelCode = schedulePostInteractionIdle(() => {
-      void loadSettingsViewModule().then((module) => {
-        cancelData = schedulePostInteractionIdle(
-          () => { void module.preloadSettings(host).catch(() => {}); },
-          5_000, 1_500, 1_500,
-        );
-      }).catch(() => {});
-    });
-    return () => { cancelCode(); cancelData?.(); };
+    let live = true;
+    void loadSettingsViewModule().then((module) => {
+      if (live && host) void module.preloadSettings(host).catch(() => {});
+    }).catch(() => {});
+    return () => { live = false; };
   }, [warmSettingsView]);
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -1116,12 +1150,20 @@ export function App() {
     _force = false,
     fallbackTitle = "",
   ): Promise<void> => {
-    navigationEpoch.current += 1;
+    const navigationToken = ++navigationEpoch.current;
     closeSidebarForNavigation();
-    setRequestedSessionId("");
-    if (!defaultSessionLaneStore.get(sessionId)) requestSessionRead(sessionId);
+    setRequestedSessionId(sessionId);
+    // Keep the current pane coherent while a cold transcript is fetched.
+    // The requested row still highlights immediately; once the lane exists,
+    // the persistent Conversation can adopt it in the click commit without
+    // exposing the opaque one-frame switch cover.
+    if (!defaultSessionLaneStore.get(sessionId)) {
+      await requestSessionRead(sessionId);
+    }
+    if (navigationEpoch.current !== navigationToken) return;
     const session = sessions.find((item) => item.id === sessionId);
     finishPendingConversationHandoff();
+    setRequestedSessionId("");
     // An explicit caller title (agent pool rows: "Reviewer · tag") is PINNED
     // into the selection so pane moves and catalog refreshes cannot swap the
     // label for the child session's auto-generated title (user: 이동했다 오면
@@ -1138,7 +1180,7 @@ export function App() {
   };
   openSessionRef.current = openSession;
   const prefetchSession = useCallback((sessionId: string) => (
-    window.mixdogDesktop?.prefetchSession?.(sessionId) ?? Promise.resolve(false)
+    requestSessionRead(sessionId)
   ), []);
   const openSettings = useCallback((section: SlashSettingsSection | null = null) => {
     // Workflow and search-model settings graduated to the main-pane Workflows
@@ -1730,13 +1772,10 @@ export function App() {
   // workspace, tab strips, and utility dock stay mounted and interactive
   // while their editors float as popup dialogs.
   const {
-    presentedSidebarPanel,
     sidebarNewTask,
     sidebarPanel,
-    sidebarPanelChildren,
-    sidebarPanelTitle,
     sidebarResumeSession,
-    sidebarTreeMounted,
+    renderSidebarPanel,
   } = useAppSidebarSurface({
     utilitiesOpen,
     schedulesOpen,
@@ -1744,6 +1783,9 @@ export function App() {
     projectsOpen,
     workflowsOpen,
     sidebarOpen,
+    viewGroups: sidebarViewLayout.groups,
+    getViewDragProps: sidebarViewLayout.getViewDragProps,
+    onMoveView: sidebarViewLayout.moveView,
     loadedSidebarPanels,
     failedSidebarPanels,
     mountedSidebarPanels,
@@ -1763,6 +1805,257 @@ export function App() {
     renameProject,
     removeProject,
   });
+  // Chrome-mobile toolbar intents (1-pane surface): the tab strip renders the
+  // home/panel/dock buttons but does not own the shell panels, so the intents
+  // ride window events instead of prop-drilling through the pane tree.
+  useEffect(() => {
+    const onHome = () => applySidebarOpen(!sidebarOpen);
+    const onPanel = () => bottomPanel.setOpen(!bottomPanel.open);
+    const onDock = () => applyDockOpen(!dockOpen);
+    window.addEventListener("mixdog:mobile-home", onHome);
+    window.addEventListener("mixdog:mobile-panel", onPanel);
+    window.addEventListener("mixdog:mobile-dock", onDock);
+    return () => {
+      window.removeEventListener("mixdog:mobile-home", onHome);
+      window.removeEventListener("mixdog:mobile-panel", onPanel);
+      window.removeEventListener("mixdog:mobile-dock", onDock);
+    };
+  }, [applyDockOpen, applySidebarOpen, bottomPanel, dockOpen, sidebarOpen]);
+  // ABB (user: 백버튼 처리): each open transient layer arms one history
+  // sentinel so hardware back closes it instead of leaving the PWA.
+  // registerMobileBack no-ops outside the projected phone surface.
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    return registerMobileBack(() => applySidebarOpen(false));
+  }, [applySidebarOpen, sidebarOpen]);
+  useEffect(() => {
+    if (!bottomPanel.open) return undefined;
+    return registerMobileBack(() => bottomPanel.setOpen(false));
+  }, [bottomPanel, bottomPanel.open]);
+  useEffect(() => {
+    if (!dockOpen) return undefined;
+    return registerMobileBack(() => applyDockOpen(false));
+  }, [applyDockOpen, dockOpen]);
+  useEffect(() => {
+    if (!settingsOpen) return undefined;
+    return registerMobileBack(() => setSettingsOpen(false));
+  }, [settingsOpen, setSettingsOpen]);
+  useEffect(() => {
+    if (!commandSurface) return undefined;
+    return registerMobileBack(() => {
+      setCommandSurface(null);
+      setCommandSurfaceSessionId("");
+    });
+  }, [commandSurface, setCommandSurface, setCommandSurfaceSessionId]);
+  useEffect(() => {
+    if (!onboardingOpen) return undefined;
+    return registerMobileBack(() => setOnboardingOpen(false));
+  }, [onboardingOpen]);
+  useEffect(() => {
+    if (!quickAccessMode) return undefined;
+    return registerMobileBack(() => setQuickAccessMode(null));
+  }, [quickAccessMode]);
+  const cancelPendingTabCloseRef = useRef(cancelPendingTabClose);
+  cancelPendingTabCloseRef.current = cancelPendingTabClose;
+  useEffect(() => {
+    if (!pendingUnsavedClose) return undefined;
+    return registerMobileBack(() => cancelPendingTabCloseRef.current());
+  }, [pendingUnsavedClose]);
+  useEffect(() => {
+    if (!updateDialogOpen || updaterState.status !== "ready") return undefined;
+    return registerMobileBack(closeDesktopUpdate);
+  }, [closeDesktopUpdate, updateDialogOpen, updaterState.status]);
+  // Mobile entry starts CLEAN (user: 들어가면 좌우·하단 탭 다 닫힌 상태):
+  // whatever layout the last session or the desktop persisted, the phone
+  // boots with drawer, dock and bottom panel closed — once per load.
+  // Layout effect: the close lands BEFORE first paint, so a persisted-open
+  // terminal/panel can never flash for one frame (user: 열자마자 터미널창이
+  // 한 번 열렸다 닫히네).
+  const mobileStartedClosed = useRef(false);
+  useLayoutEffect(() => {
+    if (mobileStartedClosed.current || !isMobileRemoteSurface()) return;
+    mobileStartedClosed.current = true;
+    applySidebarOpen(false, "instant");
+    applyDockOpen(false);
+    bottomPanel.setOpen(false, "instant");
+  }, [applyDockOpen, applySidebarOpen, bottomPanel]);
+  const sideViewDescriptors = useMemo(() => new Map<
+    WorkbenchSideViewId,
+    WorkbenchSideViewDescriptor
+  >([
+    ["sessions", { id: "sessions", label: "Sessions", icon: MessageSquare }],
+    ["projects", { id: "projects", label: "Projects", icon: PanelsTopLeft }],
+    ["workflows", { id: "workflows", label: "Workflows", icon: Layers3 }],
+    ["schedules", { id: "schedules", label: "Schedules", icon: Clock }],
+    ["webhooks", { id: "webhooks", label: "Webhooks", icon: Webhook }],
+    ["utilities", { id: "utilities", label: "Utilities", icon: WandSparkles }],
+    ["agents", { id: "agents", label: "Agents", icon: Bot }],
+    ["search", { id: "search", label: "Search", icon: Search }],
+    ["source-control", {
+      id: "source-control",
+      label: "Source Control",
+      icon: GitCompare,
+    }],
+    ["pull-requests", {
+      id: "pull-requests",
+      label: "Pull Requests",
+      tooltip: "GitHub Pull Requests",
+      icon: Github,
+    }],
+  ]), []);
+  const setSideOpen = useCallback((side: WorkbenchSide, open: boolean) => {
+    if (side === "left") applySidebarOpen(open);
+    else applyDockOpen(open);
+  }, [applyDockOpen, applySidebarOpen]);
+  const selectWorkbenchSideView = useCallback((id: WorkbenchSideViewId) => {
+    const side = workbenchSideLayout.sideOf(id);
+    const sideOpen = side === "left" ? sidebarOpen : dockOpen;
+    const active = activeSideViews[side] === id;
+    if (active && sideOpen) {
+      setSideOpen(side, false);
+      return;
+    }
+    setActiveSideViews((current) =>
+      current[side] === id ? current : { ...current, [side]: id });
+    if (id === "sessions") {
+      closeSidebarPanels();
+    } else if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
+      const panel = id as SidebarPanelKey;
+      mountSidebarPanel(panel);
+      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+      if (panel === "projects") void refreshProjects();
+    } else {
+      setDockTab(id as typeof dockTab);
+    }
+    setSideOpen(side, true);
+  }, [
+    activeSideViews,
+    closeSidebarPanels,
+    dockOpen,
+    mountSidebarPanel,
+    refreshProjects,
+    setDockTab,
+    setSideOpen,
+    sidebarOpen,
+    trackSidebarPanelModule,
+    workbenchSideLayout.sideOf,
+  ]);
+  const moveWorkbenchSideGroup = useCallback((
+    sourceRoot: WorkbenchSideViewId,
+    targetSide: WorkbenchSide,
+    targetRoot: WorkbenchSideViewId | null,
+    placement: WorkbenchSideViewPlacement,
+  ) => {
+    const sourceSide = workbenchSideLayout.sideOf(sourceRoot);
+    const sourceGroup = workbenchSideLayout.groupFor(sourceRoot);
+    const remainingSourceRoot = workbenchSideLayout.layout[sourceSide]
+      .find((group) => group[0] !== sourceRoot)?.[0] ?? null;
+    const sourceSideWillEmpty = sourceSide !== targetSide
+      && workbenchSideLayout.layout[sourceSide].length === 1;
+    workbenchSideLayout.moveGroup(sourceRoot, targetSide, targetRoot, placement);
+    setActiveSideViews((current) => {
+      const next = {
+        ...current,
+        [targetSide]: placement.startsWith("inside") && targetRoot
+          ? targetRoot
+          : sourceRoot,
+      };
+      if (sourceSide !== targetSide
+        && current[sourceSide] !== null
+        && sourceGroup.includes(current[sourceSide]!)) {
+        next[sourceSide] = remainingSourceRoot;
+      }
+      return next;
+    });
+    setSideOpen(targetSide, true);
+    if (sourceSideWillEmpty) setSideOpen(sourceSide, false);
+  }, [
+    setSideOpen,
+    workbenchSideLayout.groupFor,
+    workbenchSideLayout.layout,
+    workbenchSideLayout.moveGroup,
+    workbenchSideLayout.sideOf,
+  ]);
+  const moveWorkbenchSideView = useCallback((
+    sourceId: WorkbenchSideViewId,
+    targetSide: WorkbenchSide,
+    targetRoot: WorkbenchSideViewId | null,
+    placement: WorkbenchSideViewPlacement,
+  ) => {
+    const sourceSide = workbenchSideLayout.sideOf(sourceId);
+    const sourceGroup = workbenchSideLayout.groupFor(sourceId);
+    const remainingGroupRoot = sourceGroup.find((id) => id !== sourceId)
+      ?? workbenchSideLayout.layout[sourceSide]
+        .find((group) => !group.includes(sourceId))?.[0]
+      ?? null;
+    const sourceSideWillEmpty = sourceSide !== targetSide
+      && sourceGroup.length === 1
+      && workbenchSideLayout.layout[sourceSide].length === 1;
+    workbenchSideLayout.moveView(sourceId, targetSide, targetRoot, placement);
+    setActiveSideViews((current) => {
+      const next = {
+        ...current,
+        [targetSide]: placement.startsWith("inside") && targetRoot
+          ? targetRoot
+          : sourceId,
+      };
+      if (sourceSide !== targetSide && current[sourceSide] === sourceId) {
+        next[sourceSide] = remainingGroupRoot;
+      }
+      return next;
+    });
+    setSideOpen(targetSide, true);
+    if (sourceSideWillEmpty) setSideOpen(sourceSide, false);
+  }, [
+    setSideOpen,
+    workbenchSideLayout.groupFor,
+    workbenchSideLayout.layout,
+    workbenchSideLayout.moveView,
+    workbenchSideLayout.sideOf,
+  ]);
+  useLayoutEffect(() => {
+    if (workbenchSideLayout.layout.left.length === 0 && sidebarOpen) {
+      applySidebarOpen(false);
+    }
+    if (workbenchSideLayout.layout.right.length === 0 && dockOpen) {
+      applyDockOpen(false);
+    }
+  }, [
+    applyDockOpen,
+    applySidebarOpen,
+    dockOpen,
+    sidebarOpen,
+    workbenchSideLayout.layout.left.length,
+    workbenchSideLayout.layout.right.length,
+  ]);
+  useLayoutEffect(() => {
+    if (!sidebarPanel) return;
+    const side = workbenchSideLayout.sideOf(sidebarPanel);
+    setActiveSideViews((current) =>
+      current[side] === sidebarPanel ? current : { ...current, [side]: sidebarPanel });
+    if (side === "right") {
+      applyDockOpen(true);
+    }
+  }, [
+    applyDockOpen,
+    applySidebarOpen,
+    sidebarPanel,
+    workbenchSideLayout.sideOf,
+  ]);
+  useLayoutEffect(() => {
+    const side = workbenchSideLayout.sideOf(dockTab);
+    setActiveSideViews((current) =>
+      current[side] === dockTab ? current : { ...current, [side]: dockTab });
+    if (side === "left" && dockOpen) {
+      applySidebarOpen(true);
+    }
+  }, [
+    applyDockOpen,
+    applySidebarOpen,
+    dockOpen,
+    dockTab,
+    workbenchSideLayout.sideOf,
+  ]);
   // Every chat pane keeps the same Conversation tree mounted. Focus only
   // selects the command/snapshot owner. Because the
   // root and picker instances survive that prop change, the pointer event that
@@ -1980,21 +2273,104 @@ export function App() {
       window.clearTimeout(timer);
     };
   }, [desktopBootReady, mountSidebarPanel, trackSidebarPanelModule]);
+  const renderWorkbenchSideView = (
+    side: WorkbenchSide,
+    id: WorkbenchSideViewId,
+    active: boolean,
+    titleDragProps: WorkbenchSideTitleDragProps,
+  ): React.ReactNode => {
+    if (id === "sessions") {
+      return <SessionSidebar
+        open={active}
+        panelTitleDragProps={titleDragProps}
+        sessions={sessions}
+        sessionsReady={sessionCatalogReady}
+        workingSessionIds={workingSessionIds}
+        unreadSessionIds={unreadSessionIds}
+        remoteSessionId={sidebarRemoteSessionId}
+        selection={sidebarSelection}
+        onNewTask={sidebarNewTask}
+        onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
+        onResumeSession={sidebarResumeSession}
+        onRenameSession={renameSession}
+        onArchiveSession={archiveSession}
+        onDeleteSession={deleteSession}
+      />;
+    }
+    if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
+      return <SessionSidebar
+        open={active}
+        panelActive
+        panelTitle={sideViewDescriptors.get(id)?.label}
+        panelTitleDragProps={titleDragProps}
+        sessions={sessions}
+        sessionsReady={sessionCatalogReady}
+        workingSessionIds={workingSessionIds}
+        unreadSessionIds={unreadSessionIds}
+        remoteSessionId={sidebarRemoteSessionId}
+        selection={sidebarSelection}
+        onNewTask={sidebarNewTask}
+        onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
+        onResumeSession={sidebarResumeSession}
+        onRenameSession={renameSession}
+        onArchiveSession={archiveSession}
+        onDeleteSession={deleteSession}>
+        {renderSidebarPanel(id as SidebarPanelKey, active)}
+      </SessionSidebar>;
+    }
+    const tab = id as typeof dockTab;
+    return <SnapshotUtilityDock snapshotStore={snapshotStore}
+      hidden={!active}
+      open={active}
+      width={dockWidth}
+      tab={tab}
+      availableViews={[tab]}
+      side={side}
+      showTabs={false}
+      title={sideViewDescriptors.get(id)?.label}
+      titleDragProps={titleDragProps}
+      sessions={sessions}
+      activeSessionIds={observedAgentSessionIds}
+      unreadSessionIds={unreadSessionIds}
+      onPrefetchSession={prefetchSession}
+      projectPath={quickAccessProjectPath}
+      workspaceFolders={workbenchWorkspace.workspace.folders as DesktopWorkspaceFolder[]}
+      onSelectProject={selectToolProject}
+      metricSurface={side === "left" ? "sidebar" : "dock"}
+      entering
+      contentReady
+      onTab={(next) => selectWorkbenchSideView(next)}
+      onResize={resizeDock}
+      onClose={() => setSideOpen(side, false)}
+      onOpenFile={dockOpenFile}
+      onOpenFileAt={dockOpenFileAt}
+      onOpenDiff={dockOpenDiff}
+      onOpenPullRequest={dockOpenPullRequest}
+      onOpenLeadSession={dockOpenLeadSession}
+      onOpenAgentSession={dockOpenAgentSession}
+    />;
+  };
   return (
     <DesktopBootGate
       enabled={Boolean(window.mixdogDesktop?.bootContext?.bootId)}
       ready={desktopBootReady}>
-    <div className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"}`}
+    <div className={`app-shell ${
+      sidebarOpen && workbenchSideLayout.layout.left.length ? "" : "sidebar-collapsed"
+    }`}
       style={{
         "--desktop-workspace-min-width": `${DESKTOP_WORKSPACE_MIN_WIDTH}px`,
       } as React.CSSProperties}>
       <DesktopTitlebar
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={toggleSidebar}
+        sidebarOpen={sidebarOpen && workbenchSideLayout.layout.left.length > 0}
+        onToggleSidebar={() => {
+          if (workbenchSideLayout.layout.left.length > 0) toggleSidebar();
+        }}
         panelOpen={bottomPanel.open}
         onTogglePanel={toggleBottomPanel}
-        dockOpen={dockOpen}
-        onToggleDock={toggleDock}
+        dockOpen={dockOpen && workbenchSideLayout.layout.right.length > 0}
+        onToggleDock={() => {
+          if (workbenchSideLayout.layout.right.length > 0) toggleDock();
+        }}
         dockLabel="utility panel"
         updaterState={updaterState}
         onOpenUpdate={openDesktopUpdate} />
@@ -2061,30 +2437,31 @@ export function App() {
             else openDockTab(surface);
           }}
           onOpenSettings={() => { closeSidebarForNavigation(); openSettings(); }}
-          onPrefetchSettings={warmSettingsView} />
-        {/* Mounted for the app's lifetime once opened: a collapse hides the
-            tree (inert, aria-hidden, zero width) instead of destroying the
-            visited destinations' DOM and state. Every expensive effect inside
-            already gates on `open`. */}
-        {sidebarTreeMounted && <SessionSidebar
+          onPrefetchSettings={warmSettingsView}
+          viewGroups={sidebarViewLayout.groups}
+          onMoveViewGroup={sidebarViewLayout.moveGroup}
+          onMoveView={sidebarViewLayout.moveView}
+          primaryNavigation={<WorkbenchSideIconBar
+            side="left"
+            groups={workbenchSideLayout.layout.left}
+            activeRoot={activeSideViews.left}
+            descriptors={sideViewDescriptors}
+            orientation="vertical"
+            onSelect={selectWorkbenchSideView}
+            onMoveGroup={moveWorkbenchSideGroup}
+            onMoveView={moveWorkbenchSideView} />} />
+        <WorkbenchSidePanel
+          side="left"
           open={sidebarOpen}
-          panelActive={Boolean(presentedSidebarPanel)}
-          panelTitle={sidebarPanelTitle}
-          sessions={sessions}
-          sessionsReady={sessionCatalogReady}
-          workingSessionIds={workingSessionIds}
-          unreadSessionIds={unreadSessionIds}
-          remoteSessionId={sidebarRemoteSessionId}
-          selection={sidebarSelection}
-          onNewTask={sidebarNewTask}
-          onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
-          onResumeSession={sidebarResumeSession}
-          onRenameSession={renameSession}
-          onArchiveSession={archiveSession}
-          onDeleteSession={deleteSession}
-        >
-          {sidebarPanelChildren}
-        </SessionSidebar>}
+          groups={workbenchSideLayout.layout.left}
+          activeRoot={activeSideViews.left}
+          descriptors={sideViewDescriptors}
+          onSelect={selectWorkbenchSideView}
+          onMoveGroup={moveWorkbenchSideGroup}
+          onMoveView={moveWorkbenchSideView}
+          renderView={(id, active, titleDragProps) =>
+            renderWorkbenchSideView("left", id, active, titleDragProps)}
+        />
         </div>
         {/* The scrim stays mounted so it can FADE with the drawer instead of
             blinking out the moment the slide starts (CSS shows it only on
@@ -2223,6 +2600,31 @@ export function App() {
                 </div>}
           </BottomPanel>
         </main>
+        <WorkbenchSidePanel
+          side="right"
+          open={dockOpen}
+          groups={workbenchSideLayout.layout.right}
+          activeRoot={activeSideViews.right}
+          descriptors={sideViewDescriptors}
+          onSelect={selectWorkbenchSideView}
+          onMoveGroup={moveWorkbenchSideGroup}
+          onMoveView={moveWorkbenchSideView}
+          renderView={(id, active, titleDragProps) =>
+            renderWorkbenchSideView("right", id, active, titleDragProps)}
+        />
+        {!dockOpen &&
+          <div className="workbench-side-empty-drop" data-side="right">
+            <WorkbenchSideIconBar
+              side="right"
+              groups={[]}
+              activeRoot={null}
+              descriptors={sideViewDescriptors}
+              orientation="vertical"
+              onSelect={selectWorkbenchSideView}
+              onMoveGroup={moveWorkbenchSideGroup}
+              onMoveView={moveWorkbenchSideView}
+            />
+          </div>}
         {/* Phone: the dock floats over the thread, so give it the same
             outside-tap dismiss scrim as the left drawer (CSS shows it only
             on narrow viewports). */}
@@ -2238,28 +2640,6 @@ export function App() {
           aria-hidden={!bottomPanel.open}
           tabIndex={bottomPanel.open ? 0 : -1}
           onClick={() => bottomPanel.setOpen(false)} aria-label="Close panel" />
-    {dockOpen && <SnapshotUtilityDock snapshotStore={snapshotStore}
-          hidden={false}
-      open={dockOpen} width={dockWidth} tab={dockTab}
-          sessions={sessions}
-          activeSessionIds={observedAgentSessionIds}
-          unreadSessionIds={unreadSessionIds}
-          projectPath={quickAccessProjectPath}
-          workspaceFolders={workbenchWorkspace.workspace.folders as DesktopWorkspaceFolder[]}
-          onSelectProject={selectToolProject}
-          metricSurface="dock"
-          entering={dockSettled || wasBottomSheetBand.current !== bottomSheetBand} contentReady
-          onTab={(tab) => {
-            if (desktopUtilityDockTabEnabled(tab)) setDockTab(tab);
-          }} onResize={resizeDock}
-          onClose={toggleDock}
-          onOpenFile={dockOpenFile}
-          onOpenFileAt={dockOpenFileAt}
-          onOpenDiff={dockOpenDiff}
-          onOpenPullRequest={dockOpenPullRequest}
-          onOpenLeadSession={dockOpenLeadSession}
-          onOpenAgentSession={dockOpenAgentSession}
-        />}
       </div>
       {paneUtilitySurfacePortals}
       {quickAccessMode && <WorkbenchQuickAccess key={quickAccessMode}

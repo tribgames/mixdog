@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
+import type { DesktopRemoteClientInfo } from '../shared/contract';
 import { loadOrCreatePairingToken } from './remote-pairing-token';
 import {
   acceptRelayE2EEClientHello,
@@ -86,6 +87,8 @@ export interface RemoteRelayHandle {
   token: string;
   pairing: RelayE2EEPairingMaterial;
   readonly clientCount: number;
+  listClients(): Promise<DesktopRemoteClientInfo[]>;
+  revokeClient(clientId: string): Promise<void>;
   /** System resume: the socket is likely half-dead after sleep — drop it and
    *  redial immediately instead of waiting for the ping cycle to notice. */
   resume(): void;
@@ -283,6 +286,7 @@ function relayClientUrl(relayUrl: string, token: string): string {
 export async function startRemoteRelay(options: RemoteRelayOptions): Promise<RemoteRelayHandle> {
   const relayUrl = validatedRelayUrl(options.relayUrl);
   const token = await loadOrCreatePairingToken(options.userDataPath);
+  const clientUrl = relayClientUrl(relayUrl, token);
   const { deviceId, deviceSecret } = await loadOrCreateDevice(options.userDataPath);
   const e2eeIdentity = await loadOrCreateRelayE2EEIdentity(options.userDataPath);
   const pairing = relayE2EEPairingMaterial(e2eeIdentity);
@@ -313,6 +317,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   const activeClients = new Map<string, RelayClientState>();
   let totalPendingFrames = 0;
   let totalPendingBytes = 0;
+  const controlRequests = new Map<string, {
+    resolve(value: unknown): void;
+    reject(error: Error): void;
+    timer: NodeJS.Timeout;
+  }>();
   const notifyClientCount = (): void => options.onClientCountChanged?.();
   // Media streams currently pumping to the relay, keyed by request id: an
   // aborted phone request (scrolled away, closed tab) must stop the read.
@@ -333,6 +342,25 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       try { socket.send(JSON.stringify(payload)); } catch { /* relay vanished */ }
     }
   };
+  const controlRequest = <T>(type: string, payload: Record<string, unknown> = {}): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        reject(new Error('Relay is not connected.'));
+        return;
+      }
+      const requestId = randomUUID();
+      const timer = setTimeout(() => {
+        controlRequests.delete(requestId);
+        reject(new Error('Relay device request timed out.'));
+      }, REVOKE_TIMEOUT_MS);
+      timer.unref?.();
+      controlRequests.set(requestId, {
+        resolve: (value) => resolve(value as T),
+        reject,
+        timer,
+      });
+      sendEnvelope({ type, requestId, ...payload });
+    });
   const removeClient = (clientId: string): boolean => {
     const state = activeClients.get(clientId);
     if (!state) return false;
@@ -528,10 +556,23 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     ws.on('message', (raw) => {
       alive = true;
       void (async () => {
-        let envelope: { type?: unknown; clientId?: unknown; data?: unknown };
+        let envelope: Record<string, unknown>;
         try {
-          envelope = JSON.parse(String(raw)) as { type?: unknown; clientId?: unknown; data?: unknown };
+          envelope = JSON.parse(String(raw)) as Record<string, unknown>;
         } catch {
+          return;
+        }
+        if (envelope.type === 'clients-list' || envelope.type === 'client-revoked') {
+          const requestId = String(envelope.requestId || '');
+          const pending = controlRequests.get(requestId);
+          if (!pending) return;
+          controlRequests.delete(requestId);
+          clearTimeout(pending.timer);
+          if (envelope.ok === false) {
+            pending.reject(new Error(String(envelope.error || 'Relay device request failed.')));
+          } else {
+            pending.resolve(envelope.type === 'clients-list' ? envelope.clients : envelope.ok);
+          }
           return;
         }
         if (envelope.type === 'client-open') {
@@ -673,6 +714,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       mediaStreams.clear();
       if (socket === ws) socket = null;
       if (closed) return;
+      for (const [requestId, pending] of controlRequests) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Relay disconnected.'));
+        controlRequests.delete(requestId);
+      }
       reconnectTimer = setTimeout(connect, retryMs);
       reconnectTimer.unref?.();
       retryMs = Math.min(30_000, retryMs * 2);
@@ -683,6 +729,14 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // Engine pushes stay droppable: the subscriber must not forward its own
   // extra arguments as the `critical` flag.
   const unsubscribeState = options.host.subscribe((snapshot) => broadcastState(snapshot));
+  const unsubscribeSessions = options.host.subscribeSessions((sessions) => {
+    if (activeClients.size === 0) return;
+    broadcastEncrypted({ event: 'sessions', payload: sessions }, true);
+  });
+  const unsubscribeAgentPool = options.host.subscribeAgentPool((agents) => {
+    if (activeClients.size === 0) return;
+    broadcastEncrypted({ event: 'agentPool', payload: agents }, true);
+  });
   const unsubscribeSessionStates = options.host.subscribeSessionStates((update) => {
     if (activeClients.size === 0) return;
     broadcastEncrypted({ event: 'sessionState', payload: update }, true);
@@ -691,12 +745,25 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (activeClients.size === 0) return;
     broadcastEncrypted({ event: 'termData', payload: event }, true);
   }) ?? (() => {});
+  const unsubscribeDesktopEvents = options.host.subscribeDesktopEvents?.(({ name, value }) => {
+    if (name !== 'remote-projection-state' || activeClients.size === 0) return;
+    broadcastEncrypted({ event: 'remoteProjection', payload: value }, false);
+  }) ?? (() => {});
 
   return {
-    clientUrl: relayClientUrl(relayUrl, token),
-    token,
+    get clientUrl() { return clientUrl; },
+    get token() { return token; },
     pairing,
     get clientCount() { return activeClients.size; },
+    listClients: () => controlRequest<DesktopRemoteClientInfo[]>('list-clients')
+      .then((clients) => Array.isArray(clients) ? clients : []),
+    revokeClient: async (clientId: string): Promise<void> => {
+      if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');
+      // Per-browser credentials are isolated: revoking one deletes only that
+      // browser's token on the relay. The QR bootstrap token never rotates
+      // here, so every other paired browser keeps working untouched.
+      await controlRequest<boolean>('revoke-client', { clientId });
+    },
     resume: (): void => {
       if (closed) return;
       retryMs = 1_000;
@@ -778,8 +845,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       unsubscribeState();
-    unsubscribeSessionStates();
+      unsubscribeSessions();
+      unsubscribeAgentPool();
+      unsubscribeSessionStates();
       unsubscribeTerminals();
+      unsubscribeDesktopEvents();
       for (const pending of revocationSockets) {
         try { pending.terminate(); } catch { /* already gone */ }
       }
@@ -792,6 +862,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         for (const state of activeClients.values()) clearTimeout(state.handshakeTimer);
         activeClients.clear();
         notifyClientCount();
+      }
+      for (const [requestId, pending] of controlRequests) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Relay client is closed.'));
+        controlRequests.delete(requestId);
       }
     },
   };

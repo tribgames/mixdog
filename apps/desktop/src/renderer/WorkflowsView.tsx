@@ -22,7 +22,11 @@ import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
-import { modelDisplayName, normalizeModelOptions } from './provider-display';
+import {
+  ModelRouteLabel,
+  modelDisplayName,
+  normalizeModelOptions,
+} from './provider-display';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import {
   useSidebarReferences,
@@ -52,9 +56,10 @@ function record(value: unknown): RecordValue {
 }
 
 type AgentRouteSummary = {
-  modelLabel: string;
-  effortLabel: string;
+  model: string;
+  effort: string;
   fast: boolean;
+  effortLabel: string;
 };
 
 function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): AgentRouteSummary {
@@ -67,23 +72,20 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   const effortValue = String(route.effort || preferredEffort(selected) || '');
   const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);
   const rawEffortLabel = effortOption?.label || effortValue;
-  const effortLabel = rawEffortLabel
-    ? `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`
-    : '';
   const fastCapable = selected?.fastCapable === true || typeof route.fast === 'boolean';
   const fast = typeof route.fast === 'boolean' ? route.fast : selected?.fastPreferred === true;
   return {
-    modelLabel,
-    effortLabel,
+    model: modelLabel,
+    effort: effortValue,
     fast: fastCapable && fast,
+    effortLabel: rawEffortLabel,
   };
 }
 
 function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
   return <small className="agent-route-summary route-trigger-copy">
-    <span className="route-trigger-model">{summary.modelLabel}</span>
-    {summary.effortLabel && <span className="route-trigger-effort">{summary.effortLabel}</span>}
-    {summary.fast && <span className="route-trigger-fast">{t('Fast')}</span>}
+    <ModelRouteLabel model={summary.model} effort={summary.effort}
+      fast={summary.fast} effortLabel={summary.effortLabel} />
   </small>;
 }
 
@@ -606,6 +608,7 @@ export function WorkflowsPane({
           setRouteEditor(null);
         }}
         onSave={(route) => void saveRoute(route)} />}
+      {loading ? null : <>
       <section className="workflows-models workflows-packs" aria-label={t("Workflows")}>
       <div className="workflows-section-head">
         <h2>{t('Workflows')}</h2>
@@ -618,8 +621,7 @@ export function WorkflowsPane({
           <Plus size={16} aria-hidden="true" />
         </button>
       </div>
-      {loading ? null
-        : workflows.length ? <div className="schedules-list">{orderedWorkflows.map((workflow) => {
+      {workflows.length ? <div className="schedules-list">{orderedWorkflows.map((workflow) => {
           const id = String(workflow.id || '');
           const name = String(workflow.name || id);
           const custom = String(workflow.source || '') === 'user';
@@ -765,6 +767,7 @@ export function WorkflowsPane({
           {orderedEditableAgents.map(renderAgentRow)}
         </div>
       </section>
+      </>}
     </div>
   </div>;
 }

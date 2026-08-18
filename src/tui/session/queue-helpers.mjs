@@ -117,7 +117,7 @@ export function sessionActivityTimestamp(session, fallback = 0) {
 }
 
 export function promptDisplayText(content, options = {}) {
-  if (typeof options.displayText === 'string') return options.displayText;
+  if (typeof options.displayText === 'string' && options.displayText.trim()) return options.displayText;
   return promptContentText(content);
 }
 

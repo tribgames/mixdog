@@ -217,6 +217,7 @@ export function saveMediaAsset({ kind, lane, model, prompt, options = {}, mime, 
     for (const dropped of assets.slice(MAX_INDEX_ENTRIES)) {
       const droppedPath = storedAssetPath(dropped.file);
       try { if (droppedPath) unlinkSync(droppedPath); } catch {}
+      removeRenditions(renditionsDir(), dropped.id);
     }
     writeIndex(kept);
   });

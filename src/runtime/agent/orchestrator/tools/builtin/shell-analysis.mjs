@@ -568,7 +568,10 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
     // regex/search args are never mistaken for real syntax.
     const masked = maskQuotedRegions(rewritten);
 
-    for (const segment of shellSplitSegments(rewritten)) {
+    // Only command heads matter here. Scan the quote-masked copy so PowerShell
+    // literals use PowerShell escaping rules (`\` is literal, backtick escapes)
+    // and nested bash snippets remain opaque.
+    for (const segment of shellSplitSegments(masked)) {
         for (const stage of shellSplitPipelineSegments(segment)) {
             const tokens = stripShellProbeWrappers(shellTokenize(stage) || []);
             if (tokens.length === 0) continue;

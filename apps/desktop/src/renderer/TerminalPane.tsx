@@ -12,6 +12,7 @@ import {
   beginBootSurface,
   reportBootSurfaceStage,
 } from './boot-metrics';
+import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalWritePump } from './terminal-write-pump';
 import {
   dataTransferHasLocalFiles,
@@ -28,8 +29,12 @@ type TerminalView = {
   term: Terminal;
   fit: FitAddon;
   webgl: WebglAddon | null;
+  webglContextLoss: { dispose(): void } | null;
   webglUnavailable: boolean;
   writer: TerminalWritePump;
+  /** Predictive local echo over the relay; null on the local desktop, where
+   *  the PTY echo is effectively instant. */
+  localEcho: TerminalLocalEcho | null;
 };
 interface TerminalViewState {
   cols: number;
@@ -162,6 +167,7 @@ function tryEnableWebglRenderer(view: TerminalView): void {
   try {
     contextLossDisposable = addon.onContextLoss(() => {
       contextLossDisposable?.dispose();
+      if (view.webglContextLoss === contextLossDisposable) view.webglContextLoss = null;
       try { addon.dispose(); } catch { /* already released by xterm */ }
       if (view.webgl === addon) view.webgl = null;
       // A lost context normally means this window cannot sustain the WebGL
@@ -171,6 +177,7 @@ function tryEnableWebglRenderer(view: TerminalView): void {
     });
     view.term.loadAddon(addon);
     view.webgl = addon;
+    view.webglContextLoss = contextLossDisposable;
   } catch {
     contextLossDisposable?.dispose();
     try { addon.dispose(); } catch { /* constructor/load failure */ }
@@ -178,6 +185,23 @@ function tryEnableWebglRenderer(view: TerminalView): void {
     // blacklisted driver. xterm remains fully functional on its DOM renderer.
     view.webglUnavailable = true;
   }
+}
+
+/** Release the per-tab GL context when the terminal DOM detaches. Chromium
+ * caps live WebGL contexts per renderer (~16) and evicts the oldest, which
+ * permanently degraded early terminals to the DOM renderer once enough tabs
+ * existed. Scrollback lives in xterm's buffer and is untouched; the next
+ * attach re-enables WebGL through tryEnableWebglRenderer. */
+function releaseWebglRenderer(view: TerminalView): void {
+  const addon = view.webgl;
+  if (!addon) return;
+  // Drop the loss listener FIRST: disposing the renderer releases its context
+  // via WEBGL_lose_context, and that self-inflicted loss must not mark the
+  // view as permanently WebGL-unavailable.
+  view.webglContextLoss?.dispose();
+  view.webglContextLoss = null;
+  view.webgl = null;
+  try { addon.dispose(); } catch { /* context already lost */ }
 }
 
 function terminalView(key: string): TerminalView {
@@ -195,16 +219,42 @@ function terminalView(key: string): TerminalView {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  const writer = new TerminalWritePump(
+    (data, complete) => term.write(data, complete),
+    (id, charCount) => window.mixdogDesktop.termAcknowledge?.(id, charCount),
+  );
+  // Relay-served browsers pay a full round trip per echoed keystroke; the
+  // predictor paints validated keystrokes immediately (user: RTT 때문에
+  // 터미널 타이핑이 답답함). Electron's local PTY needs none of it.
+  const remoteSurface = Boolean(
+    (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer,
+  );
+  const localEcho = remoteSurface
+    ? new TerminalLocalEcho({
+        write: (data) => { void writer.writeReplay(data); },
+        renderAnchor: () => {
+          if (writer.hasQueuedOutput) return null;
+          const buffer = term.buffer.active;
+          if (buffer.type !== 'normal') return null;
+          const line = buffer.getLine(buffer.baseY + buffer.cursorY);
+          if (!line) return null;
+          // Only end-of-line typing predicts: a mid-line insert shifts the
+          // tail and cannot be rolled back with a plain erase.
+          if (line.translateToString(true).length > buffer.cursorX) return null;
+          return buffer.cursorX;
+        },
+        cols: () => term.cols,
+      })
+    : null;
   const created = {
     id: null,
     term,
     fit,
     webgl: null,
+    webglContextLoss: null,
     webglUnavailable: false,
-    writer: new TerminalWritePump(
-      (data, complete) => term.write(data, complete),
-      (id, charCount) => window.mixdogDesktop.termAcknowledge?.(id, charCount),
-    ),
+    writer,
+    localEcho,
   };
   terminalViews.set(key, created);
   return created;
@@ -236,6 +286,7 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   const view = terminalViews.get(id);
   terminalViews.delete(id);
   clearTerminalViewState(id);
+  view?.localEcho?.reset();
   view?.writer.dispose();
   try { view?.term.dispose(); } catch { /* already detached */ }
   await window.mixdogDesktop.termDispose?.(id);
@@ -383,6 +434,7 @@ export default function TerminalPane({
         const previous = view.id;
         view.id = null;
         clearTerminalViewState(key);
+        view.localEcho?.reset();
         try { term.reset(); } catch { /* fresh spawn repaints anyway */ }
         await window.mixdogDesktop.termDispose?.(previous);
       }
@@ -403,6 +455,7 @@ export default function TerminalPane({
       if (isNewPty && ensured.replay) {
         pendingRestore = readTerminalViewState(key);
         if (pendingRestore) term.resize(pendingRestore.cols, pendingRestore.rows);
+        view.localEcho?.reset();
         replayWrite = view.writer.writeReplay(ensured.replay);
       } else if (isNewPty) {
         // A restored tab backed by a fresh PTY must not inherit the old
@@ -412,10 +465,16 @@ export default function TerminalPane({
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
       unsubscribe ??= window.mixdogDesktop.subscribeTermData?.((event) => {
-        if (event.id === view.id) view.writer.push(event.id, event.data);
+        if (event.id !== view.id) return;
+        const data = view.localEcho
+          ? view.localEcho.onIncoming(event.data)
+          : event.data;
+        if (data) view.writer.push(event.id, data);
       });
       dataDisposable ??= term.onData((data) => {
-        if (view.id) window.mixdogDesktop.termWrite?.(view.id, data);
+        if (!view.id) return;
+        view.localEcho?.onInput(data);
+        window.mixdogDesktop.termWrite?.(view.id, data);
       });
       if (replayWrite) await replayWrite;
       if (disposed) return;
@@ -479,6 +538,8 @@ export default function TerminalPane({
       observer?.disconnect();
       dataDisposable?.dispose();
       scrollDisposable?.dispose();
+      // A hidden tab must not hold a GPU context; reattach re-enables WebGL.
+      releaseWebglRenderer(view);
       // The xterm DOM node stays alive for the next attach; only detach it.
       if (term.element?.parentElement === container) container.removeChild(term.element);
     };

@@ -13,7 +13,6 @@ import {
   shouldBlockPromptSubmit,
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
-  shouldRestoreInterruptedPrompt,
   shouldStopComposerGeneration,
 } from "./renderer-logic.mjs";
 import { paneSessionTabIds } from "./pane-layout.ts";
@@ -103,11 +102,6 @@ test("queued follow-up Escape behavior matches Claude Code priority and handoff"
     hasQueuedMessages: true,
     value: "selected draft",
   }).action, "collapse-selection", "idle selection keeps its existing first-Escape behavior");
-  assert.equal(shouldRestoreInterruptedPrompt({
-    hasDraft: false,
-    hasQueuedMessages: true,
-  }), false, "interrupt leaves the queued follow-up owning the next turn");
-
   assert.equal(classifyPromptEscape({
     interruptActive: false,
     hasQueuedMessages: true,
@@ -122,11 +116,6 @@ test("queued follow-up Escape behavior matches Claude Code priority and handoff"
     cursor: 24,
     selectionAnchor: null,
   });
-
-  assert.equal(shouldRestoreInterruptedPrompt({
-    hasDraft: false,
-    hasQueuedMessages: false,
-  }), true, "an unsteered interrupt may restore its prompt");
 
   assert.equal(shouldInterruptPrompt({
     turnBusy: false,

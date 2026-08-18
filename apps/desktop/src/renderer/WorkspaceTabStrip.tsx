@@ -19,14 +19,14 @@ import {
   FileDiff,
   Folder,
   MessageCircle,
-  Plus,
   Sparkles,
   Terminal,
-  X,
 } from "lucide-react";
 
 import type { WorkspaceTab } from "./nav-types";
 import { t } from "./i18n";
+import { isMobileRemoteSurface, MobileTabOverview } from "./MobileTabOverview";
+import { registerMobileBack } from "./mobile-back";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
   cancelLayoutFrame,
@@ -150,6 +150,16 @@ export function WorkspaceTabStrip({
   onPinTab,
   onNewTask,
 }: WorkspaceTabStripProps) {
+  // Full-screen grid overview backing the compact header's count button.
+  const [mobileOverviewOpen, setMobileOverviewOpen] = useState(false);
+  // ABB (user: 백버튼 처리): the open overview arms one history sentinel so
+  // hardware back closes it instead of leaving the PWA.
+  useEffect(() => {
+    if (!mobileOverviewOpen) return undefined;
+    return registerMobileBack(() => setMobileOverviewOpen(false));
+  }, [mobileOverviewOpen]);
+  // The mobile root marker + device-scale factor install in main.tsx BEFORE
+  // the first render (user: 첫 진입 레이아웃 시프트) — nothing to do here.
   // Drag frames carry the source pane so a drop can MOVE the tab between
   // groups instead of copying it.
   const publishFrame = useCallback((frame: Omit<TabDragFrame, "sourceLeafId">) => {
@@ -190,7 +200,11 @@ export function WorkspaceTabStrip({
   const [tabSwitcher, setTabSwitcher] = useState<{ left: number; top: number } | null>(null);
   const switcherNode = useRef<HTMLDivElement>(null);
   const switcherTriggers = useRef(new Set<HTMLElement>());
-  const compact = false;
+  // Chrome-mobile compact header (label + count) engages ONLY where the
+  // workspace holds a single pane — the phone remote surface. Wide surfaces
+  // keep the full Chromium strip untouched; the count opens the grid
+  // overview instead of the old dropdown list.
+  const compact = isMobileRemoteSurface();
   // Chromium layout INPUT: the width the tab run may spend — the shell minus
   // the fixed + slot and the trailing controls (tab_strip.cc passes the
   // available width into CalculateTabBounds the same way).
@@ -212,10 +226,6 @@ export function WorkspaceTabStrip({
       }
     }
   }, []);
-  const toggleSwitcher = (element: HTMLElement) => {
-    const rect = element.getBoundingClientRect();
-    setTabSwitcher((current) => current ? null : { left: rect.left, top: rect.bottom + 4 });
-  };
   // Tab context menu (Close / Close Others / Close to the
   // Right / Keep Open) with standard outside-click dismissal.
   useEffect(() => {
@@ -622,11 +632,27 @@ export function WorkspaceTabStrip({
           const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
           const working = tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
           return <>
+            {/* Chrome-mobile home slot: the brand mark opens the session
+                sidebar (user: 로고를 구글 홈버튼 위치에, 누르면 사이드탭). */}
+            <button type="button" className="workspace-tab-home"
+              aria-label={t("Toggle session sidebar")}
+              onClick={() => window.dispatchEvent(new Event("mixdog:mobile-home"))}>
+              {/* Frameless brand mark (user: 모바일은 프레임 안 들어간 로고):
+                  currentColor strokes so it inks like Chrome's home glyph. */}
+              <svg className="workspace-tab-home-mark" viewBox="44 44 168 168" aria-hidden="true">
+                <g fill="none" stroke="currentColor" strokeWidth="22" strokeLinecap="round">
+                  <path d="M116.2 61A68 68 0 0 1 191.9 104.7" />
+                  <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" />
+                  <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" />
+                </g>
+                <polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123" fill="currentColor" />
+              </svg>
+            </button>
             <button type="button" ref={switcherTrigger}
               className="workspace-tab-compact-current"
-              aria-haspopup="menu" aria-expanded={Boolean(tabSwitcher)}
+              aria-haspopup="dialog" aria-expanded={mobileOverviewOpen}
               data-tooltip={activeTab?.title}
-              onClick={(event) => toggleSwitcher(event.currentTarget)}
+              onClick={() => setMobileOverviewOpen(true)}
               onContextMenu={(event) => {
                 if (!activeTab) return;
                 event.preventDefault();
@@ -644,11 +670,23 @@ export function WorkspaceTabStrip({
             </button>
             <button type="button" ref={switcherTrigger}
               className="workspace-tab-count"
-              aria-label={t("Open tabs")} aria-haspopup="menu"
-              aria-expanded={Boolean(tabSwitcher)}
+              aria-label={t("Open tabs")} aria-haspopup="dialog"
+              aria-expanded={mobileOverviewOpen}
               data-tooltip={t("Open tabs")}
-              onClick={(event) => toggleSwitcher(event.currentTarget)}>
+              onClick={() => setMobileOverviewOpen(true)}>
               {tabs.length}
+            </button>
+            {/* User: ⋮ 말고 — the trailing cluster stays [N][하단][우측],
+                three controls at ONE size (equal 40dp boxes, 24dp glyphs). */}
+            <button type="button" className="workspace-tab-mobile-panel"
+              aria-label={t("Open panel")}
+              onClick={() => window.dispatchEvent(new Event("mixdog:mobile-panel"))}>
+              <span className="codicon codicon-layout-panel" aria-hidden="true" />
+            </button>
+            <button type="button" className="workspace-tab-mobile-dock"
+              aria-label={t("Open utility panel")}
+              onClick={() => window.dispatchEvent(new Event("mixdog:mobile-dock"))}>
+              <span className="codicon codicon-layout-sidebar-right" aria-hidden="true" />
             </button>
           </>;
         })() : <>
@@ -801,7 +839,7 @@ export function WorkspaceTabStrip({
                   >
                     {tab.dirty
                       ? <span className="workspace-tab-dirty-glyph" aria-hidden="true">●</span>
-                      : <X size={14} aria-hidden="true" />}
+                      : <span className="codicon codicon-close" aria-hidden="true" />}
                   </button>
                 </div>
             );
@@ -815,7 +853,7 @@ export function WorkspaceTabStrip({
           aria-label={t("New task")}
           data-tooltip={t("New task")}
           onClick={onNewTask}>
-          <Plus size={16} aria-hidden="true" />
+          <span className="codicon codicon-add" aria-hidden="true" />
         </button>
         {/* VS Code drag image: a text-only ghost label whose top-left corner
             rides at the cursor (setDragImage(tab, 0, 0) / applyDragImage). */}
@@ -854,7 +892,7 @@ export function WorkspaceTabStrip({
                   onClick={() => closeTab(tab)}>
                   {tab.dirty
                     ? <span className="workspace-tab-dirty-glyph" aria-hidden="true">●</span>
-                    : <X size={14} aria-hidden="true" />}
+                    : <span className="codicon codicon-close" aria-hidden="true" />}
                 </button>
               </div>;
             })}
@@ -942,6 +980,15 @@ export function WorkspaceTabStrip({
         {trailing
           ? <div className="workspace-tabs-trailing">{trailing}</div>
           : null}
+        {mobileOverviewOpen && <MobileTabOverview
+          tabs={tabs}
+          activeKey={activeKey}
+          workingSessionIds={workingSessionIds}
+          unreadSessionIds={unreadSessionIds}
+          onSelectTab={onSelectTab}
+          onCloseTab={onCloseTab}
+          onNewTask={onNewTask}
+          onClose={() => setMobileOverviewOpen(false)} />}
       </div>
   );
 }

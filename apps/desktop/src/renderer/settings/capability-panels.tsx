@@ -23,6 +23,7 @@ import {
   t,
   type UiLanguagePreference,
 } from '../i18n';
+import { registerMobileBack } from '../mobile-back';
 import { providerDisplayName } from '../provider-display';
 import {
   getSidePanelMode,
@@ -129,8 +130,32 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
   );
   const [rotating, setRotating] = useState(false);
   const [confirmRotate, setConfirmRotate] = useState(false);
+  const [revokingClient, setRevokingClient] = useState('');
+  const [confirmClient, setConfirmClient] = useState('');
   const [stalledAttempts, setStalledAttempts] = useState(0);
   const ready = connectionInfoReady(info);
+  // Linked devices freshness: the cached card paints instantly, but browsers
+  // pair and drop while Settings is closed — refresh in the background for as
+  // long as the panel stays open.
+  useEffect(() => {
+    if (!ready || !api.getRemoteAccessInfo) return undefined;
+    let live = true;
+    const refresh = () => {
+      void api.getRemoteAccessInfo?.()
+        .then((value) => {
+          if (!live || !value) return;
+          setCachedConnectionInfo(api, value);
+          setInfo(value);
+        })
+        .catch(() => { /* keep the current card */ });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 10_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [ready, api]);
   useEffect(() => {
     if (ready || !api.getRemoteAccessInfo) return undefined;
     let live = true;
@@ -196,13 +221,53 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
   // Relay-only pairing: the web app is the only remote client and can be
   // installed directly by the browser.
   const browserQrSvg = info.relayBrowserQrSvg || '';
-  return <Group title="Web app"
-    description="Works on any network. Scan or open the secure browser link.">
-    <div className="settings-connection-grid">
-      <figure className="settings-connection-card">
-        <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: browserQrSvg }} />
-        <figcaption><b>{t('Open or install the web app')}</b><small>{t('Chrome/Edge: Install app · Safari: Add to Home Screen')}</small></figcaption>
-      </figure>
+  return <>
+    <Group title="Web app"
+      description="Works on any network. Scan or open the secure browser link.">
+      <div className="settings-connection-grid">
+        <figure className="settings-connection-card">
+          <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: browserQrSvg }} />
+          <figcaption><b>{t('Open or install the web app')}</b><small>{t('Chrome/Edge: Install app · Safari: Add to Home Screen')}</small></figcaption>
+        </figure>
+      </div>
+    </Group>
+    {info.clients.length > 0 && <Group title={t('Linked devices')}
+      description={t('Review and revoke browsers paired with this desktop.')}>
+    <div className="settings-resource-list">
+      {info.clients.map((client) => {
+        const lastSeen = client.lastSeenAt
+          ? new Date(client.lastSeenAt).toLocaleString()
+          : t('Never');
+        return <ResourceRow key={client.id}
+          title={client.name || `${client.platform || 'Device'} · ${client.browser || 'Browser'}`}
+          meta={t('Added {{created}} · Last used {{lastSeen}}', {
+            created: new Date(client.createdAt).toLocaleDateString(),
+            lastSeen,
+          })}
+          status={client.online ? 'Connected' : 'Not connected'}
+          actions={<ActionButton danger disabled={Boolean(revokingClient)}
+            onClick={() => {
+              if (confirmClient !== client.id) {
+                setConfirmClient(client.id);
+                return;
+              }
+              if (!api.revokeRemoteAccessClient) return;
+              setConfirmClient('');
+              setRevokingClient(client.id);
+              void api.revokeRemoteAccessClient(client.id)
+                .then((value) => {
+                  const next = value ?? null;
+                  setCachedConnectionInfo(api, next);
+                  setInfo(next);
+                })
+                .catch(() => { /* keep the current list for retry */ })
+                .finally(() => setRevokingClient(''));
+            }}>
+            {revokingClient === client.id
+              ? 'Unpairing…'
+              : confirmClient === client.id ? 'Confirm unpair' : 'Unpair'}
+          </ActionButton>} />;
+      })}
     </div>
     <ResourceRow title="Unpair every device"
       description="Mints a new pairing token. Browsers paired so far lose access and must scan again."
@@ -223,7 +288,8 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
           .catch(() => { /* card keeps the previous QRs */ })
           .finally(() => setRotating(false));
       }}>{rotating ? 'Unpairing…' : confirmRotate ? 'Confirm unpair' : 'Unpair'}</ActionButton>} />
-  </Group>;
+    </Group>}
+  </>;
 }
 
 // Settings → About: repo, issue, and sponsorship links (user decision:
@@ -519,6 +585,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
   const runRef = useRef(run);
   const providerId = String(provider.id || '');
   const flowId = String(flow?.flowId || '');
+  const flowOpen = Boolean(flow);
   const flowState = String(flow?.state || '');
   const manualCodeFlow = providerId === 'anthropic-oauth';
   const loginLabel = providerId === 'cursor-oauth' ? 'Cursor OAuth' : `${providerLabel(provider)} OAuth`;
@@ -590,6 +657,12 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       void run('cancelOAuthProviderLogin', [currentFlowId], `oauth-cancel-${providerId}`, false);
     }
   };
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!flowOpen) return undefined;
+    return registerMobileBack(() => closeRef.current());
+  }, [flowOpen]);
   return <>
     <ActionButton disabled={disabled} onClick={() => void start()}>{provider.authenticated || provider.reauthRequired ? 'Reconnect' : 'Connect'}</ActionButton>
     {flow && <div className="settings-oauth-layer" onMouseDown={(event) => {

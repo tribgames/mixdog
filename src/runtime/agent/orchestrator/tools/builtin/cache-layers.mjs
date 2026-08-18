@@ -359,9 +359,8 @@ export function getCachedReadOnlyStat(fullPath, loader = statSync, now = Date.no
     return stat;
 }
 
-export async function statPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
+async function visitPathStats(paths, workDir, concurrency, opts, visitor) {
     const items = Array.isArray(paths) ? paths : [];
-    const out = new Array(items.length);
     const now = Date.now();
     const inflight = new Map();
     let next = 0;
@@ -406,17 +405,31 @@ export async function statPathsForMtime(paths, workDir, concurrency = Infinity, 
             if (index >= items.length) return;
             const p = items[index];
             const full = isAbsolute(p) ? p : resolveAgainstCwd(p, workDir);
+            let entry;
             try {
                 const stat = await resolveStat(full);
                 if (!stat) throw new Error('stat failed');
-                out[index] = { path: p, full, stat, size: stat.size, mtime: stat.mtimeMs, mtimeMs: stat.mtimeMs };
+                entry = { path: p, full, stat, size: stat.size, mtime: stat.mtimeMs, mtimeMs: stat.mtimeMs };
             } catch {
-                out[index] = { path: p, full, stat: null, size: 0, mtime: 0, mtimeMs: 0 };
+                entry = { path: p, full, stat: null, size: 0, mtime: 0, mtimeMs: 0 };
             }
+            visitor(entry, index);
         }
     }
     const workerCount = Math.min(Math.max(1, concurrency), Math.max(1, items.length));
     await Promise.all(Array.from({ length: workerCount }, worker));
+}
+
+export async function visitPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}, visitor = () => {}) {
+    await visitPathStats(paths, workDir, concurrency, opts, visitor);
+}
+
+export async function statPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
+    const items = Array.isArray(paths) ? paths : [];
+    const out = new Array(items.length);
+    await visitPathStats(items, workDir, concurrency, opts, (entry, index) => {
+        out[index] = entry;
+    });
     return out;
 }
 

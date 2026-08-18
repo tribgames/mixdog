@@ -42,6 +42,7 @@ function codedError(code, message, cause = null) {
 
 function requestKind(request) {
   if (request?.processSnapshot) return 'process snapshot';
+  if (request?.listMetadata) return 'list metadata';
   if (request?.fuzzy != null) return 'fuzzy';
   return request?.args?.includes?.('--files') ? 'file inventory' : 'content';
 }
@@ -567,6 +568,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     deadlineMs: softDeadlineMs(remaining),
     keepWarm: opts.keepWarm === true,
     ...(opts.bulkHint === true ? { bulkHint: true } : {}),
+    ...(opts.mtimeTopK === true ? { mtimeTopK: true } : {}),
   });
   let response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
   // Deadline-swallow defense (binaries before the serve_search response-level
@@ -638,6 +640,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     totalSeen: Math.max(0, Math.floor(Number(response.totalSeen) || 0)),
     partial: response.partial === true,
     timeout: response.timeout === true,
+    filesScanned: Math.max(0, Math.floor(Number(response.filesScanned) || 0)),
     // Unreadable/half-read files the native scanner skipped: route the count
     // through the existing rg-exit-2 partial phrasing in search-tool.mjs so
     // the model sees WHY the result may be missing matches.
@@ -713,9 +716,40 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
     cacheSafe: response.cacheSafe !== false,
     queueMs: Math.max(0, Number(response.queueMs) || 0),
     handlerMs: Math.max(0, Number(response.handlerMs) || 0),
+    inventoryMs: Math.max(0, Number(response.inventoryMs) || 0),
+    rankMs: Math.max(0, Number(response.rankMs) || 0),
     requestClass: response.class === 'fuzzy' ? 'fuzzy' : 'bulk',
     served: true,
   };
+}
+
+export async function tryServeListMetadata(paths, execOptions = {}) {
+  if (process.env.MIXDOG_SEARCH_SERVER === '0') return null;
+  const list = Array.isArray(paths) ? paths.map(String) : [];
+  if (list.length === 0) return [];
+  if (list.length > 50_000) {
+    throw codedError('NATIVE_SEARCH_UNSUPPORTED', 'list metadata request exceeds 50000 paths');
+  }
+  const callerTimeoutMs = Number(execOptions.timeout);
+  const deadlineMs = Number.isFinite(callerTimeoutMs) && callerTimeoutMs > 0
+    ? Math.min(callerTimeoutMs, REQUEST_TIMEOUT_MS)
+    : Math.min(5_000, REQUEST_TIMEOUT_MS);
+  const response = await requestNativeWithRestart(
+    (server) => ({
+      id: ++server.sequence,
+      cwd: String(execOptions.cwd || process.cwd()),
+      listMetadata: list,
+    }),
+    execOptions,
+    deadlineMs,
+  );
+  if (response?.error) {
+    throw codedError('NATIVE_SEARCH_ERROR', String(response.error));
+  }
+  if (!Array.isArray(response?.entries) || response.entries.length !== list.length) {
+    throw unavailableError();
+  }
+  return response.entries;
 }
 
 export function _resetNativeSearchClientForTest() {

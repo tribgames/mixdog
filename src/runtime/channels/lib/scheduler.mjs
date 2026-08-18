@@ -6,7 +6,17 @@ import { DATA_DIR } from "./config.mjs";
 import { ensureNopluginDir } from "./executor.mjs";
 import { withFileLockSync } from "../../shared/atomic-file.mjs";
 import { resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
-import { markFired, markDone, setDeferred, setSkippedUntil } from "../../shared/schedules-db.mjs";
+import {
+  advanceScheduleCursor,
+  claimScheduleRun,
+  markFired,
+  markDone,
+  markScheduleFailure,
+  markScheduleSuccess,
+  setDeferred,
+  setNextFire,
+  setSkippedUntil,
+} from "../../shared/schedules-db.mjs";
 import { runScheduleSession } from "../../shared/schedule-session-run.mjs";
 
 const SCHEDULE_LOG = join(DATA_DIR, "schedule.log");
@@ -107,6 +117,9 @@ class Scheduler {
     this.interactive = interactive.filter((s) => s.enabled !== false);
     this.channelId = channelId ?? "";
     this.promptsDir = join(DATA_DIR, "prompts");
+    for (const s of [...this.nonInteractive, ...this.interactive]) {
+      if (s.lastFiredAt) this.lastFired.set(s.name, new Date(s.lastFiredAt).toISOString());
+    }
     this.refreshSkipCache();
   }
   setInjectHandler(fn) {
@@ -341,11 +354,18 @@ ${Scheduler.INSTANCE_UUID}`;
           continue;
         }
         try {
-          const task = cron.schedule(s.whenCron, () => this.onCronFire(s, type), {
+          const task = cron.schedule(s.whenCron, (ctx) => this.onCronFire(s, type, ctx?.date), {
             timezone: s.timezone || undefined,
             name: s.name,
           });
           this.cronJobs.set(s.name, task);
+          const next = typeof task.getNextRun === "function" ? task.getNextRun() : null;
+          if (next) {
+            s.nextFireAt = next.toISOString();
+            void setNextFire(s.name, next).catch((err) => {
+              process.stderr.write(`mixdog scheduler: ${s.name} setNextFire failed: ${err}\n`);
+            });
+          }
           logSchedule(`registered cron "${s.name}" = "${s.whenCron}"${s.timezone ? ` tz=${s.timezone}` : ""}\n`);
         } catch (err) {
           process.stderr.write(`mixdog scheduler: failed to register cron "${s.name}" (${s.whenCron}): ${err}\n`);
@@ -357,20 +377,44 @@ ${Scheduler.INSTANCE_UUID}`;
   }
   /** Fire path for a cron-triggered entry. node-cron's dow field covers the
    *  day guard, so there is no separate days filter. Persists last_fired_at. */
-  async onCronFire(schedule, type) {
-    const now = /* @__PURE__ */ new Date();
-    if (this.shouldSkip(schedule.name)) return;
-    // Record lastFired only when the fire actually proceeds past
-    // fireTimed's running/precondition guards (it resolves truthy on a
-    // real fire), so failed/skipped fires no longer display as fired.
-    this.fireTimed(schedule, type).then(async (fired) => {
-      if (!fired) return;
-      this.lastFired.set(schedule.name, now.toISOString());
-      try { await markFired(schedule.name, now); }
-      catch (err) { process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`); }
-    }).catch(
-      (err) => process.stderr.write(`mixdog scheduler: ${schedule.name} failed: ${err}\n`)
-    );
+  async onCronFire(schedule, type, scheduledDate = null) {
+    const startedAt = /* @__PURE__ */ new Date();
+    const scheduledAt = scheduledDate instanceof Date && Number.isFinite(scheduledDate.getTime())
+      ? scheduledDate
+      : startedAt;
+    const task = this.cronJobs.get(schedule.name);
+    const nextFireAt = typeof task?.getNextRun === "function" ? task.getNextRun() : null;
+    schedule.nextFireAt = nextFireAt?.toISOString?.() ?? null;
+    if (this.shouldSkip(schedule.name)) {
+      try { await advanceScheduleCursor(schedule.name, scheduledAt, nextFireAt); }
+      catch (err) { process.stderr.write(`mixdog scheduler: ${schedule.name} cursor advance failed: ${err}\n`); }
+      return;
+    }
+    try {
+      const claimed = await claimScheduleRun(schedule.name, scheduledAt, startedAt, nextFireAt);
+      if (!claimed) {
+        logSchedule(`${schedule.name}: duplicate/stale cron slot skipped\n`);
+        return;
+      }
+      schedule.lastScheduledAt = scheduledAt.toISOString();
+      schedule.lastStartedAt = startedAt.toISOString();
+      schedule.lastFiredAt = startedAt.toISOString();
+      this.lastFired.set(schedule.name, startedAt.toISOString());
+      const fired = await this.fireTimed(schedule, type, { awaitDispatch: true });
+      if (!fired) {
+        schedule.lastFailedAt = new Date().toISOString();
+        await markScheduleFailure(schedule.name, new Date());
+        return;
+      }
+      const completedAt = new Date();
+      schedule.lastSuccessAt = completedAt.toISOString();
+      await markScheduleSuccess(schedule.name, completedAt);
+    } catch (err) {
+      schedule.lastFailedAt = new Date().toISOString();
+      try { await markScheduleFailure(schedule.name, new Date()); } catch {}
+      process.stderr.write(`mixdog scheduler: ${schedule.name} failed: ${err}\n`);
+      this.notifyFailure(schedule, `run failed: ${err?.message || err}`);
+    }
   }
   stop() {
     if (this.tickTimer) {
@@ -419,6 +463,8 @@ ${Scheduler.INSTANCE_UUID}`;
     }
     const timer = setTimeout(() => this.fireOneShot(schedule, type), Math.max(0, delay));
     this.oneShotTimers.set(schedule.name, timer);
+    schedule.nextFireAt = new Date(fireAt).toISOString();
+    void setNextFire(schedule.name, new Date(fireAt)).catch(() => {});
     logSchedule(`armed one-shot "${schedule.name}" at ${new Date(fireAt).toISOString()}${delay <= 0 ? " (misfire → immediate)" : ""}\n`);
   }
   /** markDone with bounded retry. A one-shot that fired but failed to persist
@@ -462,6 +508,8 @@ ${Scheduler.INSTANCE_UUID}`;
       logSchedule(`one-shot "${schedule.name}" deferred/skipped — re-arming for ${new Date(target).toISOString()}\n`);
       const timer = setTimeout(() => this.fireOneShot(schedule, type), delay);
       this.oneShotTimers.set(schedule.name, timer);
+      schedule.nextFireAt = new Date(target).toISOString();
+      void setNextFire(schedule.name, new Date(target)).catch(() => {});
       return;
     }
     // Mark done ONLY after a successful fire. A false/throwing fireTimed
@@ -474,6 +522,8 @@ ${Scheduler.INSTANCE_UUID}`;
       // rejects. Only a resolved dispatch counts as a real fire here.
       const fired = await this.fireTimed(schedule, type, { awaitDispatch: true });
       if (!fired) {
+        schedule.lastFailedAt = new Date().toISOString();
+        try { await markScheduleFailure(schedule.name, new Date()); } catch {}
         logSchedule(`one-shot "${schedule.name}" did not fire (skipped/guarded) — leaving pending for retry\n`);
         return;
       }
@@ -481,8 +531,12 @@ ${Scheduler.INSTANCE_UUID}`;
       schedule.lastFiredAt = now.toISOString();
       try { await markFired(schedule.name, now); }
       catch (err) { process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`); }
+      schedule.lastSuccessAt = new Date().toISOString();
+      try { await markScheduleSuccess(schedule.name, new Date()); } catch {}
       await this.markDoneWithRetry(schedule.name);
     } catch (err) {
+      schedule.lastFailedAt = new Date().toISOString();
+      try { await markScheduleFailure(schedule.name, new Date()); } catch {}
       process.stderr.write(`mixdog scheduler: ${schedule.name} one-shot failed: ${err} — leaving pending for retry\n`);
       this.notifyFailure(schedule, `one-shot failed: ${err?.message || err} — left pending for retry`);
     }
@@ -526,8 +580,11 @@ ${Scheduler.INSTANCE_UUID}`;
       name: s.name,
       time: s.whenCron ?? s.whenAt ?? null,
       type,
-      running: false,
-      lastFired: this.lastFired.get(s.name) ?? null,
+      running: this.running.has(s.name),
+      lastFired: this.lastFired.get(s.name) ?? s.lastFiredAt ?? null,
+      lastSuccess: s.lastSuccessAt ?? null,
+      lastFailed: s.lastFailedAt ?? null,
+      nextFire: s.nextFireAt ?? null,
     }));
   }
   async triggerManual(name) {

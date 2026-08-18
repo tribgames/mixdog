@@ -129,6 +129,24 @@ button { color: inherit; }
 .markdown pre, .detail-block pre { overflow-x: auto; white-space: pre-wrap; }
 .spin { animation: spin 1.1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.window-loading-mark-arc {
+  opacity: .42;
+  animation: window-loading-mark-wave 1.35s ease-in-out infinite;
+}
+.window-loading-mark-arc-1 { animation-delay: -.9s; }
+.window-loading-mark-arc-2 { animation-delay: -.45s; }
+.window-loading-mark-arc-3 { animation-delay: 0s; }
+.window-loading-mark-core { opacity: .9; }
+@keyframes window-loading-mark-wave {
+  0%, 66%, 100% { opacity: .42; }
+  22%, 44% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .window-loading-mark-arc { animation: none; opacity: .82; }
+}
+:root[data-mixdog-motion="paused"] .window-loading-mark-arc {
+  animation-play-state: paused !important;
+}
 .stream-cursor { display: inline-block; animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 

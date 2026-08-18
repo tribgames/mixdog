@@ -86,6 +86,8 @@
     "bench:session-context": "node scripts/session-context-bench.mjs",
     "bench:session-transport": "node scripts/session-transport-bench.mjs",
     "bench:tool-overhead": "node scripts/tool-overhead-microbench.mjs",
+    "bench:search-tools": "node scripts/tool-search-bench.mjs",
+    "bench:io-tools": "node scripts/tool-io-bench.mjs",
     "bench:internal-comms": "node scripts/internal-comms-bench.mjs",
     "audit:models": "node scripts/model-catalog-audit.mjs",
     "patch:replay": "node scripts/patch-replay.mjs",

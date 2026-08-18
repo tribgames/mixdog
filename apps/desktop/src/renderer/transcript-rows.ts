@@ -58,6 +58,212 @@ export function transcriptRowKey(
     : `${sessionKey}:${item?.kind || "row"}-${index}`;
 }
 
+interface TranscriptRowBuilder {
+  rows: TranscriptRowModel[];
+  currentTurnKey: string;
+  previousRowWasUser: boolean;
+}
+
+function beginBuilderTurn(
+  builder: TranscriptRowBuilder,
+  sessionKey: string,
+  turnKey: string,
+): void {
+  if (builder.rows.length > 0 && builder.currentTurnKey && turnKey !== builder.currentTurnKey) {
+    builder.rows.push({
+      _tag: "TurnGap",
+      key: `${sessionKey}:gap:${turnKey}`,
+      turnKey,
+    });
+    builder.previousRowWasUser = false;
+  }
+  builder.currentTurnKey = turnKey;
+}
+
+function pushBuilderItem(
+  builder: TranscriptRowBuilder,
+  sessionKey: string,
+  item: TranscriptItem,
+  index: number,
+  turnKey: string,
+  completion?: TranscriptItem,
+): void {
+  beginBuilderTurn(builder, sessionKey, turnKey);
+  if (item.kind === "user") {
+    builder.rows.push({
+      _tag: "UserMessage",
+      key: transcriptRowKey(sessionKey, item, index),
+      turnKey,
+      item,
+      attachedUser: builder.previousRowWasUser,
+    });
+    builder.previousRowWasUser = true;
+    return;
+  }
+  builder.rows.push({
+    _tag: "AssistantPart",
+    key: transcriptRowKey(sessionKey, item, index),
+    turnKey,
+    item,
+    completion,
+  });
+  builder.previousRowWasUser = false;
+}
+
+export interface SettledTranscriptProjection {
+  rows: readonly TranscriptRowModel[];
+  currentTurnKey: string;
+  previousRowWasUser: boolean;
+  itemCount: number;
+  settledItemIds: ReadonlySet<unknown>;
+}
+
+/**
+ * Settled half of the projection. During streaming only the live tail changes
+ * per publication tick, so callers memoize this result on the settled inputs
+ * and re-run just `appendLiveTranscriptRows` per tick — the O(items) walk and
+ * its per-turn maps run only when a settled item actually lands. Settled row
+ * object identity also stays stable across ticks, so memoized row renderers
+ * skip unchanged rows.
+ */
+export function projectSettledTranscriptRows({
+  sessionKey,
+  items,
+  turnKeys,
+  failedTurns,
+}: {
+  sessionKey: string;
+  items: readonly TranscriptItem[];
+  turnKeys: readonly string[];
+  failedTurns: ReadonlySet<string>;
+}): SettledTranscriptProjection {
+  const lastItemByTurn = new Map<string, number>();
+  const lastCompletionByTurn = new Map<string, number>();
+  const lastAssistantByTurn = new Map<string, number>();
+  const settledItemIds = new Set<unknown>();
+  items.forEach((item, index) => {
+    const turnKey = turnKeys[index] || "";
+    lastItemByTurn.set(turnKey, index);
+    if (item?.id != null) settledItemIds.add(item.id);
+    if (item?.kind === "assistant") lastAssistantByTurn.set(turnKey, index);
+    if (isCompletionTranscriptItem(item)) lastCompletionByTurn.set(turnKey, index);
+  });
+  // A successful turn's "Thought for …" completion belongs to the assistant
+  // row it closes, not to a row of its own.
+  const completionByIndex = new Map<number, TranscriptItem>();
+  const foldedCompletions = new Set<number>();
+  items.forEach((item, index) => {
+    if (item?.kind !== "turndone") return;
+    const turnKey = turnKeys[index] || "";
+    if (failedTurns.has(turnKey) || completionTone(item) !== "complete") return;
+    const assistantIndex = lastAssistantByTurn.get(turnKey);
+    if (assistantIndex === undefined) return;
+    completionByIndex.set(assistantIndex, item);
+    foldedCompletions.add(index);
+  });
+  const builder: TranscriptRowBuilder = {
+    rows: [],
+    currentTurnKey: "",
+    previousRowWasUser: false,
+  };
+  const pushFailure = (turnKey: string) => {
+    beginBuilderTurn(builder, sessionKey, turnKey);
+    builder.rows.push({ _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey });
+    builder.previousRowWasUser = false;
+  };
+  items.forEach((item, index) => {
+    const turnKey = turnKeys[index] || "";
+    const failed = failedTurns.has(turnKey);
+    if (failed && isCompletionTranscriptItem(item)) {
+      // One status row per failed turn, at its last completion marker.
+      if (index === lastCompletionByTurn.get(turnKey)) pushFailure(turnKey);
+      return;
+    }
+    if (foldedCompletions.has(index)) return;
+    if (!isVisibleTranscriptItem(item)) return;
+    pushBuilderItem(builder, sessionKey, item, index, turnKey, completionByIndex.get(index));
+    // A turn that failed without ever emitting a completion marker still owes
+    // the reader one status row after its last content row.
+    if (failed && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {
+      pushFailure(turnKey);
+    }
+  });
+  return {
+    rows: builder.rows,
+    currentTurnKey: builder.currentTurnKey,
+    previousRowWasUser: builder.previousRowWasUser,
+    itemCount: items.length,
+    settledItemIds,
+  };
+}
+
+/** Per-tick half: pending prompts, the live tail, and the thinking row are
+ *  appended onto the memoized settled rows without mutating them. */
+export function appendLiveTranscriptRows({
+  sessionKey,
+  settled,
+  pendingItems = [],
+  liveItem,
+  thinking = false,
+}: {
+  sessionKey: string;
+  settled: SettledTranscriptProjection;
+  pendingItems?: readonly (TranscriptItem & { queuedBehindTurn?: boolean })[];
+  liveItem?: TranscriptItem | null;
+  thinking?: boolean;
+}): TranscriptRowModel[] {
+  const builder: TranscriptRowBuilder = {
+    rows: [...settled.rows],
+    currentTurnKey: settled.currentTurnKey,
+    previousRowWasUser: settled.previousRowWasUser,
+  };
+  const itemCount = settled.itemCount;
+  const activePrompts = pendingItems.filter((item) => item.queuedBehindTurn !== true);
+  const queuedPrompts = pendingItems.filter((item) => item.queuedBehindTurn === true);
+  activePrompts.forEach((item, index) => {
+    pushBuilderItem(builder, sessionKey, item, itemCount + index, `pending:${String(item.id ?? index)}`);
+  });
+
+  const activeTurnKey = builder.currentTurnKey || `${sessionKey}:active`;
+  // A delayed lane can briefly publish a tail whose id has already settled.
+  // Never create a second stable-key row for that stale publication.
+  const liveItemAlreadySettled = liveItem?.id != null
+    && settled.settledItemIds.has(liveItem.id);
+  if (liveItem && !liveItemAlreadySettled) {
+    beginBuilderTurn(builder, sessionKey, activeTurnKey);
+    builder.rows.push({
+      _tag: "AssistantPart",
+      key: transcriptRowKey(sessionKey, liveItem, itemCount),
+      turnKey: activeTurnKey,
+      item: liveItem,
+      active: true,
+      live: true,
+    });
+    builder.previousRowWasUser = false;
+  }
+  if (thinking) {
+    beginBuilderTurn(builder, sessionKey, activeTurnKey);
+    builder.rows.push({
+      _tag: "Thinking",
+      key: `${sessionKey}:thinking:${activeTurnKey}`,
+      turnKey: activeTurnKey,
+      active: true,
+    });
+    builder.previousRowWasUser = false;
+  }
+
+  queuedPrompts.forEach((item, index) => {
+    pushBuilderItem(
+      builder,
+      sessionKey,
+      item,
+      itemCount + activePrompts.length + index,
+      `pending:${String(item.id ?? index)}`,
+    );
+  });
+  return builder.rows;
+}
+
 export function projectTranscriptRows({
   sessionKey,
   items,
@@ -75,134 +281,13 @@ export function projectTranscriptRows({
   liveItem?: TranscriptItem | null;
   thinking?: boolean;
 }): TranscriptRowModel[] {
-  const lastItemByTurn = new Map<string, number>();
-  const lastCompletionByTurn = new Map<string, number>();
-  const lastAssistantByTurn = new Map<string, number>();
-  items.forEach((item, index) => {
-    const turnKey = turnKeys[index] || "";
-    lastItemByTurn.set(turnKey, index);
-    if (item?.kind === "assistant") lastAssistantByTurn.set(turnKey, index);
-    if (isCompletionTranscriptItem(item)) lastCompletionByTurn.set(turnKey, index);
+  return appendLiveTranscriptRows({
+    sessionKey,
+    settled: projectSettledTranscriptRows({ sessionKey, items, turnKeys, failedTurns }),
+    pendingItems,
+    liveItem,
+    thinking,
   });
-  // A successful turn's "Thought for …" completion belongs to the assistant
-  // row it closes, not to a row of its own.
-  const completionByIndex = new Map<number, TranscriptItem>();
-  const foldedCompletions = new Set<number>();
-  items.forEach((item, index) => {
-    if (item?.kind !== "turndone") return;
-    const turnKey = turnKeys[index] || "";
-    if (failedTurns.has(turnKey) || completionTone(item) !== "complete") return;
-    const assistantIndex = lastAssistantByTurn.get(turnKey);
-    if (assistantIndex === undefined) return;
-    completionByIndex.set(assistantIndex, item);
-    foldedCompletions.add(index);
-  });
-  const rows: TranscriptRowModel[] = [];
-  let currentTurnKey = "";
-  let previousRowWasUser = false;
-  const beginTurn = (turnKey: string) => {
-    if (rows.length > 0 && currentTurnKey && turnKey !== currentTurnKey) {
-      rows.push({
-        _tag: "TurnGap",
-        key: `${sessionKey}:gap:${turnKey}`,
-        turnKey,
-      });
-      previousRowWasUser = false;
-    }
-    currentTurnKey = turnKey;
-  };
-  const pushFailure = (turnKey: string) => {
-    beginTurn(turnKey);
-    rows.push({ _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey });
-    previousRowWasUser = false;
-  };
-  const pushItem = (
-    item: TranscriptItem,
-    index: number,
-    turnKey: string,
-    completion?: TranscriptItem,
-  ) => {
-    beginTurn(turnKey);
-    if (item.kind === "user") {
-      rows.push({
-        _tag: "UserMessage",
-        key: transcriptRowKey(sessionKey, item, index),
-        turnKey,
-        item,
-        attachedUser: previousRowWasUser,
-      });
-      previousRowWasUser = true;
-      return;
-    }
-    rows.push({
-      _tag: "AssistantPart",
-      key: transcriptRowKey(sessionKey, item, index),
-      turnKey,
-      item,
-      completion,
-    });
-    previousRowWasUser = false;
-  };
-  items.forEach((item, index) => {
-    const turnKey = turnKeys[index] || "";
-    const failed = failedTurns.has(turnKey);
-    if (failed && isCompletionTranscriptItem(item)) {
-      // One status row per failed turn, at its last completion marker.
-      if (index === lastCompletionByTurn.get(turnKey)) pushFailure(turnKey);
-      return;
-    }
-    if (foldedCompletions.has(index)) return;
-    if (!isVisibleTranscriptItem(item)) return;
-    pushItem(item, index, turnKey, completionByIndex.get(index));
-    // A turn that failed without ever emitting a completion marker still owes
-    // the reader one status row after its last content row.
-    if (failed && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {
-      pushFailure(turnKey);
-    }
-  });
-
-  const activePrompts = pendingItems.filter((item) => item.queuedBehindTurn !== true);
-  const queuedPrompts = pendingItems.filter((item) => item.queuedBehindTurn === true);
-  activePrompts.forEach((item, index) => {
-    pushItem(item, items.length + index, `pending:${String(item.id ?? index)}`);
-  });
-
-  const activeTurnKey = currentTurnKey || `${sessionKey}:active`;
-  // A delayed lane can briefly publish a tail whose id has already settled.
-  // Never create a second stable-key row for that stale publication.
-  const liveItemAlreadySettled = liveItem?.id != null
-    && items.some((item) => item?.id === liveItem.id);
-  if (liveItem && !liveItemAlreadySettled) {
-    beginTurn(activeTurnKey);
-    rows.push({
-      _tag: "AssistantPart",
-      key: transcriptRowKey(sessionKey, liveItem, items.length),
-      turnKey: activeTurnKey,
-      item: liveItem,
-      active: true,
-      live: true,
-    });
-    previousRowWasUser = false;
-  }
-  if (thinking) {
-    beginTurn(activeTurnKey);
-    rows.push({
-      _tag: "Thinking",
-      key: `${sessionKey}:thinking:${activeTurnKey}`,
-      turnKey: activeTurnKey,
-      active: true,
-    });
-    previousRowWasUser = false;
-  }
-
-  queuedPrompts.forEach((item, index) => {
-    pushItem(
-      item,
-      items.length + activePrompts.length + index,
-      `pending:${String(item.id ?? index)}`,
-    );
-  });
-  return rows;
 }
 
 /** The user prompt that opened a turn — the retry action resubmits it. */

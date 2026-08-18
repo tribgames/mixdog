@@ -2,10 +2,12 @@ import { readFileSync, writeFile } from 'node:fs';
 
 import * as electron from 'electron';
 import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from 'electron';
-import { DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
+import { DESKTOP_WINDOW_DEFAULT_WIDTH, DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
 /* Dark window band — must track --mx-window-band in desktop.css :root. */
-export const DESKTOP_BACKGROUND_COLOR = '#151518';
+export const DESKTOP_BACKGROUND_COLOR = '#111114';
+/* Original Gray theme band — must track [data-mixdog-theme="gray"]. */
+export const DESKTOP_GRAY_BACKGROUND_COLOR = '#151518';
 /* Light window band (neutral set) — must track --mx-window-band on light. */
 export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f0f0f0';
 export const DESKTOP_TITLEBAR_HEIGHT = 35;
@@ -70,17 +72,23 @@ export function setDesktopTitleBarTheme(
   value: unknown,
   systemPreference = false,
 ): void {
-  const light = themeId(value) === 'light';
+  const resolved = themeId(value);
+  const light = resolved === 'light';
+  const gray = resolved === 'gray';
   titleBarThemes.set(window as object, light);
   pinNativeThemeSource(systemPreference ? 'system' : light ? 'light' : 'dark');
-  window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
+  window.setBackgroundColor(light
+    ? DESKTOP_LIGHT_BACKGROUND_COLOR
+    : gray
+      ? DESKTOP_GRAY_BACKGROUND_COLOR
+      : DESKTOP_BACKGROUND_COLOR);
   // Remember the applied band for the NEXT launch: the window constructor
   // reads it so a light-theme start never flashes the dark default band
   // (user-reported titlebar/tab pop right after launch).
   if (titleBarThemePersistPath) {
     writeFile(
       titleBarThemePersistPath,
-      systemPreference ? 'system' : light ? 'light' : 'dark',
+      systemPreference ? 'system' : light ? 'light' : gray ? 'gray' : 'dark',
       () => { /* best effort */ },
     );
   }
@@ -122,6 +130,9 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
   pinNativeThemeSource(persisted === 'system' || persisted === 'light' ? persisted : 'dark');
   const light = persisted === 'light' ||
     (persisted === 'system' && !nativeThemePrefersDark());
+  if (persisted === 'gray') {
+    return { backgroundColor: DESKTOP_GRAY_BACKGROUND_COLOR };
+  }
   if (!light) return {};
   return {
     backgroundColor: DESKTOP_LIGHT_BACKGROUND_COLOR,
@@ -156,7 +167,7 @@ export const DESKTOP_WINDOW_OPTIONS = Object.freeze({
   /* First-install layout (user reference): a compact ~1040×700 window with
      the sidebar open and the dock closed. Later launches restore the saved
      bounds via window-state. */
-  width: 1040,
+  width: DESKTOP_WINDOW_DEFAULT_WIDTH,
   height: 700,
   /* The side panels shrink from their preferred widths to their own floors;
      stop once sidebar + workspace + dock + shell spacing reach that floor. */

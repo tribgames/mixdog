@@ -40,7 +40,8 @@ function resolveCycle2CatchupPasses(config) {
 }
 
 export function periodicCycleDue(lastRun, cyclesStartedAt, intervalMs, now = Date.now()) {
-  const anchor = Math.max(Number(lastRun) || 0, Number(cyclesStartedAt) || 0)
+  const persistedLastRun = Number(lastRun) || 0
+  const anchor = persistedLastRun > 0 ? persistedLastRun : (Number(cyclesStartedAt) || 0)
   return Number(intervalMs) > 0 && Number(now) - anchor >= Number(intervalMs)
 }
 
@@ -68,6 +69,7 @@ export function createCycleScheduler(deps) {
     markCycleRequest,
     resolveCoalesceMaxRetries,
     scheduleCoalescedCycleRetry,
+    cancelCoalescedCycleRetries,
     scheduledCycle1Signature,
     scheduledCycle2Signature,
     scheduledCycle3Signature,
@@ -209,15 +211,23 @@ export function createCycleScheduler(deps) {
     }
   }
 
-  async function enqueueScheduledCycle(kind, intervalMs, signature) {
-    const claim = await claimAndMarkScheduledCycle(getDb(), kind, intervalMs, signature, { reason: 'scheduled' })
+  async function enqueueScheduledCycle(kind, intervalMs, signature, config = {}) {
+    const timeoutMs = Math.max(0, Number(config?.timeout) || 600_000)
+    const claimLeaseMs = Math.min(
+      intervalMs,
+      Math.max(60_000, timeoutMs + 60_000),
+    )
+    const claim = await claimAndMarkScheduledCycle(getDb(), kind, intervalMs, signature, {
+      reason: 'scheduled',
+      spacingMs: claimLeaseMs,
+    })
     return claim.claimed === true
   }
 
   async function enqueueScheduledCycle1(intervalMs, _reason = 'scheduled') {
     const config = periodicCycle1Config()
     const signature = scheduledCycle1Signature(config)
-    if (await enqueueScheduledCycle('cycle1', intervalMs, signature)) {
+    if (await enqueueScheduledCycle('cycle1', intervalMs, signature, config)) {
       scheduleScheduledCycle1(config, signature)
     }
   }
@@ -225,7 +235,7 @@ export function createCycleScheduler(deps) {
   async function enqueueScheduledCycle2(intervalMs, _reason = 'scheduled') {
     const config = getConfig()?.cycle2 || {}
     const signature = scheduledCycle2Signature(config)
-    if (await enqueueScheduledCycle('cycle2', intervalMs, signature)) {
+    if (await enqueueScheduledCycle('cycle2', intervalMs, signature, config)) {
       scheduleScheduledCycle2(config, signature)
     }
   }
@@ -233,7 +243,7 @@ export function createCycleScheduler(deps) {
   async function enqueueScheduledCycle3(intervalMs, _reason = 'scheduled') {
     const config = getConfig() || {}
     const signature = scheduledCycle3Signature(config)
-    if (await enqueueScheduledCycle('cycle3', intervalMs, signature)) {
+    if (await enqueueScheduledCycle('cycle3', intervalMs, signature, config?.cycle3 || config)) {
       scheduleScheduledCycle3(config, signature)
     }
   }
@@ -495,6 +505,7 @@ export function createCycleScheduler(deps) {
   function stopCycles() {
     _cyclesActive = false
     if (_cycleInterval) { clearTimeout(_cycleInterval); _cycleInterval = null }
+    try { cancelCoalescedCycleRetries?.(getDb()) } catch {}
   }
 
   // Full-shutdown reset — baseline stop() cleared these module-level flags so

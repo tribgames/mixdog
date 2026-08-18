@@ -162,6 +162,10 @@ export function createRemoteMethods(
       requiredString(relPath, 'relPath'),
     ),
     listSessions: () => host.listSessions(),
+    listAgentPool: () => host.listAgentPool(),
+    getRemoteProjection: () => invokeDesktopOperation('getRemoteProjection', []),
+    setRemoteProjection: ([projection]) =>
+      invokeDesktopOperation('setRemoteProjection', [projection]),
     renameSession: ([sessionId, title]) =>
       host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)),
     setSessionArchived: ([sessionId, archived]) => {
@@ -169,6 +173,10 @@ export function createRemoteMethods(
       return host.setSessionArchived(requiredSessionId(sessionId), archived);
     },
     deleteSession: ([sessionId]) => host.deleteSession(requiredSessionId(sessionId)),
+    // Cold-lane fill for the remote surface: a canonical session.read whose
+    // replay frame returns through the broadcast sessionState lane.
+    prefetchSession: ([sessionId]) =>
+      host.prefetchSession?.(requiredSessionId(sessionId)) ?? false,
     searchProjectFiles: ([projectIdOrWorkspaceId, query, limit]) => {
       if (typeof query !== 'string' || query.length > 1_024) {
         throw new TypeError('query is invalid.');

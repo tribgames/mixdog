@@ -212,6 +212,18 @@ test('shell capture blocks binary/control output but preserves normal UTF-8', as
     assert.doesNotMatch(await binary.getStdout(), /must-not-follow/);
 });
 
+test('shell capture preserves raw UTF-16LE text instead of killing it as binary', async () => {
+    const script = "process.stdout.write(Buffer.from('raw-utf16-ok\\n', 'utf16le'))";
+    const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`;
+    const result = normalizeToolEnvelope(await executeBashTool(
+        { command, timeout_ms: 10_000 },
+        process.cwd(),
+    ));
+    assert.equal(result.explicitSuccess, true);
+    assert.match(result.result, /raw-utf16-ok/);
+    assert.doesNotMatch(result.result, /binary output detected/);
+});
+
 test('Windows executes oversized node inline bodies through a script file', {
     skip: process.platform !== 'win32',
 }, async () => {
@@ -240,14 +252,9 @@ test('auto-background partial output shares one strict UTF-8 byte budget', () =>
 test('shell execution policy matches sync-first background-task parity', () => {
     assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 15_000);
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-    assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'timeout_ms', 'run_in_background']);
-    assert.equal(
-        shellTool.inputSchema.properties.timeout_ms.description,
-        'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.',
-    );
+    assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'run_in_background']);
+    assert.equal(shellTool.inputSchema.properties.timeout_ms, undefined);
     assert.match(shellTool.description, /after 15s.*continues.*task_id.*notification/i);
-    // The timeout contract is anchored on the timeout_ms argument description
-    // above — the tool description no longer duplicates it.
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');
     assert.match(taskTool.description, /List shell tasks.*snapshot.*cancel.*notification/i);
@@ -630,6 +637,12 @@ test('B: valid PS syntax and quoted literals pass', () => {
     assert.equal(preflightPowerShellHygiene("Write-Output '$PID=1'", PS).block, null);
     // pwsh (PS 7) supports `&&`.
     assert.equal(preflightPowerShellHygiene('echo a && echo b', PWSH).block, null);
+    // PowerShell treats backslash as a literal inside quotes. A quoted nested
+    // bash program must stay opaque to the outer PowerShell preflight.
+    const nestedBash = "$dir=(Resolve-Path 'x').Path -replace '\\','/'; docker run image bash -lc 'printf x | awk \"{print $1}\"'";
+    assert.equal(preflightPowerShellHygiene(nestedBash, PS).block, null);
+    // A real outer command after the same literal still gets classified.
+    assert.match(preflightPowerShellHygiene("Write-Output '\\'; head file", PS).block, /`head`/);
 });
 
 test('B: MSYS /x/ drive path is losslessly rewritten to X:\\', () => {

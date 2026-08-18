@@ -109,10 +109,20 @@ let pendingCatalogTimer: number | undefined;
 export function scheduleCachedSessionCatalogWrite(rows: DesktopSessionSummary[]): void {
   pendingCatalogRows = rows;
   if (pendingCatalogTimer !== undefined) return;
-  pendingCatalogTimer = window.setTimeout(() => {
+  pendingCatalogTimer = window.setTimeout(flushCachedSessionCatalogWrite, 1_000);
+}
+
+/** Commit the latest coalesced catalog before a renderer navigation/exit. */
+export function flushCachedSessionCatalogWrite(): void {
+  if (pendingCatalogTimer !== undefined) {
+    window.clearTimeout(pendingCatalogTimer);
     pendingCatalogTimer = undefined;
-    const pending = pendingCatalogRows;
-    pendingCatalogRows = null;
-    if (pending) writeCachedSessionCatalog(pending);
-  }, 1_000);
+  }
+  const pending = pendingCatalogRows;
+  pendingCatalogRows = null;
+  if (pending) writeCachedSessionCatalog(pending);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", flushCachedSessionCatalogWrite);
 }

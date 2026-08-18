@@ -6,6 +6,9 @@ import type {
   DesktopApi,
   DesktopCapabilityRequest,
   DesktopCapabilityResult,
+  DesktopAgentPoolRow,
+  DesktopRemoteProjectionState,
+  DesktopSessionSummary,
   DesktopStateFieldsPatch,
   DesktopStateStreamingTailPatch,
   DesktopSessionStateUpdate,
@@ -31,6 +34,7 @@ import {
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
 const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
+const BROWSER_ID_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.browserId;
 // Sticky proof that this pairing has worked at least once. Without it a browser
 // reopened while the desktop sleeps counts three quick retries and throws the
 // pairing screen over a perfectly valid pairing.
@@ -90,10 +94,29 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     e2eePublicKey && e2eeSecret
       ? { version: 1, serverPublicKey: e2eePublicKey, pairingSecret: e2eeSecret }
       : null;
+  const newBrowserId = (): string => {
+    try { return crypto.randomUUID(); } catch {
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+    }
+  };
+  let browserId = '';
+  try {
+    browserId = localStorage.getItem(BROWSER_ID_STORAGE_KEY) || newBrowserId();
+    localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId);
+  } catch {
+    browserId = newBrowserId();
+  }
+  let clientRegistered = false;
+  let registrationInFlight: Promise<void> | null = null;
 
   interface PendingCall { resolve: (value: unknown) => void; reject: (error: Error) => void }
   const pending = new Map<number, PendingCall>();
   const stateListeners = new Set<(snapshot: SessionSnapshot) => void>();
+  const sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
+  const agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
+  const projectionListeners = new Set<(state: DesktopRemoteProjectionState) => void>();
   const sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   const termListeners = new Set<(event: { id: string; data: string }) => void>();
   let socket: WebSocket | null = null;
@@ -106,14 +129,108 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let secureChannel: RelayE2EEChannel | null = null;
   let connectionReady = false;
 
+  // Another tab shares localStorage and may have re-registered this browser,
+  // rotating the per-browser credential; always dial with the freshest one.
+  const currentToken = (): string => {
+    try {
+      const stored = localStorage.getItem(TOKEN_STORAGE_KEY) || '';
+      if (stored && /^[0-9a-f]{32,128}$/u.test(stored)) token = stored;
+    } catch { /* keep the in-memory token */ }
+    return token;
+  };
+
   const wsUrl = (): string => {
+    const auth = encodeURIComponent(currentToken());
     if (serverBase) {
       const base = new URL(serverBase);
       const scheme = base.protocol === 'https:' ? 'wss' : 'ws';
-      return `${scheme}://${base.host}/ws?token=${encodeURIComponent(token)}`;
+      return `${scheme}://${base.host}/ws?token=${auth}`;
     }
     const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-    return `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
+    return `${scheme}://${location.host}/ws?token=${auth}`;
+  };
+
+  const browserProfile = async (): Promise<{ name: string; platform: string; browser: string }> => {
+    const userAgent = navigator.userAgent || '';
+    let platform = (
+      (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
+      || navigator.platform
+      || 'Unknown device'
+    ).slice(0, 80);
+    const browser = /Edg\//u.test(userAgent) ? 'Edge'
+      : /Firefox\//u.test(userAgent) ? 'Firefox'
+        : /CriOS\//u.test(userAgent) ? 'Chrome'
+          : /Chrome\//u.test(userAgent) ? 'Chrome'
+            : /Safari\//u.test(userAgent) ? 'Safari'
+              : 'Browser';
+    // Device identity (user: 무슨 기기인지도 나와야): Android Chromium exposes
+    // the hardware model via UA-Client Hints (e.g. "Pixel 8", "SM-S928N");
+    // Apple never does, so iPhone/iPad fall back to the UA family.
+    let model = '';
+    try {
+      const uaData = (navigator as Navigator & {
+        userAgentData?: {
+          getHighEntropyValues?(hints: string[]): Promise<Record<string, unknown>>;
+        };
+      }).userAgentData;
+      if (uaData?.getHighEntropyValues) {
+        const high = await uaData.getHighEntropyValues(['model', 'platform']);
+        if (typeof high.model === 'string' && high.model.trim()) {
+          model = high.model.trim().slice(0, 40);
+        }
+        if (typeof high.platform === 'string' && high.platform) {
+          platform = String(high.platform).slice(0, 80);
+        }
+      }
+    } catch { /* UA-CH unavailable; the platform label stands */ }
+    if (!model) {
+      if (/iPhone/u.test(userAgent)) model = 'iPhone';
+      else if (/iPad|Macintosh.+Mobile/u.test(userAgent)) model = 'iPad';
+    }
+    // "Pixel 8 · Chrome" when the device is known; "Android · Chrome" otherwise.
+    return { name: `${model || platform} · ${browser}`, platform, browser };
+  };
+
+  const ensureClientRegistration = (): Promise<void> => {
+    if (clientRegistered) return Promise.resolve();
+    // Single flight: the app fires several RPCs at startup and every one dials
+    // connect(). Parallel registrations would each rotate this browser's
+    // credential server-side, invalidating each other mid-pairing.
+    registrationInFlight ??= (async () => {
+      const endpoint = serverBase
+        ? new URL('/client/register', serverBase).toString()
+        : new URL('/client/register', location.origin).toString();
+      const auth = currentToken();
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          // localStorage outlives cookies in installed PWAs; the bearer keeps
+          // registration working when the pairing cookie is gone.
+          ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
+        },
+        body: JSON.stringify({ clientId: browserId, ...await browserProfile() }),
+      });
+      if (!response.ok) {
+        const failure: Error & { status?: number } = new Error(
+          `Remote browser registration failed (${response.status}).`,
+        );
+        failure.status = response.status;
+        throw failure;
+      }
+      const result = await response.json() as { clientId?: unknown; token?: unknown };
+      if (typeof result.clientId === 'string' && result.clientId) {
+        browserId = result.clientId;
+        try { localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId); } catch { /* session only */ }
+      }
+      if (typeof result.token === 'string' && /^[0-9a-f]{32,128}$/u.test(result.token)) {
+        token = result.token;
+        try { localStorage.setItem(TOKEN_STORAGE_KEY, token); } catch { /* session only */ }
+      }
+      clientRegistered = true;
+    })().finally(() => { registrationInFlight = null; });
+    return registrationInFlight;
   };
 
   // Pairing recovery is scanner-first: the browser camera reads the secure URL
@@ -132,6 +249,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       localStorage.setItem(TOKEN_STORAGE_KEY, parsed.token);
       localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, parsed.serverPublicKey);
       localStorage.setItem(E2EE_SECRET_STORAGE_KEY, parsed.pairingSecret);
+      if (!browserId) {
+        browserId = newBrowserId();
+        localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId);
+      }
+      clientRegistered = false;
       // A new desktop has to prove itself again before it counts as reachable.
       localStorage.removeItem(PAIRED_STORAGE_KEY);
       everPaired = false;
@@ -264,14 +386,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + '#mixdog-remote-pairing .mrp-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.5);}'
         + '#mixdog-remote-pairing form{position:absolute;left:0;right:0;bottom:0;display:grid;gap:12px;'
         + 'padding:22px 20px calc(22px + env(safe-area-inset-bottom));border-radius:20px 20px 0 0;'
-        + 'background:#151518;}'
+        + 'background:#111114;}'
         + '#mixdog-remote-pairing form b{font-size:16px;line-height:22px;}'
         + '#mixdog-remote-pairing form small{color:#a8a8a8;font-size:12.5px;line-height:17px;}'
         + '#mixdog-remote-pairing form small[data-role="err"]{color:#e5484d;}'
         + '#mixdog-remote-pairing input{width:100%;padding:12px;border-radius:10px;border:1px solid #3c3c3c;'
         + 'background:#222225;color:inherit;font-size:16px;}'
         + '#mixdog-remote-pairing .mrp-connect{padding:13px;border:0;border-radius:12px;background:#e9e9e9;'
-        + 'color:#151518;font-weight:600;font-size:15px;cursor:pointer;}'
+        + 'color:#111114;font-weight:600;font-size:15px;cursor:pointer;}'
         + '#mixdog-remote-pairing .mrp-back{justify-self:center;padding:6px 10px;border:0;background:none;'
         + 'color:#a8a8a8;font:500 13.5px/18px system-ui,sans-serif;cursor:pointer;}'
         + '@keyframes mrp-fade{from{opacity:0}to{opacity:1}}'
@@ -537,6 +659,26 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (message.event === 'state') {
       const snapshot = applyStatePayload(message.payload ?? null);
       if (snapshot !== null) dispatchState(snapshot);
+    } else if (message.event === 'sessions') {
+      const sessions = Array.isArray(message.payload)
+        ? message.payload as DesktopSessionSummary[]
+        : [];
+      for (const listener of [...sessionListeners]) {
+        try { listener(sessions); } catch { /* renderer listener fault */ }
+      }
+    } else if (message.event === 'agentPool') {
+      const agents = Array.isArray(message.payload)
+        ? message.payload as DesktopAgentPoolRow[]
+        : [];
+      for (const listener of [...agentPoolListeners]) {
+        try { listener(agents); } catch { /* renderer listener fault */ }
+      }
+    } else if (message.event === 'remoteProjection') {
+      const projection = message.payload as DesktopRemoteProjectionState;
+      if (!projection || typeof projection !== 'object') return;
+      for (const listener of [...projectionListeners]) {
+        try { listener(projection); } catch { /* renderer listener fault */ }
+      }
     } else if (message.event === 'sessionState') {
       const update = message.payload as DesktopSessionStateUpdate;
       if (!update || typeof update !== 'object' || !String(update.sessionId || '')) return;
@@ -597,15 +739,50 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   window.addEventListener('online', wakeProbe);
   window.addEventListener('focus', wakeProbe);
 
-  const scheduleReconnect = (): void => {
-    const delay = retryMs;
-    retryMs = Math.min(10_000, retryMs * 2);
-    window.setTimeout(() => { void connect().catch(() => {}); }, delay);
+  // The pairing is unrecoverable without a fresh QR: wipe every stored
+  // credential and hand the surface to the scanner.
+  const resetPairingAndShowScanner = (message: string): void => {
+    try { clearStoredRemotePairing(localStorage); } catch { /* private storage */ }
+    serverBase = '';
+    token = '';
+    e2eePairing = null;
+    everPaired = false;
+    browserId = newBrowserId();
+    clientRegistered = false;
+    showPairingScreen(message);
   };
 
-  const connect = (): Promise<WebSocket> => {
+  let reconnectTimer: number | null = null;
+  const scheduleReconnect = (): void => {
+    // Registration failures and socket closes can both ask for a retry in the
+    // same tick; one timer serves them all.
+    if (reconnectTimer !== null) return;
+    const delay = retryMs;
+    retryMs = Math.min(10_000, retryMs * 2);
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      void connect().catch(() => {});
+    }, delay);
+  };
+
+  const connect = async (): Promise<WebSocket> => {
     if (socket && socket.readyState === WebSocket.OPEN && connectionReady) {
       return Promise.resolve(socket);
+    }
+    try {
+      await ensureClientRegistration();
+    } catch (error) {
+      const status = (error as { status?: number } | null)?.status;
+      // 401/403/409: the bootstrap token is stale or the browser slot is gone
+      // — only a fresh QR fixes it. Anything else (network, 429, 5xx) retries.
+      if (status === 401 || status === 403 || status === 409) {
+        resetPairingAndShowScanner(
+          'This pairing is no longer valid. Scan the current QR from Settings → Connection.',
+        );
+      } else {
+        scheduleReconnect();
+      }
+      throw error instanceof Error ? error : new Error(String(error));
     }
     openPromise ??= new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(wsUrl());
@@ -692,12 +869,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         pending.clear();
         if (!opened) reject(failure);
         if (isInvalidRemotePairingClose(event)) {
-          try { clearStoredRemotePairing(localStorage); } catch { /* private storage */ }
-          serverBase = '';
-          token = '';
-          e2eePairing = null;
-          everPaired = false;
-          showPairingScreen(
+          resetPairingAndShowScanner(
             'This pairing is no longer valid. Scan the current QR from Settings → Connection.',
           );
           return;
@@ -780,10 +952,28 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     readProjectFile: (projectPath, relPath) => call('readProjectFile', [projectPath, relPath]),
     statProjectFile: (projectPath, relPath) => call('statProjectFile', [projectPath, relPath]),
     listSessions: () => call('listSessions'),
+    subscribeSessions: (listener) => {
+      sessionListeners.add(listener);
+      return () => { sessionListeners.delete(listener); };
+    },
+    listAgentPool: () => call('listAgentPool'),
+    subscribeAgentPool: (listener) => {
+      agentPoolListeners.add(listener);
+      return () => { agentPoolListeners.delete(listener); };
+    },
+    getRemoteProjection: () => call('getRemoteProjection'),
+    setRemoteProjection: (projection) => call('setRemoteProjection', [projection]),
+    subscribeRemoteProjection: (listener) => {
+      projectionListeners.add(listener);
+      return () => { projectionListeners.delete(listener); };
+    },
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
     setSessionArchived: (sessionId: string, archived: boolean) =>
       call('setSessionArchived', [sessionId, archived]),
     deleteSession: (sessionId) => call('deleteSession', [sessionId]),
+    // Cold session lanes fill through a host-side read; the replay frame
+    // arrives on the broadcast sessionState event like any live push.
+    prefetchSession: (sessionId) => call<boolean>('prefetchSession', [sessionId]),
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
       call('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]),
     getSnapshot: () => call('getSnapshot'),
@@ -791,7 +981,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       stateListeners.add(listener);
       return () => { stateListeners.delete(listener); };
     },
-    perfLog: () => {},
+    // No perfLog: the Composer's keystroke paint sampler keys on its presence,
+    // and a phone should not pay a double-rAF per keystroke to feed a no-op.
     rendererReady: () => {},
     termEnsure: (id, cwd, shell) => call('termEnsure', [id, cwd ?? null, shell ?? null]),
     termProfiles: () => call('termProfiles'),
@@ -895,8 +1086,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // lane answers 404 and the caller falls back to the RPC payload.
     mediaUrl: (assetId, variant) => {
       const base = serverBase || location.origin;
+      const auth = currentToken();
       const query = `variant=${encodeURIComponent(variant || 'original')}`
-        + (token ? `&token=${encodeURIComponent(token)}` : '');
+        + (auth ? `&token=${encodeURIComponent(auth)}` : '');
       return `${base}/media/${encodeURIComponent(assetId)}?${query}`;
     },
     quit: () => Promise.resolve(),

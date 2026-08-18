@@ -74,7 +74,7 @@
   position: absolute;
   z-index: 2;
   pointer-events: none;
-  background: var(--mx-border-muted);
+  background: var(--mx-border-structure);
   transition: background 120ms ease, width 120ms ease, height 120ms ease;
 }
 .pane-split-row > .pane-resize-handle::after {
@@ -118,10 +118,10 @@
   /* One seam token for every workbench boundary (rail/sidebar/tab strip):
      the stronger --mx-border here read as a visibly heavier line (user:
      테두리 굵기 중구난방). */
-  border-top: 1px solid var(--mx-border-muted);
+  border-top: 1px solid var(--mx-border-structure);
   position: relative;
   color: var(--mx-text);
-  background: var(--mx-workspace-sheet);
+  background: var(--mx-window-band);
 }
 /* Inline (wide) open is instant — same one-frame commit as the left sidebar
    (user: 오른쪽/아래쪽만 튀듯이 붙는다). Only the ≤940px sheet below keeps
@@ -197,7 +197,7 @@
   /* Bottom-rail tabs use the shared 13px item tier; the panel band itself is
      structural chrome, not another 15px panel title. */
   padding: 0 8px 0 4px;
-  border-bottom: 1px solid var(--mx-border-muted);
+  border-bottom: 1px solid var(--mx-border);
 }
 .bottom-panel-tab-region {
   position: relative;
@@ -686,7 +686,7 @@
      hairline, so the ACTIVE (sheet-colored) tab visibly connects to its
      surface below — the VS Code editor-group look. */
   background: var(--mx-window-band);
-  border-bottom: 1px solid var(--mx-border-muted);
+  border-bottom: 1px solid var(--mx-border);
 }
 .pane-strip-row {
   display: flex;

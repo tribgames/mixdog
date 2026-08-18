@@ -9,6 +9,7 @@ type ThemeEntry = { id: string; label: string; palette: ThemePalette };
 
 const registry = THEME_REGISTRY as Record<string, ThemeEntry>;
 const aliases = THEME_ALIASES as Record<string, string>;
+const DESKTOP_GRAY_THEME_ID = 'gray';
 
 function themeId(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -86,22 +87,21 @@ function suppressThemeSwapTransitions(root: HTMLElement): void {
 // The default dark theme is fully defined by desktop.css. Other palettes,
 // including light, must inject their semantic surface tokens.
 function builtinTheme(resolved: string): boolean {
-  return resolved === DEFAULT_THEME_ID || resolved === 'dark' || resolved === 'light';
+  return resolved === DEFAULT_THEME_ID
+    || resolved === 'dark'
+    || resolved === DESKTOP_GRAY_THEME_ID
+    || resolved === 'light';
 }
 
 function desktopThemeBackground(resolved: string): string {
   if (resolved === 'light') return '#f0f0f0';
-  if (builtinTheme(resolved)) return '#151518';
+  if (resolved === DESKTOP_GRAY_THEME_ID) return '#151518';
+  if (builtinTheme(resolved)) return '#111114';
   return registry[resolved].palette.background;
 }
 
-// 'system' | 'dark' | 'white' are the desktop surface modes; any TUI registry
+// 'system' | 'dark' | 'gray' | 'white' are the desktop surface modes; any TUI registry
 // theme id (nord, dracula, …) is also accepted as a desktop-local preference.
-// The former Gray ramp IS the Dark theme now and the near-black variant is
-// retired (user: 그레이를 다크로 바꾸고 기존 다크는 폐기), so the ramps live in
-// desktop.css's own :root / [data-mixdog-theme="light"] blocks — no separate
-// surface attribute rides on top anymore. That also fixes the web build, which
-// never shipped the surface layer and therefore rendered the warm paper set.
 export type DesktopThemePreference = 'system' | 'dark' | 'white' | (string & {});
 
 const DESKTOP_THEME_PREFERENCE_KEY = 'mixdog.desktop-theme-preference';
@@ -116,20 +116,19 @@ function desktopThemeStorage(): Storage | null {
 
 export function getDesktopThemePreference(): DesktopThemePreference | null {
   const value = desktopThemeStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY) || '';
-  // Retired mode: a stored 'gray' resolves to the Dark it became.
-  if (value === 'gray') return 'dark';
-  if (value === 'system' || value === 'dark' || value === 'white') return value;
+  if (value === 'system' || value === 'dark' || value === DESKTOP_GRAY_THEME_ID || value === 'white') return value;
   return registry[value] ? value : null;
 }
 
 export function desktopThemePreferenceForTheme(value: unknown): DesktopThemePreference {
   const requested = themeId(value);
+  if (requested === DESKTOP_GRAY_THEME_ID) return DESKTOP_GRAY_THEME_ID;
   const resolved = registry[requested] ? requested : aliases[requested];
   return resolved === 'light' ? 'white' : 'dark';
 }
 
-/** Settings picker options — DESKTOP keeps exactly the classic modes:
- * System + White/Dark. The TUI registry themes (nord, dracula, …) stay
+/** Settings picker options — Desktop owns System + White/Dark/Gray.
+ * The TUI registry themes (nord, dracula, …) stay
  * TUI-only; a previously stored registry id still resolves for rendering,
  * it just is not offered here anymore. */
 export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; label: string }> {
@@ -137,6 +136,7 @@ export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; la
     { value: 'system', label: 'System' },
     { value: 'white', label: 'White' },
     { value: 'dark', label: 'Dark' },
+    { value: DESKTOP_GRAY_THEME_ID, label: 'Gray' },
   ];
 }
 
@@ -144,6 +144,7 @@ export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; la
  *  Aliases resolve; unknown ids return null and the card stays neutral. */
 export function themePreviewPalette(value: unknown): Record<string, string> | null {
   const requested = themeId(value);
+  if (requested === DESKTOP_GRAY_THEME_ID) return { ...registry[DEFAULT_THEME_ID].palette };
   const resolved = registry[requested] ? requested : aliases[requested];
   return resolved && registry[resolved] ? { ...registry[resolved].palette } : null;
 }
@@ -152,6 +153,8 @@ export function applyDesktopThemePreference(preference: DesktopThemePreference):
   systemPreferenceActive = preference === 'system';
   const resolved = preference === 'white'
     ? 'light'
+    : preference === DESKTOP_GRAY_THEME_ID
+      ? DESKTOP_GRAY_THEME_ID
     : preference === 'system' && typeof window.matchMedia === 'function'
       ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? DEFAULT_THEME_ID : 'light')
       : preference !== 'system' && preference !== 'dark' && registry[preference]
@@ -178,7 +181,11 @@ export function clearDesktopThemePreference(): void {
 
 export function applyDesktopTheme(value: unknown): string {
   const requested = themeId(value);
-  const resolved = registry[requested] ? requested : (registry[aliases[requested]] ? aliases[requested] : DEFAULT_THEME_ID);
+  const resolved = requested === DESKTOP_GRAY_THEME_ID
+    ? DESKTOP_GRAY_THEME_ID
+    : registry[requested]
+      ? requested
+      : (registry[aliases[requested]] ? aliases[requested] : DEFAULT_THEME_ID);
   const root = document.documentElement;
   suppressThemeSwapTransitions(root);
   root.dataset.mixdogTheme = resolved;
@@ -193,7 +200,9 @@ export function applyDesktopTheme(value: unknown): string {
       mixdogDesktop?: { applyTitleBarTheme?: (theme: string, systemPreference?: boolean) => Promise<void> };
     }).mixdogDesktop?.applyTitleBarTheme?.(resolved, systemPreferenceActive)?.catch?.(() => undefined);
   } catch { /* theme application must never fail on bridge absence */ }
-  const variables = cssVariables(registry[resolved].palette);
+  const variables = cssVariables(
+    registry[resolved]?.palette ?? registry[DEFAULT_THEME_ID].palette,
+  );
   // Always clear previous inline overrides first so switching back to a
   // css-native theme cannot leave stale palette values behind.
   for (const name of Object.keys(variables)) root.style.removeProperty(name);
