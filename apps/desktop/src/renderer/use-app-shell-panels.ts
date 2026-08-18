@@ -23,6 +23,7 @@ import {
   type SidebarPanelKey,
 } from "./app-shell-components";
 import { useSidePanelOpenFlip } from "./app-side-panel-flip";
+import { usePageHideFlush } from "./layout-persistence";
 import { useResponsiveShellBands } from "./use-responsive-shell-bands";
 
 const SIDEBAR_OPEN_KEY = "mixdog.desktop-sidebar-open.v1";
@@ -63,19 +64,22 @@ export function useAppShellPanels() {
     }
   });
   const desktopSidebarOpen = useRef(sidebarOpen);
+  const persistSidebarState = useCallback(() => {
+    if (narrowShell || wasNarrowShell.current) return;
+    desktopSidebarOpen.current = sidebarOpen;
+    try { window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen)); }
+    catch { /* layout persistence is a convenience only */ }
+  }, [narrowShell, sidebarOpen]);
+  usePageHideFlush(persistSidebarState);
   useEffect(() => {
     // Narrow-band drawer toggles are transient: they update neither the
     // stored preference nor the restore target. The wasNarrowShell guard
     // also holds the first wide render back until the crossing effect below
     // has re-applied the inline state.
     if (narrowShell || wasNarrowShell.current) return;
-    desktopSidebarOpen.current = sidebarOpen;
-    const timer = window.setTimeout(() => {
-      try { window.localStorage.setItem(SIDEBAR_OPEN_KEY, String(sidebarOpen)); }
-      catch { /* layout persistence is a convenience only */ }
-    }, 120);
+    const timer = window.setTimeout(persistSidebarState, 120);
     return () => window.clearTimeout(timer);
-  }, [narrowShell, sidebarOpen]);
+  }, [narrowShell, persistSidebarState]);
   // Projects panel (rail → Projects): hosted in the session-panel area with
   // popup editors (user decision — Schedules grammar, no takeover).
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -433,18 +437,24 @@ export function useAppShellPanels() {
     sidebarOpenIntent.current = false;
     beginSidePanelClose("sidebar", () => applySidebarOpen(false));
   }, [applySidebarOpen, beginSidePanelClose, closeSidebarPanels]);
+  const persistDockState = useCallback(() => {
+    if (narrowShell || wasNarrowShell.current) return;
+    desktopDockOpen.current = dockOpen;
+    try {
+      window.localStorage.setItem(
+        DOCK_STATE_KEY,
+        JSON.stringify({ open: dockOpen, tab: dockTab, width: dockWidth }),
+      );
+    } catch { /* dock state is a convenience only */ }
+  }, [dockOpen, dockTab, dockWidth, narrowShell]);
+  usePageHideFlush(persistDockState);
   useEffect(() => {
     // Same transience rule as the sidebar: drawer-band dock toggles never
     // overwrite the desktop dock preference or the restore target.
     if (narrowShell || wasNarrowShell.current) return;
-    desktopDockOpen.current = dockOpen;
-    const timer = window.setTimeout(() => {
-      try {
-        window.localStorage.setItem(DOCK_STATE_KEY, JSON.stringify({ open: dockOpen, tab: dockTab, width: dockWidth }));
-      } catch { /* dock state is a convenience only */ }
-    }, 120);
+    const timer = window.setTimeout(persistDockState, 120);
     return () => window.clearTimeout(timer);
-  }, [narrowShell, dockOpen, dockTab, dockWidth]);
+  }, [narrowShell, persistDockState]);
 
 
   return {

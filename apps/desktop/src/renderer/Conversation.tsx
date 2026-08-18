@@ -896,6 +896,28 @@ export function Conversation({
   return (
     <section className={`conversation${readOnly ? " conversation-read-only" : ""}`} ref={conversation}
       onKeyDownCapture={readOnly ? undefined : (event) => {
+        const transcriptKey = event.key === "PageUp" || event.key === "PageDown"
+          || event.key === "Home" || event.key === "End";
+        const target = event.target as HTMLElement | null;
+        const editingHomeOrEnd = (event.key === "Home" || event.key === "End")
+          && Boolean(target?.closest('textarea, input, select, [contenteditable="true"]'));
+        const paletteOpen = Boolean(event.currentTarget.querySelector('[role="listbox"]'));
+        const nestedScroller = target?.closest<HTMLElement>("[data-scrollable]");
+        if (transcriptKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+          && !editingHomeOrEnd && !paletteOpen && !nestedScroller) {
+          const element = viewport.current;
+          if (element) {
+            event.preventDefault();
+            handleTranscriptKeyDown({ key: event.key });
+            if (event.key === "PageUp" || event.key === "PageDown") {
+              const direction = event.key === "PageDown" ? 1 : -1;
+              element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: "auto" });
+            } else {
+              element.scrollTo({ top: event.key === "Home" ? 0 : element.scrollHeight, behavior: "auto" });
+            }
+          }
+          return;
+        }
         // Typing must always land in the composer: a printable key (or the
         // IME "Process" key starting a Korean composition) pressed while
         // focus sits on the transcript or tool chrome refocuses the input
@@ -903,7 +925,6 @@ export function Conversation({
         // silently dropped (user: 간헐적으로 채팅 입력이 안 됨).
         if (event.ctrlKey || event.metaKey || event.altKey) return;
         if (event.key.length !== 1 && event.key !== "Process") return;
-        const target = event.target as HTMLElement | null;
         if (!target || typeof target.closest !== "function") return;
         if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
         event.currentTarget

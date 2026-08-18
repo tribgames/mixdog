@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   createPaneLeaf,
   normalizePaneLayoutSessions,
+  paneLeafIdInVerticalDirection,
   parsePaneLayout,
   paneNodeAtPath,
   setPaneSplitRatio,
@@ -38,6 +39,16 @@ test("a 2x2 grid line stays linked after the ratios have drifted", () => {
   const next = setPaneSplitRatio(drifted, "first", 0.35);
   assert.equal(paneNodeAtPath(next, "first")?.ratio, 0.35);
   assert.equal(paneNodeAtPath(next, "second")?.ratio, 0.35);
+});
+
+test("vertical pane navigation follows screen position without wrapping", () => {
+  const root = twoByTwo();
+  assert.equal(paneLeafIdInVerticalDirection(root, "tl", "down"), "bl");
+  assert.equal(paneLeafIdInVerticalDirection(root, "bl", "up"), "tl");
+  assert.equal(paneLeafIdInVerticalDirection(root, "tr", "down"), "br");
+  assert.equal(paneLeafIdInVerticalDirection(root, "br", "up"), "tr");
+  assert.equal(paneLeafIdInVerticalDirection(root, "tl", "up"), null);
+  assert.equal(paneLeafIdInVerticalDirection(root, "br", "down"), null);
 });
 
 test("a 2x2 plus tall pane keeps the shared 2x2 line and leaves the tall pane full height", () => {

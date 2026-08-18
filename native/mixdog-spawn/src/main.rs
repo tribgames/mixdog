@@ -23,6 +23,24 @@ use windows_sys::Win32::System::JobObjects::{
     JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 
+#[cfg(unix)]
+fn close_inherited_file_descriptors() {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        if libc::syscall(libc::SYS_close_range, 3u32, u32::MAX, 0u32) == 0 {
+            return;
+        }
+    }
+
+    let upper = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
+    let upper = if upper > 3 { upper } else { 65_536 };
+    for fd in 3..upper {
+        unsafe {
+            libc::close(fd as libc::c_int);
+        }
+    }
+}
+
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const DEFAULT_OUTPUT_LIMIT: usize = 100 * 1024 * 1024;
@@ -73,6 +91,10 @@ struct SpawnRequest {
     output_limit: usize,
     #[serde(default)]
     merge_stderr: bool,
+    // Keep the child's stdin as a writable pipe (warm shell standby feeds the
+    // script text after spawn). Default false preserves Stdio::null().
+    #[serde(default)]
+    stdin_pipe: bool,
     #[serde(default)]
     command: Option<String>,
     #[serde(default)]
@@ -111,6 +133,20 @@ enum WireRequest {
         cancel: u64,
     },
     Adopt(AdoptRequest),
+    StdinWrite {
+        #[serde(rename = "stdinWrite")]
+        stdin_write: u64,
+        data: String,
+        // Atomically close (EOF) after the write. A separate close message
+        // could race ahead of the async write thread and hand the child an
+        // empty stdin.
+        #[serde(default)]
+        close: bool,
+    },
+    StdinClose {
+        #[serde(rename = "stdinClose")]
+        stdin_close: u64,
+    },
     CancelTask {
         id: u64,
         #[serde(rename = "cancelTask")]
@@ -336,6 +372,7 @@ struct ManagedProcess {
     control: ProcessControl,
     state: Mutex<TaskState>,
     done: AtomicBool,
+    stdin: Mutex<Option<std::process::ChildStdin>>,
 }
 
 impl ManagedProcess {
@@ -467,7 +504,11 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     let id = req.id;
     let mut cmd = Command::new(&req.program);
     cmd.args(&req.args)
-        .stdin(Stdio::null())
+        .stdin(if req.stdin_pipe {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(cwd) = req.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
@@ -499,6 +540,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         }
     };
     let pid = child.id();
+    let stdin_handle = child.stdin.take();
 
     #[cfg(windows)]
     if let Err(error) = control.assign(&child) {
@@ -549,6 +591,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
             output_limit,
         }),
         done: AtomicBool::new(false),
+        stdin: Mutex::new(stdin_handle),
     });
     manager
         .live
@@ -739,7 +782,9 @@ fn adopt(req: AdoptRequest, manager: &Arc<Manager>) {
 }
 
 fn main() {
-    emit(&json!({ "ready": true }));
+    #[cfg(unix)]
+    close_inherited_file_descriptors();
+    emit(&json!({ "ready": true, "caps": { "stdinPipe": true } }));
     let manager = Arc::new(Manager::new());
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -751,6 +796,43 @@ fn main() {
             Ok(WireRequest::Spawn(req)) => {
                 let manager = Arc::clone(&manager);
                 thread::spawn(move || run_spawn(req, manager));
+            }
+            Ok(WireRequest::StdinWrite { stdin_write, data, close }) => {
+                let managed = manager
+                    .live
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(&stdin_write)
+                    .cloned();
+                if let Some(managed) = managed {
+                    // Write off the wire thread: a stalled child pipe must not
+                    // block request processing.
+                    thread::spawn(move || {
+                        let mut stdin = managed.stdin.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Some(handle) = stdin.as_mut() {
+                            let _ = handle.write_all(data.as_bytes());
+                            let _ = handle.flush();
+                        }
+                        if close {
+                            let _ = stdin.take();
+                        }
+                    });
+                }
+            }
+            Ok(WireRequest::StdinClose { stdin_close }) => {
+                let managed = manager
+                    .live
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(&stdin_close)
+                    .cloned();
+                if let Some(managed) = managed {
+                    let _ = managed
+                        .stdin
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .take();
+                }
             }
             Ok(WireRequest::Cancel { cancel }) => {
                 if let Some(managed) = manager

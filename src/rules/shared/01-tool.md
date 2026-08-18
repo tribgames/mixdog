@@ -1,5 +1,7 @@
 # Tool Use
 
+- When an internal Mixdog rule conflicts with the user's latest explicit
+  request, follow the user's request.
 - Baseline routing assigns each facet directly by the evidence needed to
   determine the complete answer or edit:
   path/name only→`find`; wildcard/recursive paths→`glob` (including known-root

@@ -14,6 +14,13 @@ const _shellSyntaxCheat =
 const _shellToolRouting = process.platform === 'win32'
     ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/heredocs/echo/Set-Content.'
     : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/heredocs/echo.';
+// CC parity: when background tasks are disabled for this process, drop the
+// run_in_background field from the schema entirely so the model cannot burn a
+// failure turn attempting it. Mirrors bash-tool's runtime guard, which stays
+// as defense in depth. Process-stable env, evaluated once at module load.
+const _shellBackgroundDisabled = /^(1|true|yes|on)$/i.test(
+    String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
+);
 
 export const BUILTIN_TOOLS = [
     {
@@ -77,7 +84,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. ${_shellToolRouting} Commands start in the foreground; after 15s, a still-running command continues as a tracked task_id and completes by notification.`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. ${_shellToolRouting} Commands start in the foreground${_shellBackgroundDisabled ? '' : ' unless run_in_background is true'}; after 15s, a still-running foreground command continues as a tracked task_id and completes by notification.`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -87,6 +94,13 @@ export const BUILTIN_TOOLS = [
                     minimum: 0,
                     description: 'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.',
                 },
+                ...(_shellBackgroundDisabled ? {} : {
+                    run_in_background: {
+                        type: 'boolean',
+                        default: false,
+                        description: 'Start as a tracked background task immediately; use only when the result is not needed for the next step — completion arrives by notification. Default false.',
+                    },
+                }),
             },
             required: ['command'],
             additionalProperties: false,

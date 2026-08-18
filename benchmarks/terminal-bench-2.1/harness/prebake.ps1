@@ -15,11 +15,22 @@
 # only pins the dependency shell, not mixdog code.
 param(
     [string]$Image = "debian:bookworm-slim",
-    [string]$MixdogVersion = "latest"
+    [string]$MixdogVersion = "latest",
+    [string]$SpawnBuildImage = "rust:1.89-alpine3.22"
 )
 $ErrorActionPreference = "Stop"
 $outDir = Join-Path (Split-Path $PSScriptRoot -Parent) "mixdog-prebake"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../../..")).Path
+$spawnSource = Join-Path $repoRoot "native/mixdog-spawn"
+$hostOut = $outDir -replace '\\', '/'
+$hostSpawnSource = $spawnSource -replace '\\', '/'
+docker run --rm `
+    -v "${hostSpawnSource}:/src:ro" `
+    -v "${hostOut}:/out" `
+    $SpawnBuildImage sh -c `
+    "set -eu; apk add --no-cache musl-dev; CARGO_TARGET_DIR=/tmp/target cargo build --locked --release --manifest-path /src/Cargo.toml; install -m 0755 /tmp/target/release/mixdog-spawn /out/mixdog-spawn-linux-x64"
+if ($LASTEXITCODE -ne 0) { throw "static spawn build failed (exit $LASTEXITCODE)" }
 $script = @'
 set -eu
 export DEBIAN_FRONTEND=noninteractive
@@ -29,6 +40,8 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y nodejs
 npm install -g mixdog@__VERSION__
 MIXDOG_PKG="$(npm root -g)/mixdog"
+install -m 0755 /fixed-spawn "$MIXDOG_PKG/native-tools/mixdog-spawn"
+printf '' | "$MIXDOG_PKG/native-tools/mixdog-spawn" | grep -q '"ready":true'
 node --version
 mixdog --help >/dev/null 2>&1 && echo "mixdog ok"
 # Bench containers never run local embeddings (memory features are disabled
@@ -96,8 +109,8 @@ echo "prebake zst written"
 # The here-string inherits this file's CRLF endings; bash -lc treats a
 # trailing \r as part of the command (exit 127), so normalize to LF.
 $script = $script -replace "`r", ""
-$hostOut = $outDir -replace '\\', '/'
-docker run --rm -v "${hostOut}:/out" $Image bash -lc $script
+$hostSpawn = (Join-Path $outDir "mixdog-spawn-linux-x64") -replace '\\', '/'
+docker run --rm -v "${hostOut}:/out" -v "${hostSpawn}:/fixed-spawn:ro" $Image bash -lc $script
 if ($LASTEXITCODE -ne 0) { throw "prebake build failed (exit $LASTEXITCODE)" }
 $tar = Join-Path $outDir "mixdog-node-prebake.tar.gz"
 "prebake ready: $tar ($([math]::Round((Get-Item $tar).Length/1MB)) MB)"

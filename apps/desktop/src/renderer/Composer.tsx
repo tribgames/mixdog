@@ -70,6 +70,7 @@ import {
 import {
   insertComposerToken,
   nextComposerSubmissionId,
+  shouldPreserveComposerDraftOnScopeChange,
   submissionRetryKey,
 } from "./composer-draft";
 import { useComposerDictation } from "./use-composer-dictation";
@@ -246,7 +247,6 @@ export const Composer = memo(function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const attachmentSequence = useRef(1);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
-  const dragDepth = useRef(0);
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
@@ -309,9 +309,10 @@ export const Composer = memo(function Composer({
   }, []);
   useLayoutEffect(() => {
     if (activeHistoryScope.current === historyScope) return;
+    const previousHistoryScope = activeHistoryScope.current;
     activeHistoryScope.current = historyScope;
     attachmentsRef.current = [];
-    dragDepth.current = 0;
+    setDraggingFiles(false);
     composingRef.current = false;
     suppressImeLineBreakRef.current = false;
     mentionSearchGeneration.current += 1;
@@ -319,7 +320,11 @@ export const Composer = memo(function Composer({
     // ALREADY typing in the composer, the in-flight text carries over instead
     // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
     const typingLive = document.activeElement === textarea.current;
-    setDraft((current) => (typingLive && current.trim() ? current : ''));
+    const preserveDraft = shouldPreserveComposerDraftOnScopeChange(
+      previousHistoryScope,
+      historyScope,
+    );
+    setDraft((current) => ((preserveDraft || typingLive) && current.trim() ? current : ''));
     setAttachments([]);
     setAttachmentError('');
     setComposerNotice('');
@@ -418,7 +423,6 @@ export const Composer = memo(function Composer({
   // long transcripts.
   useEffect(() => {
     if (!transitioning) return;
-    dragDepth.current = 0;
     setDraggingFiles(false);
   }, [transitioning]);
   useEffect(() => {
@@ -679,12 +683,12 @@ export const Composer = memo(function Composer({
       event.dataTransfer && dataTransferHasPathPayload(event.dataTransfer),
     );
     const containsInput = (event: DragEvent) => containsFiles(event) || containsPaths(event);
+    const clearDraggingFiles = () => setDraggingFiles(false);
     const onDragEnter = (event: DragEvent) => {
       if (!containsInput(event)) return;
       event.preventDefault();
       event.stopPropagation();
       if (transitioningRef.current) return;
-      dragDepth.current += 1;
       setDraggingFiles(true);
     };
     const onDragOver = (event: DragEvent) => {
@@ -694,19 +698,22 @@ export const Composer = memo(function Composer({
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = transitioningRef.current ? 'none' : 'copy';
       }
+      if (!transitioningRef.current) setDraggingFiles(true);
     };
     const onDragLeave = (event: DragEvent) => {
-      if (dragDepth.current === 0) return;
-      event.preventDefault();
-      dragDepth.current = Math.max(0, dragDepth.current - 1);
-      if (dragDepth.current === 0) setDraggingFiles(false);
+      if (event.relatedTarget && target.contains(event.relatedTarget as Node)) return;
+      clearDraggingFiles();
+    };
+    const onWindowDragOver = (event: DragEvent) => {
+      if (!containsInput(event)) return;
+      if (event.target instanceof Node && target.contains(event.target)) return;
+      clearDraggingFiles();
     };
     const onDrop = (event: DragEvent) => {
       if (!containsInput(event)) return;
       event.preventDefault();
       event.stopPropagation();
-      dragDepth.current = 0;
-      setDraggingFiles(false);
+      clearDraggingFiles();
       if (transitioningRef.current || !event.dataTransfer) return;
       const payload = readFileDragPayload(event.dataTransfer);
       if (payload) {
@@ -731,12 +738,19 @@ export const Composer = memo(function Composer({
     target.addEventListener('dragover', onDragOver);
     target.addEventListener('dragleave', onDragLeave);
     target.addEventListener('drop', onDrop);
+    window.addEventListener('dragover', onWindowDragOver, true);
+    window.addEventListener('drop', clearDraggingFiles, true);
+    window.addEventListener('dragend', clearDraggingFiles, true);
+    window.addEventListener('blur', clearDraggingFiles);
     return () => {
       target.removeEventListener('dragenter', onDragEnter);
       target.removeEventListener('dragover', onDragOver);
       target.removeEventListener('dragleave', onDragLeave);
       target.removeEventListener('drop', onDrop);
-      dragDepth.current = 0;
+      window.removeEventListener('dragover', onWindowDragOver, true);
+      window.removeEventListener('drop', clearDraggingFiles, true);
+      window.removeEventListener('dragend', clearDraggingFiles, true);
+      window.removeEventListener('blur', clearDraggingFiles);
     };
   }, [attachFiles, attachLocalPaths, attachProjectPaths, dropTargetRef, projectScope]);
 

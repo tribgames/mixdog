@@ -326,6 +326,7 @@ export async function createMixdogSessionRuntime({
   toolMode = 'full',
   approvalMode = null,
   disallowDelegation = false,
+  autoWakeCompletions = true,
   initialConfig = null,
   remote = false,
   desktopSession: initialDesktopSession = null,
@@ -508,6 +509,17 @@ export async function createMixdogSessionRuntime({
     } finally {
       bootProfile('patch-runtime:close:done', { ms: (performance.now() - startedAt).toFixed(1) });
     }
+  }
+
+  async function closeNativeToolTransports(reason = 'process-exit') {
+    const [spawnClient, searchClient] = await Promise.all([
+      import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs'),
+      import('../runtime/agent/orchestrator/tools/builtin/native-search-client.mjs'),
+    ]);
+    await Promise.allSettled([
+      spawnClient.shutdownNativeSpawnServer?.(reason),
+      searchClient.shutdownNativeSearchServer?.(reason),
+    ]);
   }
 
   const configStartedAt = performance.now();
@@ -726,7 +738,7 @@ export async function createMixdogSessionRuntime({
   } = createNotificationBus({
     listeners: notificationListeners,
     mgr,
-    onCompletionQueued: wakeQueuedCompletion,
+    onCompletionQueued: autoWakeCompletions ? wakeQueuedCompletion : null,
   });
   // Adopt a session as this runtime's identity wherever setSession is
   // injected (lifecycle resume, model-route swap, workflow swap, turn api).
@@ -1585,6 +1597,7 @@ export async function createMixdogSessionRuntime({
     flushAllConfigSavesAsync,
     withTeardownDeadline,
     closePatchRuntimeIfLoaded,
+    closeNativeToolTransports,
     stopSelfUpdateBootCheck: () => selfUpdate.stopBootCheck(),
     createCurrentSession,
     refreshRouteEffort,

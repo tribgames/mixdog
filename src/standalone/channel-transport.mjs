@@ -365,6 +365,9 @@ export function createChannelTransport({
     return 'cancelled';
   }
 
+  let emptyFireBackoffMs = 0;
+  let nextEmptyFireAt = 0;
+
   function cancelGrace() {
     if (graceTimer) { try { clearTimeout(graceTimer); } catch {} graceTimer = null; }
   }
@@ -373,10 +376,18 @@ export function createChannelTransport({
     if (closed || graceTimer) return;
     if (!everHadClient || clients.size > 0) return;
     if (typeof onClientsEmpty !== 'function' || clientGraceMs <= 0) return;
+    // No-op-fire backoff: when onClientsEmpty() repeatedly declines to shut
+    // the daemon down (a session client is still alive on the other front
+    // door), the sweep would otherwise re-fire every grace period and spam
+    // the log with an elapsed→deferred pair for hours. Double the re-fire
+    // interval up to 10 minutes; any client registration resets it.
+    if (Date.now() < nextEmptyFireAt) return;
     graceTimer = setTimeout(() => {
       graceTimer = null;
       pruneDeadClients();
       if (clients.size > 0) return;
+      emptyFireBackoffMs = Math.min(Math.max(clientGraceMs, emptyFireBackoffMs * 2), 600_000);
+      nextEmptyFireAt = Date.now() + emptyFireBackoffMs;
       log(`client grace elapsed (${reason}); no live clients — self-shutdown`);
       try { onClientsEmpty(); } catch {}
     }, clientGraceMs);
@@ -553,6 +564,8 @@ export function createChannelTransport({
     }
     everHadClient = true;
     cancelGrace();
+    emptyFireBackoffMs = 0;
+    nextEmptyFireAt = 0;
     startSweep();
     log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'}`);
     // The unified daemon starts the channels runtime (automation, webhooks,

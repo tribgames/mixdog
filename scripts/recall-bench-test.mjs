@@ -13,10 +13,10 @@ import { inferRecallPeriod, renderEntryLines } from '../src/runtime/memory/lib/r
 import { decodeRecallPageCursor, encodeRecallPageCursor } from '../src/runtime/memory/lib/recall-page-cursor.mjs';
 import { mergeRecallConceptTokens, tokenizeRecallQuery } from '../src/runtime/memory/lib/memory-text-utils.mjs';
 import { countQueryTokens, queryTokensLower } from '../src/runtime/memory/lib/recall-scoring.mjs';
+import { createQueryHandlers } from '../src/runtime/memory/lib/query-handlers.mjs';
 import {
   annotateRecallRootContext,
   boundRecallRowsToTemporal,
-  createQueryHandlers,
   hasLatestRecallIntent,
   latestRecallSearchTerms,
   latestRecallTopicTerms,
@@ -24,7 +24,7 @@ import {
   preserveLatestConceptRows,
   prioritizeHistoricalRootEvidence,
   rankLatestRecallRows,
-} from '../src/runtime/memory/lib/query-handlers.mjs';
+} from '../src/runtime/memory/lib/query-ranking.mjs';
 import { mergeRecallEventRows } from '../src/runtime/memory/lib/recall-event-context.mjs';
 import { preferLatestConceptRows } from '../src/runtime/memory/lib/memory-recall-store.mjs';
 
@@ -356,7 +356,7 @@ test('core recall binds the requested temporal window', async () => {
     getTraceDb: () => null,
   });
   await handleSearch({
-    query: 'reasoning summary 설정 변경',
+    query: '최근 reasoning summary 설정 변경',
     period: '2026-07-03 09:00~12:00',
     projectScope: 'mixdog',
     includeRaw: false,

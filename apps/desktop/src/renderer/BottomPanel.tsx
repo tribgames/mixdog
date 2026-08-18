@@ -17,6 +17,7 @@ import {
   reportBootSurfaceReady,
   reportBootSurfaceStage,
 } from "./boot-metrics";
+import { usePageHideFlush } from "./layout-persistence";
 
 const BOTTOM_PANEL_KEY = "mixdog.desktop.bottom-panel.v1";
 export const BOTTOM_PANEL_MIN_HEIGHT = 120;
@@ -58,16 +59,18 @@ export function useBottomPanelState(defaultTab = "") {
     }
   });
   const [motion, setMotion] = useState<BottomPanelMotion>("animated");
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        window.localStorage.setItem(BOTTOM_PANEL_KEY, JSON.stringify(state));
-      } catch {
-        // Panel persistence is a convenience only.
-      }
-    }, 120);
-    return () => window.clearTimeout(timer);
+  const persistState = useCallback(() => {
+    try {
+      window.localStorage.setItem(BOTTOM_PANEL_KEY, JSON.stringify(state));
+    } catch {
+      // Panel persistence is a convenience only.
+    }
   }, [state]);
+  usePageHideFlush(persistState);
+  useEffect(() => {
+    const timer = window.setTimeout(persistState, 120);
+    return () => window.clearTimeout(timer);
+  }, [persistState]);
   const setOpen = useCallback((
     open: boolean,
     nextMotion: BottomPanelMotion = "animated",

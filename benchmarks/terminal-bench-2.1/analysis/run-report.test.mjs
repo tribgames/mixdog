@@ -84,6 +84,28 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
   return jobsDir;
 }
 
+test('includes cached and cache-write input in final context tokens', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-context-report-'));
+  try {
+    const jobsDir = fixture(root, 'jobs-current', 'sha256:context', '2026-08-15T00:00:00.000Z', [10, 20]);
+    const agentDir = join(jobsDir, '2026-08-15__00-00-00', 'a__fixture', 'agent');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'mixdog.txt'), `${JSON.stringify({
+      type: 'model.request.completed',
+      usage: {
+        input_tokens: 2,
+        cached_input_tokens: 100,
+        cache_write_input_tokens: 5,
+      },
+    })}\n`);
+    const report = generateRunReport({ jobsDir, historyRoot: root });
+    assert.equal(report.finalContext.medianTokens, 107);
+    assert.equal(report.finalContext.trials, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('ranks only clean equal-score runs with the same preset fingerprint', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-report-'));
   try {

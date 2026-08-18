@@ -701,29 +701,31 @@ export function PaneWorkspace({
   // session. When an active tab/group moves to another leaf, match its prior
   // selection first so the same owner follows the move; ordinary tab switches
   // then fall back to the existing leaf owner and never remount Conversation.
-  const conversationLeaves: ConversationSurface[] = workspace.leaves.flatMap((leaf) => {
-    const active = paneActiveSelection(leaf);
-    return active?.kind === "session" || active?.kind === "new"
-      ? [{
-        leaf,
-        active,
-        selectionKey: navigationKey(active),
-        handoff: false,
-        parked: false,
-      }]
-      : [];
-  }).concat([...paneSurfaceHandoffs.current.values()].flatMap((surface) => {
-    const active = paneActiveSelection(surface.leaf);
-    return active?.kind === "session" || active?.kind === "new"
-      ? [{
-        leaf: surface.leaf,
-        active,
-        selectionKey: navigationKey(active),
-        handoff: true,
-        parked: false,
-      }]
-      : [];
-  }));
+  const conversationLeaves: ConversationSurface[] = workspace.restorePending
+    ? []
+    : workspace.leaves.flatMap((leaf) => {
+      const active = paneActiveSelection(leaf);
+      return active?.kind === "session" || active?.kind === "new"
+        ? [{
+          leaf,
+          active,
+          selectionKey: navigationKey(active),
+          handoff: false,
+          parked: false,
+        }]
+        : [];
+    }).concat([...paneSurfaceHandoffs.current.values()].flatMap((surface) => {
+      const active = paneActiveSelection(surface.leaf);
+      return active?.kind === "session" || active?.kind === "new"
+        ? [{
+          leaf: surface.leaf,
+          active,
+          selectionKey: navigationKey(active),
+          handoff: true,
+          parked: false,
+        }]
+        : [];
+    }));
   const previousConversationOwners = conversationOwners.current;
   const representedConversationLeaves = new Set(
     conversationLeaves.map((entry) => entry.leaf.id),
@@ -818,6 +820,11 @@ export function PaneWorkspace({
     focused: boolean,
     handoff: boolean,
   ) => {
+    if (workspace.restorePending) {
+      return <div className="pane-placeholder" data-restoring="true" role="status">
+        <span className="pane-placeholder-title">{t("Restoring layout…")}</span>
+      </div>;
+    }
     const active = paneActiveSelection(surfaceLeaf);
     const interactive = focused && !handoff;
     const focusPane = (): void => {

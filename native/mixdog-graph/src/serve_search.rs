@@ -498,6 +498,25 @@ impl FileListStore {
                 self.invalidate_roots(&stale_roots);
             }
         }
+        // An existing recursive watch on an ancestor already covers this root.
+        // Registering every explicit file operand's parent as its own root
+        // churned the WATCH_ROOT_MAX-bounded set (evict → invalidate
+        // broadcast → client in-flight abort → retry → re-register), which
+        // looped candidate-scoped fan-out greps indefinitely. Invalidation
+        // stays correct: affected_roots/invalidate_roots match cache keys by
+        // path overlap, so events under the ancestor reach descendant
+        // operands. Refresh the covering root so hot ancestors stay resident.
+        {
+            let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(covering) = roots
+                .keys()
+                .find(|existing| root.starts_with(existing.as_path()))
+                .cloned()
+            {
+                roots.insert(covering, Instant::now());
+                return true;
+            }
+        }
         let mut watcher = self.watcher.lock().unwrap_or_else(|e| e.into_inner());
         if watcher.is_none() {
             let weak: Weak<Self> = Arc::downgrade(self);
@@ -861,6 +880,11 @@ struct ServeRequest {
     deadline_ms: Option<u64>,
     #[serde(default, rename = "keepWarm")]
     keep_warm: bool,
+    // Client-supplied breadth hint: broad directory content scans (multi-
+    // pattern fan-out combined pass and its speculative prefilter) opt into
+    // the bulk lane so they cannot saturate the interactive worker pool.
+    #[serde(default, rename = "bulkHint")]
+    bulk_hint: bool,
     #[serde(default)]
     fuzzy: Option<String>,
     #[serde(default)]
@@ -2724,7 +2748,7 @@ enum SearchClass {
 fn search_class(req: &ServeRequest) -> SearchClass {
     if req.fuzzy.is_some() {
         SearchClass::Fuzzy
-    } else if req.args.iter().any(|arg| arg == "--files") {
+    } else if req.bulk_hint || req.args.iter().any(|arg| arg == "--files") {
         SearchClass::Bulk
     } else {
         SearchClass::Interactive
@@ -3356,6 +3380,7 @@ mod tests {
             limit,
             deadline_ms: None,
             keep_warm: false,
+            bulk_hint: false,
             fuzzy: None,
             hidden: false,
             include_noise: false,
@@ -3378,6 +3403,9 @@ mod tests {
             search_class(&request(&["-e", "needle", "."], 400)),
             SearchClass::Interactive
         );
+        let mut broad = request(&["-e", "needle", "."], 400);
+        broad.bulk_hint = true;
+        assert_eq!(search_class(&broad), SearchClass::Bulk);
         let mut fuzzy = request(&[], 20);
         fuzzy.fuzzy = Some("needle".to_string());
         assert_eq!(search_class(&fuzzy), SearchClass::Fuzzy);
@@ -3421,6 +3449,24 @@ mod tests {
         assert!(prune.iter().any(|glob| glob == "!**/.git/**"));
         let inside = prune_globs(Path::new("repo/.git"), &parsed);
         assert!(inside.is_empty());
+    }
+
+    #[test]
+    fn descendant_operands_reuse_the_ancestor_watch_root() {
+        let store = Arc::new(FileListStore::new());
+        let dir = std::env::temp_dir().join("mixdog-watch-cover-test");
+        let sub = dir.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        assert!(store.watch_root(&dir));
+        assert!(store.watch_root(&sub));
+        assert_eq!(
+            store
+                .watched_roots
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len(),
+            1
+        );
     }
 
     #[test]

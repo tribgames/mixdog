@@ -57,7 +57,7 @@
     },
     "full-sol-xhigh": {
       "suite": "full",
-      "routeProfile": "sol-xhigh",
+      "routeProfile": "sol-xhigh-nofast",
       "compareTo": "codex-gpt56-sol"
     },
     "full-opus5-solo": {

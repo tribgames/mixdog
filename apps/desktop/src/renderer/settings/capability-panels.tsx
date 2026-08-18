@@ -72,6 +72,7 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     ['Ctrl+W', 'Close tab'],
     ['Ctrl+Tab / Ctrl+Shift+Tab', 'Next / previous tab'],
     ['Ctrl+← / →', 'Switch tab / pane'],
+    ['Ctrl+↑ / ↓', 'Focus pane above / below'],
     ['Ctrl+B', 'Toggle left side bar'],
     ['Ctrl+Alt+B', 'Toggle right utility panel'],
     ['Ctrl+` / Ctrl+T', 'Toggle terminal panel'],
@@ -92,6 +93,10 @@ const SHORTCUT_GROUPS: ReadonlyArray<readonly [string, ReadonlyArray<readonly [s
     ['↑ / ↓', 'Prompt history (empty draft)'],
     ['/', 'Command palette'],
     ['@', 'File and context mentions'],
+  ]],
+  ['Conversation', [
+    ['PageUp / PageDown', 'Scroll conversation'],
+    ['Home / End', 'First / latest message'],
   ]],
 ];
 

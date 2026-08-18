@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WorkspaceSelection } from "./nav-types";
+import { usePageHideFlush } from "./layout-persistence";
 import { navigationKey } from "./text-format";
 import {
   activateTabInPaneLeaf,
@@ -120,6 +121,15 @@ export function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspace
   }
 }
 
+export function initialPaneWorkspaceState(
+  stored: PaneWorkspaceState | null,
+  initialSelection: WorkspaceSelection | null,
+): PaneWorkspaceState {
+  if (stored) return stored;
+  const leaf = initialSelection ? createPaneLeaf(initialSelection) : createNewTaskPaneLeaf();
+  return { layout: leaf, focusedLeafId: leaf.id };
+}
+
 export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = null) {
   const startupRestore = useRef<{
     stored: PaneWorkspaceState | null;
@@ -141,17 +151,12 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   const [restoredFromStorage, setRestoredFromStorage] = useState(
     Boolean(restorePlan.stored && !restorePlan.requiresSessionValidation),
   );
-  const [state, setState] = useState<PaneWorkspaceState>(() => {
-    // Persisted session addresses are not safe to render until the daemon
-    // catalog validates them. Starting from an empty leaf prevents orphaned
-    // tabs from reaching session RPCs during the reconciliation window.
-    if (restorePlan.stored && !restorePlan.requiresSessionValidation) {
-      return restorePlan.stored;
-    }
-    // A fresh install starts on a New Task pane without creating a session.
-    const leaf = initialSelection ? createPaneLeaf(initialSelection) : createNewTaskPaneLeaf();
-    return { layout: leaf, focusedLeafId: leaf.id };
-  });
+  // Keep the stored split tree on the first frame. PaneWorkspace gates every
+  // addressable surface while session validation runs, so geometry can restore
+  // immediately without sending an unverified session id to the daemon.
+  const [state, setState] = useState<PaneWorkspaceState>(
+    () => initialPaneWorkspaceState(restorePlan.stored, initialSelection),
+  );
 
   useEffect(() => {
     if (!restorePending || !restorePlan.stored) return undefined;
@@ -213,19 +218,22 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     return () => { cancelled = true; };
   }, [restorePending, restorePlan]);
 
+  const persistState = useCallback(() => {
+    if (restorePending) return;
+    try {
+      window.localStorage.setItem(PANE_LAYOUT_KEY, JSON.stringify(state));
+    } catch {
+      // Layout persistence is a convenience only.
+    }
+  }, [restorePending, state]);
+  usePageHideFlush(persistState);
   useEffect(() => {
     if (restorePending) return undefined;
     // Focus, drag and tab operations must paint before the synchronous storage
     // write. The short debounce also collapses resize/reorder bursts.
-    const timer = window.setTimeout(() => {
-      try {
-        window.localStorage.setItem(PANE_LAYOUT_KEY, JSON.stringify(state));
-      } catch {
-        // Layout persistence is a convenience only.
-      }
-    }, 120);
+    const timer = window.setTimeout(persistState, 120);
     return () => window.clearTimeout(timer);
-  }, [restorePending, state]);
+  }, [persistState, restorePending]);
 
   const focusLeaf = useCallback((leafId: string) => {
     setState((prev) => (

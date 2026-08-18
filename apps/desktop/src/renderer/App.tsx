@@ -37,6 +37,7 @@ import {
 import {
   canSplitPaneSize,
   paneActiveSelection,
+  paneLeafIdInVerticalDirection,
   paneLeavesInVisualOrder,
   paneSessionTabIds,
 } from "./pane-layout";
@@ -1645,6 +1646,20 @@ export function App() {
     if (nextActive) activatePaneSurface(nextActive);
     focusPaneTypingSurface(next.id, nextActive);
   };
+  const focusVerticalPane = (direction: "up" | "down") => {
+    const nextId = paneLeafIdInVerticalDirection(
+      paneWorkspace.layout,
+      paneWorkspace.focusedLeafId,
+      direction,
+    );
+    if (!nextId) return;
+    const next = paneWorkspace.leaves.find((leaf) => leaf.id === nextId);
+    if (!next) return;
+    paneWorkspace.focusLeaf(next.id);
+    const nextActive = paneActiveSelection(next);
+    if (nextActive) activatePaneSurface(nextActive);
+    focusPaneTypingSurface(next.id, nextActive);
+  };
   const {
     focusedLeafForShortcuts,
     focusedLeafTabs,
@@ -1658,6 +1673,7 @@ export function App() {
     navigateTab,
     focusPaneTypingSurface,
     focusSiblingPane,
+    focusVerticalPane,
     bottomPanel,
     dismissSheetsForBottomPanel,
     startTask,

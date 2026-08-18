@@ -104,6 +104,15 @@ export function createPrewarmSchedulers({
         bootProfile('tool-runtime:native-shell-failed', { error: error?.message || String(error) });
       }
       try {
+        // Shell jobs orphaned by a daemon restart: finalize their records and
+        // deliver one completion notice to each owner session so the outcome
+        // is never silently dropped.
+        const { reconcileRecoveredShellJobCompletions } = await import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs');
+        bootProfile('tool-runtime:shell-job-recovery', { notified: await reconcileRecoveredShellJobCompletions() });
+      } catch (error) {
+        bootProfile('tool-runtime:shell-job-recovery-failed', { error: error?.message || String(error) });
+      }
+      try {
         const { prewarmTokenEstimator } = await import('../runtime/agent/orchestrator/session/context-utils.mjs');
         bootProfile('tool-runtime:token-estimator', { warmed: prewarmTokenEstimator() === true });
       } catch (error) {
