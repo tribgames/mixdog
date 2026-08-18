@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.135 - 2026-08-18
+
 - Desktop now preserves pane layouts, sidebar state, panel geometry, and
   composer drafts across reloads and FastDirect restarts, with expanded
   renderer regression coverage.
