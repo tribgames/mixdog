@@ -10,15 +10,8 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import {
-  SECRET_ACCOUNTS,
   canonicalizeStoredChannelsConfig,
-  deleteSecret,
-  diagnoseDiscordTokenValue,
-  getDiscordToken,
-  getTelegramToken,
-  hasStoredSecret,
   readSection,
-  saveSecret,
   updateSection,
   updateSectionAsync,
 } from '../runtime/shared/config.mjs';
@@ -45,10 +38,7 @@ import { readHookPublicBase } from '../runtime/channels/lib/webhook/relay-tunnel
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DEFAULT_CHANNELS = Object.freeze({
-  provider: 'discord',
-  discord: {},
   access: { dmPolicy: 'allowlist', allowFrom: [], channels: {} },
-  channel: { discordChannelId: '', telegramChatId: '' },
   webhook: { enabled: true, port: 3333 },
 });
 
@@ -97,27 +87,9 @@ function normalizeChannelsConfig(raw = {}) {
   return {
     ...DEFAULT_CHANNELS,
     ...stored,
-    discord: { ...DEFAULT_CHANNELS.discord, ...(stored.discord || {}) },
     access: { ...DEFAULT_CHANNELS.access, ...(stored.access || {}) },
-    channel: { ...DEFAULT_CHANNELS.channel, ...(stored.channel || {}) },
     webhook: { ...DEFAULT_CHANNELS.webhook, ...(stored.webhook || {}) },
   };
-}
-
-function channelIdForProvider(entry = {}, provider = 'discord') {
-  if (provider === 'telegram') {
-    return String(entry?.telegramChatId || '');
-  }
-  return String(entry?.discordChannelId || '');
-}
-
-// Resolve the single-channel entry from the config's `channel` object.
-function resolveChannelEntry(cfg = {}) {
-  if (cfg.channel && typeof cfg.channel === 'object'
-    && (cfg.channel.discordChannelId || cfg.channel.telegramChatId)) {
-    return cfg.channel;
-  }
-  return cfg.channel && typeof cfg.channel === 'object' ? cfg.channel : {};
 }
 
 function updateChannelsSection(build) {
@@ -132,7 +104,7 @@ function updateChannelsSection(build) {
 }
 
 // Async twin of updateChannelsSection: identical normalize/strip logic, but the
-// channels-section RMW runs through updateSectionAsync so a debounced provider
+// channels-section RMW runs through updateSectionAsync so a debounced settings
 // flush does not block the event loop. Same config lock file → linearizable
 // with the sync writers.
 async function updateChannelsSectionAsync(build) {
@@ -154,79 +126,6 @@ function listEntryDirs(dir) {
   } catch {
     return [];
   }
-}
-
-// Single-channel read: resolves `cfg.channel` into the flat shape the
-// settings/TUI layer consumes.
-function getChannel(config = {}) {
-  const cfg = normalizeChannelsConfig(config);
-  const provider = cfg.provider === 'telegram' ? 'telegram' : 'discord';
-  const entry = resolveChannelEntry(cfg);
-  return {
-    channelId: channelIdForProvider(entry, provider),
-    discordChannelId: String(entry?.discordChannelId || ''),
-    telegramChatId: String(entry?.telegramChatId || ''),
-  };
-}
-
-export function saveDiscordToken(token) {
-  const value = String(token || '').trim();
-  if (!value) throw new Error('Discord bot token is required');
-  saveSecret(SECRET_ACCOUNTS.discordToken, value);
-  return { ok: true, configured: Boolean(getDiscordToken()) };
-}
-
-export function forgetDiscordToken() {
-  deleteSecret(SECRET_ACCOUNTS.discordToken);
-  return { ok: true };
-}
-
-export function saveTelegramToken(token) {
-  const value = String(token || '').trim();
-  if (!value) throw new Error('Telegram bot token is required');
-  saveSecret(SECRET_ACCOUNTS.telegramToken, value);
-  return { ok: true, configured: Boolean(getTelegramToken()) };
-}
-
-export function forgetTelegramToken() {
-  deleteSecret(SECRET_ACCOUNTS.telegramToken);
-  return { ok: true };
-}
-
-// Single-channel write: persists `cfg.channel`, keeping the per-provider id
-// fields (discordChannelId/telegramChatId) so a provider switch retains both
-// ids. `provider` selects which per-provider field the id updates; when omitted
-// the id lands on the active provider's field.
-export function setChannel({ channelId, provider = null } = {}) {
-  const id = String(channelId || '').trim();
-  if (!id) throw new Error('channelId is required');
-  const targetProvider = provider === 'telegram' || provider === 'discord' ? provider : null;
-  return updateChannelsSection((cfg) => {
-    const activeProvider = cfg.provider === 'telegram' ? 'telegram' : 'discord';
-    const writeProvider = targetProvider || activeProvider;
-    const current = resolveChannelEntry(cfg);
-    const nextEntry = { ...current };
-    if (writeProvider === 'telegram') nextEntry.telegramChatId = id;
-    else nextEntry.discordChannelId = id;
-    delete nextEntry.channelId;
-    return { ...cfg, channel: nextEntry };
-  });
-}
-
-export async function setChannelAsync({ channelId, provider = null } = {}) {
-  const id = String(channelId || '').trim();
-  if (!id) throw new Error('channelId is required');
-  const targetProvider = provider === 'telegram' || provider === 'discord' ? provider : null;
-  return updateChannelsSectionAsync((cfg) => {
-    const activeProvider = cfg.provider === 'telegram' ? 'telegram' : 'discord';
-    const writeProvider = targetProvider || activeProvider;
-    const current = resolveChannelEntry(cfg);
-    const nextEntry = { ...current };
-    if (writeProvider === 'telegram') nextEntry.telegramChatId = id;
-    else nextEntry.discordChannelId = id;
-    delete nextEntry.channelId;
-    return { ...cfg, channel: nextEntry };
-  });
 }
 
 export function setWebhookConfig(patch = {}) {
@@ -253,31 +152,6 @@ export async function setWebhookConfigAsync(patch = {}) {
   }));
 }
 
-function validateProvider(name) {
-  const value = String(name || '').trim();
-  if (value !== 'discord' && value !== 'telegram') {
-    throw new Error('provider must be discord or telegram');
-  }
-  return value;
-}
-function providerBuilder(value) {
-  return (cfg) => {
-    const channel = { ...resolveChannelEntry(cfg) };
-    delete channel.channelId;
-    return { ...cfg, channel, provider: value };
-  };
-}
-export function setChannelProvider(name) {
-  const value = validateProvider(name);
-  updateChannelsSection(providerBuilder(value));
-  return { ok: true, provider: value };
-}
-// Async twin used by the debounced provider-save flush timer.
-export async function setChannelProviderAsync(name) {
-  const value = validateProvider(name);
-  await updateChannelsSectionAsync(providerBuilder(value));
-  return { ok: true, provider: value };
-}
 
 function normalizeCron(time) {
   const value = String(time || '').trim();
@@ -568,32 +442,13 @@ export async function hasActiveAutomation() {
 
 export async function channelSetup(config = null) {
   const cfg = normalizeChannelsConfig(config || readSection('channels'));
-  const discordToken = getDiscordToken();
-  const discordProblem = diagnoseDiscordTokenValue(discordToken, cfg);
-  const telegramToken = getTelegramToken();
   return {
-    provider: cfg.provider || 'discord',
-    discord: {
-      provider: 'discord',
-      authenticated: Boolean(discordToken && !discordProblem),
-      stored: hasStoredSecret(SECRET_ACCOUNTS.discordToken),
-      status: discordToken ? (discordProblem ? 'Invalid' : 'Set') : 'Off',
-      problem: discordProblem || null,
-    },
-    telegram: {
-      provider: 'telegram',
-      authenticated: Boolean(telegramToken),
-      stored: hasStoredSecret(SECRET_ACCOUNTS.telegramToken),
-      status: telegramToken ? 'Set' : 'Off',
-      problem: null,
-    },
     webhook: {
       ...(cfg.webhook || {}),
       // Relay-tunnel public base (null until the channel worker first
       // connects and mints its hook identity).
       publicUrl: readHookPublicBase(),
     },
-    channel: getChannel(cfg),
     schedules: await listSchedules(),
     webhooks: await listWebhooks(),
   };
@@ -602,9 +457,7 @@ export async function channelSetup(config = null) {
 async function renderChannelStatus(config = null) {
   const setup = await channelSetup(config);
   const lines = [];
-  lines.push(`discord  ${setup.discord.status}${setup.discord.problem ? ` (${setup.discord.problem})` : ''}`);
   lines.push(`webhook  ${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}${setup.webhook.publicUrl ? ` · ${setup.webhook.publicUrl}` : ''}`);
-  lines.push(`channel  ${setup.channel.channelId || '(unset)'}`);
   lines.push('schedules');
   if (setup.schedules.length === 0) lines.push('  (none)');
   for (const item of setup.schedules) {

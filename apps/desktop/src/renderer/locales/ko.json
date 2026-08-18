@@ -332,9 +332,6 @@
   "Disable voice": "음성 비활성화",
   "Disabled": "비활성화됨",
   "Discombobulating": "어지르는 중",
-  "Discord and Telegram messaging.": "Discord·Telegram 메시징.",
-  "Discord bot token": "Discord 봇 토큰",
-  "Discord channel ID": "Discord 채널 ID",
   "Dismiss": "닫기",
   "Dismiss error": "오류 닫기",
   "Dismiss install prompt": "설치 안내 닫기",
@@ -468,7 +465,6 @@
   "Hello, {{name}} 👋": "안녕하세요, {{name}}님 👋",
   "Herding": "몰아가는 중",
   "Honking": "빵빵대는 중",
-  "Hook up Discord or Telegram to reach Mixdog away from your desk.": "Discord 또는 Telegram을 연결해 자리에서 떨어져 있을 때도 Mixdog을 사용하세요.",
   "Hooks": "후크",
   "Hourly": "매시간",
   "How Mixdog addresses you.": "Mixdog이 사용자님을 부르는 호칭입니다.",
@@ -1088,8 +1084,6 @@
   "System prompt": "시스템 프롬프트",
   "System tools": "시스템 도구",
   "Tap Share, then Add to Home Screen.": "공유를 누른 후 '홈 화면에 추가'를 선택하세요.",
-  "Telegram bot token": "Telegram 봇 토큰",
-  "Telegram chat ID": "Telegram 채팅 ID",
   "Tell Mixdog what to call you and which language to answer in.": "Mixdog이 부를 호칭과 답변할 언어를 설정하세요.",
   "Tempering": "다스리는 중",
   "Terminal": "터미널",
@@ -1242,5 +1236,6 @@
   "Your example commit message appears here.": "작성한 커밋 메시지 예시가 여기에 표시됩니다.",
   "Your name or role": "이름 또는 역할",
   "Zesting": "벗기는 중",
-  "Zigzagging": "갈지자 중"
+  "Zigzagging": "갈지자 중",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "관리형 Whisper·ffmpeg 런타임이 음성 입력 준비를 마쳤습니다."
 }

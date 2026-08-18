@@ -14,7 +14,6 @@ import { copyToClipboard } from './clipboard.mjs';
 import { createMaintenancePickers } from './maintenance-pickers.mjs';
 import { formatDuration } from '../time-format.mjs';
 import { createOnboardingSteps } from './onboarding-steps.mjs';
-import { createChannelPickers } from './channel-pickers.mjs';
 import { createProviderSetupPicker } from './provider-setup-picker.mjs';
 import { createModelPicker } from './model-picker.mjs';
 import { createRoutePickers, outputStyleNotice } from './route-pickers.mjs';
@@ -144,20 +143,6 @@ export function createAppPickers({
     openThemePicker,
     openOutputStylePicker: (...a) => openOutputStylePicker(...a),
   });
-  const {
-    openChannelTypeActionsPicker,
-    openChannelSettingTypePicker,
-    openChannelSetupPicker,
-  } = createChannelPickers({
-    store,
-    setPicker,
-    setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
-    setSettingsPrompt,
-    setContextPanel,
-    onboardingWarnReopen,
-  });
   const { openProviderSetupPicker } = createProviderSetupPicker({
     store,
     setPicker,
@@ -237,7 +222,6 @@ export function createAppPickers({
     openSkillsPicker: (...a) => openSkillsPicker(...a),
     openMemoryCorePicker: (...a) => openMemoryCorePicker(...a),
     openUpdatePicker: (...a) => openUpdatePicker(...a),
-    openChannelSettingTypePicker: (...a) => openChannelSettingTypePicker(...a),
   });
   const { runSlashCommand } = createSlashDispatch({
     state,
@@ -263,7 +247,6 @@ export function createAppPickers({
     openPluginsPicker: (...a) => openPluginsPicker(...a),
     openHooksPicker: (...a) => openHooksPicker(...a),
     openProviderSetupPicker: (...a) => openProviderSetupPicker(...a),
-    openChannelSetupPicker: (...a) => openChannelSetupPicker(...a),
     openMemoryCorePicker: (...a) => openMemoryCorePicker(...a),
     parseMemoryCommand,
     openSettingsPicker: (...a) => openSettingsPicker(...a),
@@ -298,9 +281,6 @@ export function createAppPickers({
     openProfilePicker,
     onboardingWarnReopen,
     openOnboardingAuthStep,
-    openChannelTypeActionsPicker,
-    openChannelSettingTypePicker,
-    openChannelSetupPicker,
     openProviderSetupPicker,
     openModelPicker,
     openSearchPicker,

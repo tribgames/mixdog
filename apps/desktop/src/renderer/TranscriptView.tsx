@@ -225,11 +225,13 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
       document.removeEventListener("pointerdown", pointerdown, true);
     };
   }, []);
-  if (!context) return null;
   const descriptionId = `context-usage-${String(snapshot.sessionId || "session")}`;
-  return <div className="session-context-indicator" data-open={popoverOpen ? "true" : "false"}
+  return <div className="session-context-indicator"
+    data-active={context ? "true" : "false"}
+    data-open={popoverOpen ? "true" : "false"}
     onMouseEnter={() => setPopoverOpen(true)} onMouseLeave={() => setPopoverOpen(false)}>
     <button type="button" onClick={() => {
+      if (!context) return;
       keyboardFocusIntent.current = false;
       setPopoverOpen(false);
       onOpen();
@@ -238,15 +240,16 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
         keyboardFocusIntent.current = false;
         setPopoverOpen(true);
       }
-    }} aria-label={t("Open context details")}
-      aria-describedby={descriptionId}>
+    }} aria-label={context ? t("Open context details") : t("Context unavailable")}
+      aria-describedby={context ? descriptionId : undefined}
+      disabled={!context}>
       <svg viewBox="0 0 20 20" aria-hidden="true">
         <circle className="context-usage-track" cx="10" cy="10" r="7" />
         <circle className="context-usage-value" cx="10" cy="10" r="7"
-          pathLength="100" strokeDasharray={`${context.percent} 100`} />
+          pathLength="100" strokeDasharray={`${context?.percent ?? 0} 100`} />
       </svg>
     </button>
-    <div className="session-context-popover" id={descriptionId} role="tooltip">
+    {context && <div className="session-context-popover" id={descriptionId} role="tooltip">
       <div><span>{t("Usage")}</span><b>{context.percent}%</b></div>
       <div><span>{context.estimated ? t("Tokens (est.)") : t("Tokens")}</span><b>{context.limit > 0
         ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
@@ -259,7 +262,7 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
       })()}
       {/* Compact action removed from the hover popover by user decision —
           /compact and auto-compact remain the compaction paths. */}
-    </div>
+    </div>}
   </div>;
 }
 

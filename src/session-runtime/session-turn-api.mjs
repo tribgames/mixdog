@@ -36,11 +36,10 @@ export function createSessionTurnApi(deps) {
     getSession, setSession, getCurrentCwd, getMode, setMode,
     getActiveTurnCount, setActiveTurnCount, isFirstTurnCompleted, setFirstTurnCompleted,
     getCodeGraphFirstTurnPrewarmDone, setCodeGraphFirstTurnPrewarmDone,
-    getRemoteEnabled, getCloseRequested,
-    getTranscriptWriter, getTwKey, getLastAppendedAssistant, setLastAppendedAssistant,
+    getCloseRequested,
+    getTranscriptWriter, getLastAppendedAssistant, setLastAppendedAssistant,
     scheduleCodeGraphPrewarm, scheduleToolRuntimeWarmup, scheduleSearchRuntimeWarmup, refreshSessionForCwdIfNeeded, createCurrentSession,
-    ensureSessionTranscriptWriter, ensureRemoteTranscriptWriter, channelsEnabled, invokeChannelStart, channels,
-    pushTranscriptRebind, flushPendingTranscriptRebind,
+    ensureSessionTranscriptWriter, channels,
     hooks, hookCommonPayload, mgr, notifyFnForSession, subscribeRuntimeNotification, bootProfile,
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
     agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
@@ -200,30 +199,10 @@ export function createSessionTurnApi(deps) {
         // Main-session conversation persistence is independent of Remote:
         // Desktop and local TUI turns feed the same JSONL memory watcher.
         setLastAppendedAssistant('');
-        const prevKey = getTwKey();
         ensureSessionTranscriptWriter?.();
         if (getTranscriptWriter()) {
           try { getTranscriptWriter().appendUser(prompt); }
           catch (error) { process.stderr.write(`mixdog: transcript-writer: appendUser failed: ${error?.message || error}\n`); }
-        }
-        // Remote outbound reuses that writer but alone owns channel discovery
-        // and forwarding/rebind behavior.
-        if (getRemoteEnabled()) {
-          ensureRemoteTranscriptWriter();
-          // Flush a rebind deferred before the session/writer existed ('acquired'
-          // in lazy mode). One-shot: no-op unless a push was actually deferred.
-          flushPendingTranscriptRebind?.();
-          if (getTwKey() && getTwKey() !== prevKey && channelsEnabled() && !envFlag('MIXDOG_DISABLE_CHANNEL_START')) {
-            void invokeChannelStart()
-              .then(() => {
-                if (!getRemoteEnabled() || getCloseRequested()) return undefined;
-                // A turn may refresh the current owner's transcript, but it
-                // must never acquire/override Remote implicitly.
-                pushTranscriptRebind();
-                return undefined;
-              })
-              .catch((error) => bootProfile('channels:turn-rebind-failed', { error: error?.message || String(error) }));
-          }
         }
         session0 = getSession();
         startTurnSnapshot(session0?.id);
@@ -325,10 +304,6 @@ export function createSessionTurnApi(deps) {
                 name: call?.name || 'tool',
                 callId: call?.id || null,
               });
-              if (getRemoteEnabled() && getTranscriptWriter()) {
-                try { getTranscriptWriter().appendToolUse(call?.name, call?.input ?? call?.arguments); }
-                catch (error) { process.stderr.write(`mixdog: transcript-writer: onToolCall failed: ${error?.message || error}\n`); }
-              }
             }
             if (typeof options.onToolCall === 'function') {
               return await options.onToolCall(iter, calls);
@@ -358,17 +333,7 @@ export function createSessionTurnApi(deps) {
             },
             onUsageDelta: options.onUsageDelta,
             onAssistantToolCallObserved: options.onAssistantToolCallObserved,
-            onToolResult: (message) => {
-              if (getRemoteEnabled() && getTranscriptWriter()) {
-                try {
-                  const tur = message?.toolUseResult;
-                  if (tur && (tur.oldString != null || tur.newString != null)) {
-                    getTranscriptWriter().appendToolResult({ oldString: tur.oldString ?? '', newString: tur.newString ?? '' });
-                  }
-                } catch (error) { process.stderr.write(`mixdog: transcript-writer: onToolResult failed: ${error?.message || error}\n`); }
-              }
-              return options.onToolResult?.(message);
-            },
+            onToolResult: (message) => options.onToolResult?.(message),
             onToolApproval: options.onToolApproval,
             onCompactEvent: options.onCompactEvent,
             onStageChange: options.onStageChange,
@@ -478,11 +443,6 @@ export function createSessionTurnApi(deps) {
         try { agentTool.recoverWorkers?.({ clientHostPid: getSession()?.clientHostPid || process.pid }); } catch {}
       }
       invalidateContextStatusCache();
-      // clearSessionMessages swaps the live session object; the worker binding
-      // + persisted status still reference the pre-clear transcript. Push the
-      // current transcript so outbound forwarding repoints now, not on the next
-      // inbound steal (best-effort, remote-gated inside pushTranscriptRebind).
-      pushTranscriptRebind?.();
       return true;
     },
     // Message-selector rewind: drop the chosen user prompt and everything

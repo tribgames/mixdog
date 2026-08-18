@@ -6,7 +6,7 @@ import { JSDOM } from "jsdom";
 
 import { AGENT_POOL_RECONCILE_MS, AgentActivityPane } from "./AgentActivityPane.tsx";
 import { ActiveAgentsIndicator, ActiveShellsIndicator } from "./ActiveAgentsIndicator.tsx";
-import { PaneHeaderStatus } from "./app-snapshot-views.tsx";
+import { PaneContextStatus } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
 
@@ -70,7 +70,9 @@ test("Agent and shell chips follow only their supplied session lane activity", a
         snapshot: { sessionId: "lead-a", agentWorkers: [], shellJobs: { count: 0 } },
       }));
     });
-    assert.equal(Boolean(document.querySelector(".session-agents-indicator")), false);
+    assert.equal(document.querySelectorAll(".session-agents-indicator").length, 2);
+    assert.equal(document.querySelectorAll('.session-agents-indicator[data-active="false"]').length, 2);
+    assert.equal(document.querySelectorAll(".session-agents-count").length, 0);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -98,7 +100,7 @@ test("Agent chip appears immediately from an active tool call; the shell chip wa
       ["1"],
     );
     assert.match(document.body.textContent, /Agent 1/);
-    assert.equal(Boolean(document.querySelector(".session-shells-indicator")), false);
+    assert.equal(document.querySelector(".session-shells-indicator")?.dataset.active, "false");
     assert.doesNotMatch(document.body.textContent, /Shell 12/);
 
     await act(async () => {
@@ -151,7 +153,7 @@ test("running background agent jobs drive the header icon until terminal", async
         },
       }));
     });
-    assert.equal(Boolean(document.querySelector(".session-agents-indicator")), false);
+    assert.equal(document.querySelector(".session-agents-indicator")?.dataset.active, "false");
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -285,9 +287,10 @@ test("two session task indicators update independently without focus routing", a
       frameSource: "live",
       snapshot: { sessionId: "session-a", shellJobs: { count: 0 } },
     }));
-    assert.equal(Boolean(
-      document.querySelector('[data-lane="session-a"] .session-agents-indicator'),
-    ), false);
+    assert.equal(
+      document.querySelector('[data-lane="session-a"] .session-agents-indicator')?.dataset.active,
+      "false",
+    );
     assert.equal(document.querySelector('[data-lane="session-b"] .session-agents-count')
       ?.textContent, "1");
   } finally {
@@ -302,11 +305,10 @@ test("new task header ignores the previous session lane cache", async () => {
   const props = {
     hidden: false,
     onOpen() {},
-    onRemoteChange() {},
   };
   try {
     await act(async () => {
-      dom.root.render(React.createElement(PaneHeaderStatus, {
+      dom.root.render(React.createElement(PaneContextStatus, {
         ...props,
         sessionId: "session-context",
       }));
@@ -323,7 +325,7 @@ test("new task header ignores the previous session lane cache", async () => {
     assert.match(document.body.textContent, /51%/);
 
     await act(async () => {
-      dom.root.render(React.createElement(PaneHeaderStatus, {
+      dom.root.render(React.createElement(PaneContextStatus, {
         ...props,
         sessionId: "",
       }));

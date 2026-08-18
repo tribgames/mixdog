@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
@@ -16,6 +16,23 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
 
   mkdirSync(dataDir, { recursive: true });
   seedBundledSkills({ rootDir, dataDir });
+  cleanupRetiredChannelSecrets(dataDir);
+}
+
+// One-shot keychain cleanup: Discord/Telegram messaging is retired, so any
+// stored bot tokens are orphans. Marker-gated so the (potentially slow) OS
+// keychain roundtrip runs once per install; lazy import so shared config
+// resolves its paths only after the env above is established.
+function cleanupRetiredChannelSecrets(dataDir) {
+  const marker = join(dataDir, '.retired-channel-secrets-cleaned');
+  if (existsSync(marker)) return;
+  void import('../runtime/shared/config.mjs')
+    .then(({ deleteSecret }) => {
+      try { deleteSecret('discord.token'); } catch { /* best-effort */ }
+      try { deleteSecret('telegram.token'); } catch { /* best-effort */ }
+      try { writeFileSync(marker, `${new Date().toISOString()}\n`); } catch { /* marker only */ }
+    })
+    .catch(() => { /* cleanup is best-effort */ });
 }
 
 // Copy skills bundled in the package (src/defaults/skills/<name>/) into the

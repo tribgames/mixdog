@@ -46,8 +46,6 @@ export const HELP_LINES = [
   '  /plugins                      manage local plugin integrations',
   '  /hooks                        manage before-tool hook rules and events',
   '  /providers                    manage auth, API keys, OAuth, and local endpoints',
-  '  /channels                     manage Discord, Telegram, and voice',
-  '  /remote                       claim remote for this session',
   '  /setting                      open runtime settings (aliases: /settings, /config)',
   '  /profile                      set your title and response language',
   '  /update                       check version and update mixdog',

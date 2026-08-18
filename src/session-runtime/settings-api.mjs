@@ -11,7 +11,6 @@ export function createSettingsApi({
   getConfig,
   getRoute,
   getSession,
-  getRemoteEnabled,
   // config-lifecycle
   adoptConfig,
   saveConfigAndAdopt,
@@ -54,12 +53,6 @@ export function createSettingsApi({
   runUpdateNowInternal,
   reloadChannelsSoon,
   ONBOARDING_VERSION,
-  // channel-admin token delegates
-  saveDiscordToken,
-  forgetDiscordToken,
-  saveTelegramToken,
-  forgetTelegramToken,
-  setChannelProvider,
 }) {
   return {
     getOnboardingStatus() {
@@ -267,10 +260,6 @@ export function createSettingsApi({
       if (!channelsEnabled()) {
         clearChannelStartTimer();
         await channels.stop('settings-disabled', { waitForExit: false }).catch(() => {});
-      } else {
-        // Enabling channels in settings only boots the worker when this session
-        // is in remote mode; otherwise the toggle just persists config.
-        if (getRemoteEnabled()) scheduleChannelStart(0);
       }
       invalidatePreSessionToolSurface();
       return this.getChannelSettings();
@@ -361,40 +350,6 @@ export function createSettingsApi({
     },
     getUpdateStatus() {
       return { ...getUpdateProcessState() };
-    },
-    saveDiscordToken(token) {
-      const result = saveDiscordToken(token);
-      reloadChannelsSoon();
-      return result;
-    },
-    forgetDiscordToken() {
-      const result = forgetDiscordToken();
-      reloadChannelsSoon();
-      return result;
-    },
-    saveTelegramToken(token) {
-      const result = saveTelegramToken(token);
-      reloadChannelsSoon();
-      return result;
-    },
-    forgetTelegramToken() {
-      const result = forgetTelegramToken();
-      reloadChannelsSoon();
-      return result;
-    },
-    setChannelProvider(name) {
-      // Validate synchronously (same contract as before: bad input throws on
-      // this call so the TUI's try/catch can react immediately). The actual
-      // channels-section file read-modify-write is the hitch source on the
-      // settings-toggle key handler, so defer it through the same debounce
-      // pattern as saveConfigAndAdopt/flushConfigSave instead of writing to
-      // disk synchronously inside the key handler.
-      const value = String(name || '').trim();
-      if (value !== 'discord' && value !== 'telegram') {
-        throw new Error('provider must be discord or telegram');
-      }
-      scheduleChannelProviderSave(value);
-      return { ok: true, provider: value };
     },
   };
 }

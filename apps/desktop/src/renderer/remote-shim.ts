@@ -790,6 +790,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       let handshakeTimer: number | null = null;
       const finishOpen = () => {
         if (opened) return;
+        const reconnected = everConnected;
         opened = true;
         connectionReady = true;
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
@@ -805,6 +806,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }
         everConnected = true;
         resolve(ws);
+        // Existing terminal panes can hold PTY ids from the relay leg that
+        // just died. Notify them only after the replacement connection has
+        // settled so their ensure calls cannot race the reconnecting request.
+        if (reconnected) {
+          queueMicrotask(() => window.dispatchEvent(new Event('mixdog:remote-reconnected')));
+        }
       };
       ws.onopen = () => {
         socket = ws;

@@ -332,9 +332,6 @@
   "Disable voice": "Tắt giọng nói",
   "Disabled": "Đã tắt",
   "Discombobulating": "Tháo rời",
-  "Discord and Telegram messaging.": "Nhắn tin Discord và Telegram.",
-  "Discord bot token": "Token bot Discord",
-  "Discord channel ID": "ID kênh Discord",
   "Dismiss": "Bỏ qua",
   "Dismiss error": "Bỏ qua lỗi",
   "Dismiss install prompt": "Đóng lời nhắc cài đặt",
@@ -468,7 +465,6 @@
   "Hello, {{name}} 👋": "Xin chào {{name}} 👋",
   "Herding": "Chăn nuôi",
   "Honking": "Bấm còi",
-  "Hook up Discord or Telegram to reach Mixdog away from your desk.": "Kết nối Discord hoặc Telegram để tiếp cận Mixdog khỏi bàn làm việc của bạn.",
   "Hooks": "Hook",
   "Hourly": "Hằng giờ",
   "How Mixdog addresses you.": "Cách Mixdog xưng hô với bạn.",
@@ -1088,8 +1084,6 @@
   "System prompt": "Lời nhắc hệ thống",
   "System tools": "Công cụ hệ thống",
   "Tap Share, then Add to Home Screen.": "Nhấn vào Chia sẻ, sau đó chọn Thêm vào màn hình chính.",
-  "Telegram bot token": "Token bot Telegram",
-  "Telegram chat ID": "ID chat Telegram",
   "Tell Mixdog what to call you and which language to answer in.": "Cho Mixdog biết nên gọi cho bạn những gì và trả lời bằng ngôn ngữ nào.",
   "Tempering": "ủ",
   "Terminal": "Terminal",
@@ -1242,5 +1236,6 @@
   "Your example commit message appears here.": "Ví dụ thông điệp commit của bạn sẽ xuất hiện ở đây.",
   "Your name or role": "Tên hoặc vai trò của bạn",
   "Zesting": "Zesting",
-  "Zigzagging": "ngoằn ngoèo"
+  "Zigzagging": "ngoằn ngoèo",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "Runtime Whisper và ffmpeg được quản lý đã sẵn sàng cho nhập liệu bằng giọng nói."
 }

@@ -459,9 +459,7 @@ async function main() {
   let channelsStartPromise = null;
   function startChannels(options = {}) {
     if (channelsStartPromise) return channelsStartPromise;
-    const messaging = options.messaging === true
-      || Boolean(transport?.remoteIntentSessionId)
-      || String(process.env.MIXDOG_REMOTE_INTENT || '') === 'explicit';
+    const messaging = options.messaging === true;
     channelsStartPromise = ensureChannels()
       .then((module) => module.start({ messaging }))
       .catch((e) => {
@@ -485,31 +483,17 @@ async function main() {
   transport = createChannelTransport({
     handleCall,
     agentBroker: agentDispatchBroker,
-    remoteStatePath: path.join(RUNTIME_ROOT, 'channel-remote-state.json'),
-    remoteIntentPath: path.join(RUNTIME_ROOT, 'channel-remote-intent.json'),
     log,
     // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
     // registry as the liveness signal).
     onClientsEmpty: () => { maybeSelfShutdown('no live channel clients'); },
     // First channels client in: bring the channels runtime up (see startChannels).
     onClientRegistered: () => { startChannels(); },
-    onRemoteStateChange: (state) => {
-      remoteSessionState = {
-        enabled: state?.enabled === true,
-        sessionId: state?.enabled === true && state?.sessionId
-          ? String(state.sessionId)
-          : null,
-      };
-      const frame = { type: 'remote-session-state', ...remoteSessionState };
-      localSessionBridge?.publish(frame);
-      sessionTransport?.broadcast(frame);
-    },
   });
   const routeChannelNotification = createChannelSessionRouter({
     getSessionService: () => sessionService,
-    // The durable pin is authoritative before provider restoration finishes,
-    // so startup inbound cannot fall into the acquire window.
-    getSessionId: () => transport.remoteIntentSessionId,
+    // Channel-remote session pinning is retired; route by discovery only.
+    getSessionId: () => null,
     log,
   });
   setChannelNotifySink((method, params) => {
@@ -693,7 +677,7 @@ async function main() {
 
   // Ready handshake for the spawner first. Transport is already listening;
   // signal ready before the heavy
-  // Discord connect so the spawner's ready wait never blocks on service I/O.
+  // channel-worker connect so the spawner's ready wait never blocks on service I/O.
   // Take over file logging from the spawner at the ready boundary. No rotate
   // here: the spawner already bounds the file at its own boot (channel-worker
   // rotateBoundedLog), and rotating now would race other processes' buffered
@@ -717,31 +701,6 @@ async function main() {
     safeIpcSend(process, { type: 'ready', port, token });
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
-  const bootRemoteSessionId = transport.remoteIntentSessionId;
-  if (bootRemoteSessionId) {
-    void (async () => {
-      // Keep network login parallel, but do not make a Remote resume compete
-      // with the foreground shard's module/provider/keychain warmup. The first
-      // desktop submit can now use that ready shard instead of joining two cold
-      // runtime graphs. Peer spread-prewarm remains demand-driven by agent
-      // creates in session-runtime-pool.
-      const channelBoot = startChannels({ messaging: true }).then(
-        () => null,
-        (error) => error instanceof Error ? error : new Error(String(error)),
-      );
-      await prewarmSessionRuntime();
-      const [, channelError] = await Promise.all([
-        sessionService.materializeSession(bootRemoteSessionId),
-        channelBoot,
-      ]);
-      if (channelError) throw channelError;
-      const restored = await transport.restoreRemoteIntent();
-      if (!restored) throw new Error(`remote intent restore refused session=${bootRemoteSessionId}`);
-      log(`daemon boot remote restored session=${bootRemoteSessionId}`);
-    })().catch((error) => {
-      log(`daemon boot remote restore failed session=${bootRemoteSessionId}: ${error?.message || error}`);
-    });
-  }
   eventLoopLagTimer = setInterval(() => {
     const status = eventLoopStatus();
     if (status.eventLoopP99Ms >= 250) {
@@ -751,9 +710,7 @@ async function main() {
   }, 30_000);
   eventLoopLagTimer.unref?.();
 
-  // Boot messaging only for an explicit manual remote request. Automation may
-  // spawn the shared daemon with no remote intent; keep schedules/webhooks live
-  // without connecting the channel service until a manual Remote ON arrives.
+  // Automation may spawn the shared daemon; keep schedules/webhooks live.
   // A TUI-spawned daemon keeps the historical eager start (its channels client
   // is already on the way). A session-spawned one waits for a real channels
   // client — see the transport's onClientRegistered hook.

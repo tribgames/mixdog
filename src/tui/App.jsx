@@ -172,7 +172,6 @@ import { createCoreMemoryPicker } from './app/core-memory-picker.mjs';
 import { createExtensionPickers } from './app/extension-pickers.mjs';
 import { createMaintenancePickers } from './app/maintenance-pickers.mjs';
 import { createOnboardingSteps } from './app/onboarding-steps.mjs';
-import { createChannelPickers } from './app/channel-pickers.mjs';
 import { createModelPicker } from './app/model-picker.mjs';
 import { createProviderSetupPicker } from './app/provider-setup-picker.mjs';
 import { createRoutePickers, outputStyleNotice } from './app/route-pickers.mjs';
@@ -599,9 +598,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     openProfilePicker,
     onboardingWarnReopen,
     openOnboardingAuthStep,
-    openChannelTypeActionsPicker,
-    openChannelSettingTypePicker,
-    openChannelSetupPicker,
     openProviderSetupPicker,
     openModelPicker,
     openSearchPicker,
@@ -974,7 +970,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     oauthSubmitRef,
     clearModelCaches,
     openProviderSetupPicker,
-    openChannelSetupPicker,
     openHooksPicker,
     openSettingsPicker,
     openProjectPicker,

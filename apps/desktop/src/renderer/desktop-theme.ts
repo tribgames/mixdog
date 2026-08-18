@@ -9,7 +9,6 @@ type ThemeEntry = { id: string; label: string; palette: ThemePalette };
 
 const registry = THEME_REGISTRY as Record<string, ThemeEntry>;
 const aliases = THEME_ALIASES as Record<string, string>;
-const DESKTOP_GRAY_THEME_ID = 'gray';
 
 function themeId(value: unknown): string {
   if (typeof value === 'string') return value.trim();
@@ -89,7 +88,6 @@ function suppressThemeSwapTransitions(root: HTMLElement): void {
 function builtinTheme(resolved: string): boolean {
   return resolved === DEFAULT_THEME_ID
     || resolved === 'dark'
-    || resolved === DESKTOP_GRAY_THEME_ID
     || resolved === 'light';
 }
 
@@ -99,7 +97,7 @@ function pwaSystemBarColor(): string {
   return '#000000';
 }
 
-// 'system' | 'dark' | 'gray' | 'white' are the desktop surface modes; any TUI registry
+// 'system' | 'dark' | 'white' are the desktop surface modes; any TUI registry
 // theme id (nord, dracula, …) is also accepted as a desktop-local preference.
 export type DesktopThemePreference = 'system' | 'dark' | 'white' | (string & {});
 
@@ -115,18 +113,19 @@ function desktopThemeStorage(): Storage | null {
 
 export function getDesktopThemePreference(): DesktopThemePreference | null {
   const value = desktopThemeStorage()?.getItem(DESKTOP_THEME_PREFERENCE_KEY) || '';
-  if (value === 'system' || value === 'dark' || value === DESKTOP_GRAY_THEME_ID || value === 'white') return value;
+  // The retired Gray theme collapsed into Dark: its ramp IS the dark ramp now.
+  if (value === 'gray') return 'dark';
+  if (value === 'system' || value === 'dark' || value === 'white') return value;
   return registry[value] ? value : null;
 }
 
 export function desktopThemePreferenceForTheme(value: unknown): DesktopThemePreference {
   const requested = themeId(value);
-  if (requested === DESKTOP_GRAY_THEME_ID) return DESKTOP_GRAY_THEME_ID;
   const resolved = registry[requested] ? requested : aliases[requested];
   return resolved === 'light' ? 'white' : 'dark';
 }
 
-/** Settings picker options — Desktop owns System + White/Dark/Gray.
+/** Settings picker options — Desktop owns System + White/Dark.
  * The TUI registry themes (nord, dracula, …) stay
  * TUI-only; a previously stored registry id still resolves for rendering,
  * it just is not offered here anymore. */
@@ -135,7 +134,6 @@ export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; la
     { value: 'system', label: 'System' },
     { value: 'white', label: 'White' },
     { value: 'dark', label: 'Dark' },
-    { value: DESKTOP_GRAY_THEME_ID, label: 'Gray' },
   ];
 }
 
@@ -143,7 +141,6 @@ export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; la
  *  Aliases resolve; unknown ids return null and the card stays neutral. */
 export function themePreviewPalette(value: unknown): Record<string, string> | null {
   const requested = themeId(value);
-  if (requested === DESKTOP_GRAY_THEME_ID) return { ...registry[DEFAULT_THEME_ID].palette };
   const resolved = registry[requested] ? requested : aliases[requested];
   return resolved && registry[resolved] ? { ...registry[resolved].palette } : null;
 }
@@ -152,8 +149,6 @@ export function applyDesktopThemePreference(preference: DesktopThemePreference):
   systemPreferenceActive = preference === 'system';
   const resolved = preference === 'white'
     ? 'light'
-    : preference === DESKTOP_GRAY_THEME_ID
-      ? DESKTOP_GRAY_THEME_ID
     : preference === 'system' && typeof window.matchMedia === 'function'
       ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? DEFAULT_THEME_ID : 'light')
       : preference !== 'system' && preference !== 'dark' && registry[preference]
@@ -180,11 +175,9 @@ export function clearDesktopThemePreference(): void {
 
 export function applyDesktopTheme(value: unknown): string {
   const requested = themeId(value);
-  const resolved = requested === DESKTOP_GRAY_THEME_ID
-    ? DESKTOP_GRAY_THEME_ID
-    : registry[requested]
-      ? requested
-      : (registry[aliases[requested]] ? aliases[requested] : DEFAULT_THEME_ID);
+  const resolved = registry[requested]
+    ? requested
+    : (registry[aliases[requested]] ? aliases[requested] : DEFAULT_THEME_ID);
   const root = document.documentElement;
   suppressThemeSwapTransitions(root);
   root.dataset.mixdogTheme = resolved;

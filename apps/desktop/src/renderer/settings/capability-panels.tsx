@@ -50,7 +50,6 @@ export function CategoryPanel({ category, context }: {
   if (category === 'output-style') return <OutputStylePanel {...context} />;
   if (category === 'providers') return <ProvidersPanel {...context} />;
   if (category === 'git') return <GitPanel />;
-  if (category === 'channels') return <ChannelsPanel {...context} />;
   if (category === 'mcp') return <McpPanel {...context} />;
   if (category === 'plugins') return <PluginsPanel {...context} />;
   if (category === 'hooks') return <HooksPanel {...context} />;
@@ -475,12 +474,17 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   </Group>;
 }
 
-function GeneralPanel({ data, pending, run }: PanelContext) {
+function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
   const profile = record(data.profile);
   const toolModules = record(data.toolModules);
   const recap = record(data.recap);
   const searchModule = record(toolModules.search);
   const memoryModule = record(toolModules.memory);
+  // Voice transcription moved here from the retired Channels page (user:
+  // 음성전사만 일반으로): the managed Whisper runtime powers voice input.
+  const voice = record(data.voice);
+  const voiceProgress = record(record(snapshot).progressHint);
+  const voiceComponents = record(voice.components);
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const busy = Boolean(pending);
   return <>
@@ -498,6 +502,15 @@ function GeneralPanel({ data, pending, run }: PanelContext) {
       <ToggleRow title="Memory" description={t("Memory and recall tools, core-memory injection, and background memory upkeep.")}
         checked={memoryModule.enabled !== false && recap.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setMemoryToolsEnabled', [enabled])} />
+      <ResourceRow title="Voice transcription"
+        description={voiceProgress.text ? String(voiceProgress.text) : voice.installed
+          ? 'Managed Whisper and ffmpeg runtime is ready for voice input.'
+          : `Runtime components · Whisper ${voiceComponents.whisper ? 'ready' : 'missing'} · model ${voiceComponents.model ? 'ready' : 'missing'} · ffmpeg ${voiceComponents.ffmpeg ? 'ready' : 'missing'}`}
+        status={voice.enabled ? 'On' : voiceProgress.text || voice.busy ? 'Installing…' : 'Off'}
+        actions={<ActionButton disabled={busy || voice.busy === true}
+          onClick={() => void run('toggleVoice', [], 'voice-toggle')}>
+          {voice.enabled ? 'Disable voice' : voice.installed ? 'Enable voice' : 'Install & enable'}
+        </ActionButton>} />
     </Group>
     <UiLanguageChoices pending={pending} />
         <ThemeChoices data={data} pending={pending} />
@@ -813,84 +826,6 @@ function ContextPanel({ data, pending, run }: PanelContext) {
   </>;
 }
 
-function ChannelsPanel({ data, snapshot, pending, run, notice }: PanelContext) {
-  const channels = record(data.channels);
-  const setup = record(data.channelSetup);
-  const worker = record(data.channelWorker);
-  const channel = record(setup.channel);
-  const voice = record(data.voice);
-  const progress = record(record(snapshot).progressHint);
-  const voiceComponents = record(voice.components);
-  const busy = Boolean(pending);
-  const persistedProvider = String(setup.provider || 'discord');
-  const [provider, setChannelProviderChoice] = useState(persistedProvider);
-  const optimisticProvider = useRef<string | null>(null);
-  useEffect(() => {
-    if (optimisticProvider.current && optimisticProvider.current !== persistedProvider) return;
-    optimisticProvider.current = null;
-    setChannelProviderChoice(persistedProvider);
-  }, [persistedProvider]);
-  return <>
-    <Group title="Channel service">
-      {/* Messaging-only toggle: schedules/webhooks run sessions through the
-          automation runtime and no longer depend on this switch. */}
-      <ToggleRow title="Channels enabled" description={channels.enabled === false
-        ? 'Discord and Telegram messaging is disabled. Schedules and webhooks keep running.'
-        : 'Discord and Telegram messaging is enabled.'}
-        checked={channels.enabled !== false} disabled={busy}
-        onChange={(enabled) => void run('setChannelsEnabled', [enabled])} />
-      {/* No "New task remote" row: the reservation became a one-shot draft
-          toggle that resets on every NEW TASK entry (user decision), so a
-          persistent settings default would be dead weight — the header toggle
-          on the draft is the only control. */}
-      <SelectRow title="Channel" description="Primary outbound channel provider." value={provider} disabled={busy}
-        options={[{ value: 'discord', label: 'Discord' }, { value: 'telegram', label: 'Telegram' }]}
-        onChange={(value) => {
-          optimisticProvider.current = value;
-          setChannelProviderChoice(value);
-          void run('setChannelProvider', [value], 'channel-provider', false).then((result) => {
-            if (result === undefined) {
-              optimisticProvider.current = null;
-              setChannelProviderChoice(persistedProvider);
-              return;
-            }
-            const channelLabel = value === 'telegram' ? 'Telegram' : 'Discord';
-            notice(data.remote === true || worker.running
-              ? t('Channel set to {{channel}}. Restart remote to apply.', { channel: channelLabel })
-              : t('Channel set to {{channel}}.', { channel: channelLabel }));
-          });
-        }} />
-      <ResourceRow title="Voice transcription"
-        description={progress.text ? String(progress.text) : voice.installed
-          ? 'Managed Whisper and ffmpeg runtime is ready for incoming channel voice messages.'
-          : `Runtime components · Whisper ${voiceComponents.whisper ? 'ready' : 'missing'} · model ${voiceComponents.model ? 'ready' : 'missing'} · ffmpeg ${voiceComponents.ffmpeg ? 'ready' : 'missing'}`}
-        status={voice.enabled ? 'On' : progress.text || voice.busy ? 'Installing…' : 'Off'}
-        actions={<ActionButton disabled={busy || voice.busy === true}
-          onClick={() => void run('toggleVoice', [], 'voice-toggle')}>
-          {voice.enabled ? 'Disable voice' : voice.installed ? 'Enable voice' : 'Install & enable'}
-        </ActionButton>} />
-    </Group>
-    <Group title="Discord">
-      <SecretForm title="Discord bot token" status={record(setup.discord)} disabled={busy}
-        onSave={(secret) => void run('saveDiscordToken', [secret])} />
-      <AutoSaveRow title="Main channel" name="discordChannelId"
-        value={String(channel.discordChannelId || (setup.provider !== 'telegram' ? channel.channelId || '' : ''))}
-        placeholder="Discord channel ID" required disabled={busy}
-        onSave={(channelId) => void run('setChannel', [{ provider: 'discord', channelId }])} />
-    </Group>
-    <Group title="Telegram">
-      <SecretForm title="Telegram bot token" status={record(setup.telegram)} disabled={busy}
-        onSave={(secret) => void run('saveTelegramToken', [secret])} />
-      <AutoSaveRow title="Main chat" name="telegramChatId"
-        value={String(channel.telegramChatId || (setup.provider === 'telegram' ? channel.channelId || '' : ''))}
-        placeholder="Telegram chat ID" required disabled={busy}
-        onSave={(channelId) => void run('setChannel', [{ provider: 'telegram', channelId }])} />
-    </Group>
-    {/* No Webhook ingress group: the relay URL is issued automatically and
-        surfaces per endpoint (Copy URL) on the main-pane Webhooks page. */}
-  </>;
-}
-
 function SystemPanel(context: PanelContext) {
   return SystemPanelBody(context);
 }
@@ -934,19 +869,5 @@ function SystemPanelBody(context: PanelContext) {
   </>;
 }
 
-function SecretForm({ title, status, disabled, onSave }: {
-  title: string; status: RecordValue; disabled: boolean; onSave(secret: string): void;
-}) {
-  const saved = status.stored === true || status.authenticated === true || String(status.status || '').toLowerCase() === 'set';
-  const visibleStatus = status.problem ? String(status.status || 'Invalid') : saved ? 'Saved' : undefined;
-  return <FormRow title={title} status={visibleStatus}
-    description={t(String(status.problem || status.status || 'Not configured'))} resetOnSubmit
-    onSubmit={(form) => onSave(String(form.get('secret') || ''))}>
-    <input name="secret" type="password" autoComplete="off" aria-label={title}
-      placeholder={saved ? `••••••••  ${t('Saved')}` : t('Secret')} required disabled={disabled} />
-    <button disabled={disabled}>{saved ? t('Replace') : t('Save')}</button>
-  </FormRow>;
-}
-
 // Schedules and webhook endpoints both moved to dedicated main-pane pages
-// (sidebar → Schedules / Webhooks); settings keeps channel wiring only.
+// (sidebar → Schedules / Webhooks); the Channels settings page is retired.

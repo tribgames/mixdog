@@ -41,13 +41,7 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getAutoClear: { enabled: true, idleMs: 3_600_000, providerDefaults: [] },
   getCompactionSettings: { auto: true },
   getRecapSettings: { enabled: true },
-  getChannelSettings: { enabled: true },
-  isRemoteEnabled: false,
-  getChannelWorkerStatus: { running: false },
   getChannelSetup: {
-    provider: 'discord',
-    discord: { authenticated: false, status: 'Not connected' },
-    telegram: { authenticated: false, status: 'Not connected' },
     webhook: { status: 'Not configured' },
     channel: {},
     webhooks: [],

@@ -92,7 +92,7 @@ export function toolSchemaBucket(tool) {
   if (['read', 'grep', 'find', 'glob', 'list', 'code_graph'].includes(name)) return 'code';
   if (['shell', 'edit', 'apply_patch'].includes(name)) return 'mutation';
   if (name === 'agent' || name === 'delegate') return 'agents';
-  if (name.includes('channel') || name.includes('discord') || name.includes('webhook')) return 'channels';
+  if (name.includes('channel') || name.includes('webhook')) return 'channels';
   if (name.includes('provider') || name === 'load_tool' || name === 'tool_search' || name === 'cwd') return 'setup';
   if (kind === 'control') return 'control';
   return 'other';

@@ -48,7 +48,6 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     searchRoute: runtime.getSearchRoute?.() || runtime.searchRoute || null,
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
-    remoteEnabled: runtime.isRemoteEnabled?.() === true,
   });
 
   const routeState = () => {

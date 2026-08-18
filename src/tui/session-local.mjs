@@ -887,32 +887,6 @@ export async function createLocalSessionRuntime({
     });
   }
 
-  // Remote seat superseded by another session: runtime already stopped its
-  // worker; sync the indicator and tell the user. Non-user-initiated, so a
-  // toast (not transcript) is right.
-  if (typeof runtime.onRemoteStateChange === 'function') {
-    lifecycle.unsubscribeRemoteState = runtime.onRemoteStateChange(({ enabled, reason }) => {
-      if (flags.disposed) return;
-      set({
-        remoteEnabled: enabled === true,
-        remoteSessionId: runtime.getRemoteSessionId?.() || null,
-      });
-      if (reason === 'superseded') {
-        pushNotice('Remote mode OFF — another session took over remote.', 'warn');
-      } else if (reason === 'claim-failed') {
-        pushNotice('Remote mode could not start. Check the channel connection and try again.', 'error');
-      } else if (reason === 'release-failed') {
-        pushNotice('Remote mode could not be stopped cleanly. The shared state will reconcile automatically.', 'error');
-      }
-    });
-  }
-  // Seed the session-scoped remote fields so the desktop header button shows
-  // the real state before the first toggle/notification.
-  set({
-    remoteEnabled: runtime.isRemoteEnabled?.() === true,
-    remoteSessionId: runtime.getRemoteSessionId?.() || null,
-  });
-
   const { patchToolCardResult, flushToolResults } = createToolCardResults({
     getState: () => state,
     set,

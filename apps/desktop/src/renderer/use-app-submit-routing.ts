@@ -8,7 +8,6 @@ import type {
 import { promptTitle } from "../shared/session-title.mjs";
 import type { NavigationSelection } from "./navigation";
 import type { PaneLeaf } from "./pane-layout";
-import { remoteNewTaskMode, setRemoteNewTaskMode } from "./remote-preferences";
 import { asRecord, navigationKey } from "./text-format";
 import type { DraftPanePrefs } from "./use-draft-pane-preferences";
 
@@ -69,12 +68,6 @@ export function useAppSubmitRouting({
       && navigationEpoch.current === submitEpoch;
     let startedSessionId = "";
     let accepted: unknown;
-    // One-shot channel-relay reservation: capture the draft's Remote choice at
-    // submit time. The atomic new-task path claims the seat host-side at
-    // session creation (attach immediately); success consumes the reservation
-    // so the NEXT new task starts remote-off again (user decision).
-    const newTaskRemoteRequested = routeSelection.kind === "new"
-      && remoteNewTaskMode() === "on";
     const submittedProjectPath = routeSelection.kind === "new"
       ? effectiveDraftProjectPath(draftPrefs?.projectPath || "")
       : "";
@@ -90,7 +83,6 @@ export function useAppSubmitRouting({
           ...(draftPrefs?.workflow?.id
             ? { workflowId: draftPrefs.workflow.id }
             : {}),
-          ...(newTaskRemoteRequested ? { remote: true } : {}),
         });
         accepted = result.accepted;
         startedSessionId = result.accepted ? String(result.sessionId || "") : "";
@@ -117,9 +109,6 @@ export function useAppSubmitRouting({
       throw reason;
     }
     if (accepted === true) {
-      // Consume the reservation once a session actually claimed it, even when
-      // the user already navigated away: the seat is taken either way.
-      if (newTaskRemoteRequested) setRemoteNewTaskMode("off");
       if (routeSelection.kind === "new" && draftRouteStillExists()) {
         const activeSessionId = startedSessionId;
         if (activeSessionId) {

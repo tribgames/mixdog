@@ -9,6 +9,7 @@
  * binding at call time.
  */
 import { outputStyleNotice } from './route-pickers.mjs';
+import { isVoiceEnabled, toggleVoice, isVoiceInstallBusy } from '../lib/voice-setup.mjs';
 
 export function createSettingsPicker({
   store,
@@ -40,7 +41,6 @@ export function createSettingsPicker({
   openSkillsPicker,
   openMemoryCorePicker,
   openUpdatePicker,
-  openChannelSettingTypePicker,
 }) {
   const openSettingsPicker = async (opts = {}) => {
     const light = opts.light === true;
@@ -57,7 +57,6 @@ export function createSettingsPicker({
     const toolModules = snapshot.toolModules || {};
     const webSearchOn = toolModules.search?.enabled !== false;
     const memoryToolsOn = toolModules.memory?.enabled !== false;
-    const channels = snapshot.channels || { enabled: true };
     const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
     const outputStyle = snapshot.outputStyle || {};
     const workflow = state.workflow || {};
@@ -65,24 +64,9 @@ export function createSettingsPicker({
     const hooks = heavyCache ? heavyCache.hooks : (snapshot.hooks || { ruleCount: 0 });
     const plugins = heavyCache ? heavyCache.plugins : (snapshot.plugins || { count: 0 });
     const skills = heavyCache ? heavyCache.skills : (snapshot.skills || { count: 0 });
-    const channelWorker = snapshot.channelWorker || null;
-    const channelProvider = heavyCache
-      ? (heavyCache.channelProvider || 'discord')
-      : (snapshot.channelProvider || 'discord');
-    const effectiveChannelProvider = overrides
-      && Object.prototype.hasOwnProperty.call(overrides, 'channelProvider')
-      ? overrides.channelProvider
-      : channelProvider;
     // Refresh the cache every build (light or full) so the next light
-    // refresh reuses whatever was most recently known, and so an
-    // optimistic override (e.g. channel provider cycle) sticks without
-    // re-running the heavy getter it came from.
-    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills, channelProvider: effectiveChannelProvider };
-    const channelProviderLabel = effectiveChannelProvider === 'telegram' ? 'Telegram' : 'Discord';
-    const remoteEnabled = snapshot.remoteEnabled === true;
-    const remoteRuntimeDescription = channelWorker?.running
-      ? `runtime running · pid ${channelWorker.pid}`
-      : 'Stopped. Manual ON claims remote from any other session.';
+    // refresh reuses whatever was most recently known.
+    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills };
     const compactTypeLabel = 'Fast-track (fixed)';
     const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
     const workflowLabel = workflowDisplayName(workflow);
@@ -113,17 +97,16 @@ export function createSettingsPicker({
         .catch((e) => store.pushNotice(`compaction failed: ${e?.message || e}`, 'error'))
         .finally(() => openSettingsPicker({ light: true }));
     };
-    const applyChannels = (enabled) => {
-      void Promise.resolve(store.setChannelsEnabled?.(enabled))
-        .then((next) => {
-          if (!next) {
-            store.pushNotice('channel setting is busy', 'warn');
-            return;
-          }
-          store.pushNotice(`Channels ${next.enabled ? 'on' : 'off'}`, 'info');
-        })
-        .catch((e) => store.pushNotice(`channel setting failed: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker({ light: true }));
+    // Voice toggle (moved from the retired Channels cluster): enabling
+    // installs the managed whisper/ffmpeg runtime first time, then flips
+    // voice.enabled. toggleVoice owns all notices/progress.
+    const applyVoice = () => {
+      if (isVoiceInstallBusy()) {
+        store.pushNotice('Voice install is already running', 'warn');
+        return;
+      }
+      void Promise.resolve(toggleVoice({ pushNotice: store.pushNotice, setProgressHint: store.setProgressHint }))
+        .finally(() => { void openSettingsPicker({ light: true }); });
     };
     const applyToolModule = (label, setter, enabled) => {
       void Promise.resolve(setter?.(enabled))
@@ -216,34 +199,8 @@ export function createSettingsPicker({
       }
       openSettingsPicker({ light: true });
     };
-    const applyRemoteRuntime = () => {
-      void Promise.resolve(store.toggleRemote?.())
-        .then((enabled) => store.pushNotice(enabled === true ? 'Remote mode ON' : 'Remote mode OFF', 'info'))
-        .catch((e) => store.pushNotice(`Remote toggle failed: ${e?.message || e}`, 'error'))
-        .finally(() => { void openSettingsPicker({ light: true }); });
-    };
-    const cycleChannelProvider = (direction = 1) => {
-      const providers = ['discord', 'telegram'];
-      const currentIndex = Math.max(0, providers.indexOf(effectiveChannelProvider));
-      const chosen = providers[(currentIndex + direction + providers.length) % providers.length];
-      if (chosen === effectiveChannelProvider) {
-        openSettingsPicker({ light: true, overrides: { channelProvider: effectiveChannelProvider } });
-        return;
-      }
-      try {
-        store.setChannelProvider(chosen);
-        const label = chosen === 'telegram' ? 'Telegram' : 'Discord';
-        const restartHint = (remoteEnabled || channelWorker?.running)
-          ? `Channel set to ${label}. Restart remote to apply.`
-          : `Channel set to ${label}.`;
-        store.pushNotice(restartHint, 'info');
-      } catch (e) {
-        store.pushNotice(`channel provider failed: ${e?.message || e}`, 'error');
-      }
-      openSettingsPicker({ light: true, overrides: { channelProvider: chosen } });
-    };
     // Row order groups by concern — routing/model first, then session
-    // behavior, integrations, channels/remote, system — and must stay in
+    // behavior, integrations, voice, system — and must stay in
     // sync with desktop SETTINGS_ITEMS (tui-parity test, minus system-shell).
     const items = [
       {
@@ -383,35 +340,11 @@ export function createSettingsPicker({
         _action: 'skills',
       },
       {
-        value: 'channels',
-        label: 'Channels enabled',
-        meta: boolLabel(channels.enabled !== false),
-        // Messaging-only toggle: schedules/webhooks run through the automation
-        // runtime and no longer depend on this switch (desktop parity).
-        description: channels.enabled === false
-          ? 'Messaging disabled. Schedules and webhooks keep running.'
-          : 'Discord and Telegram messaging.',
-        _action: 'channels',
-      },
-      {
-        value: 'channel-provider',
-        label: 'Channel',
-        meta: channelProviderLabel,
-        description: 'Left/Right or Enter changes channel type (Discord or Telegram).',
-        _action: 'channel-provider',
-      },
-      {
-        value: 'channel-setting',
-        label: 'Setting',
-        description: 'Configure credentials and main channel/chat for the active type.',
-        _action: 'channel-setting',
-      },
-      {
-        value: 'remote-runtime',
-        label: 'Remote Runtime',
-        meta: boolLabel(remoteEnabled),
-        description: remoteRuntimeDescription,
-        _action: 'remote-runtime',
+        value: 'voice',
+        label: 'Voice',
+        meta: boolLabel(isVoiceEnabled()),
+        description: 'Transcribe voice input (managed Whisper runtime).',
+        _action: 'voice',
       },
       {
         value: 'system-shell',
@@ -455,9 +388,7 @@ export function createSettingsPicker({
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
         else if (item?._action === 'memory-enabled') toggleMemory();
         else if (item?._action === 'memory-cycles') toggleMemoryCycles();
-        else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
-        else if (item?._action === 'remote-runtime') applyRemoteRuntime();
-        else if (item?._action === 'channel-provider') cycleChannelProvider(-1);
+        else if (item?._action === 'voice') applyVoice();
         else if (item?._action === 'output-style') cycleOutputStyle(-1);
         else if (item?._action === 'theme') cycleTheme(-1);
         else if (item?._action === 'workflow') cycleWorkflow(-1);
@@ -468,9 +399,7 @@ export function createSettingsPicker({
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
         else if (item?._action === 'memory-enabled') toggleMemory();
         else if (item?._action === 'memory-cycles') toggleMemoryCycles();
-        else if (item?._action === 'channels') applyChannels(!(channels.enabled !== false));
-        else if (item?._action === 'remote-runtime') applyRemoteRuntime();
-        else if (item?._action === 'channel-provider') cycleChannelProvider(1);
+        else if (item?._action === 'voice') applyVoice();
         else if (item?._action === 'output-style') cycleOutputStyle(1);
         else if (item?._action === 'theme') cycleTheme(1);
         else if (item?._action === 'workflow') cycleWorkflow(1);
@@ -482,10 +411,7 @@ export function createSettingsPicker({
         else if (item._action === 'web-search-enabled') toggleWebSearch();
         else if (item._action === 'memory-enabled') toggleMemory();
         else if (item._action === 'memory-cycles') toggleMemoryCycles();
-        else if (item._action === 'channels') applyChannels(!(channels.enabled !== false));
-        else if (item._action === 'remote-runtime') applyRemoteRuntime();
-        else if (item._action === 'channel-provider') cycleChannelProvider(1);
-        else if (item._action === 'channel-setting') openChannelSettingTypePicker({ returnTo: openSettingsPicker });
+        else if (item._action === 'voice') applyVoice();
         else if (item._action === 'output-style') openOutputStylePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'theme') openThemePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'workflow') openWorkflowPicker({ returnTo: openSettingsPicker });

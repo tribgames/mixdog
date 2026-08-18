@@ -332,9 +332,6 @@
   "Disable voice": "Отключить голос",
   "Disabled": "Отключено",
   "Discombobulating": "сбивающий с толку",
-  "Discord and Telegram messaging.": "Сообщения Discord и Telegram.",
-  "Discord bot token": "Токен бота Discord",
-  "Discord channel ID": "ID канала Discord",
   "Dismiss": "Скрыть",
   "Dismiss error": "Скрыть ошибку",
   "Dismiss install prompt": "Закрыть подсказку установки",
@@ -468,7 +465,6 @@
   "Hello, {{name}} 👋": "Привет, {{name}} 👋",
   "Herding": "Скотоводство",
   "Honking": "Сигналит",
-  "Hook up Discord or Telegram to reach Mixdog away from your desk.": "Подключите Discord или Telegram, чтобы связаться с Mixdog, не находясь на рабочем месте.",
   "Hooks": "Хуки",
   "Hourly": "Ежечасно",
   "How Mixdog addresses you.": "Как Mixdog обращается к вам.",
@@ -1088,8 +1084,6 @@
   "System prompt": "Системный промпт",
   "System tools": "Системные инструменты",
   "Tap Share, then Add to Home Screen.": "Нажмите «Поделиться», затем «На экран «Домой»».",
-  "Telegram bot token": "Токен бота Telegram",
-  "Telegram chat ID": "ID чата Telegram",
   "Tell Mixdog what to call you and which language to answer in.": "Скажите Mixdog, как вам звонить и на каком языке отвечать.",
   "Tempering": "Закалка",
   "Terminal": "Терминал",
@@ -1242,5 +1236,6 @@
   "Your example commit message appears here.": "Здесь появится пример сообщения коммита.",
   "Your name or role": "Ваше имя или роль",
   "Zesting": "Изюминка",
-  "Zigzagging": "Зигзагообразное движение"
+  "Zigzagging": "Зигзагообразное движение",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "Управляемая среда Whisper и ffmpeg готова к голосовому вводу."
 }

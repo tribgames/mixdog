@@ -362,7 +362,7 @@ export function renderAppView(ctx) {
               <TextEntryPanel
                 title={channelPrompt.label}
                 hint={channelPrompt.hint || 'Save channel setting.'}
-                mask={channelPrompt.kind === 'discord-token' || channelPrompt.kind === 'telegram-token' || channelPrompt.kind === 'webhook-token'}
+                mask={channelPrompt.kind === 'webhook-token'}
                 columns={frameColumns}
                 promptLabel="Value > "
                 onSubmit={onSubmit}
@@ -504,7 +504,6 @@ export function renderAppView(ctx) {
           activeTools={activeTools}
           initialLine={initialStatusLine}
           workflow={state.workflow}
-          remoteEnabled={state.remoteEnabled === true}
           themeEpoch={state.themeEpoch || 0}
         />
       </Box>

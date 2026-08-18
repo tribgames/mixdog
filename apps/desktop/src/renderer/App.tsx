@@ -56,11 +56,6 @@ import {
 import { usePaneWorkspace } from "./pane-workspace-state";
 import { PaneWorkspace } from "./PaneWorkspace";
 import {
-  remoteNewTaskMode,
-  setRemoteNewTaskMode,
-  subscribeRemoteNewTaskMode,
-} from "./remote-preferences";
-import {
   defaultSessionLaneStore,
   useSessionLane,
   usePinnedRemoteSession,
@@ -202,7 +197,8 @@ const CommandSurface = lazy(() => import("./CommandSurface")
 // app-idle-warmup.ts; importing it arms the schedule.
 import {
   DraftConversation,
-  PaneHeaderStatus,
+  PaneContextStatus,
+  PaneLiveWork,
   selectDesktopSnapshot,
   SnapshotUtilityDock,
   requestSessionRead,
@@ -422,30 +418,6 @@ export function App() {
     () => startupNavigationSelection ?? { kind: "new" },
   );
   const selectionRef = useRef<NavigationSelection>(selection);
-  const newTaskRemoteMode = useSyncExternalStore(
-    subscribeRemoteNewTaskMode,
-    remoteNewTaskMode,
-    () => "off",
-  );
-  const setNewTaskRemoteEnabled = useCallback((enabled: boolean): void => {
-    setRemoteNewTaskMode(enabled ? "on" : "off");
-  }, []);
-  // /clear · /new replacing a remote-holding session arms exactly ONE skip of
-  // the draft remote-off reset below so the seat carries into the replacement
-  // task (user rule: 전 세션 리모트 설정 승계).
-  const inheritDraftRemoteOnce = useRef(false);
-  useEffect(() => {
-    // One-shot remote never carries between drafts (user decision): entering a
-    // NEW TASK always starts remote-off, so an unconsumed toggle from an
-    // abandoned draft — or a stale persisted value from a previous run — can
-    // never leak into the next task.
-    if (selection.kind !== "new") return;
-    if (inheritDraftRemoteOnce.current) {
-      inheritDraftRemoteOnce.current = false;
-      return;
-    }
-    setRemoteNewTaskMode("off");
-  }, [selection]);
   // The registry starts empty; the first task creates the initial tab.
   const [tabs, setTabs] = useState<WorkspaceTab[]>([]);
   // Folder panes report the folder they are VIEWING so their tab title
@@ -810,25 +782,6 @@ export function App() {
       return undefined;
     }
   }, [setError]);
-  const remoteRequestEpoch = useRef(0);
-  const setRemoteEnabled = useCallback(async (
-    sessionId: string,
-    enabled: boolean,
-  ): Promise<void> => {
-    if (!sessionId) return;
-    const requestId = ++remoteRequestEpoch.current;
-    const result = await invokeResult(() => window.mixdogDesktop.invokeCapability({
-      capability: enabled ? "claimRemote" : "releaseRemote",
-      args: [],
-      sessionId,
-    }));
-    if (requestId !== remoteRequestEpoch.current) return;
-    if (result?.snapshot !== undefined) {
-      applySessionLaneResult(sessionId, result.snapshot);
-      return;
-    }
-    void requestSessionRead(sessionId);
-  }, [invokeResult]);
   const openDesktopUpdate = useCallback(() => {
     if (updaterState.status === "ready") setUpdateDialogOpen(true);
   }, [updaterState.status]);
@@ -1246,12 +1199,6 @@ export function App() {
       registerWorkspaceSelection(draftSelection, "New task", sessionKey);
       return;
     }
-    // Remote seat: when the cleared session holds it, the replacement draft
-    // starts remote-on so its first submit takes the seat over.
-    const holdsRemote = source?.remoteEnabled === true
-      && String(source.remoteSessionId || "") === sessionId;
-    inheritDraftRemoteOnce.current = holdsRemote;
-    setRemoteNewTaskMode(holdsRemote ? "on" : "off");
     activateSelection(draftSelection, "New task", ownerLeaf ? sessionKey : "");
     setComposerFocusRequest((value) => value + 1);
   };
@@ -2115,19 +2062,6 @@ export function App() {
             onCommit={commitHeaderTitleEditor}
             onCancel={closeHeaderTitleEditor} />
         : paneTitle}
-      headerStatus={<PaneHeaderStatus sessionId={paneSessionId}
-        hidden={false}
-        draftRemoteEnabled={focused && draftKey ? newTaskRemoteMode === "on" : undefined}
-        onOpen={() => {
-          setCommandSurfaceSessionId(paneSessionId);
-          setCommandSurface("context");
-        }}
-        onOpenAgents={desktopFeatureEnabled("agents")
-          ? () => openDockTab("agents")
-          : undefined}
-        onRemoteChange={draftKey
-          ? setNewTaskRemoteEnabled
-          : (enabled) => setRemoteEnabled(paneSessionId, enabled)} />}
       conversationProps={{
         focused,
         sessionId: paneSessionId,
@@ -2168,6 +2102,17 @@ export function App() {
           setCommandSurfaceSessionId(surface === "context" ? paneSessionId : "");
           openConversationCommandSurface(surface);
         },
+        composerContextStatus: <PaneContextStatus sessionId={paneSessionId}
+          hidden={false}
+          onOpen={() => {
+            setCommandSurfaceSessionId(paneSessionId);
+            setCommandSurface("context");
+          }} />,
+        liveWorkStatus: <PaneLiveWork sessionId={paneSessionId}
+          hidden={false}
+          onOpenAgents={desktopFeatureEnabled("agents")
+            ? () => openDockTab("agents")
+            : undefined} />,
       }} />;
   };
   const {

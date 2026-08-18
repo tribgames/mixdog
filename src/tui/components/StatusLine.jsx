@@ -409,13 +409,13 @@ function normalizeStatusLine(text) {
   return normalizeStatuslineAnsi(text, statusColors(), { reset: RESET });
 }
 
-function workflowModeLabel(workflow = {}, remoteEnabled = false) {
+function workflowModeLabel(workflow = {}) {
   const name = String(workflow?.name || workflow?.id || 'Default').trim() || 'Default';
   const base = `${name} Mode`;
-  return remoteEnabled === true ? `Remote / ${base}` : base;
+  return base;
 }
 
-function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], activeTools = null, initialLine = '', workflow = null, remoteEnabled = false, themeEpoch = 0 }) {
+function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fast, cwd, stats, contextWindow, displayContextWindow = 0, compactBoundaryTokens = 0, autoCompactTokenLimit = 0, rawContextWindow, resizeEpoch, agentRevision = '', agentWorkers = [], agentJobs = [], activeTools = null, initialLine = '', workflow = null, themeEpoch = 0 }) {
   const [line, setLine] = useState(() => normalizeStatusLine(initialLine || localBootStatusLine({
     provider,
     model,
@@ -681,7 +681,7 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   }, [sessionId, clientHostPid, provider, model, effort, fast, cwd, statsSignature, contextWindow, displayContextWindow, compactBoundaryTokens, autoCompactTokenLimit, rawContextWindow, resizeEpoch, agentRevision, agentWorkersSignature, agentJobsSignature, activeToolsSignature, refreshTick, themeEpoch]);
 
   const lines = line ? line.split('\n').slice(0, 2) : [' ', ' '];
-  const workflowLabel = workflowModeLabel(workflow, remoteEnabled);
+  const workflowLabel = workflowModeLabel(workflow);
   // Footer footprint is exactly 2 rows (L1 + L2) so the statusline sits tight
   // under the prompt box — the old third "breathing" row left a dead band at
   // the terminal bottom. Left/right insets match the prompt box's text column

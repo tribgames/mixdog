@@ -146,7 +146,7 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
     row('ok', `recap ${enabled ? 'enabled' : 'disabled'} · core memory available`);
   });
 
-  // 6. channels: enabled + worker status + configured tokens (names only).
+  // 6. channels: enabled + worker status.
   await check('channels', async (row) => {
     const settings = runtime.getChannelSettings?.({ includeStatus: true }) || {};
     const enabled = settings.enabled !== false;
@@ -155,12 +155,8 @@ export async function buildDoctorReport(runtime = {}, getState = () => ({})) {
       return;
     }
     const worker = settings.status || runtime.getChannelWorkerStatus?.() || {};
-    const setup = (await runtime.getChannelSetup?.()) || {};
-    const tokens = [];
-    if (setup.discord?.authenticated) tokens.push('discord');
-    if (setup.telegram?.authenticated) tokens.push('telegram');
     const running = worker.running === true;
-    const detail = `enabled · worker ${running ? 'running' : 'stopped'} · tokens: ${tokens.length ? tokens.join(', ') : 'none'}`;
+    const detail = `enabled · worker ${running ? 'running' : 'stopped'}`;
     row(running ? 'ok' : 'warn', detail);
   });
 

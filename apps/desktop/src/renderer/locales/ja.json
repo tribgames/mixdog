@@ -332,9 +332,6 @@
   "Disable voice": "音声を無効化",
   "Disabled": "無効",
   "Discombobulating": "混乱を招く",
-  "Discord and Telegram messaging.": "DiscordとTelegramのメッセージング。",
-  "Discord bot token": "Discordボットトークン",
-  "Discord channel ID": "DiscordチャネルID",
   "Dismiss": "閉じる",
   "Dismiss error": "エラーを閉じる",
   "Dismiss install prompt": "インストール案内を閉じる",
@@ -468,7 +465,6 @@
   "Hello, {{name}} 👋": "こんにちは、{{name}} 👋",
   "Herding": "牧畜",
   "Honking": "警笛を鳴らす",
-  "Hook up Discord or Telegram to reach Mixdog away from your desk.": "Discord または Telegram を接続すると、デスクから離れた場所から Mixdog にアクセスできます。",
   "Hooks": "フック",
   "Hourly": "毎時",
   "How Mixdog addresses you.": "Mixdog があなたにどのように話しかけるか。",
@@ -1088,8 +1084,6 @@
   "System prompt": "システムプロンプト",
   "System tools": "システムツール",
   "Tap Share, then Add to Home Screen.": "[共有] をタップし、[ホーム画面に追加] を選択してください。",
-  "Telegram bot token": "Telegramボットトークン",
-  "Telegram chat ID": "TelegramチャットID",
   "Tell Mixdog what to call you and which language to answer in.": "Mixdog に何と電話をかけるか、どの言語で応答するかを伝えます。",
   "Tempering": "テンパリング",
   "Terminal": "ターミナル",
@@ -1242,5 +1236,6 @@
   "Your example commit message appears here.": "コミットメッセージの例がここに表示されます。",
   "Your name or role": "あなたの名前や役割",
   "Zesting": "ゼスティング",
-  "Zigzagging": "ジグザグ"
+  "Zigzagging": "ジグザグ",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "管理された Whisper と ffmpeg ランタイムが音声入力の準備を完了しました。"
 }

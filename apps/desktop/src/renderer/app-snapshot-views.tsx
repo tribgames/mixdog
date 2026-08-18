@@ -2,7 +2,6 @@
 // store through its OWN equality comparator, so a header-only change never
 // re-renders the conversation (and vice versa). Extracted from App.tsx, which
 // keeps composition and session flow.
-import { Unplug } from "lucide-react";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { ActiveAgentsIndicator, ActiveShellsIndicator } from "./ActiveAgentsIndicator";
@@ -23,7 +22,6 @@ import {
 import {
   EMPTY_SNAPSHOT,
   EMPTY_TRANSCRIPT_ITEMS,
-  type RecordValue,
   type Snapshot,
   type TranscriptItem,
 } from "./desktop-types";
@@ -361,21 +359,32 @@ export function requestSessionRead(
   return request;
 }
 
-// Every pane header reads its own lane. Focus never changes data ownership.
-export function PaneHeaderStatus({
-  sessionId,
-  hidden,
-  draftRemoteEnabled,
-  onOpen,
-  onOpenAgents,
-  onRemoteChange,
-}: {
+/** Context gauge docked immediately right of the composer's model selector.
+ *  Every pane status slot reads its own lane. Focus never changes data
+ *  ownership. */
+export function PaneContextStatus({ sessionId, hidden, onOpen }: {
   sessionId: string;
   hidden: boolean;
-  draftRemoteEnabled?: boolean;
   onOpen(): void;
+}) {
+  const lane = useSessionLane(
+    sessionId,
+    defaultSessionLaneStore,
+    desktopHeaderSnapshotsEqual,
+    !hidden && Boolean(sessionId),
+  );
+  const visibleSnapshot = hidden || !sessionId
+    ? EMPTY_SNAPSHOT
+    : lane ?? EMPTY_SNAPSHOT;
+  return <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />;
+}
+
+/** Agent/Shell live-work chips: they ride the thinking line's right end while
+ *  a turn runs and float above the diff/composer stack while idle. */
+export function PaneLiveWork({ sessionId, hidden, onOpenAgents }: {
+  sessionId: string;
+  hidden: boolean;
   onOpenAgents?(): void;
-  onRemoteChange(enabled: boolean): void | Promise<void>;
 }) {
   const lane = useSessionLane(
     sessionId,
@@ -387,169 +396,11 @@ export function PaneHeaderStatus({
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
   return <>
-    {onOpenAgents && <ActiveAgentsIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />}
+    <ActiveAgentsIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />
     <ActiveShellsIndicator snapshot={visibleSnapshot} />
-    <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />
-    <RemoteToggleButton snapshot={visibleSnapshot}
-      draftEnabled={draftRemoteEnabled}
-      onChange={onRemoteChange} />
   </>;
 }
 
-// Lucide's Wifi draws its base dot as a 0.01-length stroke ("M12 20h.01") —
-// invisible at the header's thin 1.25px stroke. Same waves, but the dot is a
-// FILLED circle so the glyph reads complete (user: "the bottom looks empty").
-function WifiGlyph({ size = 18 }: { size?: number }) {
-  return <svg className="lucide" width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {/* The stock glyph spans y 8.8–20 (optical center ~14.4): shift up so it
-        centers in the 24px box like its neighbors. Integer shift keeps the
-        arcs on the pixel grid (user: -2.4 read slightly high and fuzzy). */}
-    <g transform="translate(0 -2)">
-      <path d="M2 8.82a15 15 0 0 1 20 0" />
-      <path d="M5 12.859a10 10 0 0 1 14 0" />
-      <path d="M8.5 16.429a5 5 0 0 1 7 0" />
-      <circle cx="12" cy="20" r="1.2" fill="currentColor" stroke="none" />
-    </g>
-  </svg>;
-}
-
-// SESSION-SCOPED remote (user decision): the toggle reflects whether the
-// VIEWED session owns the channel relay (snapshot-driven — no polling).
-// Off → on claims for this session; owner → off; owned elsewhere → clicking
-// moves the relay seat to this session (last-wins).
-// The channel-setup probe result is cached at module scope: every pane (and
-// every focus swap) remounts this button, and a null initial state hid it
-// until the async probe returned — the cluster popped in and out and shifted
-// its neighbors (user report).
-let channelReadyCache: boolean | null = null;
-let channelReadyProbe: Promise<void> | null = null;
-let channelReadyTimer = 0;
-const channelReadyListeners = new Set<() => void>();
-const CHANNEL_READY_POLL_MS = 60_000;
-
-function readChannelReady(): boolean | null {
-  return channelReadyCache;
-}
-
-function publishChannelReady(ready: boolean): void {
-  if (channelReadyCache === ready) return;
-  channelReadyCache = ready;
-  for (const listener of [...channelReadyListeners]) listener();
-}
-
-function probeChannelReady(): Promise<void> {
-  channelReadyProbe ??= (async () => {
-    try {
-      const result = await window.mixdogDesktop.invokeCapability<RecordValue>({
-        capability: "getChannelSetup",
-        args: [],
-      });
-      const setup = asRecord(result?.value) || {};
-      const channel = asRecord(setup.channel) || {};
-      const provider = String(setup.provider || "discord");
-      publishChannelReady(provider === "telegram"
-        ? asRecord(setup.telegram)?.authenticated === true
-          && Boolean(channel.telegramChatId || channel.channelId)
-        : asRecord(setup.discord)?.authenticated === true
-          && Boolean(channel.discordChannelId || channel.channelId));
-    } catch {
-      publishChannelReady(channelReadyCache ?? false);
-    }
-  })().finally(() => {
-    channelReadyProbe = null;
-  });
-  return channelReadyProbe;
-}
-
-function probeVisibleChannelReady(): void {
-  if (document.visibilityState === "visible") void probeChannelReady();
-}
-
-function subscribeChannelReady(listener: () => void): () => void {
-  const first = channelReadyListeners.size === 0;
-  channelReadyListeners.add(listener);
-  if (first) {
-    document.addEventListener("visibilitychange", probeVisibleChannelReady);
-    // The first render needs an answer even in prerender/jsdom shells whose
-    // visibility state is not yet "visible"; only recurring probes are gated.
-    void probeChannelReady();
-    channelReadyTimer = window.setInterval(probeVisibleChannelReady, CHANNEL_READY_POLL_MS);
-  }
-  return () => {
-    channelReadyListeners.delete(listener);
-    if (channelReadyListeners.size > 0) return;
-    window.clearInterval(channelReadyTimer);
-    channelReadyTimer = 0;
-    document.removeEventListener("visibilitychange", probeVisibleChannelReady);
-  };
-}
-
-function RemoteToggleButton({
-  snapshot,
-  draftEnabled,
-  onChange,
-}: {
-  snapshot: Snapshot;
-  draftEnabled?: boolean;
-  onChange(enabled: boolean): void | Promise<void>;
-}) {
-  beginBootSurface("channel-controls", "setup");
-  const [busy, setBusy] = useState(false);
-  const [pendingEnabled, setPendingEnabled] = useState<boolean | null>(null);
-  const requestEpoch = useRef(0);
-  // Every split-pane header consumes one process-wide probe. The old
-  // per-button interval multiplied the same capability RPC by pane count.
-  const channelReady = useSyncExternalStore(
-    subscribeChannelReady,
-    readChannelReady,
-    () => false,
-  );
-  useEffect(() => {
-    if (channelReady === null) return;
-    reportBootSurfaceStage("channel-controls", "setup", "data");
-    reportBootSurfaceReady("channel-controls", "setup");
-  }, [channelReady]);
-  const remoteEnabled = snapshot.remoteEnabled === true;
-  const owner = String(snapshot.remoteSessionId || "");
-  const current = String(snapshot.sessionId || "");
-  const draft = typeof draftEnabled === "boolean";
-  const settledOn = remoteEnabled && Boolean(owner) && owner === current;
-  const on = draft ? draftEnabled : pendingEnabled ?? settledOn;
-  const elsewhere = !draft && pendingEnabled === null && remoteEnabled && !settledOn;
-  if (channelReady !== true) return null;
-  // On/off reads through the GLYPH, not color (user decision): Wifi waves
-  // while THIS session relays, Unplug otherwise — same ink, stroke, and 18px
-  // frame as the panel toggle.
-  return <button type="button"
-    className="session-dock-toggle remote-toggle"
-    aria-pressed={on} aria-busy={busy || undefined}
-    aria-label={draft
-      ? on ? t("Turn remote off for this new task") : t("Turn remote on for this new task")
-      : on ? t("Turn channel relay off")
-        : elsewhere ? t("Override the channel relay with this session")
-          : t("Turn channel relay on")}
-    data-tooltip={busy ? t("Updating remote…")
-      : draft ? on ? t("Remote on for new task") : t("Remote off for new task")
-        : on ? t("Remote on") : elsewhere ? t("Remote on elsewhere — click to override") : t("Remote off")}
-    onClick={() => {
-      if (draft) {
-        void onChange(!on);
-        return;
-      }
-      const desired = !on;
-      const requestId = ++requestEpoch.current;
-      setPendingEnabled(desired);
-      setBusy(true);
-      void Promise.resolve(onChange(desired)).finally(() => {
-        if (requestId !== requestEpoch.current) return;
-        setPendingEnabled(null);
-        setBusy(false);
-      });
-    }}>
-    {on ? <WifiGlyph size={18} /> : <Unplug size={18} aria-hidden="true" />}
-  </button>;
-}
 
 type SnapshotUtilityDockProps =
   Omit<React.ComponentProps<typeof UtilityDock>, "snapshot"> & {

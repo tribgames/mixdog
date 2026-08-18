@@ -55,14 +55,6 @@ const WEEKDAY_OPTIONS = [
   { value: '0', label: 'Sunday' },
 ];
 
-// Delivery: where a fire's result surfaces — the app session, the messaging
-// channel, or both (user decision).
-const DELIVERY_OPTIONS = [
-  { value: 'app', label: 'App' },
-  { value: 'channel', label: 'Channel' },
-  { value: 'both', label: 'App + Channel' },
-];
-
 function record(value: unknown): RecordValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 }
@@ -92,9 +84,7 @@ interface ScheduleDraft {
   at: string;
   cwd: string;
   workflow: string;
-  delivery: string;
   attachments: AutomationAttachment[];
-  channel: string;
   model: string;
   instructions: string;
   enabled: boolean;
@@ -170,9 +160,9 @@ function scheduleMeta(schedule: RecordValue) {
 }
 
 // Map the engine's schedule display shape (channel-admin scheduleToDisplay)
-// onto editable form state; `defaultChannel` seeds the channel target with the
-// configured main channel/chat ID.
-function scheduleDraft(schedule: RecordValue | undefined, defaultChannel: string): ScheduleDraft {
+// onto editable form state. Results always deliver to the app session; the
+// messaging-channel delivery target is retired.
+function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
   const source = record(schedule);
   const parsedAt = source.whenAt ? new Date(String(source.whenAt)) : null;
   const cron = String(source.whenCron || '');
@@ -189,9 +179,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultChannel: string
     // New-task parity: an automation always carries a workflow; legacy rows
     // without one edit as the Default pack.
     workflow: String(source.workflow || 'default'),
-    delivery: String(source.delivery || 'app'),
     attachments: attachmentsFromRecords(source.attachments),
-    channel: String(source.channel || defaultChannel || ''),
     model: String(source.model || ''),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
@@ -256,7 +244,6 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const [modelParameters, setModelParameters] = useState(initialModel.modelParameters);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
-  const [delivery, setDelivery] = useState(draft.delivery);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [formError, setFormError] = useState('');
   const slash = model.indexOf('/');
@@ -328,7 +315,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           ...(frequency === 'once'
             ? { at: text('schedule-at') }
             : { time: buildCron() }),
-          delivery,
+          delivery: 'app',
           model: `${model}${effortSuffix}${fastSuffix}${parameterSuffix}`,
           ...(cwd ? { cwd } : {}),
           ...(workflow ? { workflow } : {}),
@@ -383,14 +370,6 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           <div className="schedules-frequency">
             <OpenSelect ariaLabel={t("Schedule project")} value={cwd || '__none__'} disabled={busy}
               options={projectOptions} onChange={(next) => setCwd(next === '__none__' ? '' : next)} />
-          </div>
-        </div>
-        <div className="schedules-field">
-          <span>{t('Delivery')}</span>
-          <small>{t('Where completed results are sent.')}</small>
-          <div className="schedules-frequency">
-            <OpenSelect ariaLabel={t("Schedule delivery")} value={delivery} disabled={busy}
-              options={DELIVERY_OPTIONS} onChange={setDelivery} />
           </div>
         </div>
         <div className="schedules-field">
@@ -532,11 +511,9 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
     if (filter === 'active' && !enabled) return false;
     if (filter === 'paused' && enabled) return false;
     if (!text) return true;
-    return [schedule.name, schedule.description, schedule.time, schedule.model, schedule.channel]
+    return [schedule.name, schedule.description, schedule.time, schedule.model]
       .map((value) => String(value || '').toLowerCase()).join(' ').includes(text);
   });
-  const channelEntry = record(setup.channel);
-  const mainChannelId = String(channelEntry.channelId || channelEntry.discordChannelId || channelEntry.telegramChatId || '');
   const saveSchedule = async (entry: RecordValue) => {
     const result = await run('saveSchedule', [entry]);
     if (result !== undefined) setEditor(null);
@@ -551,7 +528,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
         className="schedules-add" disabled={busy}
         onClick={() => {
           setError('');
-          setEditor({ name: '', draft: scheduleDraft(undefined, mainChannelId) });
+          setEditor({ name: '', draft: scheduleDraft(undefined) });
         }} />
       <div className="schedules-search">
         <Search size={14} aria-hidden="true" />
@@ -607,7 +584,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
                 onSelect: () => {
                   setConfirmingDelete('');
                   setError('');
-                  setEditor({ name, draft: scheduleDraft(schedule, mainChannelId) });
+                  setEditor({ name, draft: scheduleDraft(schedule) });
                 },
               },
               {

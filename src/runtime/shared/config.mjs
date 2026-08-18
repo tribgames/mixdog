@@ -131,11 +131,13 @@ export function canonicalizeStoredChannelsConfig(value = {}) {
   delete next.nonInteractive
   delete next.interactive
 
-  const channel = isPlainObject(next.channel) ? { ...next.channel } : {}
-  next.provider = next.provider === 'telegram' ? 'telegram' : 'discord'
+  // Messaging (Discord/Telegram) is retired: scrub the provider selector and
+  // per-provider routing sections from stored config.
   delete next.backend
-  delete channel.channelId
-  next.channel = channel
+  delete next.provider
+  delete next.discord
+  delete next.telegram
+  delete next.channel
   return next
 }
 
@@ -471,45 +473,18 @@ export function updateSectionAsync(section, updater) {
 }
 
 // ── Secret account names ─────────────────────────────────────────────────────
-// Canonical account strings stored in the OS keychain. Must stay in sync with
-// the migration logic in seed.mjs.
+// Canonical account strings stored in the OS keychain.
 export const SECRET_ACCOUNTS = Object.freeze({
-  discordToken: 'discord.token',
-  telegramToken: 'telegram.token',
   agentApiKey:  (provider) => `agent.${provider}.apiKey`,
   openaiUsageSessionKey: 'agent.openai.usageSessionKey',
   opencodeGoAuthCookie: 'agent.opencode-go.authCookie',
 })
 
-function isDiscordSnowflake(value) {
-  return /^\d{17,20}$/.test(String(value || '').trim())
-}
-
-export function diagnoseDiscordTokenValue(value, config = {}) {
-  const token = String(value || '').trim()
-  if (!token) return null
-  const discord = config?.discord && typeof config.discord === 'object' ? config.discord : {}
-  const appId = String(discord.applicationId || '').trim()
-  if (appId && token === appId) return 'Bot token field contains the Application ID, not the bot token.'
-  // Single main channel: check the `channel` object.
-  const candidateEntries = []
-  if (config?.channel && typeof config.channel === 'object') candidateEntries.push(config.channel)
-  for (const ch of candidateEntries) {
-    if (!ch || typeof ch !== 'object') continue
-    for (const id of [ch.channelId, ch.discordChannelId, ch.telegramChatId]) {
-      const channelId = String(id || '').trim()
-      if (channelId && token === channelId) return 'Bot token field contains a Channel ID, not the bot token.'
-    }
-  }
-  if (isDiscordSnowflake(token)) return 'Bot token field contains a numeric Discord ID, not the bot token.'
-  return null
-}
-
 // ── Secret-aware getters ─────────────────────────────────────────────────────
 // Read order: ENV MIXDOG_<UPPER_SNAKE> → OS keychain → null.
 
 function _envKey(account) {
-  // 'discord.token' → 'MIXDOG_DISCORD_TOKEN'
+  // 'agent.openai.apiKey' → 'MIXDOG_AGENT_OPENAI_APIKEY'
   return 'MIXDOG_' + account.replace(/[.\s]+/g, '_').toUpperCase()
 }
 
@@ -517,22 +492,6 @@ function _readSecret(account) {
   const envVal = process.env[_envKey(account)]
   if (envVal) return envVal
   try { return _getSecret(account) } catch { return null }
-}
-
-/**
- * Returns the Discord bot token.
- * Priority: MIXDOG_DISCORD_TOKEN → keychain('discord.token') → null
- */
-export function getDiscordToken() {
-  return _readSecret(SECRET_ACCOUNTS.discordToken)
-}
-
-/**
- * Returns the Telegram bot token.
- * Priority: MIXDOG_TELEGRAM_TOKEN → keychain('telegram.token') → null
- */
-export function getTelegramToken() {
-  return _readSecret(SECRET_ACCOUNTS.telegramToken)
 }
 
 export function getOpenAIUsageSessionKey() {

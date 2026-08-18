@@ -79,22 +79,21 @@
   --mx-avatar-bg-gray: #5c5c5c; --mx-avatar-border-gray: #aeaeae;
 
   /* ── 2. Surfaces (back → front) ──
-     ONE dark ramp (user: 그레이를 다크로 바꾸고 기존 다크는 폐기): the old
-     near-black Dark crushed the band/sheet separation and the old Gray sat a
-     step too light, so this ramp lands between them. Every step carries a
-     +3 blue offset — a perfectly equal-channel grey reads warm next to the
-     shell's amber/orange content (user: 갈색빛이 있다), and the offset
-     cancels it while still measuring as neutral grey.
-     Band = rails/titlebar/window bezel vs sheet = workspace. The central
-     TASK/Studio/editor canvas is pure black while chrome stays one grey step
-     above it; the composer/menu surface remains lighter so cards float. */
-  --mx-bg-deep: #000000;
-  --mx-window-band: #111114;
-  --mx-workspace-sheet: #000000;
-  --mx-bg-base: #1c1c1f;
-  --mx-bg-layer-1: #222225;
-  --mx-bg-layer-2: #2a2a2d;
-  --mx-bg-layer-3: #323236;
+     ONE dark ramp — the ORIGINAL Mixdog grey ramp, restored as THE default
+     (user: 그레이 색을 다크 기본으로 롤백, 별도 Gray 테마는 삭제); the
+     black Codex-style ramp is retired. Every step carries a +3 blue offset —
+     a perfectly equal-channel grey reads warm next to the shell's
+     amber/orange content (user: 갈색빛이 있다), and the offset cancels it
+     while still measuring as neutral grey.
+     Band = rails/titlebar/window bezel vs sheet = workspace; the
+     composer/menu surface sits lighter so cards float. */
+  --mx-bg-deep: #101013;
+  --mx-window-band: #151518;
+  --mx-workspace-sheet: #1c1c1f;
+  --mx-bg-base: #222225;
+  --mx-bg-layer-1: #2a2a2d;
+  --mx-bg-layer-2: #323236;
+  --mx-bg-layer-3: #3d3d41;
   --mx-bg-contrast: #5c5c61;
   /* Surface-base: translucent plate used by chat bubbles. */
   --mx-surface-plate: rgba(255, 255, 255, .035);
@@ -300,19 +299,6 @@
      in the tracked visual viewport so the soft keyboard never clips
      dialogs, menus, or sheets. */
   --vvh: 100vh;
-}
-
-:root[data-mixdog-theme="gray"] {
-  /* Original Mixdog desktop ramp, retained as an explicit Desktop-only
-     alternative to the black Codex-style Dark theme. */
-  --mx-bg-deep: #101013;
-  --mx-window-band: #151518;
-  --mx-workspace-sheet: #1c1c1f;
-  --mx-bg-base: #222225;
-  --mx-bg-layer-1: #2a2a2d;
-  --mx-bg-layer-2: #323236;
-  --mx-bg-layer-3: #3d3d41;
-  --mx-bg-contrast: #5c5c61;
 }
 
 :root[data-mixdog-theme="light"] {
@@ -1502,15 +1488,18 @@ html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .work
   order: 6;
 }
 /* Chrome has NO hairlines above/below its toolbar (user: 상하 테두리 없네);
-   the band COLOR is the phone's status-bar ink — one surface with the system
-   bar above, visibly separate from the chat sheet below (user: 위쪽 휴대폰
-   색깔이랑 맞게, 아래 채팅영역이랑 분리). #111114 = theme-color/manifest. */
+   the toolbar band runs uninterrupted into the sheet on mobile. The pills
+   and square controls retain their own raised gray fills. */
 html[data-mixdog-mobile-tabs] .desktop-body { border-top: 0; padding-inline: 0; }
 html[data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell,
 html[data-mixdog-mobile-tabs] .pane-strip-row > .workspace-tabs-shell {
   border-top: 0;
   border-bottom: 0;
   background: var(--mx-window-band);
+}
+html[data-mixdog-theme="basic"][data-mixdog-mobile-tabs] .pane-cell > .workspace-tabs-shell,
+html[data-mixdog-theme="basic"][data-mixdog-mobile-tabs] .pane-strip-row > .workspace-tabs-shell {
+  background: var(--mx-workspace-sheet);
 }
 
 /* ── Mobile session drawer (user: 사이드탭은 전체 안 가리게 비율로, 상하는
@@ -4646,10 +4635,23 @@ html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="Error"] 
    during a snapshot source swap must not shift the thread (진입/전환 튐). */
 .live-activity-slot { display: contents; }
 .live-activity-slot[data-busy="true"] {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 24px;
 }
+/* Agent/Shell chips ride the RIGHT END of the thinking line while a turn
+   runs (user: 띵킹 라인 오른쪽 끝). Idle chips render nothing here. */
+.live-activity-corner {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.live-activity-corner .session-agents-indicator[data-active="false"] { display: none; }
 .live-activity-status {
   width: max-content;
   max-width: 100%;
@@ -5193,6 +5195,33 @@ html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="Error"] 
 }
 .composer textarea::placeholder { color: var(--mx-text-faint); }
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
+/* Context gauge attached right of the model selector (user placement). */
+.composer-context-status {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 2px;
+}
+/* Idle Agent/Shell chips: floating cluster anchored above the bottom stack —
+   above the diff line when one is present, otherwise above the composer,
+   overlapping transcript text by design (user: 텍스트와 겹침 허용). While a
+   turn runs the thinking line carries the same chips instead. */
+.composer-live-overlay {
+  position: absolute;
+  right: calc(var(--pane-inset) + 4px);
+  bottom: calc(100% + 4px);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.composer-live-overlay[data-busy="true"] { display: none; }
+.composer-live-overlay .session-agents-indicator[data-active="false"] { display: none; }
+/* Chips float over prose: they carry their own plate for readability. */
+.composer-live-overlay .session-agents-indicator > button {
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-raised);
+}
 /* Push-to-talk dictation states on the mic tool. */
 .composer-mic { margin-left: 6px; margin-right: 8px; }
 .composer-mic.is-recording {
@@ -10030,10 +10059,11 @@ html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="Error"] 
     white-space: nowrap;
   }
   /* Model / effort / fast stay LEFT-PACKED as one cluster. The Fast control
-     is already a fixed glyph, so only the text-bearing controls may shrink. */
+     is already a fixed glyph, so only the text-bearing controls may shrink.
+     No lane-filling growth: the context gauge hugs the model label here too. */
   .route-controls {
     max-width: none;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     justify-content: flex-start;
   }
   .effort-control .mx-select-root { min-width: 0; }
@@ -10229,46 +10259,7 @@ html[data-mixdog-mobile-tabs] .model-trigger {
 }
 .terminal-tab-pane { background: var(--mx-terminal-bg); }
 .terminal-tab-pane > .dock-terminal-surface { height: 100%; }
-/* Desktop TASK chrome (user decision): no title strip at all — only the
-   context/remote cluster floats as a quiet top-right overlay above the
-   transcript, at EVERY window width (user: 창 작아질 때도 이름/프로젝트명
-   없이 컨텍스트·커넥션만 창 클 때랑 똑같이). The header element stays in
-   the tree because non-task pane renderers share the same structure. */
 .workspace { position: relative; }
-  .workspace > .session-header {
-    position: absolute;
-    top: 6px;
-    right: var(--pane-chrome-inset);
-    z-index: 8;
-    display: block;
-    width: auto;
-    height: auto;
-    min-height: 0;
-    flex-basis: auto;
-    padding: 0;
-    border: 0;
-    background: transparent;
-  }
-  .workspace > .session-header .session-header-content {
-    width: auto;
-    height: auto;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    align-items: center;
-  }
-  .workspace > .session-header .session-header-menu,
-  .workspace > .session-header h1,
-  .workspace > .session-header .session-project-badge { display: none; }
-  .workspace > .session-header .session-header-status {
-    margin: 0;
-    padding: 2px;
-    border-radius: var(--mx-radius-pill);
-    /* Frame removed: the cluster floats chromeless over the transcript. */
-    background: transparent;
-    border: 0;
-    backdrop-filter: none;
-  }
 .workspace-tabs-shell .workspace-tabs {
   width: auto;
   min-width: 0;
@@ -10845,7 +10836,11 @@ html[data-mixdog-mobile-tabs] .model-trigger {
 .route-controls {
   min-width: 0;
   max-width: calc(100% - 56px);
-  flex: 1 1 auto;
+  /* Shrink-to-fit, not lane-filling: the context gauge sits IMMEDIATELY
+     right of the model label (user: 모델 문자 바로 오른쪽), so the selector
+     must not reserve the footer's leftover width. Long labels still shrink
+     and ellipsize under the same max-width cap. */
+  flex: 0 1 auto;
   overflow: hidden;
 }
 .model-trigger {
@@ -11504,6 +11499,13 @@ html[data-mixdog-mobile-tabs] .model-trigger {
   background: transparent;
   cursor: pointer;
 }
+.session-agents-indicator[data-active="false"] > button,
+.session-context-indicator[data-active="false"] > button {
+  color: var(--mx-text-faint);
+  opacity: .45;
+}
+.session-agents-indicator > button:disabled,
+.session-context-indicator > button:disabled { cursor: default; }
 .session-agents-indicator > button:hover,
 .session-agents-indicator > button:focus-visible {
   color: var(--mx-text);

@@ -18,7 +18,7 @@ import { warmCatalogsInBackground } from '../runtime/agent/orchestrator/provider
 import { envFlag } from './env.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
 import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
-import { createRemoteTranscript } from './remote-transcript.mjs';
+import { createSessionTranscript } from './session-transcript.mjs';
 import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 
 export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
@@ -372,9 +372,6 @@ export function createSessionLifecycle({
         tools: Array.isArray(rt.session.tools) ? rt.session.tools.length : 0,
         catalog: Array.isArray(rt.session.deferredToolCatalog) ? rt.session.deferredToolCatalog.length : 0,
       });
-      // A rebind push may have been deferred (e.g. 'acquired' landed before this
-      // session existed). The writer is now bindable — flush it exactly once.
-      remoteTranscript.flushPendingTranscriptRebind();
       return rt.session;
     })();
 
@@ -447,8 +444,6 @@ export function createSessionLifecycle({
     getActiveTurnCount: () => rt.activeTurnCount,
     getSessionCreatePromise: () => rt.sessionCreatePromise,
     getSession: () => rt.session,
-    isRemoteEnabled: () => rt.remoteEnabled,
-    channelsEnabled,
     hasActiveAutomation,
     getCodeGraphModule,
     createCurrentSession,
@@ -465,19 +460,11 @@ export function createSessionLifecycle({
     state: prewarmState,
   });
 
-  // Remote transcript binding + worker rebind pushes live in
-  // remote-transcript.mjs; the facade injects the mutable session/cwd/remote
-  // state it needs.
-  const remoteTranscript = createRemoteTranscript({
+  // Session transcript writer lives in session-transcript.mjs; the facade
+  // injects the mutable session/cwd state it needs.
+  const remoteTranscript = createSessionTranscript({
     getSession: () => rt.session,
     getCwd: () => rt.currentCwd,
-    isRemoteEnabled: () => rt.remoteEnabled,
-    getRemoteSessionId: () => rt.remoteSessionId,
-    setRemoteSessionId: (next) => { rt.remoteSessionId = next; },
-    isCloseRequested: () => rt.closeRequested,
-    channelsEnabled,
-    channels,
-    bootProfile,
   });
 
   return {

@@ -20,10 +20,8 @@ try {
       && mixdogThemePref !== 'gray'
       && window.matchMedia
       && window.matchMedia('(prefers-color-scheme: light)').matches);
-  if (mixdogThemePref === 'gray') {
-    document.documentElement.dataset.mixdogTheme = 'gray';
-    document.documentElement.style.colorScheme = 'dark';
-  } else if (mixdogLight) {
+  // A legacy stored 'gray' preference boots dark (Gray collapsed into Dark).
+  if (mixdogLight) {
     document.documentElement.dataset.mixdogTheme = 'light';
     document.documentElement.style.colorScheme = 'light';
   }

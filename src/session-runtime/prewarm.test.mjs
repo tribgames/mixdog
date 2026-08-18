@@ -16,7 +16,6 @@ test('first-visible code graph prewarm overlaps an active turn', async () => {
     getActiveTurnCount: () => 1,
     getSessionCreatePromise: () => null,
     getSession: () => null,
-    isRemoteEnabled: () => false,
     channelsEnabled: () => false,
     hasActiveAutomation: () => false,
     getCodeGraphModule: async () => ({

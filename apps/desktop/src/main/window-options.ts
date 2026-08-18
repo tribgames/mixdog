@@ -5,9 +5,7 @@ import type { BrowserWindow, BrowserWindowConstructorOptions, NativeTheme } from
 import { DESKTOP_WINDOW_DEFAULT_WIDTH, DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
 /* Dark window band — must track --mx-window-band in desktop.css :root. */
-export const DESKTOP_BACKGROUND_COLOR = '#111114';
-/* Original Gray theme band — must track [data-mixdog-theme="gray"]. */
-export const DESKTOP_GRAY_BACKGROUND_COLOR = '#151518';
+export const DESKTOP_BACKGROUND_COLOR = '#151518';
 /* Light window band (neutral set) — must track --mx-window-band on light. */
 export const DESKTOP_LIGHT_BACKGROUND_COLOR = '#f0f0f0';
 export const DESKTOP_TITLEBAR_HEIGHT = 35;
@@ -74,21 +72,18 @@ export function setDesktopTitleBarTheme(
 ): void {
   const resolved = themeId(value);
   const light = resolved === 'light';
-  const gray = resolved === 'gray';
   titleBarThemes.set(window as object, light);
   pinNativeThemeSource(systemPreference ? 'system' : light ? 'light' : 'dark');
   window.setBackgroundColor(light
     ? DESKTOP_LIGHT_BACKGROUND_COLOR
-    : gray
-      ? DESKTOP_GRAY_BACKGROUND_COLOR
-      : DESKTOP_BACKGROUND_COLOR);
+    : DESKTOP_BACKGROUND_COLOR);
   // Remember the applied band for the NEXT launch: the window constructor
   // reads it so a light-theme start never flashes the dark default band
   // (user-reported titlebar/tab pop right after launch).
   if (titleBarThemePersistPath) {
     writeFile(
       titleBarThemePersistPath,
-      systemPreference ? 'system' : light ? 'light' : gray ? 'gray' : 'dark',
+      systemPreference ? 'system' : light ? 'light' : 'dark',
       () => { /* best effort */ },
     );
   }
@@ -130,9 +125,6 @@ export function initialTitleBarWindowOverrides(): Partial<BrowserWindowConstruct
   pinNativeThemeSource(persisted === 'system' || persisted === 'light' ? persisted : 'dark');
   const light = persisted === 'light' ||
     (persisted === 'system' && !nativeThemePrefersDark());
-  if (persisted === 'gray') {
-    return { backgroundColor: DESKTOP_GRAY_BACKGROUND_COLOR };
-  }
   if (!light) return {};
   return {
     backgroundColor: DESKTOP_LIGHT_BACKGROUND_COLOR,

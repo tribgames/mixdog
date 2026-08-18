@@ -175,8 +175,6 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 | `agent.<provider>.apiKey` | Provider API key |
 | `agent.openai.usageSessionKey` | OpenAI usage |
 | `agent.opencode-go.authCookie` | OpenCode Go usage |
-| `discord.token` | Discord bot |
-| `telegram.token` | Telegram bot |
 
 값은 출력하지 않고 `hasStoredSecret()`으로 존재만 확인한다. MCP `env`는 keychain이 아니라 자식 프로세스 환경이다.
 
@@ -335,21 +333,9 @@ Plugins 화면에는 일반적인 “plugin 활성/비활성” toggle이 없다
 
 ---
 
-## 5. Channels·Voice·Automation·Remote
+## 5. Voice·Automation
 
-### Discord / Telegram
-
-1. **확인**: `/channels`, `/setting → Channel / Setting`, Desktop **Settings → Channels**, `getChannelSetup()`.
-2. **변경**:
-   - provider: Discord/Telegram 선택 → `setChannelProvider()`
-   - token: Bot token → OS keychain
-   - main target: Discord channel ID / Telegram chat ID → `setChannel({ provider, channelId })`
-3. **저장**: provider·target은 `channels.provider`, `channels.channel.discordChannelId` / `telegramChatId`. token은 `discord.token` / `telegram.token`.
-4. **검증**: active provider, authenticated, main target의 Ready 상태.
-
-`Channels enabled`는 messaging만 제어하며 디스크 경로는 `agent.modules.channels.enabled`다. schedules/webhooks는 이 toggle과 독립적으로 계속 실행된다.
-
-`channels.backend`와 `channels.channel.channelId`는 쓰지 않는다. canonicalize가 제거하고 `provider` / per-provider id만 남긴다.
+Discord/Telegram messaging은 제거됐다. schedules/webhooks 자동화와 voice transcription만 남는다.
 
 ### Voice transcription
 
@@ -383,16 +369,7 @@ Plugins 화면에는 일반적인 “plugin 활성/비활성” toggle이 없다
 
 기존 파일형 schedules는 최초 DB init 때 import 후 `schedules.migrated`로 보존한다. 기존 webhook 디렉터리는 성공적으로 모두 import된 경우 삭제한다.
 
-활성 schedule/webhook이 있으면 automation worker가 messaging·remote와 독립적으로 자동 시작한다.
-
-### Remote session
-
-1. **강제 claim**: TUI `/remote`는 항상 현재 세션을 ON으로 만들고 기존 owner를 넘겨받는다.
-2. **TUI toggle**: `/channels → Remote Runtime` 또는 `/setting → Remote Runtime`.
-3. **Desktop**: Settings에 Remote 행이 없다. session header의 remote toggle만 사용한다. draft의 New-task remote는 일회성이며 설정 기본값이 아니다.
-4. **시작 시 ON**: CLI `mixdog --remote`.
-5. **중요**: config `remote.autoStart`는 사용하지 않는다. 자동화 worker의 자동 시작과 remote session claim은 별개다.
-6. **검증**: `isRemoteEnabled()`, owner session ID, channel worker status.
+활성 schedule/webhook이 있으면 automation worker가 자동 시작한다.
 
 ---
 

@@ -31,24 +31,17 @@ export function createOwnedRuntime({
   getChannelBridgeActive,
   instanceId,
   TERMINAL_LEAD_PID,
-  forwarder,
   sendNotifyToParent,
   scheduler,
   statusState,
   logOwnership,
   currentOwnerState,
-  bindPersistedTranscriptIfAny,
-  cancelPendingTranscriptRearm,
-  schedulePendingTranscriptRearm,
-  stopServerTyping,
   wireWebhookHandlers,
   wireEventQueueHandlers,
-  memoryDrainBuffer,
 }) {
   let bridgeRuntimeStarting = false;
   let _ownedRuntimeStopRequested = false;
   let bridgeOwnershipRefreshInFlight = null;
-  let _memoryDrainTimer = null;
   // Automation (scheduler + webhook server + relay tunnel) can outlive a
   // failed/absent messaging provider: it is tracked separately so teardown and
   // reload know it is running even while bridgeRuntimeConnected stays false.
@@ -174,27 +167,16 @@ let _ownedRuntimeSelfHealing = false;
 // reconnect window can reset a healthy reconnect loop. Keep this for explicit
 // activation/reload recovery only.
 async function selfHealOwnedRuntime(options = {}) {
-  const shouldRestoreBinding = options.restoreBinding === true;
   const shouldResetProvider = options.resetProvider === true;
-  if (!shouldRestoreBinding && !shouldResetProvider) return;
+  if (!shouldResetProvider) return;
   if (_ownedRuntimeSelfHealing) return;
   _ownedRuntimeSelfHealing = true;
   try {
-    if (shouldRestoreBinding) {
-      await bindPersistedTranscriptIfAny().catch((e) => {
-        process.stderr.write(`mixdog: self-heal bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
-      });
-    }
-    if (shouldResetProvider && typeof getProvider()?._resetClient === "function") {
+    if (typeof getProvider()?._resetClient === "function") {
       await getProvider()._resetClient().catch((e) => {
         process.stderr.write(`mixdog: self-heal getProvider() reset failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
       });
     }
-    // Do NOT nudge forwardNewText() here. bindPersistedTranscriptIfAny() above
-    // already forwards the same-session catch-up from the persisted cursor; an
-    // extra drain risks surfacing the old tail of a freshly (re)bound transcript
-    // on connect/change/rebind. Only outputs created after the new binding
-    // should be forwarded, and the normal watch/poll path handles those.
   } finally {
     _ownedRuntimeSelfHealing = false;
   }
@@ -237,13 +219,6 @@ async function startOwnedRuntime(options = {}) {
     process.stderr.write(`mixdog: pre-connect metadata advert aborted (${e instanceof Error ? e.message : String(e)})\n`);
     return;
   }
-  // Periodic buffer drain: replays memory-buffer/entry-*/ingest-*.json once the
-  // daemon-hosted memory runtime is ready. Idempotent + reentrancy-guarded inside
-  // drainBuffer(); unref'd so it never holds the worker open.
-  if (!_memoryDrainTimer) {
-    _memoryDrainTimer = setInterval(() => { void memoryDrainBuffer().catch(() => {}); }, 5e3);
-    _memoryDrainTimer.unref?.();
-  }
   // Re-check after each post-connect await so a stopOwnedRuntime() landing
   // mid-start cannot be overridden by the resuming start (scheduler/snapshot/
   // webhook/binding launches below would revive owner state after stop).
@@ -260,12 +235,6 @@ async function startOwnedRuntime(options = {}) {
     _ownedRuntimeStopRequested = false;
     return true;
   };
-  const restoreBinding = options.restoreBinding !== false;
-  const bindPersistedTranscriptTask = restoreBinding
-    ? bindPersistedTranscriptIfAny().catch((e) => {
-      process.stderr.write(`mixdog: bindPersistedTranscriptIfAny failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
-    })
-    : null;
   // Await getProvider().connect() so callers (and bindingReady) only resolve after
   // the Discord binding is real. Previously this was fire-and-forget and
   // refreshBridgeOwnership returned immediately, letting bindingReady fire
@@ -273,9 +242,6 @@ async function startOwnedRuntime(options = {}) {
   try {
     await startingProvider.connect();
     if (await bailIfStopRequested()) {
-      cancelPendingTranscriptRearm();
-      try { forwarder.stopWatch(); } catch {}
-      if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
       return;
     }
     // Advertise provider readiness (metadata advert).
@@ -301,9 +267,6 @@ async function startOwnedRuntime(options = {}) {
       process.stderr.write(`mixdog: initProviders failed (non-fatal): ${e instanceof Error ? e.message : String(e)}\n`);
     }
     if (await bailIfStopRequested()) {
-      cancelPendingTranscriptRearm();
-      try { forwarder.stopWatch(); } catch {}
-      if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
       return;
     }
     // Reconnect after a degraded (automation-only) start must not double-arm
@@ -314,26 +277,10 @@ async function startOwnedRuntime(options = {}) {
     }
     syncOwnedWebhookAndEventRuntime();
     automationRunning = true;
-    if (restoreBinding) {
-      if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
-      const pendingTranscriptPath = forwarder.transcriptPath;
-      if (pendingTranscriptPath && !fs.existsSync(pendingTranscriptPath)) {
-        // Pre-connect bind may have armed rearm while !getBridgeRuntimeConnected();
-        // the first tick then exits without rescheduling. Re-arm now that we own.
-        schedulePendingTranscriptRearm(statusState.read().channelId, pendingTranscriptPath);
-      } else {
-        void forwarder.forwardNewText().catch((err) => {
-          process.stderr.write(`mixdog: post-connect forwardNewText failed (non-fatal): ${err instanceof Error ? err.message : String(err)}\n`);
-        });
-      }
-    }
     process.stderr.write(`mixdog: running with ${getProvider().name} getProvider()\n`);
     logOwnership(`active owner lead=${TERMINAL_LEAD_PID} pid=${process.pid}`);
   } catch (e) {
     process.stderr.write(`mixdog: getProvider() connect failed (non-fatal, cycle1/MCP still up): ${e instanceof Error ? e.message : String(e)}\n`);
-    cancelPendingTranscriptRearm();
-    try { forwarder.stopWatch(); } catch {}
-    if (bindPersistedTranscriptTask) await bindPersistedTranscriptTask;
     // Roll back partial owner-side state advertised before connect() ran:
     // disconnect the provider WE started (a post-connect startup step may have
     // thrown while the gateway is live), then release the channel locks + clear
@@ -341,7 +288,6 @@ async function startOwnedRuntime(options = {}) {
     try { await startingProvider.disconnect(); } catch {}
     try { releaseOwnedChannelLocks(instanceId); } catch {}
     try { clearActiveInstance(instanceId); } catch {}
-    if (_memoryDrainTimer) { clearInterval(_memoryDrainTimer); _memoryDrainTimer = null; }
     // DEGRADED MODE (automation decoupling): a messaging connect failure —
     // packaged runtime without discord.js, bad token, gateway outage — must
     // not take schedules/webhooks down with it. Start the automation runtime
@@ -364,11 +310,6 @@ async function startOwnedRuntime(options = {}) {
   }
 }
 async function stopOwnedRuntime(reason) {
-  // Cancel any pending transcript re-arm poll BEFORE the connected/starting
-  // early-return below. Otherwise a poll armed against a not-yet-existing
-  // transcript could fire after teardown and reinstall the fs.watch handle
-  // (startWatch is not owner-gated), leaking a live watcher past shutdown.
-  cancelPendingTranscriptRearm();
   // startOwnedRuntime() advertises owner HTTP/heartbeat/active-instance and
   // claims channel locks BEFORE awaiting getProvider().connect(). If shutdown lands
   // during that window (bridgeRuntimeStarting=true, getBridgeRuntimeConnected()
@@ -384,13 +325,6 @@ async function stopOwnedRuntime(reason) {
     try { await automationStartPromise; } catch {}
   }
   const wasConnected = getBridgeRuntimeConnected();
-  stopServerTyping();
-  // Release the transcript fs.watch handle plus the forwarder's debounce/retry
-  // timers on standby. Without this the watcher keeps firing scheduleWatchFlush
-  // and the drain/retry timers stay live after ownership is dropped, leaking a
-  // file handle + timers for the rest of the process lifetime.
-  try { forwarder.stopWatch(); } catch {}
-  if (_memoryDrainTimer) { clearInterval(_memoryDrainTimer); _memoryDrainTimer = null; }
   scheduler.stop();
   stopSnapshotWriter();
   await stopWebhookAndEventRuntime();
@@ -499,19 +433,9 @@ async function reloadRuntimeConfig() {
     // the restart and the NEW provider would never connect (lost-restart race).
     if (_inFlightStart) { try { await _inFlightStart; } catch {} }
     setProvider(nextProvider);
-    // The persisted routing channelId belongs to the OLD getProvider() (e.g. a
-    // Discord snowflake) and is meaningless for the new one — sending to it
-    // would 400 "chat not found". There is no id mapping between platforms, so
-    // CLEAR the stale binding: drop the forwarder's context + watcher and wipe
-    // status.channelId/transcriptPath. The next inbound from the new getProvider()
-    // rebinds the correct chat via applyTranscriptBinding(). Only done on
-    // providerChanged — same-getProvider() reloads keep their binding untouched.
-    // (active-instance is cleared by stopOwnedRuntime on the restart path; we
-    // don't re-advertise here to avoid resurrecting a just-cleared entry.)
+    // Provider-type change wipes the persisted routing ids; messaging is
+    // retired, so only the status snapshot needs clearing.
     if (providerTypeChanged) {
-      try { forwarder.stopWatch(); } catch {}
-      forwarder.channelId = "";
-      forwarder.transcriptPath = "";
       try {
         statusState.update((state) => {
           state.channelId = "";

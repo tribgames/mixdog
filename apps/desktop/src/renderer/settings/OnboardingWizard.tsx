@@ -95,12 +95,6 @@ const STEPS = [
     subtitle: () => t('Auto-compact long chats, auto-clear idle sessions, and keep curated memories across projects.'),
   },
   {
-    id: 'channels',
-    label: () => t('Channels'),
-    title: () => t('Chat from anywhere'),
-    subtitle: () => t('Hook up Discord or Telegram to reach Mixdog away from your desk.'),
-  },
-  {
     id: 'theme',
     label: () => t('Theme'),
     title: () => t('Make it feel like home'),
@@ -198,7 +192,6 @@ export function OnboardingWizard({ api, onDone }: {
   const [workflows, setWorkflows] = useState<RecordValue[]>([]);
   const [autoClearOn, setAutoClearOn] = useState(true);
   const [compactAuto, setCompactAuto] = useState(true);
-  const [channelSetup, setChannelSetup] = useState<RecordValue>({});
   const [themeMode, setThemeMode] = useState<DesktopThemePreference>(
     () => getDesktopThemePreference() || 'system');
   const [style, setStyle] = useState('');
@@ -276,7 +269,6 @@ export function OnboardingWizard({ api, onDone }: {
         { capability: 'getSearchRoute' },
         { capability: 'getProfile' },
         { capability: 'listWorkflows' },
-        { capability: 'getChannelSetup' },
         { capability: 'getAutoClear' },
         { capability: 'getCompactionSettings' },
       ];
@@ -301,9 +293,8 @@ export function OnboardingWizard({ api, onDone }: {
       setStyle(String(record(output.current).id || output.configured || 'default'));
       setProfile(record(values[5]));
       setWorkflows(rows(values[6]));
-      setChannelSetup(record(values[7]));
-      setAutoClearOn(record(values[8]).enabled !== false);
-      setCompactAuto(record(values[9]).auto !== false);
+      setAutoClearOn(record(values[7]).enabled !== false);
+      setCompactAuto(record(values[8]).auto !== false);
       const snapshot = record(snapshotResult);
       if (snapshot.provider && snapshot.model) {
         setMainRoute({
@@ -532,8 +523,6 @@ export function OnboardingWizard({ api, onDone }: {
           {meta.id === 'git' && <GitStep api={api} />}
           {meta.id === 'memory' && <ContextStep autoClearOn={autoClearOn} compactAuto={compactAuto}
             pending={pending} run={run} onAutoClear={setAutoClearOn} onCompact={setCompactAuto} />}
-          {meta.id === 'channels' && <ChannelsStep setup={channelSetup} pending={pending} run={run}
-            onReload={() => void load(true)} />}
           {meta.id === 'theme' && <ThemeStep mode={themeMode} onSelect={(next) => {
             setThemeMode(next);
             // Desktop-local preference (Settings → General grammar): persists
@@ -900,15 +889,13 @@ const THEME_MODES: ReadonlyArray<{
 }> = [
   { id: 'system', label: () => t('System'), hint: () => t('Match OS') },
   { id: 'dark', label: () => t('Dark'), hint: () => t('Neutral charcoal') },
-  { id: 'gray', label: () => t('Gray'), hint: () => t('Original Mixdog ramp') },
   { id: 'white', label: () => t('White'), hint: () => t('Bright & crisp') },
 ];
 
 /** The desktop surface ramps, mirrored from desktop.css for the mini preview
  *  (the TUI registry palette knows nothing about the desktop ramps). */
 const SURFACE_PREVIEW: Record<string, { deep: string; base: string; text: string; border: string }> = {
-  dark: { deep: '#000000', base: '#1c1c1f', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
-  gray: { deep: '#101013', base: '#222225', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
+  dark: { deep: '#101013', base: '#222225', text: '#e9e9e9', border: 'rgba(255,255,255,.16)' },
   white: { deep: '#f5f5f5', base: '#ffffff', text: '#17181a', border: 'rgba(0,0,0,.14)' },
 };
 
@@ -1213,101 +1200,6 @@ function ContextStep({ autoClearOn, compactAuto, pending, run, onAutoClear, onCo
       </div>)}
     </div>
   </div>;
-}
-
-function ChannelsStep({ setup, pending, run, onReload }: {
-  setup: RecordValue;
-  pending: string;
-  run: RunCapability;
-  onReload(): void;
-}) {
-  const channel = record(setup.channel);
-  const activeProvider = String(setup.provider || 'discord');
-  const discordReady = record(setup.discord).authenticated === true;
-  const telegramReady = record(setup.telegram).authenticated === true;
-  // Connected tokens hide their input (an empty password box reads broken);
-  // Replace reopens the field.
-  const [editingToken, setEditingToken] = useState<Record<string, boolean>>({});
-  const providers = [
-    { id: 'discord' as const, name: 'Discord', save: 'saveDiscordToken' as const,
-      status: record(setup.discord), tokenPlaceholder: t('Discord bot token'),
-      targetLabel: t('Main channel'), targetHint: t('Where Mixdog posts and listens'),
-      targetPlaceholder: t('Discord channel ID'),
-      targetValue: String(channel.discordChannelId || '') },
-    { id: 'telegram' as const, name: 'Telegram', save: 'saveTelegramToken' as const,
-      status: record(setup.telegram), tokenPlaceholder: t('Telegram bot token'),
-      targetLabel: t('Main chat'), targetHint: t('Where Mixdog posts and listens'),
-      targetPlaceholder: t('Telegram chat ID'),
-      targetValue: String(channel.telegramChatId || '') },
-  ];
-  return <>
-    {(discordReady || telegramReady) && <div className="onboarding-model-section">
-      <h3>{t('Active channel')}</h3>
-      <div className="onboarding-provider-list">
-        <div className="onboarding-provider-row onboarding-provider-row--plain">
-          <div><b>{t('Use for messaging')}</b><small>{t('Mixdog talks through this provider')}</small></div>
-          <div className="onboarding-provider-toggle" role="group" aria-label={t('Active channel provider')}>
-            {([['discord', 'Discord', discordReady], ['telegram', 'Telegram', telegramReady]] as const)
-              .map(([id, name, ready]) => <button key={id} type="button"
-                className={activeProvider === id ? 'active' : ''}
-                disabled={Boolean(pending) || !ready}
-                onClick={() => {
-                  if (activeProvider === id) return;
-                  void run('setChannelProvider', [id], 'onboarding-provider')
-                    .then((result) => { if (result !== undefined) onReload(); });
-                }}>{name}</button>)}
-          </div>
-        </div>
-      </div>
-    </div>}
-    {providers.map((provider) => <div className="onboarding-model-section" key={provider.id}>
-      <h3>{provider.name}</h3>
-      <div className="onboarding-provider-list">
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const secret = new FormData(form).get('secret');
-          void run(provider.save, [secret], `onboarding-${provider.id}-token`).then((result) => {
-            if (result !== undefined) {
-              form.reset();
-              setEditingToken((state) => ({ ...state, [provider.id]: false }));
-              onReload();
-            }
-          });
-        }}>
-          <div><b>{t('Bot token')}</b>
-            <small>{provider.status.authenticated
-              ? t('Connected')
-              : t(String(provider.status.detail || provider.status.status || 'Create a bot and paste its token'))}</small></div>
-          {provider.status.authenticated && !editingToken[provider.id]
-            ? <>
-              <input className="masked" value="••••••••••••••••" readOnly disabled
-                aria-label={t('{{name}} bot token (saved)', { name: provider.name })} />
-              <button type="button" className="ghost" disabled={Boolean(pending)}
-                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: true }))}>{t('Replace')}</button>
-            </>
-            : <>
-              <input name="secret" type="password" autoComplete="off" placeholder={provider.tokenPlaceholder} required />
-              <button disabled={Boolean(pending)}>{provider.status.authenticated ? t('Save') : t('Connect')}</button>
-              {provider.status.authenticated && <button type="button" className="ghost" disabled={Boolean(pending)}
-                onClick={() => setEditingToken((state) => ({ ...state, [provider.id]: false }))}>{t('Cancel')}</button>}
-            </>}
-        </form>
-        <form onSubmit={(event) => {
-          event.preventDefault();
-          const channelId = new FormData(event.currentTarget).get('channelId');
-          void run('setChannel', [{ provider: provider.id, channelId }], `onboarding-${provider.id}-target`)
-            .then((result) => { if (result !== undefined) onReload(); });
-        }}>
-          <div><b>{provider.targetLabel}</b><small>{provider.targetHint}</small></div>
-          <input name="channelId" defaultValue={provider.targetValue}
-            placeholder={provider.targetPlaceholder} required />
-          <button disabled={Boolean(pending)}>{t('Save')}</button>
-        </form>
-      </div>
-    </div>)}
-    <p className="onboarding-note">{t('The channel worker and advanced options live in Settings → Channels.')}</p>
-  </>;
 }
 
 const PAIR_RETRY_MS = 2_000;

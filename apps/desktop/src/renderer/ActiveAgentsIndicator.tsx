@@ -22,24 +22,23 @@ function activityBadgeCount(count: number): string {
   return count > 9 ? '9+' : String(count);
 }
 
-// Session-owned agent chip left of the context gauge: it routes to the Agents
-// side tab — an already-open tab simply stays open — and disappears with the
-// last attached agent.
+// Session-owned agent slot left of the context gauge. The slot stays mounted
+// while idle so Agent / Shell / Context / Connect never shift horizontally.
 export function ActiveAgentsIndicator({ snapshot, onOpen }: {
   snapshot: Snapshot;
-  onOpen(): void;
+  onOpen?: () => void;
 }) {
   const agents = liveAgentRows(snapshot);
   const toolCount = Math.max(0, Number(snapshot.activeTools?.agent?.count) || 0);
   const count = Math.max(agents.length, toolCount);
   const clock = useActivityClock(count > 0);
-  if (count === 0) return null;
-  return <div className="session-agents-indicator">
-    <button type="button" onClick={onOpen} aria-label={t('{{agentCount}} agents', { agentCount: count })}>
+  return <div className="session-agents-indicator" data-active={count > 0 ? "true" : "false"}>
+    <button type="button" onClick={onOpen} disabled={!onOpen}
+      aria-label={t('{{agentCount}} agents', { agentCount: count })}>
       <Bot className="session-agents-icon" size={16} aria-hidden="true" />
-      <span className="session-agents-count">{activityBadgeCount(count)}</span>
+      {count > 0 && <span className="session-agents-count">{activityBadgeCount(count)}</span>}
     </button>
-    <div className="live-work-popover" role="tooltip">
+    {count > 0 && <div className="live-work-popover" role="tooltip">
       {agents.map((agent) => {
         const base = agent.turnStartedAt || agent.startedAt;
         const elapsed = agent.queued
@@ -55,7 +54,7 @@ export function ActiveAgentsIndicator({ snapshot, onOpen }: {
         {snapshot.activeTools?.agent?.startedAt
           && <small>{formatWorkElapsed(clock - Number(snapshot.activeTools.agent.startedAt)) || '0s'}</small>}
       </div>}
-    </div>
+    </div>}
   </div>;
 }
 
@@ -83,17 +82,17 @@ export function ActiveShellsIndicator({ snapshot }: { snapshot: Snapshot }) {
     window.document.addEventListener('mousedown', dismiss);
     return () => window.document.removeEventListener('mousedown', dismiss);
   }, [pinned]);
-  if (count === 0) return null;
   return <div ref={host}
     className="session-agents-indicator session-shells-indicator"
+    data-active={count > 0 ? 'true' : 'false'}
     data-open={pinned ? 'true' : 'false'}>
-    <button type="button" aria-expanded={pinned}
+    <button type="button" aria-expanded={pinned} disabled={count === 0}
       onClick={() => setPinned((value) => !value)}
       aria-label={t('Shell') + ' ' + count}>
       <Terminal className="session-agents-icon" size={16} aria-hidden="true" />
-      <span className="session-agents-count">{activityBadgeCount(count)}</span>
+      {count > 0 && <span className="session-agents-count">{activityBadgeCount(count)}</span>}
     </button>
-    <div className="live-work-popover" role="tooltip">
+    {count > 0 && <div className="live-work-popover" role="tooltip">
       {shells.length > 0
         ? <>
           {shells.map((shell) => {
@@ -114,6 +113,6 @@ export function ActiveShellsIndicator({ snapshot }: { snapshot: Snapshot }) {
           {snapshot.shellJobs?.elapsedLabel
             && <small>{snapshot.shellJobs.elapsedLabel}</small>}
         </div>}
-    </div>
+    </div>}
   </div>;
 }

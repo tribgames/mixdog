@@ -38,8 +38,6 @@ const SENSITIVE_REMOTE_CAPABILITIES = new Set([
   'authenticateProvider',
   'saveOpenAIUsageSessionKey',
   'saveOpenCodeGoUsageAuth',
-  'saveDiscordToken',
-  'saveTelegramToken',
   'loginOAuthProvider',
   'beginOAuthProviderLogin',
   'getOAuthProviderLoginStatus',
