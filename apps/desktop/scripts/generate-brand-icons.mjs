@@ -7,9 +7,9 @@ const supersample = 4;
 // 23-B OS mark: near-black tile, three titanium arcs, and a silver star core.
 const tile = [7, 8, 11];
 const titanium = [
-  [[255, 255, 255], [148, 163, 184], [255, 255, 255]],
-  [[203, 213, 225], [71, 85, 105], [203, 213, 225]],
-  [[148, 163, 184], [51, 65, 85], [148, 163, 184]],
+  [[255, 255, 255], [203, 213, 225], [255, 255, 255]],
+  [[241, 245, 249], [148, 163, 184], [241, 245, 249]],
+  [[226, 232, 240], [100, 116, 139], [226, 232, 240]],
 ];
 
 let crcTable;
@@ -61,6 +61,15 @@ function insideRoundedSquare(x, y, size) {
   return dx * dx + dy * dy <= radius * radius;
 }
 
+function insideRoundedSquareInset(x, y, size, inset) {
+  const radius = Math.max(0, size * (60 / 256) - inset);
+  const half = size / 2 - inset;
+  const straight = Math.max(0, half - radius);
+  const dx = Math.max(Math.abs(x - size / 2) - straight, 0);
+  const dy = Math.max(Math.abs(y - size / 2) - straight, 0);
+  return dx * dx + dy * dy <= radius * radius;
+}
+
 function rotatePoint(x, y, angle) {
   const cosine = Math.cos(angle);
   const sine = Math.sin(angle);
@@ -79,7 +88,7 @@ function arcSample(x, y, size, rotation) {
   const start = -100 * Math.PI / 180;
   const end = -20 * Math.PI / 180;
   const radius = 68;
-  const halfWidth = 11;
+  const halfWidth = 14;
   const startX = 128 + radius * Math.cos(start);
   const startY = 128 + radius * Math.sin(start);
   const endX = 128 + radius * Math.cos(end);
@@ -122,14 +131,16 @@ function renderIcon(size) {
         const scale = size / 256;
         const pointX = iconX / scale;
         const pointY = iconY / scale;
-        let color = tile;
+        let color = insideRoundedSquareInset(iconX, iconY, size, 2.5 * scale)
+          ? tile
+          : [148, 163, 184];
         for (let arc = 0; arc < 3; arc += 1) {
           const sample = arcSample(iconX, iconY, size, arc * 120 * Math.PI / 180);
           if (sample !== null) color = gradientColor(titanium[arc], sample);
         }
         const star = [[128, 112], [133, 123], [144, 128], [133, 133],
           [128, 144], [123, 133], [112, 128], [123, 123]];
-        if (insidePolygon(pointX, pointY, star)) color = [203, 213, 225];
+        if (insidePolygon(pointX, pointY, star)) color = [241, 245, 249];
         if (Math.hypot(pointX - 128, pointY - 128) <= 3.5) color = tile;
         if (Math.hypot(pointX - 128, pointY - 128) <= 1.5) color = [255, 255, 255];
         highPixels.set([...color, 255], offset);

@@ -5,6 +5,7 @@
 // outranks the table. User-tuned bindings:
 // mod+N new task · ctrl+Tab MRU switcher · ctrl+PageUp/PageDown cycle ·
 // mod+Left/Right tab traversal, crossing pane boundaries in visual order ·
+// mod+Up/Down focus the pane directly above/below ·
 // mod+P Quick Open · shift+mod+P Command Palette ·
 // mod+, settings · mod+B left sidebar · alt+mod+B right utility dock ·
 // mod+J panel · ctrl+` and mod+T toggle the terminal panel ·
@@ -30,6 +31,8 @@ export interface WorkspaceShortcutActions {
   openTabSwitcher: (offset: number) => void;
   /** Move focus to the previous/next pane in visual row-major order. */
   focusSiblingPane: (offset: number) => void;
+  /** Move focus to the nearest pane directly above/below. */
+  focusVerticalPane: (direction: "up" | "down") => void;
   navigateBack: () => void;
   navigateForward: () => void;
 }
@@ -65,6 +68,10 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       if (plain && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
         const offset = event.key === "ArrowLeft" ? -1 : 1;
         return () => cycleTab(offset, true);
+      }
+      if (plain && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        const direction = event.key === "ArrowUp" ? "up" : "down";
+        return () => actionsRef.current.focusVerticalPane(direction);
       }
       if (plain && (event.key === "PageUp" || event.key === "PageDown")) {
         const offset = event.key === "PageDown" ? 1 : -1;

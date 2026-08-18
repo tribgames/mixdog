@@ -90,7 +90,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       hasActiveTasks: (scope) => {
         activeScopes.push(scope);
         activeChecks += 1;
-        return activeChecks === 1;
+        return false;
       },
       installSignalCleanupFn: () => ({ uninstall() {} }),
     });
@@ -100,6 +100,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     assert.deepEqual(errors, []);
     assert.equal(runtimeOptions[0].approvalMode, 'implicit');
     assert.equal(runtimeOptions[0].disallowDelegation, true);
+    assert.equal(runtimeOptions[0].autoWakeCompletions, false);
     assert.equal(runtimeOptions[0].toolMode, 'full');
     assert.deepEqual(activeScopes[0], {
       callerSessionId: 'sess_exec_test',
@@ -119,6 +120,58 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('headless exec drains tracked work and returns the completion follow-up answer', async () => {
+  const output = [];
+  const errors = [];
+  const prompts = [];
+  let active = true;
+  let notificationListener = null;
+  const code = await runHeadlessExec({
+    message: 'start the long task',
+    provider: 'openai-oauth',
+    model: 'gpt-test',
+    usageLogPath: '',
+    idlePollMs: 1,
+    write: (text) => output.push(text),
+    writeErr: (text) => errors.push(text),
+    boundaryFactory: () => ({
+      loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
+      cleanup() {},
+    }),
+    runtimeFactory: async () => ({
+      id: 'sess_headless_drain',
+      model: 'gpt-test',
+      clientHostPid: 123,
+      onNotification(listener) {
+        notificationListener = listener;
+        return () => { notificationListener = null; };
+      },
+      async ask(prompt) {
+        prompts.push(prompt);
+        if (prompts.length === 1) {
+          setTimeout(() => {
+            active = false;
+            notificationListener?.({
+              content: 'background task completed',
+              meta: { status: 'completed', execution_id: 'job_drain' },
+            });
+          }, 10);
+          return { result: { content: 'task started' } };
+        }
+        return { result: { content: 'final result' } };
+      },
+      async close() {},
+    }),
+    hasActiveTasks: () => active,
+    installSignalCleanupFn: () => ({ uninstall() {} }),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(prompts, ['start the long task', '']);
+  assert.deepEqual(output, ['final result\n']);
 });
 
 test('headless exec emits a timestamped JSONL lifecycle and exact tool count', async () => {
@@ -199,7 +252,7 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
           options.onToolPhaseCompleted({ iteration: 1, calls: 1, elapsedMs: 2 });
           notificationListener?.({
             content: 'background task completed',
-            meta: { status: 'completed' },
+            meta: { status: 'progress' },
           });
           options.onProviderSendStarted();
           options.onAssistantText('done');

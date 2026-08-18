@@ -605,6 +605,7 @@
 .pane-placeholder-title { font-size: var(--mx-font-body); opacity: var(--mx-op-soft); }
 .pane-placeholder-hint { font-size: var(--mx-font-meta); opacity: var(--mx-op-dim); }
 .pane-placeholder:hover .pane-placeholder-hint { opacity: var(--mx-op-soft); }
+.pane-placeholder[data-restoring="true"] { cursor: default; }
 
 /* Non-focused panes sit on the same floating workspace sheet as the
    interactive surface — bare band-colored cells read as dead black panes. */

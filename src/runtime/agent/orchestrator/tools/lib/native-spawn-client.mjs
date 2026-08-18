@@ -79,7 +79,7 @@ class LineStream extends EventEmitter {
 }
 
 export class NativeSpawnChild extends EventEmitter {
-  constructor(id, cancel) {
+  constructor(id, cancel, send = null) {
     super();
     this.pid = undefined;
     this.killed = false;
@@ -91,7 +91,25 @@ export class NativeSpawnChild extends EventEmitter {
     this.__nativeSpawn = true;
     this._id = id;
     this._cancel = cancel;
+    this._send = send;
     this._closed = false;
+  }
+
+  // stdinPipe children only (warm shell standby): forward script text to the
+  // child's stdin via the spawn server. No-ops (false) when the child was
+  // spawned without stdinPipe or the server link is gone.
+  writeStdin(text, { close = false } = {}) {
+    if (this._closed || this.killed || typeof this._send !== 'function') return false;
+    return this._send({
+      stdinWrite: this._id,
+      data: String(text ?? ''),
+      ...(close ? { close: true } : {}),
+    });
+  }
+
+  endStdin() {
+    if (typeof this._send !== 'function') return false;
+    return this._send({ stdinClose: this._id });
   }
 
   kill() {
@@ -140,6 +158,28 @@ function _setServerReferenced(server, referenced) {
   try { server?.child?.stdout?.[method]?.(); } catch {}
 }
 
+// Referenced only while a NON-idle request is pending. Idle requests (parked
+// warm shell standbys) live for minutes-to-hours; counting them would pin the
+// host event loop — a one-shot CLI or test runner could never exit.
+function _recomputeServerRef(server) {
+  let active = false;
+  for (const entry of server.pending.values()) {
+    if (!entry.idle) { active = true; break; }
+  }
+  _setServerReferenced(server, active);
+}
+
+/** Mark a pending spawn request idle (parked) or active. Idle requests do not
+ *  keep the host process alive. Returns false when the request is gone. */
+export function setNativeSpawnRequestIdle(child, idle = true) {
+  const server = _server;
+  const entry = server?.pending?.get?.(Number(child?._id));
+  if (!entry) return false;
+  entry.idle = idle === true;
+  _recomputeServerRef(server);
+  return true;
+}
+
 function _teardown(error) {
   const server = _server;
   _server = null;
@@ -164,6 +204,30 @@ function _teardown(error) {
   try { server.child.kill(); } catch {}
 }
 
+export async function shutdownNativeSpawnServer(reason = 'process-exit', timeoutMs = 1_000) {
+  const server = _server;
+  if (!server) return true;
+  const child = server.child;
+  const exited = new Promise((resolve) => {
+    child.once('exit', () => resolve(true));
+    child.once('error', () => resolve(true));
+  });
+  try { child.stdin?.end?.(); } catch {}
+  _teardown(new Error(`native spawn server shutdown (${reason})`));
+  let timer;
+  const stopped = await Promise.race([
+    exited,
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), Math.max(10, Number(timeoutMs) || 1_000));
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
+  if (!stopped) {
+    try { child.kill('SIGKILL'); } catch {}
+  }
+  return stopped;
+}
+
 function _ensureServer() {
   if (_server) return _server;
   if (Date.now() - _lastFailureAt < RESTART_BACKOFF_MS) return null;
@@ -184,7 +248,10 @@ function _ensureServer() {
   lines.on('line', (line) => {
     let message;
     try { message = JSON.parse(line); } catch { return; }
-    if (message?.ready === true) return;
+    if (message?.ready === true) {
+      server.caps = (message.caps && typeof message.caps === 'object') ? message.caps : {};
+      return;
+    }
     if (String(message?.event || '').startsWith('task_')) acceptTask(message);
     const pending = server.pending.get(Number(message?.id));
     if (!pending) return;
@@ -227,6 +294,11 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
   const id = ++server.sequence;
   const fake = new NativeSpawnChild(id, (cancelId) => {
     try { server.child.stdin.write(`${JSON.stringify({ cancel: cancelId })}\n`); } catch {}
+  }, (payload) => {
+    try {
+      server.child.stdin.write(`${JSON.stringify({ id: ++server.sequence, ...payload })}\n`);
+      return true;
+    } catch { return false; }
   });
   const request = {
     id,
@@ -239,6 +311,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
     timeoutMs: Math.max(0, Number(spawnOptions.timeoutMs) || 0),
     outputLimit: Math.max(0, Number(spawnOptions.outputLimit) || 0),
     mergeStderr: spawnOptions.mergeStderr === true,
+    ...(spawnOptions.stdinPipe === true ? { stdinPipe: true } : {}),
     command: spawnOptions.command || undefined,
     shellType: spawnOptions.shellType || undefined,
     ownerSessionId: spawnOptions.ownerSessionId || undefined,
@@ -255,7 +328,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
         fake.emit('error', err);
         fake.emit('close', 1, null);
       }
-      if (server.pending.size === 0) _setServerReferenced(server, false);
+      _recomputeServerRef(server);
     },
     onMessage(message) {
       const event = String(message?.event || '');
@@ -279,7 +352,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
         fake.signalCode = message.signal || null;
         fake._closed = true;
         fake.emit('close', fake.exitCode, fake.signalCode);
-        if (server.pending.size === 0) _setServerReferenced(server, false);
+        _recomputeServerRef(server);
       } else if (event === 'error') {
         const detail = String(message.message || 'native spawn failed');
         const err = new Error(message.code ? `${message.code}: ${detail}` : detail);
@@ -425,7 +498,7 @@ export function adoptNativeTaskByPid({
     const finish = (task, error = null) => {
       if (timer) clearTimeout(timer);
       server.pending.delete(id);
-      if (server.pending.size === 0) _setServerReferenced(server, false);
+      _recomputeServerRef(server);
       if (error) reject(error);
       else resolve(task);
     };
@@ -466,6 +539,15 @@ export function adoptNativeTaskByPid({
     }, 5_000);
     timer.unref?.();
   });
+}
+
+// Capability handshake: true only after the connected spawn server announced
+// stdinPipe support in its ready line. An older binary silently ignores the
+// unknown stdinPipe field and gives the child a null stdin — a standby taken
+// in that state would run an EMPTY script and report exit 0 without ever
+// executing the command. Gate the warm-standby feature on this.
+export function nativeSpawnSupportsStdinPipe() {
+  return _server?.caps?.stdinPipe === true;
 }
 
 export function _resetNativeSpawnClientForTest() {

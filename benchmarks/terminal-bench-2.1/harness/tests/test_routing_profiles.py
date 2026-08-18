@@ -1597,7 +1597,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         asyncio.run(
             agent._run_worker(
                 object(),
-                "fixture instruction",
+                "- fixture instruction",
                 "fixture-model",
                 base_env,
                 worker_route=worker_route,
@@ -1619,6 +1619,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             "mixdog exec --json --provider openai-oauth --model gpt-worker --effort high --fast",
             command,
         )
+        self.assertLess(command.index("-- "), command.index("- fixture instruction"))
         self.assertIn("/logs/agent/mixdog.stderr", command)
         self.assertEqual(child_env, base_env)
 
@@ -1948,7 +1949,7 @@ INSTALLER
                 clear=False,
             ):
                 asyncio.run(
-                    agent._run_lead(Environment(), "fixture", None, {"BASE": "value"})
+                    agent._run_lead(Environment(), "- fixture", None, {"BASE": "value"})
                 )
 
         command, run_env = captured[0]
@@ -1961,7 +1962,7 @@ INSTALLER
         self.assertIn("mixdog exec --json --provider anthropic-oauth", command)
         self.assertIn("--model claude-sonnet-4-5", command)
         self.assertIn("/logs/agent/mixdog.stderr", command)
-        self.assertIn("fixture", command)
+        self.assertLess(command.index("-- "), command.index("- fixture"))
         self.assertNotIn("MIXDOG_PROMPT", run_env)
         self.assertNotIn("MIXDOG_WORKFLOW", run_env)
 

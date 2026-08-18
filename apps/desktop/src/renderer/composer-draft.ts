@@ -2,6 +2,14 @@ import type { ComposerAttachment } from "./composer-support";
 
 let submissionSequence = 0;
 
+export function shouldPreserveComposerDraftOnScopeChange(
+  previousScope: string,
+  nextScope: string,
+): boolean {
+  return previousScope.startsWith("new-task:")
+    && nextScope.startsWith("new-task:");
+}
+
 export function nextComposerSubmissionId(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   return `desktop-submit-${uuid || `${Date.now()}-${++submissionSequence}`}`;

@@ -583,6 +583,7 @@ export async function runHeadlessExec({
   let runtime = null;
   let signalCleanup = null;
   let unsubscribeNotification = null;
+  let completionPending = false;
   let cleanupPromise = null;
   let result = null;
   let resultText = '';
@@ -644,18 +645,25 @@ export async function runHeadlessExec({
       toolMode: 'full',
       approvalMode: 'implicit',
       disallowDelegation: true,
+      autoWakeCompletions: false,
       initialConfig: boundary.loadConfig(),
     });
     if (lifecycle && !clean(runtime?.id) && typeof runtime?.reserveSessionId === 'function') {
       runtime.reserveSessionId(lifecycle.threadId);
     }
     lifecycle?.start(runtime);
-    if (lifecycle && typeof runtime?.onNotification === 'function') {
+    if (typeof runtime?.onNotification === 'function') {
       unsubscribeNotification = runtime.onNotification(
-        (event) => lifecycle.onNotification(event),
+        (event) => {
+          lifecycle?.onNotification(event);
+          const status = clean(event?.meta?.status).toLowerCase();
+          if (['completed', 'failed', 'cancelled', 'canceled', 'timed_out'].includes(status)) {
+            completionPending = true;
+          }
+        },
       );
     }
-    ({ result } = await runtime.ask(prompt, {
+    const askOptions = {
       onTextReset: () => true,
       onUsageDelta: (delta) => {
         applyUsageDelta(stats, delta);
@@ -672,13 +680,22 @@ export async function runHeadlessExec({
         onToolPhaseCompleted: (detail) => lifecycle.onToolBatchCompleted(detail),
         onStageChange: (stage, detail) => lifecycle.onStageChange(stage, detail),
       } : {}),
-    }));
-    await waitForTrackedTasks({
-      sessionId: runtime.id,
+    };
+    ({ result } = await runtime.ask(prompt, askOptions));
+    const taskScope = {
+      ...(clean(runtime.id) ? { callerSessionId: clean(runtime.id) } : {}),
       clientHostPid: runtime.clientHostPid,
-      hasActiveTasks,
-      pollMs: idlePollMs,
-    });
+    };
+    while (completionPending || hasActiveTasks(taskScope)) {
+      await waitForTrackedTasks({
+        sessionId: runtime.id,
+        clientHostPid: runtime.clientHostPid,
+        hasActiveTasks,
+        pollMs: idlePollMs,
+      });
+      completionPending = false;
+      ({ result } = await runtime.ask('', askOptions));
+    }
     resultText = String(result?.content ?? result?.text ?? '');
     if (!json && resultText) {
       write(resultText.endsWith('\n') ? resultText : `${resultText}\n`);

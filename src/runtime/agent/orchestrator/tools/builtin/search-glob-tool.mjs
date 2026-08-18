@@ -342,7 +342,20 @@ export async function executeGlobTool(args, workDir, options = {}) {
     const canWindowNatural = sortMode === 'natural' && headLimit !== Infinity;
     const groupRuns = await Promise.all(globGroups.map(async ([root, rels]) => {
         const rgArgs = ['--files', '--hidden'];
-        for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
+        // Explicit literal basenames (no glob magic in the final segment)
+        // name a concrete file: honor rg's later-glob-wins contract and let
+        // the lookup descend dependency-noise dirs, which the native walker
+        // would otherwise prune before the pattern could ever match. Wildcard
+        // basenames keep the noise prunes; device-name globs (no trailing
+        // /**) always apply.
+        const explicitBasenames = rels.length > 0 && rels.every((rel) => {
+            const base = String(rel).split('/').filter(Boolean).pop() || '';
+            return base !== '' && !hasGlobMagic(base);
+        });
+        for (const ex of DEFAULT_IGNORE_GLOBS) {
+            if (explicitBasenames && /^!\*\*\/[^/]+\/\*\*$/.test(ex)) continue;
+            rgArgs.push('--glob', ex);
+        }
         for (const ex of extraIgnoreGlobs) rgArgs.push('--glob', ex);
         for (const rel of rels) rgArgs.push('--glob', rel);
         const rgCwd = resolvedForSearchRoot(root);

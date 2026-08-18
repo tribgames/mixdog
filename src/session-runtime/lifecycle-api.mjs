@@ -47,7 +47,8 @@ export function createLifecycleApi(deps) {
     hooks, hookCommonPayload, mgr, statusRoutes, channels, agentTool, mcpClient,
     warmupTimers, prewarmTimers,
     flushAllConfigSavesAsync,
-    withTeardownDeadline, closePatchRuntimeIfLoaded, stopSelfUpdateBootCheck,
+    withTeardownDeadline, closePatchRuntimeIfLoaded, closeNativeToolTransports,
+    stopSelfUpdateBootCheck,
     createCurrentSession, refreshRouteEffort,
     invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
@@ -328,11 +329,16 @@ export function createLifecycleApi(deps) {
           }))
           .catch(() => {})
         : null;
+      const nativeToolStop = isProcessExit
+        ? Promise.resolve(shellJobsStop)
+          .then(() => closeNativeToolTransports?.(reason))
+          .catch(() => {})
+        : null;
       if (detach) {
         try { await withTeardownDeadline(channelStop, 300, false); } catch {}
         try { await withTeardownDeadline(shellJobsStop, 300, false); } catch {}
         try { await withTeardownDeadline(memoryStop, 1500, false); } catch {}
-        for (const stop of [mcpStop, openaiWsStop, patchStop]) {
+        for (const stop of [mcpStop, openaiWsStop, patchStop, nativeToolStop]) {
           Promise.resolve(stop).catch(() => {});
         }
         onProcessExit();
@@ -345,6 +351,7 @@ export function createLifecycleApi(deps) {
         withTeardownDeadline(patchStop, 1500, false),
         withTeardownDeadline(memoryStop, 5500, false),
         withTeardownDeadline(shellJobsStop, 1500, false),
+        withTeardownDeadline(nativeToolStop, 1500, false),
       ]);
       onProcessExit();
       return ok;

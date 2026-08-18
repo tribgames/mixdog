@@ -17,7 +17,6 @@ import type {
   DesktopModelSelection,
 } from '../shared/contract';
 import { agentIcon } from './agent-icons';
-import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
@@ -53,7 +52,8 @@ function record(value: unknown): RecordValue {
 }
 
 type AgentRouteSummary = {
-  label: string;
+  modelLabel: string;
+  effortLabel: string;
   fast: boolean;
 };
 
@@ -73,15 +73,17 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   const fastCapable = selected?.fastCapable === true || typeof route.fast === 'boolean';
   const fast = typeof route.fast === 'boolean' ? route.fast : selected?.fastPreferred === true;
   return {
-    label: [modelLabel, effortLabel].filter(Boolean).join(' · '),
+    modelLabel,
+    effortLabel,
     fast: fastCapable && fast,
   };
 }
 
 function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
-  return <small className="agent-route-summary">
-    <span>{summary.label}</span>
-    {summary.fast && <FastModeIndicator />}
+  return <small className="agent-route-summary route-trigger-copy">
+    <span className="route-trigger-model">{summary.modelLabel}</span>
+    {summary.effortLabel && <span className="route-trigger-effort">{summary.effortLabel}</span>}
+    {summary.fast && <span className="route-trigger-fast">{t('Fast')}</span>}
   </small>;
 }
 

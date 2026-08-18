@@ -191,6 +191,7 @@ async function subscribeResultCacheInFlight(entry, signal) {
 
 export async function runResultCacheInFlight(key, compute, options = {}) {
     const subscriberSignal = options?.signal || options?.abortSignal || null;
+    let invalidationRetries = 0;
     for (;;) {
         const cached = cacheGet(key);
         if (cached !== null) return cached;
@@ -233,6 +234,13 @@ export async function runResultCacheInFlight(key, compute, options = {}) {
             // freshness retry, not a user-visible abort: start a new generation
             // unless this subscriber itself was cancelled.
             if (!entry.invalidated || subscriberSignal?.aborted) throw error;
+            // Continuous invalidation (watcher churn, eviction broadcasts)
+            // must not spin forever: after a few generations run the compute
+            // directly — uncached and no longer abortable by invalidation —
+            // mirroring the server-side MAX_WALK_RESTARTS cap.
+            if (++invalidationRetries >= 3) {
+                return await compute({ signal: subscriberSignal });
+            }
         }
     }
 }

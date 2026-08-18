@@ -839,7 +839,7 @@ class MixdogAgent(BaseInstalledAgent):
             # Bench-only decision cadence: cap explicit sync shell timeouts at
             # 2 min (blocking window), so promote-on-timeout delivers the
             # partial-output decision point early. Uniform time policy — no
-            # task-specific heuristics; product default stays 10 min.
+            # task-specific heuristics; matches the product's 2 min foreground cap.
             "BASH_MAX_TIMEOUT_MS": "120000",
             # Network-stall recovery layering (2026-08-03 v3 postmortem: the
             # old STALL_TIMEOUT_S=300 collapsed the provider semantic idle to
@@ -1013,7 +1013,7 @@ class MixdogAgent(BaseInstalledAgent):
             "mkdir -p /logs/agent; "
             f"mixdog exec --json --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
             f"{route_args} "
-            f"{escaped_instruction} "
+            f"-- {escaped_instruction} "
             "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"
         )
         await self.exec_as_agent(
@@ -1041,7 +1041,7 @@ class MixdogAgent(BaseInstalledAgent):
             "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
             f"mixdog exec --json --provider {shlex.quote(provider)} "
             f"--model {shlex.quote(selected_model)}{route_args} "
-            f"{escaped_instruction} "
+            f"-- {escaped_instruction} "
             "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"
         )
         try:

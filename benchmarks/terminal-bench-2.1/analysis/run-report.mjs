@@ -184,12 +184,21 @@ function collectTrials(runDir, costDetails = {}) {
     const trace = traceDiagnostics(trialDir);
     const directCost = optionalNumber(result?.agent_result?.cost_usd);
     let resultEvent = null;
+    let finalContextTokens = null;
     try {
       for (const line of readFileSync(join(trialDir, 'agent', 'mixdog.txt'), 'utf8').split(/\r?\n/)) {
-        if (!line.includes('"type":"result"')) continue;
+        if (!line.includes('"type":"result"') && !line.includes('"type":"model.request.completed"')) continue;
         try {
           const row = JSON.parse(line);
           if (row?.type === 'result') resultEvent = row;
+          if (row?.type === 'model.request.completed') {
+            const input = optionalNumber(row?.usage?.input_tokens);
+            if (input != null) {
+              finalContextTokens = input
+                + finite(row?.usage?.cached_input_tokens)
+                + finite(row?.usage?.cache_write_input_tokens);
+            }
+          }
         } catch { /* retain the last valid result row */ }
       }
     } catch { /* non-mixdog baselines have other logs */ }
@@ -253,7 +262,7 @@ function collectTrials(runDir, costDetails = {}) {
           ?? finite(trace?.tokens?.output),
       },
       costUsd: optionalNumber(costDetails[task]) ?? directCost ?? usage.costUsd,
-      finalContextTokens: optionalNumber(transcript?.lastContextTokens),
+      finalContextTokens: optionalNumber(transcript?.lastContextTokens) ?? finalContextTokens,
       trace: result?.exception_info || trace?.failures?.length ? trace : null,
     });
   }

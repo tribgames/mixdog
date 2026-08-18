@@ -174,6 +174,22 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       // The current window can still resize when persistent storage is unavailable.
     }
   }, []);
+  useEffect(() => {
+    const flushPendingWidth = () => {
+      const pendingWidth = resizeStart.current?.pendingWidth;
+      if (pendingWidth === undefined) return;
+      try {
+        window.localStorage.setItem(
+          SIDEBAR_WIDTH_KEY,
+          String(clampSidebarWidth(pendingWidth)),
+        );
+      } catch {
+        // Preserve the live resize even if persistent storage is unavailable.
+      }
+    };
+    window.addEventListener("pagehide", flushPendingWidth);
+    return () => window.removeEventListener("pagehide", flushPendingWidth);
+  }, []);
   const finishSidebarResize = useCallback(() => {
     const pendingWidth = resizeStart.current?.pendingWidth;
     resizeStart.current = null;
@@ -943,6 +959,14 @@ const SessionRow = React.memo(function SessionRow({
       onPointerUp={(event) => finishPointerDrag(event.pointerId || 1)}
       onPointerCancel={(event) => finishPointerDrag(event.pointerId || 1, true)}
       onClick={activateFromClick}
+      onDoubleClick={(event) => {
+        if (editing || confirmingDelete || deleting
+          || (event.target as Element | null)?.closest?.(
+            ".session-row-actions, .session-title-input")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onStartRename(session);
+      }}
     >
       <input ref={titleInput} className="session-title-input"
         value={titleDraft} maxLength={160} disabled={!editing}
@@ -968,12 +992,7 @@ const SessionRow = React.memo(function SessionRow({
         }} />
       <button type="button" className="session-row-main"
         inert={editing ? true : undefined} aria-hidden={editing ? true : undefined}>
-        <span className="session-row-copy"
-          onDoubleClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onStartRename(session);
-          }}>
+        <span className="session-row-copy">
           <b>{sessionLabel(session)}</b>
         </span>
         <span className="session-row-status" data-working={working || undefined}>

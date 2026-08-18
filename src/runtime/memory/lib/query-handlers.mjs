@@ -40,6 +40,7 @@ import {
   hasTimelineIntent,
   hasVagueLatestWorkIntent,
   latestRecallSearchTerms,
+  latestRecallTopicTerms,
   mergeHistoricalRecallRows,
   preserveLatestConceptRows,
   prioritizeHistoricalRootEvidence,

@@ -309,6 +309,7 @@ async function shutdown(reason, code = 0) {
 
 /** One process, two front doors (channels + sessions): an idle side must never
  *  evict a busy one, so every self-shutdown trigger checks BOTH registries. */
+let _lastDeferredLog = { key: '', at: 0, suppressed: 0 };
 function maybeSelfShutdown(reason) {
   const channelClients = transport?.clientCount ?? 0;
   const sessionClients = sessionTransport?.clientCount ?? 0;
@@ -319,7 +320,19 @@ function maybeSelfShutdown(reason) {
       clearTimeout(shutdownRecheckTimer);
       shutdownRecheckTimer = null;
     }
-    log(`shutdown deferred (${reason}): channels=${channelClients} sessionClients=${sessionClients} remote=${remoteClients}`);
+    // Identical defers repeat for hours while one front door stays occupied;
+    // log the first occurrence, then one summary line per minute.
+    const deferKey = `${reason}|${channelClients}|${sessionClients}|${remoteClients}`;
+    const now = Date.now();
+    if (deferKey === _lastDeferredLog.key && now - _lastDeferredLog.at < 60_000) {
+      _lastDeferredLog.suppressed += 1;
+    } else {
+      const suffix = _lastDeferredLog.suppressed > 0
+        ? ` (+${_lastDeferredLog.suppressed} identical defers suppressed)`
+        : '';
+      log(`shutdown deferred (${reason}): channels=${channelClients} sessionClients=${sessionClients} remote=${remoteClients}${suffix}`);
+      _lastDeferredLog = { key: deferKey, at: now, suppressed: 0 };
+    }
     return;
   }
   const activeCalls = (transport?.activeCount ?? 0) + (sessionTransport?.activeCount ?? 0);

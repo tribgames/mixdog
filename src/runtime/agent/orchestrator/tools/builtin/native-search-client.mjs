@@ -194,6 +194,31 @@ function _teardown(error, { countFailure = true, detail = '' } = {}) {
   try { server.child.kill(); } catch {}
 }
 
+export async function shutdownNativeSearchServer(reason = 'process-exit', timeoutMs = 1_000) {
+  const server = _server;
+  if (!server) return true;
+  const child = server.child;
+  const exited = new Promise((resolve) => {
+    child.once('exit', () => resolve(true));
+    child.once('error', () => resolve(true));
+  });
+  try { child.stdin?.end?.(); } catch {}
+  _teardown(new Error(`native search server shutdown (${reason})`), { countFailure: false });
+  _warmPromise = null;
+  let timer;
+  const stopped = await Promise.race([
+    exited,
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), Math.max(10, Number(timeoutMs) || 1_000));
+    }),
+  ]);
+  if (timer) clearTimeout(timer);
+  if (!stopped) {
+    try { child.kill('SIGKILL'); } catch {}
+  }
+  return stopped;
+}
+
 export function _bindNativeSearchServerLifecycle(child, { onError, onExit } = {}) {
   if (!child?.on) return;
   child.on('error', onError);
@@ -541,6 +566,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
       : 0,
     deadlineMs: softDeadlineMs(remaining),
     keepWarm: opts.keepWarm === true,
+    ...(opts.bulkHint === true ? { bulkHint: true } : {}),
   });
   let response = await requestNativeWithRestart(buildRequest, execOptions, deadlineMs);
   // Deadline-swallow defense (binaries before the serve_search response-level

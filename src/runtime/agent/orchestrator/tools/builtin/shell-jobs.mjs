@@ -1,8 +1,16 @@
 import os from 'node:os';
 import {
+    modelVisibleToolCompletionMessage,
     normalizeToolNotifyContext,
     notifyToolCompletion,
 } from '../../../../shared/tool-execution-contract.mjs';
+// Runtime-only bindings (used inside completion delivery, never at module
+// eval), so the static cycle through session/manager.mjs is safe — same
+// pattern as loop/tool-exec.mjs.
+import {
+    enqueuePendingMessage,
+    markCompletionEntry,
+} from '../../session/manager.mjs';
 import {
     completeBackgroundTask,
 } from '../../../../shared/background-tasks.mjs';
@@ -22,6 +30,8 @@ import {
 } from './lib/shell-job-insights.mjs';
 import {
     completeShellJobRecord,
+    listShellJobRecords,
+    pidAlive,
     publishShellJobRecord,
 } from './lib/shell-job-records.mjs';
 import {
@@ -86,7 +96,7 @@ function shellJobTaskStatus(status) {
     return 'failed';
 }
 
-function buildShellCompletion(jobId, detail) {
+export function buildShellCompletion(jobId, detail) {
     const startedAtMs = Date.parse(detail?.startedAt || '');
     const finishedAtMs = Date.parse(detail?.finishedAt || '') || Date.now();
     const elapsedMs = Number.isFinite(startedAtMs)
@@ -247,7 +257,12 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
             instruction: completion.instruction,
             terminalReason: 'shell-native-event',
         });
-        if (!completedTask && ctx && typeof ctx.notifyFn === 'function') {
+        if (!completedTask) {
+            // Delivery order: owner notifyFn when present, else the owner
+            // session's pending queue. A ctx-less finish (daemon restarted
+            // between job start and completion, or a watcher armed without a
+            // notify context) previously dropped the completion silently.
+            const owner = String(ctx?.callerSessionId || detail.ownerSessionId || '');
             notifyToolCompletion({
                 surface: 'shell',
                 id: jobId,
@@ -255,7 +270,19 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
                 text: completion.body,
                 resultType: 'shell_task_result',
                 instruction: completion.instruction,
-                context: ctx,
+                context: ctx || { callerSessionId: owner },
+                enqueueFallback: (sessionId, message, meta) => {
+                    let visible = modelVisibleToolCompletionMessage(message, meta);
+                    // Bodyless envelopes (a finished command with no output)
+                    // fail the persistence gate's result-body requirement;
+                    // retry with an explicit "(no output)" section rather
+                    // than dropping the completion.
+                    if (!visible && !/\n\s*\n/.test(String(message || ''))) {
+                        visible = modelVisibleToolCompletionMessage(`${message}\n\n(no output)`, meta);
+                    }
+                    if (!visible) return false;
+                    return enqueuePendingMessage(sessionId, markCompletionEntry(visible)) > 0;
+                },
                 logPrefix: 'shell-jobs',
             });
         }
@@ -285,6 +312,56 @@ export async function adoptForegroundShellJob({
     demoteBackgroundShellPriority(pid);
     trackShellJobRecord(native, { ownerSessionId, clientHostPid });
     return native;
+}
+
+// Daemon-restart recovery: records left 'running' by a dead daemon can never
+// finish through the live watcher path — their completion (and output) used to
+// vanish silently. Finalize each dead-pid record and push one completion
+// notice to the owner session's pending queue. Content-addressed completion
+// ids keep multi-shard reconciliation idempotent.
+let _recoveredCompletionsReconciled = false;
+export async function reconcileRecoveredShellJobCompletions() {
+    if (_recoveredCompletionsReconciled) return 0;
+    _recoveredCompletionsReconciled = true;
+    let records = [];
+    try { records = await listShellJobRecords(); } catch { return 0; }
+    let notified = 0;
+    for (const record of records) {
+        if (!record || record.terminal) continue;
+        if (getNativeTask(record.jobId)) continue; // live in this daemon
+        if (pidAlive(Number(record.pid) || 0)) continue; // survived the restart
+        const detail = {
+            ...record,
+            status: 'failed',
+            error: 'daemon restarted while this shell task was running; its outcome was lost. Re-run the command if the result is still needed.',
+        };
+        try { await completeShellJobRecord(record.jobId, detail); } catch { /* best-effort */ }
+        const owner = String(record.ownerSessionId || '');
+        if (!owner) continue;
+        try {
+            const completion = buildShellCompletion(record.jobId, detail);
+            const delivered = notifyToolCompletion({
+                surface: 'shell',
+                id: record.jobId,
+                status: completion.taskStatus,
+                // The pending-queue persistence gate requires a blank-line
+                // separated result body; a bodyless bracketed envelope would
+                // be dropped. The restart notice IS the result here.
+                text: `${completion.body}\n\n${detail.error}`,
+                resultType: 'shell_task_result',
+                instruction: completion.instruction,
+                context: { callerSessionId: owner },
+                enqueueFallback: (sessionId, message, meta) => {
+                    const visible = modelVisibleToolCompletionMessage(message, meta);
+                    if (!visible) return false;
+                    return enqueuePendingMessage(sessionId, markCompletionEntry(visible)) > 0;
+                },
+                logPrefix: 'shell-jobs-recovery',
+            });
+            if (delivered) notified += 1;
+        } catch { /* best-effort */ }
+    }
+    return notified;
 }
 
 export async function shutdownShellJobs(_reason = 'runtime-close', { scope = null } = {}) {

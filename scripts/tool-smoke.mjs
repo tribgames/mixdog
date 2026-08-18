@@ -1321,12 +1321,13 @@ if (!editTool
   throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
 }
 const shellProps = shellTool?.inputSchema?.properties || {};
-if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms'])) {
-  throw new Error(`shell schema must expose only command and timeout_ms: ${JSON.stringify(shellProps)}`);
+if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'run_in_background'])
+  || shellProps.run_in_background?.default !== false) {
+  throw new Error(`shell schema must expose command, timeout_ms, and default-false run_in_background: ${JSON.stringify(shellProps)}`);
 }
-for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr', 'run_in_background']) {
+for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr']) {
   const err = validateBuiltinArgs('shell', { command: 'node --version', [retired]: retired === 'mode' ? 'async' : true });
-  if (!/unsupported.*command and timeout_ms/i.test(err || '')) {
+  if (!/unsupported.*command, timeout_ms, and run_in_background/i.test(err || '')) {
     throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
   }
 }
@@ -1342,6 +1343,13 @@ const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --vers
 const shellNegativeTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: -1 });
 if (shellZeroTimeoutErr || !/non-negative number/.test(String(shellNegativeTimeoutErr))) {
   throw new Error(`shell timeout_ms must absorb 0 and reject negatives: zero=${shellZeroTimeoutErr} negative=${shellNegativeTimeoutErr}`);
+}
+const shellBackgroundTypeErr = validateBuiltinArgs('shell', {
+  command: 'node --version',
+  run_in_background: 'yes',
+});
+if (!/run_in_background.*boolean/.test(String(shellBackgroundTypeErr))) {
+  throw new Error(`shell run_in_background must reject non-booleans: ${shellBackgroundTypeErr}`);
 }
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
@@ -1472,6 +1480,21 @@ if (!/tool-smoke-short-inline-done/.test(shellShortText) || shellTaskId(shellSho
 if (shellShortNotifyEvents.length !== 0) {
   throw new Error(`short inline shell command must not notify asynchronously: ${JSON.stringify(shellShortNotifyEvents)}`);
 }
+
+// Explicit background mode returns immediately with the same tracked task and
+// completion-notification contract as automatic promotion.
+const shellExplicitNotifyEvents = [];
+const shellExplicitNotifyOptions = shellNotifyOptions(shellExplicitNotifyEvents, 'explicit');
+const shellExplicitOut = await executeBuiltinTool('shell', {
+  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-explicit-background-done\'), 600)"',
+  timeout_ms: 5000,
+  run_in_background: true,
+}, root, shellExplicitNotifyOptions);
+const shellExplicitTaskId = assertBackgroundStart('shell explicit background', shellExplicitOut);
+if (!/started in background/i.test(String(shellExplicitOut))) {
+  throw new Error(`shell explicit background must identify its start mode:\n${shellExplicitOut}`);
+}
+await assertSingleShellCompletion(shellExplicitNotifyEvents, shellExplicitTaskId, 'shell explicit background');
 
 // A single read returns the current snapshot without scheduling model wakeups.
 const shellCheckEvents = [];

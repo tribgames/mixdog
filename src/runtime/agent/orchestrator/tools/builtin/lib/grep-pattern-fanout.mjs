@@ -11,6 +11,7 @@ import { runRgWindowedLines } from '../native-search-runner.mjs';
 import { statReachable } from '../fs-reachability.mjs';
 import { dedupeFanoutMatchLines, formatGrepOutput } from './grep-output.mjs';
 import { expandGrepAnchorContextOutput } from './grep-context-expander.mjs';
+import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
 
 export async function runGrepPatternFanout({
     args,
@@ -77,7 +78,9 @@ export async function runGrepPatternFanout({
             const pre = await runRgWindowedLines(
                 prefilterArgs,
                 { cwd: preSpawnCwd, signal: options.signal },
-                { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0 },
+                // Speculative whole-scope pass: bulk lane keeps it from
+                // competing with interactive searches for disk bandwidth.
+                { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0, bulkHint: true },
             );
             return pre.complete && !pre.partial ? pre.lines : null;
         } catch { return null; }
@@ -130,15 +133,34 @@ export async function runGrepPatternFanout({
         });
         const perPatternWindow = headLimit === Infinity ? 300 : (offset + headLimit + 4);
         const combinedCap = Math.min(4000, Math.max(400, perPatternWindow * patterns.length));
+        // Unfiltered multi-pattern directory scans are the broad-scope shape
+        // that saturated the interactive pool; route them to the bulk lane.
+        const combinedBulkHint = normalizedGlobPatterns.length === 0 && !fileType;
         let streamed;
         try {
             streamed = await runRgWindowedLines(
                 combinedArgs,
                 { cwd: rgCwd, signal: options.signal },
-                { offset: 0, limit: combinedCap, summaryLimit: 0 },
+                { offset: 0, limit: combinedCap, summaryLimit: 0, bulkHint: combinedBulkHint },
             );
         } catch { break combined; }
-        if (!streamed.complete || streamed.partial) break combined;
+        // Cap overflow (complete:false without partial) still falls back: the
+        // per-pattern rescan restores correct per-pattern windows. Timeout and
+        // scan-error partials keep their collected lines instead — the legacy
+        // fallback would rescan the same scope from scratch and usually time
+        // out again, discarding everything the first pass already found.
+        if (streamed.partial ? streamed.lines.length === 0 : !streamed.complete) break combined;
+        const combinedPartial = streamed.partial === true;
+        const combinedPartialSuffix = !combinedPartial
+            ? ''
+            : streamed.timeout
+                ? '\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.'
+                : streamed.rgStderr
+                    ? `\n[warning] rg exit 2 (partial results): ${String(streamed.rgStderr).trim().slice(0, 300)}`
+                    : '\n[warning] rg exit 2 (partial results)';
+        if (combinedPartial && options?.scopedCacheOutcome) {
+            markScopedCacheIncomplete(options.scopedCacheOutcome);
+        }
         const adaptive = contextN > 0 && !(beforeN > 0) && !(afterN > 0);
         const byPattern = patterns.map(() => []);
         const residual = [];
@@ -175,7 +197,7 @@ export async function runGrepPatternFanout({
                     filenameOmitted: false,
                     headLimit,
                     offset,
-                    totalKnown: true,
+                    totalKnown: !combinedPartial,
                     requestedContext: contextN,
                     maxContext: GREP_AUTO_CONTEXT_LINES,
                     patterns: [p],
@@ -190,7 +212,7 @@ export async function runGrepPatternFanout({
                 body = formatGrepOutput({
                     windowed: windowedLines,
                     totalWindowed: post.length,
-                    totalKnown: true,
+                    totalKnown: !combinedPartial,
                     headLimit,
                     offset,
                     outputMode,
@@ -211,14 +233,15 @@ export async function runGrepPatternFanout({
             sections.push(`# grep pattern:${JSON.stringify(p)}\n${dedupeFanoutMatchLines(body, seenCombined)}`);
         }
         if (noMatchPatterns.length > 0) {
-            sections.push(`(no matches) pattern=${JSON.stringify(noMatchPatterns)} path=${searchPath}${globStr}; path exists`);
+            // Under a partial scan a zero-hit pattern is NOT a proven no-match.
+            sections.push(`(no matches${combinedPartial ? ' in partial results' : ''}) pattern=${JSON.stringify(noMatchPatterns)} path=${searchPath}${globStr}; path exists`);
         }
         if (residual.length > 0) {
             // Rust/JS regex divergence or --max-columns truncation left
             // matches no pattern claimed; surface them rather than drop.
             sections.push(`# grep (unattributed matches)\n${residual.slice(0, 40).join('\n')}`);
         }
-        return patternCapNote + sections.join('\n\n');
+        return patternCapNote + sections.join('\n\n') + combinedPartialSuffix;
     }
     // Prefilter result (started above, overlapped with the combined
     // attempt): when it completed under the cap, each per-pattern grep

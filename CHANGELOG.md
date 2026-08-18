@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop now preserves pane layouts, sidebar state, panel geometry, and
+  composer drafts across reloads and FastDirect restarts, with expanded
+  renderer regression coverage.
+- Shell execution now hardens environment scrubbing, warm standby, background
+  completion recovery, native process handling, and tool routing across
+  interactive and headless sessions.
+- Native spawn Linux releases are statically linked, graph search and recall
+  reporting are hardened, and Terminal Bench routing and report tooling are
+  updated.
+
 ## v0.9.134 - 2026-08-17
 
 - Desktop now ships the selected brand mark, a unified model route editor with

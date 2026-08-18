@@ -26,6 +26,7 @@ export function useAppWorkspaceNavigation({
   navigateTab,
   focusPaneTypingSurface,
   focusSiblingPane,
+  focusVerticalPane,
   bottomPanel,
   dismissSheetsForBottomPanel,
   startTask,
@@ -44,6 +45,7 @@ export function useAppWorkspaceNavigation({
   navigateTab(tab: WorkspaceTab): void;
   focusPaneTypingSurface(leafId: string, selection: WorkspaceSelection | null | undefined): void;
   focusSiblingPane(offset: number): void;
+  focusVerticalPane(direction: "up" | "down"): void;
   bottomPanel: BottomPanel;
   dismissSheetsForBottomPanel(): void;
   startTask(): void;
@@ -165,6 +167,7 @@ export function useAppWorkspaceNavigation({
     activeTabKey: focusedActiveTabKey,
     navigateTab: navigateFocusedPaneTab,
     focusSiblingPane,
+    focusVerticalPane,
     startTask,
     openSettings,
     toggleSidebar,

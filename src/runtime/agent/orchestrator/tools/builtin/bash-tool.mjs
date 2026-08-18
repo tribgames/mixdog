@@ -469,6 +469,10 @@ export async function executeBashTool(args, workDir, options = {}) {
     const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
         String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
     );
+    const runInBackground = args.run_in_background === true;
+    if (runInBackground && _bgTasksDisabled) {
+        return formatShellToolFailure('background tasks are disabled for this process');
+    }
 
     let shellEffects;
     let combinedBashAbort = null;
@@ -603,6 +607,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             timeoutMs: timeout,
             abortSignal: combinedBashAbort.signal,
             autoBackgroundMs,
+            startInBackground: runInBackground,
             // On a foreground timeout, promote the still-running child to a
             // tracked background job only when an explicit deadline has
             // remaining budget; omitted deadlines may stay unlimited.

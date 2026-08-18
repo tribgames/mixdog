@@ -675,6 +675,48 @@ export function paneLeavesInColumnOrder(root: PaneNode): PaneLeaf[] {
   return paneLeavesInCoordinateOrder(root, "left", "top");
 }
 
+/** Find the nearest pane wholly above or below the current pane. Candidates
+ *  sharing horizontal space win over diagonal panes; ties follow visual order. */
+export function paneLeafIdInVerticalDirection(
+  root: PaneNode,
+  leafId: string,
+  direction: "up" | "down",
+): string | null {
+  const current = paneLeafRelativeRect(root, leafId);
+  if (!current) return null;
+  const epsilon = Number.EPSILON * 8;
+  const currentRight = current.left + current.width;
+  const currentCenter = current.left + current.width / 2;
+  const candidates = paneLeavesInVisualOrder(root).flatMap((leaf, order) => {
+    if (leaf.id === leafId) return [];
+    const rect = paneLeafRelativeRect(root, leaf.id);
+    if (!rect) return [];
+    const edge = direction === "up" ? rect.top + rect.height : rect.top;
+    const eligible = direction === "up"
+      ? edge <= current.top + epsilon
+      : edge >= current.top + current.height - epsilon;
+    if (!eligible) return [];
+    const overlap = Math.min(currentRight, rect.left + rect.width)
+      - Math.max(current.left, rect.left);
+    const gap = direction === "up"
+      ? current.top - edge
+      : edge - (current.top + current.height);
+    return [{
+      id: leaf.id,
+      overlaps: overlap > epsilon,
+      gap: Math.max(0, gap),
+      crossDistance: Math.abs(currentCenter - (rect.left + rect.width / 2)),
+      order,
+    }];
+  });
+  candidates.sort((left, right) =>
+    Number(right.overlaps) - Number(left.overlaps)
+    || left.gap - right.gap
+    || left.crossDistance - right.crossDistance
+    || left.order - right.order);
+  return candidates[0]?.id ?? null;
+}
+
 function replacePaneNodeAtPath(root: PaneNode, path: string, replacement: PaneNode): PaneNode {
   if (!path) return replacement;
   const [head, ...rest] = path.split(".");

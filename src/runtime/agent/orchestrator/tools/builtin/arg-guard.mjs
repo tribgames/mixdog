@@ -655,10 +655,10 @@ function guardRead(a) {
 }
 
 function guardShell(a) {
-    const allowed = new Set(['command', 'timeout_ms']);
+    const allowed = new Set(['command', 'timeout_ms', 'run_in_background']);
     const unsupported = Object.keys(a).find((key) => !allowed.has(key));
     if (unsupported) {
-        return `Error: shell arg "${unsupported}" is unsupported; use only command and timeout_ms`;
+        return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, and run_in_background`;
     }
     if (!hasOwn(a, 'command')) {
         return 'Error: shell requires "command"';
@@ -671,6 +671,9 @@ function guardShell(a) {
     }
     if (hasOwn(a, 'timeout_ms') && (typeof a.timeout_ms !== 'number' || !Number.isFinite(a.timeout_ms) || a.timeout_ms < 0)) {
         return `Error: shell arg "timeout_ms" must be a non-negative number (got ${describeType(a.timeout_ms)})`;
+    }
+    if (hasOwn(a, 'run_in_background') && typeof a.run_in_background !== 'boolean') {
+        return `Error: shell arg "run_in_background" must be a boolean (got ${describeType(a.run_in_background)})`;
     }
     return null;
 }

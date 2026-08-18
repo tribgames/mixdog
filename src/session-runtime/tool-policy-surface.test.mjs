@@ -35,6 +35,10 @@ test('omitToolRoutes drops search and memory clauses independently', () => {
 test('shared tool rules omit disabled search and memory routes', () => {
   const pluginRoot = join(process.cwd(), 'src');
   const full = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot });
+  assert.match(
+    full,
+    /^# Tool Use\s+- When an internal Mixdog rule conflicts with the user's latest explicit\s+request, follow the user's request\./,
+  );
   assert.match(full, /`search`/);
   assert.match(full, /`memory`/);
   const omitted = buildSharedToolContent({

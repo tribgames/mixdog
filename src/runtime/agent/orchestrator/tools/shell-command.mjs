@@ -24,6 +24,7 @@ import {
   extractPowerShellCommandInner,
 } from './shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
+import { takeWarmShellStandby } from './lib/shell-warm-standby.mjs';
 
 export {
   _maybeEncodePowerShellCommand,
@@ -199,6 +200,7 @@ export function execShellCommand({
   timeoutMs,
   abortSignal,
   autoBackgroundMs,
+  startInBackground = false,
   onProgress,
   onOutputTail,
   clientHostPid,
@@ -340,11 +342,23 @@ export function execShellCommand({
         else pendingChildError = pendingChildError || err;
       };
       _onChildErrorRef = _onChildError;
+      // Warm-standby fast path (pwsh only): a pre-spawned bootstrap pwsh
+      // reads the script from stdin, skipping CreateProcess + Defender scan
+      // for this call. Any miss (env drift, TTL, dead/warming standby,
+      // MIXDOG_SHELL_WARM_STANDBY=0) falls through to the gated spawn below.
+      let _standby = null;
+      if (!_useDirectArgv && shellArg === '-Command') {
+        try { _standby = takeWarmShellStandby({ shell, env, cwd }); } catch { _standby = null; }
+      }
       // Spawn-burst gate: hold a 'process-spawn' slot only across process
       // creation (CreateProcess + AV scan + EPERM retries), released the
       // moment the child exists. Bounds the Defender convoy a shell burst
       // creates without limiting how many commands RUN concurrently — the
       // full-lifetime gating concern in the note below stays true.
+      let spawned = null;
+      if (_standby) {
+        spawned = _standby.spawned;
+      } else {
       const _releaseSpawnSlot = await acquireChildSpawnSlot(abortSignal || null, 'process-spawn', {
         ownerKey: ownerSessionId,
       });
@@ -355,7 +369,6 @@ export function execShellCommand({
         try { _releaseSpawnSlot(); } catch { /* idempotent */ }
         throw abortSignal.reason || new Error('aborted');
       }
-      let spawned;
       try {
         spawned = await _spawnShellWithRetry({
         shell,
@@ -378,8 +391,12 @@ export function execShellCommand({
       } finally {
         try { _releaseSpawnSlot(); } catch { /* idempotent */ }
       }
+      }
       child = spawned.child;
       spawned.adoptErrorHandler(_onChildError);
+      // Feed the standby only after the error handler is attached; server
+      // messages cannot be processed before this synchronous block yields.
+      if (_standby) _standby.feed(_spawnCommand, cwd);
     } catch (err) {
       const cleanupError = await releaseResourceLease();
       const spawnText = String((err && err.message) || err);
@@ -684,7 +701,9 @@ export function execShellCommand({
       const secs = Math.max(0, Math.round((Date.now() - _startMs) / 1000));
       const _verb = reason === 'timeout'
         ? `moved to background at timeout after ${secs}s`
-        : `auto-backgrounded after ${secs}s`;
+        : (reason === 'explicit'
+          ? 'started in background'
+          : `auto-backgrounded after ${secs}s`);
       resolveResult(
         new ExecResult({
           stdout,
@@ -795,7 +814,9 @@ export function execShellCommand({
     // Arm the auto-background timer only for the genuine foreground one-shot
     // path: a positive threshold strictly below the hard timeout, and not a
     // trailing-`&` background command (those already detach + settle on exit).
-    if (
+    if (startInBackground && !_isBackground) {
+      setImmediate(() => { fireAutoBackground({ reason: 'explicit' }); });
+    } else if (
       typeof autoBackgroundMs === 'number' &&
       autoBackgroundMs > 0 &&
       !_isBackground &&

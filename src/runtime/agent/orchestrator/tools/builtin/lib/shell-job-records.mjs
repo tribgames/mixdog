@@ -33,7 +33,7 @@ function dataDir() {
         || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
 }
 
-function pidAlive(pid) {
+export function pidAlive(pid) {
     if (!Number.isInteger(pid) || pid <= 0) return false;
     try { process.kill(pid, 0); return true; }
     catch (error) { return error?.code === 'EPERM'; } // EPERM = alive, not ours

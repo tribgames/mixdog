@@ -392,12 +392,7 @@ export async function applyLspWorkspaceEdit(
     const target = normalizedFilePath(uri.fsPath);
     const relPath = target.slice(root.length).replace(/^\/+/, "");
     if (!relPath) throw new Error("Language server targeted the project directory.");
-    const model = monaco.editor.getModels().find((candidate) => {
-      const owner = graphContextsByModel.get(candidate.uri.toString())?.current;
-      return owner?.projectPath.replace(/[\\/]+/g, "/").toLocaleLowerCase()
-        === context.projectPath.replace(/[\\/]+/g, "/").toLocaleLowerCase()
-        && owner.relPath.replace(/\\/g, "/").toLocaleLowerCase() === relPath.toLocaleLowerCase();
-    });
+    const model = findOpenProjectModel(context, relPath);
     if (model) {
       // Stale-edit guard: the server computed these ranges against the
       // version our didOpen/didChange sync reported (= monaco versionId).
@@ -451,6 +446,94 @@ export async function applyLspWorkspaceEdit(
   return true;
 }
 
+export function findOpenProjectModel(
+  context: EditorGraphContext,
+  relPath: string,
+): import("monaco-editor").editor.ITextModel | undefined {
+  const projectComparable = context.projectPath.replace(/[\\/]+/g, "/").toLocaleLowerCase();
+  const relComparable = relPath.replace(/\\/g, "/").toLocaleLowerCase();
+  return monaco.editor.getModels().find((candidate) => {
+    const owner = graphContextsByModel.get(candidate.uri.toString())?.current;
+    return owner?.projectPath.replace(/[\\/]+/g, "/").toLocaleLowerCase() === projectComparable
+      && owner.relPath.replace(/\\/g, "/").toLocaleLowerCase() === relComparable;
+  });
+}
+
+const peekPreviewModels = new Map<string, number>();
+const PEEK_PREVIEW_MODEL_LIMIT = 20;
+const PEEK_PREVIEW_LOADS_PER_REQUEST = 20;
+
+function prunePeekPreviewModels(): void {
+  let excess = peekPreviewModels.size - PEEK_PREVIEW_MODEL_LIMIT;
+  if (excess <= 0) return;
+  for (const [key] of [...peekPreviewModels.entries()].sort((left, right) => left[1] - right[1])) {
+    if (excess <= 0) break;
+    const model = monaco.editor.getModel(monaco.Uri.parse(key));
+    // A model rendered inside an open peek widget must survive eviction.
+    if (model?.isAttachedToEditor()) continue;
+    peekPreviewModels.delete(key);
+    model?.dispose();
+    excess -= 1;
+  }
+}
+
+/** Standalone Monaco's peek widgets (Peek Definition/References/…) resolve
+ *  result URIs against already-created text models only, so a target file
+ *  without one rendered as an empty preview. Open tabs never match either:
+ *  \@monaco-editor/react keys models by Uri.parse(path) while locations use
+ *  Uri.file/LSP URIs. Materialize preview models for cross-file targets
+ *  before returning locations, mirroring an open tab's live buffer when one
+ *  exists and reading from disk otherwise. */
+export async function preparePeekModels<T extends { uri: import("monaco-editor").Uri }>(
+  context: EditorGraphContext,
+  source: import("monaco-editor").editor.ITextModel,
+  locations: T[],
+): Promise<T[]> {
+  const api = context.api;
+  if (!api?.readProjectFile) return locations;
+  const root = normalizedFilePath(context.projectPath);
+  const rootComparable = root.toLocaleLowerCase();
+  const seen = new Set<string>([source.uri.toString()]);
+  for (const location of locations) {
+    if (seen.size > PEEK_PREVIEW_LOADS_PER_REQUEST) break;
+    const key = location.uri.toString();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const isPreview = peekPreviewModels.has(key);
+    if (monaco.editor.getModel(location.uri) && !isPreview) continue;
+    try {
+      const target = normalizedFilePath(location.uri.fsPath);
+      if (!target.toLocaleLowerCase().startsWith(`${rootComparable}/`)) continue;
+      const relPath = target.slice(root.length).replace(/^\/+/, "");
+      if (!relPath) continue;
+      const openModel = findOpenProjectModel(context, relPath);
+      let content: string;
+      let languageId: string | undefined;
+      if (openModel) {
+        content = openModel.getValue();
+        languageId = openModel.getLanguageId();
+      } else {
+        const loaded = await api.readProjectFile(context.projectPath, relPath);
+        if (loaded.binary || loaded.tooLarge) continue;
+        content = loaded.content;
+      }
+      const existing = monaco.editor.getModel(location.uri);
+      if (existing) {
+        if (isPreview && !existing.isAttachedToEditor() && existing.getValue() !== content) {
+          existing.setValue(content);
+        }
+      } else {
+        monaco.editor.createModel(content, languageId, location.uri);
+      }
+      peekPreviewModels.set(key, Date.now());
+    } catch {
+      // Preview is best-effort; peek falls back to plain navigation.
+    }
+  }
+  prunePeekPreviewModels();
+  return locations;
+}
+
 function claimLspProviderFeature(languageId: string, feature: string): boolean {
   const registered = lspProviderFeaturesByLanguage.get(languageId) ?? new Set<string>();
   if (registered.has(feature)) return false;
@@ -473,15 +556,15 @@ export function ensureGraphProviders(languageId: string): void {
               "textDocument/definition",
               { position: lspPosition(position) },
             ), context);
-            if (locations.length) return locations;
+            if (locations.length) return preparePeekModels(context, model, locations);
           }
           if (!context.codeGraph) return [];
           const rows = parseCodeGraphLocations(await context.codeGraph("find_symbol", word));
           if (token.isCancellationRequested) return [];
-          return rows.slice(0, 20).map((location) => ({
+          return preparePeekModels(context, model, rows.slice(0, 20).map((location) => ({
             uri: graphTargetUri(model, context, location),
             range: graphLocationRange(location, word.length),
-          }));
+          })));
         } catch {
           return [];
         }
@@ -498,15 +581,15 @@ export function ensureGraphProviders(languageId: string): void {
               "textDocument/references",
               { position: lspPosition(position), context: { includeDeclaration: true } },
             ), context);
-            if (locations.length) return locations;
+            if (locations.length) return preparePeekModels(context, model, locations);
           }
           if (!context.codeGraph) return [];
           const rows = parseCodeGraphLocations(await context.codeGraph("references", word));
           if (token.isCancellationRequested) return [];
-          return rows.slice(0, 100).map((location) => ({
+          return preparePeekModels(context, model, rows.slice(0, 100).map((location) => ({
             uri: graphTargetUri(model, context, location),
             range: graphLocationRange(location, word.length),
-          }));
+          })));
         } catch {
           return [];
         }
@@ -564,10 +647,10 @@ export function ensureGraphProviders(languageId: string): void {
         async provideTypeDefinition(model, position) {
           const context = graphContextsByModel.get(model.uri.toString())?.current;
           if (!context?.requestLsp || !context.lspCapabilities?.typeDefinition) return [];
-          return lspLocations(await context.requestLsp(
+          return preparePeekModels(context, model, lspLocations(await context.requestLsp(
             "textDocument/typeDefinition",
             { position: lspPosition(position) },
-          ), context);
+          ), context));
         },
       });
     }
@@ -576,10 +659,10 @@ export function ensureGraphProviders(languageId: string): void {
         async provideDeclaration(model, position) {
           const context = graphContextsByModel.get(model.uri.toString())?.current;
           if (!context?.requestLsp || !context.lspCapabilities?.declaration) return [];
-          return lspLocations(await context.requestLsp(
+          return preparePeekModels(context, model, lspLocations(await context.requestLsp(
             "textDocument/declaration",
             { position: lspPosition(position) },
-          ), context);
+          ), context));
         },
       });
     }
@@ -588,10 +671,10 @@ export function ensureGraphProviders(languageId: string): void {
         async provideImplementation(model, position) {
           const context = graphContextsByModel.get(model.uri.toString())?.current;
           if (!context?.requestLsp || !context.lspCapabilities?.implementation) return [];
-          return lspLocations(await context.requestLsp(
+          return preparePeekModels(context, model, lspLocations(await context.requestLsp(
             "textDocument/implementation",
             { position: lspPosition(position) },
-          ), context);
+          ), context));
         },
       });
     }
