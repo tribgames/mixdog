@@ -721,6 +721,71 @@ fn serve_search_accepts_hundreds_of_parallel_requests() {
 }
 
 #[test]
+fn serve_search_inventory_mtime_top_k_is_globally_ordered() {
+    let root = fixture();
+    let old = root.join("src/old.rank");
+    let new = root.join("src/new.rank");
+    fs::write(&old, "old\n").unwrap();
+    fs::write(&new, "new\n").unwrap();
+    let old_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10);
+    let new_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(20);
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(old_time))
+        .unwrap();
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&new)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(new_time))
+        .unwrap();
+    let response = serve_search(
+        &root,
+        serde_json::json!({
+            "id": 11,
+            "cwd": root,
+            "args": ["--files", "--glob", "*.rank", "."],
+            "offset": 0,
+            "limit": 2,
+            "mtimeTopK": true
+        }),
+    );
+    assert_eq!(response["complete"], true);
+    assert_eq!(response["totalSeen"], 2);
+    let lines = response["lines"].as_array().unwrap();
+    assert!(lines[0].as_str().unwrap().ends_with("new.rank"));
+    assert!(lines[1].as_str().unwrap().ends_with("old.rank"));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn serve_search_returns_batched_list_metadata() {
+    let root = fixture();
+    let file = root.join("src/metadata.txt");
+    let directory = root.join("src/nested-metadata");
+    fs::write(&file, "metadata\n").unwrap();
+    fs::create_dir_all(&directory).unwrap();
+    let response = serve_search(
+        &root,
+        serde_json::json!({
+            "id": 13,
+            "cwd": root,
+            "listMetadata": [file, directory]
+        }),
+    );
+    let entries = response["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["type"], "file");
+    assert_eq!(entries[0]["size"], 9);
+    assert!(entries[0]["mtimeMs"].as_u64().unwrap() > 0);
+    assert!(entries[0]["mode"].as_u64().unwrap() > 0);
+    assert_eq!(entries[1]["type"], "dir");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn serve_search_fuzzy_returns_native_top_k() {
     let root = fixture();
     fs::write(
@@ -743,11 +808,46 @@ fn serve_search_fuzzy_returns_native_top_k() {
     assert_eq!(response["id"], 9);
     assert_eq!(response["class"], "fuzzy");
     assert!(response["complete"].as_bool().unwrap());
+    assert!(response["inventoryMs"].as_f64().unwrap() >= 0.0);
+    assert!(response["rankMs"].as_f64().unwrap() >= 0.0);
     let matches = response["matches"].as_array().unwrap();
     assert!(!matches.is_empty());
     assert!(matches.iter().any(|path| {
         path.as_str()
             .is_some_and(|path| path.ends_with("parallel-runtime.rs"))
+    }));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn serve_search_fuzzy_multi_token_and_matches_every_fragment() {
+    let root = fixture();
+    fs::write(
+        root.join("src").join("search-native-client.rs"),
+        "fn main() {}\n",
+    )
+    .unwrap();
+    fs::write(root.join("src").join("search-only.rs"), "fn main() {}\n").unwrap();
+    let response = serve_search(
+        &root,
+        serde_json::json!({
+            "id": 12,
+            "cwd": root,
+            "fuzzy": "search client",
+            "hidden": true,
+            "includeNoise": false,
+            "limit": 5
+        }),
+    );
+    assert!(response["complete"].as_bool().unwrap());
+    let matches = response["matches"].as_array().unwrap();
+    assert!(matches.iter().any(|path| {
+        path.as_str()
+            .is_some_and(|path| path.ends_with("search-native-client.rs"))
+    }));
+    assert!(!matches.iter().any(|path| {
+        path.as_str()
+            .is_some_and(|path| path.ends_with("search-only.rs"))
     }));
     fs::remove_dir_all(root).unwrap();
 }

@@ -215,7 +215,7 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
   }), [api, checkDesktopUpdate, confirm, data, effectivePending, installDesktopUpdate, liveSnapshot, onCompose,
     onOpenCategory, pushNotice, route, run, setFast, updaterState]);
 
-  return <PaneSurfaceGate ready={!hydrating} label="Loading settings…">
+  return <PaneSurfaceGate ready label="Loading settings…">
     <div className="capability-settings-content">
     <CategoryPanel category={category} context={context} />
     {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}

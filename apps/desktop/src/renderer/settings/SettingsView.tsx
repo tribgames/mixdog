@@ -22,7 +22,6 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
-import { DesktopLoadingSurface } from '../RendererRecovery';
 import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
 import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import { preloadConnectionInfo } from './connection-info';
@@ -105,27 +104,12 @@ export function SettingsView({
   const bodyRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
-  // Cold open (no cached capability snapshot yet): the empty dialog frame
-  // used to paint first with its body behind an opaque cover — a black box
-  // (user: 엉뚱한 검정 프레임이 이상하다). Instead hold the whole dialog
-  // back and show only the dim backplate with a centered spinner until the
-  // snapshot cache exists; the dialog then mounts fully populated.
-  const [coldHydrating, setColdHydrating] = useState(
-    () => open && !getCachedCapabilitySettings(api),
-  );
+  // The settings shell is navigation chrome, not data: it must open
+  // immediately while individual rows quietly adopt the shared cache.
+  const coldHydrating = false;
   useEffect(() => {
-    if (!open || getCachedCapabilitySettings(api)) {
-      setColdHydrating(false);
-      return undefined;
-    }
-    setColdHydrating(true);
-    let live = true;
-    // Resolves even on engine errors (the cache entry carries the error
-    // string), so the dialog always mounts and surfaces the failure inline.
-    void preloadCapabilitySettings(api)
-      .catch(() => undefined)
-      .finally(() => { if (live) setColdHydrating(false); });
-    return () => { live = false; };
+    if (!open || getCachedCapabilitySettings(api)) return;
+    void preloadCapabilitySettings(api).catch(() => undefined);
   }, [open, api]);
 
   // Every (re)open starts fresh: explicit section when given, else General
@@ -266,14 +250,6 @@ export function SettingsView({
     return () => document.removeEventListener('keydown', handleKey, true);
   }, [open, onClose]);
 
-  if (coldHydrating) {
-    // Same dim + centered spinner grammar as the lazy-chunk Suspense overlay,
-    // so chunk wait and data wait read as one continuous surface.
-    return createPortal(
-      <DesktopLoadingSurface label={t('Loading settings…')} overlay />,
-      document.body,
-    );
-  }
   return createPortal(
     <div className="mixdog-settings-layer stable-surface-preserved"
       data-surface-active={open ? 'true' : 'false'}

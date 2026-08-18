@@ -36,7 +36,7 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 // The usage dashboard's first service pass probes live provider quotas and
 // can take seconds. Keep the last loaded payload for the window's lifetime so
 // reopening /usage paints instantly while a silent refresh runs behind it.
-const surfaceDataCache = new Map<CommandSurfaceName, Record<string, unknown>>();
+const surfaceDataCache = new Map<string, Record<string, unknown>>();
 
 export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, onClose }: {
   surface: CommandSurfaceName;
@@ -50,12 +50,16 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
   onCloseRef.current = onClose;
   const loadSequence = useRef(0);
   const loadingSurface = useRef<CommandSurfaceName | null>(null);
-  const cachedSurface = surface === 'usage' ? surfaceDataCache.get(surface) : undefined;
+  const sessionId = surface === 'context' ? String(record(snapshot).sessionId || '').trim() : '';
+  // Instant repaint on reopen (user: 컨텍스트가 오래 로딩 후 작은 프레임에서
+  // 튐): context payloads cache per session exactly like /usage, so the
+  // dialog opens full-size with the last data while a silent refresh runs.
+  const cacheKey = surface === 'context' ? `context:${sessionId}` : surface;
+  const cachedSurface = surface === 'doctor' ? undefined : surfaceDataCache.get(cacheKey);
   const [data, setData] = useState<Record<string, unknown>>(() => cachedSurface ?? {});
   const [loading, setLoading] = useState(() => !cachedSurface);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
-  const sessionId = surface === 'context' ? String(record(snapshot).sessionId || '').trim() : '';
   const capabilityRequest = useCallback((capability: DesktopCapability, args: unknown[] = []) => ({
     capability,
     args,
@@ -65,7 +69,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
-    const cached = surface === 'usage' ? surfaceDataCache.get(surface) : undefined;
+    const cached = surface === 'doctor' ? undefined : surfaceDataCache.get(cacheKey);
     if (cached) setData(cached);
     setLoading(!cached);
     setError('');
@@ -79,7 +83,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
           ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
           ...(surface === 'context' ? { snapshot: results[0]?.snapshot ?? null } : {}),
         };
-        if (surface === 'usage') surfaceDataCache.set(surface, next);
+        if (surface !== 'doctor') surfaceDataCache.set(cacheKey, next);
         setData(next);
       }
     } catch (reason) {
@@ -90,7 +94,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
       if (loadSequence.current === request) setLoading(false);
       if (loadingSurface.current === surface) loadingSurface.current = null;
     }
-  }, [api, capabilityRequest, surface]);
+  }, [api, cacheKey, capabilityRequest, surface]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (error) showDesktopToast(error, 'error');
@@ -114,11 +118,15 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
           // A newer state arrived while this request was in flight. Skip the
           // stale pair and immediately fetch once more for the latest snapshot.
           if (refreshQueued) continue;
-          setData((current) => ({
-            ...current,
-            contextStatus: result.value,
-            snapshot: result.snapshot,
-          }));
+          setData((current) => {
+            const next = {
+              ...current,
+              contextStatus: result.value,
+              snapshot: result.snapshot,
+            };
+            surfaceDataCache.set(cacheKey, next);
+            return next;
+          });
           setError('');
         } catch (reason) {
           if (!disposed && !refreshQueued) {
@@ -136,7 +144,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
       disposed = true;
       unsubscribe();
     };
-  }, [api, capabilityRequest, loading, surface]);
+  }, [api, cacheKey, capabilityRequest, loading, surface]);
   useEffect(() => {
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const shell = document.querySelector<HTMLElement>('.app-shell');

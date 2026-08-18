@@ -489,9 +489,17 @@ export interface SidebarReferenceState<K extends SidebarReferenceKey> {
   completeMutation: (mutation: string) => Promise<void>;
 }
 
+export function sidebarReferencesLoading(
+  available: boolean,
+  settled: boolean,
+  keys: readonly SidebarReferenceKey[],
+): boolean {
+  return available && !settled && keys.some((key) => !hasSidebarReference(key));
+}
+
 /**
- * Panel-side read API. `keys[0]` is the panel's primary resource (the one its
- * list is built from) and decides the loading cover; the rest ride along.
+ * Panel-side read API. Cold reference sets reveal atomically; a warm panel
+ * keeps its complete snapshot visible while stale keys revalidate.
  * Pass a module-level constant array so the identity stays stable.
  */
 export function useSidebarReferences<K extends SidebarReferenceKey>(
@@ -499,7 +507,6 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
   keys: readonly K[],
   active = true,
 ): SidebarReferenceState<K> {
-  const primary: K | undefined = keys[0];
   const available = Boolean(api?.invokeCapability);
   const [revision, setRevision] = useState(0);
   // Read-through status is HOST-SCOPED: settled and error both belong to the
@@ -570,7 +577,7 @@ export function useSidebarReferences<K extends SidebarReferenceKey>(
 
   return {
     values,
-    loading: available && !settled && (primary === undefined || !hasSidebarReference(primary)),
+    loading: sidebarReferencesLoading(available, settled, keys),
     available,
     error,
     refresh,

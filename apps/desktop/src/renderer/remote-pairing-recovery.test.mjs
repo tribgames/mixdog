@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  isInvalidRemotePairingClose,
   normalizeRemoteExternalUrl,
   normalizeRemoteRelayOrigin,
   parseRemotePairingLink,
@@ -48,6 +49,30 @@ test('stored relay origins require HTTPS except for loopback', () => {
   assert.equal(normalizeRemoteRelayOrigin('http://relay.example'), '');
   assert.equal(normalizeRemoteRelayOrigin('http://[::1]:9800/path'), 'http://[::1]:9800');
   assert.equal(normalizeRemoteRelayOrigin('javascript:alert(1)'), '');
+});
+
+test('pairing drops only on unrecoverable closes, never on transient ones', () => {
+  assert.equal(isInvalidRemotePairingClose({ code: 4003, reason: 'pairing revoked' }), true);
+  assert.equal(isInvalidRemotePairingClose({ code: 4005, reason: 'pairing rescan required' }), true);
+  assert.equal(
+    isInvalidRemotePairingClose({ code: 4004, reason: 'relay encryption handshake required' }),
+    true,
+  );
+  assert.equal(
+    isInvalidRemotePairingClose({ code: 4004, reason: 'relay encryption authentication failed' }),
+    true,
+  );
+  assert.equal(
+    isInvalidRemotePairingClose({ code: 4004, reason: 'invalid encrypted relay frame' }),
+    true,
+  );
+  // Transient: a busy/sleeping desktop timing out the handshake reconnects.
+  assert.equal(
+    isInvalidRemotePairingClose({ code: 4004, reason: 'relay encryption handshake timed out' }),
+    false,
+  );
+  assert.equal(isInvalidRemotePairingClose({ code: 4002, reason: 'desktop offline' }), false);
+  assert.equal(isInvalidRemotePairingClose({ code: 1006, reason: '' }), false);
 });
 
 test('remote external navigation permits only HTTP and HTTPS', () => {

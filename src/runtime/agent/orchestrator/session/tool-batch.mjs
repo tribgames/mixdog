@@ -726,6 +726,13 @@ export async function processToolBatch(ctx) {
                     resultText: result,
                     localSearchTelemetry: completed.localSearchTelemetry,
                     resultTelemetry: completed.resultTelemetry,
+                    toolTiming: {
+                        dispatchStartedAt,
+                        executionStartedAt: executionStartedAt ?? toolStartedAt,
+                        executionCompletedAt: toolEndedAt,
+                        postprocessStartedAt,
+                        resultCompletedAt: Date.now(),
+                    },
                     cwd,
                 });
                 // Deferred writes that predate a later mutation are skipped;

@@ -65,7 +65,7 @@ export function toolCallOutcome(message, rawText) {
 
 // Build the collapsed failure/exit detail string. Real tool-call/result
 // failures keep the red "Failed" wording; completed non-zero commands render
-// as the distinct warning "Command failed" state. A mixed group surfaces both.
+// as the distinct warning "Exited" state. A mixed group surfaces both.
 export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 0, exitCode } = {}) {
   const parts = [];
   if (succeeded > 0) parts.push(`${succeeded} Ok`);
@@ -73,8 +73,8 @@ export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 
   if (exitErrors > 0) {
     const solo = exitErrors === 1 && realErrors === 0 && succeeded === 0;
     parts.push(solo && Number.isFinite(exitCode)
-      ? `Command failed (exit ${exitCode})`
-      : `${exitErrors} Commands failed`);
+      ? `Exited ${exitCode}`
+      : `${exitErrors} Exited non-zero`);
   }
   return parts.join(' · ');
 }

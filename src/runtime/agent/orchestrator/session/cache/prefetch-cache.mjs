@@ -50,7 +50,7 @@ function _maybeSweepDiskCache() {
     void _sweepDiskCache();
 }
 function _diskPath(absPath) {
-    const hash = createHash('sha256').update(absPath).digest('hex').slice(0, 16);
+    const hash = createHash('sha256').update(absPath).digest('hex');
     return join(DISK_CACHE_DIR, `${hash}.json`);
 }
 function _readDiskEntry(absPath) {
@@ -58,7 +58,7 @@ function _readDiskEntry(absPath) {
     if (!existsSync(p)) return null;
     try {
         const parsed = JSON.parse(readFileSync(p, 'utf8'));
-        if (!parsed || typeof parsed.content !== 'string' || !parsed.stat) return null;
+        if (!parsed || parsed.absPath !== absPath || typeof parsed.content !== 'string' || !parsed.stat) return null;
         return { content: parsed.content, stat: parsed.stat, ts: parsed.ts };
     } catch { return null; }
 }
@@ -157,7 +157,7 @@ export function invalidatePrefetchCache(path, cwd) {
     _deleteDiskEntry(abs);
 }
 
-function drainPrefetchDiskWrites() {
+export function drainPrefetchDiskWrites() {
     if (_diskWriteTimer !== null) {
         clearTimeout(_diskWriteTimer);
         _diskWriteTimer = null;

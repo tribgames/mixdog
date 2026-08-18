@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { WorkspaceSelection } from "./nav-types";
 import { usePageHideFlush } from "./layout-persistence";
+import { isMobileRemoteSurface } from "./mobile-surface";
 import { navigationKey } from "./text-format";
 import {
   activateTabInPaneLeaf,
@@ -136,7 +137,11 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     requiresSessionValidation: boolean;
   } | null>(null);
   if (!startupRestore.current) {
-    const stored = readStoredPaneLayout(safeLocalStorage());
+    // Phone entry starts CLEAN (user: 열면 터미널이 같이 열리고 "레이아웃
+    // 복원중"이 뜬다): the projected mobile surface skips the stored pane
+    // tree entirely — no restore gate, no resurrected terminal/file tabs —
+    // and the desktop projection then drives the content.
+    const stored = isMobileRemoteSurface() ? null : readStoredPaneLayout(safeLocalStorage());
     startupRestore.current = {
       stored,
       requiresSessionValidation: Boolean(stored

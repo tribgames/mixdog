@@ -34,7 +34,17 @@ mkdir -p "$NEXT_DIR"
 cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$NEXT_DIR/"
 cp -r "$SRC_DIR/lib" "$SRC_DIR/renderer" "$NEXT_DIR/"
 cd "$NEXT_DIR"
-npm ci --omit=dev --no-audit --no-fund
+# Deploy-time shortcut (CI/CD 단축): the relay's dependency tree is tiny and
+# rarely moves — when the lockfile hash matches the installed tree, reuse it
+# instead of a fresh npm ci network pass.
+LOCK_HASH="$(sha256sum "$NEXT_DIR/package-lock.json" | awk '{print $1}')"
+if [[ -f "$INSTALL_DIR/node_modules/.mixdog-lock-hash" \
+  && "$(cat "$INSTALL_DIR/node_modules/.mixdog-lock-hash")" = "$LOCK_HASH" ]]; then
+  cp -r "$INSTALL_DIR/node_modules" "$NEXT_DIR/node_modules"
+else
+  npm ci --omit=dev --no-audit --no-fund
+fi
+printf '%s' "$LOCK_HASH" > "$NEXT_DIR/node_modules/.mixdog-lock-hash"
 
 mv "$INSTALL_DIR" "$BACKUP_DIR"
 mv "$NEXT_DIR" "$INSTALL_DIR"

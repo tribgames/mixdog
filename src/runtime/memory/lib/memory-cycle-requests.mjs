@@ -270,3 +270,16 @@ export function scheduleCoalescedCycleRetry(db, kind, runner, config = {}, signa
   byKind.set(key, timer)
   return true
 }
+
+export function cancelCoalescedCycleRetries(db) {
+  const byKind = db ? _retryTimersByDb.get(db) : null
+  if (!byKind) return 0
+  let cancelled = 0
+  for (const timer of byKind.values()) {
+    clearTimeout(timer)
+    cancelled++
+  }
+  byKind.clear()
+  _retryTimersByDb.delete(db)
+  return cancelled
+}

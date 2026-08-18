@@ -423,11 +423,36 @@ function traceAgentToolFailure({ sessionId, iteration, toolName, toolKind, toolM
     }
 }
 
-function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, localSearchTelemetry = null, resultTelemetry = null, cwd }) {
+function summarizeToolTiming(toolTiming) {
+    if (!toolTiming || typeof toolTiming !== 'object') return null;
+    const number = (key) => {
+        const value = Number(toolTiming[key]);
+        return Number.isFinite(value) ? value : null;
+    };
+    const dispatchStartedAt = number('dispatchStartedAt');
+    const executionStartedAt = number('executionStartedAt');
+    const executionCompletedAt = number('executionCompletedAt');
+    const postprocessStartedAt = number('postprocessStartedAt');
+    const resultCompletedAt = number('resultCompletedAt');
+    const timing = {};
+    const duration = (key, start, end) => {
+        if (start === null || end === null) return;
+        timing[key] = Math.max(0, Math.round(end - start));
+    };
+    duration('dispatch_wait_ms', dispatchStartedAt, executionStartedAt);
+    duration('execution_ms', executionStartedAt, executionCompletedAt);
+    duration('result_collection_wait_ms', executionCompletedAt, postprocessStartedAt);
+    duration('postprocess_ms', postprocessStartedAt, resultCompletedAt);
+    duration('total_ms', dispatchStartedAt, resultCompletedAt);
+    return Object.keys(timing).length > 0 ? timing : null;
+}
+
+function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, toolArgs, agent, resultKind, model, resultText, localSearchTelemetry = null, resultTelemetry = null, toolTiming = null, cwd }) {
     const nextCallCount = countJsonNextCalls(resultText);
     const resultBytesEst = typeof resultText === 'string' ? Buffer.byteLength(resultText, 'utf8') : 0;
     const resultLinesEst = typeof resultText === 'string' && resultText.length > 0 ? resultText.split('\n').length : 0;
     const numericToolMs = Number(toolMs);
+    const summarizedTiming = summarizeToolTiming(toolTiming);
     const summarizedArgs = summarizeToolArgs(toolName, toolArgs);
     const grepCoverage = parseGrepCoverage(resultText, toolName, toolArgs, resultKind);
     // Hash the FULL args, not the summary: summaries drop payload fields
@@ -474,9 +499,10 @@ function traceAgentTool({ sessionId, iteration, toolName, toolKind, toolMs, tool
         local_search: localSearchTelemetry && Object.keys(localSearchTelemetry).length > 0
             ? { ...localSearchTelemetry }
             : null,
-        payload: resultTelemetry?.integrity
-            ? { integrity: { ...resultTelemetry.integrity } }
-            : {},
+        payload: {
+            ...(summarizedTiming ? { timing: summarizedTiming } : {}),
+            ...(resultTelemetry?.integrity ? { integrity: { ...resultTelemetry.integrity } } : {}),
+        },
         cwd: cwd || null,
     });
     if (

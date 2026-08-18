@@ -89,11 +89,6 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 command: { type: 'string', description: `Command.${_shellSyntaxCheat}` },
-                timeout_ms: {
-                    type: 'integer',
-                    minimum: 0,
-                    description: 'Hard total deadline in milliseconds; omit or use 0 to allow unlimited runtime after task promotion.',
-                },
                 ...(_shellBackgroundDisabled ? {} : {
                     run_in_background: {
                         type: 'boolean',

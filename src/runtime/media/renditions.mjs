@@ -14,7 +14,16 @@
  * what made the remote gallery slow.
  */
 import { spawn } from 'child_process';
-import { existsSync, mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
+import { randomBytes } from 'crypto';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { dirname, join } from 'path';
 
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
@@ -35,6 +44,12 @@ const POSTER_TIMEOUT_MS = 20_000;
 const MAX_POSTER_BYTES = 32 * 1024 * 1024;
 const FAILED_RENDITION_COOLDOWN_MS = 30_000;
 const MAX_CACHED_RENDITION_BYTES = 4 * 1024 * 1024;
+const DEFAULT_RENDITION_CACHE_MAX_BYTES = 512 * 1024 * 1024;
+const configuredRenditionCacheMaxBytes = Number(process.env.MIXDOG_RENDITION_CACHE_MAX_BYTES);
+export const RENDITION_CACHE_MAX_BYTES = Number.isFinite(configuredRenditionCacheMaxBytes)
+  && configuredRenditionCacheMaxBytes >= MAX_CACHED_RENDITION_BYTES
+  ? Math.floor(configuredRenditionCacheMaxBytes)
+  : DEFAULT_RENDITION_CACHE_MAX_BYTES;
 
 const MEDIA_VARIANTS = Object.keys(SPECS);
 
@@ -89,14 +104,62 @@ export function removeRenditions(cacheDir, id) {
   }
 }
 
+/** Bound the rebuildable rendition tree by evicting the oldest files first. */
+export function pruneRenditionCache(cacheDir, {
+  maxBytes = RENDITION_CACHE_MAX_BYTES,
+  protectedPath = '',
+} = {}) {
+  const budget = Math.max(0, Math.floor(Number(maxBytes) || 0));
+  const rows = [];
+  let totalBytes = 0;
+  for (const variant of MEDIA_VARIANTS) {
+    const dir = join(cacheDir, variant);
+    let names;
+    try { names = readdirSync(dir); } catch { continue; }
+    for (const name of names) {
+      if (!Object.keys(EXTENSION_MIME).some((extension) => name.endsWith(extension))) continue;
+      const path = join(dir, name);
+      try {
+        const stat = statSync(path);
+        if (!stat.isFile()) continue;
+        rows.push({ path, bytes: stat.size, mtimeMs: stat.mtimeMs });
+        totalBytes += stat.size;
+      } catch { /* raced with another writer/pruner */ }
+    }
+  }
+  rows.sort((a, b) => (a.mtimeMs - b.mtimeMs) || a.path.localeCompare(b.path));
+  for (const row of rows) {
+    if (totalBytes <= budget) break;
+    if (row.path === protectedPath) continue;
+    try {
+      unlinkSync(row.path);
+      totalBytes -= row.bytes;
+    } catch { /* another process already removed it */ }
+  }
+  return { bytes: Math.max(0, totalBytes), entries: rows.length };
+}
+
 function writeRendition(cacheDir, variant, id, extension, buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0 || buffer.length > MAX_CACHED_RENDITION_BYTES) {
+    return null;
+  }
   const path = renditionPath(cacheDir, variant, id, extension);
   mkdirSync(dirname(path), { recursive: true });
   // Stage-then-rename: a reader must never observe a half-written cache file.
-  const staging = `${path}.${process.pid}.tmp`;
+  const staging = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   writeFileSync(staging, buffer);
-  renameSync(staging, path);
-  return { path, mime: EXTENSION_MIME[extension], bytes: buffer.length };
+  try {
+    renameSync(staging, path);
+  } catch (error) {
+    // Another process may have won the same cache publication race.
+    if (!existsSync(path)) throw error;
+  } finally {
+    try { unlinkSync(staging); } catch { /* renamed or already removed */ }
+  }
+  let bytes = buffer.length;
+  try { bytes = statSync(path).size; } catch { /* use written size */ }
+  pruneRenditionCache(cacheDir, { protectedPath: path });
+  return { path, mime: EXTENSION_MIME[extension], bytes };
 }
 
 export function createPriorityScheduler(limit = 2) {
@@ -246,7 +309,7 @@ async function generate({ id, kind, sourcePath, variant, spec, cacheDir }) {
     const frame = await grabVideoFrame(sourcePath, spec);
     if (!frame) return null;
     const written = writeRendition(cacheDir, variant, id, '.jpg', frame.buffer);
-    return { ...written, durationSeconds: frame.durationSeconds };
+    return written ? { ...written, durationSeconds: frame.durationSeconds } : null;
   }
   const encoded = await encodeStill(sourcePath, spec);
   return encoded ? writeRendition(cacheDir, variant, id, encoded.extension, encoded.buffer) : null;

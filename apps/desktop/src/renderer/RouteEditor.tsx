@@ -15,7 +15,7 @@ import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ModelCatalog } from './model-catalog';
-import { formatContextWindow } from './provider-display';
+import { formatContextWindow, ModelRouteLabel } from './provider-display';
 import { useSurfaceActive } from './surface-activity';
 import {
   ROUTE_PANEL_PADDING,
@@ -294,6 +294,7 @@ export function RouteEditor({
       viewport,
       rowButtons.current[pane]?.getBoundingClientRect().top,
       preferredFlyoutWidth(pane),
+      'right',
     ));
   }, [effortOptions.length, pane, sheetHeight]);
 
@@ -348,6 +349,7 @@ export function RouteEditor({
         viewport,
         rowButtons.current[next]?.getBoundingClientRect().top,
         preferredFlyoutWidth(next),
+        'right',
       ));
     }
     setPane(next);
@@ -516,9 +518,7 @@ export function RouteEditor({
       }}
       onPointerCancel={clickGuard.clearPointerActivation}>
       <span className="route-trigger-copy">
-        <span className="route-trigger-model">{triggerModel}</span>
-        {effortLabel && <span className="route-trigger-effort">{effortLabel}</span>}
-        {fast && <span className="route-trigger-fast">{t('Fast')}</span>}
+        <ModelRouteLabel model={triggerModel} effort={effort} fast={fast} effortLabel={effortLabel} />
       </span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>

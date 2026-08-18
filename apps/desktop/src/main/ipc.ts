@@ -170,6 +170,8 @@ interface DesktopIpcDependencies {
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
   rotateRemoteAccess?: () => Promise<DesktopRemoteAccessInfo | null>;
+  /** Settings → Connection: revoke one registered browser. */
+  revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
   updater?: {
     getState(): DesktopUpdaterState;
     subscribe(listener: (state: DesktopUpdaterState) => void): () => void;
@@ -204,6 +206,7 @@ export function registerDesktopIpc(
     terminals,
     remoteAccessInfo,
     rotateRemoteAccess,
+    revokeRemoteAccessClient,
   }: DesktopIpcDependencies,
 ): () => void {
   let quitPromise: Promise<void> | null = null;
@@ -973,6 +976,8 @@ export function registerDesktopIpc(
   // Settings → Connection: pairing card (null while the bridge is off).
   handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
+  handle(DESKTOP_IPC.revokeRemoteAccessClient, (_event, clientId) =>
+    revokeRemoteAccessClient?.(requiredString(clientId, 'clientId')) ?? null);
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
     host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)));
   handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
@@ -1115,6 +1120,10 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.readSettings, () =>
     settingsStore?.read() ?? invokeDesktopOperation('readSettings', []));
+  handle(DESKTOP_IPC.getRemoteProjection, () =>
+    invokeDesktopOperation('getRemoteProjection', []));
+  handle(DESKTOP_IPC.setRemoteProjection, (_event, projection) =>
+    invokeDesktopOperation('setRemoteProjection', [projection]));
   handle(DESKTOP_IPC.updateSetting, (_event, key, enabled) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
     const settingKey = requiredDesktopSettingKey(key);
@@ -1467,6 +1476,9 @@ export function registerDesktopIpc(
     if (name === 'folder-changed') window.webContents.send(DESKTOP_IPC.folderChanged, value);
     else if (name === 'lsp-diagnostics') window.webContents.send(DESKTOP_IPC.lspDiagnostics, value);
     else if (name === 'lsp-status') window.webContents.send(DESKTOP_IPC.lspStatus, value);
+    else if (name === 'remote-projection-state') {
+      window.webContents.send(DESKTOP_IPC.remoteProjectionChanged, value);
+    }
   }) ?? (() => {});
   // Renderer perf lines ride a fire-and-forget event channel (no invoke).
   const onPerfLog = (_event: Electron.IpcMainEvent, line: unknown): void => {

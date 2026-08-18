@@ -1,6 +1,6 @@
 {
   "id": "maintainer",
   "name": "Maintainer",
-  "description": "Use for memory upkeep and long-running maintenance work.",
+  "description": "Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.",
   "entry": "AGENT.md"
 }

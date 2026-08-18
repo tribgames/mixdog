@@ -175,16 +175,6 @@ export function isComposerNewlineChord({
   return Boolean(shiftKey) && !shiftLatched;
 }
 
-export function shouldRestoreInterruptedPrompt({
-  hasDraft = false,
-  hasQueuedMessages = false,
-} = {}) {
-  // Esc while active cancels the current response. A
-  // queued follow-up owns the next turn, so the interrupted prompt must not be
-  // resurrected into the editor ahead of it.
-  return !hasDraft && !hasQueuedMessages;
-}
-
 export function shouldInterruptPrompt({
   turnBusy = false,
   pendingSubmissionId = '',

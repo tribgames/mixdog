@@ -38,6 +38,12 @@ import {
 import type { NavigationSelection } from "./nav-types";
 import { publishTabDrag } from "./tab-drag-bus";
 import { sessionListInsertedAtTop, sessionListKeepsExistingTopInsert } from "./first-submit-stability";
+import type { SidebarPanelKey } from "./app-shell-components";
+import {
+  SIDEBAR_VIEW_MIME,
+  sidebarViewDragId,
+  type SidebarViewPlacement,
+} from "./sidebar-view-layout";
 
 const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 const RECENT_SESSION_INITIAL_ROWS = 24;
@@ -110,6 +116,91 @@ export function SidebarPanelAction({
   return active ? createPortal(button, slot) : null;
 }
 
+export function SidebarPanelSection({
+  id,
+  title,
+  active,
+  sectioned,
+  order,
+  dragProps,
+  onMoveView,
+  children,
+}: {
+  id: SidebarPanelKey;
+  title: string;
+  active: boolean;
+  sectioned: boolean;
+  order?: number;
+  dragProps?: React.HTMLAttributes<HTMLElement>;
+  onMoveView?(
+    sourceId: SidebarPanelKey,
+    targetId: SidebarPanelKey,
+    placement: SidebarViewPlacement,
+  ): void;
+  children(active: boolean): React.ReactNode;
+}) {
+  const parentActionSlot = useContext(SidebarPanelHeaderSlot);
+  const storageKey = `mixdog.desktop.sidebar-view-section.${id}.collapsed.v1`;
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return window.localStorage.getItem(storageKey) === "true"; }
+    catch { return false; }
+  });
+  const [actionSlot, setActionSlot] = useState<HTMLSpanElement | null>(null);
+  const [dropOver, setDropOver] = useState(false);
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      try { window.localStorage.setItem(storageKey, String(next)); }
+      catch { /* section state remains live for this renderer */ }
+      return next;
+    });
+  };
+  const sectionActive = active && (!sectioned || !collapsed);
+  return <section className="sidebar-view-section"
+    style={order === undefined ? undefined : { order }}
+    data-active={active ? "true" : "false"}
+    data-sectioned={sectioned ? "true" : "false"}
+    data-collapsed={collapsed ? "true" : "false"}
+    data-drop-over={dropOver ? "true" : undefined}>
+    <div {...dragProps}
+      className="sidebar-view-section-header"
+      hidden={!sectioned}
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes(SIDEBAR_VIEW_MIME)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDropOver(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropOver(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        const sourceId = sidebarViewDragId(event.nativeEvent);
+        if (sourceId && sourceId !== id) onMoveView?.(sourceId, id, "inside");
+        setDropOver(false);
+      }}
+      onDragEnd={(event) => {
+        dragProps?.onDragEnd?.(event);
+        setDropOver(false);
+      }}>
+      <button type="button" className="sidebar-view-section-toggle"
+        aria-expanded={!collapsed} onClick={toggleCollapsed}>
+        {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+        <span>{t(title)}</span>
+      </button>
+      <span className="sidebar-view-section-actions" ref={setActionSlot} />
+    </div>
+    <div className="sidebar-view-section-body"
+      inert={sectionActive ? undefined : true}
+      aria-hidden={sectionActive ? undefined : true}>
+      <SidebarPanelHeaderSlot.Provider value={sectioned ? actionSlot : parentActionSlot}>
+        {children(sectionActive)}
+      </SidebarPanelHeaderSlot.Provider>
+    </div>
+  </section>;
+}
+
 interface SessionSidebarProps {
   open: boolean;
   /** Rail destination hosted in the panel area (Projects/Workflows/
@@ -117,6 +208,7 @@ interface SessionSidebarProps {
    *  the list stays mounted behind a hidden flag (user decision). */
   panelActive?: boolean;
   panelTitle?: string;
+  panelTitleDragProps?: React.HTMLAttributes<HTMLSpanElement>;
   children?: React.ReactNode;
   sessions: DesktopSessionSummary[];
   sessionsReady: boolean;
@@ -139,6 +231,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   open,
   panelActive = false,
   panelTitle = "",
+  panelTitleDragProps,
   children,
   sessions,
   sessionsReady,
@@ -465,7 +558,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       {/* The panel titles itself; every primary
           navigation control lives on the Activity Rail to the left. */}
       <header className="session-panel-header">
-        <span className="session-panel-title">{panelActive ? t(panelTitle) : t("Sessions")}</span>
+        <span {...panelTitleDragProps}
+          className="session-panel-title">{panelActive ? t(panelTitle) : t("Sessions")}</span>
         {/* Creation belongs to Sessions rather than the Activity Rail: this
             button creates an ordinary task tab and never owns a selected
             navigation state. + IS New Task; Studio, Terminal, and Explorer

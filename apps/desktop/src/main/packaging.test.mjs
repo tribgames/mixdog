@@ -106,6 +106,10 @@ test('production desktop uses only the packaged daemon service adapter', async (
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
   const daemonBuild = await readFile(new URL('../../scripts/build-daemon.mjs', import.meta.url), 'utf8');
+  const runtimePreparation = await readFile(
+    new URL('../../scripts/prepare-runtime.mjs', import.meta.url),
+    'utf8',
+  );
   assert.equal(packageJson.scripts.start, 'npm run build && electron-vite preview --skipBuild');
   assert.doesNotMatch(vite, /'desktop-service':/);
   assert.match(daemonBuild, /src['"],\s*['"]main['"],\s*['"]desktop-service\.ts/);
@@ -132,6 +136,11 @@ test('production desktop uses only the packaged daemon service adapter', async (
     builder,
     /asarUnpack:[\s\S]*node_modules\/@homebridge\/node-pty-prebuilt-multiarch\/\*\*/,
   );
+  assert.match(
+    builder,
+    /from:\s*\.runtime\/desktop-node-pty\s+to:\s*app\.asar\.unpacked\/node_modules\/@homebridge\/node-pty-prebuilt-multiarch/,
+  );
+  assert.match(runtimePreparation, /desktop-node-pty/);
   assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
   assert.match(main, /MIXDOG_GRAPH_BIN:\s*graphPath/);
   assert.match(main, /MIXDOG_SPAWN_SERVER_BIN:/);

@@ -476,6 +476,7 @@ export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_
     };
 
     const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
+    let scanCompleted = false;
     try {
         while (position < st.size) {
             if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
@@ -513,10 +514,12 @@ export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_
                 : Buffer.concat(pendingParts, pendingBytes);
             finishLine(lineBuf, currentLineStartByte, st.size);
         }
+        scanCompleted = true;
     } finally {
-        await fh.close().catch(() => {});
+        if (!scanCompleted) await fh.close().catch(() => {});
     }
 
+    try {
     const tailLen = Math.min(tailCount, SMART_READ_TAIL_LINES);
     const tailOffsets = [];
     for (let i = tailCount - tailLen; i < tailCount; i++) {
@@ -530,14 +533,9 @@ export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_
         const byteLen = Math.max(0, lastEnd - firstStart);
         let tailWindow = Buffer.alloc(0);
         if (byteLen > 0) {
-            const tailFh = await fsPromises.open(fullPath, 'r');
-            try {
-                tailWindow = Buffer.allocUnsafe(byteLen);
-                const { bytesRead } = await tailFh.read(tailWindow, 0, byteLen, firstStart);
-                if (bytesRead < byteLen) tailWindow = tailWindow.subarray(0, bytesRead);
-            } finally {
-                await tailFh.close().catch(() => {});
-            }
+            tailWindow = Buffer.allocUnsafe(byteLen);
+            const { bytesRead } = await fh.read(tailWindow, 0, byteLen, firstStart);
+            if (bytesRead < byteLen) tailWindow = tailWindow.subarray(0, bytesRead);
         }
         for (const entry of tailOffsets) {
             let rawBuf = tailWindow.subarray(entry.startByte - firstStart, entry.endByte - firstStart);
@@ -604,4 +602,7 @@ export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_
             rangeHashes,
         },
     };
+    } finally {
+        await fh.close().catch(() => {});
+    }
 }

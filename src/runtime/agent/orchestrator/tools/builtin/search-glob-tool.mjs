@@ -60,6 +60,7 @@ import {
     cacheSet,
     runResultCacheInFlight,
     statPathsForMtime,
+    visitPathsForMtime,
 } from './cache-layers.mjs';
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from './arg-guard.mjs';
@@ -119,6 +120,58 @@ function _grepDefaultHeadLimit() {
 function _globDefaultHeadLimit() {
     const parsed = parseInt(process.env.MIXDOG_GLOB_DEFAULT_HEAD_LIMIT ?? '', 10);
     return parsed > 0 ? parsed : 100;
+}
+
+function compareGlobMtimeEntries(a, b) {
+    const dm = b.mtime - a.mtime;
+    if (dm !== 0) return dm;
+    return globMtimeTiePath(a).localeCompare(globMtimeTiePath(b));
+}
+
+function retainBestEntries(heap, candidate, limit, compare) {
+    if (heap.length < limit) {
+        heap.push(candidate);
+        for (let index = heap.length - 1; index > 0;) {
+            const parent = Math.floor((index - 1) / 2);
+            if (compare(heap[index], heap[parent]) <= 0) break;
+            [heap[index], heap[parent]] = [heap[parent], heap[index]];
+            index = parent;
+        }
+        return;
+    }
+    if (compare(candidate, heap[0]) >= 0) return;
+    heap[0] = candidate;
+    for (let index = 0;;) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        let worst = index;
+        if (left < heap.length && compare(heap[left], heap[worst]) > 0) worst = left;
+        if (right < heap.length && compare(heap[right], heap[worst]) > 0) worst = right;
+        if (worst === index) break;
+        [heap[index], heap[worst]] = [heap[worst], heap[index]];
+        index = worst;
+    }
+}
+
+export function _createGlobMtimeTopK(limit) {
+    const cap = Math.max(1, Math.floor(Number(limit) || 1));
+    const statted = [];
+    const unstatted = [];
+    return {
+        add(entry, index) {
+            if (entry?.stat != null) {
+                retainBestEntries(statted, entry, cap, compareGlobMtimeEntries);
+            } else {
+                retainBestEntries(unstatted, { ...entry, _walkIndex: index }, cap,
+                    (a, b) => a._walkIndex - b._walkIndex);
+            }
+        },
+        values() {
+            statted.sort(compareGlobMtimeEntries);
+            unstatted.sort((a, b) => a._walkIndex - b._walkIndex);
+            return [...statted, ...unstatted].slice(0, cap);
+        },
+    };
 }
 
 function _grepContextCharBudget(options = {}) {
@@ -338,8 +391,11 @@ export async function executeGlobTool(args, workDir, options = {}) {
     let rgStdoutPartial = false;
     let rgWindowIncomplete = false;
     let rgCacheUnsafe = false;
+    let nativeMtimeTotal = null;
     const accumCap = 50000;
     const canWindowNatural = sortMode === 'natural' && headLimit !== Infinity;
+    const canWindowMtime = sortMode === 'mtime'
+        && headLimit !== Infinity;
     const groupRuns = await Promise.all(globGroups.map(async ([root, rels]) => {
         const rgArgs = ['--files', '--hidden'];
         // Explicit literal basenames (no glob magic in the final segment)
@@ -391,6 +447,24 @@ export async function executeGlobTool(args, workDir, options = {}) {
             };
         }
         try {
+            if (canWindowMtime) {
+                const served = await runRgWindowedLines(
+                    rgArgs,
+                    { cwd: rgCwd, signal: sharedSignal },
+                    { offset: 0, limit: offset + headLimit + 1, mtimeTopK: true },
+                );
+                return {
+                    error: null,
+                    paths: served.lines.map((line) =>
+                        isAbsolute(line) ? line : resolveAgainstCwd(line, rgCwd)),
+                    stdoutTruncated: false,
+                    stdoutPartial: served.partial === true,
+                    windowIncomplete: false,
+                    cacheSafe: served.cacheSafe !== false,
+                    nativeMtime: true,
+                    totalSeen: served.totalSeen,
+                };
+            }
             if (canWindowNatural) {
                 const served = await runRgWindowedLines(
                     rgArgs,
@@ -440,6 +514,9 @@ export async function executeGlobTool(args, workDir, options = {}) {
         if (run.stdoutPartial) rgStdoutPartial = true;
         if (run.windowIncomplete) rgWindowIncomplete = true;
         if (run.cacheSafe === false) rgCacheUnsafe = true;
+        if (run.nativeMtime) {
+            nativeMtimeTotal = (nativeMtimeTotal ?? 0) + Math.max(0, Number(run.totalSeen) || 0);
+        }
         for (const p of run.paths) {
             allFiles.push(p);
             if (allFiles.length >= accumCap) {
@@ -454,34 +531,59 @@ export async function executeGlobTool(args, workDir, options = {}) {
 
     const unique = Array.from(new Set(allFiles));
     let orderedPaths;
-    if (sortMode === 'mtime') {
-        // Default mtime sorting stats every match. Bound the post-rg stat
-        // phase so a hung mount cannot pin glob until the agent stall
-        // watchdog fires.
-        const withStatAll = await statPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 });
+    if (nativeMtimeTotal !== null && globGroups.length === 1) {
+        orderedPaths = unique;
+    } else if (nativeMtimeTotal !== null) {
+        const withStat = await statPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 });
         const statted = [];
         const unstatted = [];
-        for (const entry of withStatAll) {
+        for (const entry of withStat) {
             if (!entry) continue;
             if (entry.stat != null) statted.push(entry);
             else unstatted.push(entry);
         }
-        statted.sort((a, b) => {
-            const dm = b.mtime - a.mtime;
-            if (dm !== 0) return dm;
-            return globMtimeTiePath(a).localeCompare(globMtimeTiePath(b));
-        });
-        // A deadline-expired or failed stat degrades ORDERING only, never
-        // completeness: unsortable entries keep their walk order at the tail.
-        orderedPaths = [...statted, ...unstatted].map((entry) => entry.full || resolveAgainstCwd(entry.path, workDir));
+        statted.sort(compareGlobMtimeEntries);
+        orderedPaths = [...statted, ...unstatted]
+            .map((entry) => entry.full || resolveAgainstCwd(entry.path, workDir));
+    } else if (sortMode === 'mtime') {
+        // Default mtime sorting stats every match. Bound the post-rg stat
+        // phase so a hung mount cannot pin glob until the agent stall
+        // watchdog fires.
+        if (headLimit === Infinity) {
+            const withStatAll = await statPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 });
+            const statted = [];
+            const unstatted = [];
+            for (const entry of withStatAll) {
+                if (!entry) continue;
+                if (entry.stat != null) statted.push(entry);
+                else unstatted.push(entry);
+            }
+            statted.sort(compareGlobMtimeEntries);
+            // A deadline-expired or failed stat degrades ORDERING only, never
+            // completeness: unsortable entries keep their walk order at the tail.
+            orderedPaths = [...statted, ...unstatted]
+                .map((entry) => entry.full || resolveAgainstCwd(entry.path, workDir));
+        } else {
+            // Scan and stat every match for exact global ordering, but retain
+            // only the requested page plus one lookahead row. This changes
+            // O(N log N) sorting and O(N) result retention to O(N log K) and
+            // O(K) without narrowing the searched candidate set.
+            const selector = _createGlobMtimeTopK(
+                Math.min(unique.length, offset + headLimit + 1),
+            );
+            await visitPathsForMtime(unique, workDir, 64, { deadlineMs: 5000 },
+                (entry, index) => selector.add(entry, index));
+            orderedPaths = selector.values()
+                .map((entry) => entry.full || resolveAgainstCwd(entry.path, workDir));
+        }
     } else {
         orderedPaths = unique.map((entry) => isAbsolute(entry) ? resolve(entry) : resolveAgainstCwd(entry, workDir));
     }
-    const totalBeforeOffset = orderedPaths.length;
+    const totalBeforeOffset = nativeMtimeTotal ?? unique.length;
     const windowed = offset > 0 ? orderedPaths.slice(offset) : orderedPaths;
     const capped = (headLimit === Infinity ? windowed : windowed.slice(0, headLimit))
         .map((abs) => relativeSearchResultPath(abs, workDir));
-    const remaining = windowed.length - capped.length;
+    const remaining = Math.max(0, totalBeforeOffset - offset - capped.length);
     const truncSuffix = accumTruncated
         ? '\n... [truncated at accumulation cap (50000)]'
         : (rgStdoutTruncated ? '\n... [truncated at rg stdout cap (20MB); results incomplete]' : '')
@@ -507,8 +609,12 @@ export async function executeGlobTool(args, workDir, options = {}) {
     if (options?.scopedCacheOutcome && (accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgWindowIncomplete || remaining > 0)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
-    const globIncomplete = accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgWindowIncomplete || remaining > 0;
-    if (!globIncomplete && !rgCacheUnsafe) {
+    // Pagination is not an incomplete computation: limit/offset are part of
+    // the cache key, and the native watcher invalidates the scoped page on any
+    // relevant namespace/mtime change. Cache exact pages even when more rows
+    // exist; only a genuinely partial scan must bypass reuse.
+    const globComputationIncomplete = accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgErrors.length > 0;
+    if (!globComputationIncomplete && !rgCacheUnsafe) {
         cacheSet(cacheKey, out, { scopes: [...groups.keys()].map((root) => resolvedForSearchRoot(root)) });
     }
     // ② completion progress (claude "Found N" parity). Best-effort, no-op

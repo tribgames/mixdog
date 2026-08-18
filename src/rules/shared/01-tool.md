@@ -41,7 +41,12 @@
   a file to rebuild context or confirm an edit, no rerun of a passed check.
   A hole (needed content absent and not reconstructable) is fetched once;
   a change re-opens only that hole. Returned output is fully mined before the
-  next round. `code_graph references` supplies the declaration and scoped
+  next round. A successful edit establishes the resulting source as known
+  state: do not inspect or query changed source with `read`, `grep`,
+  `code_graph`, `glob`, or `list`; proceed directly to final verification.
+  Reopen only a specific hole reported by a failed or partial edit, or by a
+  failed verification.
+  `code_graph references` supplies the declaration and scoped
   usages and ends that facet; values/locations end at the context grep
   returns; `read` covers only what returned spans cannot, as an anchored
   offset/limit window. Already obtained hunk text is any visible span —
@@ -73,9 +78,10 @@
   and buildability invariants. Treat mutable behavior, UX, exact text,
   snapshots, and implementation shape as advisory specifications; update them
   when the requested behavior changes instead of preserving obsolete behavior.
-- A successful verification closes the task unless later changes affect it.
-  Rerun a failed action only after its inputs or subject changes; otherwise
-  report it unresolved.
+- When the applied changes require verification, run all applicable checks as
+  one final batch only after every planned edit is complete — never after
+  individual edits. If that verification fails, fully collect the failures,
+  batch all determinable fixes, then rerun only the affected failed checks once.
 - If inspection can change evidence or durable state, use read-only means;
   mutate only when the deliverable requires it, first preserving evidence
   at risk. Never mutate merely to clear an obstacle or unexpected state;

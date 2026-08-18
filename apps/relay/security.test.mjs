@@ -11,6 +11,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import WebSocket from 'ws';
+
 import {
   browserSocketOriginAllowed,
   decodeHookResponseBody,
@@ -21,6 +23,7 @@ import {
   phoneClientCapacityAvailable,
   RateLimiter,
   readDeviceCredentials,
+  startRelay,
 } from './server.mjs';
 import { resolveStaticTarget, sendStaticFile } from './lib/static-http.mjs';
 
@@ -124,6 +127,68 @@ test('device store persists owner-only and refuses corrupt authentication state'
   assert.throws(() => new DeviceStore(dir), /failed to load device store/);
 });
 
+test('browser credentials are isolated per desktop and individually revocable', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-browser-store-'));
+  const store = new DeviceStore(dir);
+  assert.equal(store.authenticate('aaaaaaaa', '0123456789abcdef'), true);
+  store.setClientToken('aaaaaaaa', 'fedcba9876543210');
+  const first = store.registerClient('aaaaaaaa', 'bbbbbbbb', {
+    name: 'iPhone · Safari',
+    platform: 'iPhone',
+    browser: 'Safari',
+  });
+  const second = store.registerClient('aaaaaaaa', 'cccccccc', {
+    name: 'Windows · Edge',
+    platform: 'Windows',
+    browser: 'Edge',
+  });
+  assert.equal(store.clientAccessForToken(first.token)?.clientId, 'bbbbbbbb');
+  assert.equal(store.clientAccessForToken(second.token)?.clientId, 'cccccccc');
+  assert.equal(
+    store.listClients('aaaaaaaa', new Set(['bbbbbbbb']))
+      .find((row) => row.id === 'bbbbbbbb')?.online,
+    true,
+  );
+  assert.equal(store.revokeClient('aaaaaaaa', 'bbbbbbbb'), true);
+  assert.equal(store.clientAccessForToken(first.token), null);
+  assert.equal(store.clientAccessForToken(second.token)?.deviceId, 'aaaaaaaa');
+  store.save();
+  const restored = new DeviceStore(dir);
+  assert.deepEqual(restored.listClients('aaaaaaaa', new Set()).map((row) => row.id), ['cccccccc']);
+});
+
+test('browser registration exchanges a pairing token for an individual credential', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-browser-http-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  try {
+    relay.store.authenticate('aaaaaaaa', '0123456789abcdef');
+    relay.store.setClientToken('aaaaaaaa', 'fedcba9876543210');
+    const origin = `http://127.0.0.1:${relay.port}`;
+    const response = await fetch(`${origin}/client/register?token=fedcba9876543210`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: 'bbbbbbbb',
+        name: 'Android · Chrome',
+        platform: 'Android',
+        browser: 'Chrome',
+      }),
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.match(body.token, /^[0-9a-f]{64}$/);
+    assert.deepEqual(relay.store.clientAccessForToken(body.token), {
+      deviceId: 'aaaaaaaa',
+      clientId: 'bbbbbbbb',
+    });
+  } finally {
+    await relay.close();
+  }
+});
+
 test('per-device browser capacity preserves normal clients and bounds floods', () => {
   assert.equal(MAX_PHONE_CLIENTS_PER_DEVICE, 32);
   assert.equal(phoneClientCapacityAvailable(0), true);
@@ -134,6 +199,57 @@ test('per-device browser capacity preserves normal clients and bounds floods', (
   assert.equal(limiter.allow('device-a'), true);
   assert.equal(limiter.allow('device-a'), true);
   assert.equal(limiter.allow('device-a'), false);
+});
+
+test('installability assets bypass the pairing gate; the app shell never does', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-public-assets-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  writeFileSync(join(renderer, 'manifest.webmanifest'), '{"name":"Mixdog"}');
+  writeFileSync(join(renderer, 'mixdog-192.png'), 'png');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  try {
+    const origin = `http://127.0.0.1:${relay.port}`;
+    // Browsers fetch the manifest and its icons without cookies; a 401 there
+    // silently breaks "install app" into an icon-less shortcut.
+    assert.equal((await fetch(`${origin}/manifest.webmanifest`)).status, 200);
+    assert.equal((await fetch(`${origin}/mixdog-192.png`)).status, 200);
+    assert.equal((await fetch(`${origin}/`)).status, 401);
+    assert.equal((await fetch(`${origin}/index.html`)).status, 401);
+  } finally {
+    await relay.close();
+  }
+});
+
+test('phone /ws accepts only per-browser credentials; others close 4005', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ws-4005-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  try {
+    relay.store.authenticate('aaaaaaaa', '0123456789abcdef');
+    relay.store.setClientToken('aaaaaaaa', 'fedcba9876543210');
+    const origin = `http://127.0.0.1:${relay.port}`;
+    const closeOf = (tokenValue) => new Promise((resolveClose, rejectClose) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${relay.port}/ws?token=${tokenValue}`, {
+        headers: { Origin: origin },
+      });
+      ws.on('close', (code) => resolveClose(code));
+      ws.on('error', rejectClose);
+    });
+    // Legacy shared bootstrap tokens and unknown tokens are not retryable:
+    // the phone must drop its pairing and rescan.
+    assert.equal(await closeOf('fedcba9876543210'), 4005);
+    assert.equal(await closeOf('0123456789abcdef0123456789abcdef'), 4005);
+    // A real per-browser credential with the desktop offline is retryable —
+    // plain HTTP rejection, never the 4005 rescan close.
+    const registered = relay.store.registerClient('aaaaaaaa', 'bbbbbbbb', {});
+    await assert.rejects(closeOf(registered.token), /401/);
+  } finally {
+    await relay.close();
+  }
 });
 
 test('browser websocket upgrades require the relay origin', () => {

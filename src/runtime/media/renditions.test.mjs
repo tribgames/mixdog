@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
+import {
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import {
+  cacheRendition,
   createPriorityScheduler,
+  pruneRenditionCache,
   videoPosterArguments,
 } from './renditions.mjs';
 
@@ -51,4 +61,39 @@ test('rendition scheduler bounds work and prioritizes visible requests over queu
   releases.shift()();
   await Promise.all([first, second, third]);
   assert.equal(peak, 2);
+});
+
+test('rendition files reject oversized entries and obey a total disk budget', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-rendition-cache-'));
+  try {
+    const first = cacheRendition({
+      id: 'first',
+      variant: 'thumb',
+      mime: 'image/jpeg',
+      buffer: Buffer.alloc(10, 1),
+      cacheDir: root,
+    });
+    const second = cacheRendition({
+      id: 'second',
+      variant: 'thumb',
+      mime: 'image/jpeg',
+      buffer: Buffer.alloc(10, 2),
+      cacheDir: root,
+    });
+    assert.ok(first && second);
+    utimesSync(first.path, new Date(1_000), new Date(1_000));
+    const pruned = pruneRenditionCache(root, { maxBytes: 10 });
+    assert.equal(pruned.bytes, 10);
+    assert.equal(existsSync(first.path), false);
+    assert.equal(existsSync(second.path), true);
+    assert.equal(cacheRendition({
+      id: 'oversized',
+      variant: 'thumb',
+      mime: 'image/jpeg',
+      buffer: Buffer.alloc(4 * 1024 * 1024 + 1),
+      cacheDir: root,
+    }), null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

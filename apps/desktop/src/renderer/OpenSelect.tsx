@@ -10,6 +10,7 @@ import React, {
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
+import { registerMobileBack } from './mobile-back';
 import { MxIcon } from './MxIcon';
 import { useSurfaceActive } from './surface-activity';
 
@@ -187,6 +188,13 @@ export function OpenSelect({
   }, [menuOpen]);
   useEffect(() => {
     if (!menuOpen) preparedPosition.current = null;
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    return registerMobileBack(() => {
+      setOpen(false);
+      queueMicrotask(() => trigger.current?.focus());
+    });
   }, [menuOpen]);
 
   useEffect(() => {

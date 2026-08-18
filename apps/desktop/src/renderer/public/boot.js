@@ -1,11 +1,29 @@
+// Remote Web is a projection of the desktop composition, not a separately
+// reflowed phone UI. Set the desktop's canonical width before CSS evaluates;
+// mobile browsers scale the 1040px canvas to fit and keep pinch/pan available.
+if (!/Electron/i.test(navigator.userAgent)) {
+  var mixdogViewport = document.querySelector('meta[name="viewport"]');
+  if (mixdogViewport) {
+    mixdogViewport.setAttribute(
+      'content',
+      'width=1040, viewport-fit=cover, interactive-widget=resizes-content',
+    );
+  }
+  document.documentElement.dataset.mixdogProjection = 'desktop';
+}
+
 // First-paint theme: resolve the stored preference before any CSS evaluates.
 try {
   var mixdogThemePref = localStorage.getItem('mixdog.desktop-theme-preference');
   var mixdogLight = mixdogThemePref === 'white'
     || (mixdogThemePref !== 'dark'
+      && mixdogThemePref !== 'gray'
       && window.matchMedia
       && window.matchMedia('(prefers-color-scheme: light)').matches);
-  if (mixdogLight) {
+  if (mixdogThemePref === 'gray') {
+    document.documentElement.dataset.mixdogTheme = 'gray';
+    document.documentElement.style.colorScheme = 'dark';
+  } else if (mixdogLight) {
     document.documentElement.dataset.mixdogTheme = 'light';
     document.documentElement.style.colorScheme = 'light';
   }
@@ -21,7 +39,7 @@ try {
     var div = document.createElement('div');
     div.id = 'mixdog-boot-error';
     div.style.cssText = 'position:fixed;inset:0;z-index:99999;padding:24px;overflow:auto;'
-      + 'background:#151518;color:#e9e9e9;font:400 13px/19px monospace;white-space:pre-wrap;';
+      + 'background:#111114;color:#e9e9e9;font:400 13px/19px monospace;white-space:pre-wrap;';
     div.textContent = 'Mixdog failed to start.\n\n'
       + (errors.join('\n\n') || 'No error captured - the app bundle may not have loaded.');
     document.body.appendChild(div);

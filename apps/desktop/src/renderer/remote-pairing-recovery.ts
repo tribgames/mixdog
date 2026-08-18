@@ -2,6 +2,7 @@ export const REMOTE_PAIRING_STORAGE_KEYS = {
   token: 'mixdog.remote-token',
   server: 'mixdog.remote-server',
   paired: 'mixdog.remote-paired',
+  browserId: 'mixdog.remote-browser-id',
   e2eePublicKey: 'mixdog.remote-e2ee-public-key',
   e2eeSecret: 'mixdog.remote-e2ee-secret',
 } as const;
@@ -69,9 +70,13 @@ export function normalizeRemoteExternalUrl(value: string): string {
 export function isInvalidRemotePairingClose(
   event: Pick<CloseEvent, 'code' | 'reason'>,
 ): boolean {
-  if (event.code === 4003) return true;
+  // 4003: pairing/device revoked. 4005: relay v2 refused a stale or legacy
+  // shared token — only a fresh QR scan recovers either.
+  if (event.code === 4003 || event.code === 4005) return true;
   if (event.code !== 4004) return false;
-  return /relay encryption (?:handshake (?:required|timed out)|authentication failed)|invalid encrypted relay frame/iu
+  // 4004 is a generic desktop rejection; only permanent E2EE failures drop the
+  // pairing. A handshake TIMEOUT is transient (busy desktop) and reconnects.
+  return /relay encryption (?:handshake required|authentication failed)|invalid encrypted relay frame/iu
     .test(event.reason);
 }
 

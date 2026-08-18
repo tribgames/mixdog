@@ -1,7 +1,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
 
 import type { DesktopRendererFailureDiagnostic } from "../shared/contract";
-import { ProgressSpinner } from "./ProgressSpinner";
+import { ProgressSpinner, WindowLoadingMark } from "./ProgressSpinner";
 
 type RendererFailurePhase = DesktopRendererFailureDiagnostic["phase"];
 type RendererFailureLocation = {
@@ -189,13 +189,17 @@ export function installGlobalRendererDiagnostics(): () => void {
 export function DesktopLoadingSurface({
   label,
   overlay = false,
+  brand = false,
 }: {
   label: string;
   overlay?: boolean;
+  brand?: boolean;
 }) {
   return <div className={`desktop-loading-surface${overlay ? " desktop-loading-surface--overlay" : ""}`}
     role="status" aria-live="polite" aria-label={label}>
-    <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
+    {brand
+      ? <WindowLoadingMark size={24} aria-hidden="true" />
+      : <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />}
   </div>;
 }
 

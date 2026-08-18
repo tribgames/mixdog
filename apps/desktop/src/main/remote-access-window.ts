@@ -5,7 +5,7 @@
 import type { BrowserWindow } from 'electron';
 import QRCode from 'qrcode';
 
-import type { DesktopRemoteAccessInfo } from '../shared/contract';
+import type { DesktopRemoteAccessInfo, DesktopRemoteClientInfo } from '../shared/contract';
 import type { RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 
 export interface RemoteAccessDescriptor {
@@ -13,6 +13,7 @@ export interface RemoteAccessDescriptor {
     clientUrl: string;
     token: string;
     pairing: RelayE2EEPairingMaterial;
+    clients?: DesktopRemoteClientInfo[];
   };
 }
 
@@ -33,6 +34,7 @@ export async function buildRemoteAccessInfo(
   return {
     relayBrowserUrl,
     relayBrowserQrSvg: await qrSvg(relayBrowserUrl),
+    clients: relay.clients ?? [],
   };
 }
 
@@ -52,7 +54,7 @@ export async function showRemoteAccessWindow(
 </div>`;
   const html = `<!doctype html><meta charset="utf-8"><title>Remote access</title>
 <style>
-  body { margin: 0; padding: 28px; background: #151518; color: #e9e9e9;
+  body { margin: 0; padding: 28px; background: #111114; color: #e9e9e9;
     font: 400 14px/21px system-ui, sans-serif; user-select: text; }
   h1 { margin: 0 0 4px; font-size: 17px; }
   p { margin: 0 0 18px; color: #a8a8a8; font-size: 12.5px; line-height: 18px; }
@@ -77,7 +79,7 @@ ${body}`;
     fullscreenable: false,
     autoHideMenuBar: true,
     title: 'Remote access',
-    backgroundColor: '#151518',
+    backgroundColor: '#111114',
     parent: parent ?? undefined,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
   });

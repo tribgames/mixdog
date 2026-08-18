@@ -20,7 +20,6 @@ import {
   shouldBlockPromptSubmit,
   shouldInterruptPrompt,
   shouldNavigatePromptHistory,
-  shouldRestoreInterruptedPrompt,
   shouldStopComposerGeneration,
 } from "./renderer-logic.mjs";
 import {
@@ -31,6 +30,7 @@ import {
   type SettingsSection,
 } from "./slash-commands";
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
+import { touchPrimaryPointer } from "./surface-input-focus";
 import { registerImagePreview } from "./transcript-metrics";
 import { classifyPromptEscape, PROMPT_ESCAPE_HINT_TIMEOUT_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import {
@@ -426,7 +426,7 @@ export const Composer = memo(function Composer({
     setDraggingFiles(false);
   }, [transitioning]);
   useEffect(() => {
-    if (wasTransitioning.current && !transitioning) {
+    if (wasTransitioning.current && !transitioning && !touchPrimaryPointer()) {
       window.setTimeout(() => {
         if (document.activeElement?.classList.contains("session-header-title-input")) return;
         textarea.current?.focus({ preventScroll: true });
@@ -435,7 +435,7 @@ export const Composer = memo(function Composer({
     wasTransitioning.current = transitioning;
   }, [transitioning]);
   useEffect(() => {
-    if (focusRequest <= 0 || transitioning) return undefined;
+    if (focusRequest <= 0 || transitioning || touchPrimaryPointer()) return undefined;
     const timer = window.setTimeout(() => {
       if (document.activeElement?.classList.contains("session-header-title-input")) return;
       textarea.current?.focus({ preventScroll: true });
@@ -447,6 +447,7 @@ export const Composer = memo(function Composer({
   // focus moves belong to the focusRequest/transition effects above, and an
   // element the user already focused is never stolen from.
   useEffect(() => {
+    if (touchPrimaryPointer()) return undefined;
     const timer = window.setTimeout(() => {
       const active = document.activeElement;
       const typing = active instanceof HTMLElement
@@ -1346,6 +1347,7 @@ export const Composer = memo(function Composer({
       // and attachments without creating a session ahead of user intent.
       const committedAttachments = [...used];
       const retryKey = submissionRetryKey(expandedText, committedAttachments);
+      const submittedDisplayText = expandedText.trim();
       const priorRetry = submissionRetryRef.current;
       const submissionId = priorRetry?.key === retryKey
         ? priorRetry.id
@@ -1364,7 +1366,7 @@ export const Composer = memo(function Composer({
       try {
         accepted = await submit(content, {
           id: submissionId,
-          ...(used.length ? { displayText: expandedText.trim() } : {}),
+          ...(submittedDisplayText ? { displayText: submittedDisplayText } : {}),
           ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
           ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
         });
@@ -1611,7 +1613,9 @@ export const Composer = memo(function Composer({
       escapeClearAtRef.current = escape.nextClearPressAt;
       if (escape.action === 'interrupt') {
         event.preventDefault();
-        void stop(Boolean(draft || attachments.length), pendingSubmissionId);
+        // Once the runtime owns the turn, Esc only interrupts it. A submission
+        // id is used solely while the prompt is still waiting at intake.
+        void stop(Boolean(draft || attachments.length), turnBusy ? '' : pendingSubmissionId);
       } else if (escape.action === 'collapse-selection') {
         event.preventDefault();
         const end = element.selectionEnd;
@@ -1712,13 +1716,7 @@ export const Composer = memo(function Composer({
   const stop = async (preserveDraft = false, submissionId = '') => {
     const restorePrompt = submissionId
       ? !preserveDraft
-      : shouldRestoreInterruptedPrompt({
-        hasDraft: preserveDraft,
-        // Use the raw editable queue projection, not the post-restore latch.
-        // A just-submitted optimistic follow-up may not have reached the daemon
-        // yet, but it still owns the next turn after this interrupt.
-        hasQueuedMessages: Boolean(queuedProjectionKey),
-      });
+      : false;
     const result = asRecord(await abort({
       restorePrompt,
       ...(submissionId ? { submissionId } : {}),
@@ -1782,6 +1780,7 @@ export const Composer = memo(function Composer({
       )}
       <form className="composer" onSubmit={onSubmit}
         aria-busy={transitioning} onMouseDown={(event) => {
+          if (touchPrimaryPointer()) return;
           const target = event.target as HTMLElement;
           if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
         }}>

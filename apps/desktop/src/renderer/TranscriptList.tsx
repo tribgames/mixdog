@@ -631,7 +631,25 @@ export function TranscriptList({
     const handlePointerMove = (event: PointerEvent) => {
       if (!selecting) return;
       lastPointer = { x: event.clientX, y: event.clientY };
-      if (!pointerOverTranscriptRow()) clampOutside();
+      if (!pointerOverTranscriptRow()) {
+        // Chromium remaps an extending native range to the nearest selectable
+        // text when the pointer enters the non-selectable composer. Cancel that
+        // default before paint; selectionchange is too late and exposes one
+        // frame with the range inverted above its seed.
+        event.preventDefault();
+        clampOutside();
+      }
+    };
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!selecting) return;
+      lastPointer = { x: event.clientX, y: event.clientY };
+      if (!pointerOverTranscriptRow()) {
+        // Text-range extension is a mouse default action in Chromium even
+        // when Pointer Events are enabled, so cancel the compatibility event
+        // as well as pointermove.
+        event.preventDefault();
+        clampOutside();
+      }
     };
     const handleSelectStart = (event: Event) => {
       if (!selecting) return;
@@ -651,6 +669,7 @@ export function TranscriptList({
     };
     root.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("pointermove", handlePointerMove, true);
+    document.addEventListener("mousemove", handleMouseMove, true);
     document.addEventListener("selectstart", handleSelectStart, true);
     document.addEventListener("selectionchange", syncSelectionPin);
     document.addEventListener("pointerup", finishSelection, true);
@@ -658,6 +677,7 @@ export function TranscriptList({
     return () => {
       root.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("pointermove", handlePointerMove, true);
+      document.removeEventListener("mousemove", handleMouseMove, true);
       document.removeEventListener("selectstart", handleSelectStart, true);
       document.removeEventListener("selectionchange", syncSelectionPin);
       document.removeEventListener("pointerup", finishSelection, true);

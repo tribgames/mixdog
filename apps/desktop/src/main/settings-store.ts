@@ -58,6 +58,7 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     autoClear: autoClear.enabled !== false,
     autoCompact: compaction.auto !== false && compaction.enabled !== false,
     keepAwake: desktop.keepAwake !== false,
+    usagePinned: desktop.usagePinned === true,
   };
 }
 
@@ -126,6 +127,8 @@ export class DesktopSettingsStore {
         agent.compaction = compaction;
       } else if (key === 'keepAwake') {
         next.desktop = { ...record(next.desktop), keepAwake: enabled };
+      } else if (key === 'usagePinned') {
+        next.desktop = { ...record(next.desktop), usagePinned: enabled };
       }
       next.agent = agent;
       return next;

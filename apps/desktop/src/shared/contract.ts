@@ -57,6 +57,7 @@ export const DESKTOP_IPC = {
   deleteSession: 'mixdog:delete-session',
   remoteAccessInfo: 'mixdog:remote-access-info',
   rotateRemoteAccess: 'mixdog:rotate-remote-access',
+  revokeRemoteAccessClient: 'mixdog:revoke-remote-access-client',
   prefetchSession: 'mixdog:prefetch-session',
   setVisibleSessions: 'mixdog:set-visible-sessions',
   listAgentPool: 'mixdog:list-agent-pool',
@@ -86,6 +87,9 @@ export const DESKTOP_IPC = {
   sessionStateResync: 'mixdog:session-state-resync',
   sessionsChanged: 'mixdog:sessions-changed',
   agentPoolChanged: 'mixdog:agent-pool-changed',
+  remoteProjectionChanged: 'mixdog:remote-projection-changed',
+  getRemoteProjection: 'mixdog:get-remote-projection',
+  setRemoteProjection: 'mixdog:set-remote-projection',
   stateResync: 'mixdog:state-resync',
   perfLog: 'mixdog:perf-log',
   rendererDiagnostic: 'mixdog:renderer-diagnostic',
@@ -720,13 +724,15 @@ export interface DesktopCapabilityResult<T = unknown> {
   snapshot: SessionSnapshot;
 }
 
-export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake';
+export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake' | 'usagePinned';
 
 export interface DesktopSettings {
   autoClear: boolean;
   autoCompact: boolean;
   /** Desktop-only: hold a power-save blocker while agents are working. */
   keepAwake: boolean;
+  /** Activity-rail usage pin mode, shared by desktop and remote surfaces. */
+  usagePinned: boolean;
 }
 
 /** Settings → Git: GitHub CLI presence and auth, probed through gh itself. */
@@ -796,9 +802,20 @@ export type DesktopSessionClassification = 'task' | 'project' | null;
 
 /** Pairing card data for Settings → Connection (QRs pre-rendered as SVG in
  *  the main process so the renderer needs no QR dependency). */
+export interface DesktopRemoteClientInfo {
+  id: string;
+  name: string;
+  platform: string;
+  browser: string;
+  createdAt: number;
+  lastSeenAt: number;
+  online: boolean;
+}
+
 export interface DesktopRemoteAccessInfo {
   relayBrowserUrl: string;
   relayBrowserQrSvg: string;
+  clients: DesktopRemoteClientInfo[];
 }
 
 export interface DesktopSessionSummary {
@@ -1326,6 +1343,24 @@ export interface DesktopLocalFileData {
   data: string;
 }
 
+/** Small, last-writer-wins UI projection shared by Electron and paired web
+ * clients. Pane geometry remains local; `selection` is the first visual pane. */
+export interface DesktopRemoteProjectionInput {
+  sourceId: string;
+  selection: unknown;
+  sidebarOpen: boolean;
+  sidebarPanel: string | null;
+  dockOpen: boolean;
+  dockTab: string;
+  bottomPanelOpen: boolean;
+  bottomPanelTab: string;
+}
+
+export interface DesktopRemoteProjectionState extends DesktopRemoteProjectionInput {
+  revision: number;
+  updatedAt: number;
+}
+
 export interface DesktopApi {
   /** Immutable process timeline identity injected before renderer modules run. */
   readonly bootContext?: DesktopBootContext;
@@ -1482,6 +1517,13 @@ export interface DesktopApi {
   /** Event-driven process-global agent lifecycle pool. */
   listAgentPool?(): Promise<DesktopAgentPoolRow[]>;
   subscribeAgentPool?(listener: (agents: DesktopAgentPoolRow[]) => void): () => void;
+  getRemoteProjection?(): Promise<DesktopRemoteProjectionState | null>;
+  setRemoteProjection?(
+    projection: DesktopRemoteProjectionInput,
+  ): Promise<DesktopRemoteProjectionState>;
+  subscribeRemoteProjection?(
+    listener: (projection: DesktopRemoteProjectionState) => void,
+  ): () => void;
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   deleteSession(sessionId: string): Promise<SessionSnapshot>;
@@ -1492,6 +1534,9 @@ export interface DesktopApi {
   /** Settings → Connection: revoke every paired phone by minting a new
    *  pairing token and restarting the bridge/relay legs. */
   rotateRemoteAccess?(): Promise<DesktopRemoteAccessInfo | null>;
+  /** Settings → Connection: revoke one browser while preserving every other
+   *  browser's individual credential. */
+  revokeRemoteAccessClient?(clientId: string): Promise<DesktopRemoteAccessInfo | null>;
   prefetchSession?(sessionId: string): Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;

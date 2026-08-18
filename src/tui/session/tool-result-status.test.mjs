@@ -87,15 +87,15 @@ test('read-only navigation misses stay neutral even with an error envelope', () 
 });
 
 test('failure detail keeps Ok / Failed / command-failure buckets distinct', () => {
-  assert.equal(failureDetailText({ succeeded: 1, realErrors: 1, exitErrors: 1, exitCode: 3 }), '1 Ok · 1 Failed · 1 Commands failed');
-  assert.equal(failureDetailText({ succeeded: 0, realErrors: 0, exitErrors: 1, exitCode: 3 }), 'Command failed (exit 3)');
+  assert.equal(failureDetailText({ succeeded: 1, realErrors: 1, exitErrors: 1, exitCode: 3 }), '1 Ok · 1 Failed · 1 Exited non-zero');
+  assert.equal(failureDetailText({ succeeded: 0, realErrors: 0, exitErrors: 1, exitCode: 3 }), 'Exited 3');
   // Exit 0 no longer feeds exitErrors, so an all-success group is pure Ok.
   assert.equal(failureDetailText({ succeeded: 2, realErrors: 0, exitErrors: 0 }), '2 Ok');
 });
 
 test('shared TUI/desktop tone keeps command failures warning and tool failures red', () => {
   assert.equal(shellDisplayStatus({ exitFailedCount: 1 }), 'exit');
-  assert.equal(displayTerminalStatus('exit'), 'Command failed');
+  assert.equal(displayTerminalStatus('exit'), 'Exited');
   assert.equal(deriveToolOutcomeTone({ terminalStatus: 'exit', exitFailedCount: 1 }), 'warning');
   assert.equal(deriveToolOutcomeTone({ terminalStatus: 'failed', callFailedCount: 1 }), 'error');
 });

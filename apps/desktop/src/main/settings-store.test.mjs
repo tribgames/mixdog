@@ -31,6 +31,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     autoClear: true,
     autoCompact: true,
     keepAwake: true,
+    usagePinned: false,
   });
   assert.deepEqual(desktopSettingsFromConfig({
     agent: {
@@ -42,6 +43,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     autoClear: false,
     autoCompact: false,
     keepAwake: false,
+    usagePinned: false,
   });
 });
 
@@ -105,7 +107,12 @@ test('writes are atomic core updates that retain unrelated config and nested fie
   await store.update('keepAwake', false);
   const result = await store.update('autoCompact', true);
 
-  assert.deepEqual(result, { autoClear: false, autoCompact: true, keepAwake: false });
+  assert.deepEqual(result, {
+    autoClear: false,
+    autoCompact: true,
+    keepAwake: false,
+    usagePinned: false,
+  });
   assert.deepEqual(value.providers, { openai: { enabled: true } });
   assert.deepEqual(value.agent, {
     profile: { title: 'Owner' },

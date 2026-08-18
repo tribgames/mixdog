@@ -84,7 +84,7 @@ export function recordFetchedMessages(channelId, channelLabel, messages, options
 // scheduler accepts cron expressions exclusively (scheduler.mjs:68), so the
 // fallback could only produce stale next-fire timestamps for entries that
 // never actually fire under the cron-only scheduler.
-async function computeSnapshot(scheduler) {
+export async function computeSnapshot(scheduler) {
   const now = Date.now();
 
   // ── Schedules ──────────────────────────────────────────────────────────────
@@ -97,9 +97,10 @@ async function computeSnapshot(scheduler) {
       for (const [name, task] of scheduler.cronJobs) {
         if (scheduler.shouldSkip && scheduler.shouldSkip(name)) continue;
         try {
-          // node-cron ScheduledTask exposes nextDate() / getNextDate()
-          // depending on the installed version; try both.
+          // node-cron v4 exposes getNextRun(); retain older aliases for
+          // compatibility with persisted installations on an earlier runtime.
           const nd =
+            (typeof task.getNextRun === 'function' ? task.getNextRun() : null) ??
             (typeof task.nextDate  === 'function' ? task.nextDate()  : null) ??
             (typeof task.getNextDate === 'function' ? task.getNextDate() : null);
           if (!nd) continue;

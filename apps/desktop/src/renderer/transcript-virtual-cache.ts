@@ -9,7 +9,10 @@ import type { VirtualItem } from "@tanstack/react-virtual";
  * one flat estimate; the first measurement replaces it.
  */
 export const TRANSCRIPT_ROW_ESTIMATE = 60;
-export const TRANSCRIPT_VIRTUAL_OVERSCAN = 20;
+// 10 rows per side: markdown rows are expensive to mount, and restored REAL
+// measurements (not estimates) keep scrolling stable, so a wider overscan
+// only added per-tick mount/measure cost without a smoothness gain.
+export const TRANSCRIPT_VIRTUAL_OVERSCAN = 10;
 // A floating prompt dock needs ~64px of clearance behind its translucent
 // overlay. Mixdog's
 // composer sits in flow BELOW the viewport, so the same 64px rendered as pure

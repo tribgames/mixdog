@@ -70,10 +70,6 @@ export function isComposerNewlineChord(input?: {
   altKey?: boolean;
   shiftLatched?: boolean;
 }): boolean;
-export function shouldRestoreInterruptedPrompt(input?: {
-  hasDraft?: boolean;
-  hasQueuedMessages?: boolean;
-}): boolean;
 export function shouldInterruptPrompt(input?: {
   turnBusy?: boolean;
   pendingSubmissionId?: string;

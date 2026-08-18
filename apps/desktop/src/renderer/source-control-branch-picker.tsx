@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 
 import type { DesktopGitBranch, DesktopGitStatus } from "../shared/contract";
 import { commitImmediateOverlay } from "./immediate-overlay";
+import { touchPrimaryPointer } from "./surface-input-focus";
 import type { ScmContextMenuItem } from "./ScmContextMenu";
 
 interface BranchCapabilities {
@@ -117,7 +118,9 @@ export function SourceControlBranchPicker({
     {open && createPortal(<div className="dock-scm-branch-picker" role="dialog"
       aria-label="Git branches" ref={panelRef} style={panelStyle}>
       <header>
-        <input type="search" value={query} autoFocus
+        {/* Touch devices browse the list first; autofocus would raise the
+            software keyboard over it. */}
+        <input type="search" value={query} autoFocus={!touchPrimaryPointer()}
           aria-label="Filter branches"
           placeholder="Filter"
           onInput={(event) => onQueryChange(event.currentTarget.value)} />

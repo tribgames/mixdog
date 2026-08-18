@@ -2,9 +2,11 @@ import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import type { DesktopProjectSummary } from "../shared/contract";
 import { scheduleStableSurfaceCommit } from "./PaneSurfaceGate";
 import { SidebarPanelBoundary } from "./sidebar-panel-surface";
+import { SidebarPanelSection } from "./session-sidebar";
 import type { SidebarPanelKey } from "./app-shell-components";
 import type { useAppShellPanels } from "./use-app-shell-panels";
 import { useStableEvent } from "./use-stable-event";
+import type { SidebarViewGroup, SidebarViewPlacement } from "./sidebar-view-layout";
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
@@ -15,6 +17,9 @@ export function useAppSidebarSurface({
   projectsOpen,
   workflowsOpen,
   sidebarOpen,
+  viewGroups,
+  getViewDragProps,
+  onMoveView,
   loadedSidebarPanels,
   failedSidebarPanels,
   mountedSidebarPanels,
@@ -40,6 +45,13 @@ export function useAppSidebarSurface({
   projectsOpen: boolean;
   workflowsOpen: boolean;
   sidebarOpen: boolean;
+  viewGroups: readonly SidebarViewGroup[];
+  getViewDragProps(panel: SidebarPanelKey): React.HTMLAttributes<HTMLElement>;
+  onMoveView(
+    sourceId: SidebarPanelKey,
+    targetId: SidebarPanelKey,
+    placement: SidebarViewPlacement,
+  ): void;
   loadedSidebarPanels: ReadonlySet<string>;
   failedSidebarPanels: ReadonlySet<string>;
   mountedSidebarPanels: ReadonlySet<string>;
@@ -66,6 +78,11 @@ export function useAppSidebarSurface({
     : projectsOpen ? "projects"
     : workflowsOpen ? "workflows"
     : "sessions";
+  const sidebarGroupFor = (surface: SidebarSurface): readonly SidebarPanelKey[] =>
+    surface === "sessions"
+      ? []
+      : viewGroups.find((group) => group.includes(surface)) ?? [surface];
+  const requestedSidebarGroup = sidebarGroupFor(requestedSidebarSurface);
   const sidebarPanel = requestedSidebarSurface === "sessions" ? null : requestedSidebarSurface;
   // The sidebar subtree owns every visited panel's DOM and state, so it stays
   // mounted (inert + aria-hidden + zero width via .sidebar-collapsed / the
@@ -88,11 +105,12 @@ export function useAppSidebarSurface({
   const warmSidebarSurfaces = useRef<ReadonlySet<SidebarSurface>>(new Set(["sessions"]));
   const [laggedSidebarSurface, setLaggedSidebarSurface] = useState<SidebarSurface>("sessions");
   const requestedSidebarPanelReady = requestedSidebarSurface === "sessions"
-    || ((loadedSidebarPanels.has(requestedSidebarSurface)
-      // A failed chunk still has content to present: the panel-local
-      // unavailable state. It is presentable, never warm.
-      || failedSidebarPanels.has(requestedSidebarSurface))
-      && mountedSidebarPanels.has(requestedSidebarSurface));
+    || requestedSidebarGroup.every((panel) =>
+      (loadedSidebarPanels.has(panel)
+        // A failed chunk still has content to present: the panel-local
+        // unavailable state. It is presentable, never warm.
+        || failedSidebarPanels.has(panel))
+      && mountedSidebarPanels.has(panel));
   // A resolved module whose pane is already mounted hidden is just as ready
   // as a previously presented destination: both can become visible in this
   // click's own commit. Projects is prepared this way after boot so its rows
@@ -100,8 +118,8 @@ export function useAppSidebarSurface({
   const requestedSidebarSurfaceWarm = sidebarTreeMounted
     && (warmSidebarSurfaces.current.has(requestedSidebarSurface)
       || (requestedSidebarSurface !== "sessions"
-        && loadedSidebarPanels.has(requestedSidebarSurface)
-        && mountedSidebarPanels.has(requestedSidebarSurface)));
+        && requestedSidebarGroup.every((panel) =>
+          loadedSidebarPanels.has(panel) && mountedSidebarPanels.has(panel))));
   const presentedSidebarSurface: SidebarSurface = requestedSidebarSurfaceWarm
     ? requestedSidebarSurface
     : laggedSidebarSurface;
@@ -139,8 +157,9 @@ export function useAppSidebarSurface({
     // Warm means committed usable content: the panel is mounted, its module
     // resolved, and it has actually been presented inside the open sidebar.
     if (!sidebarOpen || presentedSidebarSurface === "sessions") return;
-    if (!loadedSidebarPanels.has(presentedSidebarSurface)) return;
-    if (!mountedSidebarPanels.has(presentedSidebarSurface)) return;
+    const presentedGroup = sidebarGroupFor(presentedSidebarSurface);
+    if (!presentedGroup.every((panel) => loadedSidebarPanels.has(panel))) return;
+    if (!presentedGroup.every((panel) => mountedSidebarPanels.has(panel))) return;
     if (warmSidebarSurfaces.current.has(presentedSidebarSurface)) return;
     warmSidebarSurfaces.current = new Set([
       ...warmSidebarSurfaces.current,
@@ -153,26 +172,29 @@ export function useAppSidebarSurface({
     sidebarOpen,
     sidebarTreeMounted,
   ]);
-  const presentedSidebarPanel = presentedSidebarSurface === "sessions"
-    ? null
-    : presentedSidebarSurface;
   // ACTIVE is the panel lifecycle the panes themselves see. A hidden sidebar
   // has no active destination: rail panels portal their editors to
   // document.body, where the sidebar's inert/aria-hidden does not reach, so a
   // titlebar/backdrop collapse must deactivate the panel even though the
   // request is unchanged. Panels close only their dialogs on deactivation and
   // keep list/filter state.
-  const activeSidebarPanel = sidebarOpen ? presentedSidebarPanel : null;
+  const presentedSidebarGroup = sidebarGroupFor(presentedSidebarSurface);
+  const presentedSidebarPanel = presentedSidebarSurface === "sessions"
+    ? null
+    : presentedSidebarGroup[0] ?? presentedSidebarSurface;
+  const activeSidebarPanels = sidebarOpen
+    ? new Set<SidebarPanelKey>(presentedSidebarGroup)
+    : new Set<SidebarPanelKey>();
   const SchedulesPane = sidebarPanes.schedules;
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
   const WorkflowsPane = sidebarPanes.workflows;
   const UtilitiesPane = sidebarPanes.utilities;
-  const sidebarPanelTitle = presentedSidebarSurface === "utilities" ? "Utilities"
-    : presentedSidebarSurface === "schedules" ? "Schedules"
-    : presentedSidebarSurface === "webhooks" ? "Webhooks"
-    : presentedSidebarSurface === "projects" ? "Projects"
-    : presentedSidebarSurface === "workflows" ? "Workflows"
+  const sidebarPanelTitle = presentedSidebarPanel === "utilities" ? "Utilities"
+    : presentedSidebarPanel === "schedules" ? "Schedules"
+    : presentedSidebarPanel === "webhooks" ? "Webhooks"
+    : presentedSidebarPanel === "projects" ? "Projects"
+    : presentedSidebarPanel === "workflows" ? "Workflows"
     : "";
   // Stable sidebar handlers + memoised panel children: SessionSidebar, its
   // rows, and every rail panel are memoised, but fresh inline closures and a
@@ -210,57 +232,96 @@ export function useAppSidebarSurface({
     if (!host?.writeInstructions) throw new Error("Desktop bridge is unavailable.");
     await host.writeInstructions(path, content);
   });
-  const sidebarPanelChildren = useMemo(() => <>
+  const renderSidebarPanel = (
+    panel: SidebarPanelKey,
+    active: boolean,
+  ): React.ReactNode => {
+    if (!mountedSidebarPanels.has(panel)) return null;
+    const label = panel === "utilities" ? "Utilities"
+      : panel === "schedules" ? "Schedules"
+      : panel === "webhooks" ? "Webhooks"
+      : panel === "projects" ? "Projects"
+      : "Workflows";
+    const content = panel === "utilities"
+      ? <UtilitiesPane active={active}
+          onOpenStudio={utilitiesOpenStudio}
+          onOpenTerminal={utilitiesOpenTerminal}
+          onOpenExplorer={utilitiesOpenExplorer} />
+      : panel === "schedules"
+        ? <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
+        : panel === "webhooks"
+          ? <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />
+          : panel === "workflows"
+            ? <WorkflowsPane active={active} />
+            : <ProjectsPane active={active}
+                projects={projects} selectedProjectPath={selectedProjectPath}
+                onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
+                onCreateProject={projectsCreate}
+                onRename={projectsRename}
+                onRemove={projectsRemove}
+                instructionsSupported={!!window.mixdogDesktop?.readInstructions}
+                onReadInstructions={async (path) =>
+                  (await window.mixdogDesktop?.readInstructions?.(path)) ?? ''}
+                onSaveInstructions={projectsSaveInstructions}
+                onMemoryControl={async (input) => (await window.mixdogDesktop.invokeCapability({
+                  capability: 'memoryControl',
+                  args: [input, { silent: true }],
+                })).value} />;
+    return <SidebarPanelBoundary label={label} active={active}
+      onFailure={() => markSidebarPanelFailed(panel)}
+      onRetry={() => retrySidebarPanel(panel)}>
+      <Suspense fallback={null}>{content}</Suspense>
+    </SidebarPanelBoundary>;
+  };
+  const sidebarPanelChildren = useMemo(() => {
+    const sectioned = presentedSidebarGroup.length > 1;
+    const panelSurface = (
+      panel: SidebarPanelKey,
+      label: string,
+      render: (active: boolean) => React.ReactNode,
+    ) => {
+      const active = activeSidebarPanels.has(panel);
+      return <SidebarPanelSection key={panel} id={panel} title={label}
+        active={active} sectioned={sectioned && active}
+        order={active ? presentedSidebarGroup.indexOf(panel) : undefined}
+        dragProps={getViewDragProps(panel)} onMoveView={onMoveView}>
+        {(sectionActive) => (
+          <SidebarPanelBoundary label={label} active={sectionActive}
+            onFailure={() => markSidebarPanelFailed(panel)}
+            onRetry={() => retrySidebarPanel(panel)}>
+            <Suspense fallback={null}>{render(sectionActive)}</Suspense>
+          </SidebarPanelBoundary>
+        )}
+      </SidebarPanelSection>;
+    };
+    return <>
     {/* One bounded boundary per destination: a rejected chunk becomes a
         compact panel-local unavailable state instead of escaping to the
         root and replacing the whole app. */}
     {mountedSidebarPanels.has("utilities") && (
-    <SidebarPanelBoundary label="Utilities" active={activeSidebarPanel === "utilities"}
-      onFailure={() => markSidebarPanelFailed("utilities")}
-      onRetry={() => retrySidebarPanel("utilities")}>
-    <Suspense fallback={null}>
-      <UtilitiesPane active={activeSidebarPanel === "utilities"}
+    panelSurface("utilities", "Utilities", (active) =>
+      <UtilitiesPane active={active}
         onOpenStudio={utilitiesOpenStudio}
         onOpenTerminal={utilitiesOpenTerminal}
-        onOpenExplorer={utilitiesOpenExplorer} />
-    </Suspense>
-    </SidebarPanelBoundary>
+        onOpenExplorer={utilitiesOpenExplorer} />)
     )}
     {mountedSidebarPanels.has("schedules") && (
-    <SidebarPanelBoundary label="Schedules" active={activeSidebarPanel === "schedules"}
-      onFailure={() => markSidebarPanelFailed("schedules")}
-      onRetry={() => retrySidebarPanel("schedules")}>
-    <Suspense fallback={null}>
-      <SchedulesPane active={activeSidebarPanel === "schedules"}
-        runningNames={runningAutomationNames.schedule} />
-    </Suspense>
-    </SidebarPanelBoundary>
+    panelSurface("schedules", "Schedules", (active) =>
+      <SchedulesPane active={active}
+        runningNames={runningAutomationNames.schedule} />)
     )}
     {mountedSidebarPanels.has("webhooks") && (
-    <SidebarPanelBoundary label="Webhooks" active={activeSidebarPanel === "webhooks"}
-      onFailure={() => markSidebarPanelFailed("webhooks")}
-      onRetry={() => retrySidebarPanel("webhooks")}>
-    <Suspense fallback={null}>
-      <WebhooksPane active={activeSidebarPanel === "webhooks"}
-        runningNames={runningAutomationNames.webhook} />
-    </Suspense>
-    </SidebarPanelBoundary>
+    panelSurface("webhooks", "Webhooks", (active) =>
+      <WebhooksPane active={active}
+        runningNames={runningAutomationNames.webhook} />)
     )}
     {mountedSidebarPanels.has("workflows") && (
-    <SidebarPanelBoundary label="Workflows" active={activeSidebarPanel === "workflows"}
-      onFailure={() => markSidebarPanelFailed("workflows")}
-      onRetry={() => retrySidebarPanel("workflows")}>
-    <Suspense fallback={null}>
-      <WorkflowsPane active={activeSidebarPanel === "workflows"} />
-    </Suspense>
-    </SidebarPanelBoundary>
+    panelSurface("workflows", "Workflows", (active) =>
+      <WorkflowsPane active={active} />)
     )}
     {mountedSidebarPanels.has("projects") && (
-    <SidebarPanelBoundary label="Projects" active={activeSidebarPanel === "projects"}
-      onFailure={() => markSidebarPanelFailed("projects")}
-      onRetry={() => retrySidebarPanel("projects")}>
-    <Suspense fallback={null}>
-      <ProjectsPane active={activeSidebarPanel === "projects"}
+    panelSurface("projects", "Projects", (active) =>
+      <ProjectsPane active={active}
         projects={projects} selectedProjectPath={selectedProjectPath}
         onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
         onCreateProject={projectsCreate}
@@ -272,17 +333,17 @@ export function useAppSidebarSurface({
         onMemoryControl={async (input) => (await window.mixdogDesktop.invokeCapability({
           capability: 'memoryControl',
           args: [input, { silent: true }],
-        })).value} />
-    </Suspense>
-    </SidebarPanelBoundary>
+        })).value} />)
     )}
-  </>, [
+  </>;
+  }, [
     ProjectsPane,
     SchedulesPane,
     UtilitiesPane,
     WebhooksPane,
     WorkflowsPane,
-    activeSidebarPanel,
+    activeSidebarPanels,
+    getViewDragProps,
     markSidebarPanelFailed,
     mountedSidebarPanels,
     projects,
@@ -293,6 +354,8 @@ export function useAppSidebarSurface({
     retrySidebarPanel,
     runningAutomationNames,
     selectedProjectPath,
+    onMoveView,
+    presentedSidebarGroup,
     utilitiesOpenExplorer,
     utilitiesOpenStudio,
     utilitiesOpenTerminal,
@@ -307,5 +370,6 @@ export function useAppSidebarSurface({
     sidebarPanelTitle,
     sidebarResumeSession,
     sidebarTreeMounted,
+    renderSidebarPanel,
   };
 }

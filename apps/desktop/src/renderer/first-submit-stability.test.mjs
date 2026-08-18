@@ -49,6 +49,15 @@ test("a pane session swap stays covered until the incoming lane can paint", () =
   });
 });
 
+test("a session prepared before navigation skips the one-frame switch cover", () => {
+  assert.deepEqual(conversationSwitchPaintGate("sess_1", "sess_2", {
+    contentReady: true,
+    preparedBeforeSwitch: true,
+  }), {
+    adoptNow: true, reveal: true,
+  });
+});
+
 test("draft promotion and New Task skip the session-switch cover hold", () => {
   assert.deepEqual(conversationSwitchPaintGate("draft", "sess_1", {
     promotingFromDraft: true, contentReady: false,

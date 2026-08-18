@@ -16,7 +16,7 @@ export type RecordValue = Record<string, unknown>;
 export type CapabilityApi = Partial<Pick<DesktopApi,
   'invokeCapability' | 'readCapabilities' | 'listProviderModels' | 'setModelRoute' | 'setFast' | 'getSnapshot'
   | 'subscribeState' | 'getUpdaterState' | 'subscribeUpdaterState' | 'checkForDesktopUpdate'
-  | 'showDesktopUpdate' | 'getRemoteAccessInfo' | 'rotateRemoteAccess'>>;
+  | 'showDesktopUpdate' | 'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'>>;
 
 export interface CapabilitySettingsProps {
   api: CapabilityApi;

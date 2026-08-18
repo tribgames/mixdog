@@ -37,6 +37,13 @@ export class TerminalWritePump {
     this.drain();
   }
 
+  /** True while server output (acknowledged writes) is queued or in flight.
+   *  Local prediction/replay writes do not count. */
+  get hasQueuedOutput(): boolean {
+    return Boolean(this.active?.acknowledge)
+      || this.pending.some((item) => item.acknowledge);
+  }
+
   /** Replays reconnect scrollback before newly arriving acknowledged output. */
   writeReplay(data: string): Promise<void> {
     const value = String(data || "");

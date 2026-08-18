@@ -2,7 +2,9 @@
 // concurrent multi-session waves and checks that results stay correct and
 // bounded under load (no unhandled rejections, no resource-pressure failures,
 // patch/read integrity preserved, cancellation clean). One-shot script:
-// `node scripts/tool-stress.mjs`. Exit 0 = stable, 1 = instability found.
+// `node scripts/tool-stress.mjs --unsafe-live`. Exit 0 = stable, 1 = instability found.
+// This intentionally exercises shell cancellation and concurrent mutations.
+// Use tool-search-bench.mjs for routine, read-only exploration diagnostics.
 import '../src/runtime/shared/uv-threadpool-boot.mjs';
 import './native-spawn-test-runtime.mjs';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -16,6 +18,11 @@ import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session
 import { warmNativeSpawnServer } from '../src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs';
 import { warmNativeSearchServer } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
 import { prewarmFindEnumeration } from '../src/runtime/agent/orchestrator/tools/builtin/list-tool.mjs';
+
+if (!process.argv.includes('--unsafe-live')) {
+  console.error('Refusing high-impact tool stress without --unsafe-live; run `node scripts/tool-search-bench.mjs` for safe exploration diagnostics.');
+  process.exit(2);
+}
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const SESSIONS = 8;

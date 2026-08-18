@@ -1,0 +1,65 @@
+.remote-install-prompt {
+  position: fixed;
+  z-index: 1200;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(520px, calc(100vw - 28px));
+  padding: 12px 12px 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 14px;
+  background: rgba(31, 31, 35, 0.96);
+  color: #f3f3f4;
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.remote-install-prompt > div {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.remote-install-prompt b {
+  font-size: 13px;
+}
+
+.remote-install-prompt span {
+  color: #b6b6bc;
+  font-size: 12px;
+}
+
+.remote-install-prompt button {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: inherit;
+  cursor: pointer;
+}
+
+.remote-install-prompt__install {
+  padding: 7px 13px;
+  border-radius: 8px;
+  background: #ececef;
+  color: #17171a !important;
+  font-weight: 650;
+}
+
+.remote-install-prompt__dismiss {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #aaaab1 !important;
+  font-size: 19px;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .remote-install-prompt {
+    align-items: flex-start;
+  }
+}

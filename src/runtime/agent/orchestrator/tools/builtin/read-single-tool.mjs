@@ -14,7 +14,10 @@ import {
 import { extractOoxmlText } from './read-office-files.mjs';
 
 function snapshotBodyWasReturnedByRead(snapshot) {
-    return String(snapshot?.source || '').startsWith('read');
+    const source = String(snapshot?.source || '');
+    return source.startsWith('read')
+        || source === 'edit'
+        || source.startsWith('apply_patch_');
 }
 
 // BOM-only read-encoding detection. Mirrors CC fileRead.ts:34
@@ -271,6 +274,20 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         const _rawMsg = err instanceof Error ? err.message : String(err);
         const _safeMsg = normalizeErrorMessage(_rawMsg, workDir);
         return `Error: ${_safeMsg}${hint}`;
+    }
+    // A successful edit/apply_patch leaves a session-scoped full-file snapshot.
+    // The model already knows the resulting body from the prior body plus its
+    // mutation, so a follow-up Read needs only the stat tuple to prove that no
+    // external write landed afterward. Do not reopen/hash the file body merely
+    // to return the unchanged stub.
+    const _mutationSnapshot = readStateScope ? getReadSnapshot(fullPath, readStateScope) : null;
+    const _mutationSource = String(_mutationSnapshot?.source || '');
+    if (
+        (_mutationSource === 'edit' || _mutationSource.startsWith('apply_patch_'))
+        && statMatchesSnapshot(st, _mutationSnapshot)
+        && snapshotCoversFullFile(_mutationSnapshot)
+    ) {
+        return `[file unchanged: ${normalizeOutputPath(filePath)}]`;
     }
     // MEDIA-WINS: .pdf/.ipynb dispatch runs BEFORE any cache/snapshot fast
     // path. A media file previously read as text can carry a stale result-

@@ -58,7 +58,7 @@ import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
 import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, flushRawEmbeddings, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
 import { callAgentDispatch } from './lib/agent-ipc.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
-import { claimAndMarkScheduledCycle, markCycleRequest, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
+import { cancelCoalescedCycleRetries, claimAndMarkScheduledCycle, markCycleRequest, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
 import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './lib/memory-recall-id-patch.mjs'
 import { retrieveEntries } from './lib/memory-retrievers.mjs'
@@ -420,6 +420,7 @@ const _cycleScheduler = createCycleScheduler({
   markCycleRequest,
   resolveCoalesceMaxRetries,
   scheduleCoalescedCycleRetry,
+  cancelCoalescedCycleRetries,
   scheduledCycle1Signature,
   scheduledCycle2Signature,
   scheduledCycle3Signature,

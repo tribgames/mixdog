@@ -8,6 +8,7 @@ import "./remote-shim";
 import "./i18n";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { RemoteInstallPrompt } from "./RemoteInstallPrompt";
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from "./RendererRecovery";
 import "@fontsource-variable/inter";
 // Grok-web feel: Geist leads the Latin stack (Universal Sans's closest open
@@ -25,6 +26,11 @@ import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 // DOM mounts. Keeping this in the lazy chunk exposed raw textarea/token DOM for
 // a frame before Vite injected the stylesheet.
 import "monaco-editor/min/vs/editor/editor.main.css";
+// VS Code's codicon FONT (B안): chrome-level glyphs render through the text
+// rasterizer on their native 16px grid — crisp on device pixels where the
+// scaled 24-grid lucide SVG strokes went fractional and soft. Loaded BEFORE
+// desktop.css so our sizing overrides win the equal-specificity cascade.
+import "@vscode/codicons/dist/codicon.css";
 import "./ui/tokens.css";
 import "./styles.css";
 import "./desktop.css";
@@ -32,6 +38,7 @@ import "./desktop.css";
 import "./pane-layout.css";
 import "./webview-zoom";
 import { installShellViewport } from "./shell-viewport";
+import { installMobileSurfaceMarker } from "./mobile-surface";
 import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
 import { preloadMarkdownBody } from "./TranscriptView";
@@ -60,6 +67,10 @@ const removeAutoDomI18n = installAutoDomI18n();
 window.addEventListener("beforeunload", removeAutoDomI18n, { once: true });
 const removeShellViewport = installShellViewport();
 window.addEventListener("beforeunload", removeShellViewport, { once: true });
+// Phone marker BEFORE the first React render (user: 첫 진입 레이아웃 시프트):
+// the Chrome-toolbar/drawer/popup CSS keys on the root attribute, so it must
+// exist before the desktop grammar can paint even once.
+installMobileSurfaceMarker();
 const syncMotionVisibility = () => {
   document.documentElement.dataset.mixdogMotion =
     document.visibilityState === "visible" ? "running" : "paused";
@@ -99,6 +110,7 @@ const reactCommitted = new Promise<void>((resolve) => {
 createRoot(document.getElementById("root")!).render(
   <DesktopErrorBoundary>
     <App />
+    <RemoteInstallPrompt />
   </DesktopErrorBoundary>,
 );
 markBootStage("react-render-requested");

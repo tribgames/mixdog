@@ -14,9 +14,30 @@ import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
 // exactly like `-Command <script>`.
 const STANDBY_BOOTSTRAP = "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); . ([scriptblock]::Create([Console]::In.ReadToEnd()))";
 const STANDBY_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', STANDBY_BOOTSTRAP];
-const STANDBY_TTL_MS = 10 * 60_000;
+const _configuredIdleMs = Number(process.env.MIXDOG_SHELL_WARM_STANDBY_IDLE_MS);
+const STANDBY_TTL_MS = Number.isFinite(_configuredIdleMs) && _configuredIdleMs >= 100
+    ? Math.floor(_configuredIdleMs)
+    : 2 * 60_000;
 
 let _slot = null; // { native, shell, envSig, createdAt }
+let _slotIdleTimer = null;
+
+function _clearSlotIdleTimer() {
+    if (!_slotIdleTimer) return;
+    clearTimeout(_slotIdleTimer);
+    _slotIdleTimer = null;
+}
+
+function _armSlotIdleTimer(slot) {
+    _clearSlotIdleTimer();
+    _slotIdleTimer = setTimeout(() => {
+        _slotIdleTimer = null;
+        if (_slot !== slot) return;
+        _slot = null;
+        try { slot.native.child.kill(); } catch { /* best-effort */ }
+    }, STANDBY_TTL_MS);
+    _slotIdleTimer.unref?.();
+}
 
 function _disabled() {
     return process.env.MIXDOG_SHELL_WARM_STANDBY === '0';
@@ -57,6 +78,7 @@ export function ensureWarmShellStandby({ shell, env }) {
                 env,
                 cwd: process.cwd(),
                 outputLimit: SHELL_OUTPUT_DISK_CAP,
+                rawOutput: true,
                 stdinPipe: true,
                 shellType: 'powershell',
                 command: '(warm shell standby)',
@@ -73,9 +95,15 @@ export function ensureWarmShellStandby({ shell, env }) {
         envSig: envSignature(env),
         createdAt: Date.now(),
     };
-    native.child.once('close', () => { if (_slot === slot) _slot = null; });
-    native.child.once('error', () => { if (_slot === slot) _slot = null; });
+    const release = () => {
+        if (_slot !== slot) return;
+        _slot = null;
+        _clearSlotIdleTimer();
+    };
+    native.child.once('close', release);
+    native.child.once('error', release);
     _slot = slot;
+    _armSlotIdleTimer(slot);
 }
 
 /** Take the parked standby for immediate use, or null on any mismatch.
@@ -98,12 +126,14 @@ export function takeWarmShellStandby({ shell, env, cwd }) {
                 || Date.now() - slot.createdAt > STANDBY_TTL_MS
                 || slot.envSig !== envSignature(env))) {
             _slot = null;
+            _clearSlotIdleTimer();
             try { slot.native.child.kill(); } catch { /* best-effort */ }
         }
         refill();
         return null;
     }
     _slot = null;
+    _clearSlotIdleTimer();
     // Back to active: the caller is about to run a real command on it and the
     // host must stay alive until that command settles.
     setNativeSpawnRequestIdle(slot.native.child, false);
@@ -125,6 +155,7 @@ export function takeWarmShellStandby({ shell, env, cwd }) {
 export function _resetWarmShellStandbyForTest() {
     const slot = _slot;
     _slot = null;
+    _clearSlotIdleTimer();
     if (slot?.native?.child) {
         try { slot.native.child.kill(); } catch { /* best-effort */ }
     }

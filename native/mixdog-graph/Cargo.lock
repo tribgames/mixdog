@@ -449,6 +449,7 @@ dependencies = [
  "tree-sitter-swift",
  "tree-sitter-typescript",
  "tree-sitter-zig",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

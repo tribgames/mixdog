@@ -2,7 +2,7 @@
 // the panes themselves (WorkspaceTabStrip); the bar
 // keeps the draggable run, the updater badge plus the three global layout
 // toggles on its right edge, and the Windows caption reserve.
-import { ArrowDown, PanelBottom, PanelLeft, PanelRight } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 
 import type { DesktopUpdaterState } from "../shared/contract";
 import { t } from "./i18n";
@@ -22,9 +22,10 @@ interface DesktopTitlebarProps {
 }
 
 function SidebarToggleIcon({ open }: { open: boolean }) {
-  // Outline-only glyph (user: no filled state) from the rounded lucide set,
-  // matching the New task / Project icons.
-  return <PanelLeft className="sidebar-toggle-icon" size={18}
+  // VS Code's own codicon glyph (user: B안 — codicon 도입): font-rendered on
+  // the 16px grid so its lines land on device pixels, unlike lucide's 24-grid
+  // SVGs whose strokes go fractional when scaled to 16/18px boxes.
+  return <span className="sidebar-toggle-icon codicon codicon-layout-sidebar-left"
     data-state={open ? "open" : "closed"} aria-hidden="true" />;
 }
 
@@ -56,10 +57,21 @@ export function DesktopTitlebar({
     <header className="topbar" aria-label={t("Window bar")}>
       {/* No brand mark (user: 로고는 날려버리고) — the bar opens straight on
           the navigation cluster and stays the drag band. */}
-      {/* LEFT cluster: the sidebar toggle only — the ◀ ▶ pane-cycle pair
-          was dropped (user: 좌우 이동 버튼 의미 없는 듯, 지우자); pane
-          focus now follows Ctrl+Left/Right at tab boundaries. */}
+      {/* LEFT cluster: the brand mark only (VS Code grammar — user: 왼쪽
+          사이드탭 열기는 오른쪽으로, 그 자리에 로고). The sidebar toggle
+          moved into the right layout cluster below. */}
       <div className="titlebar-leading titlebar-nav" aria-label={t("Navigation")}>
+        <span className="titlebar-brand" aria-hidden="true">
+          <img src="./mixdog.svg" alt="" draggable={false} />
+        </span>
+      </div>
+      <div className="titlebar-spacer" aria-hidden="true" />
+      {/* RIGHT cluster (user: 하단·오른쪽은 우측에, 코덱스와 달리 윗줄에):
+          updater badge + bottom-panel + right-dock toggles, ahead of the
+          native caption reserve. */}
+      <div className="titlebar-leading titlebar-controls" aria-label={t("Layout controls")}>
+        {/* VS Code layout-control order: primary sidebar, panel, secondary
+            sidebar — all clustered at the right edge. */}
         <button
           type="button"
           className="icon-button toolbar-sidebar"
@@ -70,12 +82,6 @@ export function DesktopTitlebar({
         >
           <SidebarToggleIcon open={sidebarOpen} />
         </button>
-      </div>
-      <div className="titlebar-spacer" aria-hidden="true" />
-      {/* RIGHT cluster (user: 하단·오른쪽은 우측에, 코덱스와 달리 윗줄에):
-          updater badge + bottom-panel + right-dock toggles, ahead of the
-          native caption reserve. */}
-      <div className="titlebar-leading titlebar-controls" aria-label={t("Layout controls")}>
         {updateVisible && (
           <button
             type="button"
@@ -102,7 +108,7 @@ export function DesktopTitlebar({
             aria-label={t(panelOpen ? "Close panel" : "Open panel")}
             data-tooltip={t(panelOpen ? "Close panel" : "Open panel")}
           >
-            <PanelBottom className="sidebar-toggle-icon" size={18} aria-hidden="true" />
+            <span className="sidebar-toggle-icon codicon codicon-layout-panel" aria-hidden="true" />
           </button>
         )}
         {onToggleDock && (
@@ -114,7 +120,7 @@ export function DesktopTitlebar({
             aria-label={t(dockOpen ? "Close {{label}}" : "Open {{label}}", { label: t(dockLabel) })}
             data-tooltip={t(dockOpen ? "Close {{label}}" : "Open {{label}}", { label: t(dockLabel) })}
           >
-            <PanelRight className="sidebar-toggle-icon" size={18} aria-hidden="true" />
+            <span className="sidebar-toggle-icon codicon codicon-layout-sidebar-right" aria-hidden="true" />
           </button>
         )}
       </div>

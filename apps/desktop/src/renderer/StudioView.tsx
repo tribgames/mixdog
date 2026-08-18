@@ -1394,13 +1394,13 @@ export function StudioPane({
                 ? <span className="studio-tile-badge">{asset.durationSeconds || durations[asset.id]}s</span>
                 : null}
             </button>
-            {/* Clean tiles: detail opens from the media itself; only destructive
-                cleanup remains in the top-right hover control. */}
-            {!narrowPane && <div className="studio-tile-actions">
+            {/* Delete stays on every tile, including split/narrow panes. Video
+                hover preview still follows narrowPane for decoder cost. */}
+            <div className="studio-tile-actions">
               <button type="button" className="studio-tile-remove" aria-label={t('Delete asset')}
                 title={assetLabel(asset)}
                 onClick={() => void remove(asset)}><Trash2 size={16} aria-hidden="true" /></button>
-            </div>}
+            </div>
           </figure>;
           })}
           </div>)}

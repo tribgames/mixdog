@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "mode": "terminal-bench-pristine",
+  "routeProfile": "sol-xhigh",
+  "workflow": "default",
+  "configSha256": "ef562d4b46770deb5dfadefade5f32bc2dd1a5e96ae83b7ddb703ee556e13997",
+  "providerIds": [
+    "openai-oauth"
+  ],
+  "injectedCredentialFileCount": 1,
+  "injectedModelCatalogFileCount": 1,
+  "personalState": {
+    "hostConfigRead": false,
+    "behavioralStateFilesCopied": 0,
+    "memoryFilesCopied": 0,
+    "sessionFilesCopied": 0,
+    "userProfileFilesCopied": 0,
+    "pluginStateFilesCopied": 0,
+    "channelStateFilesCopied": 0,
+    "otherPersonalStateFilesCopied": 0
+  },
+  "featuresEnabled": {
+    "mcpSources": false,
+    "skills": false,
+    "bundledSkillSeeding": false,
+    "coreMemoryBoot": false,
+    "channelStart": false,
+    "plugins": false,
+    "userProfiles": false,
+    "priorSessions": false
+  }
+}

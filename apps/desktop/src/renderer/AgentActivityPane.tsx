@@ -1,7 +1,7 @@
 import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
-import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
+import type { DesktopAgentPoolRow, DesktopApi, DesktopSessionSummary } from '../shared/contract';
 import {
   desktopAgentIdentity,
   desktopAgentStatus,
@@ -9,14 +9,93 @@ import {
   isQueuedDesktopAgentEntry,
 } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
-import { FastModeIndicator } from './FastModeToggle';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
-import { modelDisplayName } from './provider-display';
+import { modelDisplayName, ModelRouteLabel } from './provider-display';
 import { formatWorkElapsed, timeMs } from './TranscriptView';
 
 type RecordValue = Record<string, unknown>;
 export const AGENT_POOL_RECONCILE_MS = 2_000;
+
+interface AgentPoolStore {
+  host?: DesktopApi;
+  rows: DesktopAgentPoolRow[] | null;
+  revision: number;
+  started: boolean;
+  inFlight?: Promise<void>;
+  listeners: Set<() => void>;
+  getSnapshot(): DesktopAgentPoolRow[] | null;
+  subscribe(listener: () => void): () => void;
+}
+
+const AGENT_POOL_STORES = new WeakMap<object, AgentPoolStore>();
+const EMPTY_AGENT_POOL_STORE = createAgentPoolStore();
+
+function createAgentPoolStore(host?: DesktopApi): AgentPoolStore {
+  const store: AgentPoolStore = {
+    host,
+    rows: host ? null : [],
+    revision: 0,
+    started: false,
+    listeners: new Set(),
+    getSnapshot: () => store.rows,
+    subscribe: (listener) => {
+      store.listeners.add(listener);
+      return () => { store.listeners.delete(listener); };
+    },
+  };
+  return store;
+}
+
+function agentPoolStore(host?: DesktopApi): AgentPoolStore {
+  if (!host || typeof host !== 'object') return EMPTY_AGENT_POOL_STORE;
+  const cached = AGENT_POOL_STORES.get(host);
+  if (cached) return cached;
+  const created = createAgentPoolStore(host);
+  AGENT_POOL_STORES.set(host, created);
+  return created;
+}
+
+function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
+  store.rows = Array.isArray(rows) ? rows as DesktopAgentPoolRow[] : [];
+  for (const listener of store.listeners) listener();
+}
+
+function refreshAgentPool(store: AgentPoolStore): Promise<void> {
+  if (store.inFlight) return store.inFlight;
+  const listAgentPool = store.host?.listAgentPool;
+  if (typeof listAgentPool !== 'function') {
+    publishAgentPool(store, []);
+    return Promise.resolve();
+  }
+  const revision = store.revision;
+  const request = Promise.resolve(listAgentPool()).then((rows) => {
+    if (revision === store.revision) publishAgentPool(store, rows);
+  }).catch(() => {
+    if (revision === store.revision && store.rows === null) publishAgentPool(store, []);
+  }).finally(() => {
+    if (store.inFlight === request) store.inFlight = undefined;
+  });
+  store.inFlight = request;
+  return request;
+}
+
+function startAgentPool(store: AgentPoolStore): void {
+  if (store.started) return;
+  store.started = true;
+  const subscribeAgentPool = store.host?.subscribeAgentPool;
+  if (typeof subscribeAgentPool === 'function') {
+    subscribeAgentPool((rows) => {
+      store.revision += 1;
+      publishAgentPool(store, rows);
+    });
+  }
+  void refreshAgentPool(store);
+}
+
+export function preloadAgentPool(host: DesktopApi | undefined = window.mixdogDesktop): void {
+  startAgentPool(agentPoolStore(host));
+}
 
 interface LiveAgentSummary {
   key: string;
@@ -225,6 +304,7 @@ function AgentPoolRow({
   clock,
   ownerSessionId,
   unread = false,
+  onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
 }: {
@@ -234,6 +314,7 @@ function AgentPoolRow({
   /** The owner session has unseen activity: this rest is a FINISHED turn, not
    *  an idle sit — the row carries the completion notice the Recent dot does. */
   unread?: boolean;
+  onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
@@ -266,16 +347,18 @@ function AgentPoolRow({
         : t('Idle');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();
-  const effortLabel = effortValue
-    ? `${effortValue.slice(0, 1).toLocaleUpperCase()}${effortValue.slice(1)}`
-    : '';
-  const routeLabel = [modelLabel, effortLabel].filter(Boolean).join(' · ');
+  const prefetch = () => {
+    if (sessionId) onPrefetchSession?.(lead ? ownerSessionId : sessionId);
+  };
   return <button type="button"
     className="schedules-row workflows-agent-summary-row agent-pool-row"
     data-agent-tag={agent.tag || undefined}
     data-agent-session-id={sessionId || undefined}
     aria-label={name}
     disabled={!sessionId}
+    onPointerEnter={prefetch}
+    onFocus={prefetch}
+    onPointerDown={prefetch}
     onClick={() => {
       if (!sessionId) return;
       if (lead) onOpenLeadSession?.(ownerSessionId);
@@ -284,8 +367,7 @@ function AgentPoolRow({
     <span className="schedules-row-copy">
       <b className="agent-pool-name">{name}</b>
       <small className="agent-route-summary" title={String(agent.model || '') || undefined}>
-        <span>{routeLabel}</span>
-        {agent.fast === true && <FastModeIndicator />}
+        <ModelRouteLabel model={modelLabel} effort={effortValue} fast={agent.fast === true} />
       </small>
     </span>
     <span className="agent-activity-status">
@@ -301,6 +383,7 @@ export function AgentActivityPane({
   active,
   sessions,
   unreadSessionIds,
+  onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
 }: {
@@ -310,61 +393,29 @@ export function AgentActivityPane({
   /** Recent-list unread set: an idle row whose session is unseen reads as
    *  "완료" until the session is actually opened. */
   unreadSessionIds?: ReadonlySet<string>;
+  onPrefetchSession?(sessionId: string): void;
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
-  const [agents, setAgents] = useState<DesktopAgentPoolRow[] | null>(null);
+  const poolStore = useMemo(() => agentPoolStore(window.mixdogDesktop), []);
+  const agents = useSyncExternalStore(
+    poolStore.subscribe,
+    poolStore.getSnapshot,
+    poolStore.getSnapshot,
+  );
   const [clock, setClock] = useState(() => Date.now());
   const [collapsedOwnerIds, setCollapsedOwnerIds] = useState<Set<string>>(() => new Set());
   const orderRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
-    const host = window.mixdogDesktop;
-    const listAgentPool = host?.listAgentPool;
-    if (typeof listAgentPool !== 'function') {
-      setAgents([]);
-      return undefined;
-    }
-    let live = true;
-    let pushedRevision = 0;
-    let requestSequence = 0;
-    let appliedRequest = 0;
-    let requestRunning = false;
-    let receivedRows = false;
-    const refresh = async () => {
-      if (requestRunning) return;
-      requestRunning = true;
-      const sequence = ++requestSequence;
-      const revision = pushedRevision;
-      try {
-        const rows = await listAgentPool();
-        if (!live || revision !== pushedRevision || sequence < appliedRequest) return;
-        appliedRequest = sequence;
-        receivedRows = true;
-        setAgents(Array.isArray(rows) ? rows : []);
-      } catch {
-        if (live && !receivedRows && revision === pushedRevision) setAgents([]);
-      } finally {
-        requestRunning = false;
-      }
-    };
-    void refresh();
-    const unsubscribe = typeof host.subscribeAgentPool === 'function'
-      ? host.subscribeAgentPool((rows) => {
-        if (!live) return;
-        pushedRevision += 1;
-        receivedRows = true;
-        setAgents(Array.isArray(rows) ? rows : []);
-      })
-      : undefined;
-    const reconcileTimer = active
-      ? window.setInterval(() => { void refresh(); }, AGENT_POOL_RECONCILE_MS)
-      : undefined;
-    return () => {
-      live = false;
-      if (reconcileTimer !== undefined) window.clearInterval(reconcileTimer);
-      unsubscribe?.();
-    };
-  }, [active]);
+    startAgentPool(poolStore);
+    if (!active) return undefined;
+    void refreshAgentPool(poolStore);
+    const reconcileTimer = window.setInterval(
+      () => { void refreshAgentPool(poolStore); },
+      AGENT_POOL_RECONCILE_MS,
+    );
+    return () => window.clearInterval(reconcileTimer);
+  }, [active, poolStore]);
   const groups = useMemo(() => {
     const byOwner = new Map<string, {
       ownerId: string;
@@ -463,6 +514,7 @@ export function AgentActivityPane({
             clock={clock}
             ownerSessionId={group.ownerId}
             unread={unreadSessionIds?.has(String(agent.sessionId || '').trim()) === true}
+            onPrefetchSession={onPrefetchSession}
             onOpenLeadSession={onOpenLeadSession}
             onOpenSession={onOpenSession} />)}
         </div>

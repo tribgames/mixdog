@@ -37,6 +37,10 @@ export function recordNativeSearchTiming(served) {
     target[`native_${requestClass}_requests`] = (Number(target[`native_${requestClass}_requests`]) || 0) + 1;
     addNumber(target, `native_${requestClass}_queue_ms`, served.queueMs);
     addNumber(target, `native_${requestClass}_handler_ms`, served.handlerMs);
+    if (requestClass === 'fuzzy') {
+        addNumber(target, 'native_fuzzy_inventory_ms', served.inventoryMs);
+        addNumber(target, 'native_fuzzy_rank_ms', served.rankMs);
+    }
 }
 
 export function recordLocalSearchCacheHit(layer) {

@@ -25,6 +25,13 @@ const runtimePackageDir = join(stagingDir, 'node_modules', 'mixdog');
 const runtimeArchive = join(runtimeDir, 'runtime.asar');
 const runtimeSidecar = `${runtimeArchive}.unpacked`;
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
+const desktopPtyPackageDir = join(
+  desktopDir,
+  'node_modules',
+  '@homebridge',
+  'node-pty-prebuilt-multiarch',
+);
+const builderDesktopPtyDir = join(runtimeDir, 'desktop-node-pty');
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
 const preparedRuntimeSchema = 1;
@@ -150,6 +157,7 @@ async function canReusePreparedRuntime(fingerprint) {
     await Promise.all([
       access(runtimeSidecar),
       access(builderNativeModulesDir),
+      access(join(builderDesktopPtyDir, 'package.json')),
       ...Object.values(DESKTOP_NATIVE_FILES).map((file) => access(join(desktopNativeToolsDir, file))),
     ]);
     return true;
@@ -265,6 +273,11 @@ async function prepareRuntime(manifest, fingerprint) {
 
   try {
     await timed('native-tools', () => prepareDesktopNativeTools());
+    await timed('desktop-node-pty', () => cp(
+      desktopPtyPackageDir,
+      builderDesktopPtyDir,
+      { recursive: true },
+    ));
     for (const fileName of ['package.json', 'package-lock.json']) {
       await cp(join(rootDir, fileName), join(stagingDir, fileName));
     }

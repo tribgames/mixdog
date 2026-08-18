@@ -41,6 +41,10 @@ extraResources:
   # restore Electron's exact ASAR-unpacked layout at the destination.
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
+  # The desktop daemon imports node-pty from app.asar.unpacked. Stage the
+  # complete package under a neutral path so electron-builder cannot filter it.
+  - from: .runtime/desktop-node-pty
+    to: app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch
   # Product-native executables stay canonical GitHub release assets. Desktop
   # preparation downloads, verifies, and embeds only this platform's set.
   - from: .runtime/native-tools

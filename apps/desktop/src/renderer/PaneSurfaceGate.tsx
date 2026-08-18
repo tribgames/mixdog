@@ -9,6 +9,7 @@ type SurfaceId = string | number;
 const SURFACE_FONT_WAIT_MAX_MS = 300;
 const STARTUP_SURFACE_FALLBACK_MS = 1_200;
 const DESKTOP_BOOT_COVER_MAX_MS = 4_000;
+const DESKTOP_BOOT_BRAND_FADE_MS = 160;
 
 function useStartupSurfaceReady(startupDelayMs: number | undefined): boolean {
   const host = window as typeof window & { __mixdogWindowShown?: boolean };
@@ -176,6 +177,8 @@ export function DesktopBootGate({
   const windowShown = useStartupSurfaceReady(0);
   const [armed, setArmed] = useState(!enabled);
   const [timedOut, setTimedOut] = useState(false);
+  const [handoffComplete, setHandoffComplete] = useState(!enabled);
+  const [coverLeaving, setCoverLeaving] = useState(false);
   const revealRequested = !enabled || timedOut
     || (armed && windowShown && ready && surfaces.pending === 0);
   const revealed = useStableSurfaceReveal(revealRequested, "desktop-cold-boot");
@@ -194,6 +197,19 @@ export function DesktopBootGate({
     }
   }, [surfaces.pendingKeys, timedOut]);
   useEffect(() => {
+    if (!revealed || handoffComplete) return undefined;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setHandoffComplete(true);
+      return undefined;
+    }
+    setCoverLeaving(true);
+    const timer = window.setTimeout(
+      () => setHandoffComplete(true),
+      DESKTOP_BOOT_BRAND_FADE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [handoffComplete, revealed]);
+  useEffect(() => {
     if (!revealed) return;
     barrier.seal();
     (window as typeof window & { __mixdogDesktopRevealed?: boolean })
@@ -203,16 +219,18 @@ export function DesktopBootGate({
   useEffect(() => () => barrier.dispose(), [barrier]);
 
   return <div className="desktop-boot-gate"
-    data-ready={revealed ? "true" : "false"}
+    data-ready={handoffComplete ? "true" : "false"}
+    data-brand-handoff={handoffComplete ? (enabled ? "desktop" : "browser") : undefined}
     data-timeout={timedOut ? "true" : undefined}
-    data-pending={enabled && !revealed ? surfaces.pending : undefined}>
+    data-pending={enabled && !handoffComplete ? surfaces.pending : undefined}>
     <div className="desktop-boot-gate-content"
-      inert={!revealed ? true : undefined}
-      aria-hidden={!revealed ? true : undefined}>
+      inert={!handoffComplete ? true : undefined}
+      aria-hidden={!handoffComplete ? true : undefined}>
       {children}
     </div>
-    {!revealed && <div className="desktop-boot-cover">
-      <DesktopLoadingSurface label={label} />
+    {!handoffComplete && <div className="desktop-boot-cover"
+      data-leaving={coverLeaving ? "true" : undefined}>
+      <DesktopLoadingSurface label={label} brand />
     </div>}
   </div>;
 }

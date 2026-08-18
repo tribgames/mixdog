@@ -972,7 +972,7 @@ export function neighborPaneLeafId(root: PaneNode, leafId: string): string | nul
   return remaining[Math.min(index, remaining.length - 1)].id;
 }
 
-function parsedSelection(value: unknown): WorkspaceSelection | null {
+export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | null {
   const record = value && typeof value === "object" ? value as Record<string, unknown> : null;
   if (!record) return null;
   switch (record.kind) {
@@ -1084,7 +1084,7 @@ export function parsePaneLayout(value: unknown): PaneNode | null {
       const tabs: WorkspaceSelection[] = [];
       const keys = new Set<string>();
       for (const value of rawTabs) {
-        const selection = parsedSelection(value);
+        const selection = parseWorkspaceSelection(value);
         if (!selection) return null;
         const key = navigationKey(selection);
         if (keys.has(key)) return null;

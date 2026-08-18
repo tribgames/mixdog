@@ -68,15 +68,23 @@ export function conversationSwitchPaintGate(
     hidden = false,
     promotingFromDraft = false,
     contentReady = false,
+    preparedBeforeSwitch = false,
   }: {
     hidden?: boolean;
     promotingFromDraft?: boolean;
     contentReady?: boolean;
+    preparedBeforeSwitch?: boolean;
   } = {},
 ): { adoptNow: boolean; reveal: boolean } {
   const incoming = String(incomingId || "").trim() || "draft";
   const held = String(heldId || "").trim() || "draft";
   if (hidden || promotingFromDraft || incoming === "draft" || held === "draft") {
+    return { adoptNow: true, reveal: true };
+  }
+  // A lane fetched before navigation already has its final transcript tree.
+  // Adopt it from the layout effect before Chromium paints; the extra covered
+  // rAF is only needed when readiness arrived after the route changed.
+  if (contentReady && preparedBeforeSwitch) {
     return { adoptNow: true, reveal: true };
   }
   if (!contentReady) return { adoptNow: false, reveal: false };
