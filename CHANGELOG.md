@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.137 - 2026-08-19
+
 - Remote reconnect recovery now refreshes session catalogs and mounted
   transcript lanes, and the update control leads the title-bar button group.
 
