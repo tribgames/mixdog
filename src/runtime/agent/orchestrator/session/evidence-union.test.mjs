@@ -209,3 +209,19 @@ test('shadow mode reports savings without changing provider messages', () => {
     assert.equal(projected.stats.reusedRows, 1);
     assert.ok(projected.stats.afterBytes < projected.stats.beforeBytes);
 });
+
+test('provider projection stays append-only when path aliases are disabled', () => {
+    const repeated = `src/${'nested/'.repeat(10)}feature.mjs`;
+    const firstMessages = [
+        call('glob_1', 'glob'),
+        result('glob_1', `${repeated}\nsrc/unique.mjs`),
+    ];
+    const first = projectProviderEvidence(firstMessages, { pathAliases: false });
+    const later = projectProviderEvidence([
+        ...firstMessages,
+        call('read_1', 'read', { file_path: repeated }),
+        result('read_1', `${repeated} [ok]\n1→export const value = 1;`),
+    ], { pathAliases: false });
+    assert.deepEqual(later.messages.slice(0, first.messages.length), first.messages);
+    assert.equal(later.stats.pathAliases, 0);
+});

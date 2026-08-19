@@ -741,6 +741,8 @@ export async function createLocalSessionRuntime({
     const responseItem = buildExecutionResponseToolItem(text, {
       id,
       responseKey: metadata.responseKey || metadata.executionId,
+      executionSurface: metadata.executionSurface,
+      executionStatus: metadata.executionStatus,
     });
     if (!responseItem) return pushUserOrSyntheticItem(text, id, origin);
     if (responseItem.name !== 'agent') {

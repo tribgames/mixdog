@@ -9,6 +9,13 @@ the Unreleased section is empty, and stamps it with the released version.
 
 - Remote reconnect recovery now refreshes session catalogs and mounted
   transcript lanes, and the update control leads the title-bar button group.
+- Remote web sessions now use client-scoped subscriptions, binary E2EE frames,
+  compact state/catalog deltas, terminal batching, and paint-latency probes,
+  reducing transfer volume while preserving live recovery on slow links.
+- Web transcript scrolling and composer input remain visually stable during
+  concurrent remote snapshots, session switches, and mobile rendering.
+- Runtime context, provider request recovery, background task notifications,
+  and completion restoration are hardened across long-running sessions.
 
 ## v0.9.136 - 2026-08-19
 

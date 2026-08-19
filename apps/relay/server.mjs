@@ -40,6 +40,10 @@ import {
   sendStaticFile,
 } from './lib/static-http.mjs';
 import { parseMediaRequest } from './lib/media-http.mjs';
+import {
+  decodeRelayBinaryFrame,
+  encodeRelayBinaryFrame,
+} from './lib/relay-binary-frame.mjs';
 
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 // Slow-consumer guards: a phone that stops draining would otherwise buffer
@@ -1140,9 +1144,17 @@ function runDesktopLeg(context, deviceId, socket) {
   socket.isAlive = true;
   socket.on('pong', () => { socket.isAlive = true; });
   socket.on('error', () => { /* surfaced as close */ });
-  socket.on('message', (raw) => {
+  sendJson(socket, { type: 'relay-capabilities', binaryFrames: 1 });
+  socket.on('message', (raw, isBinary) => {
     if (revoked) return;
     socket.isAlive = true;
+    if (isBinary) {
+      const frame = decodeRelayBinaryFrame(raw);
+      if (!frame) return;
+      const phone = entry.clients.get(frame.clientId);
+      if (phone) sendToPhone(phone, frame.data, frame.droppable);
+      return;
+    }
     let message;
     try { message = JSON.parse(raw.toString()); } catch { return; }
     if (message.type === 'revoke-device') {
@@ -1246,8 +1258,14 @@ function runClientLeg(entry, sendJson, socket, browserClientId = null) {
   socket.isAlive = true;
   socket.on('pong', () => { socket.isAlive = true; });
   socket.on('error', () => { /* surfaced as close */ });
-  socket.on('message', (raw) => {
+  socket.on('message', (raw, isBinary) => {
     socket.isAlive = true;
+    if (isBinary) {
+      try {
+        entry.socket.send(encodeRelayBinaryFrame({ clientId, data: raw }));
+      } catch { /* desktop leg vanished */ }
+      return;
+    }
     const text = raw.toString();
     // Phone liveness probe: answered at the relay — reaching this hop is the
     // question being asked (a dead desktop closes this leg outright).

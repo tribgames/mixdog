@@ -326,11 +326,12 @@ export function createAgentJobFeed({
         if (firstDelivery && !successfulPreview && !bodyAlreadyDisplayed) {
           if (cardKey) rememberDisplayedExecutionNotificationKey(cardKey, terminal, executionId);
           if (executionId) rememberDisplayedExecutionResponseState(executionId, hasBody ? 'body' : 'preview', terminal);
-          // Execution completions are inbound agent responses. The session runtime keeps
-          // their aggregation tail-safe (only an immediately-adjacent inbound
-          // response of the same preview/body phase can merge); the fallback
-          // preserves the standalone path for minimal/test harnesses.
-          (pushAsyncAgentResponse || pushUserOrSyntheticItem)(delivery.displayText, nextId(), 'injected', { responseKey: executionId });
+          // Preserve the canonical execution surface through card construction;
+          // text parsing remains a fallback for restored/legacy envelopes.
+          (pushAsyncAgentResponse || pushUserOrSyntheticItem)(delivery.displayText, nextId(), 'injected', {
+            responseKey: executionId,
+            ...(delivery.executionMeta || {}),
+          });
         }
         refreshAgentStatus(parsed);
         const resumeBody = String(delivery.modelContent || '').trim();

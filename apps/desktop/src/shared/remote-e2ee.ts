@@ -1,5 +1,7 @@
 const E2EE_VERSION = 1 as const;
 const E2EE_CONTEXT = 'mixdog-relay-e2ee-v1';
+const E2EE_BINARY_MAGIC = new Uint8Array([0x4d, 0x58, 0x45, 0x01]);
+const E2EE_BINARY_HEADER_BYTES = 24;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -18,6 +20,8 @@ export interface RelayE2EEChallenge {
   type: 'e2ee-challenge';
   version: typeof E2EE_VERSION;
   challenge: string;
+  binaryFrames?: 1;
+  listDelta?: 1;
 }
 
 export interface RelayE2EEHello {
@@ -26,6 +30,8 @@ export interface RelayE2EEHello {
   challenge: string;
   clientPublicKey: string;
   proof: string;
+  binaryFrames?: 1;
+  listDelta?: 1;
 }
 
 interface RelayE2EEBox {
@@ -67,6 +73,44 @@ function randomBytes(length: number): Uint8Array {
 
 function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer as ArrayBuffer;
+}
+
+function binaryBytes(value: unknown): Uint8Array | null {
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return null;
+}
+
+function encodeBinaryBox(sequence: number, nonce: Uint8Array, ciphertext: Uint8Array): Uint8Array {
+  const output = new Uint8Array(E2EE_BINARY_HEADER_BYTES + ciphertext.byteLength);
+  output.set(E2EE_BINARY_MAGIC, 0);
+  new DataView(output.buffer).setBigUint64(4, BigInt(sequence), false);
+  output.set(nonce, 12);
+  output.set(ciphertext, E2EE_BINARY_HEADER_BYTES);
+  return output;
+}
+
+function decodeBinaryBox(value: unknown): {
+  sequence: number;
+  nonce: Uint8Array;
+  ciphertext: Uint8Array;
+} | null {
+  const bytes = binaryBytes(value);
+  if (!bytes || bytes.byteLength < E2EE_BINARY_HEADER_BYTES + 16) return null;
+  if (E2EE_BINARY_MAGIC.some((byte, index) => bytes[index] !== byte)) return null;
+  const rawSequence = new DataView(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength,
+  ).getBigUint64(4, false);
+  if (rawSequence < 1n || rawSequence > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  return {
+    sequence: Number(rawSequence),
+    nonce: bytes.slice(12, 24),
+    ciphertext: bytes.slice(E2EE_BINARY_HEADER_BYTES),
+  };
 }
 
 function proofPayload(
@@ -183,10 +227,10 @@ export class RelayE2EEChannel {
     private readonly role: 'client' | 'server',
   ) {}
 
-  encryptJson(value: unknown): Promise<string> {
-    let resolveResult!: (value: string) => void;
+  private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array> {
+    let resolveResult!: (value: string | Uint8Array) => void;
     let rejectResult!: (reason: unknown) => void;
-    const result = new Promise<string>((resolve, reject) => {
+    const result = new Promise<string | Uint8Array>((resolve, reject) => {
       resolveResult = resolve;
       rejectResult = reject;
     });
@@ -205,15 +249,26 @@ export class RelayE2EEChannel {
         this.key,
         arrayBuffer(encoder.encode(JSON.stringify(value))),
       );
-      resolveResult(JSON.stringify({
-        type: 'e2ee-box',
-        version: E2EE_VERSION,
-        sequence,
-        nonce: base64UrlEncode(nonce),
-        ciphertext: base64UrlEncode(new Uint8Array(ciphertext)),
-      } satisfies RelayE2EEBox));
+      const encrypted = new Uint8Array(ciphertext);
+      resolveResult(binary
+        ? encodeBinaryBox(sequence, nonce, encrypted)
+        : JSON.stringify({
+          type: 'e2ee-box',
+          version: E2EE_VERSION,
+          sequence,
+          nonce: base64UrlEncode(nonce),
+          ciphertext: base64UrlEncode(encrypted),
+        } satisfies RelayE2EEBox));
     }).catch(rejectResult);
     return result;
+  }
+
+  encryptJson(value: unknown): Promise<string> {
+    return this.encrypt(value, false) as Promise<string>;
+  }
+
+  encryptBinary(value: unknown): Promise<Uint8Array> {
+    return this.encrypt(value, true) as Promise<Uint8Array>;
   }
 
   decryptJson(raw: unknown): Promise<unknown> {
@@ -224,10 +279,22 @@ export class RelayE2EEChannel {
       rejectResult = reject;
     });
     this.receiveQueue = this.receiveQueue.then(async () => {
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) as unknown : raw;
-      if (!isBox(parsed)) throw new Error('Expected an encrypted relay frame.');
-      if (parsed.sequence <= this.receiveSequence) throw new Error('Rejected replayed relay frame.');
-      const nonce = base64UrlDecode(parsed.nonce);
+      const binary = decodeBinaryBox(raw);
+      let sequence: number;
+      let nonce: Uint8Array;
+      let ciphertext: Uint8Array;
+      if (binary) {
+        sequence = binary.sequence;
+        nonce = binary.nonce;
+        ciphertext = binary.ciphertext;
+      } else {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) as unknown : raw;
+        if (!isBox(parsed)) throw new Error('Expected an encrypted relay frame.');
+        sequence = parsed.sequence;
+        nonce = base64UrlDecode(parsed.nonce);
+        ciphertext = base64UrlDecode(parsed.ciphertext);
+      }
+      if (sequence <= this.receiveSequence) throw new Error('Rejected replayed relay frame.');
       if (nonce.byteLength !== 12) throw new Error('Invalid relay frame nonce.');
       const direction = this.role === 'client' ? 'server-to-client' : 'client-to-server';
       const plaintext = await cryptoApi().subtle.decrypt(
@@ -235,14 +302,14 @@ export class RelayE2EEChannel {
           name: 'AES-GCM',
           iv: arrayBuffer(nonce),
           additionalData: arrayBuffer(
-            encoder.encode(`${E2EE_CONTEXT}\0${direction}\0${parsed.sequence}`),
+            encoder.encode(`${E2EE_CONTEXT}\0${direction}\0${sequence}`),
           ),
         },
         this.key,
-        arrayBuffer(base64UrlDecode(parsed.ciphertext)),
+        arrayBuffer(ciphertext),
       );
       const value = JSON.parse(decoder.decode(plaintext)) as unknown;
-      this.receiveSequence = parsed.sequence;
+      this.receiveSequence = sequence;
       resolveResult(value);
     }).catch(rejectResult);
     return result;
@@ -366,6 +433,8 @@ export async function createRelayE2EEClientHandshake(
       pairing.serverPublicKey,
       clientPublicKey,
     ),
+    ...(challenge.binaryFrames === 1 ? { binaryFrames: 1 as const } : {}),
+    ...(challenge.listDelta === 1 ? { listDelta: 1 as const } : {}),
   };
   const key = await deriveChannelKey({
     privateKey: pair.privateKey,

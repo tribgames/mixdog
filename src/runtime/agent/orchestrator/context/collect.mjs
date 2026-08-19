@@ -828,7 +828,7 @@ export function loadScopedRoleInstructions(agent, provider = null) {
 }
 
 // --- Compose system prompt — 4-BP cache layout ---
-// Returns { baseRules, stableSystemContext, sessionMarker, volatileTail } mapping
+// Returns the three stable system blocks and the BP3 core used for refreshes.
 // directly to the breakpoint plan:
 //   BP1 (1h, system block #1) = baseRules — shared tool policy
 //   BP2 (1h, system block #2) = stableSystemContext — profile, skills, deferred/MCP
@@ -894,20 +894,7 @@ export function composeSystemPrompt(opts) {
         ? sessionMarkerParts.join('\n\n---\n\n')
         : '';
 
-    // ── BP4: live message tail ─────────────────────────────────────────
-    // Raw role, permission, and task labels are intentionally omitted: role
-    // selection already shapes the session/rules/tools, permissions are
-    // enforced structurally, and the task body is sent as the actual user turn
-    // by askSession().
-    const volatileParts = [];
-    // workspaceContext's discovered-project list is intentionally not injected:
-    // BP3 already carries the scoped session/project environment, while the
-    // full layout would add redundant cache fragmentation.
-    const volatileTail = volatileParts.length > 0
-        ? volatileParts.join('\n\n')
-        : '';
-
-    return { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker, volatileTail };
+    return { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker };
 }
 // --- Helpers ---
 function readSafe(path) {

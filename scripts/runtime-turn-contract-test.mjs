@@ -8,8 +8,10 @@ import { runAbortable } from '../src/runtime/shared/abort-race.mjs';
 import { SessionClosedError } from '../src/runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { acquireSessionLock } from '../src/runtime/agent/orchestrator/session/manager/session-lock.mjs';
 import { settleAskCleanup } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
+import { renderBackgroundTask } from '../src/runtime/shared/background-tasks.mjs';
 import { deriveToolCardModel } from '../src/runtime/shared/tool-card-model.mjs';
 import {
+  buildExecutionResponseToolItem,
   parseBackgroundTaskEnvelope,
   parseModelVisibleCompletionWrapper,
 } from '../src/tui/session/agent-envelope.mjs';
@@ -22,6 +24,7 @@ import { presentErrorText, isCancelLikeError } from '../src/runtime/shared/err-t
 import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
 import { createContextState } from '../src/tui/session/context-state.mjs';
+import { isTranscriptCancelledStatusText } from '../src/runtime/shared/tool-execution-contract.mjs';
 
 const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip;
 
@@ -366,6 +369,10 @@ test('running shell output is progress until the terminal completion arrives', (
   }, runningText);
   assert.equal(runningDelivery.action, 'execution-ui');
   assert.equal(runningDelivery.modelContent, '');
+  assert.deepEqual(runningDelivery.executionMeta, {
+    executionSurface: 'shell',
+    executionStatus: 'running',
+  });
 
   const completedText = runningText.replace('status: running', 'status: completed');
   const completed = parseBackgroundTaskEnvelope(completedText);
@@ -401,7 +408,7 @@ test('fallback shell completion wrapper remains renderable as one UI card', () =
     'done',
   ].join('\n');
   const wrapper = [
-    'The async shell task shell-fallback-1 has finished (completed, exit 0) - review this result in your next step. Final result follows; do not recheck.',
+    'Async shell task shell-fallback-1 (completed, exit 0) finished.',
     '',
     'Result:',
     ...background.split('\n').map((line) => `> ${line}`),
@@ -420,6 +427,46 @@ test('fallback shell completion wrapper remains renderable as one UI card', () =
   });
   assert.equal(card.labelText, 'Shell output');
   assert.equal(card.isBackgroundResponse, true);
+});
+
+test('execution metadata classifies incomplete completion envelopes', () => {
+  const shell = buildExecutionResponseToolItem('completed without a canonical shell envelope', {
+    id: 'shell-meta-card',
+    responseKey: 'shell-meta-1',
+    executionSurface: 'shell',
+    executionStatus: 'completed',
+  });
+  const shellCard = deriveToolCardModel(shell);
+  assert.equal(shell.name, 'shell');
+  assert.equal(shell.args.surface, 'shell');
+  assert.equal(shellCard.labelText, 'Shell output');
+
+  const agent = buildExecutionResponseToolItem('failed before agent identity was available', {
+    id: 'agent-meta-card',
+    responseKey: 'agent-meta-1',
+    executionSurface: 'agent',
+    executionStatus: 'failed',
+  });
+  const agentCard = deriveToolCardModel(agent);
+  assert.equal(agent.name, 'agent');
+  assert.equal(agent.args.surface, 'agent');
+  assert.equal(agentCard.labelText, 'Response Agent');
+});
+
+test('rendered background task envelopes carry canonical surface and operation', () => {
+  const text = renderBackgroundTask({
+    taskId: 'surface-contract-1',
+    surface: 'shell',
+    operation: 'command',
+    status: 'running',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    finishedAt: null,
+    error: null,
+    meta: { surface: 'ignored-duplicate', operation: 'ignored-duplicate' },
+  });
+  assert.match(text, /^background task\ntask_id: surface-contract-1\nsurface: shell\noperation: command\n/);
+  assert.equal((text.match(/^surface:/gm) || []).length, 1);
+  assert.equal((text.match(/^operation:/gm) || []).length, 1);
 });
 
 test('interrupt display: stall/timeout/abort copy and non-user markers', () => {
@@ -465,4 +512,11 @@ test('interrupt display: stall/timeout/abort copy and non-user markers', () => {
     abortReason: 'idle-sweep',
   });
   assert.equal(idle.messages.at(-1)?.content, '[Request interrupted]');
+});
+
+test('transcript interruption markers are classified without hiding user prose', () => {
+  assert.equal(isTranscriptCancelledStatusText('[Request interrupted by process restart]'), true);
+  assert.equal(isTranscriptCancelledStatusText('[Request interrupted]'), true);
+  assert.equal(isTranscriptCancelledStatusText('[Request interrupted by user]'), false);
+  assert.equal(isTranscriptCancelledStatusText('Please explain [Request interrupted]'), false);
 });

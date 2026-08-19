@@ -1,5 +1,7 @@
 import type { TranscriptItem } from "./desktop-types";
 import { completionTone, isVisibleTranscriptItem } from "./TranscriptView";
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { isTranscriptCancelledStatusText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
 
 /**
  * Transcript projection: turn semantics are preserved as explicit row tags,
@@ -180,6 +182,22 @@ export function projectSettledTranscriptRows({
       return;
     }
     if (foldedCompletions.has(index)) return;
+    if (item?.kind === "user" && isTranscriptCancelledStatusText(item.text)) {
+      beginBuilderTurn(builder, sessionKey, turnKey);
+      builder.rows.push({
+        _tag: "AssistantPart",
+        key: transcriptRowKey(sessionKey, item, index),
+        turnKey,
+        item: {
+          ...item,
+          kind: "turndone",
+          status: "cancelled",
+          elapsedMs: 0,
+        } as TranscriptItem,
+      });
+      builder.previousRowWasUser = false;
+      return;
+    }
     if (!isVisibleTranscriptItem(item)) return;
     pushBuilderItem(builder, sessionKey, item, index, turnKey, completionByIndex.get(index));
     // A turn that failed without ever emitting a completion marker still owes

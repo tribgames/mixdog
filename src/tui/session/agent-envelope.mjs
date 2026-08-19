@@ -20,7 +20,7 @@ function stripSyntheticAgentTags(text) {
   if (taskResult) return taskResult;
   return value
     .replace(/^agent result[^\n]*(?:\n|$)/i, '')
-    .replace(/<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi, '')
+    .replace(/<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>/gi, '')
     .trim();
 }
 
@@ -153,8 +153,7 @@ export function parseModelVisibleCompletionWrapper(text) {
   const split = /\n\nResult:\n/.exec(value);
   if (!split) return null;
   const preamble = value.slice(0, split.index).trim();
-  if (!/^The async \S+ task \S+ has finished\b[\s\S]*review this result in your next step\.?(?: Final result follows; do not recheck\.)?$/i.test(preamble)
-      && !/^Async \S+.* finished\.$/i.test(preamble)) {
+  if (!/^Async \S+.* finished\.$/i.test(preamble)) {
     return null;
   }
   const quotedLines = value.slice(split.index + split[0].length).split(/\r?\n/);
@@ -243,37 +242,43 @@ export function parseSyntheticAgentMessage(text) {
       isError: /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(label),
     };
   }
-  if (/<task-notification\b/i.test(value)) {
-    const status = textBetweenTag(value, 'status') || 'completed';
-    const summary = textBetweenTag(value, 'summary') || `Agent ${status}`;
-    const taskId = textBetweenTag(value, 'task-id');
-    const result = stripSyntheticAgentTags(value);
-    return {
-      name: 'agent',
-      label: status,
-      taskId,
-      summary,
-      result: result || summary,
-    };
-  }
   return null;
 }
 
 export function buildExecutionResponseToolItem(text, {
   id,
   responseKey = '',
+  executionSurface = '',
+  executionStatus = '',
   now = Date.now(),
 } = {}) {
-  const synthetic = parseSyntheticAgentMessage(text);
+  const surface = String(executionSurface || '').trim().toLowerCase();
+  const status = String(executionStatus || '').trim().toLowerCase();
+  const explicitName = /^(agent|shell|search)$/.test(surface) ? surface : '';
+  const parsed = parseSyntheticAgentMessage(text);
+  const synthetic = parsed || (explicitName ? {
+    name: explicitName,
+    label: status || 'completed',
+    args: {
+      type: 'result',
+      status: status || undefined,
+      task_id: responseKey || undefined,
+      surface: explicitName,
+    },
+    result: String(text ?? '').trim(),
+  } : null);
   if (!synthetic) return null;
   const label = synthetic.label || 'notification';
-  const isAgent = synthetic.name === 'agent';
+  const name = explicitName || synthetic.name || 'task';
+  const isAgent = name === 'agent';
   const args = {
     ...(synthetic.args && typeof synthetic.args === 'object' ? synthetic.args : {
       type: label,
       task_id: synthetic.taskId || undefined,
       description: synthetic.summary || 'execution notification',
     }),
+    ...(surface ? { surface } : {}),
+    ...(status ? { status } : {}),
     ...(isAgent ? { type: 'result' } : {}),
   };
   const rawResult = synthetic.rawResult ?? text;
@@ -282,7 +287,7 @@ export function buildExecutionResponseToolItem(text, {
   return {
     kind: 'tool',
     id,
-    name: synthetic.name || 'task',
+    name,
     args,
     result: synthetic.result,
     rawResult,

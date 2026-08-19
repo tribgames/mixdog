@@ -519,7 +519,6 @@ export function parseHandlerOutput(run, eventName) {
     updatedToolName: null,
     updatedToolOutput: null,
     additionalContext: null,
-    systemMessage: null,
     suppressOutput: false,
     continueFlag: undefined,
     askReason: null,
@@ -552,7 +551,6 @@ export function parseHandlerOutput(run, eventName) {
       out.reason = limitText(json.reason || out.reason || `blocked by ${eventName} hook`);
     }
     if (json.suppressOutput) out.suppressOutput = true;
-    if (typeof json.systemMessage === 'string') out.systemMessage = limitText(json.systemMessage);
     if (typeof json.additionalContext === 'string') out.additionalContext = limitText(json.additionalContext);
 
     const hso = json.hookSpecificOutput;

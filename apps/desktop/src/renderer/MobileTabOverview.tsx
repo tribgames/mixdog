@@ -8,7 +8,7 @@ import { createPortal } from "react-dom";
 
 import type { WorkspaceTab } from "./nav-types";
 import { t } from "./i18n";
-import { isMobileRemoteSurface } from "./mobile-surface";
+import { isMobileRemoteSurface, mobileSurfaceScale } from "./mobile-surface";
 
 export { isMobileRemoteSurface };
 
@@ -62,19 +62,9 @@ export function MobileTabOverview({
   onClose(): void;
 }) {
   const [query, setQuery] = useState("");
-  // The projected layout viewport (1040px) renders phones zoomed out; the
-  // overview counter-scales back to the DEVICE's natural pixel size so cards
-  // and touch targets read like a native tab switcher.
-  const scale = useMemo(() => {
-    if (!isMobileRemoteSurface()) return 1;
-    try {
-      const layout = document.documentElement.clientWidth || 1040;
-      const device = Math.min(window.screen.width, window.screen.height) || layout;
-      return Math.max(1, Math.round((layout / device) * 100) / 100);
-    } catch {
-      return 1;
-    }
-  }, []);
+  // iOS already exposes device-width layout pixels, including after rotation;
+  // only legacy projected Android surfaces need counter-scaling.
+  const scale = useMemo(() => mobileSurfaceScale(), []);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return tabs;

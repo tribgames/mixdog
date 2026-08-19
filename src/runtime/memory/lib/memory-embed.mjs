@@ -104,7 +104,7 @@ const RAW_EMBED_EXCLUDE_CONTENT_RES = [
   /^\s*\[tool_call\b/i,
   /^\s*\[tool_result\b/i,
   /^\s*\[mixdog-runtime\]/i,
-  /^\s*The async (?:shell task|agent task|\S+ execution|\S+) .*has finished\b.*review this result in your next step/i,
+  /^\s*Async .+ finished\./i,
   /^\s*background task\b/i,
 ]
 const RAW_EMBED_EXCLUDE_NON_CONVERSATION_CONTENT_RES = [
@@ -126,7 +126,7 @@ function isRawEmbeddable(role, content) {
 
 const RAW_EMBED_SQL_EXCLUDE_ROLE_VALUES = [...RAW_EMBED_EXCLUDE_ROLES]
 const RAW_EMBED_SQL_ALWAYS_EXCLUDE_CONTENT_RE =
-  '^\\s*(\\[tool_call(?:\\s|\\]|$)|\\[tool_result(?:\\s|\\]|$)|\\[mixdog-runtime\\]|The async (shell task|agent task|\\S+ execution|\\S+) .*has finished(\\s|$).*review this result in your next step|background task(\\s|$))'
+  '^\\s*(\\[tool_call(?:\\s|\\]|$)|\\[tool_result(?:\\s|\\]|$)|\\[mixdog-runtime\\]|Async .+ finished\\.|background task(\\s|$))'
 const RAW_EMBED_SQL_NON_CONVERSATION_EXCLUDE_CONTENT_RE =
   '^\\s*\\[(system|log|offload|debug|trace|info|warn|warning|error|fatal)\\]'
 

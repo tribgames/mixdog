@@ -8,7 +8,12 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
-import type { DesktopRemoteClientInfo } from '../shared/contract';
+import type {
+  DesktopAgentPoolRow,
+  DesktopRemoteClientInfo,
+  DesktopSessionStateUpdate,
+  DesktopSessionSummary,
+} from '../shared/contract';
 import { loadOrCreatePairingToken } from './remote-pairing-token';
 import {
   acceptRelayE2EEClientHello,
@@ -19,6 +24,8 @@ import {
   type RelayE2EEChallenge,
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
+import { createRemotePaintProbeTracker } from '../shared/remote-performance';
+import { createKeyedListDeltaEncoder } from '../shared/list-delta';
 import { resolveMediaFileTarget } from './media-source';
 import {
   createRemoteMethods,
@@ -28,6 +35,13 @@ import {
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee';
 import { readSecretFile, writeSecretFile } from './secret-file';
 import { createSnapshotDeltaEncoder, isStateResyncFrame } from './state-delta';
+import { TerminalDataBufferer } from './terminal-data-buffer';
+import {
+  createLatestStateMailbox,
+  type LatestStateMailbox,
+} from './desktop-service-protocol';
+// @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
+import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
 
 const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
 const REVOKE_TIMEOUT_MS = 5_000;
@@ -293,6 +307,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   const methods = createRemoteMethods(options);
   let socket: WebSocket | null = null;
   let closed = false;
+  let relayBinaryFrames = false;
   let retryMs = 1_000;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let drainingRevocations = false;
@@ -313,6 +328,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     frameQueue: Promise<void>;
     pendingFrames: number;
     pendingBytes: number;
+    visibleSessionIds: Set<string>;
+    binaryFrames: boolean;
+    listDelta: boolean;
+    sessionsEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopSessionSummary>>;
+    agentPoolEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopAgentPoolRow>>;
   }
   const activeClients = new Map<string, RelayClientState>();
   let totalPendingFrames = 0;
@@ -342,6 +362,42 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       try { socket.send(JSON.stringify(payload)); } catch { /* relay vanished */ }
     }
   };
+  const sendBinaryFrameAndWait = (
+    clientId: string,
+    data: Uint8Array,
+    droppable: boolean,
+  ): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const target = socket;
+      if (!target || target.readyState !== WebSocket.OPEN) {
+        reject(new Error('Relay is not connected.'));
+        return;
+      }
+      try {
+        target.send(encodeRelayBinaryFrame({ clientId, data, droppable }), (error: Error | undefined) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  const sendEnvelopeAndWait = (payload: unknown): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const target = socket;
+      if (!target || target.readyState !== WebSocket.OPEN) {
+        reject(new Error('Relay is not connected.'));
+        return;
+      }
+      try {
+        target.send(JSON.stringify(payload), (error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
   const controlRequest = <T>(type: string, payload: Record<string, unknown> = {}): Promise<T> =>
     new Promise<T>((resolve, reject) => {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -366,7 +422,16 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (!state) return false;
     clearTimeout(state.handshakeTimer);
     activeClients.delete(clientId);
+    const scopedHost = options.host as typeof options.host & {
+      setVisibleSessionsForSource?(sourceId: string, ids: string[]): Promise<boolean>;
+    };
+    void scopedHost.setVisibleSessionsForSource?.(`remote:${clientId}`, []).catch(() => {});
     return true;
+  };
+  const clearClients = (): void => {
+    if (activeClients.size === 0) return;
+    for (const clientId of [...activeClients.keys()]) removeClient(clientId);
+    notifyClientCount();
   };
   const closeClient = (clientId: string, reason: string): void => {
     if (removeClient(clientId)) notifyClientCount();
@@ -380,26 +445,108 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     const state = activeClients.get(clientId);
     if (!state?.channel) return;
     try {
-      const data = await state.channel.encryptJson(payload);
-      sendEnvelope({ type: 'frame', clientId, data, ...(droppable ? { droppable: true } : {}) });
+      if (relayBinaryFrames && state.binaryFrames) {
+        const data = await state.channel.encryptBinary(payload);
+        await sendBinaryFrameAndWait(clientId, data, droppable);
+      } else {
+        const data = await state.channel.encryptJson(payload);
+        await sendEnvelopeAndWait({
+          type: 'frame',
+          clientId,
+          data,
+          ...(droppable ? { droppable: true } : {}),
+        });
+      }
     } catch {
       closeClient(clientId, 'relay encryption failed');
     }
   };
+  const broadcastEncryptedAsync = (
+    payload: unknown,
+    droppable: boolean,
+    include: (state: RelayClientState) => boolean = () => true,
+  ): Promise<void> => Promise.all(
+    [...activeClients].map(([clientId, state]) =>
+      state.channel && include(state)
+        ? sendEncryptedFrame(clientId, payload, droppable)
+        : Promise.resolve()),
+  ).then(() => undefined);
   const broadcastEncrypted = (payload: unknown, droppable: boolean): void => {
-    for (const [clientId, state] of activeClients) {
-      if (state.channel) void sendEncryptedFrame(clientId, payload, droppable);
+    void broadcastEncryptedAsync(payload, droppable);
+  };
+  type StatePublication = { snapshot: unknown; critical: boolean };
+  let stateMailbox!: LatestStateMailbox<StatePublication>;
+  stateMailbox = createLatestStateMailbox<StatePublication>((sequence, publication) => {
+    const payload = {
+      event: 'state',
+      payload: deltaEncoder.encode(publication.snapshot),
+    };
+    void broadcastEncryptedAsync(payload, !publication.critical)
+      .finally(() => stateMailbox.acknowledge(sequence));
+  });
+  const sessionDeltaEncoders = new Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>();
+  const sessionStateMailboxes = new Map<string, LatestStateMailbox<DesktopSessionStateUpdate>>();
+  const remotePaintProbes = createRemotePaintProbeTracker({
+    enabled: process.env.MIXDOG_DESKTOP_PERF === '1',
+  });
+  const sessionStateMailbox = (
+    sessionId: string,
+  ): LatestStateMailbox<DesktopSessionStateUpdate> => {
+    const retained = sessionStateMailboxes.get(sessionId);
+    if (retained) return retained;
+    let mailbox!: LatestStateMailbox<DesktopSessionStateUpdate>;
+    mailbox = createLatestStateMailbox<DesktopSessionStateUpdate>((sequence, update) => {
+      let encoder = sessionDeltaEncoders.get(sessionId);
+      if (!encoder) {
+        encoder = createSnapshotDeltaEncoder();
+        sessionDeltaEncoders.set(sessionId, encoder);
+      }
+      const perfProbe = remotePaintProbes.issue(sessionId);
+      const payload = {
+        event: 'sessionState',
+        payload: {
+          sessionId,
+          wire: encoder.encode(update.snapshot),
+          frameSource: update.frameSource,
+          ...(perfProbe ? { perfProbe } : {}),
+          ...(typeof update.contentRevision === 'number'
+            ? { contentRevision: update.contentRevision }
+            : {}),
+        },
+      };
+      void broadcastEncryptedAsync(
+        payload,
+        true,
+        (state) => state.visibleSessionIds.has(sessionId),
+      )
+        .finally(() => mailbox.acknowledge(sequence));
+    });
+    sessionStateMailboxes.set(sessionId, mailbox);
+    return mailbox;
+  };
+  const resetTransportDeltas = (): void => {
+    deltaEncoder.reset();
+    stateMailbox.clear();
+    for (const mailbox of sessionStateMailboxes.values()) mailbox.clear();
+    sessionStateMailboxes.clear();
+    sessionDeltaEncoders.clear();
+    for (const state of activeClients.values()) {
+      state.sessionsEncoder.reset();
+      state.agentPoolEncoder.reset();
     }
+    remotePaintProbes.clear();
   };
   // `critical` marks a FULL snapshot (join / resync answer). The relay drops
   // ordinary pushes for a congested phone; dropping the recovery frame itself
   // would leave that phone stranded on a transcript missing the answer.
   const broadcastState = (snapshot: unknown, critical = false): void => {
     if (activeClients.size === 0) return;
-    broadcastEncrypted(
-      { event: 'state', payload: deltaEncoder.encode(snapshot) },
-      !critical,
-    );
+    if (critical) {
+      deltaEncoder.reset();
+      stateMailbox.reset({ snapshot, critical: true });
+      return;
+    }
+    stateMailbox.publish({ snapshot, critical: false });
   };
   const drainQueuedRevocations = async (): Promise<void> => {
     if (closed || drainingRevocations) return;
@@ -532,13 +679,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     heartbeat.unref?.();
     ws.on('open', () => {
       retryMs = 1_000;
-      deltaEncoder.reset();
+      resetTransportDeltas();
       // A fresh desktop leg supersedes the old one and the relay closed its
       // phone legs; phones re-open and re-announce themselves.
       if (activeClients.size > 0) {
-        for (const state of activeClients.values()) clearTimeout(state.handshakeTimer);
-        activeClients.clear();
-        notifyClientCount();
+        clearClients();
       }
       // Announce the lanes this build serves BEFORE the pairing token, so the
       // relay can answer a phone's media request the moment a client leg
@@ -553,13 +698,23 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // opens, dispose the owner-authenticated registrations queued while down.
       void drainQueuedRevocations();
     });
-    ws.on('message', (raw) => {
+    ws.on('message', (raw, isBinary) => {
       alive = true;
       void (async () => {
         let envelope: Record<string, unknown>;
-        try {
-          envelope = JSON.parse(String(raw)) as Record<string, unknown>;
-        } catch {
+        if (isBinary) {
+          const frame = decodeRelayBinaryFrame(raw);
+          if (!frame) return;
+          envelope = { type: 'frame', clientId: frame.clientId, data: frame.data };
+        } else {
+          try {
+            envelope = JSON.parse(String(raw)) as Record<string, unknown>;
+          } catch {
+            return;
+          }
+        }
+        if (envelope.type === 'relay-capabilities') {
+          relayBinaryFrames = envelope.binaryFrames === 1;
           return;
         }
         if (envelope.type === 'clients-list' || envelope.type === 'client-revoked') {
@@ -587,7 +742,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               return;
             }
             removeClient(envelope.clientId);
-            const challenge = createRelayE2EEChallenge();
+            const challenge = {
+              ...createRelayE2EEChallenge(),
+              ...(relayBinaryFrames ? { binaryFrames: 1 as const } : {}),
+              listDelta: 1 as const,
+            };
             const handshakeTimer = setTimeout(() => {
               closeClient(envelope.clientId as string, 'relay encryption handshake timed out');
             }, E2EE_HANDSHAKE_TIMEOUT_MS);
@@ -599,6 +758,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               frameQueue: Promise.resolve(),
               pendingFrames: 0,
               pendingBytes: 0,
+              visibleSessionIds: new Set(),
+              binaryFrames: false,
+              listDelta: false,
+              sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>(
+                (session, index) => String(session.id || `session:${index}`),
+              ),
+              agentPoolEncoder: createKeyedListDeltaEncoder<DesktopAgentPoolRow>(
+                (agent, index) => String(agent.sessionId || agent.tag || `agent:${index}`),
+              ),
             });
             notifyClientCount();
             sendEnvelope({
@@ -625,8 +793,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         if (envelope.type !== 'frame' || typeof envelope.clientId !== 'string') return;
         const client = activeClients.get(envelope.clientId);
         if (!client) return;
-        const frame = String(envelope.data ?? '');
-        const frameBytes = Buffer.byteLength(frame);
+        const frame = envelope.data;
+        if (typeof frame !== 'string' && !ArrayBuffer.isView(frame)) return;
+        const frameBytes = typeof frame === 'string' ? Buffer.byteLength(frame) : frame.byteLength;
         if (!remoteFrameBudgetAvailable(
           client.pendingFrames,
           client.pendingBytes,
@@ -644,6 +813,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         const processFrame = async (): Promise<void> => {
           if (activeClients.get(envelope.clientId as string) !== client) return;
           if (!client.channel) {
+            if (typeof frame !== 'string') {
+              closeClient(envelope.clientId as string, 'relay encryption handshake required');
+              return;
+            }
             let hello: unknown;
             try { hello = JSON.parse(frame); } catch {
               closeClient(envelope.clientId as string, 'relay encryption handshake required');
@@ -659,27 +832,63 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
                 client.challenge,
                 hello,
               );
+              client.binaryFrames = hello.binaryFrames === 1;
+              client.listDelta = hello.listDelta === 1;
               clearTimeout(client.handshakeTimer);
               await sendEncryptedFrame(
                 envelope.clientId as string,
                 { type: 'e2ee-ready', version: 1 },
               );
-              deltaEncoder.reset();
+              resetTransportDeltas();
               broadcastState(options.host.getSnapshot(), true);
             } catch {
               closeClient(envelope.clientId as string, 'relay encryption authentication failed');
             }
             return;
           }
-          let clearFrame: string;
+          let clearPayload: unknown;
           try {
-            clearFrame = JSON.stringify(await client.channel.decryptJson(frame));
+            clearPayload = await client.channel.decryptJson(frame);
           } catch {
             closeClient(envelope.clientId as string, 'invalid encrypted relay frame');
             return;
           }
+          const paint = remotePaintProbes.acknowledgeFrame(clearPayload);
+          if (paint) {
+            console.error(
+              `[mixdog-remote-perf] session=${paint.sessionId}`
+              + ` publish-to-paint-rtt=${paint.roundTripMs.toFixed(0)}ms`
+              + ` receive-to-paint=${paint.receiveToPaintMs.toFixed(1)}ms`,
+            );
+            return;
+          }
+          const call = clearPayload as { id?: unknown; method?: unknown; params?: unknown } | null;
+          if (call?.method === 'setVisibleSessions' && Array.isArray(call.params)) {
+            const requested = Array.isArray(call.params[0])
+              ? [...new Set(call.params[0]
+                .map((value) => String(value || ''))
+                .filter((value) => /^[A-Za-z0-9_-]+$/u.test(value)))]
+              : [];
+            client.visibleSessionIds = new Set(requested);
+            const scopedHost = options.host as typeof options.host & {
+              setVisibleSessionsForSource?(sourceId: string, ids: string[]): Promise<boolean>;
+            };
+            const value = await scopedHost.setVisibleSessionsForSource?.(
+              `remote:${envelope.clientId}`,
+              requested,
+            ) ?? await options.host.setVisibleSessions?.(requested) ?? false;
+            if (typeof call.id === 'number') {
+              await sendEncryptedFrame(envelope.clientId as string, {
+                id: call.id,
+                ok: true,
+                value,
+              });
+            }
+            return;
+          }
+          const clearFrame = JSON.stringify(clearPayload);
           if (isStateResyncFrame(clearFrame)) {
-            deltaEncoder.reset();
+            resetTransportDeltas();
             broadcastState(options.host.getSnapshot(), true);
             return;
           }
@@ -703,9 +912,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     ws.on('close', () => {
       clearInterval(heartbeat);
       if (activeClients.size > 0) {
-        for (const state of activeClients.values()) clearTimeout(state.handshakeTimer);
-        activeClients.clear();
-        notifyClientCount();
+        clearClients();
       }
       // The relay dropped every waiting response with this leg; stop pumping.
       for (const pump of mediaStreams.values()) {
@@ -731,19 +938,33 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   const unsubscribeState = options.host.subscribe((snapshot) => broadcastState(snapshot));
   const unsubscribeSessions = options.host.subscribeSessions((sessions) => {
     if (activeClients.size === 0) return;
-    broadcastEncrypted({ event: 'sessions', payload: sessions }, true);
+    for (const [clientId, state] of activeClients) {
+      if (!state.channel) continue;
+      const payload = state.listDelta ? state.sessionsEncoder.encode(sessions) : sessions;
+      void sendEncryptedFrame(clientId, { event: 'sessions', payload }, true);
+    }
   });
   const unsubscribeAgentPool = options.host.subscribeAgentPool((agents) => {
     if (activeClients.size === 0) return;
-    broadcastEncrypted({ event: 'agentPool', payload: agents }, true);
+    for (const [clientId, state] of activeClients) {
+      if (!state.channel) continue;
+      const payload = state.listDelta ? state.agentPoolEncoder.encode(agents) : agents;
+      void sendEncryptedFrame(clientId, { event: 'agentPool', payload }, true);
+    }
   });
   const unsubscribeSessionStates = options.host.subscribeSessionStates((update) => {
     if (activeClients.size === 0) return;
-    broadcastEncrypted({ event: 'sessionState', payload: update }, true);
+    sessionStateMailbox(update.sessionId).publish(update);
   });
+  let terminalBuffer!: TerminalDataBufferer;
+  terminalBuffer = new TerminalDataBufferer((event) => {
+    if (activeClients.size > 0) {
+      broadcastEncrypted({ event: 'termData', payload: event }, true);
+    }
+    terminalBuffer.acknowledge(event.id, event.data.length);
+  }, 16);
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) => {
-    if (activeClients.size === 0) return;
-    broadcastEncrypted({ event: 'termData', payload: event }, true);
+    if (activeClients.size > 0) terminalBuffer.push(event);
   }) ?? (() => {});
   const unsubscribeDesktopEvents = options.host.subscribeDesktopEvents?.(({ name, value }) => {
     if (name !== 'remote-projection-state' || activeClients.size === 0) return;
@@ -849,6 +1070,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       unsubscribeAgentPool();
       unsubscribeSessionStates();
       unsubscribeTerminals();
+      terminalBuffer.dispose();
       unsubscribeDesktopEvents();
       for (const pending of revocationSockets) {
         try { pending.terminate(); } catch { /* already gone */ }
@@ -859,9 +1081,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         socket = null;
       }
       if (activeClients.size > 0) {
-        for (const state of activeClients.values()) clearTimeout(state.handshakeTimer);
-        activeClients.clear();
-        notifyClientCount();
+        clearClients();
       }
       for (const [requestId, pending] of controlRequests) {
         clearTimeout(pending.timer);

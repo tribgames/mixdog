@@ -271,7 +271,6 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       updatedToolName: null,
       updatedToolOutput: null,
       additionalContext: [],
-      systemMessage: null,
       ask: false,
       askReason: null,
       handlersRun: handlers.length,
@@ -303,7 +302,6 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       }
       const parsed = parseHandlerOutput(run, eventName);
       if (parsed.additionalContext) agg.additionalContext.push(parsed.additionalContext);
-      if (parsed.systemMessage && !agg.systemMessage) agg.systemMessage = parsed.systemMessage;
       if (parsed.updatedInput && !agg.updatedInput) agg.updatedInput = parsed.updatedInput;
       if (parsed.updatedToolName && !agg.updatedToolName) agg.updatedToolName = parsed.updatedToolName;
       if (parsed.updatedToolOutput != null && agg.updatedToolOutput == null) agg.updatedToolOutput = parsed.updatedToolOutput;
@@ -509,7 +507,6 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         blocked: agg.blocked || undefined,
         reason: agg.reason || undefined,
         additionalContext: agg.additionalContext.length ? agg.additionalContext : undefined,
-        systemMessage: agg.systemMessage || undefined,
         updatedInput: agg.updatedInput || undefined,
         updatedToolName: agg.updatedToolName || undefined,
         handlersRun: agg.handlersRun || undefined,

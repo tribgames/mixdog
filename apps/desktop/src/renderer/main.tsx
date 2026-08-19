@@ -70,7 +70,8 @@ window.addEventListener("beforeunload", removeShellViewport, { once: true });
 // Phone marker BEFORE the first React render (user: 첫 진입 레이아웃 시프트):
 // the Chrome-toolbar/drawer/popup CSS keys on the root attribute, so it must
 // exist before the desktop grammar can paint even once.
-installMobileSurfaceMarker();
+const removeMobileSurfaceMarker = installMobileSurfaceMarker();
+window.addEventListener("beforeunload", removeMobileSurfaceMarker, { once: true });
 const syncMotionVisibility = () => {
   document.documentElement.dataset.mixdogMotion =
     document.visibilityState === "visible" ? "running" : "paused";

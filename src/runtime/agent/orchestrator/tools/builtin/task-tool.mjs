@@ -135,12 +135,7 @@ export async function executeTaskTool(args, options = {}) {
         if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
         const latest = getBackgroundTask(taskId, { context: options }) || task;
         const rendered = renderBackgroundTask(latest, { includeResult: true });
-        if (latest.status !== 'running') return rendered;
-        return [
-            rendered,
-            '',
-            'Still running. Completion will be delivered automatically; do not poll or call task again unless the user explicitly asks for another snapshot.',
-        ].join('\n');
+        return rendered;
     }
 
     if (action === 'cancel') {

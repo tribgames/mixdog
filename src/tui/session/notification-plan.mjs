@@ -97,5 +97,9 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
     action: 'execution-ui',
     displayText: trimmed,
     modelContent,
+    executionMeta: {
+      executionSurface: String(meta.execution_surface || '').trim(),
+      executionStatus: String(meta.status || parsed?.status || '').trim(),
+    },
   };
 }

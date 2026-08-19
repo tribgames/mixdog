@@ -319,7 +319,7 @@ export function createSession(opts) {
             ? describeShellStartupPolicy()
             : '',
     ].filter(Boolean).join('\n');
-    const { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker, volatileTail } = composeSystemPrompt({
+    const { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
         agentRules: injectedRules || undefined,
         roleRules: roleRules || undefined,
@@ -356,10 +356,6 @@ export function createSession(opts) {
         // BP1/BP2 system TTL. Harmless on non-Anthropic providers (they ignore
         // the field and serialize content as a normal system instruction).
         messages.push({ role: 'system', content: sessionMarker, cacheTier: 'tier3' });
-    }
-    if (volatileTail) {
-        messages.push({ role: 'user', content: `<system-reminder>\n${volatileTail}\n</system-reminder>` });
-        messages.push({ role: 'assistant', content: '.' });
     }
     if (opts.files?.length) {
         const fileContext = opts.files

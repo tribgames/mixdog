@@ -526,7 +526,18 @@ export function projectProviderEvidence(messages, options = {}) {
         }
     }
 
-    const pathProjection = projectProviderPathAliases(projected || messages, { apply });
+    const pathProjection = options.pathAliases === false
+        ? {
+            messages: projected || messages,
+            stats: {
+                pathFacts: 0,
+                pathAliases: 0,
+                reusedPathFacts: 0,
+                pathAliasBytesSaved: 0,
+                changedIndexes: [],
+            },
+        }
+        : projectProviderPathAliases(projected || messages, { apply });
     stats.pathFacts = pathProjection.stats.pathFacts;
     stats.pathAliases = pathProjection.stats.pathAliases;
     stats.reusedPathFacts = pathProjection.stats.reusedPathFacts;

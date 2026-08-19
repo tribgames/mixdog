@@ -1487,6 +1487,129 @@ html[data-mixdog-mobile-tabs] .workspace-tab-count::before {
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .workspace-tabs-trailing {
   order: 6;
 }
+/* Projected-phone controls share one native touch tier. Main-surface controls
+   multiply by the projection factor; drawer/dialog controls are already
+   zoomed by that factor and therefore stay in unscaled dp. */
+html[data-mixdog-mobile-tabs] .workspace-tab-home,
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel,
+html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock,
+html[data-mixdog-mobile-tabs] .workspace-tab-count {
+  width: calc(44px * var(--mx-device-scale, 2.5));
+  height: calc(44px * var(--mx-device-scale, 2.5));
+  min-width: calc(44px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-compact-current {
+  min-height: calc(44px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
+  width: calc(20px * var(--mx-device-scale, 2.5));
+  height: calc(20px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-footer {
+  height: calc(52px * var(--mx-device-scale, 2.5));
+  padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-tool,
+html[data-mixdog-mobile-tabs] .send-button {
+  width: calc(44px * var(--mx-device-scale, 2.5));
+  height: calc(44px * var(--mx-device-scale, 2.5));
+  min-width: calc(44px * var(--mx-device-scale, 2.5));
+  flex-basis: calc(44px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-mic {
+  margin-right: calc(8px * var(--mx-device-scale, 2.5));
+  padding: calc(2px * var(--mx-device-scale, 2.5));
+  background-clip: content-box;
+}
+html[data-mixdog-mobile-tabs] .composer-tool > svg,
+html[data-mixdog-mobile-tabs] .composer-mic-spinner {
+  width: calc(22px * var(--mx-device-scale, 2.5));
+  height: calc(22px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .send-button {
+  padding: calc(4px * var(--mx-device-scale, 2.5));
+  background-clip: content-box;
+}
+html[data-mixdog-mobile-tabs] .send-button > svg {
+  width: calc(20px * var(--mx-device-scale, 2.5));
+  height: calc(20px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-context-status,
+html[data-mixdog-mobile-tabs] .composer-context-status .session-context-indicator,
+html[data-mixdog-mobile-tabs] .composer-context-status .session-context-indicator > button,
+html[data-mixdog-mobile-tabs] .session-agents-indicator,
+html[data-mixdog-mobile-tabs] .session-agents-indicator > button {
+  width: calc(44px * var(--mx-device-scale, 2.5));
+  height: calc(44px * var(--mx-device-scale, 2.5));
+  min-width: calc(44px * var(--mx-device-scale, 2.5));
+  flex-basis: calc(44px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-context-status .session-context-indicator svg,
+html[data-mixdog-mobile-tabs] .session-agents-indicator > button > svg {
+  width: calc(22px * var(--mx-device-scale, 2.5));
+  height: calc(22px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .session-agents-count {
+  top: calc(3px * var(--mx-device-scale, 2.5));
+  right: calc(1px * var(--mx-device-scale, 2.5));
+  font-size: calc(11px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .utility-dock-tabs-header {
+  height: 44px;
+  flex-basis: 44px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock-tabs button,
+html[data-mixdog-mobile-tabs] .utility-dock-header-actions > button,
+html[data-mixdog-mobile-tabs] .utility-dock-header-actions .row-overflow-trigger,
+html[data-mixdog-mobile-tabs] .dock-scm-commit-back,
+html[data-mixdog-mobile-tabs] .mixdog-settings__back,
+html[data-mixdog-mobile-tabs] .mixdog-settings__close,
+html[data-mixdog-mobile-tabs] .schedules-dialog > header > button,
+html[data-mixdog-mobile-tabs] .settings-confirm-dialog > header > button,
+html[data-mixdog-mobile-tabs] .settings-oauth-dialog > header > button,
+html[data-mixdog-mobile-tabs] .mx-dialog > header > button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  flex-basis: 44px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock-tabs button svg,
+html[data-mixdog-mobile-tabs] .utility-dock-header-actions button svg,
+html[data-mixdog-mobile-tabs] .mixdog-settings__back svg,
+html[data-mixdog-mobile-tabs] .mixdog-settings__close svg {
+  width: 22px;
+  height: 22px;
+}
+html[data-mixdog-mobile-tabs] .mobile-tab-overview-new,
+html[data-mixdog-mobile-tabs] .mobile-tab-overview-count,
+html[data-mixdog-mobile-tabs] .mobile-tab-overview-close {
+  width: 44px;
+  height: 44px;
+}
+html[data-mixdog-mobile-tabs] .mobile-tab-card > header {
+  height: 48px;
+  flex-basis: 48px;
+}
+html[data-mixdog-mobile-tabs] .mobile-tab-card > header > button {
+  width: 44px;
+  height: 44px;
+}
+html[data-mixdog-mobile-tabs] .mobile-tab-card > header > button svg {
+  width: 20px;
+  height: 20px;
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header {
+  height: 48px;
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-new-task {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-new-task > svg {
+  width: 22px;
+  height: 22px;
+}
 /* Chrome has NO hairlines above/below its toolbar (user: 상하 테두리 없네);
    the toolbar band runs uninterrupted into the sheet on mobile. The pills
    and square controls retain their own raised gray fills. */
@@ -1585,7 +1708,7 @@ html[data-mixdog-mobile-tabs] .sidebar-collapsed .sidebar-drawer-frame > .sideba
   height: 100%;
   flex: 1 1 auto;
   margin: 0;
-  padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
+  padding: 16px 8px max(8px, env(safe-area-inset-bottom, 0px));
   border: 0;
   border-radius: 0 var(--mx-radius-sheet) var(--mx-radius-sheet) 0;
   background: transparent;
@@ -1758,7 +1881,7 @@ html[data-mixdog-mobile-tabs] .mixdog-settings-layer > * {
   max-width: calc(100vw / var(--mx-device-scale, 2.5) - 24px) !important;
   max-height: calc(var(--vvh, 100vh) / var(--mx-device-scale, 2.5) - 24px) !important;
 }
-html[data-mixdog-mobile-tabs] .mixdog-settings-layer {
+html[data-mixdog-mobile-tabs] .mixdog-settings-layer:has(> .mixdog-settings-v2) {
   padding: 0;
   place-items: stretch;
 }
@@ -5223,7 +5346,7 @@ html[data-mixdog-mobile-tabs] .transcript-virtual-row-content[data-tag="Error"] 
   box-shadow: var(--mx-raised);
 }
 /* Push-to-talk dictation states on the mic tool. */
-.composer-mic { margin-left: 6px; margin-right: 8px; }
+.composer-mic { margin-left: auto; margin-right: 8px; }
 .composer-mic.is-recording {
   /* No red for the stop/recording state (user, both themes): the contrast
      disc + breathing pulse carries the "live" signal instead. */
@@ -11194,7 +11317,7 @@ html[data-mixdog-mobile-tabs] .model-trigger {
   min-width: 28px;
   flex: 0 0 28px;
 }
-.send-button { flex: 0 0 28px; margin-left: auto; }
+.send-button { flex: 0 0 28px; margin-left: 0; }
 /* Stop affordance stays a STATIC filled square sized like the send arrow —
    the old breathing pulse (scale to 1.12) made the glyph read oversized
    next to the send state (user decision). */
@@ -11563,7 +11686,7 @@ html[data-mixdog-mobile-tabs] .model-trigger {
 .session-context-popover {
   position: absolute;
   z-index: 20;
-  top: calc(100% + 6px);
+  bottom: calc(100% + 6px);
   right: 0;
   width: 184px;
   display: grid;
@@ -11576,7 +11699,7 @@ html[data-mixdog-mobile-tabs] .model-trigger {
   box-shadow: var(--mx-floating);
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-2px);
+  transform: translateY(2px);
   transition: opacity 100ms ease, transform 100ms ease, visibility 100ms;
   pointer-events: none;
 }

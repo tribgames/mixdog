@@ -27,6 +27,7 @@ import {
   scheduleConnectedMeasure,
   TRANSCRIPT_ROW_MEASURE_EVENT,
 } from "./transcript-measure";
+import { isRemoteBrowserRenderer } from "./remote-ui-projection";
 
 /**
  * The virtualized transcript timeline.
@@ -124,6 +125,10 @@ export function TranscriptList({
   hasScrollGesture: () => boolean;
 }) {
   const spacer = useRef<HTMLDivElement>(null);
+  // Web snapshots and native scrolling can update in the same frame. Keep
+  // positioning in React there so a later snapshot render cannot briefly
+  // overwrite direct DOM positions with an older virtual range.
+  const reactOwnedLayout = isRemoteBrowserRenderer();
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   // Reader intent reaches the core in the SAME task it was decided in: the
@@ -233,7 +238,7 @@ export function TranscriptList({
     // that commit timing: row transforms and the container height are
     // written inside the core transaction, and React reconciles on range
     // changes only.
-    directDomUpdates: true,
+    directDomUpdates: !reactOwnedLayout,
     // Keep every row in the transcript's ONE paint layer. Transform mode
     // promotes each row independently; when a deferred measurement and the
     // final native wheel frame land together at the bottom, Chromium can
@@ -697,7 +702,8 @@ export function TranscriptList({
     // directDomUpdates owns this height synchronously through containerRef.
     // A React height prop can commit an older render after a native wheel
     // reaches the bottom and temporarily clip one pane at stale geometry.
-    <div className="transcript-virtual-space" ref={bindSpacer}>
+    <div className="transcript-virtual-space" ref={bindSpacer}
+      style={reactOwnedLayout ? { height: `${virtualizer.getTotalSize()}px` } : undefined}>
       {virtualRows.map((virtualRow) => {
         const row = rows[virtualRow.index];
         if (!row) return null;
@@ -713,6 +719,9 @@ export function TranscriptList({
           <div className="transcript-virtual-row" key={virtualRow.key}
             data-index={virtualRow.index}
             data-timeline-key={String(virtualRow.key)}
+            style={reactOwnedLayout
+              ? { top: `${virtualRow.start - virtualizer.options.scrollMargin}px` }
+              : undefined}
             ref={measureRow}>
             <div className="transcript-virtual-row-content"
               data-slot="session-turn-message-container" data-index={virtualRow.index}

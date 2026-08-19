@@ -260,10 +260,11 @@ function joinActionAgent(action, agent) {
 export function agentResponseTitle(args, count = 1) {
   const total = Math.max(1, Number(count) || 1);
   if (total > 1) return `Responses ${total} agents`;
-  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
+  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '') || 'Agent';
   // The agent + model identify the responder; the response summary itself
   // is hidden in the collapsed card (expanding still shows the full body).
-  // No generic "Agent" fallback — render just "Response" when the agent is empty.
+  // Keep the surface identifiable even when a failed/legacy completion has no
+  // concrete agent identity.
   return withModelAndTag(joinActionAgent('Response', name), args);
 }
 
@@ -322,7 +323,7 @@ export function hasAgentResponseResult(value) {
     }
     if (/^agent result\b/i.test(trimmed)) continue;
     if (/^(?:undefined|null)$/i.test(trimmed)) continue;
-    if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
+    if (/^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
     if (!sawBlank && /^(?:agent task|background task|agent message queued\b|agent close:|task_id|surface|operation|label|status|type|target|agent|preset|model|effort|fast|limits|started|finished|error|notification|queueDepth):?\s*/i.test(trimmed)) continue;
     if (!sawBlank && /^(?:agents|tasks):\s*/i.test(trimmed)) continue;
     if (/^\(no agents or tasks\)$/i.test(trimmed)) continue;

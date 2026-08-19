@@ -48,6 +48,19 @@ test('authenticates, encrypts both directions, and rejects replay', async () => 
   const response = await server.encryptJson({ id: 1, ok: true });
   assert.deepEqual(await client.channel.decryptJson(response), { id: 1, ok: true });
   assert.doesNotMatch(request, /listProjects/);
+
+  const binary = await client.channel.encryptBinary({
+    method: 'submitToSession',
+    params: ['session', 'hello'],
+  });
+  assert.ok(binary instanceof Uint8Array);
+  assert.deepEqual(await server.decryptJson(binary), {
+    method: 'submitToSession',
+    params: ['session', 'hello'],
+  });
+  assert.ok(binary.byteLength < (
+    await server.encryptJson({ method: 'submitToSession', params: ['session', 'hello'] })
+  ).length);
 });
 
 test('rejects oversized handshake fields before cryptographic work', async () => {

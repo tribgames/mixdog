@@ -26,6 +26,10 @@ import {
   startRelay,
 } from './server.mjs';
 import { resolveStaticTarget, sendStaticFile } from './lib/static-http.mjs';
+import {
+  decodeRelayBinaryFrame,
+  encodeRelayBinaryFrame,
+} from './lib/relay-binary-frame.mjs';
 
 test('static responses apply browser security headers without changing HEAD behavior', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-static-'));
@@ -57,6 +61,18 @@ test('static responses apply browser security headers without changing HEAD beha
     "script-src 'self'",
   );
   assert.match(headers['Permissions-Policy'], /camera=\(self\)/);
+});
+
+test('binary relay envelopes preserve routing metadata without base64', () => {
+  const encoded = encodeRelayBinaryFrame({
+    clientId: '12345678-abcd-4321-abcd-1234567890ab',
+    data: Buffer.from([0, 1, 2, 255]),
+    droppable: true,
+  });
+  const decoded = decodeRelayBinaryFrame(encoded);
+  assert.equal(decoded.clientId, '12345678-abcd-4321-abcd-1234567890ab');
+  assert.equal(decoded.droppable, true);
+  assert.deepEqual([...decoded.data], [0, 1, 2, 255]);
 });
 
 test('static target resolution rejects symlink and junction escapes', () => {

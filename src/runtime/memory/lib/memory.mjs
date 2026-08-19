@@ -447,9 +447,8 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
   } catch (err) {
     __mixdogMemoryLog(`[memory] attachment-placeholder cleanup failed: ${err?.message || err}\n`)
   }
-  // One-time cleanup: runtime tool-completion notification rows ("The async
-  // shell/agent task ... has finished ... - review this result in your next
-  // step." followed by an unquoted or `> `-quoted Result body, and
+  // One-time cleanup: runtime tool-completion notification rows ("Async ...
+  // finished." followed by an unquoted or `> `-quoted Result body, and
   // "[mixdog-runtime] ..." nudges) that were persisted by the transcript
   // watcher before it gained the shouldExcludeIngestMessage exclusion
   // (transcript-ingest.mjs). Gated by a meta flag so this DELETE runs at
@@ -467,7 +466,7 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
       const candidates = await db.query(
         `SELECT id, content FROM entries
          WHERE role = 'user' AND (
-           content LIKE 'The async % task % has finished%'
+           content LIKE 'Async % finished.%'
            OR content LIKE '[mixdog-runtime]%'
            OR content LIKE 'background task%'
          )`,

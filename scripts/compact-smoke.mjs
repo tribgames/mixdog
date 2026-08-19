@@ -63,8 +63,6 @@ const bootstrapContextMessages = [
   { role: 'system', content: 'base rules stay exact' },
   { role: 'system', content: 'role/system rules stay exact' },
   { role: 'system', content: 'project/session memory/meta stay exact', cacheTier: 'tier3' },
-  { role: 'user', content: '<system-reminder>\nvolatile cwd C:\\Project\\mixdog stays exact\n</system-reminder>' },
-  { role: 'assistant', content: '.' },
   { role: 'user', content: 'fresh real task has no prior compactable history' },
 ];
 let bootstrapSemanticCalls = 0;

@@ -18,7 +18,7 @@ const completionMeta = {
   execution_surface: 'agent',
   execution_id: 'task-agent-1',
   status: 'completed',
-  instruction: 'The async agent task task-agent-1 has finished (completed) - review this result in your next step. Final result follows; do not recheck.',
+  instruction: 'Async agent task task-agent-1 (completed) finished.',
 };
 
 test('session-id authority delivers to only the requested Lead among simultaneous listeners', () => {

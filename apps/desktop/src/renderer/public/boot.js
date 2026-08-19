@@ -1,15 +1,27 @@
-// Remote Web is a projection of the desktop composition, not a separately
-// reflowed phone UI. Set the desktop's canonical width before CSS evaluates;
-// mobile browsers scale the 1040px canvas to fit and keep pinch/pan available.
+// Android remote web keeps the canonical desktop projection. iOS Safari and
+// home-screen PWAs must retain device-width: WebKit otherwise locks the layout
+// viewport at 1040px before the responsive phone marker can run.
 if (!/Electron/i.test(navigator.userAgent)) {
   var mixdogViewport = document.querySelector('meta[name="viewport"]');
-  if (mixdogViewport) {
+  var mixdogIos = /iPad|iPhone|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+  if (mixdogIos) {
+    if (mixdogViewport) {
+      mixdogViewport.setAttribute(
+        'content',
+        'width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content',
+      );
+    }
+    document.documentElement.dataset.mixdogMobileTabs = '';
+    document.documentElement.dataset.mixdogIosWeb = '';
+    document.documentElement.style.setProperty('--mx-device-scale', '1');
+  } else if (mixdogViewport) {
     mixdogViewport.setAttribute(
       'content',
       'width=1040, viewport-fit=cover, interactive-widget=resizes-content',
     );
+    document.documentElement.dataset.mixdogProjection = 'desktop';
   }
-  document.documentElement.dataset.mixdogProjection = 'desktop';
 }
 
 // First-paint theme: resolve the stored preference before any CSS evaluates.
