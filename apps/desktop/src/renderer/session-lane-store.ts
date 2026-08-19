@@ -30,6 +30,11 @@ export interface SessionLaneStore {
   /** Test/manual injection of one lane frame. */
   apply(update: DesktopSessionStateUpdate): void;
   stats(): { entries: number; estimatedBytes: number; subscribedSessions: number };
+  /** Session ids at least one mounted pane is currently subscribed to. */
+  subscribedSessionIds(): string[];
+  /** Drop cached lanes with no subscribers (remote sync-gap recovery: an
+   *  emptied lane re-reads through session.read on its next open). */
+  evictInactive(): void;
   clear(): void;
 }
 
@@ -540,6 +545,12 @@ export function createSessionLaneStore({
     subscribeRemoteSession(listener) {
       remoteSessionListeners.add(listener);
       return () => remoteSessionListeners.delete(listener);
+    },
+    subscribedSessionIds: () => [...listeners.keys()],
+    evictInactive() {
+      for (const sessionId of [...snapshots.keys()]) {
+        if ((listeners.get(sessionId)?.size || 0) === 0) removeSnapshot(sessionId);
+      }
     },
     start(source = window.mixdogDesktop?.subscribeSessionState?.bind(window.mixdogDesktop)) {
       if (stop) return stop;

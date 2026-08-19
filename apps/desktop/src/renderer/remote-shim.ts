@@ -518,6 +518,38 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     }
     return fields;
   };
+  // stateResync only restores the bound-session state lane. The sessions/
+  // agentPool/projection pushes and per-session sessionState lanes are
+  // droppable on both relay hops and have no patch stream to expose a gap,
+  // so a resync or reconnect refetches the catalog lanes here and tells the
+  // renderer to re-read its per-session transcript lanes.
+  const refreshBroadcastLanes = (): void => {
+    void call<DesktopSessionSummary[]>('listSessions')
+      .then((sessions) => {
+        const list = Array.isArray(sessions) ? sessions : [];
+        for (const listener of [...sessionListeners]) {
+          try { listener(list); } catch { /* renderer listener fault */ }
+        }
+      })
+      .catch(() => {});
+    void call<DesktopAgentPoolRow[]>('listAgentPool')
+      .then((agents) => {
+        const list = Array.isArray(agents) ? agents : [];
+        for (const listener of [...agentPoolListeners]) {
+          try { listener(list); } catch { /* renderer listener fault */ }
+        }
+      })
+      .catch(() => {});
+    void call<DesktopRemoteProjectionState>('getRemoteProjection')
+      .then((projection) => {
+        if (!projection || typeof projection !== 'object') return;
+        for (const listener of [...projectionListeners]) {
+          try { listener(projection); } catch { /* renderer listener fault */ }
+        }
+      })
+      .catch(() => {});
+    window.dispatchEvent(new Event('mixdog:remote-state-gap'));
+  };
   // Unsolicited resync requests (relay drop hint, foreground wake) share one
   // short debounce: a tab that flips visibility repeatedly must not pull a
   // full transcript per flip, while a real gap still recovers immediately.
@@ -530,6 +562,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (now - lastResyncAt < 3_000) return;
     lastResyncAt = now;
     fire('stateResync', []);
+    refreshBroadcastLanes();
   };
   const applyStatePayload = (payload: unknown): SessionSnapshot | null => {
     if (!payload || typeof payload !== 'object') return payload as SessionSnapshot;
@@ -803,6 +836,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }
         if (everConnected) {
           void call<SessionSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
+          refreshBroadcastLanes();
         }
         everConnected = true;
         resolve(ws);
