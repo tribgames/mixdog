@@ -16,6 +16,8 @@ the Unreleased section is empty, and stamps it with the released version.
 - Native spawn Linux releases are statically linked, graph search and recall
   reporting are hardened, and Terminal Bench routing and report tooling are
   updated.
+- Retired Discord/Telegram messaging and channel-session plumbing are removed,
+  while mobile system bars remain consistently black.
 
 ## v0.9.134 - 2026-08-17
 

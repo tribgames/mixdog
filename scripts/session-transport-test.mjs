@@ -264,14 +264,10 @@ test('health and registration expose the current protocol', async () => {
   });
 });
 
-test('revision 0 clients use the revision 1 compatibility boundary', async () => {
+test('revision 0 clients keep read compatibility without retired channel mutations', async () => {
   const calls = [];
   const service = createSessionService({
     createSessionRuntime: async () => Object.assign(createStubSessionRuntime(), {
-      setChannelProvider(value) {
-        calls.push(['setChannelProvider', value]);
-        return value;
-      },
       listProviderModels() {
         calls.push(['listProviderModels']);
         return ['model-a'];
@@ -283,27 +279,18 @@ test('revision 0 clients use the revision 1 compatibility boundary', async () =>
     const created = await service.handleCall('session.create', {
       sessionId: 'revision_zero_session',
     }, ctx);
-    const configured = await service.handleCall('session.configure', {
-      sessionId: created.sessionId,
-      action: 'setBackend',
-      args: ['discord'],
-    }, ctx);
-    assert.equal(configured.value, 'discord');
     const models = await service.handleCall('session.configure', {
       sessionId: created.sessionId,
       action: 'listProviderModels',
     }, ctx);
     assert.deepEqual(models.value, ['model-a']);
-    assert.deepEqual(calls, [
-      ['setChannelProvider', 'discord'],
-      ['listProviderModels'],
-    ]);
+    assert.deepEqual(calls, [['listProviderModels']]);
     await assert.rejects(
       service.handleCall('session.configure', {
         sessionId: created.sessionId,
         action: 'setBackend',
         args: ['discord'],
-      }, { clientToken: 'revision_one', revision: 1 }),
+      }, ctx),
       /session action setBackend is unavailable/,
     );
   } finally {

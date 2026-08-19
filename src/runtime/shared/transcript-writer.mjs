@@ -3,10 +3,9 @@
  *
  * Writes the newline-delimited JSON transcript consumed by the memory
  * transcript watcher and session tooling. (The channel forwarder that
- * originally tailed this file is retired.) This module writes the JSONL in the exact
- * schema the forwarder parses (see channels/lib/output-forwarder.mjs
- * extractNewText) plus a session record the forwarder's discovery reads
- * (channels/lib/session-discovery.mjs readSessionRecord).
+ * originally tailed this file is retired; the JSONL schema and the
+ * `<mixdogHome>/sessions/<pid>.json` session record it established are
+ * kept as-is for those remaining consumers.)
  *
  * All writes are best-effort: a failure must never break the ask() turn. We
  * log the FIRST occurrence of each distinct failure string to stderr (prefix
@@ -39,9 +38,8 @@ function conversationText(content) {
     .join('\n');
 }
 
-// Byte-identical to cwdToProjectSlug() in
-// src/runtime/channels/lib/session-discovery.mjs. Inlined to avoid a
-// shared -> channels import coupling; keep the two in sync if either changes.
+// Canonical project-slug mapping for `<mixdogHome>/projects/<slug>` transcript
+// dirs (originally shared with the retired channel session-discovery).
 function cwdToProjectSlug(cwd) {
   return resolve(cwd).replace(/\\/g, '/').replace(/^([A-Za-z]):/, '$1-').replace(/\//g, '-');
 }
