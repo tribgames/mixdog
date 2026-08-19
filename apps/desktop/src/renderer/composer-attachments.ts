@@ -13,8 +13,12 @@ import {
   fileLooksLikeText,
   type ComposerAttachment,
 } from "./composer-support";
+import { isRemoteBrowserRenderer } from "./remote-ui-projection";
 
 const MAX_IMAGE_FILE_BYTES = 12_000_000;
+const WEB_IMAGE_MAX_WIDTH = 2_000;
+const WEB_IMAGE_MAX_HEIGHT = 2_000;
+const WEB_IMAGE_TARGET_BYTES = 3_750_000;
 const SUPPORTED_IMAGE_TYPES = /^image\/(?:png|jpe?g|gif|webp)$/i;
 const SUPPORTED_IMAGE_PATH = /\.(?:png|jpe?g|gif|webp)$/i;
 const TEXT_LIKE_MIME = /^application\/(?:json|ld\+json|toml|x-toml|yaml|x-yaml|xml)$/;
@@ -47,7 +51,7 @@ export function attachmentPolicyError(
   return '';
 }
 
-async function base64Payload(file: File, failure: string): Promise<string> {
+async function base64Payload(file: Blob, failure: string): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(failure));
@@ -57,15 +61,103 @@ async function base64Payload(file: File, failure: string): Promise<string> {
   return dataUrl.slice(dataUrl.indexOf(',') + 1);
 }
 
-// TUI parity: route images through the engine's optional-sharp resize pipeline
-// so desktop submits the same downscaled payload the terminal client would.
-// Hosts without the capability (older engines, test stubs) keep the raw attach,
-// while a REAL resize failure blocks the attach exactly like the TUI paste path.
-async function resizedImage(data: string, mimeType: string, displayName: string): Promise<{
+function imageMetadataText(
+  displayName: string,
+  originalWidth: number,
+  originalHeight: number,
+  displayWidth: number,
+  displayHeight: number,
+): string {
+  const resized = originalWidth !== displayWidth || originalHeight !== displayHeight;
+  const parts = [`source: ${displayName}`, `${originalWidth}x${originalHeight}`];
+  if (resized) {
+    const scale = originalWidth / displayWidth;
+    parts.push(`displayed at ${displayWidth}x${displayHeight}. Multiply coordinates by ${scale.toFixed(2)} to map to the original image.`);
+  } else {
+    parts.push(`displayed at ${displayWidth}x${displayHeight}`);
+  }
+  return `[Image: ${parts.join(', ')}]`;
+}
+
+function canvasBlob(canvas: HTMLCanvasElement, mimeType: string, quality?: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error('image encoding failed')),
+      mimeType,
+      quality,
+    );
+  });
+}
+
+async function browserResizedImage(file: File, displayName: string): Promise<{
   data: string;
   mimeType: string;
   metadataText: string;
 }> {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onerror = () => reject(new Error(`${displayName}: could not decode image.`));
+      element.onload = () => resolve(element);
+      element.src = objectUrl;
+    });
+    const originalWidth = image.naturalWidth;
+    const originalHeight = image.naturalHeight;
+    if (!originalWidth || !originalHeight) throw new Error(`${displayName}: image dimensions are invalid.`);
+    const scale = Math.min(
+      1,
+      WEB_IMAGE_MAX_WIDTH / originalWidth,
+      WEB_IMAGE_MAX_HEIGHT / originalHeight,
+    );
+    const displayWidth = Math.max(1, Math.floor(originalWidth * scale));
+    const displayHeight = Math.max(1, Math.floor(originalHeight * scale));
+    const needsResize = scale < 1 || file.size > WEB_IMAGE_TARGET_BYTES;
+    let payload: Blob = file;
+    if (needsResize) {
+      const canvas = document.createElement('canvas');
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error(`${displayName}: image resize is unavailable.`);
+      context.drawImage(image, 0, 0, displayWidth, displayHeight);
+      const preferredType = /^image\/jpe?g$/i.test(file.type)
+        ? 'image/jpeg'
+        : /^image\/webp$/i.test(file.type) ? 'image/webp' : 'image/png';
+      payload = await canvasBlob(canvas, preferredType, preferredType === 'image/png' ? undefined : 0.85);
+      if (payload.size > WEB_IMAGE_TARGET_BYTES && payload.type !== 'image/jpeg') {
+        payload = await canvasBlob(canvas, 'image/jpeg', 0.82);
+      }
+    }
+    return {
+      data: await base64Payload(payload, `${displayName}: could not read image.`),
+      mimeType: payload.type || file.type,
+      metadataText: imageMetadataText(
+        displayName,
+        originalWidth,
+        originalHeight,
+        displayWidth,
+        displayHeight,
+      ),
+    };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+// TUI parity: route images through the engine's optional-sharp resize pipeline
+// so desktop submits the same downscaled payload the terminal client would.
+// Hosts without the capability (older engines, test stubs) keep the raw attach,
+// while a REAL resize failure blocks the attach exactly like the TUI paste path.
+async function resizedImage(file: File, data: string, mimeType: string, displayName: string): Promise<{
+  data: string;
+  mimeType: string;
+  metadataText: string;
+}> {
+  // Browser-selected files and keyboard/clipboard screenshots already live in
+  // this process. Resize them here instead of sending the full original over
+  // the relay and waiting for a second RPC before the attachment chip appears.
+  if (isRemoteBrowserRenderer()) return browserResizedImage(file, displayName);
   const invokeResize = window.mixdogDesktop?.invokeCapability;
   if (typeof invokeResize !== 'function') return { data, mimeType, metadataText: '' };
   try {
@@ -105,7 +197,7 @@ export async function attachmentFromFile(file: File, options: {
     }
     const raw = await base64Payload(file, `${displayName}: could not read image.`);
     if (cancelled()) return null;
-    const image = await resizedImage(raw, file.type, displayName);
+    const image = await resizedImage(file, raw, file.type, displayName);
     if (cancelled()) return null;
     return {
       id,

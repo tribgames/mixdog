@@ -8,8 +8,12 @@ function remoteSurface(): boolean {
 function syncViewportVars(): void {
   const root = document.documentElement;
   const visual = window.visualViewport;
+  const width = visual?.width ?? window.innerWidth;
   const height = visual?.height ?? window.innerHeight;
+  root.style.setProperty("--vvw", `${Math.round(width)}px`);
   root.style.setProperty("--vvh", `${Math.round(height)}px`);
+  root.style.setProperty("--vv-offset-left", `${Math.round(visual?.offsetLeft ?? 0)}px`);
+  root.style.setProperty("--vv-offset-top", `${Math.round(visual?.offsetTop ?? 0)}px`);
 }
 
 function syncShellFlags(): void {

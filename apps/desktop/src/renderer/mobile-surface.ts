@@ -7,9 +7,20 @@
 // BEFORE React renders, so the phone lays out correctly exactly once.
 import { isRemoteBrowserRenderer } from "./remote-ui-projection";
 
+export function isIOSWebSurface(): boolean {
+  if (!isRemoteBrowserRenderer()) return false;
+  try {
+    return /iPad|iPhone|iPod/iu.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1);
+  } catch {
+    return false;
+  }
+}
+
 export function isMobileRemoteSurface(): boolean {
   if (!isRemoteBrowserRenderer()) return false;
   try {
+    if (isIOSWebSurface()) return true;
     return (navigator.maxTouchPoints || 0) > 0
       && Math.min(window.screen.width, window.screen.height) < 768;
   } catch {
@@ -17,16 +28,42 @@ export function isMobileRemoteSurface(): boolean {
   }
 }
 
-/** Idempotent; safe to call again after viewport-defining loads. */
-export function installMobileSurfaceMarker(): void {
-  if (!isMobileRemoteSurface()) return;
-  document.documentElement.setAttribute("data-mixdog-mobile-tabs", "");
-  // Projection factor (layout px per device dp) so CSS can size chrome in
-  // Chrome-Android dp terms on ANY phone instead of one device's ratio.
+export function mobileSurfaceScale(): number {
+  if (!isMobileRemoteSurface() || isIOSWebSurface()) return 1;
   try {
     const layout = document.documentElement.clientWidth || 1040;
     const device = Math.min(window.screen.width, window.screen.height) || layout;
-    const scale = Math.max(1, Math.round((layout / device) * 100) / 100);
-    document.documentElement.style.setProperty("--mx-device-scale", String(scale));
-  } catch { /* CSS falls back to its default factor */ }
+    return Math.max(1, Math.round((layout / device) * 100) / 100);
+  } catch {
+    return 1;
+  }
+}
+
+/** Keeps phone markers and projection metrics current across rotation/PWA restore. */
+export function installMobileSurfaceMarker(): () => void {
+  const sync = () => {
+    const root = document.documentElement;
+    if (!isMobileRemoteSurface()) {
+      root.removeAttribute("data-mixdog-mobile-tabs");
+      root.removeAttribute("data-mixdog-ios-web");
+      root.style.removeProperty("--mx-device-scale");
+      return;
+    }
+    root.setAttribute("data-mixdog-mobile-tabs", "");
+    if (isIOSWebSurface()) root.setAttribute("data-mixdog-ios-web", "");
+    else root.removeAttribute("data-mixdog-ios-web");
+    root.style.setProperty("--mx-device-scale", String(mobileSurfaceScale()));
+  };
+  sync();
+  const visual = window.visualViewport;
+  window.addEventListener("resize", sync);
+  window.addEventListener("orientationchange", sync);
+  window.addEventListener("pageshow", sync);
+  visual?.addEventListener("resize", sync);
+  return () => {
+    window.removeEventListener("resize", sync);
+    window.removeEventListener("orientationchange", sync);
+    window.removeEventListener("pageshow", sync);
+    visual?.removeEventListener("resize", sync);
+  };
 }

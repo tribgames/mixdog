@@ -10,7 +10,10 @@ import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
 import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
 import { aggregateBucketForCategory, aggregateRawResult, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
-import { isInternalTranscriptDisplayText } from '../../runtime/shared/tool-execution-contract.mjs';
+import {
+  isInternalTranscriptDisplayText,
+  isTranscriptCancelledStatusText,
+} from '../../runtime/shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
 
 export function restoredTranscriptMetadata(message) {
@@ -253,7 +256,7 @@ function restoredUserTranscriptItems(message, nextId) {
   const text = (typeof message?.content === 'string'
     ? message.content
     : toolResultText(message?.content)).trim();
-  // Persisted async-completion wrappers ("The async shell task ... Result:
+  // Persisted async-completion wrappers ("Async shell task ... finished. Result:
   // > ...") are the only durable record of a background completion — the live
   // Response card is an event-time push that does not survive a transcript
   // rebuild. Restore them as tool cards instead of dropping them with the
@@ -288,10 +291,7 @@ function restoredUserTranscriptItems(message, nextId) {
   // Crash-recovery control row: keep the persisted marker for the next model
   // step, but render it like a live cancel tail (◈ Cancelled) instead of a
   // raw user bubble with bracketed internals.
-  if (/^\[request interrupted by process restart\]$/i.test(text)) {
-    return [{ kind: 'turndone', id: nextId(), status: 'cancelled', elapsedMs: 0 }];
-  }
-  if (/^\[request interrupted\]$/i.test(text)) {
+  if (isTranscriptCancelledStatusText(text)) {
     return [{ kind: 'turndone', id: nextId(), status: 'cancelled', elapsedMs: 0 }];
   }
   const synthetic = parseSyntheticAgentMessage(text);

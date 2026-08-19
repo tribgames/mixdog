@@ -22,6 +22,8 @@ import {
   type RelayE2EEChannel,
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
+import { isRemotePaintProbe } from '../shared/remote-performance';
+import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import {
   REMOTE_PAIRING_STORAGE_KEYS,
   clearStoredRemotePairing,
@@ -30,6 +32,7 @@ import {
   normalizeRemoteRelayOrigin,
   parseRemotePairingLink,
 } from './remote-pairing-recovery';
+import { createSnapshotDeltaDecoder } from '../main/state-delta';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
@@ -128,6 +131,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let nextId = 1;
   let secureChannel: RelayE2EEChannel | null = null;
   let connectionReady = false;
+  let relayBinaryFrames = false;
+  const sessionsDecoder = createKeyedListDeltaDecoder<DesktopSessionSummary>();
+  const agentPoolDecoder = createKeyedListDeltaDecoder<DesktopAgentPoolRow>();
 
   // Another tab shares localStorage and may have re-registered this browser,
   // rotating the per-browser credential; always dial with the freshest one.
@@ -495,11 +501,19 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let deltaStreamingTail: DesktopTranscriptItem | null = null;
   let deltaStateFields: Record<string, unknown> = {};
   let deltaRevision = -1;
+  const sessionStateDecoders = new Map<
+    string,
+    ReturnType<typeof createSnapshotDeltaDecoder>
+  >();
   const resetDeltaState = (): void => {
     deltaRevision = -1;
     deltaItems = [];
     deltaStreamingTail = null;
     deltaStateFields = {};
+    for (const decoder of sessionStateDecoders.values()) decoder.reset();
+    sessionStateDecoders.clear();
+    sessionsDecoder.reset();
+    agentPoolDecoder.reset();
   };
   const stateFieldsFrom = (record: Record<string, unknown>): Record<string, unknown> => {
     const fields: Record<string, unknown> = {};
@@ -693,16 +707,26 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const snapshot = applyStatePayload(message.payload ?? null);
       if (snapshot !== null) dispatchState(snapshot);
     } else if (message.event === 'sessions') {
-      const sessions = Array.isArray(message.payload)
-        ? message.payload as DesktopSessionSummary[]
-        : [];
+      const decoded = Array.isArray(message.payload)
+        ? { ok: true, items: message.payload as DesktopSessionSummary[] }
+        : sessionsDecoder.decode(message.payload);
+      if (!decoded.ok) {
+        requestResync();
+        return;
+      }
+      const sessions = decoded.items ?? [];
       for (const listener of [...sessionListeners]) {
         try { listener(sessions); } catch { /* renderer listener fault */ }
       }
     } else if (message.event === 'agentPool') {
-      const agents = Array.isArray(message.payload)
-        ? message.payload as DesktopAgentPoolRow[]
-        : [];
+      const decoded = Array.isArray(message.payload)
+        ? { ok: true, items: message.payload as DesktopAgentPoolRow[] }
+        : agentPoolDecoder.decode(message.payload);
+      if (!decoded.ok) {
+        requestResync();
+        return;
+      }
+      const agents = decoded.items ?? [];
       for (const listener of [...agentPoolListeners]) {
         try { listener(agents); } catch { /* renderer listener fault */ }
       }
@@ -713,10 +737,47 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         try { listener(projection); } catch { /* renderer listener fault */ }
       }
     } else if (message.event === 'sessionState') {
-      const update = message.payload as DesktopSessionStateUpdate;
-      if (!update || typeof update !== 'object' || !String(update.sessionId || '')) return;
+      const payload = message.payload as DesktopSessionStateUpdate & {
+        wire?: unknown;
+        perfProbe?: unknown;
+      };
+      if (!payload || typeof payload !== 'object' || !String(payload.sessionId || '')) return;
+      const receivedAt = performance.now();
+      let update: DesktopSessionStateUpdate = payload;
+      if (Object.hasOwn(payload, 'wire')) {
+        let decoder = sessionStateDecoders.get(payload.sessionId);
+        if (!decoder) {
+          decoder = createSnapshotDeltaDecoder();
+          sessionStateDecoders.set(payload.sessionId, decoder);
+        }
+        const decoded = decoder.decode(payload.wire);
+        if (!decoded.ok) {
+          requestResync();
+          return;
+        }
+        update = {
+          sessionId: payload.sessionId,
+          snapshot: decoded.snapshot as SessionSnapshot,
+          frameSource: payload.frameSource,
+          ...(typeof payload.contentRevision === 'number'
+            ? { contentRevision: payload.contentRevision }
+            : {}),
+        };
+        if (update.snapshot === null) sessionStateDecoders.delete(payload.sessionId);
+      }
       for (const listener of [...sessionStateListeners]) {
         try { listener(update); } catch { /* renderer listener fault */ }
+      }
+      if (isRemotePaintProbe(payload.perfProbe)) {
+        const probe = payload.perfProbe;
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+          const receiveToPaintMs = performance.now() - receivedAt;
+          console.info(
+            `[mixdog-remote-perf] session=${payload.sessionId}`
+            + ` receive-to-paint=${receiveToPaintMs.toFixed(1)}ms`,
+          );
+          fire('remotePerfPaint', [probe.id, receiveToPaintMs]);
+        }));
       }
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
@@ -752,10 +813,16 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
     }
   }, 5_000);
-  const wakeProbe = (): void => {
-    if (document.visibilityState === 'hidden') return;
+  let resyncOnWake = document.visibilityState === 'hidden';
+  const wakeProbe = (event?: Event): void => {
+    if (document.visibilityState === 'hidden') {
+      resyncOnWake = true;
+      return;
+    }
+    const shouldResync = resyncOnWake || event?.type === 'online';
     const ws = socket;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
+      resyncOnWake = true;
       retryMs = 500;
       void connect().catch(() => { /* the retry loop keeps running */ });
       return;
@@ -766,7 +833,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // A live socket proves nothing about the transcript: pushes sent while
     // this tab was hidden may have been dropped for a congested leg, and a
     // finished turn never sends another patch to expose it.
-    requestResync();
+    if (shouldResync) {
+      resyncOnWake = false;
+      requestResync();
+    }
   };
   document.addEventListener('visibilitychange', wakeProbe);
   window.addEventListener('online', wakeProbe);
@@ -819,6 +889,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     }
     openPromise ??= new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(wsUrl());
+      ws.binaryType = 'arraybuffer';
       let opened = false;
       let handshakeTimer: number | null = null;
       const finishOpen = () => {
@@ -835,9 +906,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           try { localStorage.setItem(PAIRED_STORAGE_KEY, '1'); } catch { /* no storage */ }
         }
         if (everConnected) {
-          void call<SessionSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
+          // E2EE relay handshakes already trigger an authoritative full state
+          // push from the desktop. Only legacy direct sockets need the RPC.
+          if (!e2eePairing) {
+            void call<SessionSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
+          }
           refreshBroadcastLanes();
         }
+        resyncOnWake = false;
         everConnected = true;
         resolve(ws);
         // Existing terminal panes can hold PTY ids from the relay leg that
@@ -851,6 +927,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         socket = ws;
         connectionReady = false;
         secureChannel = null;
+        relayBinaryFrames = false;
         if (!e2eePairing) {
           finishOpen();
           return;
@@ -861,6 +938,19 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       };
       ws.onmessage = (event) => {
         void (async () => {
+          if (event.data instanceof ArrayBuffer) {
+            if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
+            const decrypted = await secureChannel.decryptJson(event.data);
+            if (!decrypted || typeof decrypted !== 'object') return;
+            const message = decrypted as Record<string, unknown>;
+            if (message.type === 'e2ee-ready' && message.version === 1) {
+              finishOpen();
+              return;
+            }
+            if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
+            handleMessage(message);
+            return;
+          }
           let parsed: unknown;
           try { parsed = JSON.parse(String(event.data)); } catch { return; }
           if (!parsed || typeof parsed !== 'object') return;
@@ -877,6 +967,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           }
           if (isRelayE2EEChallenge(clear)) {
             if (secureChannel) throw new Error('Duplicate relay encryption challenge.');
+            relayBinaryFrames = clear.binaryFrames === 1;
             const handshake = await createRelayE2EEClientHandshake(e2eePairing, clear);
             secureChannel = handshake.channel;
             ws.send(JSON.stringify(handshake.hello));
@@ -902,9 +993,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         openPromise = null;
         connectionReady = false;
         secureChannel = null;
+        relayBinaryFrames = false;
+        resyncOnWake = true;
         // A new connection starts a fresh delta lane; a stale base revision
         // must never accidentally match the new encoder's numbering.
-        deltaRevision = -1;
+        resetDeltaState();
         const failure = new Error('Mixdog relay disconnected.');
         for (const entry of [...pending.values()]) entry.reject(failure);
         pending.clear();
@@ -927,7 +1020,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   ): Promise<void> => {
     if (e2eePairing) {
       if (!secureChannel || !connectionReady) throw new Error('Relay encryption is not ready.');
-      ws.send(await secureChannel.encryptJson(payload));
+      ws.send(relayBinaryFrames
+        ? await secureChannel.encryptBinary(payload)
+        : await secureChannel.encryptJson(payload));
       return;
     }
     ws.send(JSON.stringify(payload));
@@ -1015,6 +1110,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // Cold session lanes fill through a host-side read; the replay frame
     // arrives on the broadcast sessionState event like any live push.
     prefetchSession: (sessionId) => call<boolean>('prefetchSession', [sessionId]),
+    setVisibleSessions: (sessionIds) => call<boolean>('setVisibleSessions', [sessionIds]),
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
       call('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]),
     getSnapshot: () => call('getSnapshot'),

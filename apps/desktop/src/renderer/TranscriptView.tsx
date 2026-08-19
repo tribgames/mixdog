@@ -23,7 +23,7 @@ import { classifyToolCategory, formatToolSurface } from "../../../../src/runtime
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from "../../../../src/runtime/shared/tool-card-model.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isInternalTranscriptDisplayText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
+import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from "../../../../src/tui/spinner-verbs.mjs";
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
@@ -820,7 +820,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   // Crash-recovery control row: persisted as a plain user message so the next
   // model step sees where a force-killed turn stopped, but it is not human
   // chat — same Cancelled status row as a live abort (TUI turndone cancelled).
-  if (user && /^\[request interrupted by process restart\]$/i.test(text)) {
+  if (user && isTranscriptCancelledStatusText(text)) {
     return <CompletionStatus item={{ kind: "turndone", status: "cancelled", elapsedMs: 0 } as TranscriptItem} />;
   }
   // The projection already dropped hidden rows; this is the final guard for a

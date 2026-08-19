@@ -38,26 +38,9 @@ export function backgroundTaskHeaderStatus(text) {
   return clean(match?.[1]).toLowerCase();
 }
 
-function notificationHead(text) {
-  const value = String(text || '').trim();
-  const match = /\n\s*\n/.exec(value);
-  if (!match) return value;
-  return value.slice(0, match.index).trim();
-}
-
-function isInternalTaskNotificationEnvelope(text) {
-  const value = String(text || '').trim();
-  if (!value) return false;
-  if (/^background task\b/i.test(value)) return false;
-  if (/^<task-notification\b/i.test(value)) return true;
-  const head = notificationHead(value);
-  return /^<task-notification\b/i.test(head);
-}
-
 export function shouldPersistModelVisibleToolCompletion(text, meta = {}) {
   const message = String(text || '').trim();
   if (!message) return false;
-  if (isInternalTaskNotificationEnvelope(message)) return false;
 
   const metaStatus = clean(meta?.status).toLowerCase();
   if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
@@ -96,7 +79,6 @@ export function isBracketedShellNotificationEnvelope(text) {
 export function isInternalRuntimeNotificationText(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
-  if (isInternalTaskNotificationEnvelope(value)) return true;
   if (isBracketedShellNotificationEnvelope(value)) return true;
   if (/^background task\b/i.test(value)
     && /^task_id:\s*\S+/mi.test(value)
@@ -132,7 +114,7 @@ export function toolCompletionInstruction({ surface = 'tool', id, status, detail
       ? 'agent task'
       : `${surface} execution`;
   const statusText = status ? ` (${status}${detail ? `, ${detail}` : ''})` : '';
-  return `The async ${label} ${id || ''} has finished${statusText} - review this result in your next step. Final result follows; do not recheck.`;
+  return `Async ${label} ${id || ''}${statusText} finished.`;
 }
 
 function toolCompletionMeta({
@@ -156,8 +138,6 @@ function toolCompletionMeta({
   };
 }
 
-const MODEL_VISIBLE_COMPLETION_INSTRUCTION_RE = /\b(async (?:agent task|shell task|\w+ execution)|Async \S+)/i;
-const MODEL_VISIBLE_COMPLETION_REVIEW_RE = /has finished\b[\s\S]*review this result in your next step/i;
 const MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE = /^Async .+ finished\./i;
 
 export function isModelVisibleToolCompletionWrapper(text) {
@@ -167,9 +147,7 @@ export function isModelVisibleToolCompletionWrapper(text) {
   if (!resultSplit) return false;
   const preamble = value.slice(0, resultSplit.index).trim();
   if (!preamble) return false;
-  const instructionLike = MODEL_VISIBLE_COMPLETION_INSTRUCTION_RE.test(preamble)
-    || MODEL_VISIBLE_COMPLETION_REVIEW_RE.test(preamble)
-    || MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
+  const instructionLike = MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
   if (!instructionLike) return false;
   const quotedSection = value.slice(resultSplit.index + resultSplit[0].length);
   const quotedLines = quotedSection.split(/\r?\n/).filter((line) => line.length > 0);
@@ -193,9 +171,7 @@ export function isLikelyToolCompletionWrapper(text) {
   if (!resultSplit) return false;
   const preamble = value.slice(0, resultSplit.index).trim();
   if (!preamble) return false;
-  const instructionLike = MODEL_VISIBLE_COMPLETION_INSTRUCTION_RE.test(preamble)
-    || MODEL_VISIBLE_COMPLETION_REVIEW_RE.test(preamble)
-    || MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
+  const instructionLike = MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
   if (!instructionLike) return false;
   const quotedSection = value.slice(resultSplit.index + resultSplit[0].length);
   const quotedLines = quotedSection.split(/\r?\n/).filter((line) => line.length > 0);
@@ -205,11 +181,10 @@ export function isLikelyToolCompletionWrapper(text) {
 }
 
 const INTERNAL_TRANSCRIPT_CONTEXT_RE =
-  /^<(?:system-reminder|task-notification|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b/i;
+  /^<(?:system-reminder|skill|memory-context|mcp-instructions|available-deferred-tools|event)\b/i;
 const INTERNAL_TRANSCRIPT_SYNTHETIC_RE =
   /^(?:\[mixdog-runtime\]|A previous model worked on this task and produced the compacted handoff summary below\b|Re-attached after compaction\b|Reference files:\s)/i;
-const INTERNAL_TRANSCRIPT_ASYNC_HEAD_RE =
-  /^The async (?:agent task|shell task|\w+ execution) \S+ has (?:finished|completed)\b/i;
+const INTERNAL_TRANSCRIPT_ASYNC_HEAD_RE = /^Async .+ finished\./i;
 // Persisted USER cancellation control rows ("[Request interrupted by user]"
 // and its tool-use variant) exist for the next model step, not for humans:
 // the human already saw the cancel they typed. The live engine path already
@@ -222,6 +197,16 @@ const INTERNAL_TRANSCRIPT_ASYNC_HEAD_RE =
 // (scripts/turn-checkpoint-crash-test.mjs).
 const INTERNAL_TRANSCRIPT_INTERRUPT_RE =
   /^\[request interrupted by user(?: for tool use)?\]$/i;
+const TRANSCRIPT_CANCELLED_STATUS_RE =
+  /^\[request interrupted(?: by process restart)?\]$/i;
+
+// Crash/implicit interruption markers remain in model-visible history for
+// recovery, but every human transcript renders them as a Cancelled status row.
+// Explicit user-cancel markers stay on the hidden-control-row path above
+// because the live surface already emitted its cancellation status.
+export function isTranscriptCancelledStatusText(text) {
+  return TRANSCRIPT_CANCELLED_STATUS_RE.test(String(text ?? '').trim());
+}
 
 // One display-only policy for every transcript surface. Runtime control rows
 // may be persisted as ordinary role:user messages so the next model step can
@@ -245,9 +230,7 @@ export function isInternalTranscriptDisplayText(text) {
   const resultSplit = /\r?\n(?:[ \t]*\r?\n)?Result:[ \t]*\r?\n/i.exec(value);
   if (!resultSplit) return false;
   const preamble = value.slice(0, resultSplit.index).trim();
-  const instructionLike = MODEL_VISIBLE_COMPLETION_INSTRUCTION_RE.test(preamble)
-    || MODEL_VISIBLE_COMPLETION_REVIEW_RE.test(preamble)
-    || MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
+  const instructionLike = MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
   if (!instructionLike) return false;
   const normalizedBody = value.slice(resultSplit.index + resultSplit[0].length)
     .split(/\r?\n/)

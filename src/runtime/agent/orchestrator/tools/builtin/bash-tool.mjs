@@ -684,7 +684,6 @@ export async function executeBashTool(args, workDir, options = {}) {
                 task ? renderBackgroundTask(task) : (result.jobId ? `[task_id: ${result.jobId}]` : null),
                 '',
                 result.backgroundMessage || 'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
-                result.jobId ? 'You will be notified when it completes; do not poll.' : null,
                 partialOutput ? `\n${partialOutput}` : '',
             ].filter((l) => l !== null && l !== '');
             return _prependDestructiveWarning(command, lines.join('\n'));

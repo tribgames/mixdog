@@ -169,7 +169,7 @@ function firstAgentResultLine(text) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     if (/^agent result\b/i.test(trimmed)) continue;
-    if (/^<\/?(?:final-answer|task-notification|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
+    if (/^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(trimmed)) continue;
         if (/^(?:agent task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused):\s*/i.test(trimmed)) continue;
     if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
     return truncateSingleLine(trimmed, AGENT_SURFACE_BRIEF_MAX);

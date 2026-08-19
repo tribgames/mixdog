@@ -125,8 +125,8 @@ function assertOk(name, result, pattern = null) {
     status: 'completed',
     detail: 'exit 0',
   });
-  assert(/Final result follows; do not recheck\.$/.test(completion),
-    `completion instruction must close status polling: ${completion}`);
+  assert(/^Async shell task job-1 \(completed, exit 0\) finished\.$/.test(completion),
+    `completion instruction must stay status-only: ${completion}`);
   assert(/No new evidence; use the existing result or report it unresolved\.$/.test(
     crossTurnDedupStub('read', 2, true),
   ), 'cross-turn dedup reminder must stay evidence-neutral');
@@ -1443,8 +1443,8 @@ function shellNotifyOptions(events, suffix) {
 function assertBackgroundStart(label, output) {
   const text = String(output);
   const taskId = shellTaskId(text);
-  if (!taskId || !/You will be notified when it completes; do not poll\./i.test(text)) {
-    throw new Error(`${label} must return task_id plus the completion-notification contract:\n${text}`);
+  if (!taskId) {
+    throw new Error(`${label} must return a tracked task_id:\n${text}`);
   }
   return taskId;
 }
@@ -1512,9 +1512,8 @@ const shellSnapshotRead = await executeBuiltinTool('task', {
   task_id: shellCheckTaskId,
 }, root, shellCheckOptions);
 if (!/status:\s*running/i.test(String(shellSnapshotRead))
-  || !/"status":\s*"running"/i.test(String(shellSnapshotRead))
-  || !/do not poll or call task again/i.test(String(shellSnapshotRead))) {
-  throw new Error(`task read must return one guarded running snapshot:\n${shellSnapshotRead}`);
+  || !/"status":\s*"running"/i.test(String(shellSnapshotRead))) {
+  throw new Error(`task read must return the current running snapshot:\n${shellSnapshotRead}`);
 }
 await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell snapshot read');
 

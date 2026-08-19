@@ -29,6 +29,11 @@ param(
   [switch]$ViaUpdater,
   [switch]$FastDirect,
   [switch]$FastDirectWorker,
+  # -ReuseBuild trusts a just-finished build:fast (out/ + daemon are fresh) and
+  # skips the second electron-vite/build-daemon pass. -BuildOnly stops after
+  # staging so a caller can overlap other work, then rerun with -SkipBuild.
+  [switch]$ReuseBuild,
+  [switch]$BuildOnly,
   [switch]$RuntimeOnly,
   [switch]$NoLaunch,
   [switch]$KeepDaemon,
@@ -392,7 +397,10 @@ function Get-FastDirectPlan {
 function Invoke-FastDirectIncrementalBuild {
   param([object]$Plan)
   $targets = @($Plan.targets)
-  if ($targets.Count -gt 0) {
+  if ($targets.Count -gt 0 -and $ReuseBuild) {
+    Write-Step "reusing prebuilt Electron target(s): $($targets -join ', ')"
+  }
+  if ($targets.Count -gt 0 -and -not $ReuseBuild) {
     Write-Step "building changed Electron target(s): $($targets -join ', ')"
     Push-Location $desktopDir
     try {
@@ -409,7 +417,7 @@ function Invoke-FastDirectIncrementalBuild {
       Pop-Location
     }
   }
-  if ($Plan.daemon) {
+  if ($Plan.daemon -and -not $ReuseBuild) {
     Write-Step 'building changed desktop daemon'
     Push-Location $desktopDir
     try {
@@ -773,6 +781,11 @@ if ($FastDirect -and $fastPlan.full) {
 if ($FastDirect -and -not $fastPlan.full -and @($fastPlan.targets).Count -eq 0 `
     -and -not $fastPlan.daemon -and -not $fastPlan.runtime) {
   Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
+  exit 0
+}
+
+if ($FastDirect -and $BuildOnly) {
+  Write-Step 'FastDirect build stage complete; rerun with -SkipBuild to swap'
   exit 0
 }
 

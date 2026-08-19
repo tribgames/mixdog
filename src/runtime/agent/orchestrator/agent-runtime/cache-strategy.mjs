@@ -311,7 +311,6 @@ export function buildStableProviderPromptCacheKey(provider, opts, prefix = {}) {
         effort: cleanString(prefix.effort ?? opts?.effort),
         fast: prefix.fast === true || opts?.fast === true,
         serviceTier: cleanString(prefix.serviceTier),
-        toolChoice: cleanString(prefix.toolChoice),
         parallelToolCalls: prefix.parallelToolCalls === false ? false : true,
         cacheLaneSlot: laneEnabled ? shardSlot : null,
         cacheLaneShards: autoLane ? 'auto' : shardCount > 1 ? shardCount : null,

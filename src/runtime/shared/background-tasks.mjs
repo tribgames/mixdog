@@ -466,6 +466,8 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   const lines = [
     'background task',
     `task_id: ${task.taskId}`,
+    `surface: ${task.surface}`,
+    `operation: ${task.operation}`,
     task.label ? `label: ${task.label}` : null,
     `status: ${task.status}`,
     `started: ${task.startedAt}`,
@@ -479,7 +481,7 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     && _so.slice(0, -11) === _se.slice(0, -11)
     ? _so.slice(0, -11) : null;
   for (const [key, value] of Object.entries(visibleMeta)) {
-    if (key === 'task_id') continue; // already in the envelope header
+    if (key === 'task_id' || key === 'surface' || key === 'operation') continue;
     if (logsBase && (key === 'stdout' || key === 'stderr')) continue;
     lines.push(`${key}: ${value}`);
   }

@@ -67,7 +67,7 @@ function archivedAgentNotification(content, sessionId) {
     const text = typeof content === 'string' ? content : '';
     const marker = '\n\nResult:\n';
     const markerAt = text.indexOf(marker);
-    if (markerAt < 0 || !/The async agent task .* has finished \(/.test(text.slice(0, markerAt))) return null;
+    if (markerAt < 0 || !/Async agent task .* finished\./.test(text.slice(0, markerAt))) return null;
     const lines = text.slice(markerAt + marker.length)
         .split(/\r?\n/)
         .map((line) => line.replace(/^>\s?/, ''));

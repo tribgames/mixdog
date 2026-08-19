@@ -10,6 +10,21 @@ export function shouldPreserveComposerDraftOnScopeChange(
     && nextScope.startsWith("new-task:");
 }
 
+export function composerDraftAfterScopeChange({
+  currentDraft,
+  liveDomDraft,
+  preserveDraft,
+  typingLive,
+}: {
+  currentDraft: string;
+  liveDomDraft: string;
+  preserveDraft: boolean;
+  typingLive: boolean;
+}): string {
+  const candidate = typingLive ? liveDomDraft : currentDraft;
+  return (preserveDraft || typingLive) && candidate.trim() ? candidate : "";
+}
+
 export function nextComposerSubmissionId(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   return `desktop-submit-${uuid || `${Date.now()}-${++submissionSequence}`}`;

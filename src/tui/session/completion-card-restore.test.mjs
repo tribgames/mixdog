@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { restoreTranscriptItems } from './session-api-ext.mjs';
 
 const wrapper = (taskId, body) => [
-  `The async shell task ${taskId} has finished (completed, exit 0) - review this result in your next step. Final result follows; do not recheck.`,
+  `Async shell task ${taskId} (completed, exit 0) finished.`,
   '',
   'Result:',
   ...body.split('\n').map((line) => `> ${line}`),
@@ -45,7 +45,7 @@ test('completion wrapper user rows restore as tool cards, not dropped rows', () 
   assert.equal(card.isError, false);
   assert.match(String(card.result || ''), /8\/8 Mean: 1\.000/);
   // The raw wrapper must never surface as a plain user bubble.
-  assert.ok(!items.some((it) => it?.kind === 'user' && /The async shell task/.test(it.text || '')));
+  assert.ok(!items.some((it) => it?.kind === 'user' && /Async shell task/.test(it.text || '')));
 });
 
 test('non-wrapper internal rows stay suppressed on restore', () => {

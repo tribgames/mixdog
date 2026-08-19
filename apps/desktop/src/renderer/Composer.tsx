@@ -68,6 +68,7 @@ import {
   isSupportedComposerImagePath,
 } from "./composer-attachments";
 import {
+  composerDraftAfterScopeChange,
   insertComposerToken,
   nextComposerSubmissionId,
   shouldPreserveComposerDraftOnScopeChange,
@@ -322,12 +323,26 @@ export const Composer = memo(function Composer({
     // Scope settles ASYNC after a session switch/promotion; when the user is
     // ALREADY typing in the composer, the in-flight text carries over instead
     // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
-    const typingLive = document.activeElement === textarea.current;
+    const typingElement = textarea.current;
+    const typingLive = document.activeElement === typingElement;
     const preserveDraft = shouldPreserveComposerDraftOnScopeChange(
       previousHistoryScope,
       historyScope,
     );
-    setDraft((current) => ((preserveDraft || typingLive) && current.trim() ? current : ''));
+    setDraft((current) => {
+      // A remote snapshot can change scope in the same turn as a native input
+      // event. The DOM already owns the newest character while React state may
+      // still be one commit behind, so preserve the focused DOM value instead
+      // of briefly writing the stale controlled value back into the textarea.
+      const next = composerDraftAfterScopeChange({
+        currentDraft: current,
+        liveDomDraft: typingElement?.value ?? current,
+        preserveDraft,
+        typingLive,
+      });
+      draftRef.current = next;
+      return next;
+    });
     setAttachments([]);
     setAttachmentError('');
     setComposerNotice('');
@@ -1855,7 +1870,7 @@ export const Composer = memo(function Composer({
           </button>
         </div>)}
       </div>}
-      <textarea ref={textarea} value={draft} onInput={(event) => {
+      <textarea ref={textarea} value={draft} onChange={(event) => {
         // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
         // logged only when a frame is actually slow.
         if (window.mixdogDesktop?.perfLog && !composerPaintSamplePending.current) {

@@ -15,7 +15,6 @@ import {
     DEFAULT_COMPACT_TYPE,
 } from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
-import { stripSoftWarns } from '../tool-loop-guard.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
 
@@ -34,6 +33,7 @@ import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './l
 // this file; import it from there directly rather than via this module.
 import { recordToolBatch } from '../tools/tool-batch-trace.mjs';
 import { projectProviderEvidence } from './evidence-union.mjs';
+import { prepareProviderPrefixGuard } from './provider-prefix-guard.mjs';
 
 
 import { resolve as resolvePath, isAbsolute } from 'path';
@@ -185,9 +185,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const signal = opts.signal || null;
     const sessionAgent = opts.session?.agent;
     const forcedFirstTool = opts.forcedFirstTool ?? null;
-    const forcedFirstToolDef = forcedFirstTool
-        ? tools.find(tool => tool?.name === forcedFirstTool)
-        : null;
     // Opaque providerState passthrough. The loop never inspects provider-native
     // payloads; the originating provider owns them. Stateful Responses
     // providers may use it for continuation anchors.
@@ -205,6 +202,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
     };
     const sessionRef = opts.session || null;
+    let _providerPrefixGuardState = sessionRef?._providerPrefixGuardState || null;
+    let _fixedProviderToolSurface = sessionRef?._providerToolSurfaceSnapshot || null;
     const loopUsageMetricsEpoch = () => Number(sessionRef?.usageMetricsEpoch) || 0;
     const loopUsageMetricsTurnId = () => Number(sessionRef?.usageMetricsTurnId) || 0;
     // Sub-agent (worker/heavy-worker/reviewer/…) sessions
@@ -427,25 +426,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // sessionRef.cwd is the live SSOT. The legacy positional cwd is only the
     // turn-start snapshot and becomes stale after an in-turn cwd tool call.
     cwd = resolveLiveToolCwd(cwd, sessionRef);
-    // Staged pre-cap warnings + one true hard stop. The ONLY count-based
-    // forced termination is the hard cap at maxLoopIterations (default 200):
-    // a genuine runaway guard. Before it, staged warnings fire at 50%/75%/90%
-    // of the cap steering the model to converge — warnings only, nothing is
-    // cut off early. Other runaway protection is behavior-based (steering
-    // ladder hints, REPEAT_FAIL_LIMIT), never a lower iteration count.
-    let _iterWarnStage = 0;
-    // Tiny-cap loops can't afford staged 50/75/90%
-    // steers — the 50% stage lands on iteration 1 in every session, spamming
-    // the normal batch→answer path. For caps < 10 emit ONE wrap-up warning at
-    // the penultimate iteration instead; caps >= 10 keep staged behavior.
-    const _singleWarn = maxLoopIterations < 10;
-    const _iterWarnAt = _singleWarn
-        ? [Math.max(1, maxLoopIterations - 1)]
-        : [
-            Math.floor(maxLoopIterations * 0.5),
-            Math.floor(maxLoopIterations * 0.75),
-            Math.floor(maxLoopIterations * 0.9),
-        ];
+    // The hard cap is the sole count-based steering injection. Behavioral
+    // guards below handle repeated failures/dedup without periodic reminders.
     while (true) {
         // A cwd tool call updates sessionRef in place. Refresh before building
         // this iteration's eager dispatcher and cache keys so every following
@@ -478,26 +460,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             messages.push({ role: 'user', content: `<system-reminder>\n${finalTurnReminder}\n</system-reminder>`, meta: 'hook' });
             process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); forcing final text turn.\n`);
         }
-        if (_iterWarnStage < _iterWarnAt.length && iterations >= _iterWarnAt[_iterWarnStage]) {
-            _iterWarnStage += 1;
-            const warnAt = _iterWarnAt[_iterWarnStage - 1];
-            const stageMsg = _singleWarn
-                ? `Iteration budget nearly spent: ${warnAt} of ${maxLoopIterations} iterations used — answer NOW with the best anchors you already hold.`
-                : _iterWarnStage === 1
-                    ? `Iteration budget notice: ${warnAt} of ${maxLoopIterations} iterations used. Converge on a conclusion: prefer finishing the current objective over opening new exploration.`
-                    : `Iteration budget warning (stage ${_iterWarnStage}): ${warnAt} of ${maxLoopIterations} iterations used — the loop hard-stops at ${maxLoopIterations}. Wrap up now: summarize progress, state what remains, and finish with your best current result.`;
-            messages.push({ role: 'user', content: `<system-reminder>\n${stageMsg}\n</system-reminder>`, meta: 'hook' });
-            process.stderr.write(`[loop] iteration warning stage ${_iterWarnStage} at ${iterations} (sess=${sessionId || 'unknown'}); continuing with steer.\n`);
-            try {
-                appendAgentTrace({
-                    sessionId,
-                    iteration: iterations,
-                    kind: 'steer',
-                    payload: { tag: 'iteration_warning', stage: _iterWarnStage, at: iterations, unit: maxLoopIterations },
-                    agent: sessionAgent || null,
-                });
-            } catch { /* best-effort */ }
-        }
         // Drain queued steering/prompts BEFORE the pre-send compact check, but
         // only immediately after a tool batch has completed: queued entries
         // are attached after tool results are appended and before the recursive
@@ -510,9 +472,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             _toolBatchJustCompleted = false;
             _lastToolBatchHadSleep = false;
         }
-        const baseSendTools = _capFinalToolsDisabled
-            ? tools
-            : (forcedFirstToolDef && toolCallsTotal === 0 ? [forcedFirstToolDef] : tools);
+        const baseSendTools = tools;
         let sendTools;
         let requestToolScope;
         let compactChanged;
@@ -527,23 +487,18 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     || messages.some((message, index) => message !== messagesBeforeTranscriptRepair[index]))) {
                 opts.cacheBreakIntent = 'transcript_rebuild';
             }
-            for (let _i = 0; _i < messages.length; _i++) {
-                const _m = messages[_i];
-                if (_m && _m.role === 'tool' && typeof _m.content === 'string' && _m.content.includes('⚠')) {
-                    const _stripped = stripSoftWarns(_m.content);
-                    if (_stripped !== _m.content) {
-                        _m.content = _stripped;
-                        if (!opts.cacheBreakIntent) opts.cacheBreakIntent = 'soft_warn_strip';
-                    }
-                }
-            }
-            sendTools = snapshotProviderRequestTools({
+            const _candidateSendTools = snapshotProviderRequestTools({
                 provider: sessionRef?.provider || provider?.name,
                 tools: baseSendTools,
                 nativeTools: opts.nativeTools,
                 messages,
                 session: sessionRef,
             });
+            if (!_fixedProviderToolSurface) {
+                _fixedProviderToolSurface = _candidateSendTools;
+                if (sessionRef) sessionRef._providerToolSurfaceSnapshot = _fixedProviderToolSurface;
+            }
+            sendTools = _fixedProviderToolSurface;
             requestToolScope = {
                 session: sessionRef,
                 provider: sessionRef?.provider || provider?.name,
@@ -655,8 +610,25 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const _evidenceProjection = projectProviderEvidence(_providerMessageSource, {
             enabled: !_evidenceUnionDisabled,
             apply: !_evidenceUnionShadow,
+            // Path aliases are a whole-history projection: a later repeated
+            // path can rewrite already-sent tool results and invalidate every
+            // provider's prefix cache. Row/exact-result references are
+            // append-only, so retain those and disable only the unsafe pass.
+            pathAliases: false,
         });
         const _providerMessages = _evidenceProjection.messages;
+        const _providerPrefixGuardCandidate = prepareProviderPrefixGuard(
+            _providerPrefixGuardState,
+            _providerMessages,
+            {
+                tools: sendTools,
+                nativeTools: Array.isArray(opts.nativeTools) ? opts.nativeTools : [],
+            },
+            {
+                provider: sessionRef?.provider || provider?.name || null,
+                cacheBreakIntent: opts.cacheBreakIntent,
+            },
+        );
         if (_evidenceProjection.stats.reusedRows > 0
             || _evidenceProjection.stats.exactResultRefs > 0
             || _evidenceProjection.stats.pathAliases > 0) {
@@ -723,6 +695,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             continue;
         }
         response = _sendResult.response;
+        _providerPrefixGuardState = _providerPrefixGuardCandidate;
+        if (sessionRef) sessionRef._providerPrefixGuardState = _providerPrefixGuardState;
         if (_imageStripActive && Array.isArray(_pendingImageStripPersistMessages)) {
             messages.splice(0, messages.length, ..._pendingImageStripPersistMessages);
             _imageStripActive = false;

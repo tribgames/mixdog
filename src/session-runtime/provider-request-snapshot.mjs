@@ -306,30 +306,23 @@ export function snapshotProviderRequestTools(options = {}) {
     || names.size === 0) {
     return finish();
   }
-  const discovered = new Set(parseToolSelection(session?.deferredDiscoveredTools));
-  for (const message of Array.isArray(messages) ? messages : []) {
-    const native = message?.nativeToolSearch;
-    const source = clean(native?.provider).toLowerCase();
-    if (source && source !== normalizedProvider
-      && !(ANTHROPIC_NATIVE_PROVIDERS.has(source)
-        && ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider))) continue;
-    for (const name of parseToolSelection(native?.toolReferences)) discovered.add(name);
-  }
-  if (discovered.size === 0) return finish();
-
-  // Catalog arrays have no separate key map, so `name` is their explicit
-  // selection key contract: capture it once, skip undiscovered/duplicate
-  // entries without touching schemas, and seed selected normalization with the
-  // captured value to avoid a second getter evaluation.
+  // Anthropic tools precede every cache_control breakpoint. Adding a schema
+  // after tool_search therefore invalidates the whole provider cache prefix.
+  // Send the complete defer_loading catalog from the first request instead;
+  // tool_search controls callability, not provider-visible schema membership.
   const seenCatalogRefs = new WeakSet();
-  for (const tool of Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []) {
+  const catalog = [
+    ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
+    ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
+  ];
+  for (const tool of catalog) {
     if (tool && typeof tool === 'object') {
       if (activeCandidateRefs.has(tool) || seenCatalogRefs.has(tool)) continue;
       seenCatalogRefs.add(tool);
     }
     const capturedName = tool?.name;
     const selectionName = typeof capturedName === 'string' ? clean(capturedName) : '';
-    if (!selectionName || !discovered.has(selectionName) || names.has(selectionName)) continue;
+    if (!selectionName || names.has(selectionName)) continue;
     appendSnapshot(tool, capturedName, true);
   }
   return finish();

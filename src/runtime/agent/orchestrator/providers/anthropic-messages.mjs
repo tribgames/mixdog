@@ -325,9 +325,9 @@ export function _toAnthropicMessagesForTest(messages) {
 // sees, so the cache breakpoint is stable across turns.
 //   message-anchor: prefer a safe tool_result tail, then a previous real user
 //                   text turn if another slot remains. Synthetic
-//                   <system-reminder> messages and current pure-text prompts
-//                   are excluded so per-call volatileTail/current prompt
-//                   content never becomes a 1h prefix key.
+//                   synthetic reminder messages and current pure-text prompts
+//                   are excluded so per-call prompt content never becomes a
+//                   1h prefix key.
 // messageTtl === null disables the tail. BP3 (tier3) now rides a system block,
 // so it is no longer marked here.
 // ANTHROPIC_MSG_SLOTS=0 is honoured upstream by passing messageTtl = null.

@@ -142,6 +142,7 @@ export class SessionHost implements DesktopService {
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private readonly sessionProjections = new Map<string, SessionProjection>();
   private readonly visibleSessionIds = new Set<string>();
+  private readonly visibleSessionSources = new Map<string, Set<string>>();
   /** A new runtime exists on disk before its first prompt/title is accepted.
    *  Keep watcher scans from exposing that half-created row ahead of the
    *  renderer's atomic draft promotion. */
@@ -685,6 +686,7 @@ export class SessionHost implements DesktopService {
     }
     try { await this.sessionClient.unsubscribe({ sessionId: id }, this.callOptions()); } catch {}
     this.visibleSessionIds.delete(id);
+    for (const sessions of this.visibleSessionSources.values()) sessions.delete(id);
     this.sessionProjections.delete(id);
     await this.sessionMetadata.forget(id);
     await this.publishCatalogs();
@@ -697,6 +699,12 @@ export class SessionHost implements DesktopService {
   }
 
   async setVisibleSessions(sessionIds: string[]): Promise<boolean> {
+    return this.setVisibleSessionsForSource('desktop', sessionIds);
+  }
+
+  async setVisibleSessionsForSource(sourceId: string, sessionIds: string[]): Promise<boolean> {
+    const source = String(sourceId || '').trim();
+    if (!source) throw new TypeError('sourceId is required.');
     const requested = [...new Set(sessionIds.map(sessionIdOf))];
     // Subscribe is already an exact, single-record authorization boundary in
     // the daemon. Do not scan the complete catalog merely to validate the few
@@ -718,7 +726,13 @@ export class SessionHost implements DesktopService {
         throw error;
       }
     }));
-    const next = new Set(accepted.filter((id): id is string => Boolean(id)));
+    const sourceSessions = new Set(accepted.filter((id): id is string => Boolean(id)));
+    if (sourceSessions.size > 0) this.visibleSessionSources.set(source, sourceSessions);
+    else this.visibleSessionSources.delete(source);
+    const next = new Set<string>();
+    for (const sessions of this.visibleSessionSources.values()) {
+      for (const sessionId of sessions) next.add(sessionId);
+    }
     const removed = [...this.visibleSessionIds].filter((id) => !next.has(id));
     this.visibleSessionIds.clear();
     for (const id of next) this.visibleSessionIds.add(id);
@@ -1030,5 +1044,6 @@ export class SessionHost implements DesktopService {
     this.sessionStateListeners.clear();
     this.sessionProjections.clear();
     this.visibleSessionIds.clear();
+    this.visibleSessionSources.clear();
   }
 }

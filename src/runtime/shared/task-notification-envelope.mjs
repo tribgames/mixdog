@@ -70,7 +70,7 @@ export function renderShellCompletionEnvelope({
 }
 
 // Build the shell completion instruction via the shared wording so all async
-// surfaces read identically ("The async shell task … has finished …"). The
+// surfaces read identically ("Async shell task … finished."). The
 // exit detail is folded into the shared detail slot.
 export function shellCompletionInstruction({ jobId, status, exitCode = null } = {}) {
   return toolCompletionInstruction({

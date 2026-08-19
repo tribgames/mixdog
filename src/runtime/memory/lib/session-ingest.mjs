@@ -274,16 +274,13 @@ export function sessionMessageContentForIngest(m) {
   return base
 }
 
-// Head-line shape of toolCompletionInstruction() (tool-execution-contract.mjs)
-// as it is ACTUALLY persisted by mgr.enqueuePendingMessage — UNQUOTED, no
-// `> ` prefix on the Result body (real DB rows look like:
-// "The async shell task <id> has finished (completed, exit 0) - review this
-// result in your next step.\nResult:\nbackground task\ntask_id: ...").
+// Head-line shape of toolCompletionInstruction() as persisted by
+// mgr.enqueuePendingMessage — unquoted, with no `> ` prefix on Result.
 // isModelVisibleToolCompletionWrapper only matches the QUOTED (`> `) shape
 // mirrored via the notify-wrapper's own quoting, so it misses this unquoted
 // persisted form. The instruction head alone is a sufficient, unambiguous
 // fingerprint (only the runtime ever emits this exact phrase).
-const UNQUOTED_TOOL_COMPLETION_HEAD_RE = /^The async (?:shell task|agent task|\S+ execution|\S+) .*has finished\b.*review this result in your next step/i
+const UNQUOTED_TOOL_COMPLETION_HEAD_RE = /^Async .+ finished\./i
 
 // Exported so memory.mjs's one-time cleanup (ensureCurrentSchemaExtensions)
 // can confirm SQL-prefiltered candidate rows with the SAME predicate the live
@@ -328,9 +325,8 @@ export function shouldExcludeIngestMessage(m) {
     const text = typeof raw === 'string' ? raw : ''
     if (/^\[mixdog-runtime\]/.test(text.trimStart())) return true
     if (isInternalRuntimeNotificationText(text)) return true
-    // Model-visible tool-completion mirror rows (mgr.enqueuePendingMessage of
-    // modelVisibleToolCompletionMessage — "The async shell/agent task ... has
-    // finished ... - review this result in your next step.\n\nResult:\n> ...").
+    // Model-visible tool-completion mirror rows from
+    // modelVisibleToolCompletionMessage ("Async ... finished.\n\nResult:\n> ...").
     // These are runtime notifications, not conversation, on both ingest paths.
     if (isModelVisibleToolCompletionWrapper(text)) return true
     // Unquoted persisted form of the same wrapper (see comment above).
