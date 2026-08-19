@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.138 - 2026-08-19
+
 - Remote web sessions now use client-scoped subscriptions, binary E2EE frames,
   compact state/catalog deltas, terminal batching, and paint-latency probes,
   reducing transfer volume while preserving live recovery on slow links.
