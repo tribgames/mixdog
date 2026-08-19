@@ -18,7 +18,7 @@ description: Use this skill only to inspect or modify a Mixdog user's persisted 
 - 프로젝트 config: `<cwd>/.mcp.json`, `<cwd>/.mixdog/skills/`, `<cwd>/.mixdog/hooks.json`
 - TUI 명령 목록: `src/tui/app/slash-commands.mjs`
 - TUI 설정 허브: `/setting` (별칭 `/settings`, `/config`) → `src/tui/app/settings-picker.mjs`
-- Desktop 설정: `Ctrl+,` → General / Context / Output style / Providers / Git / Skills / MCP / Plugins / Hooks / Channels / Connection / System / Shortcuts / About
+- Desktop 설정: `Ctrl+,` → General / Context / Output style / Providers / Git / Skills / MCP / Plugins / Hooks / Connection / System / Shortcuts / About
 - Desktop rail: **Projects / Workflows / Schedules / Webhooks / Utilities**
 
 사용자 경로와 지원 여부는 **현재 Desktop 구현을 최신 기준**으로 판정한다. TUI는 Desktop에 없는 고급 경로를 보완할 때만 사용하며, 저장만 왕복되고 실제 소비되지 않는 key는 사용자 옵션으로 설명하지 않는다.
@@ -34,10 +34,9 @@ description: Use this skill only to inspect or modify a Mixdog user's persisted 
 | Search 모델 | `agent.searchRoute` |
 | Provider·MCP·프로필·스킬·업데이트·셸·autoClear·compaction | `agent.*` |
 | Web search 도구 | `agent.modules.search.enabled` |
-| Channels messaging | `agent.modules.channels.enabled` |
 | Recap(배경 사이클) | `agent.recap.enabled` |
 | 출력 스타일 | 루트 `outputStyle` |
-| Discord/Telegram provider·target·webhook server | `channels.*` (`channels.provider`) |
+| Webhook server | `channels.webhook.*` |
 | 메모리 cycle interval | `memory.cycle1.interval`, `memory.cycle2.interval` |
 | 음성 전사 | `voice.enabled` |
 | TUI 테마 | `ui.theme` |
@@ -51,7 +50,7 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 - MCP: `/mcp`, Desktop **Settings → MCP**, 또는 `mcpStatus()`
 - Skills: `/skills`, Desktop **Settings → Skills**, 또는 `skillsStatus()`
 - Providers: `/providers`, Desktop **Settings → Providers**, 또는 `getProviderSetup()`
-- Channels: `/channels`, Desktop **Settings → Channels**, 또는 `getChannelSetup()`
+- Webhooks: Desktop **Webhooks** 뷰, 또는 `getChannelSetup()` (webhook enabled/port)
 - 비밀 존재 여부: `hasStoredSecret(account)`만 사용하고 값은 출력하지 않는다.
 
 ---
@@ -413,13 +412,12 @@ Desktop과 현재 runtime에서 소비되지 않는 아래 key는 사용자 옵�
 | `agent.agentMaintenance`, `agent.runtime` | 제거 |
 | `remote.autoStart` | 제거; Remote는 session header에서 수동 claim |
 | `ui.mouseMode` | 제거; `ui.theme`은 TUI 현행 설정 |
-| `channels.backend` | 제거 (이관 없음; `channels.provider`만 유효) |
-| `channels.channel.channelId` | 제거; `discordChannelId` / `telegramChatId`만 유지 |
+| `channels.backend`, `channels.provider`, `channels.channel.*` | 제거; Discord/Telegram messaging 은퇴로 전부 데드 key |
 | `channels.quiet`, `channels.schedules` | 제거; schedule은 PG가 단일 저장소 |
 | `channels.webhook.ngrokDomain`, `channels.webhook.respectQuiet` | 제거; endpoint URL은 Desktop Webhooks가 발급 |
 | `agent.outputStyle` | 제거 (이관 없음; 루트 `outputStyle`만 유효) |
 
-다음 항목은 레거시처럼 보여도 현행이므로 유지한다: 루트 `outputStyle`, `agent.shell`, `agent.modules`, `channels.channel.discordChannelId/telegramChatId`, compaction의 `type/compactType`과 recall tuning fields.
+다음 항목은 레거시처럼 보여도 현행이므로 유지한다: 루트 `outputStyle`, `agent.shell`, `agent.modules`, compaction의 `type/compactType`과 recall tuning fields.
 
 ---
 
@@ -455,19 +453,9 @@ URL transport는 `type` + `url` + 선택 `headers`를 사용한다.
 ```json
 {
   "channels": {
-    "provider": "discord",
-    "channel": {
-      "discordChannelId": "",
-      "telegramChatId": ""
-    },
     "webhook": {
       "enabled": true,
       "port": 3333
-    }
-  },
-  "agent": {
-    "modules": {
-      "channels": { "enabled": true }
     }
   },
   "voice": { "enabled": false }

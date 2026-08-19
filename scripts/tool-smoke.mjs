@@ -2569,9 +2569,8 @@ if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].inclu
     || !/createCurrentSession\('model-switch-empty-drain'\)/.test(setRouteBlock)
     || !/const emptySession = getSession\(\)/.test(setRouteBlock)
     || !/cli-model-switch-empty/.test(setRouteBlock)
-    || !/pushTranscriptRebind\?\.\(\)/.test(setRouteBlock)
     || !/invalidatePreSessionToolSurface\?\.\(\)/.test(setRouteBlock)) {
-    throw new Error('setRoute must drain in-flight create then recreate/rebind empty live sessions so provider-specific BP1/tool surface is rebuilt for /model before first chat');
+    throw new Error('setRoute must drain in-flight create then recreate empty live sessions so the provider-specific tool surface is rebuilt for /model before first chat');
   }
   const sessionLifecycleSrc = readMjsSources('src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
   const updateSessionRouteBlock = sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';

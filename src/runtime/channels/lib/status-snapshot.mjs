@@ -3,7 +3,7 @@
  *
  * Writes <DATA_DIR>/channels/status-snapshot.json every 10 seconds so that
  * setup-server can read cross-process state (cron next-fire, deferred count,
- * Discord unread, relay hook URL) without IPC.
+ * relay hook URL) without IPC.
  *
  * Atomic write: tmp → rename so readers never see a partial file.
  *
@@ -29,54 +29,6 @@ let _lastSnapshotWrite = 0;
 function stableSnapshotJson(snapshot) {
   const { writtenAt: _writtenAt, ...stable } = snapshot || {};
   return JSON.stringify(stable, null, 2);
-}
-
-// ── In-memory Discord unread tracking ────────────────────────────────────────
-// Key: channelId  Value: { label, latestSeenId, unseenCount }
-// No persistence across restarts — clean start is fine for v1.
-const _discordUnread = new Map();
-const DISCORD_UNREAD_MAX_CHANNELS = 500;
-
-/**
- * Called whenever the provider observes messages for a channelId.
- * `messages` is the array returned by provider.fetchMessages().
- * We record the most-recently-seen message id and count messages
- * received since the last call as "unread since last fetch".
- * Pass { markRead: true } for live gateway messages that were already
- * delivered into the bridge.
- */
-export function recordFetchedMessages(channelId, channelLabel, messages, options = {}) {
-  if (!Array.isArray(messages) || messages.length === 0) return;
-  const prev = _discordUnread.get(channelId);
-  const prevLatestId = prev?.latestSeenId ?? null;
-  const newLatestId  = messages[messages.length - 1]?.id ?? null;
-
-  // Count messages newer than the last seen id (BigInt-compare Discord snowflakes).
-  let unseenCount = 0;
-  if (options.markRead === true) {
-    unseenCount = 0;
-  } else if (prevLatestId) {
-    for (const m of messages) {
-      try {
-        if (BigInt(m.id) > BigInt(prevLatestId)) unseenCount++;
-      } catch { unseenCount++; }
-    }
-  }
-  // First call: zero unread (baseline, not retroactive).
-
-  // Retain the most recently observed channels only. Channel ids originate from
-  // inbound traffic and ad-hoc fetches, so an unbounded process-wide registry
-  // would otherwise grow for the worker lifetime.
-  if (_discordUnread.has(channelId)) {
-    _discordUnread.delete(channelId);
-  } else if (_discordUnread.size >= DISCORD_UNREAD_MAX_CHANNELS) {
-    _discordUnread.delete(_discordUnread.keys().next().value);
-  }
-  _discordUnread.set(channelId, {
-    label: channelLabel ?? channelId,
-    latestSeenId: newLatestId,
-    unseenCount,
-  });
 }
 
 // ── Snapshot computation ─────────────────────────────────────────────────────
@@ -137,18 +89,6 @@ export async function computeSnapshot(scheduler) {
     }
   }
 
-  // ── Discord unread ─────────────────────────────────────────────────────────
-  const unreadList = [];
-  let totalUnread  = 0;
-  for (const [channelId, entry] of _discordUnread) {
-    unreadList.push({
-      channelId,
-      channelLabel: entry.label,
-      count: entry.unseenCount,
-    });
-    totalUnread += entry.unseenCount;
-  }
-
   // ── Relay hook URL (identity file read; assigned on first tunnel start) ────
   const hookPublicUrl = readHookPublicBase();
 
@@ -160,10 +100,6 @@ export async function computeSnapshot(scheduler) {
         : null,
       deferred,
       deferredCount: deferred.length,
-    },
-    discord: {
-      unread: unreadList,
-      totalUnread,
     },
     hook: {
       publicUrl: hookPublicUrl,
