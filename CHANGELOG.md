@@ -5,10 +5,6 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-## v0.9.137 - 2026-08-19
-
-- Remote reconnect recovery now refreshes session catalogs and mounted
-  transcript lanes, and the update control leads the title-bar button group.
 - Remote web sessions now use client-scoped subscriptions, binary E2EE frames,
   compact state/catalog deltas, terminal batching, and paint-latency probes,
   reducing transfer volume while preserving live recovery on slow links.
@@ -16,6 +12,11 @@ the Unreleased section is empty, and stamps it with the released version.
   concurrent remote snapshots, session switches, and mobile rendering.
 - Runtime context, provider request recovery, background task notifications,
   and completion restoration are hardened across long-running sessions.
+
+## v0.9.137 - 2026-08-19
+
+- Remote reconnect recovery now refreshes session catalogs and mounted
+  transcript lanes, and the update control leads the title-bar button group.
 
 ## v0.9.136 - 2026-08-19
 
