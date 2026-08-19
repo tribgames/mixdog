@@ -5,6 +5,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Remote reconnect recovery now refreshes session catalogs and mounted
+  transcript lanes, and the update control leads the title-bar button group.
+
 ## v0.9.136 - 2026-08-19
 
 - Retired Discord/Telegram messaging and channel-session plumbing are removed,

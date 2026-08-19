@@ -59,6 +59,7 @@ test('an immediate mutation stays queued across a pre-ready daemon handoff', asy
     startupTimeoutMs: 1_000,
     failureNoticeDelayMs: 1_000,
   });
+  const keepAlive = setTimeout(() => {}, 2_000);
   try {
     const result = await client.submitNewTask(
       'boot-safe prompt',
@@ -71,6 +72,7 @@ test('an immediate mutation stays queued across a pre-ready daemon handoff', asy
     assert.equal(transports[1].requests.length, 1);
     assert.equal(transports[1].requests[0].method, 'submitNewTask');
   } finally {
+    clearTimeout(keepAlive);
     await client.dispose();
   }
 });

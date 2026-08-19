@@ -322,12 +322,16 @@ const sessionReadsInFlight = new Map<string, Promise<boolean>>();
 const MAX_SESSION_READ_ATTEMPTS = 3;
 export function requestSessionRead(
   sessionId: string,
+  { refresh = false }: { refresh?: boolean } = {},
 ): Promise<boolean> {
   if (!sessionId) return Promise.resolve(false);
   const existing = defaultSessionLaneStore.get(sessionId);
-  // A lane that already has rows is the live truth. Re-peeking republished
-  // the same session after first paint and the transcript rebuilt.
-  if (existing && Array.isArray(existing.items) && existing.items.length > 0) {
+  // A lane that already has rows is the live truth on the lossless desktop
+  // bridge. Re-peeking republished the same session after first paint and the
+  // transcript rebuilt. Over the relay a sync gap voids that assumption, so a
+  // refresh read bypasses the guard; the store's contentRevision gate rejects
+  // the replay when nothing actually changed.
+  if (!refresh && existing && Array.isArray(existing.items) && existing.items.length > 0) {
     return Promise.resolve(true);
   }
   const inFlight = sessionReadsInFlight.get(sessionId);
@@ -357,6 +361,21 @@ export function requestSessionRead(
     }
   });
   return request;
+}
+
+// Relay hops drop per-session lane pushes for a congested or backgrounded
+// leg, and stateResync recovery only restores the bound-session state lane.
+// When the remote shim signals such a gap, re-read every mounted lane and
+// drop unmounted cached lanes so their next open re-reads from the host.
+// Inside Electron the shim never installs and this event never fires.
+const recoverSessionLanesFromRemoteGap = (): void => {
+  defaultSessionLaneStore.evictInactive();
+  for (const sessionId of defaultSessionLaneStore.subscribedSessionIds()) {
+    void requestSessionRead(sessionId, { refresh: true });
+  }
+};
+if (typeof window !== "undefined") {
+  window.addEventListener("mixdog:remote-state-gap", recoverSessionLanesFromRemoteGap);
 }
 
 /** Context gauge docked immediately right of the composer's model selector.

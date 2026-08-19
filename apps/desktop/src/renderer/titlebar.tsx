@@ -70,18 +70,8 @@ export function DesktopTitlebar({
           updater badge + bottom-panel + right-dock toggles, ahead of the
           native caption reserve. */}
       <div className="titlebar-leading titlebar-controls" aria-label={t("Layout controls")}>
-        {/* VS Code layout-control order: primary sidebar, panel, secondary
-            sidebar — all clustered at the right edge. */}
-        <button
-          type="button"
-          className="icon-button toolbar-sidebar"
-          onClick={onToggleSidebar}
-          aria-label={t(sidebarOpen ? "Collapse {{label}}" : "Expand {{label}}", { label: t(sidebarLabel) })}
-          aria-expanded={sidebarOpen}
-          aria-controls="session-sidebar"
-        >
-          <SidebarToggleIcon open={sidebarOpen} />
-        </button>
+        {/* The updater is the leftmost control; VS Code layout controls follow
+            in primary-sidebar, panel, secondary-sidebar order. */}
         {updateVisible && (
           <button
             type="button"
@@ -99,6 +89,16 @@ export function DesktopTitlebar({
               : <ArrowDown size={16} strokeWidth={2.6} aria-hidden="true" />}
           </button>
         )}
+        <button
+          type="button"
+          className="icon-button toolbar-sidebar"
+          onClick={onToggleSidebar}
+          aria-label={t(sidebarOpen ? "Collapse {{label}}" : "Expand {{label}}", { label: t(sidebarLabel) })}
+          aria-expanded={sidebarOpen}
+          aria-controls="session-sidebar"
+        >
+          <SidebarToggleIcon open={sidebarOpen} />
+        </button>
         {onTogglePanel && (
           <button
             type="button"
