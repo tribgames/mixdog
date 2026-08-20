@@ -5,6 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop task creation works under Electron 41 and Node 24: the agent shard
+  router now copies immutable ESM session-manager exports into a writable
+  facade before installing its remote-session overrides.
+
 ## v0.9.140 - 2026-08-20
 
 - Studio deletes take effect on the first click: a finished run releases its
