@@ -19,6 +19,8 @@ const MAX_IMAGE_FILE_BYTES = 12_000_000;
 const WEB_IMAGE_MAX_WIDTH = 2_000;
 const WEB_IMAGE_MAX_HEIGHT = 2_000;
 const WEB_IMAGE_TARGET_BYTES = 3_750_000;
+// Above this, re-encoding a lossless PNG pays for itself several times over.
+const WEB_IMAGE_PNG_REENCODE_BYTES = 300_000;
 const SUPPORTED_IMAGE_TYPES = /^image\/(?:png|jpe?g|gif|webp)$/i;
 const SUPPORTED_IMAGE_PATH = /\.(?:png|jpe?g|gif|webp)$/i;
 const TEXT_LIKE_MIME = /^application\/(?:json|ld\+json|toml|x-toml|yaml|x-yaml|xml)$/;
@@ -112,7 +114,15 @@ async function browserResizedImage(file: File, displayName: string): Promise<{
     );
     const displayWidth = Math.max(1, Math.floor(originalWidth * scale));
     const displayHeight = Math.max(1, Math.floor(originalHeight * scale));
-    const needsResize = scale < 1 || file.size > WEB_IMAGE_TARGET_BYTES;
+    // A PNG is lossless, so a screenshot stays enormous next to the same
+    // pixels in WebP even when it fits the generic budget. Re-encode it well
+    // before that budget; GIFs are left alone because a canvas round trip
+    // would drop every frame but the first.
+    const oversizedLossless = /^image\/png$/i.test(file.type)
+      && file.size > WEB_IMAGE_PNG_REENCODE_BYTES;
+    const needsResize = scale < 1
+      || file.size > WEB_IMAGE_TARGET_BYTES
+      || oversizedLossless;
     let payload: Blob = file;
     if (needsResize) {
       const canvas = document.createElement('canvas');
@@ -121,10 +131,19 @@ async function browserResizedImage(file: File, displayName: string): Promise<{
       const context = canvas.getContext('2d');
       if (!context) throw new Error(`${displayName}: image resize is unavailable.`);
       context.drawImage(image, 0, 0, displayWidth, displayHeight);
-      const preferredType = /^image\/jpe?g$/i.test(file.type)
-        ? 'image/jpeg'
-        : /^image\/webp$/i.test(file.type) ? 'image/webp' : 'image/png';
-      payload = await canvasBlob(canvas, preferredType, preferredType === 'image/png' ? undefined : 0.85);
+      // WebP first: it keeps alpha, which JPEG cannot, at a fraction of what
+      // the same pixels cost as PNG — and a phone screenshot re-encoded as
+      // PNG was the largest attachment a remote surface could send. A browser
+      // without WebP encoding returns some other type, which this checks.
+      payload = await canvasBlob(canvas, 'image/webp', 0.85);
+      if (payload.type !== 'image/webp') {
+        const fallbackType = /^image\/jpe?g$/i.test(file.type) ? 'image/jpeg' : 'image/png';
+        payload = await canvasBlob(
+          canvas,
+          fallbackType,
+          fallbackType === 'image/png' ? undefined : 0.85,
+        );
+      }
       if (payload.size > WEB_IMAGE_TARGET_BYTES && payload.type !== 'image/jpeg') {
         payload = await canvasBlob(canvas, 'image/jpeg', 0.82);
       }

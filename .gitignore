@@ -11,6 +11,8 @@ apps/desktop/dist/
 apps/desktop/out/
 apps/desktop/artifacts/
 apps/relay/renderer/
+# Brotli/gzip siblings written beside each staged web asset by stage:web.
+apps/relay/.web-precompress/
 # Legacy local Android toolchain cache remains machine-only.
 .android-sdk/
 .remote-dom.html
@@ -120,6 +122,8 @@ apps/desktop/scripts/tool-header-overflow-probe.mjs
 /two
 
 benchmarks/terminal-bench-2.1/mixdog-prebake/
+# Task corpora fetched by the harness (upstream content, never committed).
+benchmarks/terminal-bench-2.1/benchmarks/
 
 # independent bench working repos (own git history)
 benchmarks/deep-swe/

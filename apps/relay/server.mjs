@@ -959,16 +959,13 @@ export async function startRelay({
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_WS_PAYLOAD_BYTES,
-    // Relayed transcript pushes are repetitive text: deflate cuts them 5-10x.
-    // No-context-takeover releases each zlib context between messages so
-    // thousands of mostly idle sockets do not pin ~300KB of window each.
-    perMessageDeflate: {
-      threshold: 1024,
-      serverNoContextTakeover: true,
-      clientNoContextTakeover: true,
-      zlibDeflateOptions: { level: 6, memLevel: 6 },
-      concurrencyLimit: 8,
-    },
+    // Transport compression is OFF because everything on the phone leg is
+    // already E2EE ciphertext by the time it reaches this hop, and ciphertext
+    // does not compress — deflate spent CPU and a zlib context per socket to
+    // move the same number of bytes. The desktop now compresses transcript
+    // and state payloads INSIDE the encrypted envelope instead, so this box
+    // just forwards frames and can hold far more legs on the same RAM.
+    perMessageDeflate: false,
   });
 
   const sendJson = (socket, payload) => {

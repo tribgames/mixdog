@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 
 import { attachmentFromFile } from "./composer-attachments.ts";
 
-function installBrowserImageHarness() {
+function installBrowserImageHarness({ supportsWebp = true } = {}) {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
     url: "https://mixdog.example/",
   });
@@ -48,7 +48,9 @@ function installBrowserImageHarness() {
         },
       }),
       toBlob(callback, mimeType) {
-        callback(new dom.window.Blob(["resized"], { type: mimeType }));
+        // A browser without WebP encoding hands back another type instead.
+        const type = mimeType === "image/webp" && !supportsWebp ? "image/png" : mimeType;
+        callback(new dom.window.Blob(["resized"], { type }));
       },
     };
   };
@@ -92,13 +94,29 @@ test("web image attachments resize locally before appearing in the draft", async
       { x: 0, y: 0, width: 2_000, height: 500 },
     ]);
     assert.equal(harness.capabilityCalls(), 0);
-    assert.equal(attachment?.mimeType, "image/png");
+    // Re-encoded as WebP: a lossless PNG screenshot is the largest thing a
+    // phone can attach, and WebP keeps alpha at a fraction of the bytes.
+    assert.equal(attachment?.mimeType, "image/webp");
     assert.equal(attachment?.data, "cmVzaXplZA==");
     assert.equal(
       attachment?.metadataText,
       "[Image: source: mobile.png, 4000x1000, displayed at 2000x500. "
         + "Multiply coordinates by 2.00 to map to the original image.]",
     );
+  } finally {
+    harness.close();
+  }
+});
+
+test("a browser without WebP encoding still attaches a usable image", async () => {
+  const harness = installBrowserImageHarness({ supportsWebp: false });
+  try {
+    const file = new harness.dom.window.File(["original"], "mobile.png", {
+      type: "image/png",
+    });
+    const attachment = await attachmentFromFile(file, { id: 7 });
+    assert.equal(attachment?.mimeType, "image/png");
+    assert.equal(attachment?.data, "cmVzaXplZA==");
   } finally {
     harness.close();
   }
