@@ -381,7 +381,10 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   // that needs it. The gate warms the identical key on every main push.
   assert.match(release,
     /Restore unchanged desktop output[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
-  assert.doesNotMatch(release, /desktop-out-v2-[\s\S]{0,400}apps\/desktop\/package-lock\.json/);
+  const desktopOutKey = release.match(/desktop-out-v2-[\s\S]*?\) \}\}/)?.[0] || '';
+  assert.ok(desktopOutKey, 'the desktop output cache key must be present');
+  assert.doesNotMatch(desktopOutKey, /package-lock\.json/,
+    'the lock file reaches this key only through the version-neutral digest');
   assert.match(automaticGate,
     /name:\s*Warm the release desktop output cache[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
   assert.match(automaticGate, /manifest-cache-key\.mjs/);
@@ -414,9 +417,10 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.equal((desktopRuntime.match(
     /if:\s*steps\.prepared-runtime\.outputs\.cache-hit != 'true'/g,
   ) || []).length, 4);
-  assert.match(desktopRuntime, /desktop-prepared-runtime-v2-/);
-  assert.doesNotMatch(desktopRuntime,
-    /desktop-prepared-runtime-v2-[^\n]*hashFiles\([^)]*package(?:-lock)?\.json/);
+  const preparedRuntimeKey = desktopRuntime.match(/desktop-prepared-runtime-v2-[^\n]*/)?.[0] || '';
+  assert.ok(preparedRuntimeKey, 'the prepared runtime cache key must be present');
+  assert.doesNotMatch(preparedRuntimeKey, /hashFiles\([^)]*package(?:-lock)?\.json/,
+    'the manifests reach this key only through the version-neutral digest');
   assert.match(desktopRuntime, /name:\s*Restore stable desktop npm downloads/);
   assert.match(desktopPackage, /name:\s*Restore stable desktop npm downloads/);
   assert.match(desktopRuntime, /dependency-lock-cache-key\.mjs/);
