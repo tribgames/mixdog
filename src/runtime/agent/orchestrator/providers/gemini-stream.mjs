@@ -353,7 +353,14 @@ export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolC
     };
 }
 
-export async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta, onTextDelta, textLeakGuard, label }) {
+// `unwrapChunk` adapts a transport that nests the Gemini payload one level
+// deeper. Cloud Code Assist (Antigravity) streams `{ response: { candidates … } }`
+// while the public API streams the candidates directly; everything downstream —
+// aggregation, leak guard, watchdogs — stays shared.
+export async function consumeGeminiRestStreamResponse(response, { signal, onStreamDelta, onTextDelta, textLeakGuard, label, unwrapChunk = null }) {
+    const unwrap = typeof unwrapChunk === 'function'
+        ? (chunk) => { try { return unwrapChunk(chunk); } catch { return chunk; } }
+        : (chunk) => chunk;
     if (!response?.body) throw new Error(`${label}: missing response body`);
     if (signal?.aborted) {
         const reason = signal.reason;
@@ -462,7 +469,8 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
             } catch (cause) {
                 throw geminiStreamCorruptionError(`${label} corrupt SSE JSON`, cause);
             }
-            for (const parsed of parsedChunks) {
+            for (const rawChunk of parsedChunks) {
+                const parsed = unwrap(rawChunk);
                 if (!sawStreamChunk) {
                     sawStreamChunk = true;
                     clearFirstByteTimer();
@@ -482,7 +490,8 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                 const data = line.slice(6).trim();
                 if (data && data !== '[DONE]') {
                     try {
-                        const [parsed] = await parseProviderJsonBatch([data]);
+                        const [rawTail] = await parseProviderJsonBatch([data]);
+                        const parsed = unwrap(rawTail);
                         if (!sawStreamChunk) {
                             sawStreamChunk = true;
                             clearFirstByteTimer();

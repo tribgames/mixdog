@@ -49,6 +49,11 @@
       "credentialFile": "cursor-oauth.json",
       "credentialPathEnv": "CURSOR_OAUTH_CREDENTIALS_PATH",
       "modelCatalogFile": "cursor-oauth-models.json"
+    },
+    "antigravity-oauth": {
+      "credentialFile": "antigravity-oauth.json",
+      "credentialPathEnv": "ANTIGRAVITY_OAUTH_CREDENTIALS_PATH",
+      "modelCatalogFile": "antigravity-oauth-models.json"
     }
   },
   "apiKeyProviders": {

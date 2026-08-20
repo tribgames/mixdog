@@ -4,6 +4,7 @@ import {
     hasOpenAIOAuthCredentials,
     hasGrokOAuthCredentials,
     hasCursorOAuthCredentials,
+    hasAntigravityOAuthCredentials,
 } from './oauth-credential-probes.mjs';
 import { refreshCatalog as refreshMetadataCatalog, warmModelMetadataCatalogs } from './model-catalog.mjs';
 import { wrapProviderAdmission } from './admission-scheduler.mjs';
@@ -111,6 +112,7 @@ async function loadProviderCtor(name, signal = null) {
     if (name === 'anthropic-oauth') return loadProviderExport('anthropic-oauth', './anthropic-oauth.mjs', 'AnthropicOAuthProvider', signal);
     if (name === 'grok-oauth') return loadProviderExport('grok-oauth', './grok-oauth.mjs', 'GrokOAuthProvider', signal);
     if (name === 'cursor-oauth') return loadProviderExport('cursor-oauth', './cursor.mjs', 'CursorOAuthProvider', signal);
+    if (name === 'antigravity-oauth') return loadProviderExport('antigravity-oauth', './antigravity-oauth.mjs', 'AntigravityOAuthProvider', signal);
     if (name === 'cursor-api') return loadProviderExport('cursor-api', './cursor.mjs', 'CursorApiProvider', signal);
     if (name === 'openai') return loadProviderExport('openai', './openai-ws.mjs', 'OpenAIDirectProvider', signal);
     if (name === 'opencode-go') return loadProviderExport('opencode-go', './opencode-go.mjs', 'OpenCodeGoProvider', signal);
@@ -224,7 +226,7 @@ async function _initProvidersUnsynchronized(config, signal = null) {
     // `Provider "anthropic-oauth" not found or not enabled` for the rest of
     // its lifetime even though the credential file is fine again. Carry
     // forward the prior instance instead.
-    for (const name of ['anthropic-oauth', 'openai-oauth', 'grok-oauth', 'cursor-oauth']) {
+    for (const name of ['anthropic-oauth', 'openai-oauth', 'grok-oauth', 'cursor-oauth', 'antigravity-oauth']) {
         if (!next.has(name) && providers.has(name)) {
             next.set(name, providers.get(name));
             if (signatures.has(name)) nextSignatures.set(name, signatures.get(name));
@@ -274,6 +276,14 @@ export function getProvider(name) {
     }
     if (name === 'cursor-oauth' && hasCursorOAuthCredentials()) {
         const Ctor = providerCtors.get('cursor-oauth');
+        if (!Ctor) return undefined;
+        const inst = wrapProviderAdmission(new Ctor({}), name);
+        providers.set(name, inst);
+        _providerCatalogRevision += 1;
+        return inst;
+    }
+    if (name === 'antigravity-oauth' && hasAntigravityOAuthCredentials()) {
+        const Ctor = providerCtors.get('antigravity-oauth');
         if (!Ctor) return undefined;
         const inst = wrapProviderAdmission(new Ctor({}), name);
         providers.set(name, inst);

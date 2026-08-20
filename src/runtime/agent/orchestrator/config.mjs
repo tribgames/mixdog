@@ -10,6 +10,7 @@ import {
     hasOpenAIOAuthCredentials,
     hasGrokOAuthCredentials,
     hasCursorOAuthCredentials,
+    hasAntigravityOAuthCredentials,
 } from './providers/oauth-credential-probes.mjs';
 
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
@@ -177,6 +178,9 @@ function buildDefaultConfig(options = {}) {
     // Experimental direct Cursor wire provider. It remains disabled unless a
     // Mixdog-owned login or CURSOR_ACCESS_TOKEN is present.
     providers['cursor-oauth'] = { enabled: detectCredentials ? hasCursorOAuthCredentials() : false };
+    // Google Antigravity (Cloud Code Assist). Gemini and Claude behind one
+    // Google login; enabled only once a login has stored tokens + project.
+    providers['antigravity-oauth'] = { enabled: detectCredentials ? hasAntigravityOAuthCredentials() : false };
     // Local providers — opt-in via setup UI after HTTP ping confirms server is running
     providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };
     providers.lmstudio = { enabled: false, baseURL: 'http://localhost:1234/v1' };

@@ -87,6 +87,21 @@ export function hasGrokOAuthCredentials() {
   });
 }
 
+// Antigravity needs a resolved Cloud project alongside the tokens: without it
+// every request 400s, so a half-finished login must not enable the provider.
+export function hasAntigravityOAuthCredentials() {
+  return memoProbe('antigravity-oauth', () => {
+    const paths = [
+      process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH,
+      join(resolvePluginData(), 'antigravity-oauth.json'),
+    ].filter(Boolean);
+    return paths.some((path) => {
+      const own = readJsonIfExists(path);
+      return !!(own?.access_token && own?.refresh_token && own?.project_id);
+    });
+  });
+}
+
 export function hasCursorOAuthCredentials() {
   return memoProbe('cursor-oauth', () => {
     if (process.env.CURSOR_ACCESS_TOKEN) {

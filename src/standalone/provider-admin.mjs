@@ -34,6 +34,13 @@ import {
   hasCursorOAuthCredentials,
   loginCursorOAuth,
 } from '../runtime/agent/orchestrator/providers/cursor-auth.mjs';
+import {
+  beginOAuthLogin as beginAntigravityOAuthLogin,
+  describeAntigravityOAuthCredentials,
+  forgetAntigravityOAuthCredentials,
+  hasAntigravityOAuthCredentials,
+  loginOAuth as loginAntigravityOAuth,
+} from '../runtime/agent/orchestrator/providers/antigravity-oauth.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
@@ -49,6 +56,7 @@ const OAUTH_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'anthropic-oauth', name: 'Anthropic OAuth', desc: 'Mixdog OAuth credentials', has: hasAnthropicOAuthCredentials, describe: describeAnthropicOAuthCredentials, forget: forgetAnthropicOAuthCredentials, begin: beginAnthropicOAuthLogin, login: loginAnthropicOAuth }),
   Object.freeze({ id: 'grok-oauth', name: 'Grok OAuth', desc: 'Mixdog OAuth credentials (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
   Object.freeze({ id: 'cursor-oauth', name: 'Cursor OAuth', desc: 'Sign in with your Cursor account', has: hasCursorOAuthCredentials, describe: describeCursorOAuthCredentials, forget: forgetCursorOAuthCredentials, begin: beginCursorOAuthLogin, login: loginCursorOAuth }),
+  Object.freeze({ id: 'antigravity-oauth', name: 'Antigravity OAuth', desc: 'Sign in with Google (Gemini + Claude)', has: hasAntigravityOAuthCredentials, describe: describeAntigravityOAuthCredentials, forget: forgetAntigravityOAuthCredentials, begin: beginAntigravityOAuthLogin, login: loginAntigravityOAuth }),
 ]);
 
 export const LOCAL_PROVIDERS = Object.freeze([
