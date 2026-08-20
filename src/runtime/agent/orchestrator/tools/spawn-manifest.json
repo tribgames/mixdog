@@ -1,26 +1,26 @@
 {
-  "version": "0.1.3",
+  "version": "0.1.4",
   "_comment": "Synced from immutable spawn-v release assets.",
   "assets": {
     "darwin-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.3/mixdog-spawn-darwin-arm64",
-      "sha256": "44b26d0a7bf2a1a32f3eaac9faff370540d1fa34bd1154e2dcbba283e6ee80da"
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.4/mixdog-spawn-darwin-arm64",
+      "sha256": "f73d404bc0c96ae00951a7da385556d55c982f540e32c01803515eeace140eb0"
     },
     "darwin-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.3/mixdog-spawn-darwin-x64",
-      "sha256": "bb20f01607aef01c62b7a7cac172b8f2493d7320aab1381ce1c18a366c9ace37"
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.4/mixdog-spawn-darwin-x64",
+      "sha256": "1163c97df9122358826cd92988ac7974559a7dcf5af6058021c0c01ce7c4a73e"
     },
     "linux-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.3/mixdog-spawn-linux-arm64",
-      "sha256": "ba638ce7ada9f9602bc81ec2bc47095d978e97068fd659fbe33b281eab8c1993"
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.4/mixdog-spawn-linux-arm64",
+      "sha256": "c1e0aca0110b70805516dc6e185a4987a8fbc0c0c38040a0133586281671163b"
     },
     "linux-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.3/mixdog-spawn-linux-x64",
-      "sha256": "4ca31eeba80af2073776ffbf62f9fb9e59d48d55e120cd25deab02023a586558"
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.4/mixdog-spawn-linux-x64",
+      "sha256": "020876e4021c6d4e4095f103c55626912c78ca4fe766e5393e24b7af827fc4e1"
     },
     "win32-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.3/mixdog-spawn-win32-x64.exe",
-      "sha256": "dd8f47b94d877958e5522619d561f6286af02cc7ee7e60a3e7d4102a6c516f40"
+      "url": "https://github.com/tribgames/mixdog/releases/download/spawn-v0.1.4/mixdog-spawn-win32-x64.exe",
+      "sha256": "07aa98985587be6c086f97f32dea1273246ca407dde8f7d2a01ecaa87c8146aa"
     }
   }
 }
