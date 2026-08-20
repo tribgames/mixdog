@@ -1,0 +1,243 @@
+/* Desktop layer 16 — Menus, toasts, tooltips, runtime status popover.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+.mx-menu {
+  position: fixed;
+  /* Select menus open from dialog fields too (agent editor at z 940):
+     transient popovers stay on top of every modal layer. */
+  z-index: 10010;
+  min-width: 160px;
+  max-width: min(368px, calc(100vw - 16px));
+  max-height: min(240px, calc(var(--vvh, 100vh) - 16px));
+  padding: 6px;
+  overflow: auto;
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-text);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
+  animation: mx-menu-in 120ms ease-out;
+}
+.mx-menu[data-trigger-style="settings"] {
+  min-width: 160px;
+  border-radius: var(--mx-radius-lg);
+}
+.mx-menu-item {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-align: left;
+  cursor: default;
+  transition: background 85ms ease-out, box-shadow 85ms ease-out;
+}
+.mx-menu-item:hover, .mx-menu-item:focus-visible, .mx-menu-item[data-active="true"] {
+  outline: 0;
+  background: var(--mx-hover);
+}
+.mx-menu-item[aria-selected="true"] {
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  font-weight: var(--mx-weight-regular);
+}
+.mx-menu-item[aria-selected="true"]:hover,
+.mx-menu-item[aria-selected="true"]:focus-visible,
+.mx-menu-item[aria-selected="true"][data-active="true"] {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-2);
+}
+.mx-menu-item[disabled] { opacity: var(--mx-op-disabled); }
+.mx-menu-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Toasts. */
+.mx-toast-region {
+  position: fixed;
+  z-index: 1000;
+  right: 16px;
+  top: 54px;
+  width: min(320px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(var(--vvh, 100vh) - 32px);
+  padding: 1px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: none;
+  scrollbar-width: none;
+}
+.mx-toast-region::-webkit-scrollbar { display: none; }
+.mx-toast {
+  width: 320px;
+  max-width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  /* Toasts carry only the floating elevation — no inset ring. */
+  box-shadow: var(--mx-floating);
+  pointer-events: auto;
+  animation: mx-toast-in 140ms ease-out;
+}
+@keyframes mx-toast-in { from { opacity: var(--mx-op-soft); transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.mx-toast > svg { flex: 0 0 16px; margin-top: 2px; color: var(--mx-icon); }
+.mx-toast[data-tone="error"] > svg { color: var(--mx-danger); }
+.mx-toast[data-tone="success"] > svg { color: var(--mx-success); }
+.mx-toast-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
+.mx-toast-copy b { overflow: hidden; color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-ui); text-overflow: ellipsis; white-space: nowrap; }
+.mx-toast-close { width: 20px; height: 20px; padding: 2px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-icon-muted); background: transparent; }
+.mx-toast-close:hover { color: var(--mx-icon); background: var(--mx-hover); }
+.mx-toast-close { cursor: pointer; }
+
+/* Tooltips. */
+.mx-tooltip {
+  position: fixed;
+  z-index: 1200;
+  max-width: min(280px, calc(100vw - 16px));
+  box-sizing: border-box;
+  padding: 5px 6px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: 12px;
+  letter-spacing: 0;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+  animation: mx-tooltip-in 120ms ease-out;
+}
+.mx-tooltip:has(.mx-keybind) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 5px 4px 7px;
+}
+.mx-keybind {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 2px;
+}
+.mx-keybind kbd {
+  min-width: 14px;
+  height: 14px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 3px;
+  border: 0;
+  border-radius: var(--mx-radius-hair);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-3);
+  /* Keybind chips: flat 14px chips on layer-03 — no ring, no drop. */
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.runtime-status-icon { position: relative; width: 16px; height: 16px; display: grid; place-items: center; }
+.runtime-status-icon i {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--mx-bg-base);
+  border-radius: 50%;
+  background: var(--mx-border-strong);
+}
+.runtime-status-icon i[data-tone="healthy"] { background: var(--mx-success); }
+.runtime-status-icon i[data-tone="critical"] { background: var(--mx-danger); }
+.runtime-status-icon i[data-tone="idle"] { background: var(--mx-warning); }
+.runtime-status-popover {
+  position: fixed;
+  z-index: 1100;
+  width: min(320px, calc(100vw - 16px));
+  overflow: hidden;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+}
+.runtime-status-popover > header {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  border-bottom: .5px solid var(--mx-border);
+}
+.runtime-status-popover > header > div { min-width: 0; flex: 1; display: grid; }
+.runtime-status-popover > header b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); }
+.runtime-status-popover > header span { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.runtime-status-popover > header span[data-tone="healthy"] { color: var(--mx-success); }
+.runtime-status-popover > header span[data-tone="critical"] { color: var(--mx-danger); }
+.runtime-status-popover button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+}
+.runtime-status-popover > header button { width: 24px; min-height: 24px; padding: 0; background: transparent; box-shadow: none; }
+.runtime-status-body { display: grid; padding: 8px 14px; }
+.runtime-status-body > div { min-height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.runtime-status-body span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.runtime-status-body b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.runtime-status-body p { margin: 6px 0; color: var(--mx-danger); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.runtime-status-popover > footer { padding: 8px 10px; border-top: .5px solid var(--mx-border); background: var(--mx-bg-base); }
+.runtime-status-popover button:hover:not(:disabled) { background: var(--mx-hover); }
+.runtime-status-popover button:disabled { opacity: var(--mx-op-disabled); }
+.mx-tooltip[data-side="bottom"] { transform-origin: top center; }
+.mx-tooltip[data-side="top"] { transform-origin: bottom center; }
+@keyframes mx-tooltip-in {
+  from { opacity: 0; scale: .96; }
+  to { opacity: 1; scale: 1; }
+}
+
+/* Composer selects use the same custom popover instead of the platform menu. */
+.effort-control { height: 28px; display: flex; align-items: center; }
+.effort-control .mx-select-root { min-width: 82px; }
+.effort-control .mx-select-trigger {
+  height: 28px;
+  padding: 0 5px 0 8px;
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+  line-height: var(--mx-line-ui);
+}
+.effort-control .mx-select-value { line-height: var(--mx-line-ui); }
+.effort-control .mx-select-trigger:hover,
+.effort-control .mx-select-trigger[aria-expanded="true"] {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.model-trigger,
+.effort-control .mx-select-trigger { color: var(--mx-text); }
+

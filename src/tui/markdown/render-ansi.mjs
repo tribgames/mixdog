@@ -24,14 +24,38 @@ const renderedSegmentCache = [];
 const RENDERED_SEGMENT_CACHE_MAX = 12;
 const RENDERED_SEGMENT_CACHE_MAX_CHARS = 256 * 1024;
 let renderedSegmentCacheChars = 0;
-const MD_SYNTAX_RE = /[#*`|[>\-_~]|\n\n|^\d+\. |\n\d+\. /;
+// Block/inline syntax probe. Beyond the inline marker class it must also catch
+// the block forms whose markers are NOT in that class, or the text renders as a
+// literal paragraph: `+ ` bullets, `1)` ordered items, a setext `===` underline,
+// and 4-space indented code.
+const MD_SYNTAX_RE =
+  /[#*`|[>\-_~]|\n\n|(?:^|\n)\d+[.)] |(?:^|\n)\+ |(?:^|\n)={2,}[ \t]*(?:\n|$)|(?:^|\n) {4}\S/;
+
+// GFM strikethrough, pair-only. marked's default `del` also accepts a SINGLE
+// tilde, which turns approximation prose ("~100", "1~2개") into struck text —
+// the reason this tokenizer used to be disabled outright. Requiring `~~` keeps
+// real strikethrough working and lockstep with the desktop pipeline
+// (remark-gfm singleTilde:false).
+const DEL_RE = /^~~(?=[^\s~])([\s\S]*?[^\s~])~~(?!~)/;
 
 let _configured = false;
 export function configureMarked() {
   if (_configured) return;
   _configured = true;
-  // Disable strikethrough: models use ~ for "approximate" (~100), not <del>.
-  marked.use({ tokenizer: { del() { return undefined; } } });
+  marked.use({
+    tokenizer: {
+      del(src) {
+        const match = DEL_RE.exec(src);
+        if (!match) return undefined;
+        return {
+          type: 'del',
+          raw: match[0],
+          text: match[1],
+          tokens: this.lexer.inlineTokens(match[1]),
+        };
+      },
+    },
+  });
 }
 
 export function hasMarkdownSyntax(text) {

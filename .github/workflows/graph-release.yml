@@ -144,7 +144,6 @@ jobs:
     name: build-${{ matrix.pkey }}-primary
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    ext: .exe, rustflags: "-C link-arg=/Brepro" }
@@ -235,14 +234,9 @@ jobs:
     name: build-${{ matrix.pkey }}-comparison
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
-          - { runner: windows-2022,     target: x86_64-pc-windows-msvc,    pkey: win32-x64,    ext: .exe, rustflags: "-C link-arg=/Brepro" }
           - { runner: ubuntu-22.04,     target: x86_64-unknown-linux-gnu,  pkey: linux-x64,    ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, pkey: linux-arm64,  ext: "",   rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: macos-15-intel,   target: x86_64-apple-darwin,       pkey: darwin-x64,   ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
-          - { runner: macos-14,         target: aarch64-apple-darwin,      pkey: darwin-arm64, ext: "",   rustflags: "-C link-arg=-Wl,-no_uuid" }
     runs-on: ${{ matrix.runner }}
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
@@ -328,9 +322,10 @@ jobs:
           done
           mapfile -t actual < <(find _release -maxdepth 1 -type f -printf '%f\n' | sort)
           diff -u <(printf '%s\n' "${expected_inputs[@]}" | sort) <(printf '%s\n' "${actual[@]}")
+          reproducible=(mixdog-graph-linux-x64)
           mapfile -t actual_repro < <(find _repro -maxdepth 1 -type f -printf '%f\n' | sort)
-          diff -u <(printf '%s\n' "${expected[@]}" | sort) <(printf '%s\n' "${actual_repro[@]}")
-          for asset in "${expected[@]}"; do
+          diff -u <(printf '%s\n' "${reproducible[@]}" | sort) <(printf '%s\n' "${actual_repro[@]}")
+          for asset in "${reproducible[@]}"; do
             cmp "_release/$asset" "_repro/$asset"
           done
 

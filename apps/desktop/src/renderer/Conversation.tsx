@@ -226,8 +226,7 @@ export function Conversation({
   onOpenCommandSurface,
   streamingTailSlot,
   runtimeProgressSlot,
-  composerContextStatus,
-  liveWorkStatus,
+  statusIsland,
   readOnly = false,
   reviewActive = true,
   warmPaintHandoff = false,
@@ -269,11 +268,10 @@ export function Conversation({
   /** Selector-driven runtime status; progress publications do not rerender the
    *  transcript/composer shell. */
   runtimeProgressSlot?: ReactNode;
-  /** Context gauge docked right of the composer's model selector. */
-  composerContextStatus?: ReactNode;
-  /** Agent/Shell live-work chips: thinking-line corner while a turn runs,
-   *  floating above the diff/composer stack while idle. */
-  liveWorkStatus?: ReactNode;
+  /** Session status island: the context gauge and the live Agent/Shell chips
+   *  as ONE capsule at the transcript's top-right corner, so neither readout
+   *  competes with the composer for space. */
+  statusIsland?: ReactNode;
   /** Transcript-only child-agent view: no submit, retry, approval, review, or
    *  other session runtime-mutating controls are mounted. */
   readOnly?: boolean;
@@ -871,9 +869,12 @@ export function Conversation({
       return <div className="transcript-turn-gap" aria-hidden="true" />;
     }
     if (row._tag === "Error") {
+      const failureReason = String(
+        row.item?.detail || row.item?.message || row.item?.text || row.item?.label || "",
+      ).replace(/^Error:\s*/i, "").trim();
       return <div className="turn-status failed" role="status">
         <X className="turn-status-icon" size={16} aria-hidden="true" />
-        <span>{t("Failed")}</span>
+        <span>{t("Failed")}{failureReason && !/^failed$/i.test(failureReason) ? ` · ${failureReason}` : ""}</span>
         {readOnly ? null : <button type="button" className="turn-retry" disabled={retryDisabled}
           onClick={() => retryTurn(row.turnKey)} aria-label={t("Retry failed turn")}>
           <MxIcon name="reset" size={12} />{t("Retry")}
@@ -884,7 +885,6 @@ export function Conversation({
       return <div className="live-activity-slot" data-busy="true">
         <LiveActivity snapshot={snapshot}
           optimisticStartedAt={optimisticActivityStartedAt} />
-        {liveWorkStatus && <div className="live-activity-corner">{liveWorkStatus}</div>}
       </div>;
     }
     if (row._tag === "UserMessage") {
@@ -945,6 +945,10 @@ export function Conversation({
           ?.focus({ preventScroll: true });
       }}>
       <div className="transcript-shell">
+      {/* Session status island (user: 우상단에 동그란 섬): it floats over the
+          scroller's top-right corner instead of riding the composer, so the
+          gauge and the Agent/Shell chips never cover the input surface. */}
+      {statusIsland}
       <div className="transcript" ref={viewport} role="log" aria-label={t("Conversation transcript")}
         data-session-key={transcriptSessionKey}
         data-following={following ? "true" : "false"}
@@ -1012,13 +1016,6 @@ export function Conversation({
       </button>}
       </div>
       {!readOnly && <div className="composer-region">
-        {/* Idle live-work chips float over the transcript, anchored above the
-            bottom stack: above the diff line when one is present, otherwise
-            above the composer (user: 유휴엔 디프 위, 없으면 채팅창 위 —
-            텍스트와 겹침 허용). While a turn runs the same chips ride the
-            thinking line instead. */}
-        {liveWorkStatus && <div className="composer-live-overlay"
-          data-busy={snapshot.busy ? "true" : "false"}>{liveWorkStatus}</div>}
         {runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
           ? <div className="runtime-progress" role="status">
             {String(asRecord(snapshot.progressHint)?.text)}
@@ -1108,7 +1105,6 @@ export function Conversation({
           onOpenProjects={composerOnOpenProjects}
           onOpenSettings={composerOnOpenSettings}
           onOpenCommandSurface={composerOnOpenCommandSurface}
-          contextStatus={composerContextStatus}
           dropTargetRef={conversation} />
       </div>}
     </section>

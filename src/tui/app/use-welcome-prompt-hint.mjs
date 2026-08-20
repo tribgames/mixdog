@@ -1,6 +1,6 @@
 // Welcome-screen prompt hint, extracted from App.jsx. A random starter tip is
 // pinned per process; setup problems (no provider/model, solo workflow,
-// unsupported default search route, error toasts) override it with a targeted
+// unsupported default web-search route, error toasts) override it with a targeted
 // conditional hint. Dismissal only fires while the hint row is actually on
 // screen AND the draft gains its first character — generic key/mouse events
 // used to dismiss it before the user ever typed.
@@ -59,21 +59,21 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
         next = CONDITIONAL_WELCOME_PROMPT_HINTS.soloWorkflow;
       }
       if (!next) {
-        const searchRoute = (await store.getSearchRoute?.()) || null;
-        const searchProvider = String(searchRoute?.provider || '').trim();
-        const searchModel = String(searchRoute?.model || '').trim();
-        const defaultSearchRoute = searchProvider.toLowerCase() === 'default' && searchModel.toLowerCase() === 'default';
-        if (defaultSearchRoute) {
+        const webSearchRoute = (await store.getWebSearchRoute?.()) || null;
+        const webSearchProvider = String(webSearchRoute?.provider || '').trim();
+        const webSearchModel = String(webSearchRoute?.model || '').trim();
+        const defaultWebSearchRoute = webSearchProvider.toLowerCase() === 'default' && webSearchModel.toLowerCase() === 'default';
+        if (defaultWebSearchRoute) {
           try {
             const models = await Promise.resolve(store.listProviderModels?.({ quick: true }) || []);
             const current = Array.isArray(models)
               ? models.find((model) => model?.provider === state.provider && model?.id === state.model)
               : null;
             if (current && current.supportsWebSearch !== true) {
-              next = CONDITIONAL_WELCOME_PROMPT_HINTS.searchDefaultUnsupported;
+              next = CONDITIONAL_WELCOME_PROMPT_HINTS.webSearchDefaultUnsupported;
             }
           } catch {
-            // Search default probing is advisory only.
+            // Web-search default probing is advisory only.
           }
         }
       }

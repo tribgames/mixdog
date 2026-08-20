@@ -5,6 +5,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
 
+const DEFAULT_OUTPUT_STYLE_ID = 'simple';
 const OUTPUT_STYLE_ORDER = ['detailed', 'simple', 'minimal', 'extreme-minimal'];
 const OUTPUT_STYLE_ALIASES = new Map([
   ['extreme', 'extreme-minimal'],
@@ -57,6 +58,7 @@ function computeOutputStyleMetadata(filePath, source) {
   let raw = '';
   try { raw = readFileSync(filePath, 'utf8'); } catch { return null; }
   const meta = parseOutputStyleFrontmatter(raw);
+  if (/^(?:true|1|yes)$/i.test(clean(meta.partial))) return null;
   const fileId = normalizeOutputStyleId(basename(filePath).replace(/\.md$/i, ''));
   const id = normalizeOutputStyleId(meta.name) || fileId;
   if (!id) return null;
@@ -142,17 +144,25 @@ export function findOutputStyle(value, styles) {
   }) || null;
 }
 
+// Root `outputStyle` is the only configured location; the retired
+// `agent.outputStyle` key is dropped by config canonicalization.
 function configuredOutputStyleValue(dataDir) {
   const unified = readJsonSafe(join(dataDir, 'mixdog-config.json')) || {};
-  return clean(unified.outputStyle || (unified.agent && unified.agent.outputStyle) || 'simple') || 'simple';
+  return clean(unified.outputStyle) || DEFAULT_OUTPUT_STYLE_ID;
 }
 
 export function outputStyleStatus(rootDir, dataDir, { fresh = false } = {}) {
   const styles = listOutputStyleCatalog(rootDir, dataDir, { fresh });
   const configured = configuredOutputStyleValue(dataDir);
   const current = findOutputStyle(configured, styles)
-    || findOutputStyle('simple', styles)
+    || findOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles)
     || styles[0]
-    || { id: 'simple', label: 'Simple', description: '', aliases: [], source: 'builtin' };
+    || {
+      id: DEFAULT_OUTPUT_STYLE_ID,
+      label: titleCaseOutputStyle(DEFAULT_OUTPUT_STYLE_ID),
+      description: '',
+      aliases: [],
+      source: 'builtin',
+    };
   return { configured, current, styles };
 }

@@ -166,7 +166,7 @@ async function readAllCapabilitySettings(
     key,
     request: {
       capability: capability as DesktopReadCapability,
-      args: force && capability === 'listSearchModels'
+      args: force && capability === 'listWebSearchModels'
         ? [{ ...record(args[0]), force: true }]
         : force && capability === 'getProviderSetup'
           ? [{ refresh: true }]

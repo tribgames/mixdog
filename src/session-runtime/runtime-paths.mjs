@@ -3,8 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const RUNTIME = '../runtime/agent/orchestrator';
-export const SEARCH_RUNTIME = '../runtime/search/index.mjs';
-export const SEARCH_TOOL_DEFS = '../runtime/search/tool-defs.mjs';
+export const WEB_SEARCH_RUNTIME = '../runtime/web-search/index.mjs';
+export const WEB_SEARCH_TOOL_DEFS = '../runtime/web-search/tool-defs.mjs';
 export const MEMORY_TOOL_DEFS = '../runtime/memory/tool-defs.mjs';
 export const MEMORY_RUNTIME = '../runtime/memory/index.mjs';
 export const CHANNEL_TOOL_DEFS = '../runtime/channels/tool-defs.mjs';

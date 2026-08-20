@@ -291,7 +291,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   agentJobs?: DesktopAgentJob[];
   activeTools?: {
     explore?: DesktopActiveToolState;
-    search?: DesktopActiveToolState;
+    web_search?: DesktopActiveToolState;
     shell?: DesktopActiveToolState;
     agent?: DesktopActiveToolState;
   } | null;
@@ -566,9 +566,9 @@ export const DESKTOP_CAPABILITIES = [
   'compact',
   'listPresets',
   'setModel',
-  'getSearchRoute',
-  'listSearchModels',
-  'setSearchRoute',
+  'getWebSearchRoute',
+  'listWebSearchModels',
+  'setWebSearchRoute',
   'listAgents',
   'listWorkflows',
   'getOutputStyle',
@@ -654,8 +654,8 @@ export const DESKTOP_READ_CAPABILITIES = [
   'contextStatus',
   'getTurnReviewDiff',
   'listPresets',
-  'getSearchRoute',
-  'listSearchModels',
+  'getWebSearchRoute',
+  'listWebSearchModels',
   'listAgents',
   'listWorkflows',
   'getWorkflowPack',

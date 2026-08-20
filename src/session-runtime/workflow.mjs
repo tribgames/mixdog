@@ -9,7 +9,7 @@ import { normalizeEffortInput } from './effort.mjs';
 import { isLikelyRawModelId } from './config-helpers.mjs';
 import { readTextSafe, readJsonSafe } from './fs-utils.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
-import { configuredAgentRouteCandidates } from '../runtime/shared/agent-route-config.mjs';
+import { configuredAgentRouteCandidates, isAgentDisabled } from '../runtime/shared/agent-route-config.mjs';
 
 export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'memory'];
 export const AGENT_DELETED_MARKER = '.deleted';
@@ -31,12 +31,12 @@ const STARTER_AGENT_ORDER = new Map([
 ]);
 export const DEFAULT_WORKFLOW_ID = 'default';
 
-const SEARCH_CAPABLE_PROVIDERS = new Set([
+const WEB_SEARCH_CAPABLE_PROVIDERS = new Set([
   'openai-oauth', 'openai', 'grok-oauth', 'xai', 'gemini', 'anthropic', 'anthropic-oauth',
 ]);
-export const SEARCH_DEFAULT_PROVIDER = 'default';
-export const SEARCH_DEFAULT_MODEL = 'default';
-const SEARCH_PROVIDER_ALIASES = Object.freeze({
+export const WEB_SEARCH_DEFAULT_PROVIDER = 'default';
+export const WEB_SEARCH_DEFAULT_MODEL = 'default';
+const WEB_SEARCH_PROVIDER_ALIASES = Object.freeze({
   'openai-api': 'openai',
   'xai-api': 'xai',
   'gemini-api': 'gemini',
@@ -264,7 +264,16 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     return readWorkflowPackFromDir(join(rootDir, 'workflows', DEFAULT_WORKFLOW_ID), 'built-in', DEFAULT_WORKFLOW_ID);
   }
 
-  function workflowSummary(pack) {
+  // Agents the Lead may actually delegate to: on disk, not hidden, not a
+  // slot-backed built-in, and not switched off by the user.
+  function delegatableAgentIds(config, dir) {
+    return listCustomAgentIds(dir)
+      .filter((id) => !isHiddenAgent(id)
+        && !BUILTIN_SLOT_AGENT_IDS.has(id)
+        && !isAgentDisabled(config, id));
+  }
+
+  function workflowSummary(pack, { hasAgents = true } = {}) {
     const id = normalizeWorkflowId(pack?.id, DEFAULT_WORKFLOW_ID);
     return {
       id,
@@ -277,12 +286,16 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
       // it to drop the agent tool for packs that delegate to nobody —
       // including headless/bench sessions whose workflow never touches the
       // config-active pack.
-      delegatesAgents: pack?.delegatesAgents !== false,
+      // Every agent switched off leaves nobody to delegate to, so the agent
+      // tool drops exactly as it does for a non-delegating pack.
+      delegatesAgents: pack?.delegatesAgents !== false && hasAgents !== false,
     };
   }
 
   function activeWorkflowSummary(config, dir) {
-    return workflowSummary(loadWorkflowPack(dir, activeWorkflowId(config)));
+    return workflowSummary(loadWorkflowPack(dir, activeWorkflowId(config)), {
+      hasAgents: delegatableAgentIds(config, dir).length > 0,
+    });
   }
 
   function loadAgentDefinition(dir, id) {
@@ -314,10 +327,10 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
   }
 
   function workflowContextBlock(config, dir) {
-    return workflowContextBlockFromPack(loadWorkflowPack(dir, activeWorkflowId(config)), dir);
+    return workflowContextBlockFromPack(loadWorkflowPack(dir, activeWorkflowId(config)), dir, config);
   }
 
-  function workflowContextBlockFromPack(pack, dir) {
+  function workflowContextBlockFromPack(pack, dir, config = null) {
     if (!pack) return '';
     // The pack body opens with its own `# <name>` title, so header + description
     // + body used to repeat the workflow name three times in the prompt. Emit one
@@ -334,8 +347,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     // hidden roles stay Mixdog-internal.
     const agentIds = pack.delegatesAgents === false
       ? []
-      : listCustomAgentIds(dir)
-        .filter((id) => !isHiddenAgent(id) && !BUILTIN_SLOT_AGENT_IDS.has(id));
+      : delegatableAgentIds(config, dir);
     const agentBlocks = agentIds.map((id) => loadAgentDefinition(dir, id)).filter(Boolean);
     if (agentBlocks.length) {
       lines.push('# Available Agents');
@@ -356,8 +368,8 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
   function activeWorkflowContext(config, dir) {
     const pack = loadWorkflowPack(dir, activeWorkflowId(config));
     return {
-      summary: workflowSummary(pack),
-      context: workflowContextBlockFromPack(pack, dir),
+      summary: workflowSummary(pack, { hasAgents: delegatableAgentIds(config, dir).length > 0 }),
+      context: workflowContextBlockFromPack(pack, dir, config),
     };
   }
 
@@ -369,27 +381,28 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     activeWorkflowSummary,
     loadAgentDefinition,
     listCustomAgentIds,
+    delegatableAgentIds,
     workflowContextBlock,
     activeWorkflowContext,
   };
 }
 
-export function normalizeSearchProviderId(provider) {
+export function normalizeWebSearchProviderId(provider) {
   const id = clean(provider);
-  return SEARCH_PROVIDER_ALIASES[id] || id;
+  return WEB_SEARCH_PROVIDER_ALIASES[id] || id;
 }
 
-export function isDefaultSearchRouteConfig(routeLike = {}) {
-  return normalizeSearchProviderId(routeLike?.provider) === SEARCH_DEFAULT_PROVIDER
-    && clean(routeLike?.model).toLowerCase() === SEARCH_DEFAULT_MODEL;
+export function isDefaultWebSearchRouteConfig(routeLike = {}) {
+  return normalizeWebSearchProviderId(routeLike?.provider) === WEB_SEARCH_DEFAULT_PROVIDER
+    && clean(routeLike?.model).toLowerCase() === WEB_SEARCH_DEFAULT_MODEL;
 }
 
-export function isSearchCapableProvider(provider) {
-  return SEARCH_CAPABLE_PROVIDERS.has(normalizeSearchProviderId(provider));
+export function isWebSearchCapableProvider(provider) {
+  return WEB_SEARCH_CAPABLE_PROVIDERS.has(normalizeWebSearchProviderId(provider));
 }
 
-export function normalizeSearchRouteConfig(routeLike, fallback = {}) {
-  const provider = normalizeSearchProviderId(routeLike?.provider || fallback.provider);
+export function normalizeWebSearchRouteConfig(routeLike, fallback = {}) {
+  const provider = normalizeWebSearchProviderId(routeLike?.provider || fallback.provider);
   const model = clean(routeLike?.model || fallback.model);
   if (!provider || !model) return null;
   let effort = null;

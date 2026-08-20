@@ -10,11 +10,11 @@ import {
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import {
   workflowPresetId,
-  normalizeSearchRouteConfig,
-  isDefaultSearchRouteConfig,
-  isSearchCapableProvider,
-  SEARCH_DEFAULT_PROVIDER,
-  SEARCH_DEFAULT_MODEL,
+  normalizeWebSearchRouteConfig,
+  isDefaultWebSearchRouteConfig,
+  isWebSearchCapableProvider,
+  WEB_SEARCH_DEFAULT_PROVIDER,
+  WEB_SEARCH_DEFAULT_MODEL,
 } from './workflow.mjs';
 import { writeStatuslineRoute } from './statusline-route.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
@@ -44,24 +44,24 @@ export function shouldRecreateEmptySessionForRouteChange(
     && !hasRouteHistoryMessage(session.liveTurnMessages);
 }
 
-// Model/route/search-route selection + mutation surface. Extracted verbatim from
+// Model/route/web-search-route selection + mutation surface. Extracted verbatim from
 // the runtime API object; stateless helpers are imported directly and the
-// runtime injects live getters/setters for the mutable config/route/searchRoute/
+// runtime injects live getters/setters for the mutable config/route/webSearchRoute/
 // session locals plus the closure callbacks (config adopt/save, effort refresh,
 // provider registry, statusline).
 export function createModelRouteApi(deps) {
   const {
     getConfig, getRoute, setRouteState, getSession, setSession,
-    getConfigHasSecrets, getSearchRouteState, setSearchRouteState,
+    getConfigHasSecrets, getWebSearchRouteState, setWebSearchRouteState,
     cfgMod, reg, mgr, statusRoutes,
-    resolveRoute, searchCapableFor, lookupModelMeta,
+    resolveRoute, webSearchCapableFor, lookupModelMeta,
     adoptConfig, saveConfigAndAdopt, ensureFullConfig, awaitKeychainPrewarm,
     ensureProvidersReady,
     persistLeadRoute, refreshRouteEffort,
     refreshStatuslineUsageSnapshot, scheduleStatuslineUsageRefresh,
     invalidateContextStatusCache, invalidateProviderCaches,
     createCurrentSession, invalidatePreSessionToolSurface,
-    collectSearchProviderModels,
+    collectWebSearchProviderModels,
   } = deps;
   function persistAdoptedModelSettings(route) {
     // saveModelSettings is in-memory only. persistLeadRoute debounce-writes
@@ -72,52 +72,58 @@ export function createModelRouteApi(deps) {
     return leadRoute;
   }
   return {
-    getSearchRoute() {
-      const sr = normalizeSearchRouteConfig(getConfig().searchRoute) || normalizeSearchRouteConfig(getSearchRouteState());
-      setSearchRouteState(sr);
-      return sr;
+    getWebSearchRoute() {
+      // Unset === the default marker route (follow Main), never "unconfigured".
+      const webSearchRoute = normalizeWebSearchRouteConfig(getConfig().webSearchRoute)
+        || normalizeWebSearchRouteConfig(getWebSearchRouteState())
+        || normalizeWebSearchRouteConfig({
+          provider: WEB_SEARCH_DEFAULT_PROVIDER,
+          model: WEB_SEARCH_DEFAULT_MODEL,
+        });
+      setWebSearchRouteState(webSearchRoute);
+      return webSearchRoute;
     },
-    async listSearchModels(options = {}) {
-      return await collectSearchProviderModels({ force: options.force === true || options.refresh === true });
+    async listWebSearchModels(options = {}) {
+      return await collectWebSearchProviderModels({ force: options.force === true || options.refresh === true });
     },
-    async setSearchRoute(next) {
+    async setWebSearchRoute(next) {
       let selectedRoute = clean(next?.provider)
-        ? normalizeSearchRouteConfig(next)
-        : normalizeSearchRouteConfig({
-          provider: SEARCH_DEFAULT_PROVIDER,
-          model: SEARCH_DEFAULT_MODEL,
+        ? normalizeWebSearchRouteConfig(next)
+        : normalizeWebSearchRouteConfig({
+          provider: WEB_SEARCH_DEFAULT_PROVIDER,
+          model: WEB_SEARCH_DEFAULT_MODEL,
           ...(next?.toolType ? { toolType: next.toolType } : {}),
         });
-      if (!selectedRoute) throw new Error('search route requires provider and model');
-      if (isDefaultSearchRouteConfig(selectedRoute)) {
+      if (!selectedRoute) throw new Error('web search route requires provider and model');
+      if (isDefaultWebSearchRouteConfig(selectedRoute)) {
         await awaitKeychainPrewarm();
         ensureFullConfig();
-        const routeToSave = normalizeSearchRouteConfig({
-          provider: SEARCH_DEFAULT_PROVIDER,
-          model: SEARCH_DEFAULT_MODEL,
+        const routeToSave = normalizeWebSearchRouteConfig({
+          provider: WEB_SEARCH_DEFAULT_PROVIDER,
+          model: WEB_SEARCH_DEFAULT_MODEL,
           ...(selectedRoute.toolType ? { toolType: selectedRoute.toolType } : {}),
         });
         const nextConfig = { ...getConfig() };
-        nextConfig.searchRoute = routeToSave;
+        nextConfig.webSearchRoute = routeToSave;
         saveConfigAndAdopt(nextConfig);
-        const sr = normalizeSearchRouteConfig(getConfig().searchRoute);
-        setSearchRouteState(sr);
+        const webSearchRoute = normalizeWebSearchRouteConfig(getConfig().webSearchRoute);
+        setWebSearchRouteState(webSearchRoute);
         invalidateProviderCaches();
-        return sr;
+        return webSearchRoute;
       }
-      if (!isSearchCapableProvider(selectedRoute.provider)) {
-        throw new Error(`provider "${selectedRoute.provider}" does not support Mixdog native search`);
+      if (!isWebSearchCapableProvider(selectedRoute.provider)) {
+        throw new Error(`provider "${selectedRoute.provider}" does not support Mixdog native web search`);
       }
       await awaitKeychainPrewarm();
       ensureFullConfig();
       await ensureProvidersReady(ensureProviderEnabled(getConfig(), selectedRoute.provider));
       const modelMeta = await lookupModelMeta(selectedRoute.provider, selectedRoute.model);
-      if (!searchCapableFor(selectedRoute.provider, modelMeta)) {
+      if (!webSearchCapableFor(selectedRoute.provider, modelMeta)) {
         throw new Error(`model "${selectedRoute.model}" is not marked as web-search capable`);
       }
-      // Route-scope isolation: the search route stores its own effort/fast in
-      // config.searchRoute. The shared config.modelSettings[provider/model]
-      // bucket belongs to the MAIN route alone, so a search-model pick that
+      // Route-scope isolation: the web search route stores its own effort/fast in
+      // config.webSearchRoute. The shared config.modelSettings[provider/model]
+      // bucket belongs to the MAIN route alone, so a web-search model pick that
       // happens to match Main must not rewrite Main's saved effort/fast.
       const effort = coerceEffortFor(selectedRoute.provider, modelMeta, selectedRoute.effort);
       const fastCapable = fastCapableFor(
@@ -131,14 +137,14 @@ export function createModelRouteApi(deps) {
         ...(effort ? { effort } : {}),
         fast: fastCapable ? selectedRoute.fast === true : false,
       };
-      const routeToSave = normalizeSearchRouteConfig(selectedRoute);
+      const routeToSave = normalizeWebSearchRouteConfig(selectedRoute);
       const nextConfig = { ...getConfig() };
-      nextConfig.searchRoute = routeToSave;
+      nextConfig.webSearchRoute = routeToSave;
       saveConfigAndAdopt(nextConfig);
-      const sr = normalizeSearchRouteConfig(getConfig().searchRoute);
-      setSearchRouteState(sr);
+      const webSearchRoute = normalizeWebSearchRouteConfig(getConfig().webSearchRoute);
+      setWebSearchRouteState(webSearchRoute);
       invalidateProviderCaches();
-      return sr;
+      return webSearchRoute;
     },
     async setRoute(next, options = {}) {
       // Model/provider changes take effect on the NEXT session only — never

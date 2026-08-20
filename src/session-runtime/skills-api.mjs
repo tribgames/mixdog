@@ -43,19 +43,22 @@ export function createSkillsApi({ contextMod, getCwd }) {
   }
 
   function skillContent(name) {
+    const skillName = String(name || '').trim();
+    if (!skillName) throw new Error('skill name is required');
     const res = typeof contextMod.loadSkillResource === 'function'
-      ? contextMod.loadSkillResource(name, getCwd())
+      ? contextMod.loadSkillResource(skillName, getCwd())
       : null;
-    if (!res) throw new Error(`skill not found: ${name}`);
-    return { name, content: res.content, dir: res.dir };
+    if (!res) throw new Error(`skill not found: ${skillName}`);
+    return { name: skillName, content: res.content, dir: res.dir };
   }
 
   function skillToolContent(name) {
-    if (typeof contextMod.isSkillDisabled === 'function' && contextMod.isSkillDisabled(name)) {
-      const label = String(name || '').trim() || 'skill';
-      return `Error: skill "${label}" is disabled`;
+    const skillName = String(name || '').trim();
+    if (!skillName) throw new Error('skill name is required');
+    if (typeof contextMod.isSkillDisabled === 'function' && contextMod.isSkillDisabled(skillName)) {
+      return `Error: skill "${skillName}" is disabled`;
     }
-    const skill = skillContent(name);
+    const skill = skillContent(skillName);
     // The general tool envelope keeps the main/Lead session identical to agent
     // loops: the model-visible tool_result is the short stub and the SKILL.md
     // body is delivered ONCE as a separate injected user message.

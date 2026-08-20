@@ -23,6 +23,13 @@ function normalizeProjectId(value) {
   return text || null
 }
 
+export function formatCuratedCoreMemoryLine(row) {
+  const summary = String(row?.summary || '').replace(/\s+/g, ' ').trim()
+  if (!summary) return ''
+  const id = Number(row?.id)
+  return Number.isInteger(id) && id > 0 ? `[id=${id}] ${summary}` : summary
+}
+
 function normalizeCuratedEntry(row) {
   const summary = String(row?.summary || '').replace(/\s+/g, ' ').trim()
   if (!summary) return null
@@ -155,7 +162,7 @@ export function readSessionCoreMemoryPayload(dataDir, cwd) {
   return {
     projectId,
     revision: file.revision,
-    userLines: curated.map((entry) => entry.summary),
+    userLines: curated.map(formatCuratedCoreMemoryLine).filter(Boolean),
     dbLines: generated.map((entry) => entry.summary),
   }
 }

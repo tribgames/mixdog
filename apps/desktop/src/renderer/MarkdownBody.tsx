@@ -11,7 +11,9 @@ import rehypeKatex from "rehype-katex";
 
 import { markdownComponents, type MarkdownCopyControl } from "./markdown-components";
 import {
+  htmlLineBreaksToBreaks,
   repairAdjacentStrongPunctuation,
+  stripHtmlComments,
   trimTrailingCodeNewline,
 } from "./markdown-plugins";
 
@@ -26,6 +28,8 @@ export default function MarkdownBody({ text, copyControl }: {
   return <ReactMarkdown
     remarkPlugins={[
       repairAdjacentStrongPunctuation,
+      stripHtmlComments,
+      htmlLineBreaksToBreaks,
       [remarkGfm, { singleTilde: false }],
       [remarkMath, { singleDollarTextMath: false }],
     ]}

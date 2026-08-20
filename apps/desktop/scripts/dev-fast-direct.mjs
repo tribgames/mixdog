@@ -31,7 +31,14 @@ const {
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(desktopDir, '../..');
 const schemaVersion = 1;
+// electron-builder keeps this package unpacked (asarUnpack). The daemon runs
+// from app.asar.unpacked and resolves it through the real file system, and a
+// native binding cannot be dlopen'd from inside the archive, so an incremental
+// artifact that repacks it leaves the installed app with no terminals at all.
+const ptyPackageSegments = ['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'];
 const ignoredSource = /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
+const fileContents = new Map();
+const inputFiles = new Map();
 
 const targetInputs = {
   renderer: [
@@ -111,16 +118,34 @@ async function walkFiles(input, files = []) {
   return files;
 }
 
+async function filesForInput(input) {
+  let pending = inputFiles.get(input);
+  if (!pending) {
+    pending = walkFiles(input, []);
+    inputFiles.set(input, pending);
+  }
+  return pending;
+}
+
+async function contentsForFile(path) {
+  let pending = fileContents.get(path);
+  if (!pending) {
+    pending = readFile(path);
+    fileContents.set(path, pending);
+  }
+  return pending;
+}
+
 async function hashFile(path) {
   const hash = createHash('sha256');
-  const contents = await readFile(path);
+  const contents = await contentsForFile(path);
   hash.update(contents);
   return hash.digest('hex');
 }
 
 async function fingerprint(inputs) {
   const files = [];
-  for (const input of inputs) await walkFiles(input, files);
+  for (const input of inputs) files.push(...await filesForInput(input));
   files.sort((left, right) => left.localeCompare(right));
   const hash = createHash('sha256');
   let newestMtimeMs = 0;
@@ -131,7 +156,7 @@ async function fingerprint(inputs) {
     hash.update('\0');
     hash.update(String(metadata.size));
     hash.update('\0');
-    hash.update(await readFile(file));
+    hash.update(await contentsForFile(file));
     hash.update('\0');
   }
   return { hash: hash.digest('hex'), newestMtimeMs, fileCount: files.length };
@@ -333,6 +358,9 @@ async function stageShell({ installDir, artifactDir, plan }) {
   await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
   await cp(join(desktopDir, 'out'), join(stagingRoot, 'out'), { recursive: true });
   await rm(join(stagingRoot, 'out', 'main', 'capture-window.js'), { force: true });
+  // Never let the PTY package become an ordinary archive entry; it ships
+  // beside the archive instead, exactly as electron-builder installs it.
+  await rm(join(stagingRoot, ...ptyPackageSegments), { recursive: true, force: true });
   await createPackageWithOptions(stagingRoot, artifactArchive, {
     unpackDir: 'out',
   });
@@ -345,6 +373,19 @@ async function stageShell({ installDir, artifactDir, plan }) {
     if (!statFile(artifactArchive, file.replaceAll('/', sep), false).unpacked) {
       throw new Error(`FastDirect artifact did not unpack ${file}`);
     }
+  }
+  const sourcePtyPackage = join(desktopDir, ...ptyPackageSegments);
+  const stagedPtyPackage = join(artifactResources, 'app.asar.unpacked', ...ptyPackageSegments);
+  try {
+    await cp(sourcePtyPackage, stagedPtyPackage, { recursive: true });
+  } catch (error) {
+    throw new Error(
+      `FastDirect could not stage the PTY package from ${sourcePtyPackage}: ${error.message}`,
+    );
+  }
+  const ptyBinding = join(stagedPtyPackage, 'build', 'Release', 'pty.node');
+  if (!(await stat(ptyBinding).catch(() => null))?.isFile()) {
+    throw new Error(`FastDirect artifact is missing the unpacked PTY binding: ${ptyBinding}`);
   }
   const artifactExe = join(artifactDir, 'Mixdog.exe');
   await cp(join(installDir, 'Mixdog.exe'), artifactExe);

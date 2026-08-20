@@ -19,8 +19,6 @@ import type {
   DesktopWorkspaceTextSearchOptions,
 } from "../shared/contract";
 import {
-  clampDesktopPanelWidth,
-  DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
   DESKTOP_UTILITY_DOCK_MIN_WIDTH,
 } from "../shared/window-layout";
 import { AgentActivityPane } from "./AgentActivityPane";
@@ -29,6 +27,19 @@ import { DesktopLoadingSurface } from "./RendererRecovery";
 import type { PullRequestOpenHandler } from "./PullRequestsPane";
 import { SourceControlDock, type SourceControlDiffRequest } from "./SourceControlDock";
 import { SurfaceActiveContext } from "./surface-activity";
+import {
+  clampDockWidth,
+  DESKTOP_UTILITY_DOCK_MAX_WIDTH,
+  type UtilityDockTab,
+} from "./utility-dock-state";
+export {
+  clampDockWidth,
+  DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
+  DESKTOP_UTILITY_DOCK_MAX_WIDTH,
+  DOCK_STATE_KEY,
+  readDockState,
+  type UtilityDockTab,
+} from "./utility-dock-state";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -80,13 +91,6 @@ function DockPane({
     </div>
   </SurfaceActiveContext.Provider>;
 }
-
-export const DOCK_STATE_KEY = 'mixdog.desktop-utility-dock.v1';
-export { DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
-export const DESKTOP_UTILITY_DOCK_MAX_WIDTH = 560;
-// The visible right-side order is Agents → Search → Source Control.
-// Pull Requests remains feature-locked as the optional fourth Git surface.
-export type UtilityDockTab = 'agents' | 'search' | 'source-control' | 'pull-requests';
 
 type DockGitState = {
   projectPath: string;
@@ -231,33 +235,6 @@ function UtilityDockViewSection({
       {children(sectionActive)}
     </div>
   </section>;
-}
-
-export function clampDockWidth(value: number): number {
-  return clampDesktopPanelWidth(
-    value,
-    DESKTOP_UTILITY_DOCK_MIN_WIDTH,
-    DESKTOP_UTILITY_DOCK_MAX_WIDTH,
-  );
-}
-export function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } {
-  try {
-    const raw = JSON.parse(window.localStorage.getItem(DOCK_STATE_KEY) || '{}') as Record<string, unknown>;
-    return {
-      open: raw.open === true,
-      // Migrate the retired Tasks/Files identities without discarding width
-      // and open-state preferences from existing installs.
-      tab: raw.tab === 'agents' || raw.tab === 'search'
-        || raw.tab === 'source-control' || raw.tab === 'pull-requests'
-        ? raw.tab
-        : raw.tab === 'tasks' ? 'agents'
-          : raw.tab === 'files' ? 'search'
-            : 'agents',
-      width: clampDockWidth(Number(raw.width)),
-    };
-  } catch {
-    return { open: false, tab: 'agents', width: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
-  }
 }
 
 

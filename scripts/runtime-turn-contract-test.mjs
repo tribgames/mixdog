@@ -20,7 +20,7 @@ import { shouldRecreateEmptySessionForRouteChange } from '../src/session-runtime
 import { createSessionTurnApi } from '../src/session-runtime/session-turn-api.mjs';
 import { createTagRegistry } from '../src/standalone/agent-tool/tag-registry.mjs';
 import { WORKER_INDEX_FILE } from '../src/standalone/agent-tool/tool-def.mjs';
-import { presentErrorText, isCancelLikeError } from '../src/runtime/shared/err-text.mjs';
+import { presentErrorText, providerRetryStatusText, isCancelLikeError } from '../src/runtime/shared/err-text.mjs';
 import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestrator/session/manager/turn-interruption.mjs';
 import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
 import { createContextState } from '../src/tui/session/context-state.mjs';
@@ -30,6 +30,32 @@ const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip
 
 const failAfter = (ms, message) => new Promise((_, reject) => {
   setTimeout(() => reject(new Error(message)), ms);
+});
+
+test('provider failures expose concise capacity, session-state, and retry reasons', () => {
+  assert.equal(
+    presentErrorText(new Error('The model is currently at capacity due to high demand. https://example.invalid')),
+    'Provider is busy at capacity.',
+  );
+  assert.equal(
+    presentErrorText(Object.assign(new Error('provider message prefix changed outside compaction'), {
+      name: 'ProviderPrefixMutationError',
+      code: 'PROVIDER_PREFIX_MUTATION',
+    })),
+    'Session state changed unexpectedly.',
+  );
+  assert.equal(
+    presentErrorText(new Error('Anthropic OAuth API 429 quota/rate limit retryAfter=214641s')),
+    'Anthropic quota/rate limit hit; retry after 2d 11h 37m.',
+  );
+  assert.equal(
+    providerRetryStatusText(new Error('first byte timed out after 60000ms'), {
+      attempt: 3,
+      maxAttempts: 5,
+      delayMs: 2_000,
+    }),
+    'No first response 1m · retry 3/5 in 2s',
+  );
 });
 
 test('auto-compact replaces stale exact context usage with the compacted estimate', () => {

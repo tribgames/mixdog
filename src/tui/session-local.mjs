@@ -525,7 +525,7 @@ export async function createLocalSessionRuntime({
   const activeToolCalls = new Map(); // callKey -> { category, count, startedAt }
   const recomputeActiveToolSummary = () => {
     let shellCount = 0, shellStart = 0;
-    let searchCount = 0, searchStart = 0;
+    let webSearchCount = 0, webSearchStart = 0;
     let agentCount = 0, agentStart = 0;
     for (const rec of activeToolCalls.values()) {
       if (!rec) continue;
@@ -535,19 +535,19 @@ export async function createLocalSessionRuntime({
         shellCount += c;
         if (started > 0 && (shellStart === 0 || started < shellStart)) shellStart = started;
       } else if (rec.category === 'Web Research') {
-        searchCount += c;
-        if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
+        webSearchCount += c;
+        if (started > 0 && (webSearchStart === 0 || started < webSearchStart)) webSearchStart = started;
       } else if (rec.category === 'Agent') {
         agentCount += c;
         if (started > 0 && (agentStart === 0 || started < agentStart)) agentStart = started;
       }
     }
-    const next = shellCount || searchCount || agentCount
-      ? `${shellCount}:${shellStart}:${searchCount}:${searchStart}:${agentCount}:${agentStart}`
+    const next = shellCount || webSearchCount || agentCount
+      ? `${shellCount}:${shellStart}:${webSearchCount}:${webSearchStart}:${agentCount}:${agentStart}`
       : '';
     const activeTools = next ? {
       ...(shellCount ? { shell: { count: shellCount, startedAt: shellStart } } : {}),
-      ...(searchCount ? { search: { count: searchCount, startedAt: searchStart } } : {}),
+      ...(webSearchCount ? { web_search: { count: webSearchCount, startedAt: webSearchStart } } : {}),
       ...(agentCount ? { agent: { count: agentCount, startedAt: agentStart } } : {}),
     } : null;
     const prev = state.activeToolSummary || '';

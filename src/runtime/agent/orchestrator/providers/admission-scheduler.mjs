@@ -6,9 +6,9 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 // explicitly configures one, or after that account reports a real 429.
 export const PROVIDER_ACCOUNT_CONCURRENCY = Infinity;
 export const PROVIDER_ACCOUNT_MAX_QUEUE = 1024;
-// A cooldown longer than this is a quota-window block (subscription limit),
-// not a transient burst: parking requests silently for it would look like a
-// dead chat. Longer cooldowns fail fast with a visible error instead.
+// Only transient burst windows are coordinated locally. Longer subscription
+// quota windows are provider-authoritative and must be checked on every new
+// request because their scope can differ by model.
 export const PROVIDER_COOLDOWN_FAIL_FAST_MS = 60_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const currentAdmission = new AsyncLocalStorage();
@@ -167,6 +167,7 @@ export class ProviderAdmissionScheduler {
         const until = Number(cooldownUntil) || 0;
         const now = this.now();
         if (!laneKey || until <= now || this.closedReason) return false;
+        if (until - now > PROVIDER_COOLDOWN_FAIL_FAST_MS) return false;
         const lane = this.lanes.get(laneKey) || {
             active: 0,
             queue: [],
@@ -183,11 +184,6 @@ export class ProviderAdmissionScheduler {
         lane.cooldownUntil = until;
         lane.recoverySuccesses = 0;
         this._scheduleCooldown(laneKey, lane);
-        // Same queue semantics as a locally-recorded quota window: parked
-        // requests must not hang silently for hours.
-        if (until - now > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
-            this._rejectQueueForCooldown(laneKey, lane);
-        }
         return true;
     }
 
@@ -221,12 +217,6 @@ export class ProviderAdmissionScheduler {
             fairCursor: null,
         };
         this.lanes.set(laneKey, lane);
-        // Long cooldown = quota window. Fail fast with a visible error; short
-        // cooldowns (bursts) keep the silent park-and-drain smoothing below.
-        if (lane.adaptive && lane.cooldownUntil - this.now() > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
-            this._scheduleCooldown(laneKey, lane);
-            return Promise.reject(new ProviderCooldownError(laneKey, lane.cooldownUntil, this.now()));
-        }
         if (lane.queue.length >= this.maxQueue) {
             return Promise.reject(new ProviderAdmissionQueueOverflowError(laneKey, this.maxQueue));
         }
@@ -258,7 +248,7 @@ export class ProviderAdmissionScheduler {
             lane.queue.push(item);
             this._drain(laneKey, lane);
             // Short-cooldown visibility: this request just parked behind an
-            // active burst cooldown (long quota windows fail fast above). Tell
+            // active burst cooldown. Tell
             // the caller how long the silent wait will be so the UI can show
             // "rate-limited" instead of looking stalled.
             if (!item.started && !item.canceled && lane.adaptive
@@ -295,9 +285,6 @@ export class ProviderAdmissionScheduler {
 
     _drain(key, lane) {
         if (lane.adaptive && lane.cooldownUntil > this.now()) {
-            if (lane.cooldownUntil - this.now() > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
-                this._rejectQueueForCooldown(key, lane);
-            }
             this._scheduleCooldown(key, lane);
             return;
         }
@@ -381,6 +368,12 @@ export class ProviderAdmissionScheduler {
         if (!lane.adaptive) return false;
         const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
         if (status !== 429) return false;
+        const now = this.now();
+        const delayMs = retryAfterMs(error, now);
+        // A long Retry-After can describe a model-specific subscription pool.
+        // Do not let one model's quota response suppress fresh requests to
+        // another model; the provider remains authoritative on every turn.
+        if (delayMs > PROVIDER_COOLDOWN_FAIL_FAST_MS) return false;
         if (error && (typeof error === 'object' || typeof error === 'function')) {
             if (this.reportedRateLimits.has(error)) return false;
             this.reportedRateLimits.add(error);
@@ -394,18 +387,11 @@ export class ProviderAdmissionScheduler {
         );
         lane.limit = Math.max(1, Math.floor(observed / 2));
         lane.recoverySuccesses = 0;
-        const now = this.now();
         lane.cooldownUntil = Math.max(
             lane.cooldownUntil,
-            Math.min(Number.MAX_SAFE_INTEGER, now + retryAfterMs(error, now)),
+            Math.min(Number.MAX_SAFE_INTEGER, now + delayMs),
         );
         this._scheduleCooldown(key, lane);
-        // A quota-window cooldown must not leave already-queued requests
-        // hanging silently for hours — reject them with the same visible error
-        // the fail-fast admission path raises.
-        if (lane.cooldownUntil - now > PROVIDER_COOLDOWN_FAIL_FAST_MS) {
-            this._rejectQueueForCooldown(key, lane);
-        }
         this._emitCooldownEvent({ type: 'cooldown', key, cooldownUntil: lane.cooldownUntil });
         return true;
     }

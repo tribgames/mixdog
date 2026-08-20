@@ -37,7 +37,7 @@ export function createModelPicker({
   setHookPrompt,
   setSettingsPrompt,
   providerModelsCacheRef,
-  searchModelsCacheRef,
+  webSearchModelsCacheRef,
   modelPickerRequestRef,
   clearModelCaches,
   modelSwitchNotice,
@@ -61,7 +61,7 @@ export function createModelPicker({
       if (returnTo) returnTo();
       else setPicker(null);
     };
-    const cacheRef = options.cacheRef === 'search' ? searchModelsCacheRef : providerModelsCacheRef;
+    const cacheRef = options.cacheRef === 'webSearch' ? webSearchModelsCacheRef : providerModelsCacheRef;
     const loadModels = typeof options.loadModels === 'function' ? options.loadModels : store.listProviderModels;
     let providerModels = Array.isArray(cacheRef.current.models)
       ? cacheRef.current.models
@@ -78,7 +78,7 @@ export function createModelPicker({
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
       try {
-        if (options.refreshModels !== true && options.cacheRef !== 'search') {
+        if (options.refreshModels !== true && options.cacheRef !== 'webSearch') {
           refreshModelsPromise = Promise.resolve(loadModels({ force: false }));
           providerModels = await loadModels({ quick: true });
           renderedQuickModels = Array.isArray(providerModels) && providerModels.length > 0;
@@ -97,12 +97,12 @@ export function createModelPicker({
 
     // Served straight from a non-empty UI cache: if that cache is older than the
     // TTL, render the cached rows now and quietly force a background refresh so
-    // the catalog can't drift stale. Never applies to the search cache (its own
+    // the catalog can't drift stale. Never applies to the web-search cache (its own
     // quick paths refresh differently) or explicit refreshModels opens.
     const cacheAt = Number(cacheRef.current.at) || 0;
     const cacheIsStale = providerModels.length > 0
       && options.refreshModels !== true
-      && options.cacheRef !== 'search'
+      && options.cacheRef !== 'webSearch'
       && !refreshModelsPromise
       && (Date.now() - cacheAt) > MODEL_CACHE_TTL_MS;
 

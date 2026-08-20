@@ -26,7 +26,7 @@ export function createSlashDispatch({
   closeUsagePanel,
   openModelPicker,
   modelSwitchNotice,
-  openSearchPicker,
+  openWebSearchPicker,
   openAgentsPicker,
   openWorkflowPicker,
   workflowSwitchNotice,
@@ -96,13 +96,13 @@ export function createSlashDispatch({
           .then(ok => store.pushNotice(ok ? modelSwitchNotice() : 'Model switch is already running.', ok ? 'info' : 'warn'))
           .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         return true;
-      case 'search':
-        // No busy guard: /search only picks the search provider/model (a config
-        // save consumed by the NEXT search tool call). It never touches the
+      case 'websearch':
+        // No busy guard: /websearch only picks the web-search provider/model (a
+        // config save consumed by the NEXT web_search tool call). It never touches the
         // in-flight turn, and the same picker is already reachable mid-turn via
         // /settings, so blocking it here was inconsistent.
-        if (arg) store.pushNotice('/search sets the search provider/model; the search tool uses that model when called.', 'warn');
-        openSearchPicker();
+        if (arg) store.pushNotice('/websearch sets the web-search provider/model; the web_search tool uses that model when called.', 'warn');
+        openWebSearchPicker();
         return true;
       case 'agents':
         openAgentsPicker(arg.trim().toLowerCase() === 'refresh' ? { refreshModels: true } : {});

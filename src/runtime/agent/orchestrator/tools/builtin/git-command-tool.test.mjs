@@ -139,6 +139,11 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
 });
 
 test('git schema exposes only the compact shell-compatible contract', () => {
-    assert.deepEqual(Object.keys(GIT_TOOL_DEF.inputSchema.properties), ['command', 'confirm', 'output_limit']);
+    const properties = GIT_TOOL_DEF.inputSchema.properties;
+    assert.deepEqual(Object.keys(properties), ['command', 'confirm', 'output_limit']);
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
+    assert.equal(properties.command.minLength, undefined);
+    assert.match(properties.confirm.description, /only when a rejected high-risk command/i);
+    assert.match(GIT_TOOL_DEF.description, /Read-only queries.*run in parallel/i);
+    assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });

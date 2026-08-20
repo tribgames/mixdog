@@ -45,7 +45,7 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     effectiveContextWindowPercent: runtime.effectiveContextWindowPercent,
     cwd: runtime.cwd || process.cwd(),
     systemShell: runtime.systemShell || { source: 'auto', command: '', effective: '' },
-    searchRoute: runtime.getSearchRoute?.() || runtime.searchRoute || null,
+    webSearchRoute: runtime.getWebSearchRoute?.() || runtime.webSearchRoute || null,
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
   });

@@ -162,6 +162,7 @@
   "Checking…": "Проверка…",
   "Choose": "Выбрать",
   "Choose a model for this schedule.": "Выберите модель для этого расписания.",
+  "Choose Add to Home Screen": "Выберите «На экран «Домой»»",
   "Choose how manual commit hints and AI-generated messages should be written.": "Выберите, как должны формироваться подсказки для ручных коммитов и сообщения, создаваемые ИИ.",
   "Choose how Mixdog answers": "Выберите, как отвечает Mixdog",
   "Choose how Mixdog manages long-running and idle sessions.": "Выберите, как Mixdog управляет длительными и неактивными сессиями.",
@@ -564,6 +565,7 @@
   "Make it feel like home": "Почувствуй себя как дома",
   "Make it yours": "Сделайте это своим",
   "Manage in Settings → Git.": "Управление в Настройках → Git.",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "Управляемая среда Whisper и ffmpeg готова к голосовому вводу.",
   "Manifesting": "Проявление",
   "Manual download": "Ручная загрузка",
   "Manual login URL": "URL для ручного входа",
@@ -646,6 +648,7 @@
   "No agents added — every default agent stays available.": "Агенты не добавлены — все агенты по умолчанию остаются доступны.",
   "No agents are running.": "Нет работающих агентов.",
   "No API-key providers available.": "Нет доступных провайдеров с API-ключом.",
+  "No background work": "Нет фоновых задач",
   "No changes vs {{base}}.": "Нет изменений относительно {{base}}.",
   "No commands match.": "Нет подходящих команд.",
   "No connected provider models.": "Нет моделей подключённых провайдеров.",
@@ -1083,7 +1086,7 @@
   "System follows your OS. Fine-tune colors any time in Settings.": "Система соответствует вашей ОС. Точная настройка цветов в любое время в настройках.",
   "System prompt": "Системный промпт",
   "System tools": "Системные инструменты",
-  "Tap Share, then Add to Home Screen.": "Нажмите «Поделиться», затем «На экран «Домой»».",
+  "Tap the Share button": "Нажмите кнопку «Поделиться»",
   "Tell Mixdog what to call you and which language to answer in.": "Скажите Mixdog, как вам звонить и на каком языке отвечать.",
   "Tempering": "Закалка",
   "Terminal": "Терминал",
@@ -1236,6 +1239,5 @@
   "Your example commit message appears here.": "Здесь появится пример сообщения коммита.",
   "Your name or role": "Ваше имя или роль",
   "Zesting": "Изюминка",
-  "Zigzagging": "Зигзагообразное движение",
-  "Managed Whisper and ffmpeg runtime is ready for voice input.": "Управляемая среда Whisper и ffmpeg готова к голосовому вводу."
+  "Zigzagging": "Зигзагообразное движение"
 }

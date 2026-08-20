@@ -10,6 +10,59 @@ export function isRemoteBrowserRenderer(): boolean {
   return typeof navigator !== "undefined" && !/Electron/i.test(navigator.userAgent);
 }
 
+/** The host rejects an out-of-vocabulary panel/tab outright, so the publisher
+ *  normalizes instead of letting one unknown id silence the whole channel. */
+const PROJECTION_SIDEBAR_PANELS = new Set([
+  "utilities", "schedules", "webhooks", "projects", "workflows",
+]);
+const PROJECTION_DOCK_TABS = new Set([
+  "agents", "search", "source-control", "pull-requests",
+]);
+
+export function normalizeProjectionView(input: {
+  selection: unknown;
+  sidebarOpen: boolean;
+  sidebarPanel: string | null | undefined;
+  dockOpen: boolean;
+  dockTab: string | null | undefined;
+  bottomPanelOpen: boolean;
+  bottomPanelTab: string | null | undefined;
+}): DesktopRemoteProjectionView {
+  const sidebarPanel = String(input.sidebarPanel ?? "");
+  const dockTab = String(input.dockTab ?? "");
+  return {
+    selection: input.selection ?? null,
+    sidebarOpen: Boolean(input.sidebarOpen),
+    sidebarPanel: PROJECTION_SIDEBAR_PANELS.has(sidebarPanel) ? sidebarPanel : null,
+    dockOpen: Boolean(input.dockOpen),
+    dockTab: PROJECTION_DOCK_TABS.has(dockTab) ? dockTab : "agents",
+    bottomPanelOpen: Boolean(input.bottomPanelOpen),
+    bottomPanelTab: String(input.bottomPanelTab ?? "").slice(0, 64),
+  };
+}
+
+/** How long after entry an arriving selection still counts as "the work I was
+ *  just doing" rather than an interruption. */
+export const PROJECTION_COLD_WINDOW_MS = 1_000;
+
+/** Cold open inherits the paired surface's selection; afterwards only live
+ *  changes follow, and a surface the user already touched is never overridden
+ *  by the first arriving state. */
+export function shouldAdoptProjectionSelection({
+  first,
+  elapsedMs,
+  interacted,
+  coldWindowMs = PROJECTION_COLD_WINDOW_MS,
+}: {
+  first: boolean;
+  elapsedMs: number;
+  interacted: boolean;
+  coldWindowMs?: number;
+}): boolean {
+  if (!first) return true;
+  return !interacted && elapsedMs <= coldWindowMs;
+}
+
 function projectionSignature(view: DesktopRemoteProjectionView): string {
   return JSON.stringify(view);
 }

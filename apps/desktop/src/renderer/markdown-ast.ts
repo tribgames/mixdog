@@ -7,7 +7,9 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 
 import {
+  htmlLineBreaksToBreaks,
   repairAdjacentStrongPunctuation,
+  stripHtmlComments,
   trimTrailingCodeNewline,
 } from "./markdown-plugins";
 
@@ -108,6 +110,10 @@ const markdownProcessor = unified()
   // singleDollarTextMath:false — shell/price prose ("$PATH and $5") must never
   // flip into inline math; only explicit $$…$$ math is intentional enough.
   .use(remarkMath, { singleDollarTextMath: false })
+  .use(stripHtmlComments)
+  // Before preserveRawHtmlAsText: once a `<br>` is frozen into a text node it
+  // can no longer become a line break.
+  .use(htmlLineBreaksToBreaks)
   .use(preserveRawHtmlAsText)
   .use(remarkRehype)
   .use(rehypeKatex)

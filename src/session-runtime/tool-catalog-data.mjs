@@ -21,7 +21,7 @@ export const MEASURED_TOOL_USAGE = Object.freeze({
   shell: 81,
   cwd: 2,
   recall: 2,
-  search: 2,
+  web_search: 2,
   web_fetch: 2,
 });
 
@@ -38,19 +38,19 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   // cwd / web_fetch demoted to the deferred manifest 2026-08:
   // 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
   // first direct call.
-  'edit', 'apply_patch', 'git', 'shell', 'task', 'agent', 'recall', 'search',
+  'edit', 'apply_patch', 'git', 'shell', 'task', 'agent', 'recall', 'web_search',
   'Skill', 'load_tool',
 ]);
 
 export const READONLY_TOOL_NAMES = new Set([
-  'read', 'list', 'grep', 'find', 'glob', 'code_graph', 'search',
+  'read', 'list', 'grep', 'find', 'glob', 'code_graph', 'web_search',
   'web_fetch', 'recall', 'memory', 'Skill',
 ]);
 
 export const DEFERRED_SELECT_ALIASES = {
   filesystem: ['read', 'list', 'grep', 'find', 'glob'],
-  search: ['search', 'web_fetch'],
-  web: ['web_fetch', 'search'],
+  websearch: ['web_search', 'web_fetch'],
+  web: ['web_fetch', 'web_search'],
   memory: ['memory', 'recall'],
   agent: ['agent'],
   graph: ['code_graph'],

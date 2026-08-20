@@ -206,7 +206,7 @@ export const SKILL_SURFACE_NAMES = new Set([
 ]);
 
 export function isBackgroundTaskTool(normalizedName) {
-  return new Set(['search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']).has(String(normalizedName || '').toLowerCase());
+  return new Set(['web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']).has(String(normalizedName || '').toLowerCase());
 }
 
 const AGENT_DISPLAY_NAMES = new Map([
@@ -426,12 +426,12 @@ export function mergeTerminalDetail(status, detail = '') {
 export function shouldPrefixSyncElapsed(normalizedName, label) {
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
-  return n === 'search' || l === 'search' || l === 'web search';
+  return n === 'web_search' || l === 'search' || l === 'web search';
 }
 
 function backgroundTaskDisplayName(normalizedName, meta = {}) {
   const surface = String(meta.surface || normalizedName || '').toLowerCase();
-  if (surface === 'search') return 'Search';
+  if (surface === 'web_search') return 'Web Search';
   if (surface === 'shell' || surface === 'bash' || surface === 'bash_session' || surface === 'shell_command' || surface === 'task') return 'Shell';
   return titleizeAgentName(surface || normalizedName || 'Task');
 }
@@ -439,7 +439,7 @@ function backgroundTaskDisplayName(normalizedName, meta = {}) {
 export function backgroundTaskResultTitle(normalizedName, meta = {}) {
   const display = backgroundTaskDisplayName(normalizedName, meta);
   if (display === 'Shell') return 'Shell output';
-  if (display === 'Search') return 'Search results';
+  if (display === 'Web Search') return 'Web Search results';
   return `${display} response`;
 }
 
@@ -486,7 +486,7 @@ function isOutputDetailTool(normalizedName, label) {
   return new Set([
     'shell', 'bash', 'bash_session', 'shell_command', 'job_wait',
     'read', 'view_image', 'read_mcp_resource',
-    'grep', 'glob', 'search', 'search_query', 'image_query', 'web_search', 'web_search_call', 'web_fetch', 'fetch',
+    'grep', 'glob', 'search_query', 'image_query', 'web_search', 'web_search_call', 'web_fetch', 'fetch',
     'list', 'ls', 'code_graph',
     'recall', 'recall_memory', 'search_memories', 'remember', 'save_memory', 'update_memory',
   ]).has(n) || l === 'read' || l === 'search' || l === 'web search' || l === 'run';

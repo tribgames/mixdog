@@ -100,13 +100,13 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
   return false;
 }
 
-// searchCapableFor needs the search-route normalizers, which live in
-// search-routes.mjs and themselves are pure. Wire them in via a factory to keep
+// webSearchCapableFor needs the web-search-route normalizers, which live in
+// workflow.mjs and themselves are pure. Wire them in via a factory to keep
 // this module free of a circular import at load time.
-export function makeSearchCapableFor(normalizeSearchProviderId, isSearchCapableProvider) {
-  return function searchCapableFor(provider, model) {
-    const p = normalizeSearchProviderId(provider);
-    if (!isSearchCapableProvider(p)) return false;
+export function makeWebSearchCapableFor(normalizeWebSearchProviderId, isWebSearchCapableProvider) {
+  return function webSearchCapableFor(provider, model) {
+    const p = normalizeWebSearchProviderId(provider);
+    if (!isWebSearchCapableProvider(p)) return false;
     if (p === 'openai' || p === 'openai-oauth') return openAiModelSupportsHostedWebSearch(model);
     if (p === 'grok-oauth' || p === 'xai') return grokModelSupportsHostedWebSearch(model);
     if (p === 'gemini') return geminiModelSupportsHostedWebSearch(model);

@@ -1,0 +1,727 @@
+/* Desktop layer 23 — Route editor, route sheet, model catalog.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+.route-editor {
+  position: relative;
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+  display: inline-flex;
+}
+.route-trigger-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: visible;
+}
+.model-route-label {
+  min-width: 0;
+  display: inline-block;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.route-trigger-copy > .model-route-label { flex: 1 1 auto; }
+.model-route-label-effort { color: var(--mx-text-muted); }
+.model-route-label-fast { color: var(--mx-text-accent); }
+.route-editor > .model-trigger > svg { flex: 0 0 auto; }
+.route-editor > .model-trigger { padding-right: 4px; }
+.route-sheet,
+.route-sheet-flyout {
+  --route-popover-x: 0;
+  --route-popover-y: 0;
+  position: fixed;
+  z-index: 10010;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px;
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-text);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
+  animation: route-popover-in 160ms cubic-bezier(.22, 1, .36, 1) both;
+  will-change: transform, opacity;
+}
+.route-sheet[data-placement="above"],
+.route-sheet-flyout[data-placement="above"] {
+  --route-popover-y: 4px;
+  transform-origin: bottom right;
+}
+.route-sheet[data-placement="below"],
+.route-sheet-flyout[data-placement="below"] {
+  --route-popover-y: -4px;
+  transform-origin: top right;
+}
+.route-sheet-flyout[data-placement="left"] {
+  --route-popover-x: 4px;
+  transform-origin: top right;
+}
+.route-sheet-flyout[data-placement="right"] {
+  --route-popover-x: -4px;
+  transform-origin: top left;
+}
+.route-sheet-flyout[data-state="open"][data-placement="above"] {
+  transform-origin: bottom center;
+  animation-name: route-flyout-in-above;
+}
+.route-sheet-flyout[data-state="open"][data-placement="below"] {
+  transform-origin: top center;
+  animation-name: route-flyout-in-below;
+}
+.route-sheet[data-state="closing"],
+.route-sheet-flyout[data-state="closing"] {
+  pointer-events: none;
+  animation: route-popover-out 110ms cubic-bezier(.4, 0, 1, 1) both;
+}
+/* Codex-style pill morph: the sheet grows OUT of the trigger pill, expanding
+   in both axes from the pill's size (vars set inline per open), and shrinks
+   back into it on close. Content fades in slightly after the surface. */
+.route-sheet {
+  animation: route-sheet-morph-in 180ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.route-sheet[data-state="open"] > * {
+  animation: route-sheet-content-in 140ms ease-out 45ms both;
+}
+.route-sheet[data-state="closing"] { animation-name: route-sheet-morph-out; }
+/* The sheet anchors to the pill's LEFT edge, so it grows rightwards with it. */
+.route-sheet[data-placement="above"] { transform-origin: bottom left; }
+.route-sheet[data-placement="below"] { transform-origin: top left; }
+/* Codex-style pill: while the sheet is open the trigger expands to the sheet
+   width (inline width per frame drives the transition); the chevron slides
+   to the pill's right edge. */
+.route-editor > .model-trigger[data-morph] {
+  max-width: none;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  /* Codex-style: the open pill reads as a framed control tied to the sheet. */
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  transition: width 110ms cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes route-sheet-morph-in {
+  from { opacity: .35; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes route-sheet-morph-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
+}
+@keyframes route-sheet-content-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes route-popover-in {
+  from { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes route-popover-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translate(var(--route-popover-x), var(--route-popover-y)) scale(.99); }
+}
+@keyframes route-flyout-in-above {
+  from { opacity: 0; transform: translateY(7px) scaleX(.985) scaleY(.92); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes route-flyout-in-below {
+  from { opacity: 0; transform: translateY(-7px) scaleX(.985) scaleY(.92); }
+  to { opacity: 1; transform: none; }
+}
+.route-sheet-row,
+.route-sheet-option {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: inherit;
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.route-sheet-row {
+  height: 36px;
+  min-height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  /* Codex-style: short labels take only their own width so the value
+     (model name) gets the remaining room instead of truncating early. */
+  grid-template-columns: max-content minmax(0, 1fr) 14px;
+  column-gap: 8px;
+}
+.route-sheet-row:hover,
+.route-sheet-row:focus-visible,
+.route-sheet-option:hover,
+.route-sheet-option:focus-visible {
+  outline: 0;
+  background: var(--mx-hover);
+}
+.route-sheet-row:disabled,
+.route-sheet-option:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.route-sheet-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-sheet-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  text-overflow: ellipsis;
+  text-align: right;
+  white-space: nowrap;
+}
+.route-sheet-row svg,
+.route-sheet-option svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.route-sheet-option span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-selection-check,
+.route-sheet-option .route-selection-check {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  overflow: visible;
+  color: var(--mx-text);
+}
+.route-selection-check svg,
+.route-sheet-option .route-selection-check svg {
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+  stroke-width: 1.25px;
+}
+/* Codex-style submenu header + two-line speed options. */
+.route-sheet-flyout-title {
+  flex: 0 0 auto;
+  padding: 6px 10px 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.route-sheet-option--rich { min-height: 48px; padding-block: 5px; }
+.route-sheet-option .route-sheet-option-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  white-space: normal;
+}
+.route-sheet-option-copy > span,
+.route-sheet-option-copy > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.route-sheet-option-copy > small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+/* Studio duration slider pane (continuous ranges have no discrete options). */
+.route-sheet-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 10px 6px;
+}
+.route-sheet-slider input { flex: 1; min-width: 0; }
+.route-sheet-slider span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+/* Context pane: value header with inline default/reset, 10%-snap slider. */
+.route-context-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 10px 0;
+}
+.route-context-head strong { font-size: 15px; font-weight: 600; }
+.route-context-head small { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+/* "1M · Default" tail: plain muted text at rest, a click restores default. */
+.route-context-reset {
+  margin-left: auto;
+  border: 0;
+  padding: 1px 7px;
+  border-radius: var(--mx-radius-pill);
+  background: transparent;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  cursor: pointer;
+}
+.route-context-reset:hover { color: var(--mx-text); background: var(--mx-hover); }
+.route-context-slider { display: flex; padding: 6px 10px 4px; }
+.route-context-slider input {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  accent-color: var(--mx-text);
+  cursor: pointer;
+}
+.route-context-slider input:disabled { cursor: default; opacity: 0.5; }
+.route-sheet,
+.route-sheet-flyout { overflow: auto; overscroll-behavior: contain; }
+.route-sheet-flyout--model { overflow: hidden; padding: 0; }
+.model-catalog-panel,
+.model-catalog-panel .model-catalog-body,
+.model-catalog-panel .pane-surface-gate,
+.model-catalog-panel .pane-surface-gate-content,
+.model-catalog-panel .model-catalog-list {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.model-catalog-panel { width: 100%; overflow: hidden; }
+.model-catalog-panel .model-catalog-body > .pane-surface-gate { min-height: 0; }
+.model-catalog-panel .model-catalog-list { gap: 8px; padding: 8px; }
+.model-catalog-panel .model-search { min-height: 32px; padding: 6px 8px; }
+.model-catalog-panel .model-list { min-height: 0; flex: 1 1 auto; overflow: auto; gap: 10px; padding: 0; }
+/* Codex-style embedded catalog: flat single-line rows — no cards, no
+   descriptions; the check mark alone marks the active route. */
+.model-catalog-panel .model-list { gap: 6px; }
+.model-catalog-panel .model-group { gap: 2px; }
+.model-catalog-panel .model-items { gap: 1px; }
+.model-catalog-panel .model-group h3 { min-height: 26px; padding: 4px 4px 2px; }
+/* Keep compact brand headers pinned, but paint the flyout surface beneath
+   them so scrolling rows never show through the header. */
+.model-catalog-panel .model-group--provider h3 {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--mx-bg-layer-1);
+}
+.model-catalog-panel .model-option-row {
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  box-shadow: none;
+}
+.model-catalog-panel .model-option-row:hover,
+.model-catalog-panel .model-option-row:focus-visible,
+.model-catalog-panel .model-option-row[data-active="true"],
+.model-catalog-panel .model-option-row[aria-selected="true"]:hover,
+.model-catalog-panel .model-option-row[aria-selected="true"][data-active="true"] {
+  background: var(--mx-hover);
+  box-shadow: none;
+}
+.model-catalog-panel .model-option-row[aria-selected="true"] {
+  background: transparent;
+  box-shadow: none;
+}
+.model-catalog-panel .model-row-copy strong {
+  font-weight: var(--mx-weight-regular);
+  padding-bottom: 0;
+}
+.model-catalog-panel .model-row-copy > small { display: none; }
+.model-catalog-panel .list-item-selected-icon {
+  width: auto;
+  height: auto;
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+}
+.model-catalog-panel .model-provider-add {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+.effort-control {
+  width: auto;
+  flex: 0 0 auto;
+}
+.fast-control,
+.route-controls > .fast-control {
+  width: 28px;
+  min-width: 28px;
+  flex: 0 0 28px;
+}
+.send-button { flex: 0 0 28px; margin-left: 0; }
+/* Stop affordance stays a STATIC filled square sized like the send arrow —
+   the old breathing pulse (scale to 1.12) made the glyph read oversized
+   next to the send state (user decision). */
+/* Same contrast disc as send; only the glyph changes. The default 15px
+   square with a 2.5px stroke + fill read as an oversized foreign block next
+   to the send arrow (user: off-theme) — a smaller stroke-less rounded
+   square keeps the stop state in the app's quiet-glyph language. */
+.send-button.stop svg.lucide {
+  width: var(--mx-icon-xs);
+  height: var(--mx-icon-xs);
+  stroke: none;
+}
+.send-button:disabled {
+  color: var(--mx-icon-muted);
+  background: var(--mx-bg-layer-3);
+  box-shadow: none;
+  opacity: var(--mx-op-dim);
+}
+.composer-attachments {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--mx-scrollbar-thumb) transparent;
+}
+.composer-attachments > div { position: relative; flex: 0 0 auto; box-sizing: border-box; }
+.composer-attachments > div.image {
+  width: 64px;
+  max-width: 64px;
+  padding: 0;
+  overflow: visible;
+}
+.composer-attachments > div.image img {
+  width: 64px;
+  height: 64px;
+  flex-basis: 64px;
+  object-fit: cover;
+  border-radius: var(--mx-radius-md);
+}
+.composer-attachments > div.image > span:nth-child(2) {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  padding: 2px 5px;
+  overflow: hidden;
+  border-radius: 0 0 var(--mx-radius-md) var(--mx-radius-md);
+  color: var(--mx-grey-100);
+  /* Fixed dark plate under light text; must not follow the themed scrim. */
+  background: var(--mx-avatar-shadow);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.composer-attachments .attachment-remove {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: var(--mx-radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+.composer-attachments > div.image .attachment-remove {
+  position: absolute;
+  z-index: 2;
+  top: -5px;
+  right: -5px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-icon);
+  background: var(--mx-bg-layer-3);
+  box-shadow: var(--mx-button);
+  opacity: 0;
+}
+.composer-attachments > div.image:hover .attachment-remove,
+.composer-attachments > div.image:focus-within .attachment-remove,
+.composer-attachments > div.image .attachment-remove:focus-visible { opacity: 1; }
+.composer-error,
+.composer-notice {
+  /* Banner ABOVE the input card: full column width, card-language radius. */
+  margin: 0 0 6px;
+  padding: 8px 12px;
+  border-radius: var(--mx-radius-md);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  overflow-wrap: anywhere;
+  /* Immediate dismiss X (user request): text column + trailing button. */
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.composer-error > span,
+.composer-notice > span { flex: 1 1 auto; }
+.composer-banner-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  opacity: var(--mx-op-secondary);
+}
+.composer-banner-close:hover { opacity: 1; background: var(--mx-hover); }
+.composer-error { box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 25%, transparent); }
+.composer-notice { box-shadow: inset 0 0 0 .5px var(--mx-border); }
+.task-drop-overlay {
+  inset: 6px;
+  border-color: var(--mx-focus);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-focus) 35%, transparent);
+}
+
+.slash-palette {
+  box-sizing: border-box;
+  max-height: min(344px, calc(var(--vvh, 100vh) - 32px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.slash-palette header {
+  position: sticky;
+  z-index: 1;
+  top: -4px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--mx-bg-layer-1);
+}
+.slash-palette button { width: 100%; text-align: left; }
+.slash-palette button:focus-visible {
+  outline: 0;
+  background: var(--mx-hover);
+}
+.slash-palette code,
+.slash-palette button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mx-select-trigger {
+  transition: background 85ms ease-out, outline-color 85ms ease-out, box-shadow 85ms ease-out;
+}
+.mx-select-trigger:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+}
+.mx-menu {
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+.mx-menu-item { box-sizing: border-box; user-select: none; }
+.mx-menu-item[aria-selected="true"] {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-regular);
+}
+.mx-menu-item[aria-selected="true"] svg { color: var(--mx-icon); }
+.mx-menu-item:disabled { pointer-events: none; opacity: var(--mx-op-disabled); }
+
+.command-surface { outline: 0; }
+.command-surface[data-surface="context"] {
+  width: min(680px, calc(100vw - 32px));
+  height: auto;
+  /* Stable frame (user: 작은 프레임에서 튀며 생성): the loading state keeps
+     the dialog at its settled height so content arrival never resizes it. */
+  min-height: min(380px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  border-radius: var(--mx-radius-xl);
+}
+.command-surface[data-surface="context"] .mixdog-settings__panel {
+  max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+}
+.command-surface[data-surface="context"] .mixdog-settings__body {
+  flex: 0 1 auto;
+  overflow-y: auto;
+  padding: 24px;
+}
+.command-surface .mixdog-settings__body { gap: 28px; }
+.command-surface .mixdog-settings__header h1 { flex: 1 1 auto; }
+.command-surface-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.command-surface .settings-section-heading p {
+  display: block;
+  margin: 5px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.command-surface .settings-group-body { min-width: 0; overflow: hidden; }
+.command-surface .settings-resource {
+  min-width: 0;
+  align-items: center;
+}
+.command-surface .settings-resource > div:first-child { min-width: 0; flex: 1; }
+.command-surface .settings-resource p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.command-surface .settings-resource-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.command-surface-form {
+  box-sizing: border-box;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.command-surface-form > label {
+  min-width: 180px;
+  flex: 1;
+  display: grid;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.command-surface-form input:not([type="checkbox"]):focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+  box-shadow: none;
+}
+.command-surface button:disabled { opacity: var(--mx-op-disabled); cursor: not-allowed; }
+.command-surface .settings-loading { margin: 0; }
+
+@media (max-width: 640px) {
+  .composer textarea { padding-inline: 12px; }
+  .studio-composer textarea { padding-inline: 12px; }
+  .route-controls { max-width: calc(100% - 56px); }
+  .command-surface .mixdog-settings__body { padding: 20px 16px 24px; }
+  .command-surface .settings-group-body { padding-inline: 14px; }
+  .command-surface .settings-resource { align-items: stretch; flex-direction: column; }
+  .command-surface .settings-resource-actions { justify-content: flex-start; }
+}
+
+/* Context usage surfaces: isolated from transcript, settings, and composer ownership. */
+.session-header-content h1 {
+  width: fit-content;
+  min-width: 0;
+  max-width: min(52ch, 100%);
+  flex: 0 1 auto;
+}
+.session-header-status {
+  min-width: 0;
+  max-width: min(520px, 52vw);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  /* One 28px slot per control, one 4px rhythm between them (user: the
+     context/review/panel cluster read unevenly spaced). */
+  gap: 4px;
+  flex: 0 1 auto;
+  margin-left: auto;
+  padding: 2px;
+  border: .5px solid color-mix(in srgb, var(--mx-border-strong) 5%, transparent);
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-bg-base) 4%, transparent);
+  overflow: visible;
+}
+/* Dock toggle rides the session header, in the sidebar-toggle voice: same
+   thin stroke, same label ink. */
+.session-dock-toggle {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  cursor: pointer;
+}
+.session-dock-toggle:hover, .session-dock-toggle:focus-visible {
+  background: var(--mx-hover);
+}
+/* The context gauge dims when a session has no usage to report yet. */
+.session-context-indicator[data-active="false"] > button {
+  color: var(--mx-text-faint);
+  opacity: .45;
+}
+.session-context-indicator > button:disabled { cursor: default; }
+.session-context-indicator {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  margin-left: 0;
+}
+.session-context-indicator > button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.session-context-indicator > button:hover,
+.session-context-indicator > button:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: none; }
+/* The 28px button already centers the 20px ring (place-items: center); an
+   extra optical nudge left the gauge 1px below the capsule's center inside
+   the round island plate (user: 컨텍스트 버튼 상하 정렬). */
+.session-context-indicator svg { width: 20px; height: 20px; transform: rotate(-90deg); }
+.session-context-indicator circle { fill: none; stroke-width: 2; }
+.session-context-indicator .context-usage-track { stroke: var(--mx-text-faint); }
+.session-context-indicator .context-usage-value { stroke: var(--mx-text); stroke-linecap: round; }
+/* Quota tone (user: 한도처럼 %따라서 색): the filled arc crosses into warning
+   at 70% and danger at 90% — the same thresholds the usage meters use, so a
+   context window that is running out reads at a glance. The popover's own
+   percentage follows the ring. */
+.session-context-indicator[data-tone="warning"] .context-usage-value { stroke: var(--mx-warning); }
+.session-context-indicator[data-tone="danger"] .context-usage-value { stroke: var(--mx-danger); }
+.session-context-indicator[data-tone="warning"] .session-context-popover > div:first-child b {
+  color: var(--mx-warning);
+}
+.session-context-indicator[data-tone="danger"] .session-context-popover > div:first-child b {
+  color: var(--mx-danger);
+}
+.session-context-popover {
+  position: absolute;
+  z-index: 20;
+  /* The island hangs at the transcript's top-right corner, so its card opens
+     DOWNWARD against the right edge — the same geometry .live-work-popover
+     already uses, and nothing above the composer can be covered by it. */
+  top: calc(100% + 6px);
+  right: 0;
+  /* ONE column pair shared by every row (user: 정렬 좀 맞춰주고): each row used
+     to split its own 184px with space-between, so the labels and the values
+     landed at different x per row and "Tokens (est.)" / "150,717 / 1,000,000"
+     both wrapped mid-word. The box now grows to its widest row and stays
+     inside a phone screen. */
+  width: max-content;
+  min-width: 184px;
+  max-width: min(280px, calc(100vw - 24px));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 16px;
+  row-gap: 7px;
+  padding: 10px 12px;
+  border: .5px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-floating);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms;
+  pointer-events: none;
+}
+.session-context-indicator[data-open="true"] .session-context-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+/* The row is a grouping element only; its label/value join the popover grid so
+   both columns align across rows. */
+.session-context-popover > div { display: contents; }
+.session-context-popover span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+.session-context-popover b {
+  justify-self: end;
+  text-align: right;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+

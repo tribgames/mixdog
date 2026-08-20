@@ -22,6 +22,8 @@ import { usePageHideFlush } from "./layout-persistence";
 const BOTTOM_PANEL_KEY = "mixdog.desktop.bottom-panel.v1";
 export const BOTTOM_PANEL_MIN_HEIGHT = 120;
 export const BOTTOM_PANEL_DEFAULT_HEIGHT = 380;
+/** Sheet exit hold: --mx-side-panel-duration (180ms) plus one frame of slack. */
+const SHEET_EXIT_MS = 200;
 
 interface BottomPanelTab {
   id: string;
@@ -226,9 +228,35 @@ export function BottomPanel({
     const timer = window.setTimeout(() => setSettled(true), 400);
     return () => window.clearTimeout(timer);
   }, [open]);
-  if (!open) return null;
+  // Closing slide (user: 열리고 닫힐 때 부드럽게). Unmounting on close left CSS
+  // with no element to animate, so the sheet vanished on its first frame while
+  // the entry glided in. Hold it for the shared sheet clock
+  // (--mx-side-panel-duration) as data-state="closed", then unmount. The
+  // in-flow wide layout and instant band corrections skip the hold entirely.
+  const [closing, setClosing] = useState(false);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (wasOpen.current === open) return undefined;
+    wasOpen.current = open;
+    if (open) {
+      setClosing(false);
+      return undefined;
+    }
+    const sheetBand = window.matchMedia?.("(max-width: 940px)").matches === true;
+    if (!sheetBand || motion === "instant") {
+      setClosing(false);
+      return undefined;
+    }
+    setClosing(true);
+    const timer = window.setTimeout(() => setClosing(false), SHEET_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [motion, open]);
+  if (!open && !closing) return null;
   return (
     <div className="bottom-panel" ref={panelRef} style={{ height }} data-testid="bottom-panel"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={open ? undefined : true}
+      inert={!open}
       data-settled={settled ? "true" : undefined} data-motion={motion}>
       <div
         className={`bottom-panel-resize${dragging ? " is-dragging" : ""}`}

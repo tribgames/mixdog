@@ -368,8 +368,9 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.match(automaticGate, /needs\.changes\.outputs\.graph == 'true'/);
   assert.match(release, /validate:[\s\S]*fetch-depth:\s*0/);
   assert.match(release,
-    /release-invariants:[\s\S]*npm run test:release-critical/,
+    /validate:[\s\S]*Verify changed source-critical release invariants[\s\S]*npm run test:release-critical/,
     'the deploy gate runs only the critical release lane');
+  assert.doesNotMatch(release, /\n  release-invariants:/);
   assert.doesNotMatch(release, /test:release-focused:\$\{\{ matrix\.group \}\}/,
     'the four focused groups stay out of the deploy gate');
   assert.match(release, /desktop-build:[\s\S]*name:\s*build-desktop-once/);
@@ -380,6 +381,9 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-runtime\.yml/g) || []).length, 5);
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
   for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
+    assert.doesNotMatch(release, new RegExp(
+      `desktop-runtime-${platform}:\\s*\\n\\s*needs:`,
+    ), 'runtime preparation must overlap release validation');
     const packageJob = platform === 'win32-x64' ? 'windows' : platform;
     assert.match(release, new RegExp(
       `desktop-${packageJob}:[\\s\\S]*?needs:\\s*\\[[^\\]]*desktop-runtime-${platform}[^\\]]*\\][\\s\\S]*?uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml`,
@@ -390,12 +394,17 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
     /name:\s*Stage prepared platform runtime[\s\S]*include-hidden-files:\s*true/,
     'the hidden .runtime directory must be included in the staged artifact');
   assert.match(release,
-    /prepare-github-release:[\s\S]*needs:\s*\[validate,\s*release-invariants\][\s\S]*draft:\s*true/);
+    /prepare-github-release:[\s\S]*needs:\s*\[validate\][\s\S]*draft:\s*true/);
   assert.match(desktopPackage, /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@v8/);
   assert.match(desktopPackage, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
   assert.match(desktopRuntime, /name:\s*Resolve runtime dependency cache key/);
   assert.match(desktopRuntime, /name:\s*Restore pruned runtime dependencies/);
   assert.match(desktopRuntime, /name:\s*Restore prepared runtime archive/);
+  assert.match(desktopRuntime,
+    /name:\s*Restore prepared runtime archive[\s\S]*id:\s*prepared-runtime/);
+  assert.equal((desktopRuntime.match(
+    /if:\s*steps\.prepared-runtime\.outputs\.cache-hit != 'true'/g,
+  ) || []).length, 4);
   assert.match(desktopRuntime, /desktop-prepared-runtime-v1-/);
   assert.match(desktopRuntime, /name:\s*Restore stable desktop npm downloads/);
   assert.match(desktopPackage, /name:\s*Restore stable desktop npm downloads/);
@@ -513,9 +522,11 @@ advisoryTest('native release workflows are reusable and unchanged runtime platfo
   assert.match(patch,
     /test:[\s\S]*cargo build --release --locked --target x86_64-unknown-linux-gnu/);
   assert.match(patch, /build:[\s\S]*needs:\s*gate/);
+  assert.doesNotMatch(patch, /max-parallel:/);
   assert.match(patch, /manifest:[\s\S]*needs:\s*\[test,\s*build\]/);
   assert.match(patch, /pattern:\s*patch-\*-\$\{\{ github\.run_attempt \}\}/);
   assert.match(graph, /workflow_dispatch\|workflow_call/);
+  assert.doesNotMatch(graph, /max-parallel:/);
   assert.equal((graph.match(/cargo test --locked --manifest-path native\/mixdog-graph\/Cargo\.toml/g) || []).length, 1);
   assert.equal((graph.match(/mozilla-actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/g) || []).length, 2);
   assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-primary-v1-\$\{\{ matrix\.pkey \}\}/);

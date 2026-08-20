@@ -42,9 +42,9 @@ function _getMcpTools(mcpScopeId = null) {
     });
 }
 
-// Canonical route order (mirrors rules/shared/01-tool.md and the deferred
+// Canonical route order (mirrors the shared Tool Workflow and the deferred
 // catalog's ROUTE_TOOL_ORDER): locator → path → content → symbol → read →
-// edit → execute.
+// edit → execute → web.
 const SESSION_ROUTE_TOOL_ORDER = [
     'find',
     'glob',
@@ -57,6 +57,8 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'git',
     'shell',
     'task',
+    'web_search',
+    'web_fetch',
 ];
 const SESSION_ROUTE_TOOL_RANK = new Map(SESSION_ROUTE_TOOL_ORDER.map((name, index) => [name, index]));
 const FILESYSTEM_TOOL_NAMES = new Set([
@@ -93,7 +95,7 @@ const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
     // keep the no-edit contract.
     'shell',
     'task',
-    'search',
+    'web_search',
     'web_fetch',
     'Skill',
 ]);
@@ -137,7 +139,7 @@ const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
     'git',
     'shell',
     'task',
-    'search',
+    'web_search',
     'web_fetch',
     'Skill',
 ]);
@@ -287,9 +289,9 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
                 case 'tools:mcp':
                     addMany(mcp);
                     break;
-                case 'tools:search':
-                    // Name-pattern match: picks up `search` and any future tool
-                    // whose name contains `search`. `recall` deliberately does
+                case 'tools:websearch':
+                    // Name-pattern match: picks up `web_search` and any future
+                    // web-search tool. `recall` deliberately does
                     // NOT match — it needs `tools:mcp` (full mcp surface) or its own
                     // toolset id if a role wants targeted retrieval. Public agent
                     // roles never reach the wrapper bodies regardless: see the

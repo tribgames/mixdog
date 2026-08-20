@@ -13,6 +13,7 @@
 import { useEffect, useRef } from "react";
 
 import type { WorkspaceTab } from "./navigation";
+import { modalDialogPresented } from "./surface-input-focus";
 
 export interface WorkspaceShortcutActions {
   tabs: WorkspaceTab[];
@@ -111,8 +112,10 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       // An IME composition owns its own keystrokes until it commits.
       if (event.isComposing || event.keyCode === 229) return;
       // Save/discard and other modal confirmations own every key until they
-      // settle, even if focus momentarily remains in the covered editor.
-      if (document.querySelector('[aria-modal="true"]')) return;
+      // settle, even if focus momentarily remains in the covered editor. Only a
+      // PRESENTED dialog counts: Settings and the command surfaces stay mounted
+      // while parked, and treating those as modal killed the whole keymap.
+      if (modalDialogPresented()) return;
       const run = resolve(event);
       if (!run) return;
       event.preventDefault();

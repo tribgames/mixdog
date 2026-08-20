@@ -1,0 +1,296 @@
+/* Desktop layer 13 — Tool, diff and approval cards.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Tool / diff / approval surfaces use the same v2 layers. */
+.tool-card {
+  width: 100%;
+  padding: 4px 0;
+  overflow: visible;
+  border-radius: 0;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+.tool-card:has(.tool-content) { border: 0; background: transparent; box-shadow: none; }
+.tool-header {
+  min-height: 20px;
+  gap: 6px;
+  padding: 0;
+  border-radius: var(--mx-radius-hair);
+  cursor: pointer;
+  /* Hit target hugs the actual text (icon + title + chevron) instead of the
+     full transcript row — clicking the empty right side of the line must not
+     toggle the card (user request). Ellipsis truncation still applies via
+     the max-width cap. */
+  width: fit-content;
+  max-width: 100%;
+}
+.tool-header:hover:not(:disabled),
+.tool-header:focus-visible { background: transparent; }
+.tool-header:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.tool-header:hover:not(:disabled) .tool-chevron,
+.tool-header:focus-visible .tool-icon,
+.tool-header:focus-visible .tool-chevron { color: var(--mx-icon); }
+.tool-icon {
+  width: 14px;
+  height: 20px;
+  flex: 0 0 14px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+  color: var(--mx-icon-muted);
+  transform: translateY(-1px);
+}
+.tool-icon > svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  margin: 0;
+}
+.tool-title {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+/* Operational rows sit one rung below 14px content. Mono keeps their terminal
+   voice while the 13/20 metrics stop them overpowering prose. */
+.tool-title b, .tool-title small { font-family: var(--mx-font-mono); font-size: var(--mx-font-code); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+/* Weight, not size, separates the primary tool label from its subtitle. */
+.tool-title b { font-weight: var(--mx-weight-medium); }
+/* Narrow windows: the title must ellipsize instead of shoving the elapsed
+   readout/chevron sideways (user: fully narrowed, text invades the side).
+   The subtitle absorbs shrink first (999), the bold label only after. */
+.tool-title b {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-title b [data-component="text-shimmer"],
+.tool-title b [data-slot="text-shimmer-char"] {
+  min-width: 0;
+  max-width: 100%;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-title small { min-width: 0; flex-shrink: 999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tool-card subtitles read as muted, not faint. */
+.tool-title small { color: var(--mx-text-muted); }
+.tool-state { flex: 0 0 auto; gap: 3px; color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: 12px; }
+.tool-chevron {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-faint);
+  border-radius: var(--mx-radius-sm);
+}
+.tool-chevron svg { transition: transform 150ms ease-out; }
+.tool-card[data-open="true"] .tool-chevron svg { transform: rotate(90deg); }
+.tool-content { gap: 8px; border: 0; padding: 8px 0 0; background: transparent; }
+/* Manual expansion adds exactly one summary row
+   (355 lines / Failed · cause / Running · 12s). */
+.tool-detail-line {
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+  align-items: baseline;
+  /* v0.9.66 reference presentation: a quiet plain summary line indented to
+     the title column — no tree glyph. */
+  padding: 2px 8px 0 20px;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+  color: var(--mx-text-muted);
+  /* Toggle smoothness (user: the summary "pops in from a weird spot"): a
+     short fade-in settles the text in place; position stability itself comes
+     from the click-anchor scroll correction in Conversation. */
+  animation: tool-detail-enter 110ms ease-out;
+}
+@keyframes tool-detail-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-detail-line { animation: none; }
+}
+.tool-detail-line .tool-detail-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-detail-line .tool-detail-text[data-placeholder] { color: var(--mx-text-faint); }
+.tool-detail-line em { font-style: normal; }
+.tool-detail-line em[data-delta="+"] { color: var(--mx-success); }
+.tool-detail-line em[data-delta="-"] { color: var(--mx-danger); }
+.detail-block > span { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: 12px; letter-spacing: 0; text-transform: none; }
+.detail-block-heading { min-height: 24px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Block headings and arg KEYS name what the row is — they carry the same
+   label duty as a section head, so they ride muted ink, one step under the
+   value they introduce instead of two (user: 중요한 라벨 이름이 잘 안 보인다). */
+.detail-block-heading > span { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-meta); }
+/* Structured Input grid: muted key column,
+   mono value column — replaces the raw args JSON dump. */
+.tool-args { grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; }
+.tool-args [data-slot="key"] { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); white-space: nowrap; }
+.tool-args [data-slot="value"] {
+  min-width: 0;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+  color: var(--mx-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-args pre[data-slot="value"] { line-height: var(--mx-line-minor); }
+.tool-detail-copy {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.tool-detail-copy:hover,
+.tool-detail-copy:focus-visible { color: var(--mx-icon); background: var(--mx-hover); }
+.tool-detail-copy[data-copied="true"] { color: var(--mx-text); }
+.tool-output {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  color: var(--mx-text-muted);
+}
+.tool-output-scroll {
+  width: 100%;
+  max-height: 240px;
+  overflow: auto;
+  scrollbar-width: none;
+}
+.tool-output-scroll::-webkit-scrollbar { display: none; }
+.tool-output pre {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-output code {
+  font-family: var(--mx-font-mono);
+  /* One mono scale across the whole tool card: expanding must not re-render
+     the same text a size larger (user: "펼치면 다른 폰트로 바뀜"). */
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+}
+.shell-output {
+  overflow: hidden;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+}
+.shell-output pre { padding: 12px; }
+.tool-output-copy {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  right: 4px;
+  opacity: 0;
+  pointer-events: none;
+}
+.tool-output:hover .tool-output-copy,
+.tool-output:focus-within .tool-output-copy {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tool-result-summary {
+  min-width: 0;
+  padding: 0 8px 6px 28px;
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-ui);
+}
+/* Transcript notices are a card, not bare text: without an inset the copy sat
+   flush against the hairline and read as a broken quote block (user: 오류
+   메세지 출력이 이상해). Reference: OpenCode session-turn error Card. */
+.notice {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A watchdog/abort notice arrives as 'warn'. Painting it neutral gray hid the
+   only signal the turn died, so warnings carry the amber status pair. */
+.notice.warn { color: var(--mx-warning); background: var(--mx-warning-bg); }
+.notice.error { color: var(--mx-danger); background: var(--mx-danger-bg); }
+/* Empty states center on BOTH axes inside the dock body. Every dock pane is
+   a flex column (see .utility-dock-pane), so this one rule centers the
+   message on every tab instead of leaving it stuck under the title on the
+   panes that used to be plain blocks (user: 탭마다 상하정렬이 다르다). */
+.utility-dock-body { display: flex; flex-direction: column; }
+.utility-dock-empty {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 16px 20px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  text-align: center;
+}
+.live-activity {
+  --live-status-color: var(--mx-accent);
+  height: auto;
+  /* ONE band height (24px) shared by the slot below and the status row inside
+     it. The three used to disagree (20 / 24 / 24+4 padding), so the band
+     rendered 28px against the footer's 40px contract (16px row gap + 24px)
+     and settlement nudged the thread by 4px (user: 튄다). At a flat 24px the
+     two states are byte-identical. */
+  min-height: 24px;
+  /* Auto-scroll gap (user): the thread already contributes its 16px row gap
+     above this band — an extra margin pushed the spinner too far from the
+     last tool card. */
+  margin-top: 0;
+  align-items: flex-start;
+  flex-direction: column;
+  overflow: visible;
+  gap: 8px;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  /* Matches the settled status row exactly — 13px phrase, 12px meta — so
+     the line does not change weight the moment the turn finishes (user:
+     띵킹 스피너도 같이). The moving phrase and settled twin share the 500
+     operational-label step; only color and motion distinguish their state. */
+  font-weight: var(--mx-weight-medium);
+}

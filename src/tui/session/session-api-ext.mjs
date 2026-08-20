@@ -448,16 +448,16 @@ export function createSessionApiB(bag) {
     prefetchSession: (id) => {
       return runtime.prefetchSession?.(id) === true;
     },
-    getSearchRoute: () => {
-      return runtime.getSearchRoute?.() || runtime.searchRoute || null;
+    getWebSearchRoute: () => {
+      return runtime.getWebSearchRoute?.() || runtime.webSearchRoute || null;
     },
-    listSearchModels: (options = {}) => {
-      return runtime.listSearchModels?.(options) || [];
+    listWebSearchModels: (options = {}) => {
+      return runtime.listWebSearchModels?.(options) || [];
     },
-    setSearchRoute: async (opts) => {
+    setWebSearchRoute: async (opts) => {
       if (getState().commandBusy) return null;
       const beforeRouteState = routeState();
-      const optimisticSearchRoute = opts?.provider && opts?.model
+      const optimisticWebSearchRoute = opts?.provider && opts?.model
         ? {
             provider: String(opts.provider).trim(),
             model: String(opts.model).trim(),
@@ -469,14 +469,14 @@ export function createSessionApiB(bag) {
         : null;
       set({ commandBusy: true });
       try {
-        if (optimisticSearchRoute?.provider && optimisticSearchRoute.model) {
-          set({ searchRoute: optimisticSearchRoute });
+        if (optimisticWebSearchRoute?.provider && optimisticWebSearchRoute.model) {
+          set({ webSearchRoute: optimisticWebSearchRoute });
         }
-        const result = await runtime.setSearchRoute?.(opts);
+        const result = await runtime.setWebSearchRoute?.(opts);
         set({ ...routeState(), stats: { ...getState().stats } });
         return result;
       } catch (e) {
-        set({ searchRoute: beforeRouteState.searchRoute || null });
+        set({ webSearchRoute: beforeRouteState.webSearchRoute || null });
         throw e;
       } finally {
         set({ commandBusy: false });

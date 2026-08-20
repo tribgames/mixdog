@@ -19,43 +19,19 @@ eof_line: "*** End of File" LF
 %import common.LF
 `;
 
-// GPT-family contract: apply_patch takes a raw freeform V4A patch
-// (no JSON envelope) on providers that support custom
-// grammar tools. No extra fetch once the target body is already obtained —
-// send the patch as soon as the target and content are known. The JSON schema below is only the
-// fallback for providers that cannot carry freeform/custom tools, so it exposes
-// the patch string and an optional explicit base; runtime-only knobs stay off
-// the model surface.
-// Batching stays a rules-level policy: every new edit goes in one patch, with
-// one file block per target.
+// GPT-family contract: OpenAI Responses receives the raw V4A patch through the
+// Lark custom tool. The tiny JSON schema remains only for function-only
+// compatibility paths; runtime knobs stay off the model surface.
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON. Use one file operation block per target path; put multiple @@ hunks for that path in the same Update File block. Use exact current lines already in context. Add File atomically creates the file and missing parent directories, but fails without changing anything if the target already exists; call it directly without a prior read, list, or mkdir. A multi-file patch commits valid files and reports stale files; retry only rejected files.';
+  'Edit files with one raw V4A patch; do not wrap it in JSON. Use one Add/Delete/Update File block per target path and multiple @@ hunks within one Update File block. Add File atomically creates the file and missing parent directories, failing without changes if the target already exists. Multi-file patches commit valid files and report rejected files separately.';
 
-// JSON-schema fallback providers get the Codex patch instructions inline:
-// without a grammar the model has
-// no format signal beyond this description, and the dominant one-shot failure
-// modes (missing section headers, retyped context, marker resubmission) are
-// exactly what these rules preempt. The grammar is restated below for the
-// JSON `patch` argument.
-const APPLY_PATCH_JSON_DESCRIPTION = [
-  'The `apply_patch` tool can be used to edit files. Pass one complete Codex patch in `patch`; do not JSON-encode it again.',
-  'Every patch uses this envelope:',
-  '*** Begin Patch',
-  '[one or more Add/Delete/Update File sections]',
-  '*** End Patch',
-  'Use exactly one file operation per target path: *** Add File: <path> (+ lines), *** Delete File: <path>, or *** Update File: <path> (optionally followed by *** Move to: <new path>).',
-  'Add File atomically creates the file and missing parent directories, but fails without changing anything if the target already exists; call it directly without a prior read, list, or mkdir.',
-  'Update hunks start with @@ or @@ <class/function locator>. Every hunk line starts with space, -, or +. Use exact current lines, normally 3 unchanged lines around each change; use the @@ locator when more uniqueness is needed.',
-  'Prefix every Add File content line with +. End with *** End Patch. Never send compacted-history markers.',
-  'Use exact current lines already in context. After a successful patch, including one with a placement warning, reconstruct the new state from the applied hunk and result instead of re-opening the file. After a failed patch, read only the missing context once, then retry with a unique class/function @@ anchor.',
-  'A multi-file patch commits valid files and leaves rejected files unchanged. Retry only rejected files; never resend files reported as committed.',
-].join('\n');
+const APPLY_PATCH_JSON_DESCRIPTION = 'Edit files with one complete V4A patch in `patch`.';
 
 export const PATCH_TOOL_DEFS = [
   {
     name: 'apply_patch',
-    title: 'Mixdog Apply Patch',
-    annotations: { title: 'Mixdog Apply Patch', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
+    title: 'Apply Patch',
+    annotations: { title: 'Apply Patch', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
     description: APPLY_PATCH_JSON_DESCRIPTION,
     freeformDescription: APPLY_PATCH_FREEFORM_DESCRIPTION,
     freeform: {
@@ -66,7 +42,7 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'Complete Codex apply_patch text, from *** Begin Patch through *** End Patch.' },
+        patch: { type: 'string', description: 'Complete V4A patch text.' },
       },
       required: ['patch'],
       additionalProperties: false,

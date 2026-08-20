@@ -9,7 +9,7 @@ export interface SettingsItem {
 
 export const SETTINGS_ITEMS = [
   { value: 'model', label: 'Model', description: 'Main chat model.', kind: 'open' },
-  { value: 'search', label: 'Search model', description: 'Native search model.', kind: 'open' },
+  { value: 'websearch', label: 'Web search model', description: 'Native web-search model.', kind: 'open' },
   // The workflow editor graduated to the main-pane Workflows page (sidebar →
   // Workflows). The item stays only so the /workflow slash command keeps its
   // SettingsSection type; App.openSettings reroutes it to the page.

@@ -45,9 +45,10 @@ type RouteEditorTarget = {
   id: string;
   label: string;
   route: RecordValue;
-  capability: Extract<DesktopCapability, 'setSearchRoute' | 'setAgentRoute'>;
-  modelKind: 'search' | 'agent';
+  capability: Extract<DesktopCapability, 'setWebSearchRoute' | 'setAgentRoute'>;
+  modelKind: 'webSearch' | 'agent';
   description: string;
+  disabled?: boolean;
   readOnlyDefinition: boolean;
 };
 
@@ -82,14 +83,39 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   };
 }
 
-function AgentRouteSummaryView({ summary }: { summary: AgentRouteSummary }) {
+function AgentRouteSummaryView({ summary, disabled = false }: {
+  summary: AgentRouteSummary;
+  disabled?: boolean;
+}) {
+  if (disabled) {
+    return <small className="agent-route-summary route-trigger-copy">{t('Not used')}</small>;
+  }
   return <small className="agent-route-summary route-trigger-copy">
     <ModelRouteLabel model={summary.model} effort={summary.effort}
       fast={summary.fast} effortLabel={summary.effortLabel} />
   </small>;
 }
 
-// Shared services, not delegation targets: they run behind a tool (search,
+// Agents have exactly two states: a pinned model, or off. "Follows Main" is
+// reserved for Web Search, whose row keeps its own default marker route.
+function AgentUsageField({ enabled, busy, onChange }: {
+  enabled: boolean;
+  busy: boolean;
+  onChange(next: boolean): void;
+}) {
+  return <div className="schedules-field">
+    <span>{t('Use this agent')}</span>
+    <small>{t('Turning this off hides the agent from the Lead entirely.')}</small>
+    <OpenSelect ariaLabel={t('Use this agent')} value={enabled ? 'on' : 'off'} disabled={busy}
+      options={[
+        { value: 'on', label: t('Use with the model below') },
+        { value: 'off', label: t('Not used') },
+      ]}
+      onChange={(value) => onChange(value === 'on')} />
+  </div>;
+}
+
+// Shared services, not delegation targets: they run behind a tool (web_search,
 // explore) or a background cycle (maintainer), so they carry a model route but
 // no editable definition and never appear in a workflow's agent subset.
 const DEFAULT_AGENT_IDS = new Set(['maintainer', 'explore']);
@@ -248,6 +274,7 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
 }) {
   const editing = Boolean(agent);
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
+  const [enabled, setEnabled] = useState(() => record(agent).disabled !== true);
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => acquireTitleBarDim(), []);
@@ -279,7 +306,9 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
           ...(editing ? { id: String(agent?.id || '') } : {}),
           name: text('agent-name'),
           description: text('agent-description'),
-          ...(route.provider && route.model ? { route } : {}),
+          ...(enabled
+            ? (route.provider && route.model ? { route } : {})
+            : { route: { disabled: true } }),
           body,
         });
       }}>
@@ -293,14 +322,15 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
           <input name="agent-description" data-i18n-skip defaultValue={String(agent?.description || '')}
             placeholder={t('When Mixdog should use this')} disabled={busy} maxLength={160} />
         </label>
-        <div className="schedules-field">
+        <AgentUsageField enabled={enabled} busy={busy} onChange={setEnabled} />
+        {enabled && <div className="schedules-field">
           <span>{t('Model')}</span>
           <small>{t('Model used when this agent runs.')}</small>
           <div className="workflows-dialog-route">
             <RouteControls label={t("Agent model")} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />
           </div>
-        </div>
+        </div>}
         <label className="schedules-field workflows-md-field"><span data-i18n-skip>AGENT.md</span>
           <small>{t('Instructions that define how this agent works.')}</small>
           <textarea name="agent-body" defaultValue={String(agent?.body || (editing ? '' : NEW_AGENT_BODY))}
@@ -334,6 +364,8 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
   onSave(route: RecordValue): void;
 }) {
   const [route, setRoute] = useState<RecordValue>(() => target.route);
+  const [enabled, setEnabled] = useState(() => target.disabled !== true);
+  const usageEditable = target.modelKind === 'agent';
   useEffect(() => acquireTitleBarDim(), []);
   return createPortal(<div className="schedules-dialog-layer"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
@@ -354,7 +386,7 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
       </header>
       <form onSubmit={(event) => {
         event.preventDefault();
-        onSave(route);
+        onSave(usageEditable && !enabled ? { disabled: true } : route);
       }}>
         {target.readOnlyDefinition && <>
           <label className="schedules-field"><span>{t('Name')}</span>
@@ -366,14 +398,15 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
             <input value={t(target.description)} readOnly disabled tabIndex={-1} />
           </label>
         </>}
-        <div className="schedules-field">
+        {usageEditable && <AgentUsageField enabled={enabled} busy={busy} onChange={setEnabled} />}
+        {(!usageEditable || enabled) && <div className="schedules-field">
           <span>{t('Model')}</span>
           <small>{t('Model used when this built-in agent runs.')}</small>
           <div className="workflows-dialog-route">
             <RouteControls label={`${target.label} model`} route={route} models={models} disabled={busy}
               onChange={(selection) => setRoute(selection as unknown as RecordValue)} />
           </div>
-        </div>
+        </div>}
         <footer>
           {error && <p className="schedules-form-error" role="alert">{error}</p>}
           <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
@@ -389,8 +422,8 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
 const WORKFLOW_REFERENCE_KEYS = [
   'workflows',
   'agents',
-  'searchRoute',
-  'searchModels',
+  'webSearchRoute',
+  'webSearchModels',
   'providerSetup',
   'quickProviderModels',
 ] as const satisfies readonly SidebarReferenceKey[];
@@ -409,16 +442,16 @@ export function WorkflowsPane({
     useSidebarReferences(api, WORKFLOW_REFERENCE_KEYS, active);
   const workflows = values.workflows;
   const agents = values.agents;
-  const searchRoute = values.searchRoute;
+  const webSearchRoute = values.webSearchRoute;
   const providerSetup = values.providerSetup;
   const models = useMemo(() => filterConfiguredModels(
     normalizeModelOptions(values.quickProviderModels),
     providerSetup,
   ), [values.quickProviderModels, providerSetup]);
-  const searchModels = useMemo(() => filterConfiguredModels(
-    normalizeModelOptions(values.searchModels.map(routeOption)),
+  const webSearchModels = useMemo(() => filterConfiguredModels(
+    normalizeModelOptions(values.webSearchModels.map(routeOption)),
     providerSetup,
-  ), [values.searchModels, providerSetup]);
+  ), [values.webSearchModels, providerSetup]);
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [editor, setEditor] = useState<{ pack: RecordValue | null; deletable: boolean } | null>(null);
@@ -550,7 +583,7 @@ export function WorkflowsPane({
   };
   const saveRoute = async (route: RecordValue) => {
     if (!routeEditor) return;
-    const args = routeEditor.capability === 'setSearchRoute'
+    const args = routeEditor.capability === 'setWebSearchRoute'
       ? [route]
       : [routeEditor.id, route];
     const result = await run(routeEditor.capability, args);
@@ -570,7 +603,8 @@ export function WorkflowsPane({
         title={agent.description || agent.label}
         onClick={() => void openAgentEditor(agent.id, agent.custom)}>
         <b>{agent.label}</b>
-        <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
+        <AgentRouteSummaryView summary={agentRouteSummary(route, models)}
+          disabled={row?.disabled === true} />
       </button>
       <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
         aria-label={t('Edit {{name}}', { name: agent.label })}
@@ -601,7 +635,7 @@ export function WorkflowsPane({
         onDelete={() => void deleteAgent(String(record(agentEditor.agent).id || ''))} />}
       {active && routeEditor && <RouteEditorDialog key={`${routeEditor.capability}:${routeEditor.id}`}
         target={routeEditor}
-        models={routeEditor.modelKind === 'search' ? searchModels : models}
+        models={routeEditor.modelKind === 'webSearch' ? webSearchModels : models}
         busy={busy} error={error}
         onCancel={() => {
           setError('');
@@ -655,28 +689,28 @@ export function WorkflowsPane({
             {...defaultAgentOrder.getReorderProps('web-search')}>
             <span className="projects-row-icon"><Globe size={16} aria-hidden="true" /></span>
             <button type="button" className="schedules-row-copy projects-row-open"
-              title={t('Use when Mixdog runs the search tool.')}
+              title={t('Use when Mixdog runs the web_search tool.')}
               onClick={() => setRouteEditor({
                 id: 'web-search',
                 label: 'Web Search',
-                route: searchRoute,
-                capability: 'setSearchRoute',
-                modelKind: 'search',
-                description: 'Use when Mixdog runs the search tool.',
+                route: webSearchRoute,
+                capability: 'setWebSearchRoute',
+                modelKind: 'webSearch',
+                description: 'Use when Mixdog runs the web_search tool.',
                 readOnlyDefinition: true,
               })}>
               <b>{t('Web Search')}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(searchRoute, searchModels)} />
+              <AgentRouteSummaryView summary={agentRouteSummary(webSearchRoute, webSearchModels)} />
             </button>
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
               aria-label={t('Edit Web Search')}
               onClick={() => setRouteEditor({
                 id: 'web-search',
                 label: 'Web Search',
-                route: searchRoute,
-                capability: 'setSearchRoute',
-                modelKind: 'search',
-                description: 'Use when Mixdog runs the search tool.',
+                route: webSearchRoute,
+                capability: 'setWebSearchRoute',
+                modelKind: 'webSearch',
+                description: 'Use when Mixdog runs the web_search tool.',
                 readOnlyDefinition: true,
               })}>
               <ChevronRight size={16} aria-hidden="true" />
@@ -692,13 +726,15 @@ export function WorkflowsPane({
                 id: exploreAgent.id,
                 label: exploreAgent.label,
                 route: record(exploreRow?.route),
+                disabled: exploreRow?.disabled === true,
                 capability: 'setAgentRoute',
                 modelKind: 'agent',
                 description: exploreAgent.description,
                 readOnlyDefinition: true,
               })}>
               <b>{exploreAgent.label}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)}
+                disabled={exploreRow?.disabled === true} />
             </button>
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
               aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
@@ -706,6 +742,7 @@ export function WorkflowsPane({
                 id: exploreAgent.id,
                 label: exploreAgent.label,
                 route: record(exploreRow?.route),
+                disabled: exploreRow?.disabled === true,
                 capability: 'setAgentRoute',
                 modelKind: 'agent',
                 description: exploreAgent.description,
@@ -724,13 +761,15 @@ export function WorkflowsPane({
                 id: maintainerAgent.id,
                 label: maintainerAgent.label,
                 route: record(maintainerRow?.route),
+                disabled: maintainerRow?.disabled === true,
                 capability: 'setAgentRoute',
                 modelKind: 'agent',
                 description: maintainerAgent.description,
                 readOnlyDefinition: true,
               })}>
               <b>{maintainerAgent.label}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)}
+                disabled={maintainerRow?.disabled === true} />
             </button>
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
               aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
@@ -738,6 +777,7 @@ export function WorkflowsPane({
                 id: maintainerAgent.id,
                 label: maintainerAgent.label,
                 route: record(maintainerRow?.route),
+                disabled: maintainerRow?.disabled === true,
                 capability: 'setAgentRoute',
                 modelKind: 'agent',
                 description: maintainerAgent.description,

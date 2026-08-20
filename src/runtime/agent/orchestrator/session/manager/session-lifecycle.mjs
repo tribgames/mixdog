@@ -260,7 +260,7 @@ export function createSession(opts) {
     //   - read-only roles (reviewer / hidden retrieval, i.e. any
     //     session resolving to permission 'read') -> 'readonly' bundle:
     //     read builtins (code_graph/find/glob/list/grep/read) + retrieval
-    //     (search/web_fetch/Skill) + shell/task for self-verification
+        // (web_search/web_fetch/Skill) + shell/task for self-verification
     //     (agent-owned readonly bundle only), no apply_patch, no MCP-write.
     //     applyToolPermissionNarrowing('read') below trims the
     //     bundle to AGENT_STRING_PERMISSION_READ_ALLOW so the final surface is
@@ -319,7 +319,7 @@ export function createSession(opts) {
             ? describeShellStartupPolicy()
             : '',
     ].filter(Boolean).join('\n');
-    const { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker } = composeSystemPrompt({
+    const { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
         agentRules: injectedRules || undefined,
         roleRules: roleRules || undefined,
@@ -337,25 +337,34 @@ export function createSession(opts) {
     //   system block #1 = baseRules — BP1 (1h) shared tool policy
     //   system block #2 = stableSystemContext — BP2 (1h) profile + skills +
     //     deferred/MCP catalog
-    //   system block #3 = sessionMarker — BP3 (1h) workflow/role + memory +
-    //     session/project environment
+    //   system block #3 = sessionMarkerCore — BP3 (1h) workflow/role + memory
+    //   system block #4 = sessionEnvironment — UNMARKED volatile session/
+    //     project environment (cacheTier:'env'); covered by the messages-tail
+    //     BP so an environment change (e.g. a different Cwd) can never
+    //     invalidate the BP3 core write.
     //   later normal messages        = BP4/tail (task, role data, tool history)
-    // Anthropic multi-block system pins each block with cache_control (BP3 is
-    // the 3rd system block and carries the tier3 1h marker). OpenAI/xAI get
-    // stable provider cache keys/session prefixes. Gemini manages explicit
-    // cachedContents inside its provider.
+    // Anthropic multi-block system pins each marked block with cache_control
+    // (BP3 is the 3rd system block, tagged cacheTier:'tier3'; the env block
+    // stays unmarked). OpenAI/xAI get stable provider cache keys/session
+    // prefixes. Gemini manages explicit cachedContents inside its provider.
     if (baseRules) {
         messages.push({ role: 'system', content: baseRules });
     }
     if (stableSystemContext) {
         messages.push({ role: 'system', content: stableSystemContext });
     }
-    if (sessionMarker) {
+    if (sessionMarkerCore) {
         // cacheTier:'tier3' tells the Anthropic providers to pin THIS system
         // block with the tier3 1h cache_control (BP3) — distinct from the
         // BP1/BP2 system TTL. Harmless on non-Anthropic providers (they ignore
         // the field and serialize content as a normal system instruction).
-        messages.push({ role: 'system', content: sessionMarker, cacheTier: 'tier3' });
+        messages.push({ role: 'system', content: sessionMarkerCore, cacheTier: 'tier3' });
+    }
+    if (sessionEnvironment) {
+        // cacheTier:'env' → Anthropic providers leave this block UNMARKED so
+        // the volatile environment rides the messages-tail breakpoint instead
+        // of invalidating the stable BP3 core prefix.
+        messages.push({ role: 'system', content: sessionEnvironment, cacheTier: 'env' });
     }
     if (opts.files?.length) {
         const fileContext = opts.files
@@ -402,6 +411,10 @@ export function createSession(opts) {
         owner: opts.owner || 'user',
         bp3CoreContext: sessionMarkerCore,
         bp3EnvironmentContext: shellEnvironmentContext,
+        // BP3 core and the volatile environment live in SEPARATE system
+        // blocks (cacheTier 'tier3' vs 'env'). Legacy persisted sessions
+        // without this flag keep the combined-BP3 refresh path.
+        bp3EnvSplit: true,
         sessionStartMetaInjected: false,
         ...(opts.approvalMode === IMPLICIT_APPROVAL_MODE
             ? { approvalMode: IMPLICIT_APPROVAL_MODE }

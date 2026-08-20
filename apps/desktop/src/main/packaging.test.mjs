@@ -146,6 +146,23 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.match(main, /MIXDOG_SPAWN_SERVER_BIN:/);
 });
 
+test('FastDirect staging ships the PTY package unpacked beside the archive', async () => {
+  const fastDirect = await readFile(
+    new URL('../../scripts/dev-fast-direct.mjs', import.meta.url),
+    'utf8',
+  );
+  assert.match(
+    fastDirect,
+    /const ptyPackageSegments = \['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'\];/,
+  );
+  assert.match(fastDirect, /rm\(join\(stagingRoot, \.\.\.ptyPackageSegments\)/);
+  assert.match(
+    fastDirect,
+    /join\(artifactResources, 'app\.asar\.unpacked', \.\.\.ptyPackageSegments\)/,
+  );
+  assert.match(fastDirect, /'build', 'Release', 'pty\.node'/);
+});
+
 test('plain Node can import the standalone daemon service artifact', async () => {
   const serviceUrl = new URL('../../out/main/daemon.cjs', import.meta.url);
   const source = await readFile(serviceUrl, 'utf8');

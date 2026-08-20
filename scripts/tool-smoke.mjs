@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { __renderToolSearchForTest, compactToolSearchDescription, defaultDeferredToolNames, SKILL_TOOL, TOOL_SEARCH_TOOL } from '../src/mixdog-session-runtime.mjs';
-import { applyStandaloneToolDefaults } from '../src/session-runtime/tool-defs.mjs';
+import { CWD_TOOL, applyStandaloneToolDefaults } from '../src/session-runtime/tool-defs.mjs';
 import {
   applyInitialDeferredToolManifestToBp2,
   buildDeferredToolManifest,
@@ -53,8 +53,9 @@ import { CODE_GRAPH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/co
 import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 import { PATCH_TOOL_DEFS } from '../src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { TOOL_DEFS as MEMORY_TOOL_DEFS } from '../src/runtime/memory/tool-defs.mjs';
+import { createToolCallHandler } from '../src/runtime/memory/lib/tool-call-handler.mjs';
 import { mergeSessionRowsIntoGlobal } from '../src/runtime/memory/lib/memory-session-merge.mjs';
-import { TOOL_DEFS as SEARCH_TOOL_DEFS } from '../src/runtime/search/tool-defs.mjs';
+import { TOOL_DEFS as WEB_SEARCH_TOOL_DEFS } from '../src/runtime/web-search/tool-defs.mjs';
 import { TOOL_DEFS as CHANNEL_TOOL_DEFS } from '../src/runtime/channels/tool-defs.mjs';
 import { AGENT_OWNER } from '../src/runtime/agent/orchestrator/agent-owner.mjs';
 import {
@@ -511,6 +512,22 @@ const listArrayErr = validateBuiltinArgs('list', { path: ['scripts'] });
 if (!/must be string/.test(String(listArrayErr))) {
   throw new Error(`list path array must be rejected: ${listArrayErr}`);
 }
+const listBlankPathErr = validateBuiltinArgs('list', { path: ' ' });
+if (!/non-empty string/.test(String(listBlankPathErr))) {
+  throw new Error(`list blank path must be rejected: ${listBlankPathErr}`);
+}
+for (const key of ['hidden', 'meta']) {
+  const err = validateBuiltinArgs('list', { path: 'scripts', [key]: 'false' });
+  if (!/must be a boolean/.test(String(err))) {
+    throw new Error(`list ${key} string must be rejected: ${err}`);
+  }
+}
+for (const offset of [-1, 1.5]) {
+  const err = validateBuiltinArgs('list', { path: 'scripts', offset });
+  if (!/non-negative integer/.test(String(err))) {
+    throw new Error(`list invalid offset must be rejected: ${err}`);
+  }
+}
 
 // list meta: opt-in stat columns (size bytes, UTC mtime, octal mode) close
 // the `ls -la` metadata gap while the default contract stays path + type.
@@ -573,6 +590,19 @@ for (const [key, value] of [['pattern', ['*.mjs']], ['path', ['src']]]) {
   const err = validateBuiltinArgs('glob', args);
   if (!/must be string/.test(String(err))) {
     throw new Error(`glob ${key} array must be rejected: ${err}`);
+  }
+}
+for (const key of ['pattern', 'path']) {
+  const args = key === 'pattern' ? { pattern: ' ' } : { pattern: '*.mjs', path: ' ' };
+  const err = validateBuiltinArgs('glob', args);
+  if (!/non-empty string/.test(String(err))) {
+    throw new Error(`glob blank ${key} must be rejected: ${err}`);
+  }
+}
+for (const sort of ['recent', true]) {
+  const err = validateBuiltinArgs('glob', { pattern: '*.mjs', sort });
+  if (!/natural\|mtime/.test(String(err))) {
+    throw new Error(`glob invalid sort must be rejected: ${err}`);
   }
 }
 
@@ -645,6 +675,14 @@ if (!/non-empty string/.test(String(findQueryArrayErr))) {
 const findPathArrayErr = validateBuiltinArgs('find', { query: 'tool smoke', path: ['.'] });
 if (!/must be a string/.test(String(findPathArrayErr))) {
   throw new Error(`find path array must be rejected: ${findPathArrayErr}`);
+}
+const findBlankPathErr = validateBuiltinArgs('find', { query: 'tool smoke', path: ' ' });
+if (!/non-empty string/.test(String(findBlankPathErr))) {
+  throw new Error(`find blank path must be rejected: ${findBlankPathErr}`);
+}
+const findNoiseTypeErr = validateBuiltinArgs('find', { query: 'tool smoke', include_noise: 'false' });
+if (!/must be a boolean/.test(String(findNoiseTypeErr))) {
+  throw new Error(`find include_noise string must be rejected: ${findNoiseTypeErr}`);
 }
 
 {
@@ -1308,31 +1346,45 @@ const shellDescription = shellTool?.description || '';
 // below — the tool description no longer duplicates it.
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
-    || !/after 15s.*continues.*task_id.*notification/i.test(shellDescription)) {
+    || !/15s foreground window.*not a timeout.*continues.*task_id/i.test(shellDescription)
+    || !/monitoring is off by default.*300000.*task monitor.*task read.*never poll in a loop/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
 const editProps = editTool?.inputSchema?.properties || {};
 if (!editTool
   || JSON.stringify(editTool.inputSchema?.required) !== JSON.stringify(['file_path', 'old_string', 'new_string'])
+  || editProps.file_path?.minLength !== 1
   || editProps.replace_all?.default !== false
   || editTool.inputSchema?.additionalProperties !== false
-  || !/exact string replacements/i.test(editTool.description || '')) {
+  || !/^Replace exact text in one file\./i.test(editTool.description || '')
+  || !/Empty only to create/i.test(editProps.old_string?.description || '')
+  || !/may be empty to delete/i.test(editProps.new_string?.description || '')) {
   throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
 }
 const shellProps = shellTool?.inputSchema?.properties || {};
-if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'run_in_background'])
-  || shellProps.run_in_background?.default !== false) {
-  throw new Error(`shell schema must expose command and default-false run_in_background: ${JSON.stringify(shellProps)}`);
+if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'run_in_background', 'monitor_interval_ms'])
+  || shellProps.command?.minLength !== 1
+  || shellProps.run_in_background?.default !== false
+  || shellProps.monitor_interval_ms?.type !== 'integer'
+  || shellProps.monitor_interval_ms?.minimum !== 0
+  || shellProps.monitor_interval_ms?.maximum !== 2_147_483_647
+  || shellProps.monitor_interval_ms?.default !== 0) {
+  throw new Error(`shell schema must default monitoring off and expose guarded five-minute-or-longer intervals: ${JSON.stringify(shellProps)}`);
 }
 for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr']) {
   const err = validateBuiltinArgs('shell', { command: 'node --version', [retired]: retired === 'mode' ? 'async' : true });
-  if (!/unsupported.*command, timeout_ms, and run_in_background/i.test(err || '')) {
+  if (!/unsupported.*command, timeout_ms, run_in_background, and monitor_interval_ms/i.test(err || '')) {
     throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
   }
 }
-if (shellTool?.inputSchema?.properties?.timeout_ms !== undefined) {
-  throw new Error('shell timeout_ms must stay internal and out of the model-facing schema');
+// timeout_ms is DECLARED in the model-facing schema (CC/Codex parity: the
+// schema states the contract) while the default stays "no deadline" — the
+// description and rules both steer models to omit it.
+if (shellProps.timeout_ms?.type !== 'number'
+  || shellProps.timeout_ms?.minimum !== 0
+  || !/Omit or 0 = no deadline/.test(shellProps.timeout_ms?.description || '')) {
+  throw new Error(`shell timeout_ms must declare the no-deadline-by-default contract: ${JSON.stringify(shellProps.timeout_ms)}`);
 }
 const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: 0 });
 const shellNegativeTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: -1 });
@@ -1346,11 +1398,31 @@ const shellBackgroundTypeErr = validateBuiltinArgs('shell', {
 if (!/run_in_background.*boolean/.test(String(shellBackgroundTypeErr))) {
   throw new Error(`shell run_in_background must reject non-booleans: ${shellBackgroundTypeErr}`);
 }
+const shellShortMonitorErr = validateBuiltinArgs('shell', {
+  command: 'node --version',
+  monitor_interval_ms: 299_999,
+});
+const shellOverflowMonitorErr = validateBuiltinArgs('shell', {
+  command: 'node --version',
+  monitor_interval_ms: 2_147_483_648,
+});
+const shellDisabledMonitorErr = validateBuiltinArgs('shell', {
+  command: 'node --version',
+  monitor_interval_ms: 0,
+});
+if (shellDisabledMonitorErr
+  || !/monitor_interval_ms.*300000.*2147483647/.test(String(shellShortMonitorErr))
+  || !/monitor_interval_ms.*300000.*2147483647/.test(String(shellOverflowMonitorErr))) {
+  throw new Error(`shell monitor interval must accept off and reject short/overflow loops: off=${shellDisabledMonitorErr} short=${shellShortMonitorErr} overflow=${shellOverflowMonitorErr}`);
+}
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
-if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'cancel'])
+if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'monitor', 'cancel'])
+  || publicTaskProps.task_id?.minLength !== 1
+  || publicTaskProps.monitor_interval_ms?.minimum !== 0
+  || publicTaskProps.monitor_interval_ms?.maximum !== 2_147_483_647
   || publicTaskProps.timeout_ms || publicTaskProps.after_ms || publicTaskProps.poll_ms) {
-  throw new Error('task schema must expose only list/read/cancel with no wait or polling parameters');
+  throw new Error('task schema must expose list/read/monitor/cancel with no wait or polling parameters');
 }
 if (JSON.stringify(publicTaskTool?.inputSchema?.required) !== JSON.stringify(['action'])) {
   throw new Error('task schema must require an explicit action');
@@ -1360,7 +1432,7 @@ const taskWaitOut = await executeBuiltinTool('task', {
   task_id: 'task_hidden_wait_smoke',
   timeout_ms: 1,
 }, root);
-if (!/^Error[\s:[]/.test(String(taskWaitOut)) || !/list\|read\|cancel/i.test(String(taskWaitOut))) {
+if (!/^Error[\s:[]/.test(String(taskWaitOut)) || !/list\|read\|monitor\|cancel/i.test(String(taskWaitOut))) {
   throw new Error(`task wait must be rejected by the runtime contract:\n${taskWaitOut}`);
 }
 const taskImplicitActionOut = await executeBuiltinTool('task', {
@@ -1499,7 +1571,7 @@ process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '50';
 let shellCheckOut;
 try {
   shellCheckOut = await executeBuiltinTool('shell', {
-    command: 'node -e "console.log(\'tool-smoke-snapshot-read-progress\'); setTimeout(() => console.log(\'tool-smoke-snapshot-read-done\'), 600)"',
+    command: 'node -e "console.log(\'tool-smoke-snapshot-read-progress\'); setTimeout(() => console.log(\'tool-smoke-snapshot-read-done\'), 1500)"',
     timeout_ms: 5000,
   }, root, shellCheckOptions);
 } finally {
@@ -1507,6 +1579,22 @@ try {
   else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorSnapshotAutoBg;
 }
 const shellCheckTaskId = assertBackgroundStart('shell snapshot-read start', shellCheckOut);
+const shellMonitorOn = await executeBuiltinTool('task', {
+  action: 'monitor',
+  task_id: shellCheckTaskId,
+  monitor_interval_ms: 300_000,
+}, root, shellCheckOptions);
+if (!/monitoring:\s*on/i.test(String(shellMonitorOn)) || !/monitor_interval_ms:\s*300000/i.test(String(shellMonitorOn))) {
+  throw new Error(`task monitor must enable five-minute shell progress:\n${shellMonitorOn}`);
+}
+const shellMonitorOff = await executeBuiltinTool('task', {
+  action: 'monitor',
+  task_id: shellCheckTaskId,
+  monitor_interval_ms: 0,
+}, root, shellCheckOptions);
+if (!/monitoring:\s*off/i.test(String(shellMonitorOff)) || !/monitor_interval_ms:\s*0/i.test(String(shellMonitorOff))) {
+  throw new Error(`task monitor must disable shell progress:\n${shellMonitorOff}`);
+}
 const shellSnapshotRead = await executeBuiltinTool('task', {
   action: 'read',
   task_id: shellCheckTaskId,
@@ -1645,7 +1733,7 @@ const smokeCatalog = [
   ...CODE_GRAPH_TOOL_DEFS,
   ...PATCH_TOOL_DEFS,
   ...MEMORY_TOOL_DEFS,
-  ...SEARCH_TOOL_DEFS,
+  ...WEB_SEARCH_TOOL_DEFS,
   ...CHANNEL_TOOL_DEFS,
   AGENT_TOOL,
   SKILL_TOOL,
@@ -1659,7 +1747,7 @@ if (fullDefaults.size !== 10) {
 for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
   assertHas(fullDefaults, name);
 }
-for (const name of ['shell', 'task', 'agent', 'recall', 'search', 'web_fetch', 'cwd']) {
+for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'cwd']) {
   assertLacks(fullDefaults, name);
 }
 
@@ -1667,7 +1755,7 @@ const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
 if (leadDefaults.size !== 16) {
   throw new Error(`lead default catalog should contain both edit dialects and git (16 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
 }
-for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'git', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'search', 'Skill', 'load_tool']) {
+for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'git', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'web_search', 'Skill', 'load_tool']) {
   assertHas(leadDefaults, name);
 }
 for (const name of ['web_fetch', 'cwd', 'session_manage']) {
@@ -1691,10 +1779,9 @@ if (surfaceSize > 17000) {
 }
 for (const [name, cap] of [
   ['apply_patch', 1600],
-  ['code_graph', 1600],
   ['agent', 2500],
   ['recall', 2400],
-  ['search', 3200],
+  ['web_search', 3200],
   ['web_fetch', 900],
   ['load_tool', 900],
 ]) {
@@ -1715,7 +1802,20 @@ for (const name of ['apply_patch', 'agent', 'shell']) {
 }
 
 const agentProps = AGENT_TOOL.inputSchema?.properties || {};
-if (agentProps.mode || agentProps.wait) throw new Error('agent schema should not expose execution mode controls');
+if (agentProps.mode || agentProps.wait || agentProps.sessionId) {
+  throw new Error('agent schema should not expose execution mode controls or raw session ids');
+}
+if (AGENT_TOOL.inputSchema?.required?.join(',') !== 'type'
+  || !/New spawn requires agent/i.test(agentProps.type?.description || '')
+  || !/send requires tag/i.test(agentProps.type?.description || '')
+  || !/task_id or tag/i.test(agentProps.type?.description || '')) {
+  throw new Error('agent schema must require type and describe each action target');
+}
+for (const name of ['task_id', 'agent', 'tag', 'prompt', 'message', 'file', 'cwd', 'context']) {
+  if (agentProps[name]?.minLength !== 1) {
+    throw new Error(`agent schema field ${name} must reject empty strings`);
+  }
+}
 if (AGENT_TOOL.inputSchema?.additionalProperties !== false) {
   throw new Error('agent schema must reject hidden or misspelled fields');
 }
@@ -1773,6 +1873,13 @@ if (AGENT_TOOL.inputSchema?.additionalProperties !== false) {
     || layeredPrompt.sessionMarkerCore.includes('BP3_ENVIRONMENT')) {
     throw new Error(`BP3 core must exclude the refreshable session/project/environment suffix: ${layeredPrompt.sessionMarkerCore}`);
   }
+  if (layeredPrompt.sessionEnvironment !== 'BP3_SESSION\n\n---\n\nBP3_PROJECT\n\n---\n\nBP3_ENVIRONMENT') {
+    throw new Error(`session environment must carry exactly the refreshable suffix: ${layeredPrompt.sessionEnvironment}`);
+  }
+  if (/BP3_SESSION|BP3_PROJECT|BP3_ENVIRONMENT/.test(layeredPrompt.sessionEnvironment) === false
+    || /BP3_WORKFLOW|BP3_ROLE|BP3_MEMORY/.test(layeredPrompt.sessionEnvironment)) {
+    throw new Error(`session environment must exclude the stable BP3 core: ${layeredPrompt.sessionEnvironment}`);
+  }
   const refreshableSession = {
     owner: 'cli',
     model: 'tool-smoke-model',
@@ -1787,19 +1894,63 @@ if (AGENT_TOOL.inputSchema?.additionalProperties !== false) {
       { role: 'system', content: 'BP3_CORE\n\n---\n\nBP3_EXISTING_ENVIRONMENT', cacheTier: 'tier3' },
     ],
   };
+  const legacyBp3BeforeRefresh = refreshableSession.messages[2];
   if (!refreshSessionBp3Environment(refreshableSession, 'C:\\BP3_CURRENT_CWD')) {
     throw new Error('BP3 first-turn environment refresh must update the tier3 system block');
   }
   const refreshedBp3 = refreshableSession.messages[2].content;
   if (!/Cwd: C:\\BP3_CURRENT_CWD/.test(refreshedBp3)
     || refreshedBp3.indexOf('# Session') > refreshedBp3.indexOf('BP3_EXISTING_ENVIRONMENT')
+    || refreshableSession.messages[2] === legacyBp3BeforeRefresh
     || refreshableSession.sessionStartMetaInjected !== true) {
     throw new Error(`BP3 first-turn environment refresh is invalid: ${refreshedBp3}`);
   }
+  const legacyBp3BeforeReset = refreshableSession.messages[2];
   resetSessionBp3Environment(refreshableSession);
   if (refreshableSession.messages[2].content !== 'BP3_CORE\n\n---\n\nBP3_EXISTING_ENVIRONMENT'
+    || refreshableSession.messages[2] === legacyBp3BeforeReset
     || refreshableSession.sessionStartMetaInjected !== false) {
     throw new Error(`BP3 clear reset must restore the refreshable suffix: ${refreshableSession.messages[2].content}`);
+  }
+  // Split layout (bp3EnvSplit): environment refresh targets the cacheTier:'env'
+  // block and must NEVER rewrite the tier3 core block.
+  const splitSession = {
+    owner: 'cli',
+    model: 'tool-smoke-model',
+    effort: 'high',
+    fast: true,
+    workflow: { name: 'Solo' },
+    bp3EnvSplit: true,
+    bp3CoreContext: 'BP3_CORE',
+    bp3EnvironmentContext: 'BP3_EXISTING_ENVIRONMENT',
+    messages: [
+      { role: 'system', content: 'BP1' },
+      { role: 'system', content: 'BP2' },
+      { role: 'system', content: 'BP3_CORE', cacheTier: 'tier3' },
+      { role: 'system', content: 'BP3_EXISTING_ENVIRONMENT', cacheTier: 'env' },
+    ],
+  };
+  const splitEnvBeforeRefresh = splitSession.messages[3];
+  if (!refreshSessionBp3Environment(splitSession, 'C:\\BP3_CURRENT_CWD')) {
+    throw new Error('split-session environment refresh must update the env system block');
+  }
+  if (splitSession.messages[2].content !== 'BP3_CORE') {
+    throw new Error(`split-session refresh must never rewrite the tier3 core block: ${splitSession.messages[2].content}`);
+  }
+  const refreshedEnv = splitSession.messages[3].content;
+  if (!/Cwd: C:\\BP3_CURRENT_CWD/.test(refreshedEnv)
+    || refreshedEnv.indexOf('# Session') > refreshedEnv.indexOf('BP3_EXISTING_ENVIRONMENT')
+    || splitSession.messages[3] === splitEnvBeforeRefresh
+    || splitSession.sessionStartMetaInjected !== true) {
+    throw new Error(`split-session environment refresh is invalid: ${refreshedEnv}`);
+  }
+  const splitEnvBeforeReset = splitSession.messages[3];
+  resetSessionBp3Environment(splitSession);
+  if (splitSession.messages[3].content !== 'BP3_EXISTING_ENVIRONMENT'
+    || splitSession.messages[2].content !== 'BP3_CORE'
+    || splitSession.messages[3] === splitEnvBeforeReset
+    || splitSession.sessionStartMetaInjected !== false) {
+    throw new Error(`split-session reset must restore only the env block: ${splitSession.messages[3].content}`);
   }
 }
 {
@@ -1822,7 +1973,7 @@ if (AGENT_TOOL.inputSchema?.additionalProperties !== false) {
     throw new Error(`legacy role shorthand must not enter headless exec: ${JSON.stringify(legacyRole)}`);
   }
 }
-if (!/always start background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags?/i.test(AGENT_TOOL.description || '') || !/same scope/i.test(AGENT_TOOL.description || '') || !/send/i.test(AGENT_TOOL.description || '') || !/completion notification/i.test(AGENT_TOOL.description || '') || !/do not (?:call|poll) status\/read/i.test(AGENT_TOOL.description || '')) {
+if (!/background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags?/i.test(AGENT_TOOL.description || '') || !/same tag reuses/i.test(AGENT_TOOL.description || '') || !/spawn\/send return task_id immediately/i.test(AGENT_TOOL.description || '') || !/completion notifications/i.test(AGENT_TOOL.description || '') || !/status\/read only for manual recovery/i.test(AGENT_TOOL.description || '')) {
   throw new Error('agent description must preserve async tagged delegation contract');
 }
 const agentSmoke = createStandaloneAgent({
@@ -1996,9 +2147,9 @@ try {
   rmSync(agentNotifyTmp, { recursive: true, force: true });
 }
 {
-  const runtimeSearchTool = applyStandaloneToolDefaults(SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'search'));
-  if (runtimeSearchTool?.annotations?.agentHidden === true) {
-    throw new Error('production search tool must stay visible to agent sessions');
+  const runtimeWebSearchTool = applyStandaloneToolDefaults(WEB_SEARCH_TOOL_DEFS.find((tool) => tool?.name === 'web_search'));
+  if (runtimeWebSearchTool?.annotations?.agentHidden === true) {
+    throw new Error('production web_search tool must stay visible to agent sessions');
   }
   if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
     throw new Error('deferred tool_search wrapper must stay hidden from agent sessions');
@@ -2009,7 +2160,7 @@ setInternalToolsProvider({
   tools: [
     { name: 'memory', description: 'Destructive memory surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
     { name: 'recall', description: 'Memory recall surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true } },
-    { name: 'search', description: 'Web search surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true, openWorldHint: true } },
+    { name: 'web_search', description: 'Web search surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true, openWorldHint: true } },
     { name: 'reply', description: 'Channel reply surface.', inputSchema: { type: 'object', properties: {} }, annotations: { destructiveHint: true } },
     { name: 'web_fetch', description: 'Web fetch surface.', inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: true, openWorldHint: true } },
   ],
@@ -2037,6 +2188,10 @@ setInternalToolsProvider({
       || /^---/m.test(loadedSkill.content)
       || !loadedSkill.content.startsWith('# Demo Skill')) {
       throw new Error(`Skill loader must strip SKILL.md frontmatter like Claude Code: ${JSON.stringify(loadedSkill)}`);
+    }
+    const trimmedSkill = loadSkillResource('  demo-skill  ', skillManifestTmp);
+    if (!trimmedSkill || trimmedSkill.filePath !== loadedSkill.filePath) {
+      throw new Error(`Skill loader must trim an exact available-skills name: ${JSON.stringify(trimmedSkill)}`);
     }
     const skillEnvelope = buildSkillToolEnvelope(
       'demo-skill',
@@ -2119,10 +2274,10 @@ setInternalToolsProvider({
       if (!/available-skills/i.test(systemVisible) || !/demo-skill/i.test(systemVisible) || !/Skill\(\{"name":"<skill-name>"\}\)/.test(systemVisible)) {
         throw new Error(`agent BP2 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`);
       }
-      if (!/# Tool Use/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
+      if (!/# General/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
         throw new Error(`agent system layers must carry BP1 tool policy and BP3 role rules: ${systemVisible.slice(0, 1200)}`);
       }
-      if (!/# Tool Use/i.test(systemLayers[0]?.content || '')
+      if (!/# General/i.test(systemLayers[0]?.content || '')
         || /available-skills/i.test(systemLayers[0]?.content || '')
         || !/available-skills/i.test(systemLayers[1]?.content || '')
         || !/# Agent Constraints/i.test(systemLayers[2]?.content || '')) {
@@ -2134,7 +2289,9 @@ setInternalToolsProvider({
         throw new Error(`read-write agent schema must expose Skill loader with the manifest: ${agentSkillToolNames.join(', ')}`);
       }
       if (agentSkillTool?.title !== SKILL_TOOL.title
-        || JSON.stringify(agentSkillTool?.annotations) !== JSON.stringify(SKILL_TOOL.annotations)) {
+        || agentSkillTool?.description !== SKILL_TOOL.description
+        || JSON.stringify(agentSkillTool?.annotations) !== JSON.stringify(SKILL_TOOL.annotations)
+        || JSON.stringify(agentSkillTool?.inputSchema) !== JSON.stringify(SKILL_TOOL.inputSchema)) {
         throw new Error(`agent Skill metadata must match the session Skill contract: ${JSON.stringify(agentSkillTool)}`);
       }
     } finally {
@@ -2225,8 +2382,8 @@ setInternalToolsProvider({
     // their own verification (build/test).
     // No terminal-action tool is registered: a no-tool assistant message ends
     // the turn, so the schema carries capabilities only.
-    const expectedReadTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedReadTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -2273,7 +2430,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }
@@ -2321,8 +2478,8 @@ setInternalToolsProvider({
   const expectedForHiddenAgent = (permission, schemaAllowedTools) => {
     if (Array.isArray(schemaAllowedTools)) return schemaAllowedTools.slice();
     if (permission === 'none') return [];
-    if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'search', 'web_fetch'];
-    if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'search', 'web_fetch'];
+    if (permission === 'read') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'web_search', 'web_fetch'];
+    if (permission === 'read-write') return ['code_graph', 'find', 'glob', 'list', 'grep', 'read', 'apply_patch', 'web_search', 'web_fetch'];
     return null;
   };
   for (const entry of hiddenAgents) {
@@ -2377,10 +2534,11 @@ setInternalToolsProvider({
 }
 const patchTool = PATCH_TOOL_DEFS[0];
 const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
-// The JSON schema is the fallback for providers that cannot carry a custom
-// freeform tool. It keeps one patch string and the same Codex grammar.
-if (!/Complete Codex apply_patch text/i.test(patchDescription)) {
-  throw new Error('apply_patch JSON fallback must describe the Codex patch string');
+// Function-only compatibility keeps only a non-empty patch string; OpenAI
+// custom tools receive the Lark grammar directly.
+if (!/Complete V4A patch text/i.test(patchDescription)
+    || patchTool?.inputSchema?.properties?.patch?.minLength !== 1) {
+  throw new Error('apply_patch JSON fallback must expose one non-empty V4A patch string');
 }
 if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch'
     || JSON.stringify(patchTool?.inputSchema?.required || []) !== '["patch"]') {
@@ -2389,14 +2547,16 @@ if (Object.keys(patchTool?.inputSchema?.properties || {}).join(',') !== 'patch'
 if (/\*\*\* Root:|root_line/.test(JSON.stringify(patchTool))) {
   throw new Error(`apply_patch model contract must not expose non-Codex Root extensions: ${JSON.stringify(patchTool)}`);
 }
-if (!/one file operation per target path/i.test(patchTool?.description || '')
-    || !/exact current lines.*3 unchanged lines/i.test(patchTool?.description || '')
-    || !/Add File.*Delete File.*Update File/s.test(patchTool?.description || '')) {
-  throw new Error(`apply_patch JSON fallback must expose Codex target and context rules: ${JSON.stringify(patchTool)}`);
+if (patchTool?.title !== 'Apply Patch'
+    || patchTool?.annotations?.title !== 'Apply Patch'
+    || patchTool?.description !== 'Edit files with one complete V4A patch in `patch`.'
+    || /Begin Patch|Add File|Delete File|Update File|exact current lines/i.test(patchTool?.description || '')) {
+  throw new Error(`apply_patch JSON fallback must stay minimal and grammar-free: ${JSON.stringify(patchTool)}`);
 }
-if (!/^The `apply_patch` tool can be used to edit files\. This is a FREEFORM tool, so do not wrap the patch in JSON\./.test(patchTool?.freeformDescription || '')
-    || !/one file operation block per target path/i.test(patchTool?.freeformDescription || '')
-    || !/exact current lines already in context/i.test(patchTool?.freeformDescription || '')
+if (!/^Edit files with one raw V4A patch; do not wrap it in JSON\./.test(patchTool?.freeformDescription || '')
+    || !/one Add\/Delete\/Update File block per target path/i.test(patchTool?.freeformDescription || '')
+    || !/Add File atomically creates/i.test(patchTool?.freeformDescription || '')
+    || !/Multi-file patches commit valid files.*rejected files separately/i.test(patchTool?.freeformDescription || '')
     || patchTool?.freeform?.type !== 'grammar'
     || patchTool?.freeform?.syntax !== 'lark') {
   throw new Error(`apply_patch must expose freeform grammar metadata: ${JSON.stringify(patchTool)}`);
@@ -2493,6 +2653,7 @@ if (/line\+context/i.test(readDescription) || !/Known-file contents or line rang
   throw new Error('read description must stay compact and file-oriented');
 }
 if (readProps.file_path?.type !== 'string'
+  || readProps.file_path?.minLength !== 1
   || readProps.file_path?.anyOf
   || readProps.file_path?.description !== 'Known file path as plain text; not a JSON array or annotated path. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.'
   || readProps.path
@@ -2500,11 +2661,11 @@ if (readProps.file_path?.type !== 'string'
   throw new Error('read schema must expose only the canonical scalar file_path');
 }
 if (readProps.offset?.type !== 'integer'
-  || readProps.offset?.minimum !== 0
+  || readProps.offset?.minimum !== 1
   || readProps.offset?.description !== '1-based start line as a bare integer; default 1.'
   || readProps.limit?.type !== 'integer'
   || readProps.limit?.minimum !== 1
-  || readProps.limit?.description !== 'Maximum line count as a bare integer; default 800.') {
+  || readProps.limit?.description !== 'Maximum line count as a bare integer; default 1000.') {
   throw new Error('read range args must use the CC scalar integer contract with Mixdog descriptions');
 }
 if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
@@ -2614,23 +2775,48 @@ if (!/Explicit root outside the project/i.test(codeGraphProps.cwd?.description |
 }
 const recallTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'recall');
 const recallProps = recallTool?.inputSchema?.properties || {};
+const recallQueryShapes = recallProps.query?.anyOf || [];
+const recallQueryStringShape = recallQueryShapes.find((shape) => shape?.type === 'string');
+const recallQueryArrayShape = recallQueryShapes.find((shape) => shape?.type === 'array');
+const recallIdShapes = recallProps.id?.anyOf || [];
+const recallIdStringShape = recallIdShapes.find((shape) => shape?.type === 'integer');
+const recallIdArrayShape = recallIdShapes.find((shape) => shape?.type === 'array');
 if (!/prior work/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
   throw new Error('recall schema must preserve scoped prior-context guidance and id lookup shape');
 }
-if (!/independent fan-out/i.test(recallProps.query?.description || '') || !/pool/i.test(recallProps.projectScope?.description || '')) {
+if (recallQueryStringShape?.minLength !== 1
+  || recallQueryArrayShape?.minItems !== 1
+  || recallQueryArrayShape?.maxItems !== 5
+  || recallQueryArrayShape?.items?.minLength !== 1
+  || recallIdStringShape?.minimum !== 1
+  || recallIdArrayShape?.minItems !== 1
+  || recallIdArrayShape?.items?.type !== 'integer'
+  || recallIdArrayShape?.items?.minimum !== 1
+  || !/independent fan-out/i.test(recallProps.query?.description || '')
+  || !/pool/i.test(recallProps.projectScope?.description || '')) {
   throw new Error('recall schema must explain fan-out query and project scope filters');
 }
+if (recallProps.limit?.type !== 'integer'
+  || recallProps.limit?.minimum !== 1
+  || recallProps.limit?.maximum !== 100
+  || !/default 10/i.test(recallProps.limit?.description || '')
+  || !/5 sessions for period=last/i.test(recallProps.limit?.description || '')
+  || recallProps.offset?.type !== 'integer'
+  || recallProps.offset?.minimum !== 0
+  || recallProps.offset?.maximum !== 500
+  || !/default 0/i.test(recallProps.offset?.description || '')) {
+  throw new Error('recall schema must expose runtime paging bounds and defaults');
+}
 // Cross-session / raw recall surface: includeMembers stays a chunk-member
-// output knob, includeRaw exposes unchunked raw/episode turns, and sessionOnly
-// is the explicit opt-in that restores the old single-session hard scope.
-if (!/chunk members/i.test(recallProps.includeMembers?.description || '')) {
+// output knob and includeRaw exposes unchunked raw/episode turns.
+if (!/chunk members.*default true/i.test(recallProps.includeMembers?.description || '')) {
   throw new Error('recall includeMembers must stay scoped to chunk-member output only');
 }
-if (!recallProps.includeRaw || !/raw\/episode/i.test(recallProps.includeRaw?.description || '')) {
+if (!recallProps.includeRaw || !/raw\/episode rows.*default true/i.test(recallProps.includeRaw?.description || '')) {
   throw new Error('recall schema must expose includeRaw for unchunked raw/episode turns');
 }
-if (!recallProps.sessionOnly || !/session only/i.test(recallProps.sessionOnly?.description || '')) {
-  throw new Error('recall schema must expose sessionOnly as the explicit single-session opt-in');
+if (!/archived entries.*default true/i.test(recallProps.includeArchived?.description || '') || recallProps.sessionOnly) {
+  throw new Error('recall schema must expose archived defaults and keep sessionOnly private');
 }
 // Behaviour-level checks for the cross-session merge contract. These exercise
 // the pure mergeSessionRowsIntoGlobal() helper (no DB) so the starve-prevention
@@ -2678,44 +2864,126 @@ if (!recallProps.sessionOnly || !/session only/i.test(recallProps.sessionOnly?.d
     throw new Error('session merge with no session rows must be a passthrough');
   }
 }
+const cwdProps = CWD_TOOL.inputSchema?.properties || {};
+if (CWD_TOOL.title !== 'Project'
+  || CWD_TOOL.annotations?.title !== 'Project'
+  || CWD_TOOL.description !== 'Show the active Project, or set it to path. A shell-local cd does not change the Project.'
+  || Object.keys(cwdProps).join(',') !== 'path'
+  || cwdProps.path?.minLength !== 1
+  || CWD_TOOL.inputSchema?.additionalProperties !== false) {
+  throw new Error('cwd schema must expose only an optional non-empty Project path');
+}
 const memoryTool = MEMORY_TOOL_DEFS.find((tool) => tool.name === 'memory');
 const memoryProps = memoryTool?.inputSchema?.properties || {};
-if (!/mutation/i.test(memoryTool?.description || '') || !/Exact confirmation phrase/i.test(memoryProps.confirm?.description || '')) {
-  throw new Error('memory schema must preserve mutation/destructive confirmation guidance');
+if (memoryTool?.title !== 'Memory'
+  || memoryTool?.annotations?.title !== 'Memory'
+  || memoryTool?.description !== 'Manage durable core memory.'
+  || Object.keys(memoryProps).sort().join(',') !== 'id,op,project_id,summary'
+  || memoryTool?.inputSchema?.required?.join(',') !== 'op'
+  || memoryProps.id?.type !== 'integer'
+  || memoryProps.id?.minimum !== 1
+  || memoryProps.id?.description !== 'Exact [id=…] value from Core Memory or list; required for edit, delete, promote, and dismiss.') {
+  throw new Error('memory schema must expose only the direct durable-core contract');
 }
-if (memoryProps.category || /category/i.test(memoryTool?.description || '')) {
-  throw new Error('memory mutation schema must not expose category');
+if (!/add and edit/i.test(memoryProps.summary?.description || '')
+  || !/current Project/i.test(memoryProps.project_id?.description || '')
+  || memoryProps.action
+  || memoryProps.element
+  || memoryProps.status
+  || memoryProps.limit
+  || memoryProps.confirm
+  || memoryProps.category) {
+  throw new Error('memory schema must keep internal routing and derived fields private');
 }
-const searchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'search');
-const searchProps = searchTool?.inputSchema?.properties || {};
-if (!/Runs synchronously/i.test(searchTool?.description || '')
-  || searchProps.mode
-  || searchProps.action
-  || searchProps.task_id
-  || !searchProps.query?.anyOf
-  || !/array for lossless fan-out/i.test(searchProps.query?.description || '')
-  || !searchTool?.inputSchema?.required?.includes('query')) {
-  throw new Error('search schema must preserve sync execution guidance and string/array query shape');
+let dispatchedMemoryArgs = null;
+const dispatchMemoryToolCall = createToolCallHandler({
+  handleSearch: async () => ({ text: '' }),
+  handleMemoryAction: async (args) => {
+    dispatchedMemoryArgs = args;
+    return { text: 'ok' };
+  },
+});
+await dispatchMemoryToolCall('memory', { op: 'list' });
+if (dispatchedMemoryArgs?.action !== 'core' || dispatchedMemoryArgs?.op !== 'list') {
+  throw new Error(`memory handler must inject action=core for the public schema: ${JSON.stringify(dispatchedMemoryArgs)}`);
 }
-if (!/Default web/i.test(searchProps.type?.description || '') || !/locale hint/i.test(searchProps.locale?.description || '') || !/Default low/i.test(searchProps.contextSize?.description || '')) {
-  throw new Error('search schema must describe type, locale, and contextSize defaults');
+await dispatchMemoryToolCall('memory', { action: 'status' });
+if (dispatchedMemoryArgs?.action !== 'status') {
+  throw new Error('memory handler must preserve internal status calls');
 }
-const webFetchTool = SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
+const webSearchTool = WEB_SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_search');
+const webSearchProps = webSearchTool?.inputSchema?.properties || {};
+const webSearchQueryShapes = webSearchProps.query?.anyOf || [];
+const webSearchQueryStringShape = webSearchQueryShapes.find((shape) => shape?.type === 'string');
+const webSearchQueryArrayShape = webSearchQueryShapes.find((shape) => shape?.type === 'array');
+if (!/Runs synchronously/i.test(webSearchTool?.description || '')
+  || webSearchProps.mode
+  || webSearchProps.action
+  || webSearchProps.task_id
+  || !webSearchProps.query?.anyOf
+  || webSearchQueryStringShape?.minLength !== 1
+  || webSearchQueryArrayShape?.minItems !== 1
+  || webSearchQueryArrayShape?.items?.minLength !== 1
+  || !/array for lossless fan-out/i.test(webSearchProps.query?.description || '')
+  || !webSearchTool?.inputSchema?.required?.includes('query')) {
+  throw new Error('web_search schema must preserve sync execution guidance and string/array query shape');
+}
+if (webSearchProps.maxResults?.type !== 'integer'
+  || webSearchProps.maxResults?.minimum !== 1
+  || webSearchProps.maxResults?.maximum !== 20
+  || !/default 10/i.test(webSearchProps.maxResults?.description || '')) {
+  throw new Error('web_search maxResults schema must match the runtime integer range and default');
+}
+if (!/Default web/i.test(webSearchProps.type?.description || '') || !/locale hint/i.test(webSearchProps.locale?.description || '') || !/Default low/i.test(webSearchProps.contextSize?.description || '')) {
+  throw new Error('web_search schema must describe type, locale, and contextSize defaults');
+}
+const webFetchTool = WEB_SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
 const webFetchProps = webFetchTool?.inputSchema?.properties || {};
-if (!/^Fetch page\/docs body from URL\.$/i.test(webFetchTool?.description || '') || !webFetchProps.url?.anyOf || !/array of URLs/i.test(webFetchProps.url?.description || '')) {
+const webFetchUrlShapes = webFetchProps.url?.anyOf || [];
+const webFetchUrlStringShape = webFetchUrlShapes.find((shape) => shape?.type === 'string');
+const webFetchUrlArrayShape = webFetchUrlShapes.find((shape) => shape?.type === 'array');
+if (!/^Fetch page\/docs body from URL\.$/i.test(webFetchTool?.description || '')
+  || webFetchUrlStringShape?.minLength !== 1
+  || webFetchUrlStringShape?.format !== 'uri'
+  || webFetchUrlArrayShape?.minItems !== 1
+  || webFetchUrlArrayShape?.maxItems !== 10
+  || webFetchUrlArrayShape?.items?.minLength !== 1
+  || webFetchUrlArrayShape?.items?.format !== 'uri'
+  || !/Public HTTP\(S\) URL/i.test(webFetchProps.url?.description || '')
+  || !/array of up to 10 URLs/i.test(webFetchProps.url?.description || '')) {
   throw new Error('web_fetch schema must preserve body-fetch capability and string/array url shape');
 }
-if (!/offset/i.test(webFetchProps.startIndex?.description || '') || !/Maximum characters/i.test(webFetchProps.maxLength?.description || '')) {
+if (webFetchProps.startIndex?.type !== 'integer'
+  || webFetchProps.startIndex?.minimum !== 0
+  || !/default 0/i.test(webFetchProps.startIndex?.description || '')
+  || webFetchProps.maxLength?.type !== 'integer'
+  || webFetchProps.maxLength?.minimum !== 0
+  || !/default 50000/i.test(webFetchProps.maxLength?.description || '')
+  || !/0 unlimited/i.test(webFetchProps.maxLength?.description || '')) {
   throw new Error('web_fetch schema must describe paging window fields');
 }
 const toolSearchNamesSchema = TOOL_SEARCH_TOOL.inputSchema?.properties?.names;
+const toolSearchNamesStringSchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'string');
 const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'array');
-if (!/deferred-tool/i.test(TOOL_SEARCH_TOOL.description || '')
+if (!/Load named deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
+  || !/Direct calls auto-load/i.test(TOOL_SEARCH_TOOL.description || '')
   || !toolSearchNamesSchema
+  || toolSearchNamesStringSchema?.minLength !== 1
   || toolSearchNamesArraySchema?.minItems !== 1
+  || toolSearchNamesArraySchema?.items?.minLength !== 1
+  || TOOL_SEARCH_TOOL.inputSchema?.required?.join(',') !== 'names'
   || TOOL_SEARCH_TOOL.inputSchema?.properties?.select
   || TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false) {
   throw new Error('load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)');
+}
+const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
+if (!/named SKILL\.md into context/i.test(SKILL_TOOL.description || '')
+  || skillNameSchema?.type !== 'string'
+  || skillNameSchema?.minLength !== 1
+  || !/Exact name from available-skills/i.test(skillNameSchema?.description || '')
+  || SKILL_TOOL.inputSchema?.required?.join(',') !== 'name'
+  || SKILL_TOOL.inputSchema?.additionalProperties !== false) {
+  throw new Error('Skill schema must require one exact non-empty available-skills name');
 }
 const toolSearchSession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
@@ -2917,13 +3185,13 @@ const nativeSelectQuerySession = {
   deferredProviderMode: 'native',
   deferredNativeTools: true,
 };
-const nativeSelectQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'select:search' }, nativeSelectQuerySession, 'full'));
-for (const name of ['search', 'web_fetch']) {
+const nativeSelectQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'select:websearch' }, nativeSelectQuerySession, 'full'));
+for (const name of ['web_search', 'web_fetch']) {
   if (!nativeSelectQueryResult.activeTools.includes(name)) {
     throw new Error(`native tool_search query-select should load ${name}: ${JSON.stringify(nativeSelectQueryResult)}`);
   }
 }
-if (!nativeSelectQueryResult.nativeToolSearch?.toolReferences?.includes('search')) {
+if (!nativeSelectQueryResult.nativeToolSearch?.toolReferences?.includes('web_search')) {
   throw new Error(`native query-select must return nativeToolSearch payload: ${JSON.stringify(nativeSelectQueryResult.nativeToolSearch)}`);
 }
 // Native late-MCP selections must resolve against the boot+late catalog union,
@@ -2982,7 +3250,7 @@ if (!geminiManifestSession.tools.some((tool) => tool.name === 'mcp__gemini__late
 // bare names allowed, header instructs direct calls, empty pool → ''.
 const manifestText = buildDeferredToolManifest([
   { name: 'shell', description: 'Run commands.' },
-  { name: 'search', description: 'Web <search> now.' },
+  { name: 'web_search', description: 'Web <search> now.' },
   'recall',
 ]);
 if (!/<available-deferred-tools>/.test(manifestText) || !/- shell: Run commands\./.test(manifestText)) {
@@ -3035,12 +3303,17 @@ const grepPatternShapes = grepTool?.inputSchema?.properties?.pattern?.anyOf;
 const grepStringPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'string');
 const grepArrayPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'array');
 if (!grepStringPatternShape
+    || grepStringPatternShape?.minLength !== 1
     || grepArrayPatternShape?.items?.type !== 'string'
+    || grepArrayPatternShape?.items?.minLength !== 1
     || grepArrayPatternShape?.minItems !== 1
+    || grepArrayPatternShape?.maxItems !== 10
     || grepTool?.inputSchema?.properties?.pattern?.type
     || grepTool?.inputSchema?.properties?.path?.type !== 'string'
+    || grepTool?.inputSchema?.properties?.path?.minLength !== 1
     || grepTool?.inputSchema?.properties?.path?.anyOf
     || grepTool?.inputSchema?.properties?.glob?.type !== 'string'
+    || grepTool?.inputSchema?.properties?.glob?.minLength !== 1
     || grepTool?.inputSchema?.properties?.glob?.anyOf
     || grepTool?.inputSchema?.properties?.limit?.type !== 'integer'
     || grepTool?.inputSchema?.properties?.offset?.type !== 'integer'
@@ -3050,7 +3323,8 @@ if (!grepStringPatternShape
   throw new Error('grep schema must expose pattern fan-out and scalar path/glob guidance');
 }
 if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
-    || !/read only omitted lines/i.test(grepTool?.description || '')) {
+    || !/contextual path:line blocks/i.test(grepTool?.description || '')
+    || /read only omitted lines|Batch independent searches/i.test(grepTool?.description || '')) {
   throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
 }
 if (!/Glob filter/i.test(grepGlobDescription)) {
@@ -3064,7 +3338,10 @@ if (!/files lists matching paths/i.test(grepModeDescription)
 if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0 || !/Max results/i.test(grepLimitDescription)) {
   throw new Error('grep limit schema must keep locator caps explicit');
 }
-if (grepTool?.inputSchema?.properties?.['-C'] || !/automatic context/i.test(grepContextDescription) || !/0 for matches only/i.test(grepContextDescription)) {
+if (grepTool?.inputSchema?.properties?.['-C']
+    || grepTool?.inputSchema?.properties?.context?.maximum !== 200
+    || !/automatic context/i.test(grepContextDescription)
+    || !/0 for matches only/i.test(grepContextDescription)) {
   throw new Error('grep schema must expose one context field and keep ripgrep aliases internal');
 }
 if (grepTool?.inputSchema?.properties?.type) {
@@ -3093,13 +3370,15 @@ if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.desc
   throw new Error('glob description must state its known-base wildcard path contract');
 }
 if (globTool?.inputSchema?.properties?.pattern?.type !== 'string'
+    || globTool?.inputSchema?.properties?.pattern?.minLength !== 1
     || globTool?.inputSchema?.properties?.pattern?.anyOf
     || globTool?.inputSchema?.properties?.path?.type !== 'string'
+    || globTool?.inputSchema?.properties?.path?.minLength !== 1
     || globTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('glob schema must expose scalar pattern and path');
 }
 // Contract-only description: guessed-fragment/verified-root routing policy
-// lives in src/rules/shared/01-tool.md.
+// lives in src/rules/shared/30-exploration.md.
 if (!/Fuzzy filename\/directory path lookup when the location itself is unknown/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
   throw new Error('find description must state its fuzzy path-lookup contract');
 }
@@ -3111,22 +3390,48 @@ if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || !/not a prerequisite for another tool/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')
     || listTool?.inputSchema?.properties?.path?.type !== 'string'
+    || listTool?.inputSchema?.properties?.path?.minLength !== 1
+    || !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '')
     || listTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('list description must state its known-directory immediate-entry contract');
 }
 if (findTool?.inputSchema?.properties?.query?.type !== 'string'
+    || findTool?.inputSchema?.properties?.query?.minLength !== 1
     || findTool?.inputSchema?.properties?.query?.anyOf) {
   throw new Error('find schema must expose scalar query');
+}
+if (findTool?.inputSchema?.properties?.path?.type !== 'string'
+    || findTool?.inputSchema?.properties?.path?.minLength !== 1
+    || !/omit for the current Project/i.test(findTool?.inputSchema?.properties?.path?.description || '')
+    || /No content or symbol search/i.test(findTool?.description || '')) {
+  throw new Error('find schema must expose a non-empty optional Project-relative base directory');
 }
 const codeGraphModeDescription = codeGraphProps.mode?.description || '';
 const codeGraphSymbolsDescription = codeGraphProps.symbols?.description || '';
 const codeGraphBodyDescription = codeGraphProps.body?.description || '';
+const codeGraphFileShapes = codeGraphProps.files?.anyOf || [];
+const codeGraphSymbolShapes = codeGraphProps.symbols?.anyOf || [];
+const codeGraphFileStringShape = codeGraphFileShapes.find((shape) => shape?.type === 'string');
+const codeGraphFileArrayShape = codeGraphFileShapes.find((shape) => shape?.type === 'array');
+const codeGraphSymbolStringShape = codeGraphSymbolShapes.find((shape) => shape?.type === 'string');
+const codeGraphSymbolArrayShape = codeGraphSymbolShapes.find((shape) => shape?.type === 'array');
 if (!/find_symbol returns declaration\/body/i.test(codeGraphDescription)
-    || !/references returns declaration\/usages plus optional body.*no grep/i.test(codeGraphDescription)
+    || !/references returns declaration\/usages plus optional body/i.test(codeGraphDescription)
     || !/callers\/callees return locations/i.test(codeGraphDescription)
     || !/find_symbol defaults true/i.test(codeGraphBodyDescription)
     || !/references is opt-in/i.test(codeGraphBodyDescription)) {
   throw new Error('code_graph descriptions must distinguish declarations, usages, and relation locations');
+}
+if (codeGraphFileStringShape?.minLength !== 1
+    || codeGraphFileArrayShape?.minItems !== 1
+    || codeGraphFileArrayShape?.items?.minLength !== 1
+    || codeGraphSymbolStringShape?.minLength !== 1
+    || codeGraphSymbolArrayShape?.minItems !== 1
+    || codeGraphSymbolArrayShape?.items?.minLength !== 1
+    || codeGraphProps.cwd?.minLength !== 1
+    || codeGraphProps.limit?.maximum !== 500
+    || !/overview hierarchy or caller traversal depth/i.test(codeGraphProps.depth?.description || '')) {
+  throw new Error('code_graph schema must reject blank targets and expose runtime result/depth bounds');
 }
 assertCodeGraphDescriptionContract({
   description: codeGraphDescription,

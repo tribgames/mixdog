@@ -11,6 +11,7 @@ import {
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { appendAgentTrace, grokCacheChainTraceFields, traceAgentUsage } from '../agent-trace.mjs';
+import { providerRetryStatusText } from '../../../shared/err-text.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
@@ -470,9 +471,22 @@ export class OpenAICompatProvider {
                     },
                     {
                         signal: totalSignal.signal,
-                        onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
+                        onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
                             const delayLabel = Number.isFinite(Number(delayMs)) ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}` : '';
                             process.stderr.write(`[${this.name}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`);
+                            try {
+                                opts.onStageChange?.('reconnecting', {
+                                    attempt: attempt + 1,
+                                    max: maxAttempts,
+                                    waitMs: delayMs,
+                                    classifier: lastErr?.retryClassifier || lastErr?.code || null,
+                                    message: providerRetryStatusText(lastErr, {
+                                        attempt: attempt + 1,
+                                        maxAttempts,
+                                        delayMs,
+                                    }),
+                                });
+                            } catch { /* display-only */ }
                         },
                     },
                 );
@@ -759,9 +773,22 @@ export class OpenAICompatProvider {
                     },
                     {
                         signal: totalSignal.signal,
-                        onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
+                        onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
                             const delayLabel = Number.isFinite(Number(delayMs)) ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}` : '';
                             process.stderr.write(`[xai:responses] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`);
+                            try {
+                                opts.onStageChange?.('reconnecting', {
+                                    attempt: attempt + 1,
+                                    max: maxAttempts,
+                                    waitMs: delayMs,
+                                    classifier: lastErr?.retryClassifier || lastErr?.code || null,
+                                    message: providerRetryStatusText(lastErr, {
+                                        attempt: attempt + 1,
+                                        maxAttempts,
+                                        delayMs,
+                                    }),
+                                });
+                            } catch { /* display-only */ }
                         },
                     },
                 );

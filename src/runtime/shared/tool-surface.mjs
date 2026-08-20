@@ -139,7 +139,6 @@ export function displayToolName(name, args = {}) {
       return 'Search';
     case 'load_tool':
       return toolSearchDisplayLabel(parseToolArgs(args));
-    case 'search':
     case 'search_query':
     case 'image_query':
     case 'web_search':
@@ -250,7 +249,6 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         quoted(a.query ?? a.fuzzy, max),
         a.path ? `path: ${displayToolPath(a.path)}` : '',
       ]);
-    case 'search':
     case 'search_query':
     case 'image_query':
     case 'web_search':
@@ -380,7 +378,6 @@ const TOOL_CATEGORY = new Map([
   ['list', 'Search'],
   ['ls', 'Search'],
   ['load_tool', 'Load'],
-  ['search', 'Web Research'],
   ['web_search', 'Web Research'],
   ['search_query', 'Web Research'],
   ['image_query', 'Web Research'],
@@ -550,7 +547,6 @@ export function toolWorkUnit(name, args = {}, category = '') {
       if (selected.length) return unitDescriptor('Load', { count: selected.length, noun: 'tool' });
       return unitDescriptor('Load', { count: queryCount(a, 'query', 'q', 'text') || 1, noun: 'query', pluralNoun: 'queries' });
     }
-    case 'search':
     case 'search_query':
     case 'image_query':
     case 'web_search':

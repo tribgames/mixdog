@@ -83,6 +83,14 @@ export {
   readPromptHistory
 };
 
+// The recording chip renders m:ss inline in the composer footer. The
+// placeholder cannot carry this signal: it is blank once a session has
+// content (see `placeholder` below).
+function formatDictationElapsed(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1_000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 function reportComposerAction(diagnostic: DesktopRendererComposerActionDiagnostic): void {
   try { window.mixdogDesktop?.rendererDiagnostic?.(diagnostic); } catch { /* diagnostics only */ }
 }
@@ -123,7 +131,6 @@ export const Composer = memo(function Composer({
   onOpenProjects,
   onOpenSettings,
   onOpenCommandSurface,
-  contextStatus,
   dropTargetRef,
 }: {
   turnBusy: boolean;
@@ -166,8 +173,6 @@ export const Composer = memo(function Composer({
   onOpenProjects: () => void;
   onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
-  /** Context gauge attached right of the model selector (user placement). */
-  contextStatus?: React.ReactNode;
   dropTargetRef: React.RefObject<HTMLElement | null>;
 }) {
   const [draft, setDraft] = useState("");
@@ -254,7 +259,7 @@ export const Composer = memo(function Composer({
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
-  const { dictationState, toggleDictation } = useComposerDictation({
+  const { dictationState, toggleDictation, recordingElapsedMs } = useComposerDictation({
     transitioningRef,
     textarea,
     setDraft,
@@ -1949,7 +1954,10 @@ export const Composer = memo(function Composer({
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied} />
-        {contextStatus && <div className="composer-context-status">{contextStatus}</div>}
+        {dictationState === 'recording' && <span className="composer-dictation-timer" role="status">
+          <span className="composer-dictation-dot" aria-hidden="true" />
+          {formatDictationElapsed(recordingElapsedMs)}
+        </span>}
         <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}

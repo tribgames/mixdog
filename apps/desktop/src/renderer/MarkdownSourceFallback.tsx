@@ -67,16 +67,78 @@ export function isFencedCodeOnlyMarkdown(text: string): boolean {
     && parts.every((part) => part.kind === "code" || !part.text.trim());
 }
 
+const SOURCE_HEADING = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
+const SOURCE_BULLET = /^ {0,3}[-*+]\s+(.*)$/;
+const SOURCE_ORDERED = /^ {0,3}\d+[.)]\s+(.*)$/;
+
+// The fallback stands in for the parsed block until the worker answers. Headings
+// and list items adopt their final element grammar here too, so a streaming
+// answer no longer shows "## " and "- " markers for the first frames and then
+// snaps into shape (user: 마크다운이 늦게 나온다).
+function sourceBlockNodes(block: string, key: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let prose: string[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  const flushProse = () => {
+    const text = prose.join("\n");
+    prose = [];
+    if (!text.trim()) return;
+    const proseKey = `${key}-p-${nodes.length}`;
+    nodes.push(
+      <p className="markdown-plain" key={proseKey}>{sourceInlineNodes(text, proseKey)}</p>,
+    );
+  };
+  const flushList = () => {
+    if (!list) return;
+    const current = list;
+    list = null;
+    const listKey = `${key}-list-${nodes.length}`;
+    const items = current.items.map((item, index) => (
+      <li key={`${listKey}-${index}`}>{sourceInlineNodes(item, `${listKey}-${index}`)}</li>
+    ));
+    nodes.push(current.ordered
+      ? <ol key={listKey}>{items}</ol>
+      : <ul key={listKey}>{items}</ul>);
+  };
+  for (const line of block.split(/\r?\n/)) {
+    const heading = SOURCE_HEADING.exec(line);
+    if (heading) {
+      flushProse();
+      flushList();
+      const Heading = `h${heading[1].length}` as "h1";
+      const headingKey = `${key}-h-${nodes.length}`;
+      nodes.push(<Heading key={headingKey}>{sourceInlineNodes(heading[2], headingKey)}</Heading>);
+      continue;
+    }
+    const bullet = SOURCE_BULLET.exec(line);
+    const ordered = bullet ? null : SOURCE_ORDERED.exec(line);
+    if (bullet || ordered) {
+      flushProse();
+      const isOrdered = Boolean(ordered);
+      if (list && list.ordered !== isOrdered) flushList();
+      list ??= { ordered: isOrdered, items: [] };
+      list.items.push(bullet?.[1] ?? ordered?.[1] ?? "");
+      continue;
+    }
+    if (list) {
+      // A continuation line belongs to the item it follows.
+      if (line.trim()) list.items[list.items.length - 1] += `\n${line.trim()}`;
+      else flushList();
+      continue;
+    }
+    prose.push(line);
+  }
+  flushProse();
+  flushList();
+  return nodes;
+}
+
 function sourceTextNodes(text: string, key: string): ReactNode[] {
   return text
     .split(/(?:\r?\n){2,}/)
     .map((paragraph) => paragraph.replace(/^\r?\n+|\r?\n+$/g, ""))
     .filter((paragraph) => paragraph.trim())
-    .map((paragraph, index) => (
-      <p className="markdown-plain" key={`${key}-paragraph-${index}`}>
-        {sourceInlineNodes(paragraph, `${key}-paragraph-${index}`)}
-      </p>
-    ));
+    .flatMap((paragraph, index) => sourceBlockNodes(paragraph, `${key}-paragraph-${index}`));
 }
 
 function isEscaped(text: string, index: number): boolean {
@@ -87,10 +149,21 @@ function isEscaped(text: string, index: number): boolean {
   return slashes % 2 === 1;
 }
 
-function markerAt(text: string, index: number): "**" | "__" | null {
-  if (text.startsWith("**", index)) return "**";
-  if (text.startsWith("__", index)) return "__";
+// Longest marker first: "**" must win over "*" at the same offset.
+const INLINE_MARKERS = ["**", "__", "~~", "*", "_"] as const;
+type InlineMarker = (typeof INLINE_MARKERS)[number];
+
+function markerAt(text: string, index: number): InlineMarker | null {
+  for (const marker of INLINE_MARKERS) {
+    if (text.startsWith(marker, index)) return marker;
+  }
   return null;
+}
+
+function markerElement(marker: InlineMarker): "strong" | "em" | "del" {
+  if (marker === "**" || marker === "__") return "strong";
+  if (marker === "~~") return "del";
+  return "em";
 }
 
 function inlineCodeEnd(text: string, index: number): number {
@@ -101,7 +174,7 @@ function inlineCodeEnd(text: string, index: number): number {
   return closing < 0 ? -1 : closing + marker.length;
 }
 
-function strongMarkerEnd(text: string, marker: "**" | "__", from: number): number {
+function emphasisMarkerEnd(text: string, marker: InlineMarker, from: number): number {
   for (let index = from; index < text.length; index += 1) {
     if (text[index] === "`" && !isEscaped(text, index)) {
       const codeEnd = inlineCodeEnd(text, index);
@@ -112,7 +185,7 @@ function strongMarkerEnd(text: string, marker: "**" | "__", from: number): numbe
     }
     if (!text.startsWith(marker, index) || isEscaped(text, index)) continue;
     if (!text[index - 1] || /\s/.test(text[index - 1])) continue;
-    if (marker === "__" && /[\p{L}\p{N}_]/u.test(text[index + marker.length] || "")) continue;
+    if (marker[0] === "_" && /[\p{L}\p{N}_]/u.test(text[index + marker.length] || "")) continue;
     return index;
   }
   return -1;
@@ -144,20 +217,22 @@ function sourceInlineNodes(text: string, key: string): ReactNode[] {
     }
     const marker = markerAt(text, index);
     const before = text[index - 1] || "";
-    const after = text[index + 2] || "";
+    const after = marker ? text[index + marker.length] || "" : "";
     const canOpen = marker
       && !isEscaped(text, index)
       && Boolean(after)
       && !/\s/.test(after)
-      && (marker === "**" || !/[\p{L}\p{N}_]/u.test(before));
+      && (marker[0] !== "_" || !/[\p{L}\p{N}_]/u.test(before));
     if (canOpen && marker) {
-      const closing = strongMarkerEnd(text, marker, index + marker.length);
+      const closing = emphasisMarkerEnd(text, marker, index + marker.length);
       if (closing >= 0) {
+        const Emphasis = markerElement(marker);
+        const emphasisKey = `${key}-${Emphasis}-${index}`;
         pushPlain(index);
         nodes.push(
-          <strong key={`${key}-strong-${index}`}>
-            {sourceInlineNodes(text.slice(index + marker.length, closing), `${key}-strong-${index}`)}
-          </strong>,
+          <Emphasis key={emphasisKey}>
+            {sourceInlineNodes(text.slice(index + marker.length, closing), emphasisKey)}
+          </Emphasis>,
         );
         index = closing + marker.length;
         plainStart = index;
@@ -186,7 +261,7 @@ export function MarkdownSourceFallback({
     {sourceParts(text).map((part, index) => part.kind === "text"
       ? sourceTextNodes(part.text, `text-${index}`)
       : <div className="markdown-code markdown-code-fallback" key={`code-${index}`}>
-        <header><span>{part.language || "code"}</span>
+        <header><span>{part.language}</span>
           {CopyControl
             ? <CopyControl value={part.text} label="Copy code" className="markdown-code-copy" />
             : null}

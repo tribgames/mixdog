@@ -37,6 +37,7 @@ import {
   pairingCookieHeaders,
   parseCookieToken,
   resolveStaticTarget,
+  sendInheritStartUrlManifest,
   sendStaticFile,
 } from './lib/static-http.mjs';
 import { parseMediaRequest } from './lib/media-http.mjs';
@@ -888,6 +889,15 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
       .end('Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.');
     return;
   }
+  // Home Screen install handoff (sendInheritStartUrlManifest): opt-in per
+  // request, so a Chromium install still reads the canonical manifest.
+  if (pathname === '/manifest.webmanifest' && url.searchParams.get('inherit') === '1') {
+    const manifest = resolveStaticTarget(rendererDir, pathname);
+    if (manifest.status === 200
+      && sendInheritStartUrlManifest(request, response, manifest.target)) return;
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
+    return;
+  }
   const resolved = resolveStaticTarget(rendererDir, pathname);
   if (resolved.status === 403) {
     response.writeHead(403).end();
@@ -970,16 +980,28 @@ export async function startRelay({
   const attachDesktop = (deviceId, socket) => {
     const previous = liveDesktops.get(deviceId);
     if (previous) {
+      if (previous.offlineTimer) clearTimeout(previous.offlineTimer);
+      previous.offlineTimer = null;
       try { previous.socket.close(4000, 'superseded'); } catch { /* already gone */ }
       failMediaPending(previous);
-      for (const phone of previous.clients.values()) {
-        try { phone.close(4001, 'desktop reconnected'); } catch { /* already gone */ }
-      }
+      // A desktop/VPS redial is a transport event, not a browser-session
+      // event. Keep phone sockets attached and re-announce them to the new
+      // desktop leg; its E2EE challenge rekeys each existing connection.
+      previous.socket = socket;
+      previous.media = new Map();
+      previous.mediaLane = false;
+      return previous;
     }
     // `mediaLane` starts false on purpose: an older desktop never announces
     // it, and the media route must degrade on the FIRST request instead of
     // waiting out a first-frame timeout per tile.
-    const entry = { socket, clients: new Map(), media: new Map(), mediaLane: false };
+    const entry = {
+      socket,
+      clients: new Map(),
+      media: new Map(),
+      mediaLane: false,
+      offlineTimer: null,
+    };
     liveDesktops.set(deviceId, entry);
     return entry;
   };
@@ -1101,6 +1123,7 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
     closed = true;
     clearInterval(heartbeat);
     for (const entry of liveDesktops.values()) {
+      if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
       try { entry.socket.terminate(); } catch { /* already gone */ }
       for (const phone of entry.clients.values()) {
         try { phone.terminate(); } catch { /* already gone */ }
@@ -1145,6 +1168,12 @@ function runDesktopLeg(context, deviceId, socket) {
   socket.on('pong', () => { socket.isAlive = true; });
   socket.on('error', () => { /* surfaced as close */ });
   sendJson(socket, { type: 'relay-capabilities', binaryFrames: 1 });
+  // Existing browser legs survive a transient desktop redial. Replaying
+  // client-open makes the replacement desktop build fresh E2EE channels for
+  // those same sockets without waiting for backgrounded tabs to reconnect.
+  for (const clientId of entry.clients.keys()) {
+    sendJson(socket, { type: 'client-open', clientId });
+  }
   socket.on('message', (raw, isBinary) => {
     if (revoked) return;
     socket.isAlive = true;
@@ -1242,10 +1271,19 @@ function runDesktopLeg(context, deviceId, socket) {
   socket.on('close', () => {
     if (liveDesktops.get(deviceId)?.socket === socket) {
       failMediaPending(entry);
-      for (const phone of entry.clients.values()) {
-        try { phone.close(4002, 'desktop offline'); } catch { /* already gone */ }
-      }
-      liveDesktops.delete(deviceId);
+      // Keep browser legs parked at the relay during transient desktop/VPS
+      // outages. New RPCs cannot reach a closed desktop socket, but the next
+      // desktop leg rekeys and resumes all existing clients in place.
+      if (entry.offlineTimer) clearTimeout(entry.offlineTimer);
+      entry.offlineTimer = setTimeout(() => {
+        entry.offlineTimer = null;
+        if (liveDesktops.get(deviceId)?.socket !== socket) return;
+        for (const phone of entry.clients.values()) {
+          try { phone.close(4002, 'desktop offline'); } catch { /* already gone */ }
+        }
+        liveDesktops.delete(deviceId);
+      }, 45_000);
+      entry.offlineTimer.unref?.();
     }
   });
 }

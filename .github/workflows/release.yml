@@ -19,6 +19,11 @@ on:
         description: "Immutable commit SHA to build and publish"
         required: true
         type: string
+      run_critical:
+        description: "Run source-critical release invariants changed since the prior app release"
+        required: false
+        type: boolean
+        default: true
     secrets:
       NPM_TOKEN:
         required: true
@@ -83,22 +88,41 @@ jobs:
       # Smoke's routing corpus exercises the real grep tool, which shells out
       # to ripgrep; the ubuntu runner image does not ship rg by default.
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2; do
+            if timeout --kill-after=5s 50s bash -c \
+              'sudo apt-get -o Acquire::Retries=2 -o DPkg::Lock::Timeout=15 update &&
+               sudo apt-get -o Acquire::Retries=2 -o DPkg::Lock::Timeout=15 install -y ripgrep'; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::ripgrep install failed or timed out after two attempts"
+              exit 1
+            fi
+            sleep 5
+          done
 
-      # src/tui/dist is gitignored; smoke imports it. prepack rebuilds it
-      # again at publish time, but the smoke gate needs it present first.
+      # src/tui/dist is gitignored; smoke imports it. Build it once, then pack
+      # with lifecycle scripts disabled so prepack does not rebuild it.
       - name: Build TUI
         run: npm run build:tui
 
       - name: Smoke
         run: npm run smoke
 
+      - name: Verify changed source-critical release invariants
+        if: inputs.run_critical
+        run: npm run test:release-critical
+
       - name: Pack staged npm release
         id: pack
         shell: bash
         run: |
           set -euo pipefail
-          PACKAGE=$(npm pack --silent | tail -n 1)
+          PACKAGE=$(npm pack --silent --ignore-scripts | tail -n 1)
           test -n "$PACKAGE"
           echo "file=$PACKAGE" >> "$GITHUB_OUTPUT"
 
@@ -109,36 +133,6 @@ jobs:
           path: ${{ steps.pack.outputs.file }}
           if-no-files-found: error
           retention-days: 2
-
-  # The deploy gate runs only ship-critical invariants: release assets,
-  # apply_patch integrity, and provider stream/tool compatibility. Mutable
-  # workflow and product specifications stay in the advisory test lane.
-  release-invariants:
-    name: verify-critical
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install
-        run: npm ci --prefer-offline --no-audit --no-fund
-
-      - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
-
-      - name: Build TUI
-        run: npm run build:tui
-
-      - name: Verify the critical release lane
-        run: npm run test:release-critical
 
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified
@@ -197,7 +191,6 @@ jobs:
   # Each platform has an independent runtime -> package chain. A slow platform
   # no longer prevents the other four packaging jobs from starting.
   desktop-runtime-win32-x64:
-    needs: [validate]
     uses: ./.github/workflows/desktop-runtime.yml
     with:
       ref: ${{ inputs.ref || github.ref }}
@@ -206,7 +199,6 @@ jobs:
       arch: x64
 
   desktop-runtime-darwin-arm64:
-    needs: [validate]
     uses: ./.github/workflows/desktop-runtime.yml
     with:
       ref: ${{ inputs.ref || github.ref }}
@@ -215,7 +207,6 @@ jobs:
       arch: arm64
 
   desktop-runtime-darwin-x64:
-    needs: [validate]
     uses: ./.github/workflows/desktop-runtime.yml
     with:
       ref: ${{ inputs.ref || github.ref }}
@@ -224,7 +215,6 @@ jobs:
       arch: x64
 
   desktop-runtime-linux-x64:
-    needs: [validate]
     uses: ./.github/workflows/desktop-runtime.yml
     with:
       ref: ${{ inputs.ref || github.ref }}
@@ -233,7 +223,6 @@ jobs:
       arch: x64
 
   desktop-runtime-linux-arm64:
-    needs: [validate]
     uses: ./.github/workflows/desktop-runtime.yml
     with:
       ref: ${{ inputs.ref || github.ref }}
@@ -246,7 +235,7 @@ jobs:
   # set and npm package have both been verified.
   prepare-github-release:
     name: prepare-hidden-release
-    needs: [validate, release-invariants]
+    needs: [validate]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -267,7 +256,7 @@ jobs:
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
   desktop-windows:
-    needs: [validate, release-invariants, desktop-build, desktop-runtime-win32-x64, prepare-github-release]
+    needs: [validate, desktop-build, desktop-runtime-win32-x64, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -282,7 +271,7 @@ jobs:
       target: win
 
   desktop-darwin-arm64:
-    needs: [validate, release-invariants, desktop-build, desktop-runtime-darwin-arm64, prepare-github-release]
+    needs: [validate, desktop-build, desktop-runtime-darwin-arm64, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -297,7 +286,7 @@ jobs:
       target: mac
 
   desktop-darwin-x64:
-    needs: [validate, release-invariants, desktop-build, desktop-runtime-darwin-x64, prepare-github-release]
+    needs: [validate, desktop-build, desktop-runtime-darwin-x64, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -312,7 +301,7 @@ jobs:
       target: mac
 
   desktop-linux-x64:
-    needs: [validate, release-invariants, desktop-build, desktop-runtime-linux-x64, prepare-github-release]
+    needs: [validate, desktop-build, desktop-runtime-linux-x64, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -327,7 +316,7 @@ jobs:
       target: linux
 
   desktop-linux-arm64:
-    needs: [validate, release-invariants, desktop-build, desktop-runtime-linux-arm64, prepare-github-release]
+    needs: [validate, desktop-build, desktop-runtime-linux-arm64, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -343,7 +332,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, release-invariants, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64]
+    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

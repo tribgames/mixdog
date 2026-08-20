@@ -1,0 +1,99 @@
+/* Desktop layer 02 — Scrollbars, focus rings, caret, icon + type grammar.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Icon FONTS are geometry, not prose (user: 아이콘들이 좀 흐릿한 느낌): the
+   shell-wide `antialiased` above forces grayscale smoothing, which throws away
+   the subpixel coverage Windows uses to ink a 16px glyph, so codicon stems read
+   a tone lighter and softer than the SVG glyphs sitting next to them. Only the
+   icon font opts back into the platform default; prose keeps grayscale. */
+.codicon { -webkit-font-smoothing: auto; }
+*:focus-visible { outline-color: var(--mx-focus); }
+/* ONE scrollbar grammar shell-wide: the session rail's inset pill (user: pane
+   스크롤도 세션 리스트처럼). The 8px track stays, but the thumb is inset 2px
+   and fully rounded, so it reads as a floating pill instead of a flush block.
+   Three grammars used to run at once — this pill on the rail, a square block
+   everywhere else, and the OS `scrollbar-width: thin` bar on nine surfaces
+   that overrode the webkit sizing entirely. Only `scrollbar-width: none`
+   (deliberate hiding) survives as a per-surface override. */
+:root {
+  --mx-scrollbar-size: 8px;
+  /* What the ENGINE reserves for that bar, measured before the first paint by
+     scrollbar-metrics.ts. Overlay scrollbars reserve nothing, so any layout
+     that PAYS for a gutter reads this instead of the painted size — otherwise
+     the payment shifted scroller content while the chrome outside it stayed
+     put (user: 세션 리스트 + 버튼이랑 아래 닷이 가로로 틀어짐). */
+  --mx-scrollbar-gutter: 8px;
+}
+* {
+  /* Chromium ignores ::-webkit-scrollbar dimensions when this standard
+     pair is non-auto. Color comes from the pseudo-elements below so the
+     shared 8px track remains exact. */
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+*::-webkit-scrollbar { width: var(--mx-scrollbar-size); height: var(--mx-scrollbar-size); }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-scrollbar-thumb, var(--mx-border-strong));
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--mx-scrollbar-thumb-hover, var(--mx-text-faint));
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-corner { background: transparent; }
+
+body, button, input, textarea, select { font-family: inherit; }
+html, body { background: var(--mx-window-band); }
+body { color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; }
+button, input, textarea, select { color: inherit; }
+/* Keep the native caret (text-colored); only invalid fields recolor it. */
+input, textarea { caret-color: var(--mx-text); }
+input::placeholder, textarea::placeholder { color: var(--mx-text-faint); opacity: 1; }
+/* No custom ::selection; native color-scheme selection applies. */
+code, pre, kbd { font-family: var(--mx-font-mono); }
+button { font-weight: var(--mx-weight-regular); letter-spacing: 0; }
+/* Icon strokes are PIXEL-SNAPPED (user: 아이콘들이 좀 흐릿한 느낌).
+   lucide draws on a 24-unit viewBox and `stroke-width` lives in that SAME
+   unit space, so every glyph thins its own line to size/24 of the declared
+   value. The old 1.75px global landed at 1.02 device px on the 14px glyphs
+   that carry half this shell, and the chrome toggles' 1.1-1.25px fell to
+   0.73-0.94: under one device pixel a stroke keeps no solid core, so it
+   paints as two half-lit greys instead of a line — that IS the blur.
+   `non-scaling-stroke` detaches the stroke from the viewBox scale, so
+   stroke-width means CSS pixels at every glyph size and 1px always inks a
+   full core. Every per-surface override below is therefore written in real
+   pixels now, not in 24-grid units. */
+svg.lucide *, svg.mx-icon * { vector-effect: non-scaling-stroke; }
+svg.lucide { stroke-width: 1px; }
+/* Optical ladder for the bigger glyphs: lucide echoes its `size` prop into
+   the width attribute, so an attribute selector reaches exactly the call
+   sites that need more ink — a 1px hairline reads wiry past ~20px, and the
+   40-96px marks are illustrations rather than icons. */
+svg.lucide[width="20"], svg.lucide[width="22"] { stroke-width: 1.25px; }
+svg.lucide[width="24"], svg.lucide[width="26"], svg.lucide[width="28"] { stroke-width: 1.5px; }
+svg.lucide[width="40"] { stroke-width: 2px; }
+svg.lucide[width="72"] { stroke-width: 2.5px; }
+svg.lucide[width="96"] { stroke-width: 3px; }
+/* Facade glyphs never shrink in flex rows, and keep square caps/miter joins
+   instead of lucide's soft round caps; the stroke comes from the rule above. */
+svg.mx-icon {
+  flex: 0 0 auto;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible {
+  /* One quiet canonical ring (user: 전체적으로 호버나 선택 시 강조 최소화):
+     a hairline hugging the control, not a thick detached halo. */
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+/* Buttons float the ring a hair further out. */
+button:focus-visible { outline-offset: 1.5px; }
+/* Dialog titles tighten 15px headings to -0.13px. */
+.settings-confirm-dialog > header h3,
+.approval-heading b, .settings-section-heading h2,
+.settings-group > header h3 { letter-spacing: var(--mx-tracking-tight); }
+

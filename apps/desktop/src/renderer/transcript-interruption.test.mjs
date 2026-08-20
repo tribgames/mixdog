@@ -31,3 +31,17 @@ test('similar human prose remains a user message', () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0]._tag, 'UserMessage');
 });
+
+test('failed turn rows preserve the terminal reason for the retry card', () => {
+  const rows = projectSettledTranscriptRows({
+    sessionKey: 'session',
+    items: [
+      { kind: 'user', id: 'u1', text: 'hello' },
+      { kind: 'turndone', id: 'd1', status: 'failed', detail: 'Provider is busy at capacity.' },
+    ],
+    turnKeys: ['turn', 'turn'],
+    failedTurns: new Set(['turn']),
+  }).rows;
+  assert.equal(rows.at(-1)._tag, 'Error');
+  assert.equal(rows.at(-1).item.detail, 'Provider is busy at capacity.');
+});

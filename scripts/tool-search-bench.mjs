@@ -16,7 +16,7 @@ const opts = { sessionId: 'search-bench' };
 let broadGrepSequence = 0;
 
 const cases = [
-  ['list', /01-tool\.md|file/, () => executeBuiltinTool('list', {
+  ['list', /10-tool-workflow\.md|file/, () => executeBuiltinTool('list', {
     path: 'src/rules/shared',
   }, root, opts)],
   ['find', /tool-defs|no fuzzy match/, () => executeBuiltinTool('find', {
@@ -45,8 +45,8 @@ const cases = [
   ['find_multi', /search|client|no fuzzy match/i, () => executeBuiltinTool('find', {
     query: 'search client', limit: 8,
   }, root, opts)],
-  ['read', /Tool Use|read/, () => executeBuiltinTool('read', {
-    path: [['src/rules/shared/01-tool.md', 0, 10], ['package.json', 0, 5]],
+  ['read', /Tool Workflow|read/, () => executeBuiltinTool('read', {
+    path: [['src/rules/shared/10-tool-workflow.md', 0, 10], ['package.json', 0, 5]],
   }, root, opts)],
   ['code_graph', /symbol|binding|files|edges/i, () => executeCodeGraphTool('code_graph', {
     mode: 'symbols', files: 'scripts/smoke.mjs',

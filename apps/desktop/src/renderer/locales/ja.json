@@ -162,6 +162,7 @@
   "Checking…": "確認中…",
   "Choose": "選択",
   "Choose a model for this schedule.": "このスケジュールのモデルを選択してください。",
+  "Choose Add to Home Screen": "[ホーム画面に追加] を選択",
   "Choose how manual commit hints and AI-generated messages should be written.": "手動コミットヒントとAI生成メッセージの記述方法を選択します。",
   "Choose how Mixdog answers": "Mixdog がどのように答えるかを選択してください",
   "Choose how Mixdog manages long-running and idle sessions.": "長時間実行されるセッションやアイドル状態のセッションを Mixdog がどのように管理するか選択します。",
@@ -564,6 +565,7 @@
   "Make it feel like home": "まるで家にいるような気分にさせてくれる",
   "Make it yours": "それをあなたのものにしてください",
   "Manage in Settings → Git.": "「設定」→「Git」で管理します。",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "管理された Whisper と ffmpeg ランタイムが音声入力の準備を完了しました。",
   "Manifesting": "顕現する",
   "Manual download": "マニュアルダウンロード",
   "Manual login URL": "手動ログインURL",
@@ -646,6 +648,7 @@
   "No agents added — every default agent stays available.": "エージェント未追加 — すべての既定エージェントが利用可能です。",
   "No agents are running.": "実行中のエージェントはありません。",
   "No API-key providers available.": "利用可能なAPIキープロバイダーがありません。",
+  "No background work": "バックグラウンド作業なし",
   "No changes vs {{base}}.": "{{base}}との差分はありません。",
   "No commands match.": "一致するコマンドがありません。",
   "No connected provider models.": "接続済みプロバイダーのモデルがありません。",
@@ -1083,7 +1086,7 @@
   "System follows your OS. Fine-tune colors any time in Settings.": "システムは OS に従います。 [設定] でいつでも色を微調整できます。",
   "System prompt": "システムプロンプト",
   "System tools": "システムツール",
-  "Tap Share, then Add to Home Screen.": "[共有] をタップし、[ホーム画面に追加] を選択してください。",
+  "Tap the Share button": "[共有] ボタンをタップ",
   "Tell Mixdog what to call you and which language to answer in.": "Mixdog に何と電話をかけるか、どの言語で応答するかを伝えます。",
   "Tempering": "テンパリング",
   "Terminal": "ターミナル",
@@ -1236,6 +1239,5 @@
   "Your example commit message appears here.": "コミットメッセージの例がここに表示されます。",
   "Your name or role": "あなたの名前や役割",
   "Zesting": "ゼスティング",
-  "Zigzagging": "ジグザグ",
-  "Managed Whisper and ffmpeg runtime is ready for voice input.": "管理された Whisper と ffmpeg ランタイムが音声入力の準備を完了しました。"
+  "Zigzagging": "ジグザグ"
 }

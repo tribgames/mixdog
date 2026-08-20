@@ -1028,7 +1028,7 @@ export async function withRetry(fn, opts = {}) {
       const wait = nextDelayReason === 'retry-after'
         ? Math.max(0, rawWait)
         : jitterDelayMs(rawWait, retryJitterRatio, retryJitterMode)
-      onRetry?.({ attempt, lastErr, delayMs: wait, delayReason: nextDelayReason })
+      onRetry?.({ attempt, maxAttempts, lastErr, delayMs: wait, delayReason: nextDelayReason })
       if (wait > 0) await sleepWithAbort(wait, signal, sleepFn, 'withRetry: sleep aborted')
       if (signal?.aborted) {
         const reason = signal.reason

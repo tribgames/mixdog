@@ -53,8 +53,8 @@ export function formatToolStartProgress(name, args = {}) {
             if (a.symbol) return `locating ${_t(a.symbol)}`;
             return a.file ? `mapping ${_t(a.file)}` : 'analyzing code graph';
 
-        // ── search module: web ───────────────────────────────────────────
-        case 'search':
+        // ── web-search module ────────────────────────────────────────────
+        case 'web_search':
             return Array.isArray(a.query) ? `searching web (${_plural(a.query.length, 'query', 'queries')})` : `searching web for ${_t(a.query || a.keywords)}`;
         case 'web_fetch':
             return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;

@@ -41,14 +41,14 @@ function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod }) {
     getSession: () => null,
     setSession: () => {},
     getConfigHasSecrets: () => false,
-    getSearchRouteState: () => null,
-    setSearchRouteState: () => {},
+    getWebSearchRouteState: () => null,
+    setWebSearchRouteState: () => {},
     cfgMod,
     reg: {},
     mgr: {},
     statusRoutes: {},
     resolveRoute: (_cfg, requested) => ({ ...route, ...requested }),
-    searchCapableFor: () => false,
+    webSearchCapableFor: () => false,
     lookupModelMeta: async () => ({ id: 'gpt-5.4' }),
     adoptConfig: (next) => { config = next; return next; },
     saveConfigAndAdopt,
@@ -63,7 +63,7 @@ function stubRouteApi({ persistLeadRoute, saveConfigAndAdopt, cfgMod }) {
     invalidateProviderCaches: () => {},
     createCurrentSession: async () => {},
     invalidatePreSessionToolSurface: () => {},
-    collectSearchProviderModels: async () => [],
+    collectWebSearchProviderModels: async () => [],
   });
 }
 

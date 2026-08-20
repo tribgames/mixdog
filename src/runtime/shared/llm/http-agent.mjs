@@ -13,7 +13,7 @@
  * gaps. `preconnect(origin)` opens a socket ahead of the first real request
  * (best-effort, errors swallowed) and is called once at provider construction.
  *
- * Scope note: this is deliberately NOT used by src/search/lib/web-tools.mjs,
+ * Scope note: this is deliberately NOT used by src/runtime/web-search/lib/web-tools.mjs,
  * whose per-request Agent pins a pre-validated DNS address for SSRF safety and
  * must own its own short-lived pool. LLM API origins are fixed, trusted hosts,
  * so a shared long-lived pool is appropriate here.

@@ -1,0 +1,611 @@
+/* Desktop layer 24 — Context surface and utility dock chrome.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+.context-surface-view { min-width: 0; }
+.context-card {
+  min-width: 0;
+  display: grid;
+  overflow: hidden;
+  border-radius: var(--mx-radius-xl);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
+    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
+}
+.context-usage-overview,
+.context-mix {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.context-usage-overview { padding: 22px 22px 20px; }
+.context-mix {
+  padding: 18px 20px 20px;
+  border-top: .5px solid var(--mx-border-muted);
+}
+.context-usage-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.context-usage-heading strong {
+  color: var(--mx-text);
+  font-size: 24px;
+  font-weight: var(--mx-weight-semibold);
+  line-height: 1.1;
+  letter-spacing: var(--mx-tracking-tight);
+}
+.context-usage-heading span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
+.context-main-bar {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  display: block;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-hover);
+}
+.context-main-bar span { height: 100%; display: block; border-radius: inherit; background: var(--mx-text-accent); }
+.context-runtime-lines > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+}
+.context-runtime-lines span,
+.context-mix-row > span { color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); }
+/* Section heading matches the settings group-heading tier (user: unify the
+   type scale — 12px/400 read as a third, weaker grammar). */
+.context-surface-view h3 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-body); }
+
+
+.context-runtime-lines strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
+}
+.context-surface-view h3 { margin: 0; }
+/* Cursor-style composition: one stacked bar + color-chip legend. */
+.context-stack-bar {
+  display: flex;
+  gap: 1px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-hover);
+}
+.context-stack-bar b { height: 100%; min-width: 2px; background: var(--ctx-color, var(--mx-text-accent)); }
+.context-mix-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.context-mix-row {
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.context-mix-row i {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: var(--mx-radius-sm);
+  background: var(--ctx-color, var(--mx-text-accent));
+}
+.context-mix-row strong {
+  margin-left: auto;
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+/* Category palette (muted mid-tones that hold up on both themes). */
+.context-mix [data-context-key="messages"] { --ctx-color: #a091d6; }
+.context-mix [data-context-key="tools"] { --ctx-color: #7fae7f; }
+.context-mix [data-context-key="mcp"] { --ctx-color: #c493b8; }
+.context-mix [data-context-key="agents"] { --ctx-color: #b58bc3; }
+.context-mix [data-context-key="skills"] { --ctx-color: #cfa963; }
+.context-mix [data-context-key="memory"] { --ctx-color: #74a6bd; }
+.context-mix [data-context-key="system"] { --ctx-color: #8f8a81; }
+.context-mix [data-context-key="free"] { --ctx-color: #6f777d; }
+.context-mix [data-context-key="autocompact"] { --ctx-color: #7a756c; }
+@media (max-width: 640px) {
+  .context-mix-grid { grid-template-columns: 1fr; }
+  .context-usage-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+}
+
+/* Round-2 polish: review bar, queue remove, popover, compact action. */
+/* ── Right utility dock (Cursor-style side panel) ── */
+.utility-dock {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 300px;
+  max-width: var(--utility-dock-max-width, 560px);
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+  /* Flat layout (user): square dock, hairline-separated — no card chrome.
+     Rail surface = window band, mirroring the left sidebar: both side
+     panels share one tone and only the CENTER workspace sheet reads
+     lighter (VS Code rails/editor separation — user: the two side tabs
+     looked like different designs). */
+  border-radius: 0;
+  background: var(--mx-window-band);
+  box-shadow: none;
+  overflow: hidden;
+}
+/* Chat Dock stays mounted at width 0; open/close commits final width in the
+   same frame as the rest of the layout. */
+.utility-dock--persistent {
+  /* The shared 300px floor must not prop the closed dock open. */
+  min-width: 0;
+  animation: none;
+  transition: none;
+}
+/* Inline (wide) open commits the FINAL layout in one frame, exactly like the
+   left sidebar toggle (user: 오른쪽/아래쪽만 튀듯이 붙는다 — 왼쪽처럼 즉시).
+   The slide-in lives only in the ≤940px sheet grammar. */
+/* The dock shell can hit width 0, but its tabs/body keep their final
+   geometry and are merely clipped. No text rewrap/repaint wave on close. */
+/* Clipping happens at the LEFT edge, the only edge that moves: the inner
+   block is pinned to the dock's fixed right edge, so opening wipes it into
+   view in place instead of dragging the whole panel sideways. This mirrors
+   the left rail, whose content stays anchored to ITS fixed edge
+   (user: 사이드탭 열리는 애니메이션이 좌우가 이상하다). */
+.utility-dock > .utility-dock-tabs-header,
+.utility-dock > .utility-dock-header,
+.utility-dock > .utility-dock-body {
+  align-self: flex-end;
+  width: var(--utility-dock-width, 320px);
+  min-width: var(--utility-dock-width, 320px);
+}
+.utility-dock--persistent > .utility-dock-tabs-header,
+.utility-dock--persistent > .utility-dock-header,
+.utility-dock--persistent > .utility-dock-body {
+  width: 100%;
+  min-width: var(--utility-dock-min-width, 300px);
+}
+.utility-dock.closing {
+  min-width: 0;
+  margin-left: 0;
+  pointer-events: none;
+  transition: none;
+}
+.utility-dock-resize {
+  position: absolute;
+  inset-block: 0;
+  left: -4px;
+  width: 9px;
+  z-index: 5;
+  cursor: col-resize;
+}
+.utility-dock[data-side="left"] .utility-dock-resize {
+  right: -4px;
+  left: auto;
+}
+.utility-dock[data-side="left"] > .utility-dock-header,
+.utility-dock[data-side="left"] > .utility-dock-tabs-header,
+.utility-dock[data-side="left"] > .utility-dock-body { align-self: flex-start; }
+.utility-dock[data-show-tabs="false"] > .utility-dock-header {
+  flex-basis: 35px;
+  height: 35px;
+  align-items: center;
+  padding-inline: 12px;
+  font-size: var(--mx-font-meta);
+  line-height: 35px;
+  text-transform: uppercase;
+}
+.utility-dock-header {
+  flex: 0 0 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 4px;
+  /* Dock walks the SAME 12px box line as the left rail (user: 오른쪽도
+     비슷하게): title text opens on it, trailing 28px actions close flush
+     on it, and every band container below shares the inset. */
+  padding: 0 12px;
+  background: var(--mx-window-band);
+  color: var(--mx-text);
+}
+.utility-dock-tabs-header {
+  flex: 0 0 36px;
+  height: 36px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--mx-border-muted);
+  background: var(--mx-window-band);
+}
+.utility-dock-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  font-size: var(--mx-font-panel-title);
+  line-height: var(--mx-line-ui);
+}
+.utility-dock-title b,
+.utility-dock-header > b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--mx-weight-semibold);
+}
+.utility-dock-tabs {
+  height: 36px;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+.utility-dock-tabs button {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  /* Same LABEL ink as the pane-header cluster (.session-dock-toggle) — the
+     muted rest state read darker/weaker than the task icons one row above
+     (user: 사이드탭 아이콘이 더 어둡고 잘 안 보인다). The underline alone
+     carries the active state. */
+  color: var(--mx-text);
+  background: transparent;
+  cursor: pointer;
+  transition: color 100ms ease-out, background-color 100ms ease-out;
+}
+.utility-dock-tabs button:hover { color: var(--mx-text); background: transparent; }
+.utility-dock-tabs button:focus-visible,
+.utility-dock-header-actions button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -2px;
+}
+.utility-dock-tabs button.active {
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+}
+.utility-dock-tabs button::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 0;
+  height: 2px;
+  border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0;
+  background: var(--mx-text);
+  opacity: 0;
+  transform: scaleX(.55);
+  transition: opacity 100ms ease-out, transform 120ms cubic-bezier(.2, .8, .2, 1);
+}
+.utility-dock-tabs button.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.utility-dock-tabs button[data-drop-position="before"] {
+  box-shadow: inset 2px 0 0 var(--mx-focus);
+}
+.utility-dock-tabs button[data-drop-position="after"] {
+  box-shadow: inset -2px 0 0 var(--mx-focus);
+}
+.utility-dock-tabs button[data-drop-position="inside"] {
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.utility-dock-tabs button[draggable="true"],
+.utility-dock-view-section-header[draggable="true"] { cursor: grab; }
+.utility-dock-tabs button[draggable="true"]:active,
+.utility-dock-view-section-header[draggable="true"]:active { cursor: grabbing; }
+/* Problems count rides the icon as a compact badge. */
+.utility-dock-tab-count {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 13px;
+  padding: 0 3px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-accent-bg);
+  color: var(--mx-grey-50);
+  font-style: normal;
+  font-size: var(--mx-font-micro);
+  line-height: 13px;
+  text-align: center;
+}
+.utility-dock-header-context {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  overflow: hidden;
+}
+.utility-dock-project-row {
+  min-width: 0;
+  height: 41px;
+  flex: 0 0 41px;
+  display: flex;
+  align-items: center;
+  /* Boxes ride the dock's 12px box line (user: 오른쪽도 비슷하게 — same
+     line as the header title and every band container). */
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--mx-border-muted);
+  background: var(--mx-window-band);
+}
+.utility-dock-header-project {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+}
+.dock-project-select { min-width: 0; width: 100%; }
+.dock-project-select .mx-select-trigger { width: 100%; height: 28px; max-width: none; justify-content: flex-start; padding: 0 7px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: transparent; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
+.dock-project-select .mx-select-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
+.dock-project-select .mx-select-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-git-context-row { height: 32px; flex-basis: 32px; gap: 6px; padding: 2px 12px; border-bottom: 0; }
+/* Pull Requests context row: SCM toolbar grammar with a REAL branch
+   switcher in the branch slot (user: 저기서도 브랜치 바꿀 수 있어야) — the
+   select borrows the project trigger's quiet chrome, the ⑂ glyph leads. */
+.dock-pr-branch-section { gap: 0; }
+.dock-pr-branch-glyph { flex: 0 0 auto; margin-left: 7px; color: var(--mx-text-muted); }
+.dock-pr-branch-select { min-width: 0; flex: 1 1 auto; }
+.dock-pr-branch-select .mx-select-trigger { width: 100% !important; height: 28px; padding: 0 7px 0 5px; border: 0 !important; border-radius: var(--mx-radius-md); outline: 0; background: transparent !important; box-shadow: none !important; }
+.dock-pr-branch-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
+.dock-git-context-row .dock-project-select { width: auto; max-width: 62%; flex: 0 1 auto; }
+.dock-git-context-row .dock-project-select .mx-select-trigger { width: auto !important; max-width: 100%; height: 28px; padding: 0 7px; border: 0 !important; border-radius: var(--mx-radius-md); outline: 0; background: transparent !important; box-shadow: none !important; }
+.dock-git-context-row .dock-project-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
+.dock-git-branch-context { min-width: 0; max-width: 38%; margin-left: auto; display: flex; align-items: center; gap: 4px; padding: 0 5px; overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: 26px; }
+.dock-git-branch-context > svg { flex: 0 0 auto; }
+.dock-git-branch-context > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.utility-dock-header-actions {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  overflow: hidden;
+}
+.utility-dock-header-actions[hidden] { display: none; }
+.utility-dock-header-actions > button,
+.utility-dock-header-actions .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.utility-dock-header-actions > button:hover,
+.utility-dock-header-actions .row-overflow-trigger:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.utility-dock-header-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.utility-dock-header-actions .spin { opacity: var(--mx-op-secondary); }
+/* Problems: the count is the same pill grammar as the tab-strip badge, not
+   parenthesised title text. */
+.utility-dock-header-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-accent-bg);
+  color: var(--mx-grey-50);
+  font-style: normal;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+  text-align: center;
+}
+.utility-dock-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+  contain: paint;
+}
+.utility-dock-view-section[data-active="false"] { display: none; }
+.utility-dock-view-section[data-active="true"][data-sectioned="false"],
+.utility-dock-view-section[data-active="true"][data-sectioned="false"] > .utility-dock-view-section-body {
+  display: contents;
+}
+.utility-dock-body:has(.utility-dock-view-section[data-active="true"][data-sectioned="true"]) {
+  display: flex;
+  flex-direction: column;
+}
+.utility-dock-view-section[data-active="true"][data-sectioned="true"] {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 34px;
+  flex: 1 1 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.utility-dock-view-section[data-active="true"][data-sectioned="true"]:last-of-type {
+  border-bottom: 0;
+}
+.utility-dock-view-section[data-sectioned="true"][data-collapsed="true"] {
+  flex: 0 0 34px;
+}
+.utility-dock-view-section-header {
+  min-width: 0;
+  height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--mx-text-soft);
+  background: var(--mx-window-band);
+}
+.utility-dock-view-section[data-drop-over="true"] > .utility-dock-view-section-header {
+  color: var(--mx-text);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.utility-dock-view-section-toggle {
+  min-width: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.utility-dock-view-section-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-dock-view-section-actions {
+  min-width: 0;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.utility-dock-view-section-actions > button,
+.utility-dock-view-section-actions .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+}
+.utility-dock-view-section-body {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.utility-dock-view-section[data-collapsed="true"] > .utility-dock-view-section-body {
+  display: none;
+}
+.utility-dock-view-section[data-sectioned="true"] .utility-dock-pane {
+  position: absolute;
+  inset: 0;
+}
+/* ONE pane box for every tab (user: 탭별로 레이아웃이 튀지 않게): a flex
+   column that owns the scroll, with the same 4px top inset everywhere. The
+   horizontal gutter belongs to each pane's own content (tree, list, band),
+   so rows keep their tuned insets while the frame stays identical. */
+.utility-dock-pane {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  /* clip, not hidden: hidden still allows PROGRAMMATIC sideways scrolling,
+     and Outline's scrollIntoView() used that to shove the whole pane left
+     until every row lost its first characters (user: 아웃라인 레이아웃이
+     아예 깨져있다). */
+  overflow-x: clip;
+  overflow-y: auto;
+  padding: 0 0 8px;
+}
+.utility-dock-pane > .utility-dock-header {
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 32px;
+  align-self: stretch;
+}
+/* `visibility` can be re-enabled by a visible nested StableContentSwap
+   (Source Control owns one), so the parent layer also gates compositing.
+   Opacity preserves the mounted/measured subtree while making descendant
+   visibility overrides unable to bleed through another Dock tab. */
+/* pointer-events must gate with opacity: an invisible pane stacked above the
+   active tab otherwise swallows every click and keeps the commit box
+   untypeable (user: 입력이 안 써지네). */
+.utility-dock-pane[data-surface-active="false"] { opacity: 0; pointer-events: none; }
+.utility-dock-pane[data-surface-active="true"] { opacity: 1; pointer-events: auto; }
+/* Nothing inside a pane may impose a width: flex items default to
+   min-width:auto, which lets one long unbreakable name inflate the column. */
+.utility-dock-pane > * { min-width: 0; }
+/* Panel-specific headers and their bodies stay in one stable layer, so a tab
+   commit can never pair a Search toolbar with Source Control content. */
+.utility-dock-pane[data-tab="agents"],
+.utility-dock-pane[data-tab="search"],
+.utility-dock-pane[data-tab="source-control"],
+.utility-dock-pane[data-tab="pull-requests"] { overflow: hidden; padding: 0; }
+.dock-change { border-bottom: .5px solid var(--mx-border-muted); }
+.dock-change summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+  cursor: pointer;
+  list-style: none;
+  color: var(--mx-text);
+}
+.dock-change summary::-webkit-details-marker { display: none; }
+.dock-change summary svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.dock-change summary b {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--mx-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.dock-change summary .diff-stats { margin-left: auto; }
+.dock-change[open] { padding-bottom: 10px; }
+/* Tasks tab: status dot, type+detail, right
+   elapsed/status. */
+.dock-task-list { min-height: 0; flex: 1; display: grid; align-content: start; overflow: auto; padding: 4px 8px 8px; }
+

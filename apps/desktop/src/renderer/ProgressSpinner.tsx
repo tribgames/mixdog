@@ -6,14 +6,11 @@ type WindowLoadingMarkProps = SVGProps<SVGSVGElement> & {
   size?: number | string;
 };
 
-const TAB_SPINNER_SIZE = 14;
-const TAB_SPINNER_STROKE_WIDTH = 1.75;
-
-export function progressSpinnerStrokeWidth(size: unknown): number {
-  const numericSize = Number(size ?? 24);
-  if (!Number.isFinite(numericSize) || numericSize <= 0) return TAB_SPINNER_STROKE_WIDTH;
-  return TAB_SPINNER_SIZE * TAB_SPINNER_STROKE_WIDTH / numericSize;
-}
+// desktop.css draws every lucide stroke with `vector-effect: non-scaling-stroke`,
+// so stroke-width is already CSS pixels at any size. ONE value therefore holds
+// the same optical line from the 14px tab spinner to the 24px pane loader — the
+// old size-relative formula existed only to undo lucide's 24-grid scaling.
+const SPINNER_STROKE_WIDTH = 1;
 
 export function ProgressSpinner({
   className,
@@ -22,9 +19,7 @@ export function ProgressSpinner({
   style,
   ...props
 }: ProgressSpinnerProps) {
-  // Preserve the working tab's optical line at every rendered size. A fixed
-  // SVG stroke made compact indicators thinner and large loaders heavier.
-  const opticalStrokeWidth = strokeWidth ?? progressSpinnerStrokeWidth(size);
+  const opticalStrokeWidth = strokeWidth ?? SPINNER_STROKE_WIDTH;
   return <LoaderCircle
     {...props}
     size={size}

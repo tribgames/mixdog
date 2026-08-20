@@ -37,7 +37,7 @@ export function useTranscriptActivity({ state }) {
     if (state.activeToolSummary !== undefined) return state.activeToolSummary || '';
     const items = state.items || [];
     let shellCount = 0, shellStart = 0;
-    let searchCount = 0, searchStart = 0;
+    let webSearchCount = 0, webSearchStart = 0;
     let agentCount = 0, agentStart = 0;
     for (const it of items) {
       if (!it || it.kind !== 'tool') continue;
@@ -55,37 +55,37 @@ export function useTranscriptActivity({ state }) {
       if (done >= count) continue; // resolved card (matches toolItemPendingForRows)
       const started = Number(it.startedAt || 0);
       let shellHits = 0;
-      let searchHits = 0;
+      let webSearchHits = 0;
       let agentHits = 0;
       if (it.aggregate && it.categories && typeof it.categories === 'object') {
         for (const v of Object.values(it.categories)) {
           const cat = v && typeof v === 'object' ? v.category : null;
           const c = Math.max(1, Number(v && typeof v === 'object' ? v.count : 1) || 1);
           if (cat === 'Shell') shellHits += c;
-          if (cat === 'Web Research') searchHits += c;
+          if (cat === 'Web Research') webSearchHits += c;
           if (cat === 'Agent') agentHits += c;
         }
       } else if (it.name) {
         const cat = classifyToolCategory(it.name, it.args || {});
         if (cat === 'Shell') shellHits = count;
-        if (cat === 'Web Research') searchHits = count;
+        if (cat === 'Web Research') webSearchHits = count;
         if (cat === 'Agent') agentHits = count;
       }
       if (shellHits > 0) {
         shellCount += shellHits;
         if (started > 0 && (shellStart === 0 || started < shellStart)) shellStart = started;
       }
-      if (searchHits > 0) {
-        searchCount += searchHits;
-        if (started > 0 && (searchStart === 0 || started < searchStart)) searchStart = started;
+      if (webSearchHits > 0) {
+        webSearchCount += webSearchHits;
+        if (started > 0 && (webSearchStart === 0 || started < webSearchStart)) webSearchStart = started;
       }
       if (agentHits > 0) {
         agentCount += agentHits;
         if (started > 0 && (agentStart === 0 || started < agentStart)) agentStart = started;
       }
     }
-    if (!shellCount && !searchCount && !agentCount) return '';
-    return `${shellCount}:${shellStart}:${searchCount}:${searchStart}:${agentCount}:${agentStart}`;
+    if (!shellCount && !webSearchCount && !agentCount) return '';
+    return `${shellCount}:${shellStart}:${webSearchCount}:${webSearchStart}:${agentCount}:${agentStart}`;
   }, [state.activeToolSummary, state.items]);
 
   const activeTools = useMemo(() => {
@@ -93,7 +93,7 @@ export function useTranscriptActivity({ state }) {
     const [hc, hs, sc, ss, ac, as] = activeToolsSignature.split(':').map((n) => Number(n) || 0);
     return {
       ...(hc ? { shell: { count: hc, startedAt: hs } } : {}),
-      ...(sc ? { search: { count: sc, startedAt: ss } } : {}),
+      ...(sc ? { web_search: { count: sc, startedAt: ss } } : {}),
       ...(ac ? { agent: { count: ac, startedAt: as } } : {}),
     };
   }, [activeToolsSignature]);

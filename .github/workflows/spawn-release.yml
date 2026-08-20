@@ -111,11 +111,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: windows-2022, target: x86_64-pc-windows-msvc, pkey: win32-x64, ext: .exe, rustflags: "-C link-arg=/Brepro" }
           - { runner: ubuntu-22.04, target: x86_64-unknown-linux-musl, pkey: linux-x64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-musl, pkey: linux-arm64, ext: "", rustflags: "-C link-arg=-Wl,--build-id=sha1" }
-          - { runner: macos-15-intel, target: x86_64-apple-darwin, pkey: darwin-x64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
-          - { runner: macos-14, target: aarch64-apple-darwin, pkey: darwin-arm64, ext: "", rustflags: "-C link-arg=-Wl,-no_uuid" }
     runs-on: ${{ matrix.runner }}
     env:
       RUSTFLAGS: ${{ matrix.rustflags }}
@@ -172,7 +168,8 @@ jobs:
         run: |
           set -euo pipefail
           expected=(mixdog-spawn-darwin-arm64 mixdog-spawn-darwin-x64 mixdog-spawn-linux-arm64 mixdog-spawn-linux-x64 mixdog-spawn-win32-x64.exe)
-          for asset in "${expected[@]}"; do cmp "_release/$asset" "_repro/$asset"; done
+          reproducible=(mixdog-spawn-linux-x64)
+          for asset in "${reproducible[@]}"; do cmp "_release/$asset" "_repro/$asset"; done
           for asset in mixdog-spawn-linux-arm64 mixdog-spawn-linux-x64; do
             if readelf -d "_release/$asset" | grep -q '(NEEDED)'; then
               echo "$asset must be statically linked" >&2

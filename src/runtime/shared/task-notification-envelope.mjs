@@ -12,6 +12,7 @@ import {
   isBracketedShellNotificationEnvelope,
   backgroundTaskHeaderStatus,
 } from './tool-execution-contract.mjs';
+import { displayShellCommand } from './shell-display.mjs';
 
 // Re-export the envelope *detection* predicate so producers and consumers can
 // pull render + detect from one module. Detection primitives live in
@@ -29,7 +30,7 @@ export {
 // so multi-line commands do not re-echo hundreds of chars per notification.
 function compactCommand(command) {
   if (!command) return null;
-  const flat = String(command).replace(/\s+/g, ' ').trim();
+  const flat = displayShellCommand(command).replace(/\s+/g, ' ').trim();
   return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
 }
 

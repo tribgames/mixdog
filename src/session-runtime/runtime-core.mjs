@@ -105,7 +105,7 @@ import {
   LAZY_SECRET_PROVIDERS,
   routeFastKey,
   fastCapableFor,
-  makeSearchCapableFor,
+  makeWebSearchCapableFor,
   fastPreferenceFor,
 } from './model-capabilities.mjs';
 import {
@@ -162,17 +162,17 @@ import {
 import {
   WORKFLOW_ROUTE_SLOTS,
   FIXED_AGENT_SLOTS,
-  SEARCH_DEFAULT_PROVIDER,
-  SEARCH_DEFAULT_MODEL,
+  WEB_SEARCH_DEFAULT_PROVIDER,
+  WEB_SEARCH_DEFAULT_MODEL,
   workflowPresetId,
   normalizeAgentId,
   normalizeWorkflowId,
   DEFAULT_WORKFLOW_ID,
   createWorkflowHelpers,
-  normalizeSearchProviderId,
-  isDefaultSearchRouteConfig,
-  isSearchCapableProvider,
-  normalizeSearchRouteConfig,
+  normalizeWebSearchProviderId,
+  isDefaultWebSearchRouteConfig,
+  isWebSearchCapableProvider,
+  normalizeWebSearchRouteConfig,
   normalizeWorkflowRoute,
   upsertWorkflowPreset,
   createWorkflowRouteHelpers,
@@ -209,12 +209,12 @@ import {
   LEAD_DISALLOWED_TOOLS,
   applyStandaloneToolDefaults,
 } from './tool-defs.mjs';
-import { ONBOARDING_VERSION, QUICK_SEARCH_MODELS } from './quick-search-models.mjs';
+import { ONBOARDING_VERSION, QUICK_WEB_SEARCH_MODELS } from './quick-web-search-models.mjs';
 import {
   sortProviderModels as sortProviderModelsRaw,
   providerModelCacheRow as providerModelCacheRowRaw,
 } from './model-recency.mjs';
-import { createNativeSearch } from './native-search.mjs';
+import { createNativeWebSearch } from './native-web-search.mjs';
 import { createConfigLifecycle } from './config-lifecycle.mjs';
 import { attachSessionHooks } from './session-hooks.mjs';
 import { createQuickModelRows } from './quick-model-rows.mjs';
@@ -251,8 +251,8 @@ import { providerInitCacheKey } from './provider-init-key.mjs';
 import { createRoutePreparationGate } from './route-preparation.mjs';
 import {
   RUNTIME,
-  SEARCH_RUNTIME,
-  SEARCH_TOOL_DEFS,
+  WEB_SEARCH_RUNTIME,
+  WEB_SEARCH_TOOL_DEFS,
   MEMORY_TOOL_DEFS,
   CHANNEL_TOOL_DEFS,
   CODE_GRAPH_TOOL_DEFS,
@@ -263,14 +263,14 @@ import {
   STANDALONE_DATA_DIR,
 } from './runtime-paths.mjs';
 import {
-  dispatchSearchRuntimeTool,
+  dispatchWebSearchRuntimeTool,
   memoryToolArgsForCaller,
   shouldMirrorCompletionToPendingQueue,
 } from './runtime-tool-routing.mjs';
 export {
   __renderToolSearchForTest,
   __saveModelSettingsForTest,
-  dispatchSearchRuntimeTool,
+  dispatchWebSearchRuntimeTool,
   memoryToolArgsForCaller,
   shouldMirrorCompletionToPendingQueue,
 } from './runtime-tool-routing.mjs';
@@ -279,7 +279,7 @@ export {
 export { TOOL_SEARCH_TOOL, SKILL_TOOL };
 const resolveDefaultProvider = makeResolveDefaultProvider(isKnownProvider);
 const resolveRoute = makeResolveRoute(resolveDefaultProvider);
-const searchCapableFor = makeSearchCapableFor(normalizeSearchProviderId, isSearchCapableProvider);
+const webSearchCapableFor = makeWebSearchCapableFor(normalizeWebSearchProviderId, isWebSearchCapableProvider);
 const KEYCHAIN_PREWARM_WAIT_MS = 5000;
 
 const outputStyleStatus = (dataDir = STANDALONE_DATA_DIR, opts = {}) => outputStyleStatusRaw(STANDALONE_ROOT, dataDir || STANDALONE_DATA_DIR, opts);
@@ -381,7 +381,7 @@ export async function createMixdogSessionRuntime({
     contextMod,
     internalTools,
     statusRoutes,
-    searchToolDefs,
+    webSearchToolDefs,
     memoryToolDefs,
     channelToolDefs,
     codeGraphToolDefs,
@@ -394,7 +394,7 @@ export async function createMixdogSessionRuntime({
     profiledImport('context-collect', `${RUNTIME}/context/collect.mjs`),
     profiledImport('internal-tools', `${RUNTIME}/internal-tools.mjs`),
     profiledImport('status-routes', STATUSLINE_SESSION_ROUTES, { optional: true }),
-    profiledImport('search-tool-defs', SEARCH_TOOL_DEFS, { optional: true }),
+    profiledImport('web-search-tool-defs', WEB_SEARCH_TOOL_DEFS, { optional: true }),
     profiledImport('memory-tool-defs', MEMORY_TOOL_DEFS, { optional: true }),
     profiledImport('channel-tool-defs', CHANNEL_TOOL_DEFS, { optional: true }),
     profiledImport('code-graph-tool-defs', CODE_GRAPH_TOOL_DEFS, { optional: true }),
@@ -409,7 +409,7 @@ export async function createMixdogSessionRuntime({
   // (5min), so this adds zero boot-path cost.
   try { mgr.startIdleCleanup?.(); } catch { /* cleanup is best-effort */ }
   rt.memoryModPromise = null;
-  rt.searchModPromise = null;
+  rt.webSearchModPromise = null;
   rt.codeGraphModPromise = null;
 
   // Memory ingest is always-on. `recap` gates only the background cycles;
@@ -419,10 +419,10 @@ export async function createMixdogSessionRuntime({
   const memoryToolsEnabledFn = () => featureEnvOverride('MIXDOG_FEATURE_MEMORY')
     ?? memoryToolsEnabled(rt.config, true);
   const webSearchEnabled = () => featureEnvOverride('MIXDOG_FEATURE_WEB_SEARCH')
-    ?? moduleEnabled(rt.config, 'search', true);
+    ?? moduleEnabled(rt.config, 'webSearch', true);
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
   const featureDisallowedTools = () => [
-    ...(webSearchEnabled() ? [] : ['search', 'web_fetch']),
+    ...(webSearchEnabled() ? [] : ['web_search', 'web_fetch']),
     ...(memoryToolsEnabledFn() ? [] : ['memory', 'recall']),
   ];
 
@@ -449,11 +449,11 @@ export async function createMixdogSessionRuntime({
     return mod;
   }
 
-  async function getSearchModule() {
+  async function getWebSearchModule() {
     const startedAt = performance.now();
-    rt.searchModPromise ??= import(SEARCH_RUNTIME);
-    const mod = await rt.searchModPromise;
-    bootProfile('search-runtime:ready', { ms: (performance.now() - startedAt).toFixed(1) });
+    rt.webSearchModPromise ??= import(WEB_SEARCH_RUNTIME);
+    const mod = await rt.webSearchModPromise;
+    bootProfile('web-search-runtime:ready', { ms: (performance.now() - startedAt).toFixed(1) });
     return mod;
   }
 
@@ -509,7 +509,12 @@ export async function createMixdogSessionRuntime({
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);
   rt.configHasSecrets = false;
   rt.route = resolveRoute(rt.config, { provider, model });
-  rt.searchRoute = normalizeSearchRouteConfig(rt.config.searchRoute);
+  // Unset means the default "follow the Main Model" route, not "unconfigured".
+  rt.webSearchRoute = normalizeWebSearchRouteConfig(rt.config.webSearchRoute)
+    || normalizeWebSearchRouteConfig({
+      provider: WEB_SEARCH_DEFAULT_PROVIDER,
+      model: WEB_SEARCH_DEFAULT_MODEL,
+    });
   bootProfile('config:ready', { ms: (performance.now() - configStartedAt).toFixed(1) });
   rt.mode = normalizeToolMode(toolMode);
   rt.session = null;
@@ -604,7 +609,7 @@ export async function createMixdogSessionRuntime({
     providerModelsCache: { models: null, at: 0 },
     providerModelsPromise: null,
     providerModelsLoadSeq: 0,
-    searchProviderModelsCache: { models: null, at: 0 },
+    webSearchProviderModelsCache: { models: null, at: 0 },
   };
   const providerUsageCaches = {
     usageDashboardCache: { dashboard: null, at: 0 },
@@ -849,13 +854,13 @@ export async function createMixdogSessionRuntime({
   });
   bootProfile('channels:worker-ready', { ms: (performance.now() - channelsStartedAt).toFixed(1) });
   const toolsStartedAt = performance.now();
-  const searchRuntimeTools = (searchToolDefs?.TOOL_DEFS || [])
-    .filter((tool) => ['search', 'web_fetch', 'local_fetch', 'image_fetch'].includes(tool?.name));
+  const webSearchRuntimeTools = (webSearchToolDefs?.TOOL_DEFS || [])
+    .filter((tool) => ['web_search', 'web_fetch', 'local_fetch', 'image_fetch'].includes(tool?.name));
   const standaloneTools = [
     TOOL_SEARCH_TOOL,
     ...(envFlag('MIXDOG_DISABLE_SKILLS') ? [] : [SKILL_TOOL]),
     CWD_TOOL,
-    ...searchRuntimeTools.filter((tool) => tool?.public !== false),
+    ...webSearchRuntimeTools.filter((tool) => tool?.public !== false),
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
@@ -913,20 +918,20 @@ export async function createMixdogSessionRuntime({
     return contextStatus();
   };
   internalTools.setInternalToolsProvider({
-    tools: [...standaloneTools, ...searchRuntimeTools.filter((tool) => tool?.public === false)],
+    tools: [...standaloneTools, ...webSearchRuntimeTools.filter((tool) => tool?.public === false)],
     executor: async (name, args, callerCtx = {}) => {
       const callerCwd = callerCtx?.callerCwd || rt.currentCwd;
       if (callerCtx?.invocationSource === 'model-tool') {
-        if ((name === 'search' || name === 'web_fetch') && !webSearchEnabled()) {
+        if ((name === 'web_search' || name === 'web_fetch') && !webSearchEnabled()) {
           throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
         }
         if ((name === 'memory' || name === 'recall') && !memoryToolsEnabledFn()) {
           throw new Error('memory tools are disabled in settings; background memory and manual core memory remain available');
         }
       }
-      if (name === 'search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
-        return dispatchSearchRuntimeTool(name, args, callerCtx, {
-          getSearchModule,
+      if (name === 'web_search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
+        return dispatchWebSearchRuntimeTool(name, args, callerCtx, {
+          getWebSearchModule,
           getCurrentCwd: () => rt.currentCwd,
           getSession: () => rt.session,
           notifyFnForSession,
@@ -997,7 +1002,7 @@ export async function createMixdogSessionRuntime({
     providerModelCaches.providerModelsCache = { models: null, at: 0 };
     providerModelCaches.providerModelsPromise = null;
     providerModelCaches.providerModelsLoadSeq += 1;
-    providerModelCaches.searchProviderModelsCache = { models: null, at: 0 };
+    providerModelCaches.webSearchProviderModelsCache = { models: null, at: 0 };
     providerUsageCaches.usageDashboardCache = { dashboard: null, at: 0 };
     providerUsageCaches.usageDashboardPromise = null;
     providerUsageCaches.providerSetupCache = { setup: null, at: 0 };
@@ -1009,7 +1014,7 @@ export async function createMixdogSessionRuntime({
 
   // Config reload/save/adopt family + output-style status cache. Extracted to
   // session-runtime/config-lifecycle.mjs; the facade retains ownership of the
-  // config/searchRoute/configHasSecrets mutable locals via getter/setter
+  // config/webSearchRoute/configHasSecrets mutable locals via getter/setter
   // injection (the proven mutable-state pattern).
   const {
     getOutputStyleStatusCached,
@@ -1030,8 +1035,8 @@ export async function createMixdogSessionRuntime({
   } = createConfigLifecycle({
     getConfig: () => rt.config,
     setConfig: (next) => { rt.config = next; },
-    getSearchRoute: () => rt.searchRoute,
-    setSearchRoute: (next) => { rt.searchRoute = next; },
+    getWebSearchRoute: () => rt.webSearchRoute,
+    setWebSearchRoute: (next) => { rt.webSearchRoute = next; },
     getConfigHasSecrets: () => rt.configHasSecrets,
     setConfigHasSecrets: (next) => { rt.configHasSecrets = next; },
     getRoute: () => rt.route,
@@ -1039,7 +1044,7 @@ export async function createMixdogSessionRuntime({
     sharedCfgMod,
     setConfiguredShell,
     normalizeSystemShellConfig,
-    normalizeSearchRouteConfig,
+    normalizeWebSearchRouteConfig,
     outputStyleStatus,
     LAZY_SECRET_PROVIDERS,
     clean,
@@ -1098,12 +1103,12 @@ export async function createMixdogSessionRuntime({
   }
 
   const {
-    currentMainSearchModelMeta,
+    currentMainWebSearchModelMeta,
     runNativeWebSearch,
-  } = createNativeSearch({
+  } = createNativeWebSearch({
     getRoute: () => rt.route,
-    getSearchRoute: () => rt.searchRoute,
-    setSearchRoute: (next) => { rt.searchRoute = next; },
+    getWebSearchRoute: () => rt.webSearchRoute,
+    setWebSearchRoute: (next) => { rt.webSearchRoute = next; },
     getConfig: () => rt.config,
     getSession: () => rt.session,
     getReg: () => reg,
@@ -1111,11 +1116,11 @@ export async function createMixdogSessionRuntime({
     awaitKeychainPrewarm,
     ensureProvidersReady,
     ensureProviderEnabled,
-    normalizeSearchProviderId,
-    normalizeSearchRouteConfig,
-    isDefaultSearchRouteConfig,
-    isSearchCapableProvider,
-    searchCapableFor,
+    normalizeWebSearchProviderId,
+    normalizeWebSearchRouteConfig,
+    isDefaultWebSearchRouteConfig,
+    isWebSearchCapableProvider,
+    webSearchCapableFor,
   });
 
   // Late-bound: createWarmupSchedulers is constructed after this factory, but
@@ -1159,7 +1164,7 @@ export async function createMixdogSessionRuntime({
     sortProviderModels,
     providerModelCacheRow,
     providerModelsFromCacheRows,
-    collectSearchProviderModels,
+    collectWebSearchProviderModels,
     collectProviderModels,
     warmProviderModelCache,
   } = createProviderModels({
@@ -1168,11 +1173,11 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     getConfig: () => rt.config,
     getReg: () => reg,
-    searchCapableFor,
+    webSearchCapableFor,
     sortProviderModelsRaw,
     providerModelCacheRowRaw,
-    normalizeSearchProviderId,
-    isSearchCapableProvider,
+    normalizeWebSearchProviderId,
+    isWebSearchCapableProvider,
     ensureFullConfig,
     awaitKeychainPrewarm,
     ensureProvidersReady,
@@ -1183,31 +1188,31 @@ export async function createMixdogSessionRuntime({
 
   const {
     quickProviderModelRows,
-    addDefaultSearchModel,
-    quickSearchProviderModelRows,
-    searchModelsFromRows,
-    searchRowsWithDefault,
+    addDefaultWebSearchModel,
+    quickWebSearchProviderModelRows,
+    webSearchModelsFromRows,
+    webSearchRowsWithDefault,
   } = createQuickModelRows({
     getRoute: () => rt.route,
-    getSearchRoute: () => rt.searchRoute,
+    getWebSearchRoute: () => rt.webSearchRoute,
     displayConfig,
     providerModelCacheRow,
     providerModelsFromCacheRows,
     sortProviderModels,
     modelMetaByRoute,
     modelMetaKey,
-    normalizeSearchProviderId,
-    normalizeSearchRouteConfig,
-    isSearchCapableProvider,
-    searchCapableFor,
-    currentMainSearchModelMeta,
+    normalizeWebSearchProviderId,
+    normalizeWebSearchRouteConfig,
+    isWebSearchCapableProvider,
+    webSearchCapableFor,
+    currentMainWebSearchModelMeta,
   });
   Object.assign(providerModelQuickHelpers, {
     quickProviderModelRows,
-    addDefaultSearchModel,
-    quickSearchProviderModelRows,
-    searchModelsFromRows,
-    searchRowsWithDefault,
+    addDefaultWebSearchModel,
+    quickWebSearchProviderModelRows,
+    webSearchModelsFromRows,
+    webSearchRowsWithDefault,
   });
 
   // Route resolution + createCurrentSession: session-lifecycle.mjs.
@@ -1502,14 +1507,14 @@ export async function createMixdogSessionRuntime({
     getSession: () => rt.session,
     setSession: adoptSession,
     getConfigHasSecrets: () => rt.configHasSecrets,
-    getSearchRouteState: () => rt.searchRoute,
-    setSearchRouteState: (v) => { rt.searchRoute = v; },
+    getWebSearchRouteState: () => rt.webSearchRoute,
+    setWebSearchRouteState: (v) => { rt.webSearchRoute = v; },
     cfgMod,
     reg,
     mgr,
     statusRoutes,
     resolveRoute,
-    searchCapableFor,
+    webSearchCapableFor,
     lookupModelMeta,
     adoptConfig,
     saveConfigAndAdopt,
@@ -1524,7 +1529,7 @@ export async function createMixdogSessionRuntime({
     invalidateProviderCaches,
     createCurrentSession,
     invalidatePreSessionToolSurface,
-    collectSearchProviderModels,
+    collectWebSearchProviderModels,
   });
   const workflowAgentsApi = createWorkflowAgentsApi({
     getConfig: () => rt.config,
@@ -1695,9 +1700,14 @@ export async function createMixdogSessionRuntime({
     get systemShell() {
       return normalizeSystemShellConfig(rt.config.shell);
     },
-    get searchRoute() {
-      rt.searchRoute = normalizeSearchRouteConfig(rt.config.searchRoute) || normalizeSearchRouteConfig(rt.searchRoute);
-      return rt.searchRoute;
+    get webSearchRoute() {
+      rt.webSearchRoute = normalizeWebSearchRouteConfig(rt.config.webSearchRoute)
+        || normalizeWebSearchRouteConfig(rt.webSearchRoute)
+        || normalizeWebSearchRouteConfig({
+          provider: WEB_SEARCH_DEFAULT_PROVIDER,
+          model: WEB_SEARCH_DEFAULT_MODEL,
+        });
+      return rt.webSearchRoute;
     },
     get workflow() {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;

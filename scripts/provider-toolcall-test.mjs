@@ -22,6 +22,10 @@ import {
     parseResponsesToolCalls as compatParseResponsesToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
 import {
+    _xaiResponsesFingerprintPayloadForTest,
+    xaiResponsesCacheRouting,
+} from '../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
+import {
     GrokOAuthProvider,
 } from '../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
 import {
@@ -900,14 +904,13 @@ test('openai-compat/xai Responses: freeform apply_patch downgrades to function s
     assert.equal(patch.type, 'function');
     assert.equal(patch.format, undefined);
     assert.equal(patch.parameters?.properties?.patch?.type, 'string');
+    assert.equal(patch.parameters?.properties?.patch?.minLength, 1);
     assert.deepEqual(patch.parameters?.required, ['patch']);
     // `root` was intentionally dropped with the out-of-session Root: line
     // (a2ae023e); the JSON fallback carries the single `patch` argument.
     assert.deepEqual(Object.keys(patch.parameters?.properties || {}), ['patch']);
-    for (const requiredText of ['edit files', 'Begin Patch', 'Add File', 'Delete File', 'Update File', 'End Patch']) {
-        assert.match(patch.description, new RegExp(requiredText, 'i'));
-    }
-    assert.doesNotMatch(JSON.stringify(patch), /exact current context|roll ?back/i);
+    assert.equal(patch.description, 'Edit files with one complete V4A patch in `patch`.');
+    assert.doesNotMatch(JSON.stringify(patch), /Begin Patch|Add File|Delete File|Update File|exact current context|roll ?back/i);
 });
 
 test('openai-compat/xai Responses: load_tool downgrades from tool_search to function schema', () => {
@@ -3213,6 +3216,65 @@ test('openai-compat/xai: constructor and HTTP send use only the injected preconn
         if (prevTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
         else process.env.MIXDOG_OAI_TRANSPORT = prevTransport;
     }
+});
+
+test('xai Responses cache defaults to conversation-scoped routing and traces stateless mid-turn misses', () => {
+    const params = { messages: [{ role: 'system', content: 'stable system' }] };
+    const first = xaiResponsesCacheRouting({ sessionId: 'session-a' }, params, [], 'grok-4.6');
+    const same = xaiResponsesCacheRouting({ sessionId: 'session-a' }, params, [], 'grok-4.6');
+    const other = xaiResponsesCacheRouting({ sessionId: 'session-b' }, params, [], 'grok-4.6');
+    assert.equal(first.mode, 'session');
+    assert.equal(first.key, same.key);
+    assert.notEqual(first.key, other.key);
+    assert.equal(first.prefixHash, other.prefixHash);
+
+    const sharedA = xaiResponsesCacheRouting(
+        { sessionId: 'session-a', xaiResponsesCacheScope: 'prefix' },
+        params,
+        [],
+        'grok-4.6',
+    );
+    const sharedB = xaiResponsesCacheRouting(
+        { sessionId: 'session-b', xaiResponsesCacheScope: 'prefix' },
+        params,
+        [],
+        'grok-4.6',
+    );
+    assert.equal(sharedA.mode, 'prefix');
+    assert.equal(sharedA.key, sharedB.key);
+
+    const payload = _xaiResponsesFingerprintPayloadForTest({
+        model: 'grok-4.6',
+        opts: {
+            sessionId: 'session-a',
+            providerState: {
+                xaiResponses: { store: false, seenMessageCount: 6 },
+            },
+        },
+        params: {
+            input: [{ role: 'user', content: 'next' }],
+            prompt_cache_key: first.key,
+            store: false,
+        },
+        rawTools: [],
+        response: {
+            model: 'grok-4.6-build',
+            usage: {
+                input_tokens: 7_324,
+                input_tokens_details: { cached_tokens: 128 },
+            },
+        },
+        cacheRouting: first,
+        previousResponseId: null,
+        inputStartIndex: 0,
+        continuationResetReason: null,
+        transport: 'http',
+        cacheLane: null,
+    });
+    assert.equal(payload.previous_response_used, false);
+    assert.equal(payload.stateless_continuation_used, true);
+    assert.equal(payload.continuation_used, true);
+    assert.equal(payload.mid_turn_cold, true);
 });
 
 test('grok-oauth: every OAuth model is pinned to the CLI proxy over HTTP/SSE', () => {

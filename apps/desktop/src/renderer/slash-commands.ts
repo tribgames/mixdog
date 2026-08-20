@@ -1,6 +1,6 @@
 export type SettingsSection =
   | 'profile' | 'autoclear' | 'autocompact' | 'compact-type' | 'output-style'
-  | 'theme' | 'workflow' | 'model' | 'search' | 'providers' | 'mcp'
+  | 'theme' | 'workflow' | 'model' | 'websearch' | 'providers' | 'mcp'
   | 'plugins' | 'hooks' | 'skills' | 'memory' | 'update';
 
 export type CommandSurface = 'context' | 'usage' | 'doctor';
@@ -30,7 +30,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'context', usage: '/context', description: 'Show current context surface', surface: 'context' },
   { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance', surface: 'usage' },
   { name: 'model', usage: '/model', params: '[name|refresh]', description: 'Switch model for subsequent turns', settingsRow: 'model' },
-  { name: 'search', usage: '/search', description: 'Set the web search provider/model', settingsRow: 'search' },
+  { name: 'websearch', usage: '/websearch', description: 'Set the web search provider/model', settingsRow: 'websearch' },
   { name: 'workflow', usage: '/workflow', params: '[name]', description: 'Switch the active workflow', settingsRow: 'workflow' },
   { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style', settingsRow: 'output-style' },
   { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme', settingsRow: 'theme' },

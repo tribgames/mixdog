@@ -52,11 +52,12 @@ export function xaiCacheRouting(opts, params, rawTools, model) {
 }
 
 export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
-    // Default to 'prefix' so parallel workers sharing the same model + system
-    // + tools land on a common prompt_cache_key, letting xAI's server-side
-    // prefix cache hit across sessions instead of cold-starting per worker.
-    // Override with 'session' (env or opts) for legacy session-isolated lanes.
-    const scope = String(opts?.xaiResponsesCacheScope || process.env.MIXDOG_XAI_RESPONSES_CACHE_SCOPE || 'prefix')
+    // xAI documents prompt_cache_key as the Responses equivalent of a
+    // conversation id. Default to a per-session key so unrelated transcripts
+    // never contend for one server cache route. Explicit 'prefix' remains an
+    // opt-in for controlled cross-session probes; 'none' matches Grok Build's
+    // literal request body and leaves routing to the service.
+    const scope = String(opts?.xaiResponsesCacheScope || process.env.MIXDOG_XAI_RESPONSES_CACHE_SCOPE || 'session')
         .trim()
         .toLowerCase();
     // 'none' omits prompt_cache_key entirely, matching xAI's own reference
@@ -575,7 +576,13 @@ function xaiResponsesFingerprintPayload({ model, opts, params, rawTools, respons
         store: params?.store ?? null,
     };
     const previousResponseUsed = Boolean(previousResponseId);
-    const midTurnCold = previousResponseUsed
+    const statelessState = opts?.providerState?.xaiResponses;
+    const statelessContinuationUsed = !previousResponseUsed
+        && statelessState?.store === false
+        && Number.isInteger(statelessState?.seenMessageCount)
+        && statelessState.seenMessageCount > 0;
+    const continuationUsed = previousResponseUsed || statelessContinuationUsed;
+    const midTurnCold = continuationUsed
         && inputTokens >= 1024
         && (cachedTokens <= 512 || (hitRate != null && hitRate < 0.1));
     return {
@@ -595,6 +602,8 @@ function xaiResponsesFingerprintPayload({ model, opts, params, rawTools, respons
         response_id_hash: response?.id ? traceHash(response.id) : null,
         previous_response_id_hash: previousResponseId ? traceHash(previousResponseId) : null,
         previous_response_used: previousResponseUsed,
+        stateless_continuation_used: statelessContinuationUsed,
+        continuation_used: continuationUsed,
         continuation_reset_reason: continuationResetReason || null,
         input_start_index: inputStartIndex,
         input_count: Array.isArray(params?.input) ? params.input.length : 0,
@@ -625,6 +634,10 @@ function xaiResponsesFingerprintPayload({ model, opts, params, rawTools, respons
     };
 }
 
+export function _xaiResponsesFingerprintPayloadForTest(args) {
+    return xaiResponsesFingerprintPayload(args);
+}
+
 export function traceXaiResponsesCacheContext(args) {
     if (!compatCacheTraceEnabled('xai')) return;
     try {
@@ -642,7 +655,7 @@ export function traceXaiResponsesCacheContext(args) {
             const anomalyPayload = {
                 ...payload,
                 anomaly: 'xai_mid_turn_cold_cache',
-                reason: 'previous_response_id_present_but_cached_tokens_low',
+                reason: 'continuation_prefix_cached_tokens_low',
             };
             appendAgentTrace({
                 sessionId,

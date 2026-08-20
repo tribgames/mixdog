@@ -132,7 +132,7 @@ function toolArgsHash(row) {
   return field(row, 'tool_args_hash') || hashValue(args);
 }
 
-const READONLY_TOOL_NAMES = new Set(['read', 'grep', 'glob', 'list', 'find', 'code_graph', 'recall', 'search', 'web_fetch']);
+const READONLY_TOOL_NAMES = new Set(['read', 'grep', 'glob', 'list', 'find', 'code_graph', 'recall', 'web_search', 'web_fetch']);
 const READONLY_STALL_MIN_RUN = 8;
 const READONLY_ROLE_AGENTS = new Set(['reviewer']);
 const IDENTICAL_CALL_MIN_COUNT = 3;
@@ -1240,9 +1240,9 @@ function buildIssues(routeGroups, cache, tools) {
     });
   }
   for (const g of routeGroups) {
-    // One-shot pseudo-sessions (native web search stamps `<caller>:native-search:<ts>`
+    // One-shot pseudo-sessions (native web search stamps `<caller>:native-web-search:<ts>`
     // per send) have no loop, so full-WS/low-cache is their normal shape, not an issue.
-    if (/:native-search:/.test(String(g.session_id || ''))) continue;
+    if (/:native-web-search:/.test(String(g.session_id || ''))) continue;
     if (g.ws_full > 0 && g.ws_delta === 0 && g.transport_rows > 0) {
       issues.push({ severity: 'high', type: 'cache', message: `${g.agent || shortId(g.session_id)} stayed full WS (${g.ws_full} full, 0 delta)`, session_id: g.session_id });
     } else if (g.ws_full > 0) {

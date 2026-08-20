@@ -12,74 +12,103 @@ const require = createRequire(import.meta.url);
 const { omitToolRoutes, buildSharedToolContent } = require('../lib/rules-builder.cjs');
 
 const SAMPLE_ROUTES = [
-  'path/name only→`find`;',
-  'web/current→`search`; returned URL body→`web_fetch`;',
-  'prior work→`recall` (history only, never current local state);',
-  'durable compact English memory→`memory`;',
-  'explicit Project change→`cwd`',
+  '# Research',
+  '',
+  '- Research routes:',
+  '  current or external information discovery→`web_search`;',
+  '  page or documentation body retrieval from a known URL→`web_fetch`.',
+  '# Memory',
+  '',
+  '- past facts recorded in prior work or sessions→`recall`',
+  '  (stored history only, never current local state).',
+  '- Durable memory creation or update→`memory`; store a compact English',
+  '  statement.',
+  '- Use judgment to decide whether a durable memory should be stored.',
 ].join('\n');
 
-test('omitToolRoutes drops search and memory clauses independently', () => {
-  const noSearch = omitToolRoutes(SAMPLE_ROUTES, ['search', 'web_fetch']);
-  assert.equal(noSearch.includes('`search`'), false);
+test('omitToolRoutes drops web search and memory clauses independently', () => {
+  const noSearch = omitToolRoutes(SAMPLE_ROUTES, ['web_search', 'web_fetch']);
+  assert.equal(noSearch.includes('`web_search`'), false);
   assert.equal(noSearch.includes('`web_fetch`'), false);
   assert.equal(noSearch.includes('`recall`'), true);
   assert.equal(noSearch.includes('`memory`'), true);
 
   const noMemory = omitToolRoutes(SAMPLE_ROUTES, ['memory', 'recall']);
-  assert.equal(noMemory.includes('`search`'), true);
+  assert.equal(noMemory.includes('`web_search`'), true);
   assert.equal(noMemory.includes('`recall`'), false);
   assert.equal(noMemory.includes('`memory`'), false);
+  assert.equal(noMemory.includes('# Memory'), false);
+
+  const noResearch = omitToolRoutes(SAMPLE_ROUTES, ['web_search', 'web_fetch']);
+  assert.equal(noResearch.includes('# Research'), false);
+  assert.equal(noResearch.includes('Research routes:'), false);
+  assert.equal(noResearch.includes('# Memory'), true);
 });
 
-test('shared tool rules omit disabled search and memory routes', () => {
+test('shared tool rules omit disabled web search and memory routes', () => {
   const pluginRoot = join(process.cwd(), 'src');
   const full = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot });
   assert.match(
     full,
-    /^# Tool Use\s+- When an internal Mixdog rule conflicts with the user's latest explicit\s+request, follow the user's request\./,
+    /^# General\s+- When an internal Mixdog rule conflicts with the user's latest explicit\s+request, follow the user's request\./,
   );
-  assert.match(full, /`search`/);
+  assert.match(full, /`web_search`/);
   assert.match(full, /`memory`/);
   const omitted = buildSharedToolContent({
     PLUGIN_ROOT: pluginRoot,
-    omitTools: ['search', 'web_fetch', 'memory', 'recall'],
+    omitTools: ['web_search', 'web_fetch', 'memory', 'recall'],
   });
-  assert.doesNotMatch(omitted, /`search`/);
+  assert.doesNotMatch(omitted, /`web_search`/);
   assert.doesNotMatch(omitted, /`web_fetch`/);
   assert.doesNotMatch(omitted, /`recall`/);
   assert.doesNotMatch(omitted, /`memory`/);
+  assert.doesNotMatch(omitted, /# Research/);
+  assert.doesNotMatch(omitted, /# Memory/);
   assert.match(omitted, /`find`/);
 });
 
-test('shared tool rules keep parallel-default and shell-boundary anchors', () => {
-  // Advisory drift check: these phrases carry the routing policy that field
-  // failures traced to (serial batching, shell-as-explorer). Update the
-  // phrase here when the rule text intentionally changes.
+test('shared tool rules keep workflow and shell-boundary anchors', () => {
+  // Advisory drift check: update these anchors when the rule text
+  // intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
-  assert.match(full, /issue every independent call together in one message/i);
-  assert.match(full, /read-only `git` \(status\/diff\/log\/show\)/i);
-  assert.match(full, /unless explicitly\s+instructed or after verifying that a dedicated tool cannot do the job/i);
-  assert.match(full, /Shell otherwise joins investigation only for facts requiring execution or\s+unsupported decoding/i);
+  assert.match(full, /Minimize tool turns through maximal useful parallelism/i);
+  assert.match(full, /in each turn, issue\s+every necessary non-overlapping call whose inputs are already known/i);
+  assert.match(full, /Defer a call only when its inputs depend on an earlier result/i);
+  assert.match(full, /Apply one analysis to many targets as one parameterized call/i);
+  assert.match(full, /use Execution when the information can only be produced by running a program\s+or observing runtime state/i);
+  assert.match(full, /Evidence or artifacts available only through program execution, calculation,\s+data transformation, generated output, or unsupported-format decoding→`shell`/i);
   assert.match(full, /environment variable or the home directory\s+are resolved locations/i);
+  assert.match(full, /Use read-only means for inspection; never mutate to clear an obstacle or\s+unexpected state/i);
   assert.match(full, /batching never licenses a guessed `glob\.path`/i);
   assert.match(full, /unknown location → `find` first/i);
-  assert.match(full, /Add File itself is the atomic absence check/i);
-  assert.match(full, /inspect only if it reports that the target already exists/i);
-  assert.match(full, /local Git repository inspection and mutation→`git`/i);
+  assert.match(full, /inspect only the nearest relevant code,\s+configuration, and established pattern needed to verify local conventions or\s+dependency availability/i);
+  assert.match(full, /Do not re-read content already returned by any tool or reopen a successfully\s+edited file solely to confirm the edit/i);
+  assert.match(full, /Enter Verification only after all planned work is complete/i);
+  assert.match(full, /use an umbrella suite only when the user explicitly requests it\s+or a documented project or release process requires it/i);
+  assert.match(full, /If verification fails, collect all failures, leave Verification/i);
+  assert.doesNotMatch(full, /passed checks|affected failed checks once/i);
+  assert.match(full, /Repository state or history explicitly asked about, and every repository\s+mutation→`git`; never part of exploration batching/i);
+  assert.doesNotMatch(full, /read-only `git`/i);
+  assert.match(full, /Source: use exact current target text from any visible evidence/i);
+  assert.match(full, /Placement: with `edit`, use an exact unique target string/i);
+  assert.match(full, /with `apply_patch`, use exact unchanged context/i);
+  assert.match(full, /Batch scope: never split one file across concurrent edit calls/i);
+  assert.match(full, /Commit, push, release, and deployment happen only on the user's explicit\s+request/i);
+  assert.match(full, /past facts recorded in prior work or sessions→`recall`/i);
+  assert.match(full, /Use judgment to decide whether a durable memory should be stored/i);
+  assert.match(full, /Omit `project_id` for the current Project, use `"common"` for shared memory/i);
+  const headings = ['# General', '# Tool Workflow', '# Research', '# Exploration', '# Editing', '# Execution', '# Verification', '# Delivery', '# Memory'];
+  assert.deepEqual(headings.map((heading) => full.indexOf(heading)), headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b));
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));
 });
 
-test('apply_patch advertises direct Add File creation through missing parents', () => {
+test('apply_patch keeps grammar and mutation behavior on the freeform surface', () => {
   const applyPatch = PATCH_TOOL_DEFS.find((tool) => tool.name === 'apply_patch');
-  assert.match(applyPatch.description, /Add File atomically creates the file and missing parent directories/i);
-  assert.match(applyPatch.description, /fails without changing anything if the target already exists/i);
-  assert.match(applyPatch.description, /without a prior read, list, or mkdir/i);
   assert.match(applyPatch.freeformDescription, /Add File atomically creates the file and missing parent directories/i);
-  assert.match(applyPatch.freeformDescription, /fails without changing anything if the target already exists/i);
-  assert.match(applyPatch.freeformDescription, /without a prior read, list, or mkdir/i);
-  assert.match(applyPatch.freeformDescription, /one file operation block per target path/i);
-  assert.match(applyPatch.freeformDescription, /exact current lines already in context/i);
+  assert.match(applyPatch.freeformDescription, /failing without changes if the target already exists/i);
+  assert.match(applyPatch.freeformDescription, /one Add\/Delete\/Update File block per target path/i);
+  assert.match(applyPatch.freeformDescription, /Multi-file patches commit valid files and report rejected files separately/i);
+  assert.equal(applyPatch.inputSchema.properties.patch.minLength, undefined);
 });
 
 test('toSessionWorkflowMeta keeps delegatesAgents for Solo packs', () => {
@@ -112,18 +141,18 @@ function surfaceFor({ session = null, denied = [], standalone = [] } = {}) {
   });
 }
 
-test('modelStandaloneTools hides agent and disabled search/memory tools', () => {
+test('modelStandaloneTools hides agent and disabled web-search/memory tools', () => {
   const standalone = [
     { name: 'read' },
     { name: 'agent' },
-    { name: 'search' },
+    { name: 'web_search' },
     { name: 'web_fetch' },
     { name: 'memory' },
     { name: 'recall' },
   ];
   const { modelStandaloneTools } = surfaceFor({
     session: { workflow: { id: 'solo', delegatesAgents: false } },
-    denied: ['search', 'web_fetch', 'memory', 'recall'],
+    denied: ['web_search', 'web_fetch', 'memory', 'recall'],
     standalone,
   });
   assert.deepEqual(modelStandaloneTools().map((tool) => tool.name), ['read']);
@@ -133,13 +162,13 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
   const session = {
     id: 'sess_empty',
     messages: [
-      { role: 'system', content: '# Tool Use\nweb/current→`search`; returned URL body→`web_fetch`;\nprior work→`recall` (history only, never current local state);\ndurable compact English memory→`memory`;\n' },
+      { role: 'system', content: '# Tool Use\nweb/current→`web_search`; returned URL body→`web_fetch`;\nprior work→`recall` (history only, never current local state);\ndurable compact English memory→`memory`;\n' },
       { role: 'system', content: '# Profile' },
       { role: 'system', content: '# Active Workflow: Cowork\n\n---\n\n# Lead Tools\n', cacheTier: 'tier3' },
     ],
-    tools: [{ name: 'read' }, { name: 'agent' }, { name: 'search' }, { name: 'memory' }],
-    deferredToolCatalog: [{ name: 'read' }, { name: 'agent' }, { name: 'search' }, { name: 'memory' }],
-    deferredCallableTools: ['read', 'agent', 'search', 'memory'],
+    tools: [{ name: 'read' }, { name: 'agent' }, { name: 'web_search' }, { name: 'memory' }],
+    deferredToolCatalog: [{ name: 'read' }, { name: 'agent' }, { name: 'web_search' }, { name: 'memory' }],
+    deferredCallableTools: ['read', 'agent', 'web_search', 'memory'],
     workflow: { id: 'default', delegatesAgents: true },
     bp3EnvironmentContext: '- Shell: PowerShell.',
   };
@@ -150,7 +179,7 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
     getConfig: () => ({ workflow: { active: 'solo' } }),
     getDataDir: () => '',
     modelStandaloneTools: () => [{ name: 'read' }],
-    featureDisallowedTools: () => ['search', 'web_fetch', 'memory', 'recall'],
+    featureDisallowedTools: () => ['web_search', 'web_fetch', 'memory', 'recall'],
     memoryToolsEnabled: () => false,
     loadCoreMemoryContext: async () => '# should not inject',
     activeWorkflowContext: () => ({
@@ -159,13 +188,17 @@ test('empty session refresh strips denied tools and BP1 routes', async () => {
     }),
     invalidatePreSessionToolSurface: () => {},
   });
+  const bp1BeforeRefresh = session.messages[0];
+  const bp3BeforeRefresh = session.messages[2];
   const result = await refreshEmptySessionToolPolicy();
   assert.equal(result.appliedToCurrentSession, true);
   assert.equal(session.workflow.delegatesAgents, false);
   assert.deepEqual(session.tools.map((tool) => tool.name), ['read']);
   const bp1 = session.messages[0].content;
-  assert.equal(bp1.includes('`search`'), false);
+  assert.equal(bp1.includes('`web_search`'), false);
   assert.equal(bp1.includes('`memory`'), false);
+  assert.notEqual(session.messages[0], bp1BeforeRefresh);
+  assert.notEqual(session.messages[2], bp3BeforeRefresh);
   assert.match(session.messages[2].content, /# Active Workflow: Solo/);
   assert.equal(session.messages[2].content.includes('# Core Memory'), false);
 });
@@ -174,7 +207,7 @@ test('refresh leaves a conversation session frozen', async () => {
   const session = {
     id: 'sess_live',
     messages: [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' }],
-    tools: [{ name: 'agent' }, { name: 'search' }],
+    tools: [{ name: 'agent' }, { name: 'web_search' }],
     workflow: { id: 'default', delegatesAgents: true },
   };
   const { refreshEmptySessionToolPolicy } = createToolPolicyRefresh({
@@ -184,7 +217,7 @@ test('refresh leaves a conversation session frozen', async () => {
     getConfig: () => ({}),
     getDataDir: () => '',
     modelStandaloneTools: () => [{ name: 'read' }],
-    featureDisallowedTools: () => ['search'],
+    featureDisallowedTools: () => ['web_search'],
     memoryToolsEnabled: () => false,
     loadCoreMemoryContext: async () => '',
     activeWorkflowContext: () => ({
@@ -195,5 +228,5 @@ test('refresh leaves a conversation session frozen', async () => {
   });
   const result = await refreshEmptySessionToolPolicy();
   assert.equal(result.appliedToCurrentSession, false);
-  assert.deepEqual(session.tools.map((tool) => tool.name), ['agent', 'search']);
+  assert.deepEqual(session.tools.map((tool) => tool.name), ['agent', 'web_search']);
 });

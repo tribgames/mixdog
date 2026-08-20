@@ -40,6 +40,15 @@ const POINTER_DRAG_PX = 4;
 // write in the burst read as reader intent.
 const PROGRAMMATIC_WINDOW_MS = 1_500;
 const PROGRAMMATIC_MEMORY = 12;
+// Jump-to-latest must BEAT the motion it interrupts. Both this hook and the
+// virtual timeline gate every end write on reader ownership, so a click that
+// landed inside a live gesture window (wheel ramp, fling tail, scrollbar drag)
+// was swallowed whole: the transcript kept coasting and the offset never moved
+// (user: 스크롤 중에 최신으로 이동을 눌러도 즉시 멈추지 않는다). The jump
+// therefore drops reader ownership first, then re-pins the tail frame by frame
+// until the residual momentum Chromium still delivers is overwritten.
+const JUMP_PIN_MS = 400;
+const JUMP_PIN_SETTLE_FRAMES = 3;
 
 /**
  * Content-commit bottom rule: was the viewport at
@@ -257,6 +266,10 @@ export function useTranscriptFollow({
   // Distance from the bottom as of the last event that was NOT a content
   // mutation — the pre-mutation snapshot the reference implementations take.
   const lastDistance = useRef(0);
+  // Jump-to-latest re-pin loop: frame handle, deadline, settled-frame count.
+  const jumpPinFrame = useRef(0);
+  const jumpPinUntil = useRef(0);
+  const jumpPinSettled = useRef(0);
 
   const publish = useCallback((next: boolean) => {
     followingRef.current = next;
@@ -266,10 +279,29 @@ export function useTranscriptFollow({
     setFollowing((current) => (current === next ? current : next));
   }, [setAnchorBottomRef]);
 
+  const cancelJumpPin = useCallback(() => {
+    if (jumpPinFrame.current) window.cancelAnimationFrame(jumpPinFrame.current);
+    jumpPinFrame.current = 0;
+    jumpPinUntil.current = 0;
+    jumpPinSettled.current = 0;
+  }, []);
+
+  /** The jump owns the viewport only until the reader asks for it back. */
   const markGesture = useCallback(() => {
+    cancelJumpPin();
     const now = Date.now();
     gestureAt.current = now;
     readerMotionAt.current = now;
+  }, [cancelJumpPin]);
+
+  /** Reader ownership ends the instant the reader asks for the tail. */
+  const clearReaderGesture = useCallback(() => {
+    gestureAt.current = 0;
+    readerMotionAt.current = 0;
+    touchGesture.current = undefined;
+    pointerGesture.current = undefined;
+    pointerDragging.current = false;
+    chromeScroll.current = false;
   }, []);
   const hasGesture = useCallback(
     () => Date.now() - gestureAt.current < GESTURE_WINDOW_MS,
@@ -503,22 +535,68 @@ export function useTranscriptFollow({
     }
   }, [markGesture, stop, viewport]);
 
+  // Chromium's wheel/fling animation keeps writing scrollTop after the click,
+  // and it cannot be cancelled from JS — so the tail is simply re-taken every
+  // frame until the offset holds still or the short deadline expires. A new
+  // reader gesture (markGesture) cancels the loop, so the reader always wins.
+  const startJumpPin = useCallback(() => {
+    if (!viewport.current) return;
+    jumpPinUntil.current = Date.now() + JUMP_PIN_MS;
+    jumpPinSettled.current = 0;
+    const step = () => {
+      jumpPinFrame.current = 0;
+      const root = viewport.current;
+      if (!root || !followingRef.current || Date.now() >= jumpPinUntil.current) {
+        cancelJumpPin();
+        return;
+      }
+      if (distanceFromBottom(root) < 2) {
+        jumpPinSettled.current += 1;
+        if (jumpPinSettled.current >= JUMP_PIN_SETTLE_FRAMES) {
+          cancelJumpPin();
+          return;
+        }
+      } else {
+        jumpPinSettled.current = 0;
+        scrollToEndRef?.current?.("auto");
+      }
+      jumpPinFrame.current = window.requestAnimationFrame(step);
+    };
+    if (jumpPinFrame.current) window.cancelAnimationFrame(jumpPinFrame.current);
+    jumpPinFrame.current = window.requestAnimationFrame(step);
+  }, [cancelJumpPin, scrollToEndRef, viewport]);
+
   const resume = useCallback(() => {
+    cancelJumpPin();
+    // Before any write: the timeline refuses every end write while a gesture
+    // window is open, so the jump has to close that window itself.
+    clearReaderGesture();
     publish(true);
     scrollToBottom(true);
+    startJumpPin();
     const element = viewport.current;
     if (element) scheduleScrollState(element);
-  }, [publish, scheduleScrollState, scrollToBottom, viewport]);
+  }, [
+    cancelJumpPin,
+    clearReaderGesture,
+    publish,
+    scheduleScrollState,
+    scrollToBottom,
+    startJumpPin,
+    viewport,
+  ]);
   // Session ENTRY only re-arms following; it must not write scrollTop. The
   // virtual timeline already resolves its end position (initialOffset +
   // scrollToEnd), and a raw `scrollTop = scrollHeight` here made entry carry
   // TWO scroll authorities aiming at different offsets — the multi-frame
   // jump/flicker on re-entering a session.
   const arm = useCallback(() => {
+    // A pin from the previous session must not write into the new one.
+    cancelJumpPin();
     publish(true);
     const element = viewport.current;
     if (element) scheduleScrollState(element);
-  }, [publish, scheduleScrollState, viewport]);
+  }, [cancelJumpPin, publish, scheduleScrollState, viewport]);
 
   useEffect(() => {
     const target = content.current;
@@ -624,6 +702,7 @@ export function useTranscriptFollow({
 
   useEffect(() => () => {
     if (scrollStateFrame.current) window.cancelAnimationFrame(scrollStateFrame.current);
+    if (jumpPinFrame.current) window.cancelAnimationFrame(jumpPinFrame.current);
   }, []);
 
   return {

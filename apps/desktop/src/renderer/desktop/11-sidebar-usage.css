@@ -1,0 +1,381 @@
+/* Desktop layer 11 — Usage flyout, provider quota meters.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Rail usage popup: the subscription meters float from the rail foot as a
+   VS Code account-style flyout. It mirrors the usage-detail chrome and sits
+   just under the per-provider detail popover (z 1100), which anchors beside
+   the selected row inside this panel. */
+.rail-usage-popup {
+  position: fixed;
+  z-index: 1090;
+  left: 56px;
+  bottom: var(--rail-usage-popup-bottom, 48px);
+  width: 312px;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-window-band);
+  box-shadow: var(--mx-floating);
+  animation: mx-menu-in 120ms ease-out;
+}
+.rail-usage-popup[data-state="closed"] { display: none; }
+.sidebar-usage {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+}
+/* Every grid child clamps to the flyout track: `min-width: auto` let the
+   list's min-content blow the 280px popup open and clip the right column
+   (user: 다 틀어져 있다). */
+.sidebar-usage > * { min-width: 0; }
+.sidebar-usage-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 1px 8px 7px;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.sidebar-usage-heading > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
+  letter-spacing: var(--mx-tracking-tight);
+}
+/* Pin toggle rides the title row's right edge (user: 타이틀 오른쪽 핀모드). */
+.sidebar-usage-heading > .sidebar-usage-pin {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.sidebar-usage-heading > .sidebar-usage-pin:hover,
+.sidebar-usage-heading > .sidebar-usage-pin:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  outline: 0;
+}
+/* Diagonal pushpin (user: 대각핀): VS Code's tilted pin reading. */
+.sidebar-usage-heading > .sidebar-usage-pin svg { transform: rotate(45deg); }
+.sidebar-usage-heading > .sidebar-usage-pin.is-active { color: var(--mx-text-accent); }
+.sidebar-usage-list {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md);
+}
+.sidebar-usage > .pane-surface-gate {
+  min-height: 180px;
+  background: transparent;
+}
+.sidebar-usage > .pane-surface-gate > .pane-surface-gate-content {
+  display: block;
+}
+.sidebar-usage-content {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+}
+/* One calm provider section: identity and reset on top, then strict
+   period | meter | percentage columns underneath. */
+.sidebar-usage-row {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
+  border-radius: 0;
+  color: var(--mx-text);
+  background: transparent;
+  text-align: left;
+}
+.sidebar-usage-row:last-child { border-bottom: 0; }
+.sidebar-usage-provider-icon {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mx-text);
+  background: transparent;
+}
+.sidebar-usage-provider-icon { width: 20px; height: 20px; flex: 0 0 20px; }
+.sidebar-usage-provider-icon svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
+.sidebar-usage-line { min-width: 0; min-height: 20px; display: flex; align-items: center; gap: 6px; }
+.sidebar-usage-line > b {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-usage-line > small {
+  margin-left: auto;
+  /* The reset schedule may lose its tail, never the popup edge (user: 창이
+     다 틀어진다 — clipped "Resets in 5d 13…"). */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-micro);
+}
+/* Orca detail-style quota block: each window is one row — label, progress
+   track, percentage. The reset schedule lives on the provider line above
+   (user: 아이콘과 같은 선상). Fixed side columns keep every bar the same
+   length across rows. */
+.sidebar-usage-meters {
+  display: grid;
+  gap: 6px;
+  /* Start the period column under the provider name (20px icon + 5px gap)
+     so labels never poke out past the logo (user: 로고보다 기간이 더 앞). */
+  padding-left: 25px;
+}
+.sidebar-usage-meter {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 7px;
+}
+.sidebar-usage-meter > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+  letter-spacing: var(--mx-tracking-wide);
+}
+.sidebar-usage-meter > i {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  height: 5px;
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-text) 13%, transparent);
+}
+.sidebar-usage-meter > i > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  /* Same quiet/default → warning → danger ladder as the pinned rail meter. */
+  background: color-mix(in srgb, var(--mx-text) 52%, transparent);
+}
+.sidebar-usage-meter.tone-warning > i > i { background: var(--mx-warning); }
+.sidebar-usage-meter.tone-danger > i > i { background: var(--mx-danger); }
+.sidebar-usage-meter > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-micro);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-usage-meter.tone-warning > b { color: var(--mx-warning); }
+.sidebar-usage-meter.tone-danger > b { color: var(--mx-danger); }
+.sidebar-usage-meter-empty { grid-template-columns: minmax(0, 1fr); }
+.sidebar-usage-meter-empty > small { color: var(--mx-text-faint); }
+.sidebar-usage-error {
+  margin: 0;
+  padding: 0 9px 6px;
+  color: var(--mx-danger);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-micro);
+}
+/* Reset credits keep their individual expiry and action visible. */
+.sidebar-usage-reset-credit {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+}
+.sidebar-usage-reset-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 0 7px;
+}
+.sidebar-usage-reset-heading > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+}
+.sidebar-usage-reset-heading > small {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+  font-size: var(--mx-font-micro);
+  line-height: var(--mx-line-micro);
+}
+.sidebar-usage-reset-list { display: grid; }
+.sidebar-usage-reset-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px 10px;
+  padding: 7px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--mx-border-muted) 68%, transparent);
+}
+.sidebar-usage-reset-summary {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.sidebar-usage-reset-summary > b {
+  overflow: hidden;
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-usage-reset-summary > small,
+.sidebar-usage-reset-confirmation p,
+.sidebar-usage-reset-notice { color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.sidebar-usage-reset-confirmation {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+.sidebar-usage-reset-confirmation p,
+.sidebar-usage-reset-notice { margin: 0; }
+.sidebar-usage-reset-row > button,
+.sidebar-usage-reset-actions button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  font-size: var(--mx-font-meta);
+}
+.sidebar-usage-reset-row > button { width: auto; min-width: 46px; justify-self: end; white-space: nowrap; }
+.sidebar-usage-reset-actions { display: flex; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.sidebar-usage-reset-actions button:last-child { color: var(--mx-text-accent); background: var(--mx-pressed); }
+.sidebar-usage-reset-credit button:disabled { opacity: var(--mx-op-disabled); }
+.sidebar-usage-reset-notice { margin: 0 2px; padding: 2px 0; }
+.sidebar-update-loader {
+  position: relative;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  display: block;
+  color: currentColor;
+  animation: spin .7s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-update-loader { animation: none; }
+}
+/* Collapsed section heading keeps the unread signal visible. */
+.sidebar-heading-dot {
+  width: 6px;
+  height: 6px;
+  /* Share the session unread dot's trailing edge: 6px row inset + 4px
+     outer margin keeps every activity marker on one right-hand line. */
+  margin: 0 4px 0 auto;
+  border-radius: 50%;
+  background: var(--mx-text-accent);
+}
+.session-sidebar .standalone-group,
+.session-sidebar .project-group { max-height: none; overflow: visible; }
+.session-group { gap: 2px; }
+.session-group h2 {
+  height: 28px;
+  padding: 0;
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+}
+.session-list { gap: 1px; padding: 0; }
+.session-row-copy { display: block; gap: 0; }
+.session-row-copy { min-width: 0; flex: 1; overflow: hidden; }
+/* Only a live row yields space to the trailing spinner. The 18px inset ends
+   4px before its 12px glyph; settled titles keep the complete row width. */
+.session-row.working .session-row-copy { padding-right: 18px; }
+.session-row-copy b {
+  display: block;
+  overflow: hidden;
+  color: var(--mx-text);
+  /* ITEM tier (chrome ramp): 13px full ink. 14px rows crowded the 14/600
+     category headings — Korean titles especially read a size class larger
+     than the latin automation group names (user: 왜 세션네임은 크지). */
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+  text-overflow: clip;
+  white-space: nowrap;
+  /* Fade-out: long titles dissolve at the row edge instead of
+     hard-clipping into the border (user request). */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+/* Unread activity dot: the session gained messages while it
+   was not the viewed conversation. */
+.session-row-unread-dot {
+  /* Anchored like .session-row-status so the dot CENTER rides the same
+     right column as the spinner and the header "+" (user: 세션 리스트
+     닷도 + 스피너 라인에 맞추고): status center = right 8 + 6, dot is 7px
+     → right 10.5 lands both on one axis. */
+  position: absolute;
+  z-index: 2;
+  right: 10.5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--mx-accent);
+}
+/* The absolute dot no longer reserves flow space: unread rows keep the same
+   text clearance the working rows use. */
+.session-row:has(.session-row-unread-dot) .session-row-copy { padding-right: 18px; }
+/* Hovered rows swap the dot for the action cluster: the archive button
+   rises exactly where the dot sat, so the two never fight for the edge. */
+.session-row:hover .session-row-unread-dot,
+.session-row:has(:focus-visible) .session-row-unread-dot { visibility: hidden; }
+.session-row:hover .session-row-status,
+.session-row:has(:focus-visible) .session-row-status { visibility: hidden; }
+

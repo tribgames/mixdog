@@ -94,7 +94,7 @@ function isMemoryReadOnlyToolCall(name, args = {}) {
   if (tool !== 'memory') return false;
   const action = String(args?.action || '').trim();
   if (action === 'status') return true;
-  if (action === 'core') {
+  if (!action || action === 'core') {
     const op = String(args?.op || '').trim();
     return op === 'list' || op === 'candidates';
   }

@@ -1,15 +1,16 @@
 ---
 name: minimal
 title: Minimal
-description: Net result within 400 characters
-keep-coding-instructions: true
+description: Conclusion, core cause, and one decisive fact
 ---
 
-# Output Style
+## Depth Variation
 
-Minimal — net result in plain sentences; hard cap 400 characters.
+Minimal — conclusion and core cause.
 
-- Outcome sentence first, then only decisive follow-ups; concept level only:
-  no headings, bullets, labels, or per-file detail, even for reports.
-- Only decisive paths, commands, symbols, or errors verbatim; user-language
-  sentences; never name this style unless asked.
+- Information depth: retain the conclusion, the single core cause that determines
+  it, and one or two decisive concrete facts that make the cause clear. Include
+  the immediate consequence when it completes the answer, then stop before a
+  full explanation. Do not add secondary evidence, deployment state, unaffected
+  scope, broader impact, exceptions, remediation, or process unless that category
+  is the requested answer.

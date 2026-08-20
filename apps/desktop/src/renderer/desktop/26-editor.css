@@ -1,0 +1,1047 @@
+/* Desktop layer 26 — Monaco editor pane, breadcrumbs, git + terminal docks.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* File editor tab (Monaco) */
+.editor-tab-pane {
+  padding: 0;
+  /* schedules-pane is shared with scrolling list pages. A code tab must not
+     inherit those outer scrollers: Monaco exclusively owns both axes. */
+  overflow: hidden;
+}
+.editor-tab-pane > .pane-surface-gate {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.editor-tab-pane > .pane-surface-gate > .pane-surface-gate-content {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.editor-pane { display: flex; flex-direction: column; flex: 1; width: 100%; min-width: 0; height: 100%; min-height: 0; background: var(--mx-workspace-sheet); }
+/* Same control grammar as the session-header cluster (.session-dock-toggle):
+   28px box, 6px radius, label ink, 4px rhythm — the file strip's icons must
+   not read lighter than the TASK row above (user decision). */
+.editor-breadcrumb-actions { height: 30px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; margin-left: auto; padding: 0; }
+.editor-breadcrumb-actions button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text);
+  cursor: pointer;
+}
+/* Same 18px optical frame as the header cluster (context/remote/panel):
+   the previous 16px glyph read visibly lighter than the TASK-side icons in
+   the row above (user: 파일쪽 아이콘이 훨씬 잘 안 보인다). */
+.editor-breadcrumb-actions svg.lucide { width: var(--mx-icon-lg); height: var(--mx-icon-lg); }
+.editor-breadcrumb-actions .editor-revert-action svg.lucide { width: var(--mx-icon-lg); height: var(--mx-icon-lg); }
+/* Disabled (e.g. Save with no unsaved changes) stays clearly quieter but no
+   longer near-invisible on the dark breadcrumb strip. */
+.editor-breadcrumb-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.editor-breadcrumb-actions button:not(:disabled):hover,
+.editor-breadcrumb-actions button:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.editor-breadcrumbs {
+  height: 30px;
+  flex: 0 0 30px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px 0 8px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  background: var(--mx-workspace-sheet);
+  font-size: var(--mx-font-minor);
+}
+.editor-breadcrumb-path { min-width: 0; flex: 1; display: flex; align-items: center; overflow: hidden; white-space: nowrap; }
+.editor-breadcrumb-path > svg { flex: 0 0 auto; margin: 0 2px; opacity: var(--mx-op-secondary); }
+.editor-breadcrumb-item {
+  min-width: 0;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.editor-breadcrumb-item > span { overflow: hidden; text-overflow: ellipsis; }
+.editor-breadcrumb-item > svg { flex: 0 0 auto; }
+.editor-breadcrumb-current { color: var(--mx-text); font-weight: var(--mx-weight-regular); }
+.editor-breadcrumb-current:disabled { color: var(--mx-text); opacity: var(--mx-op-soft); }
+.editor-breadcrumb-item:hover,
+.editor-breadcrumb-item:focus-visible,
+.editor-breadcrumb-item[aria-expanded="true"] { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.editor-breadcrumb-item:disabled { opacity: var(--mx-op-secondary); cursor: default; }
+.editor-breadcrumb-symbol { color: var(--mx-text); }
+.editor-breadcrumb-picker {
+  position: fixed;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .35);
+}
+.editor-breadcrumb-picker::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 16px;
+  width: 0;
+  height: 0;
+  border-right: 8px solid transparent;
+  border-bottom: 8px solid var(--mx-border-muted);
+  border-left: 8px solid transparent;
+}
+.editor-breadcrumb-picker-header {
+  height: 26px;
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.editor-breadcrumb-picker-header > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-breadcrumb-picker-header button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  flex: 0 0 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: inherit;
+  background: transparent;
+}
+.editor-breadcrumb-picker-header button:not(:disabled):hover,
+.editor-breadcrumb-picker-header button:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.editor-breadcrumb-picker-header button:disabled { opacity: var(--mx-op-ghost); }
+.editor-breadcrumb-picker-tree { min-height: 0; flex: 1; overflow: auto; padding: 2px; }
+.editor-breadcrumb-picker-tree > p {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.editor-breadcrumb-picker-tree > button {
+  width: 100%;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-hair);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-minor);
+  text-align: left;
+  cursor: default;
+}
+.editor-breadcrumb-picker-tree > button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.editor-breadcrumb-picker-tree > button > span,
+.editor-breadcrumb-picker-tree > button > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-breadcrumb-picker-tree > button > span { min-width: 0; }
+.editor-breadcrumb-picker-tree > button > small { margin-left: auto; color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.editor-breadcrumb-picker-tree > button:hover,
+.editor-breadcrumb-picker-tree > button:focus-visible,
+.editor-breadcrumb-picker-tree > button.selected { color: var(--mx-grey-50); background: var(--mx-focus); outline: 0; }
+.editor-breadcrumb-picker-tree > button:hover > svg,
+.editor-breadcrumb-picker-tree > button:focus-visible > svg,
+.editor-breadcrumb-picker-tree > button.selected > svg,
+.editor-breadcrumb-picker-tree > button:hover > small,
+.editor-breadcrumb-picker-tree > button:focus-visible > small,
+.editor-breadcrumb-picker-tree > button.selected > small { color: inherit; }
+.editor-pane-recovery,
+.editor-pane-conflict { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: var(--mx-font-minor); background: color-mix(in srgb, var(--mx-warning) 12%, transparent); border-bottom: .5px solid var(--mx-border-muted); }
+.editor-pane-recovery > span,
+.editor-pane-conflict > span { min-width: 0; flex: 1; }
+.editor-pane-recovery button,
+.editor-pane-conflict button { border: .5px solid var(--mx-border-muted); background: var(--mx-workspace-sheet); font-size: var(--mx-font-minor); padding: 2px 8px; border-radius: var(--mx-radius-md); cursor: pointer; }
+.editor-pane-body { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.editor-pane-body > section,
+.editor-pane-body > section > div {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* VS Code output parity inside editable log models: the source CSI bytes stay
+   in Monaco for save/undo, but consume no visual width. */
+.monaco-editor .editor-ansi-control { display: none !important; font-size: 0 !important; }
+.editor-statusbar {
+  position: relative;
+  z-index: 39;
+  height: 22px;
+  flex: 0 0 22px;
+  display: flex;
+  align-items: center;
+}
+/* Unfocused panes RESERVE the statusbar row (no 22px focus jump) but hide
+   its content; visibility also removes it from hit-testing. */
+.editor-statusbar-idle {
+  visibility: hidden;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
+  border-top: .5px solid var(--mx-border-muted);
+  color: var(--mx-text);
+  background: var(--mx-window-band);
+  font-size: var(--mx-font-minor);
+}
+.editor-statusbar-left,
+.editor-statusbar-right { min-width: 0; height: 100%; display: flex; align-items: center; gap: 1px; }
+.editor-statusbar-right { margin-left: auto; overflow: hidden; }
+.editor-statusbar button {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.editor-statusbar button:hover,
+.editor-statusbar button:focus-visible,
+.editor-statusbar button[aria-expanded="true"] { background: var(--mx-hover); outline: 0; }
+.editor-statusbar-left button > span { font-size: var(--mx-font-ui); line-height: 1; }
+/* Read-only language indicator (final cleanup: the encoding/EOL/indentation
+   pickers left the status bar). */
+.editor-statusbar-language {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+.editor-pane { position: relative; }
+.editor-call-hierarchy-zone { position: relative; width: 100%; height: 100%; overflow: visible; }
+.editor-call-hierarchy-zone::before {
+  content: "";
+  position: absolute;
+  z-index: 37;
+  top: -6px;
+  left: var(--peek-arrow-left, 12px);
+  width: 0;
+  height: 0;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid var(--mx-focus);
+  border-left: 6px solid transparent;
+  transform: translateX(-50%);
+}
+.editor-call-hierarchy {
+  position: absolute;
+  z-index: 36;
+  inset: 0;
+  display: grid;
+  grid-template-rows: 24px minmax(0, 1fr) 4px;
+  overflow: hidden;
+  border-top: 1px solid var(--mx-focus);
+  border-bottom: 1px solid var(--mx-focus);
+  color: var(--mx-text);
+  background: var(--mx-workspace-sheet);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, .24);
+}
+.editor-call-hierarchy > header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 8px;
+  background: color-mix(in srgb, var(--mx-focus) 8%, var(--mx-bg-layer-1));
+}
+.editor-call-hierarchy-title { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 7px; }
+.editor-call-hierarchy-title b,
+.editor-call-hierarchy-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-call-hierarchy-title b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.editor-call-hierarchy-title small { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.editor-call-hierarchy-actions { display: flex; align-items: center; gap: 1px; }
+.editor-call-hierarchy-actions button {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.editor-call-hierarchy-actions button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.editor-call-hierarchy-actions button:disabled { opacity: var(--mx-op-ghost); cursor: default; }
+.editor-call-hierarchy-results { min-width: 0; min-height: 0; display: grid; overflow: hidden; }
+.editor-call-hierarchy-preview { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--mx-workspace-sheet); }
+.editor-call-hierarchy-preview > p,
+.editor-call-hierarchy-tree > p {
+  margin: 0;
+  padding: 18px 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  text-align: center;
+}
+.editor-call-hierarchy-sash { position: relative; z-index: 2; width: 4px; cursor: col-resize; background: var(--mx-border-muted); }
+.editor-call-hierarchy-sash:hover { background: var(--mx-focus); }
+.editor-call-hierarchy-tree {
+  min-width: 100px;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px;
+  outline: 0;
+  background: var(--mx-bg-layer-1);
+}
+.editor-call-hierarchy-tree > [role="treeitem"] {
+  min-width: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--mx-radius-sm);
+}
+.editor-call-hierarchy-tree > [role="treeitem"].selected { background: var(--mx-focus); color: var(--mx-grey-50); }
+.editor-call-hierarchy-row {
+  min-width: 0;
+  height: 22px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 2px 0 7px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: default;
+}
+.editor-call-hierarchy-row > span { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
+.editor-call-hierarchy-row b,
+.editor-call-hierarchy-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-call-hierarchy-row b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
+.editor-call-hierarchy-row small { color: inherit; opacity: var(--mx-op-secondary); font-size: var(--mx-font-micro); }
+.editor-call-hierarchy-expand {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.editor-call-hierarchy-expand:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+.editor-call-hierarchy-height-sash { height: 4px; cursor: row-resize; background: transparent; }
+.editor-call-hierarchy-height-sash:hover { background: var(--mx-focus); }
+.editor-call-hierarchy-match { background: color-mix(in srgb, var(--mx-focus) 28%, transparent); }
+.editor-pane-preview {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: var(--mx-bg-base);
+}
+.editor-pane-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+/* Web default canvas: pages without an own background expect white. */
+.editor-pane-preview iframe { width: 100%; height: 100%; border: 0; background: var(--mx-grey-50); }
+.editor-pane-preview video { display: block; max-width: 100%; max-height: 100%; }
+.editor-pane-preview audio { width: min(560px, calc(100% - 32px)); }
+.editor-pane-preview[data-ready='false'] > img,
+.editor-pane-preview[data-ready='false'] > iframe,
+.editor-pane-preview[data-ready='false'] > video,
+.editor-pane-preview[data-ready='false'] > audio { opacity: 0; }
+.editor-pane-preview-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+  font-size: var(--mx-font-code);
+}
+.editor-pane-preview-loading p { margin: 0; }
+.editor-pane-preview-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+  font-size: var(--mx-font-code);
+}
+.editor-pane-preview-error button { display: inline-flex; align-items: center; gap: 5px; border: .5px solid var(--mx-border-muted); background: none; color: var(--mx-text); font-size: var(--mx-font-minor); padding: 4px 10px; border-radius: var(--mx-radius-md); cursor: pointer; }
+.editor-pane-notice { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; height: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-code); }
+.editor-pane-notice button { display: inline-flex; align-items: center; gap: 5px; border: .5px solid var(--mx-border-muted); background: none; color: var(--mx-text); font-size: var(--mx-font-minor); padding: 4px 10px; border-radius: var(--mx-radius-md); cursor: pointer; }
+.editor-pane-spinner { animation: spin 1s linear infinite; }
+.workbench-quick-access-layer {
+  position: fixed;
+  z-index: 80;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(48px, calc(env(titlebar-area-height, 0px) + 20px)) 16px 16px;
+  background: transparent;
+}
+.workbench-quick-access {
+  width: min(600px, 62vw, calc(100vw - 32px));
+  overflow: hidden;
+  border: .5px solid var(--mx-border);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-overlay);
+}
+.workbench-quick-input {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  color: var(--mx-icon-muted);
+  background: var(--mx-workspace-sheet);
+}
+.workbench-quick-input input {
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  line-height: 1.4;
+}
+.workbench-quick-input input::placeholder { color: var(--mx-text-faint); }
+.workbench-quick-results {
+  max-height: min(40vh, 420px, calc(100vh - 130px));
+  overflow: auto;
+  padding: 4px;
+}
+.workbench-quick-results > button {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.workbench-quick-results > button.active {
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-focus) 28%, var(--mx-bg-layer-1));
+  outline: 1px solid color-mix(in srgb, var(--mx-focus) 55%, transparent);
+  outline-offset: -1px;
+}
+.workbench-quick-results > button[aria-disabled="true"] { opacity: var(--mx-op-disabled); cursor: default; }
+.workbench-quick-results > button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.workbench-quick-results > button > span { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 7px; }
+.workbench-quick-results > button > span b {
+  overflow: hidden;
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-quick-results > button > span small {
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workbench-quick-results > button > span small:first-child:not(:last-child) { flex: 0 0 auto; }
+.workbench-quick-results kbd {
+  flex: 0 0 auto;
+  color: var(--mx-text-faint);
+  font-family: inherit;
+  font-size: var(--mx-font-micro);
+  line-height: 1;
+}
+.workbench-quick-results > p {
+  margin: 0;
+  padding: 13px 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.workbench-unsaved-dialog > p.workbench-unsaved-error {
+  margin: -8px 20px 16px;
+  padding: 8px 10px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+}
+.workbench-unsaved-dialog > footer button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+@media (max-width: 760px) {
+  .workbench-quick-access-layer { padding-top: max(8px, calc(env(titlebar-area-height, 0px) + 8px)); }
+  .workbench-quick-results { max-height: calc(100vh - 76px); }
+}
+.dock-task-row {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+}
+.dock-task-row + .dock-task-row { border-top: 0; }
+.dock-task-row > i {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--mx-success);
+}
+.dock-task-row[data-state="done"] > i { background: var(--mx-icon-muted); }
+.dock-task-row[data-state="failed"] > i { background: var(--mx-danger); }
+.dock-task-copy { min-width: 0; flex: 1; display: grid; }
+.dock-task-copy b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-task-copy small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-task-row > span { flex: 0 0 auto; color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-variant-numeric: tabular-nums; }
+/* Rows are buttons now (click → output viewer). */
+.dock-task-row { border: 0; background: transparent; text-align: left; cursor: pointer; }
+.dock-task-row:hover:not(:disabled) { background: var(--mx-hover); border-radius: var(--mx-radius-sm); }
+.dock-task-row:disabled { cursor: default; }
+/* Agent output viewer. */
+.dock-agent-view { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.utility-dock[data-show-tabs="true"] .dock-agent-view { padding: 4px 8px 8px; }
+.dock-agent-view header { display: flex; align-items: center; gap: 8px; }
+.dock-agent-view header b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-ui); letter-spacing: 0; }
+.dock-agent-view header span { margin-left: auto; color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.dock-agent-view header span[data-state="failed"] { color: var(--mx-danger); }
+.dock-agent-back {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.dock-agent-back:hover { color: var(--mx-icon); background: var(--mx-hover); }
+.dock-agent-view pre {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Terminal tab: always-dark surface (Cursor grammar) so ANSI palettes read. */
+/* Dock Git panel. */
+.dock-git { display: flex; flex-direction: column; gap: 10px; }
+.dock-git-header { display: flex; align-items: center; gap: 8px; }
+.dock-git-header b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); }
+.dock-git-sync {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-pressed);
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.dock-git-sync:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.dock-git-sync:disabled { cursor: default; }
+.dock-git-base { color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
+.dock-git-total { flex: 0 0 auto; font-size: var(--mx-font-meta); }
+.dock-git-refresh {
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.dock-git-refresh:hover { color: var(--mx-icon); background: var(--mx-hover); }
+/* Group headers: muted band, uppercase label,
+   count, right-aligned bulk action. */
+.dock-git section h4 {
+  min-height: 26px;
+  margin: 4px 0 2px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-pressed);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--mx-tracking-wide);
+}
+.dock-git section h4 small { color: var(--mx-text-faint); font-weight: var(--mx-weight-regular); font-size: var(--mx-font-meta); }
+.dock-git-group-action {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+.dock-git-group-action:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.dock-git-empty-group { margin: 2px 0 4px; padding: 0 8px; color: var(--mx-text-faint); font-size: var(--mx-font-minor); font-style: italic; }
+.dock-git-row { display: flex; align-items: center; gap: 4px; min-height: 26px; }
+.dock-git-path {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  text-align: left;
+  cursor: pointer;
+}
+.dock-git-path:hover:not(:disabled) { background: var(--mx-hover); }
+.dock-git-path:disabled { cursor: default; }
+.dock-git-path code { flex: 0 0 auto; color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+/* Git status-letter colors (functional signals). */
+.dock-git-path code[data-code="A"], .dock-git-path code[data-code="U"] { color: var(--mx-success); }
+.dock-git-path code[data-code="M"] { color: var(--mx-warning); }
+.dock-git-path code[data-code="D"] { color: var(--mx-danger); }
+.dock-git-path span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.dock-git-action {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+.dock-git-action:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.dock-git-row-stats { flex: 0 0 auto; font-size: var(--mx-font-meta); }
+.dock-git-revert-confirm {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+/* Inline diff accordion under the clicked row (VSCode SCM grammar). */
+.dock-git-row[data-active] .dock-git-path { background: var(--mx-pressed); }
+.dock-git-inline-diff {
+  margin: 2px 0 6px 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--mx-border-muted);
+  min-width: 0;
+}
+.dock-git-inline-diff .utility-dock-empty { padding: 6px 0; text-align: left; }
+.dock-git-commit { display: grid; gap: 6px; }
+/* Changes/Commits sub-tabs. */
+.dock-git-views { display: flex; border-bottom: .5px solid var(--mx-border-muted); }
+.dock-git-views > button {
+  flex: 1;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.dock-git-views > button:hover { color: var(--mx-text); }
+.dock-git-views > button.active { color: var(--mx-text); border-bottom-color: var(--mx-text); }
+.dock-git-views > button small {
+  padding: 0 6px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-pressed);
+  font-size: var(--mx-font-micro);
+  line-height: var(--mx-line-meta);
+}
+/* History list. */
+.dock-git-log { display: grid; }
+.dock-git-commit-row {
+  width: 100%;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-git-commit-row:hover { background: var(--mx-hover); }
+.dock-git-commit-row[data-active] { background: var(--mx-pressed); }
+.dock-git-commit-row > div { min-width: 0; flex: 1; display: grid; }
+.dock-git-commit-row b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-git-commit-row small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+/* Unpushed marker: one subtle dot per row — the count already lives in the
+   header chip and the Commits band. */
+.dock-git-unpushed {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mx-warning);
+}
+.dock-git-commit footer { display: flex; align-items: center; gap: 8px; }
+.dock-git-commit footer > span { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.dock-git-commit footer > button { margin-left: auto; flex: 0 0 auto; padding: 0 14px; }
+.dock-git-commit textarea {
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-ui);
+}
+.dock-git-commit button {
+  justify-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.dock-git-commit button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-git-clean-push {
+  align-self: center;
+  min-height: 26px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.dock-git-clean-push:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Terminal surface: the xterm host below a 30px strip (File-breadcrumb
+   grammar — user: TASK나 파일처럼 띠 하나) that hosts the shell switcher. */
+.dock-terminal-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--mx-terminal-bg);
+}
+.dock-terminal-strip {
+  height: 30px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 12px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  /* The strip is CHROME, not terminal content: without its own surface it
+     sat on the always-dark terminal bg, and light-theme ink vanished on it
+     (user: 선택박스가 안 보임, 검정이라서). */
+  background: var(--mx-window-band);
+}
+.dock-terminal-shell { position: relative; margin-left: auto; display: flex; }
+.dock-terminal-shell-trigger {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  cursor: pointer;
+}
+.dock-terminal-shell-trigger:hover,
+.dock-terminal-shell-trigger:focus-visible { background: var(--mx-hover); outline: 0; }
+.dock-terminal-shell-menu {
+  position: absolute;
+  z-index: 60;
+  right: 0;
+  top: 28px;
+  min-width: 190px;
+  display: grid;
+  padding: 4px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+}
+.dock-terminal-shell-menu > button {
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  text-align: left;
+  cursor: pointer;
+}
+.dock-terminal-shell-menu > button:hover,
+.dock-terminal-shell-menu > button:focus-visible { background: var(--mx-hover); outline: 0; }
+.dock-terminal-shell-note { padding: 5px 8px; color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
+.dock-terminal {
+  box-sizing: border-box;
+  display: flex;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+  padding: 8px 0 8px 12px;
+  background: var(--mx-terminal-bg);
+}
+.dock-terminal .xterm { width: 100%; height: 100%; }
+.dock-terminal .xterm-viewport {
+  overflow-y: scroll;
+}
+/* xterm injects its own viewport styling, so the shell grammar is restated
+   here rather than inherited — same 8px track and inset pill as every other
+   scroller. */
+.dock-terminal .xterm-viewport::-webkit-scrollbar { width: var(--mx-scrollbar-size); }
+.dock-terminal .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.dock-terminal .xterm-viewport::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-scrollbar-thumb);
+  background-clip: padding-box;
+}
+.dock-terminal .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--mx-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+.dock-terminal .xterm-viewport::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.dock-terminal .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
+  border-radius: var(--mx-radius-sm);
+}
+/* Phone dock scrim: only the narrow-viewport media query displays it. */
+.dock-backdrop, .panel-backdrop { display: none; }
+/* 940px = rail 48 + sidebar floor 232 + workspace floor 360 + dock floor 300:
+   below the aggregate floor the dock overlays as a sheet instead of forcing
+   the workbench into horizontal scroll (full-responsive shell). */
+@media (max-width: 940px) {
+  /* Narrow viewports: the dock (only rendered while open) floats as a right
+     sheet over the thread instead of vanishing (user: no right panel on the
+     phone). The inline width/flex-basis style must not win here. */
+  /* ONE sheet grammar for the whole overlay band (user: 909px에서 우측
+     레이어·딤드가 틀어진다): the sheet anchors to the window bar and rides
+     OVER the strip rows, exactly like the ≤760 drawer — the old 761–940
+     variant anchored below the tab strip (83px) with its own radius and a
+     partial scrim, so mid-band windows got a second, broken composition. */
+  .utility-dock {
+    position: fixed;
+    z-index: 38;
+    top: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
+    right: 0;
+    bottom: 0;
+    /* Wider than the left drawer read as imbalance (user): cap at the
+       drawer's width so both sheets take the same bite of the screen. */
+    width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px)) !important;
+    flex-basis: auto !important;
+    max-width: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    /* Card sheet mirroring the drawer: left corners round, ring via ::after. */
+    border-left: 0;
+    border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
+    /* SAME cast as the left drawer frame, mirrored (user: 오른쪽 그림자가
+       왼쪽이랑 다르다) — the generic overlay elevation read as a different,
+       wider halo next to the drawer's directional 24px throw. */
+    box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
+  }
+  /* The ring rides an overlay, not the box: an OUTER ring loses its top
+     line to the desktop-body clip (same as the drawer), and an INSET one
+     hides under the tabs-header's opaque band (pixel-verified: y35 flat).
+     ::after paints over children, immune to both. */
+  .utility-dock::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  }
+  /* Flush to the window floor like the drawer (user: 안 비게) — the rounded
+     bottom-left corner still marks the sheet edge. */
+  .dock-backdrop, .panel-backdrop {
+    display: block;
+    position: fixed;
+    /* Outside-click layer below the window bar. */
+    inset: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px)) 0 0 0;
+    z-index: 37;
+    border: 0;
+    padding: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
+  }
+  /* Side and bottom tabs keep outside-click dismissal without dimming the
+     work surface. */
+  .dock-backdrop, .panel-backdrop { background: transparent; }
+  .dock-backdrop[data-state="open"], .panel-backdrop[data-state="open"] {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+  /* Same rail carve-out as the drawer scrim: rail destinations stay
+     clickable while any sheet is up (exclusivity swaps the surfaces). */
+  .dock-backdrop,
+  .panel-backdrop { left: 48px; }
+  /* ≤760px merges the rail INTO the drawer frame — no standing rail to
+     carve out, so the scrims run from the window edge again. */
+  @media (max-width: 760px) {
+    .dock-backdrop,
+    .panel-backdrop { left: 0; }
+  }
+  /* Fixed sheet mode ignores inline width, so slide via transform instead. */
+  .utility-dock { animation: utility-dock-sheet-in var(--mx-sheet-motion); }
+  .utility-dock.closing {
+    opacity: 1;
+    transform: translateX(calc(100% + 16px));
+    transition: transform var(--mx-sheet-motion);
+  }
+  /* The sheet slides by transform and never animates its width, so the inner
+     block has no moving edge to hide behind: keep it start-aligned or a sheet
+     narrower than the dock width would clip the TABS off the left side. */
+  .utility-dock > .utility-dock-tabs-header,
+  .utility-dock > .utility-dock-header,
+  .utility-dock > .utility-dock-body { align-self: flex-start; }
+  .utility-dock-resize { display: none; }
+}
+/* Window-edge dragging changes media-query layout before React effects can
+   label the responsive close. Suppress panel motion at the DOM event boundary;
+   the class clears shortly after resize settles, restoring user-toggle motion. */
+html.mx-window-resizing .sidebar-drawer-frame,
+html.mx-window-resizing .sidebar.session-sidebar,
+html.mx-window-resizing .utility-dock,
+html.mx-window-resizing .bottom-panel,
+html.mx-window-resizing .sidebar-backdrop,
+html.mx-window-resizing .dock-backdrop,
+html.mx-window-resizing .panel-backdrop {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-drawer-frame,
+  .sidebar.session-sidebar,
+  .sidebar-backdrop,
+  .dock-backdrop,
+  .panel-backdrop,
+  .studio-tile,
+  .utility-dock.closing { transition: none; }
+  .utility-dock { animation: none; }
+  html.mx-open-sidebar .sidebar-drawer-frame { animation: none; }
+  html.mx-open-sidebar .sidebar.session-sidebar { animation: none; }
+  .utility-dock--persistent:not([data-entering="true"]) { animation: none; }
+  .bottom-panel:not([data-settled="true"]) { animation: none; }
+}
+@keyframes utility-dock-sheet-in { from { transform: translateX(calc(100% + 16px)); } }
+

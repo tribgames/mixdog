@@ -162,6 +162,7 @@
   "Checking…": "Đang kiểm tra…",
   "Choose": "Chọn",
   "Choose a model for this schedule.": "Chọn mô hình cho lịch này.",
+  "Choose Add to Home Screen": "Chọn Thêm vào màn hình chính",
   "Choose how manual commit hints and AI-generated messages should be written.": "Chọn cách viết gợi ý commit thủ công và thông điệp do AI tạo.",
   "Choose how Mixdog answers": "Chọn cách Mixdog trả lời",
   "Choose how Mixdog manages long-running and idle sessions.": "Chọn cách Mixdog quản lý các phiên chạy dài và không hoạt động.",
@@ -564,6 +565,7 @@
   "Make it feel like home": "Làm cho nó cảm thấy như ở nhà",
   "Make it yours": "Biến nó thành của bạn",
   "Manage in Settings → Git.": "Quản lý trong Cài đặt → Git.",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "Runtime Whisper và ffmpeg được quản lý đã sẵn sàng cho nhập liệu bằng giọng nói.",
   "Manifesting": "biểu hiện",
   "Manual download": "Tải xuống thủ công",
   "Manual login URL": "URL đăng nhập thủ công",
@@ -646,6 +648,7 @@
   "No agents added — every default agent stays available.": "Chưa thêm agent — mọi agent mặc định vẫn khả dụng.",
   "No agents are running.": "Không có agent nào đang chạy.",
   "No API-key providers available.": "Không có nhà cung cấp dùng khóa API.",
+  "No background work": "Không có tác vụ nền",
   "No changes vs {{base}}.": "Không có thay đổi so với {{base}}.",
   "No commands match.": "Không có lệnh phù hợp.",
   "No connected provider models.": "Không có mô hình từ nhà cung cấp đã kết nối.",
@@ -1083,7 +1086,7 @@
   "System follows your OS. Fine-tune colors any time in Settings.": "Hệ thống tuân theo hệ điều hành của bạn. Tinh chỉnh màu sắc bất kỳ lúc nào trong Cài đặt.",
   "System prompt": "Lời nhắc hệ thống",
   "System tools": "Công cụ hệ thống",
-  "Tap Share, then Add to Home Screen.": "Nhấn vào Chia sẻ, sau đó chọn Thêm vào màn hình chính.",
+  "Tap the Share button": "Nhấn vào nút Chia sẻ",
   "Tell Mixdog what to call you and which language to answer in.": "Cho Mixdog biết nên gọi cho bạn những gì và trả lời bằng ngôn ngữ nào.",
   "Tempering": "ủ",
   "Terminal": "Terminal",
@@ -1236,6 +1239,5 @@
   "Your example commit message appears here.": "Ví dụ thông điệp commit của bạn sẽ xuất hiện ở đây.",
   "Your name or role": "Tên hoặc vai trò của bạn",
   "Zesting": "Zesting",
-  "Zigzagging": "ngoằn ngoèo",
-  "Managed Whisper and ffmpeg runtime is ready for voice input.": "Runtime Whisper và ffmpeg được quản lý đã sẵn sàng cho nhập liệu bằng giọng nói."
+  "Zigzagging": "ngoằn ngoèo"
 }

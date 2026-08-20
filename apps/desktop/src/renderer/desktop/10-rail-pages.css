@@ -1,0 +1,943 @@
+/* Desktop layer 10 — Rail destination panels, agents dock, session rows.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* ── Rail destination panels (Projects/Workflows/Schedules/Webhooks) ────────
+   The rail keeps the app's SETTLED type scale (user: 기존 폰트 스타일이 훨씬
+   좋다 — 크기·색감): section headings 14px/500, row titles 13px/550 ink,
+   meta 11px muted, controls 12px. Only the view title steps up one size.
+   Every left edge — heading, row title, control — sits on the SAME 6px line
+   the session rows use inside their pills. The old page grammar (720px
+   column, 22px h1, card rows) survives only inside the popup editors. */
+.session-sidebar-surface {
+  position: absolute;
+  inset: 36px 8px 8px;
+  width: auto !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+.session-sidebar-surface[data-surface-active="true"] {
+  visibility: visible;
+  pointer-events: auto;
+}
+.session-sidebar-panels { display: flex; flex-direction: column; }
+.sidebar-view-section[data-active="false"] { display: none; }
+.sidebar-view-section[data-active="true"][data-sectioned="false"],
+.sidebar-view-section[data-active="true"][data-sectioned="false"] > .sidebar-view-section-body {
+  display: contents;
+}
+.session-sidebar-panels:has(.sidebar-view-section[data-active="true"][data-sectioned="true"]) {
+  overflow: hidden;
+  padding-block: 0;
+}
+.sidebar-view-section[data-active="true"][data-sectioned="true"] {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 34px;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.sidebar-view-section[data-active="true"][data-sectioned="true"]:last-of-type {
+  border-bottom: 0;
+}
+.sidebar-view-section[data-sectioned="true"][data-collapsed="true"] {
+  flex: 0 0 34px;
+}
+.sidebar-view-section-header {
+  min-width: 0;
+  height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  color: var(--mx-text-soft);
+  background: var(--mx-window-band);
+}
+.sidebar-view-section[data-drop-over="true"] > .sidebar-view-section-header {
+  color: var(--mx-text);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.sidebar-view-section-toggle {
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-view-section-toggle > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-view-section-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sidebar-view-section-body {
+  position: relative;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+.sidebar-view-section[data-collapsed="true"] > .sidebar-view-section-body {
+  display: none;
+}
+.sidebar-view-section-body > .stable-takeover-surface {
+  position: relative;
+  inset: auto;
+  min-height: 100%;
+}
+.session-sidebar-panels .stable-takeover-surface { width: 100%; }
+.session-sidebar-panels .stable-takeover-surface[data-surface-active="false"] {
+  position: absolute;
+  inset: 0;
+}
+/* Full-height chain: an empty list centers its glyph and copy in the panel
+   instead of hugging the filters (user). */
+.session-sidebar-panels .schedules-pane {
+  display: flex;
+  flex: 1 0 auto;
+  min-width: 0;
+  overflow: visible;
+}
+.session-sidebar-panels .schedules-page {
+  max-width: none;
+  min-height: 0;
+  flex: 1 0 auto;
+  margin: 0;
+  /* Uniform panel start (user: 시작 패딩 중구난방): the panels container
+     already carries the shared 4px top inset, so the page adds none — every
+     rail destination begins exactly 4px under the header like Sessions. */
+  padding: 0 0 16px;
+  gap: 6px;
+}
+.session-sidebar-panels .schedules-page > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+}
+/* Decorative row glyphs are dropped at rail width (user: 공간 없으면 아이콘을
+   다 빼든가) — only the schedules/webhooks state dot stays, since it carries
+   enabled/paused/running. */
+.session-sidebar-panels .projects-row-icon { display: none; }
+/* Controls: rail heights, app type sizes. The search field wears the SAME
+   item surface as the cards below it — 6% wash + 14% inset ring — instead
+   of the darker sheet + border it had, which made it pop out of the rail
+   (user: 서치박스가 튀어 보인다). */
+.session-sidebar-panels .schedules-search input {
+  /* 26px read cramped beside the dock's airier search band (user). */
+  height: 28px;
+  padding: 0 8px 0 26px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.session-sidebar-panels .schedules-search input:focus {
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+}
+.session-sidebar-panels .schedules-search svg { left: 8px; width: var(--mx-icon-sm); height: var(--mx-icon-sm); }
+/* The page's rail gap (8px) alone spaces search → filters → list on one
+   even rhythm; the old +2/+4 margins predate the 6px page gap and drifted
+   the stack to 10/12px (user: 스케줄/웹훅 전체적으로 정리). */
+.session-sidebar-panels .schedules-filters { gap: 4px; }
+/* Filter chips speak the search box's control grammar — same 28px height,
+   same 5px radius, same 12px side inset (user: 검색박스랑 아래 태그들도
+   같게 맞춰야지) — instead of a second, smaller pill language. */
+.session-sidebar-panels .schedules-filters button {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--mx-radius-md);
+}
+/* One restrained item surface across Projects, Workflows, Webhooks,
+   Schedules, and Agents. The inset half-pixel distinguishes adjacent rows
+   without turning either rail into a stack of prominent cards. */
+.session-sidebar,
+.session-sidebar-panels,
+.utility-dock {
+  --mx-rail-item-surface: color-mix(in srgb, var(--mx-text) 6%, transparent);
+  --mx-rail-item-outline: color-mix(in srgb, var(--mx-text) 14%, transparent);
+  --mx-rail-item-outline-active: color-mix(in srgb, var(--mx-text) 20%, transparent);
+}
+.session-sidebar-panels .schedules-list { gap: 6px; }
+.session-sidebar-panels .schedules-row[draggable="true"] { cursor: grab; }
+.session-sidebar-panels .schedules-row[draggable="true"]:active { cursor: grabbing; }
+.session-sidebar-panels .schedules-row[data-reordering="true"] { opacity: .48; }
+.session-sidebar-panels .schedules-row[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus), inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.session-sidebar-panels .schedules-row[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus), inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+/* No extra section break in the rail (user: 간격이 어색하다): the page's own
+   6px gap already separates the blocks, so the added margin doubled the gap
+   between Common Instructions and the first project card (12px vs 6px). */
+.session-sidebar-panels .projects-common-instructions { margin-bottom: 0; }
+.session-sidebar-panels .schedules-row {
+  gap: 8px;
+  /* Two-line cards: vertical air against the md radius, 12px BOX LINE gutter. */
+  padding: 12px var(--mx-rail-gutter);
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+/* In-row ramp: NAME leads at 13/400 full ink, then description/meta at 12. */
+.session-sidebar-panels .schedules-row-copy b {
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+}
+.session-sidebar-panels .schedules-row-copy small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-supporting);
+}
+/* Hover is a background wash only — bumping the inset ring to the -active
+   tint made an outline flash in/out on every pass (user: 호버하면 불필요한
+   윤곽선이 나왔다 사라짐). The -active ring is reserved for persistent
+   states (.selected) and real input focus. */
+.session-sidebar-panels .schedules-row:not(.workflows-model-row):hover {
+  background: var(--mx-hover);
+}
+.session-sidebar-panels .schedules-row.selected {
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+}
+.session-sidebar-panels .schedules-row.utilities-row {
+  width: 100%;
+  align-items: flex-start;
+  padding: 11px var(--mx-rail-gutter);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* Icon, stacked copy, then the trailing chevron. Copy stays top-aligned while
+   the icon and chevron are vertically centered against the full card height. */
+.session-sidebar-panels .utilities-row { gap: 10px; }
+.session-sidebar-panels .utilities-row-copy { gap: 4px; }
+.session-sidebar-panels .utilities-row .schedules-row-copy b { line-height: 18px; }
+.session-sidebar-panels .utilities-row-icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-soft);
+}
+.session-sidebar-panels .utilities-row .schedules-row-copy small {
+  display: -webkit-box;
+  line-height: 16px;
+  overflow: hidden;
+  color: var(--mx-text-soft);
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.session-sidebar-panels .utilities-row-chevron {
+  flex: 0 0 auto;
+  align-self: center;
+  color: var(--mx-text-faint);
+}
+.session-sidebar-panels .utilities-row:hover .utilities-row-chevron { color: var(--mx-text-soft); }
+.session-sidebar-panels .row-overflow-trigger { width: var(--mx-control-xs); height: var(--mx-control-xs); border-radius: var(--mx-radius-md); }
+/* Empty panel: one quiet glyph over one line of copy, centered top-to-bottom */
+.session-sidebar-panels .schedules-empty { gap: 10px; padding: 12px; text-align: center; }
+.session-sidebar-panels .schedules-empty svg { width: var(--mx-icon-2xl); height: var(--mx-icon-2xl); }
+/* Agents Dock: session categories lead, then compact role/model/tag rows. */
+.utility-dock .agent-activity-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow-x: clip;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 var(--mx-rail-gutter) 16px;
+  gap: 6px;
+}
+.utility-dock .agent-activity-empty {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  margin: 0;
+  text-align: center;
+}
+.utility-dock .agent-activity-empty svg { color: var(--mx-icon-muted); }
+.utility-dock .agent-session-heading {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--mx-text);
+  text-align: left;
+  cursor: pointer;
+}
+.utility-dock .agent-session-heading h2 {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-dock .agent-session-chevron {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--mx-text-muted);
+  transform: translateY(1px);
+}
+.utility-dock .agent-session-heading:hover .agent-session-chevron {
+  color: var(--mx-text-soft);
+}
+.utility-dock .agent-activity-page > .workflows-models:first-child > .workflows-section-head {
+  margin-top: -6px;
+  padding-top: 0;
+}
+.utility-dock .agent-activity-status {
+  /* Running rows show only the clock; return the removed status-word width to
+     the agent name/tag while retaining a stable right-aligned time column. */
+  min-width: 42px;
+  flex: 0 0 auto;
+  display: grid;
+  /* Text-only status column (the row spinner is gone): ONE track, so every
+     card's state word lands on the same right axis. */
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-icon-muted);
+}
+.agent-route-summary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.agent-route-summary > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Inline route-summary bolt sits BESIDE 12px meta text, unlike the 28px
+   composer toggle: 14px overflowed the line box and the zap glyph's built-in
+   side bearing widened the 4px gap (user: 상하정렬/좌우간격이 안맞는다).
+   12px matches the text; -1px eats the glyph's left padding. */
+.fast-mode-indicator {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  display: inline-grid;
+  place-items: center;
+  margin-left: -1px;
+  color: var(--mx-text-accent);
+}
+.fast-mode-indicator svg { width: 12px; height: 12px; }
+.utility-dock .agent-activity-elapsed {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-supporting);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.utility-dock .agent-activity-elapsed[data-state="running"] {
+  color: var(--mx-text-soft);
+}
+/* Completion notice: an idle row whose session is still unseen carries the
+   Recent-dot meaning as ACCENTED TEXT (user: 닷 대용으로 완료알림). It fades
+   back to the muted idle tone the moment the session is opened. */
+.utility-dock .agent-activity-elapsed[data-state="done"] {
+  color: var(--mx-text-accent);
+  font-weight: 600;
+}
+/* Agents dock reuses the Workflows rail grammar. */
+.utility-dock .agent-activity-page .workflows-models,
+.utility-dock .agent-activity-page .schedules-list,
+.utility-dock .agent-activity-page .schedules-row {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+/* The section is a grid, and an `auto` track sizes to its widest item — the
+   nowrap session heading. A long title therefore stretched the track past the
+   dock and the cards inherited that width, so the right gutter changed per
+   title (user: 제목에 따라 오른쪽 여백이 들쭉날쭉). minmax(0, 1fr) pins the
+   track to the dock width; the heading ellipsizes instead of pushing. */
+.utility-dock .agent-activity-page .workflows-models { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.utility-dock .agent-activity-page .schedules-list { gap: 6px; }
+.utility-dock .agent-activity-page .schedules-row {
+  gap: 8px;
+  padding: 10px var(--mx-rail-gutter);
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.utility-dock .agent-activity-page .agent-pool-row {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.utility-dock .agent-activity-page .agent-pool-row:disabled {
+  cursor: default;
+}
+.utility-dock .agent-activity-page .agent-pool-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.utility-dock .agent-activity-page .schedules-row:hover { background: var(--mx-hover); }
+.utility-dock .agent-activity-page .schedules-row-copy b {
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+}
+.utility-dock .agent-activity-page .schedules-row-copy small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-supporting);
+}
+/* Workflow settings sub-sections read as sidebar section headings on the 6px line,
+   with a real section break above each one. */
+.session-sidebar-panels .workflows-models { gap: 2px; }
+.session-sidebar-panels .workflows-models > p { display: none; }
+.session-sidebar-panels .workflows-models h2 {
+  height: 32px;
+  /* Compact section break ABOVE, tight binding to the list below. */
+  margin: 6px 0 0;
+  /* Bare section h2 (Default agents) walks the SAME gutter axis and ramp as
+     the wrapped section heads — it sat at 14px on the 6px line while its
+     siblings moved to 13px on the 14px gutter (user: 워크플로우 폰트랑
+     에이전트 폰트만 왜 다르고). */
+  padding: 0 var(--mx-rail-gutter);
+  display: flex;
+  align-items: center;
+  /* Shared CATEGORY tier: 14/600, between panel titles and rows. */
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: 0;
+  line-height: var(--mx-line-ui);
+}
+/* First category under the panel header (measured live): the 32px head
+   centers a 20px text line, so the first label sat 12+6=18px under the
+   header hairline while every BOX opens on the 12px rhythm — and only 8px
+   above its own list (user: 헤더 아래 첫시작 패딩이 어색). Pull exactly the
+   internal centering slack so the first category TEXT sits on the same
+   12px line; spacing below and every later section stay untouched. */
+.sidebar.session-sidebar > .session-sidebar-scroll > .sidebar-recent:first-child > .sidebar-recent-heading:first-child,
+.session-sidebar-panels .workflows-packs > .workflows-section-head { margin-top: -6px; }
+.session-sidebar-panels .workflows-packs > .workflows-section-head { padding-top: 0; }
+.session-sidebar-panels .workflows-section-head { align-items: center; gap: 8px; padding: 6px 0 0; }
+.session-sidebar-panels .workflows-section-head h2 { flex: 1; margin: 0; }
+/* Workflow and agent lists share the same two-line summary row. Model, effort,
+   and fast are edited only in the overflow-owned dialog. */
+.session-sidebar-panels .workflows-agent-summary-row > .row-overflow {
+  align-self: center;
+}
+.sidebar-collapsed .sidebar.session-sidebar {
+  width: 0;
+  min-width: 0;
+  max-width: 0;
+  flex: 0 0 0px;
+  flex-basis: 0px;
+  margin: 0;
+  padding-inline: 0;
+  border: 0;
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: none;
+}
+/* Inline (wide) toggles for ALL three side panels commit the final layout in
+   one frame — the sidebar's slide-in was the last odd one out once the dock
+   and bottom panel went instant (user: 왼쪽도 같은 방식으로). The ≤760px
+   drawer keeps its own transform transition (keyframe reused at the
+   narrow-desktop drawer frame). */
+@keyframes sidebar-slide-in {
+  from { transform: translateX(-100%); }
+}
+/* Phone drawer scrim: only the narrow-viewport media query displays it. */
+.sidebar-backdrop { display: none; }
+.session-sidebar .task-link,
+.session-sidebar .projects-link,
+.session-sidebar .session-row {
+  --session-row-action-surface: var(--mx-window-band);
+  position: relative;
+  /* Grok-web rail rhythm: 36px rows breathe like grok.com's nav; the old
+     32px row density read packed next to it. */
+  height: 36px;
+  min-height: 36px;
+  gap: 8px;
+  padding: 0 var(--mx-rail-gutter);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+}
+.session-row-main {
+  min-width: 0;
+  overflow: hidden;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.session-row[data-dragging="true"],
+.session-row[data-dragging="true"] .session-row-main {
+  cursor: grabbing;
+}
+.session-row-actions {
+  position: absolute;
+  z-index: 3;
+  top: 2px;
+  /* Sits exactly where the unread dot lives (user: same spot — the dot
+     hides on hover and the archive button takes its place). right:3px puts
+     the 24px button's center on the dot center (~13.5px from the edge).
+     NOTE the earlier mass-archive incident (right:2px under the scrollbar):
+     the 1px-wider inset plus the dot-swap behavior keeps the button off the
+     scrollbar's live band — watch for accidental archives regardless. */
+  right: 3px;
+  height: 24px;
+  padding-left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.session-row-menu-wrap { position: relative; z-index: 1; width: 24px; height: 24px; flex: 0 0 24px; }
+.session-row-action {
+  position: relative;
+  z-index: 1;
+  width: var(--mx-control-xs);
+  height: var(--mx-control-xs);
+  flex: 0 0 var(--mx-control-xs);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+}
+.session-row:hover .session-row-action,
+/* Keyboard-only focus reveal: plain click focus kept the SELECTED row's
+   archive/delete cluster visible without hover (user report). */
+.session-row:has(:focus-visible) .session-row-action,
+.session-row-action:focus-visible,
+.session-row.confirming-delete .session-row-action {
+  color: var(--mx-icon);
+  opacity: 1;
+  pointer-events: auto;
+}
+.session-row:hover .session-row-actions,
+.session-row:has(:focus-visible) .session-row-actions,
+.session-row.confirming-delete .session-row-actions {
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--session-row-action-surface) 10px,
+    var(--session-row-action-surface) 100%
+  );
+  pointer-events: auto;
+}
+.session-row-action:hover { color: var(--mx-icon); background: var(--mx-hover); }
+.session-row-delete:hover,
+.session-row-delete-confirm:hover { color: var(--mx-danger); }
+.session-row-action:disabled { opacity: var(--mx-op-disabled); pointer-events: none; }
+/* Archive carries the red tone (user decision); restore stays neutral. */
+.session-row-action.session-row-archive { color: var(--mx-danger); }
+.session-row:hover .session-row-action.session-row-archive,
+.session-row:has(:focus-visible) .session-row-action.session-row-archive {
+  color: var(--mx-danger);
+  opacity: 1;
+}
+.session-row-action.session-row-archive:hover { color: var(--mx-danger); opacity: 1; }
+.session-row-action.session-row-restore { color: var(--mx-icon); }
+.session-row-action.session-row-restore:hover { color: var(--mx-text); }
+/* Delete-only row action (rename menu removed): the trash glyph reads as a
+   destructive affordance, so it carries the danger tone at rest and full
+   danger on hover. */
+.session-row-action.session-row-delete { color: var(--mx-danger); opacity: 0; }
+.session-row:hover .session-row-action.session-row-delete,
+.session-row:has(:focus-visible) .session-row-action.session-row-delete {
+  /* Full danger tone the moment the ROW is hovered — the generic action rule
+     above would otherwise keep it grey until the icon itself is hovered. */
+  color: var(--mx-danger);
+  opacity: 1;
+}
+.session-row-action.session-row-delete:hover { color: var(--mx-danger); opacity: 1; }
+.session-row-menu {
+  position: absolute;
+  z-index: 40;
+  top: 26px;
+  right: 0;
+  width: 132px;
+  padding: 4px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+}
+.session-row-menu button {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.session-row-menu button:hover,
+/* Menu items announce keyboard focus with the hover plate, never an outline. */
+.session-row-menu button:focus-visible { background: var(--mx-hover); outline: 0; }
+.session-row-menu button.danger { color: var(--mx-danger); }
+.session-title-input {
+  position: absolute;
+  inset: 6px 8px 6px 10px;
+  min-width: 0;
+  width: auto;
+  height: 24px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  /* Inline inputs focus with a 1px border-focus ring. */
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  visibility: hidden;
+  pointer-events: none;
+}
+.session-row.editing .session-title-input {
+  visibility: visible;
+  pointer-events: auto;
+}
+.session-row.editing .session-row-main,
+.session-row.editing .session-row-actions {
+  visibility: hidden;
+  pointer-events: none;
+}
+.session-title-input[aria-invalid="true"] { outline-color: var(--mx-danger); }
+/* Selection reads through the pressed background alone — no blue focus ring
+   on click/keyboard for the rail rows (user decision). */
+.session-sidebar .session-row-main:focus-visible { outline: none; }
+/* Rows and list surfaces keep the user's "no blue Tab outline" decision, but
+   the sweep must not swallow real controls — keyboard users could not see
+   where focus was. Narrowed to non-control focus targets: every control that
+   wants no ring (rail buttons, menu items, composer ghost triggers, the SCM
+   commit button…) still opts out locally, and the canonical
+   `button:focus-visible` ring at the top of this sheet covers the rest. */
+:focus-visible:not(button, input, textarea, select, a) { outline: none !important; }
+.effort-control .mx-select-trigger:focus-visible,
+.send-button:focus-visible { box-shadow: none; }
+/* Double-click rename: the editor replaces the row button, so the row itself
+   must center the 24px input inside its 36px height and keep the focus ring
+   clear of the rail edges. */
+.session-row.editing {
+  padding: 0 var(--mx-rail-gutter) 0 0;
+}
+.session-sidebar .task-link,
+.session-sidebar .projects-link { font-size: var(--mx-font-item); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); cursor: pointer; }
+.session-sidebar .task-link:hover,
+.session-sidebar .projects-link:hover,
+.session-sidebar .session-row:hover {
+  --session-row-action-surface: var(--mx-bg-layer-1);
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.session-sidebar .session-row.selected {
+  --session-row-action-surface: var(--mx-bg-layer-2);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+}
+/* Primary-nav selection mirror: the surface that owns the screen renders its
+   nav button with the same selected tone as a chosen session row. */
+.session-sidebar .projects-link.selected {
+  --session-row-action-surface: var(--mx-bg-layer-2);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+/* Light rows: translucent hover/pressed backgrounds under OPAQUE action
+   gradients rendered a visible rectangle around the row actions. Use opaque
+   tones (light interaction tokens) and keep the action surface identical to
+   the row surface. */
+:root[data-mixdog-theme="light"] .session-sidebar .task-link:hover,
+:root[data-mixdog-theme="light"] .session-sidebar .projects-link:hover,
+:root[data-mixdog-theme="light"] .session-sidebar .session-row:hover {
+  --session-row-action-surface: var(--mx-hover-opaque);
+  background: var(--mx-hover-opaque);
+}
+:root[data-mixdog-theme="light"] .session-sidebar .session-row.selected {
+  --session-row-action-surface: var(--mx-pressed-opaque);
+  background: var(--mx-pressed-opaque);
+}
+:root[data-mixdog-theme="light"] .session-sidebar .projects-link.selected {
+  --session-row-action-surface: var(--mx-pressed-opaque);
+  background: var(--mx-pressed-opaque);
+}
+.session-sidebar-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  /* The track occupies the sidebar's existing 8px right inset instead of
+     taking another column away from every row. It can only give back what the
+     engine actually reserved: with overlay scrollbars the reserve is 0, and a
+     static -8px there slid every row (and its unread dot) 8px right of the
+     header "+" that sits outside this scroller. */
+  margin-right: calc(-1 * var(--mx-scrollbar-gutter));
+}
+/* SessionSidebar preserves the first visible keyed row when activity-order
+   inserts above it. Native anchoring would apply a second, browser-dependent
+   correction and recreate the visible jump. Other rail panels keep native
+   anchoring because they do not use the keyed session-row compensation. */
+.session-sidebar > .session-sidebar-scroll:not(.session-sidebar-panels) {
+  overflow-anchor: none;
+}
+.sidebar-recent { display: grid; gap: 2px; }
+/* Sibling sections stay distinct without opening an oversized empty band. */
+.session-sidebar-scroll > .sidebar-recent + .sidebar-recent { margin-top: 2px; }
+.sidebar-recent-heading {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  /* EXACTLY the row-pill inset (6px): session titles render at the same 6px
+     inside their pills, so header and titles share one left line. */
+  padding: 0 6px;
+  /* Full ink like the model trigger — muted read as a weaker tier than the
+     controls around it (user: Recent looks washed). */
+  color: var(--mx-text);
+  /* CATEGORY tier: 14/600, one step below the panel title. */
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: 0;
+  line-height: var(--mx-line-ui);
+}
+.sidebar-recent-heading > span { min-width: 0; flex: 1; }
+.sidebar-recent-heading > small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+/* "Show more" is a tertiary pagination affordance, not a heading: it drops
+   OUT of the category tier entirely — item size, regular weight, muted ink —
+   so it recedes under the rows it extends (importance = ink + weight). */
+.sidebar-recent-heading.session-list-more {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.sidebar-recent-heading.session-list-more:hover { color: var(--mx-text); }
+/* AFTER the base heading rules on purpose: the collapsible variant must win
+   order-dependent overrides. Same CATEGORY tier as the base heading above. */
+.sidebar-recent-heading.sidebar-heading-toggle {
+  height: 32px;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+  color: var(--mx-text);
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-recent-heading.sidebar-heading-toggle:focus-visible { outline: none; }
+.sidebar-recent-heading.sidebar-heading-toggle > span { flex: 0 0 auto; min-width: 0; }
+.sidebar-recent-heading.sidebar-heading-toggle svg {
+  color: var(--mx-text-muted);
+  flex: 0 0 auto;
+  transform: translateY(1px);
+}
+/* Empty-state line matches the section rows' type (user). */
+.sidebar-section-empty {
+  margin: 2px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.sidebar-section-heading,
+.project-group-heading {
+  min-width: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sidebar-section-heading { margin-top: 2px; }
+.sidebar-section-toggle,
+.project-group-toggle,
+.sidebar-section-action,
+.project-task-add {
+  border: 0;
+  color: var(--mx-text-faint);
+  background: transparent;
+}
+.sidebar-section-toggle,
+.project-group-toggle {
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border-radius: var(--mx-radius-md);
+  text-align: left;
+}
+/* Section heads are CATEGORY tier too: they used to render 13/400 muted —
+   smaller AND quieter than the rows underneath, the one inversion the rail
+   ladder forbids. */
+.sidebar-section-toggle { color: var(--mx-text); }
+.sidebar-section-toggle > span {
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+}
+.project-group-toggle {
+  /* Nested one level under a section head: it steps down by INK only, and
+     faint dropped it below its own rows. */
+  color: var(--mx-text-muted);
+}
+.project-group-toggle.selected {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.project-group-label {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-group-chevron {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: grid;
+  place-items: center;
+  color: var(--mx-icon-muted);
+  opacity: var(--mx-op-dim);
+  transition: opacity 85ms ease-out;
+}
+.project-group-toggle:hover .project-group-chevron,
+.project-group-toggle:focus-visible .project-group-chevron,
+.project-group-toggle.selected .project-group-chevron { opacity: 1; }
+.project-row-icon { flex: 0 0 16px; color: var(--mx-icon-muted); }
+.sidebar-section-toggle:hover,
+.project-group-toggle:hover,
+.sidebar-section-action:hover,
+.project-task-add:hover,
+.sidebar-section-toggle:focus-visible,
+.project-group-toggle:focus-visible,
+.sidebar-section-action:focus-visible,
+.project-task-add:focus-visible {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+.sidebar-section-action,
+.project-task-add {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-md);
+}
+.sidebar-section-action,
+.project-task-add { opacity: 0; pointer-events: none; }
+.sidebar-section-heading:hover .sidebar-section-action,
+.sidebar-section-heading:focus-within .sidebar-section-action,
+.sidebar-section-action:focus-visible { opacity: 1; pointer-events: auto; }
+.project-group-heading:hover .project-task-add,
+.project-group-heading:focus-within .project-task-add,
+.project-task-add:focus-visible { opacity: 1; pointer-events: auto; }
+.session-sidebar .recent-session-list { padding: 0; }
+.session-sidebar .recent-session-list .sidebar-section-empty { padding-left: 8px; }
+/* Titles start at the compact rail inset; the trailing working status overlays
+   the existing fade instead of reserving a permanent leading column. */
+/* Session labels keep a small inner inset so text never collides with the
+   rounded hover/selection frame. */
+.session-sidebar .project-group .session-row,
+.session-sidebar .standalone-session-list .session-row { padding-left: 8px; }
+/* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
+   comfortable while the list stops reading airy (user request). */
+.session-sidebar .session-row { height: 31px; min-height: 31px; }
+.sidebar-section-empty,
+.project-sessions-empty {
+  margin: 0;
+  padding: 3px 8px 6px 24px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.sidebar-section-loading {
+  height: 31px;
+  min-height: 31px;
+  padding-top: 5px;
+  padding-bottom: 6px;
+}

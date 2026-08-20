@@ -5,6 +5,7 @@
 import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, positiveInt, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, writeAgentStatuslineRoute } from './helpers.mjs';
 import { createNotify } from './notify.mjs';
 import { reconcileBackgroundTask, sanitizeTaskMeta, startBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
+import { isAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { abnormalEmptyFinishError, renderResult } from './render.mjs';
 import { resourceAdmission } from '../../runtime/shared/resource-admission.mjs';
 import { createProgressWatchdogRegistry } from '../agent-watchdog-registry.mjs';
@@ -209,6 +210,11 @@ export function createSpawnFlow({
     // otherwise still spawn as role-less generic agents by remembered name.
     if (!agentDefinitionExists(agent, dataDir, STANDALONE_SOURCE_ROOT)) {
       throw new Error(`agent spawn: unknown agent "${agent}"`);
+    }
+    // Switched off in settings: the role is dropped from the Lead prompt, so a
+    // spawn can only arrive from a stale name. Refuse instead of running it.
+    if (isAgentDisabled(config, agent)) {
+      throw new Error(`agent spawn: agent "${agent}" is turned off`);
     }
     const agentPermission = readAgentFrontmatterPermission(agent, dataDir, STANDALONE_SOURCE_ROOT);
     const agentPerm = normalizeAgentPermission(agentPermission) || null;

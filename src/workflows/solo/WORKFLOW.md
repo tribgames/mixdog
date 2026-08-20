@@ -17,7 +17,7 @@ Ask the user only for decisions.
 On approval, complete all in-scope work without reapproval. Lead executes
 every scope itself — never spawn, send, or delegate to agents.
 
-Report the result against the approved plan. Build, deploy, commit, and push
-happen only on an explicit user request.
+Report the result against the approved plan. Build happens only on an explicit
+user request.
 
 On direction change, pause and re-consult the user.

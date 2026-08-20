@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { readResponseBuffer } from '../../runtime/shared/bounded-download.mjs';
-import { assertPublicUrl, pinnedFetch } from '../../runtime/search/lib/ssrf-guard.mjs';
+import { assertPublicUrl, pinnedFetch } from '../../runtime/web-search/lib/ssrf-guard.mjs';
 import {
   DEFAULT_AGENT_TIMEOUT_S,
   DEFAULT_COMMAND_TIMEOUT_S,

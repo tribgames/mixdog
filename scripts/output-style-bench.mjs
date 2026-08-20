@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Lead output-style verbosity bench (detailed >= simple >= minimal >= extreme-minimal).
+// Lead output-style composition and depth bench.
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import {
@@ -15,17 +15,23 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { findOutputStyle, listOutputStyleCatalog } from '../src/session-runtime/output-styles.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dir, '..');
 const PLUGIN_ROOT = join(REPO_ROOT, 'src');
 const STYLES = ['detailed', 'simple', 'minimal', 'extreme-minimal'];
-const DEFAULT_PROMPT =
-  'Reply in plain English only. What is 2+2? Give a short summary suitable for a status report (no tools, no file reads).';
+const LIVE_RESULT_SENTINEL = '__OUTPUT_STYLE_BENCH_RESULT__';
+const DEFAULT_PROMPT = `Reply in English. The output-style alias resolver in
+src/lib/rules-builder.cjs now maps canonical names, built-in aliases, and custom
+aliases to the same style, and duplicate instructions were removed. Regression
+coverage was added, all 24 checks passed, and deployment was not run. Tell the
+user what changed and whether the work is ready. Do not use tools.`;
 const MODEL_ALIASES = {
   opus: { provider: 'anthropic-oauth', model: 'claude-opus-4-8' },
   sonnet: { provider: 'anthropic-oauth', model: 'claude-sonnet-5' },
-  gpt: { provider: 'openai-oauth', model: 'gpt-5.5' },
+  gpt: { provider: 'openai-oauth', model: 'gpt-5.6-sol' },
+  'gpt-5.6-sol': { provider: 'openai-oauth', model: 'gpt-5.6-sol' },
   'gpt-5.5': { provider: 'openai-oauth', model: 'gpt-5.5' },
   grok: { provider: 'grok-oauth', model: 'grok-composer-2.5-fast' },
 };
@@ -59,21 +65,45 @@ function readUnifiedConfig(dataDir) {
   } catch { return {}; }
 }
 function outputStyleBodyFromMeta(meta) {
-  const marker = '# Output Style';
-  const idx = String(meta || '').lastIndexOf(marker);
-  return idx < 0 ? '' : String(meta).slice(idx).trim();
+  const text = String(meta || '');
+  const idx = text.lastIndexOf('# Output Style: ');
+  return idx < 0 ? '' : text.slice(idx).trim();
 }
 function measureOutputText(text) {
   const trimmed = String(text || '').trim();
   const lines = trimmed ? trimmed.split(/\r?\n/) : [];
   const bullets = lines.filter((l) => /^\s*[-*•]\s+/.test(l)).length;
+  const numberedItems = lines.filter((l) => /^\s*\d+[.)]\s+/.test(l)).length;
+  const listItems = lines.filter((l) => /^\s*(?:[-*•]|\d+[.)])\s+/.test(l)).length;
+  const nestedListItems = lines.filter((l) => /^\s{2,}(?:[-*•]|\d+[.)])\s+/.test(l)).length;
+  const headings = lines.filter((l) => /^\s*#{1,6}\s+/.test(l)).length;
+  const sectionLabels = lines.filter((l) => /^\s*\*\*[^*]+\*\*\s*$/.test(l)).length;
+  const tableRows = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l)).length;
+  const paragraphs = trimmed ? trimmed.split(/\r?\n\s*\r?\n/).filter((part) => part.trim()).length : 0;
   const withoutCode = trimmed.replace(/`[^`]*`/g, '');
-  const sentenceMarks = withoutCode.match(/[.!?。！？]+(?=\s|$)/g) || [];
+  const sentenceText = withoutCode.replace(/[*_~]+/g, '');
+  const sentenceMarks = sentenceText.match(/[.!?。！？]+(?=\s|$)/g) || [];
+  const semicolons = (withoutCode.match(/[;；]/g) || []).length;
+  const shape = tableRows >= 2 ? 'table'
+    : numberedItems > 0 ? 'steps'
+      : bullets > 0 && (headings > 0 || sectionLabels > 0) ? 'sections+bullets'
+        : bullets > 0 ? 'bullets'
+          : paragraphs > 1 ? 'paragraphs'
+            : 'prose';
   return {
     chars: trimmed.length,
     lines: lines.length,
     bullets,
+    numberedItems,
+    listItems,
+    nestedListItems,
+    headings,
+    sectionLabels,
+    tableRows,
+    paragraphs,
     sentences: sentenceMarks.length || (trimmed ? 1 : 0),
+    semicolons,
+    shape,
     text: trimmed,
   };
 }
@@ -83,24 +113,125 @@ function runInjectionScaffold() {
   const templatePath = join(PLUGIN_ROOT, 'defaults', 'mixdog-config.template.json');
   const baseConfig = existsSync(templatePath)
     ? JSON.parse(readFileSync(templatePath, 'utf8'))
-    : { outputStyle: 'default' };
+    : { outputStyle: 'simple' };
+  const sharedMarker = 'Lead with the answer or action';
+  const sharedFormatMarkers = [
+    'Choose the presentation from the content',
+    'no response shape is the default',
+    'Never produce an essay-shaped wall of text',
+    'Use tables only for short enumerable',
+    'Do not restate the request',
+  ];
   const markers = {
-    detailed: 'clarity outranks terseness',
-    simple: 'hard cap 800 characters',
-    minimal: 'hard cap 400 characters',
-    'extreme-minimal': 'exactly one sentence',
+    detailed: 'concrete explanation',
+    simple: 'concise summary',
+    minimal: 'conclusion and core cause',
+    'extreme-minimal': 'final decision or answer',
   };
   const snippets = {};
+  const aliasChecks = [];
   try {
     for (const styleId of STYLES) {
       const dataDir = join(baseDir, styleId);
       mkdirSync(dataDir, { recursive: true });
       writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle: styleId }, null, 2));
       snippets[styleId] = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: dataDir }));
+      if (!snippets[styleId].startsWith(`# Output Style: `)) throw new Error(`${styleId} injection missing output-style header`);
       if (!snippets[styleId].includes(markers[styleId])) throw new Error(`${styleId} injection marker missing`);
+      if (!snippets[styleId].includes(sharedMarker)) throw new Error(`${styleId} shared philosophy missing`);
+      for (const marker of sharedFormatMarkers) {
+        if (!snippets[styleId].includes(marker)) throw new Error(`${styleId} shared format marker missing: ${marker}`);
+      }
+      if (snippets[styleId].split(sharedMarker).length !== 2) throw new Error(`${styleId} shared philosophy duplicated`);
     }
     if (new Set(STYLES.map((id) => snippets[id])).size !== STYLES.length) throw new Error('injection bodies not distinct');
-    return { snippets };
+    const sharedBlocks = STYLES.map((id) => snippets[id].slice(
+      snippets[id].indexOf(sharedMarker),
+      snippets[id].indexOf('\n\n## Depth Variation'),
+    ));
+    if (sharedBlocks.some((block) => !block) || new Set(sharedBlocks).size !== 1) {
+      throw new Error('built-in styles do not share the same core philosophy');
+    }
+    const builtinCatalog = listOutputStyleCatalog(PLUGIN_ROOT, baseDir, { fresh: true });
+    if (builtinCatalog.some((style) => style.id === 'common')) {
+      throw new Error('common partial leaked into selectable output styles');
+    }
+    for (const [alias, canonical] of [
+      ['default', 'simple'],
+      ['concise', 'simple'],
+      ['verbose', 'detailed'],
+      ['extreme', 'extreme-minimal'],
+    ]) {
+      const dataDir = join(baseDir, `alias-${alias}`);
+      mkdirSync(dataDir, { recursive: true });
+      writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle: alias }, null, 2));
+      const injected = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: dataDir }));
+      const selected = findOutputStyle(alias, listOutputStyleCatalog(PLUGIN_ROOT, dataDir, { fresh: true }));
+      if (selected?.id !== canonical) throw new Error(`${alias} runtime alias did not resolve to ${canonical}`);
+      if (injected !== snippets[canonical]) throw new Error(`${alias} injection differs from ${canonical}`);
+      aliasChecks.push(`${alias}=${canonical}`);
+    }
+    const customDir = join(baseDir, 'custom-alias');
+    mkdirSync(join(customDir, 'output-styles'), { recursive: true });
+    writeFileSync(join(customDir, 'output-styles', 'bespoke.md'), `---
+name: audit-note
+title: Audit Note
+description: Custom alias fixture
+aliases: audit, review-note
+---
+
+## Depth Variation
+
+Audit note — custom alias sentinel.`);
+    writeFileSync(join(customDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle: 'audit-note' }, null, 2));
+    const customCanonical = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: customDir }));
+    writeFileSync(join(customDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle: 'review-note' }, null, 2));
+    const customAlias = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: customDir }));
+    const customSelected = findOutputStyle('review-note', listOutputStyleCatalog(PLUGIN_ROOT, customDir, { fresh: true }));
+    if (customSelected?.id !== 'audit-note') throw new Error('custom frontmatter alias did not resolve to audit-note');
+    if (!customCanonical.includes('custom alias sentinel') || customAlias !== customCanonical) {
+      throw new Error('custom alias injection differs from canonical style');
+    }
+    if (!customCanonical.startsWith('# Output Style: Audit Note')) {
+      throw new Error('custom style injection missing output-style header');
+    }
+    if (!customCanonical.includes(sharedMarker)) {
+      throw new Error('custom style did not inherit the shared format partial');
+    }
+    aliasChecks.push('review-note=audit-note');
+
+    // keep-shared-format: false — a standalone style that replaces the shared
+    // format policy instead of extending it.
+    const standaloneDir = join(baseDir, 'custom-standalone');
+    mkdirSync(join(standaloneDir, 'output-styles'), { recursive: true });
+    writeFileSync(join(standaloneDir, 'output-styles', 'standalone.md'), `---
+name: standalone-note
+title: Standalone Note
+description: Custom opt-out fixture
+keep-shared-format: false
+---
+
+## Depth Variation
+
+Standalone note — shared-format opt-out sentinel.`);
+    writeFileSync(join(standaloneDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle: 'standalone-note' }, null, 2));
+    const standalone = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: standaloneDir }));
+    if (!standalone.startsWith('# Output Style: Standalone Note')) {
+      throw new Error('opt-out style injection missing output-style header');
+    }
+    if (!standalone.includes('opt-out sentinel')) throw new Error('opt-out style body missing');
+    if (standalone.includes(sharedMarker)) {
+      throw new Error('keep-shared-format: false still inherited the shared format partial');
+    }
+    return {
+      snippets,
+      aliasChecks,
+      compositionChecks: [
+        'output-style header + shared format + selected depth variant',
+        'custom styles inherit the shared format unless keep-shared-format: false',
+        'adaptive structure without a forced response shape',
+      ],
+    };
   } finally {
     rmSync(baseDir, { recursive: true, force: true });
   }
@@ -182,7 +313,7 @@ function runLiveLeadTurn({ dataDir, prompt, provider, model, cwd, effort, fast }
     // Pooled provider sockets (e.g. openai-oauth WS, 20-min idle TTL) keep the
     // child alive after the turn; flush JSON then force-exit so execFileSync
     // returns as soon as the turn completes.
-    `const payload = JSON.stringify({ text: String(result?.text || result?.content || '').trim(), sessionId: session.id });`,
+    `const payload = ${JSON.stringify(LIVE_RESULT_SENTINEL)} + JSON.stringify({ text: String(result?.text || result?.content || '').trim(), sessionId: session.id });`,
     `await new Promise((r) => process.stdout.write(payload, r));`,
     `process.exit(0);`,
   ].filter(Boolean).join('\n');
@@ -193,39 +324,38 @@ function runLiveLeadTurn({ dataDir, prompt, provider, model, cwd, effort, fast }
     killSignal: 'SIGKILL',
     env: { ...process.env, MIXDOG_ROOT: PLUGIN_ROOT, MIXDOG_DATA_DIR: dataDir },
   });
-  const jsonStart = raw.lastIndexOf('{');
-  if (jsonStart < 0) throw new Error(`live driver failed: ${raw.slice(0, 400)}`);
-  return JSON.parse(raw.slice(jsonStart));
+  const sentinelStart = raw.lastIndexOf(LIVE_RESULT_SENTINEL);
+  if (sentinelStart < 0) throw new Error(`live driver failed: ${raw.slice(0, 400)}`);
+  return JSON.parse(raw.slice(sentinelStart + LIVE_RESULT_SENTINEL.length).trim());
 }
-function styleCharCountsFromResults(results) {
-  return Object.fromEntries(
-    STYLES.map((id) => [id, results.find((r) => r.style === id)?.metrics.chars ?? 0]),
-  );
+function outputSizesFromResults(results) {
+  return Object.fromEntries(results.map((result) => [result.style, result.metrics.chars]));
 }
-function evaluateVerbosityOrdering(results) {
-  const counts = STYLES.map((id) => results.find((r) => r.style === id)?.metrics.chars ?? 0);
-  let orderingOk = true;
-  for (let i = 1; i < counts.length; i += 1) {
-    if (counts[i - 1] < counts[i]) orderingOk = false;
+function summarizeOutputSizes(results) {
+  const failed = results.filter((result) => !result.ok).map((result) => result.style);
+  const sizes = outputSizesFromResults(results);
+  if (failed.length) {
+    return {
+      verdict: `Output sizes unavailable: live call failed (${failed.join(', ')})`,
+      sizes,
+    };
   }
-  const chain = STYLES.map((id, i) => `${id}=${counts[i]}`).join(' ');
-  const passLabel = STYLES.map((id) => `chars(${id})`).join(' >= ');
-  const verdict = orderingOk
-    ? `PASS ${passLabel}`
-    : `WARN ordering violated: ${chain}`;
-  return { orderingOk, verdict, counts: styleCharCountsFromResults(results) };
+  const summary = results.map((result) => `${result.style}=${sizes[result.style]}`).join(' ');
+  return { verdict: `Output sizes (diagnostic only): ${summary}`, sizes };
 }
 function printUsage() {
-  process.stdout.write(`output-style-bench — Lead verbosity ladder (detailed >= simple >= minimal >= extreme-minimal).
+  process.stdout.write(`output-style-bench — Lead composition and depth variants.
 
 Output style is Lead-only (buildLeadMetaContent when owner is not agent).
 runHeadlessRole worker paths (owner=agent) do NOT inject outputStyle.
 
 Usage:
   node scripts/output-style-bench.mjs [--json]
-  node scripts/output-style-bench.mjs --run [--model gpt] [--provider P] [--effort E] [--fast] [--prompt "..."] [--json]
+  node scripts/output-style-bench.mjs --run [--style ID] [--model gpt] [--provider P] [--effort E] [--fast] [--prompt "..."] [--json]
 
---run required for live calls. Temp MIXDOG_DATA_DIR: outputStyle override + read-only copy of OAuth/credential JSON from your real data dir.
+Scaffold mode checks canonical, built-in alias, and custom frontmatter alias injection.
+--run records live text and numeric metrics for manual review; it does not grade writing quality.
+Temp MIXDOG_DATA_DIR: outputStyle override + read-only copy of OAuth/credential JSON from your real data dir.
 `);
 }
 function main() {
@@ -235,17 +365,27 @@ function main() {
   const cli = resolveModelOpts(argValue('--model', null), argValue('--provider', null));
   const effort = argValue('--effort', null);
   const fast = hasFlag('--fast');
+  const styleArg = argValue('--style', null);
+  const liveStyles = styleArg ? [String(styleArg).trim().toLowerCase()] : STYLES;
+  if (liveStyles.some((style) => !STYLES.includes(style))) {
+    process.stderr.write(`[output-style-bench] --style must be one of ${STYLES.join(', ')}\n`);
+    process.exit(1);
+  }
   const cwd = process.cwd();
   let scaffold;
   try { scaffold = runInjectionScaffold(); }
   catch (e) { process.stderr.write(`[output-style-bench] scaffold FAILED: ${e.message}\n`); process.exit(1); }
   if (!doRun) {
-    printUsage();
-    const charCounts = Object.fromEntries(STYLES.map((id) => [id, scaffold.snippets[id].length]));
+    if (!jsonMode) printUsage();
+    const injectionChars = Object.fromEntries(STYLES.map((id) => [id, scaffold.snippets[id].length]));
     if (jsonMode) {
-      console.log(JSON.stringify({ mode: 'scaffold', role: 'lead', owner: 'cli', charCounts, liveCommand: 'node scripts/output-style-bench.mjs --run --model gpt' }, null, 2));
+      console.log(JSON.stringify({ mode: 'scaffold', role: 'lead', owner: 'cli', injectionChars,
+        aliasChecks: scaffold.aliasChecks, compositionChecks: scaffold.compositionChecks,
+        liveCommand: 'node scripts/output-style-bench.mjs --run --model gpt' }, null, 2));
     } else {
-      process.stdout.write(`[output-style-bench] scaffold ok: ${STYLES.map((id) => `${id}=${charCounts[id]}`).join(', ')}\n`);
+      process.stdout.write(`[output-style-bench] scaffold ok: ${STYLES.length} canonical styles injected\n`);
+      process.stdout.write(`[output-style-bench] aliases ok: ${scaffold.aliasChecks.join(', ')}\n`);
+      process.stdout.write(`[output-style-bench] composition ok: ${scaffold.compositionChecks.join(', ')}\n`);
     }
     process.exit(0);
   }
@@ -255,7 +395,7 @@ function main() {
   const baseSandbox = mkdtempSync(join(REPO_ROOT, '.tmp-output-style-bench-live-'));
   const results = [];
   try {
-    for (const styleId of STYLES) {
+    for (const styleId of liveStyles) {
       const dataDir = prepareStyleSandbox(baseSandbox, styleId, userUnified, realDataDir, route.provider);
       process.stderr.write(`[output-style-bench] style=${styleId} ${route.provider}/${route.model}\n`);
       try {
@@ -274,18 +414,18 @@ function main() {
   } finally {
     rmSync(baseSandbox, { recursive: true, force: true });
   }
-  const { orderingOk, verdict } = evaluateVerbosityOrdering(results);
+  const outputSizes = summarizeOutputSizes(results);
   if (jsonMode) {
-    console.log(JSON.stringify({ mode: 'live', role: 'lead', prompt, route, results, verdict, orderingOk }, null, 2));
+    console.log(JSON.stringify({ mode: 'live', role: 'lead', prompt, route, results, outputSizes }, null, 2));
   } else {
     console.log(`live role=lead ${route.provider}/${route.model}`);
     for (const r of results) {
       const m = r.metrics;
-      console.log(`- ${r.style}: ${r.ok ? 'ok' : 'FAIL'} chars=${m.chars} lines=${m.lines} bullets=${m.bullets} sentences=${m.sentences}`);
+      console.log(`- ${r.style}: ${r.ok ? 'ok' : 'FAIL'} shape=${m.shape} chars=${m.chars} lines=${m.lines} sentences=${m.sentences}`);
       if (r.ok) console.log(`  ${m.text}`);
       else console.log(`  error: ${String(r.error || '').slice(0, 300)}`);
     }
-    console.log(verdict);
+    console.log(outputSizes.verdict);
   }
   process.exit(results.every((r) => r.ok) ? 0 : 1);
 }

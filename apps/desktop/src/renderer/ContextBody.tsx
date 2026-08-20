@@ -55,15 +55,26 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
   const rawWindowTokens = finite(context.rawContextWindow || state.contextWindow || context.contextWindow || windowTokens);
   const freeTokens = windowTokens ? Math.max(0, windowTokens - used) : 0;
   const usedPercent = contextPercent(used, windowTokens) || 0;
-  const categories = [
+  const rawCategories = [
     { key: 'system', label: t('System prompt'), tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']) },
-    { key: 'tools', label: t('System tools'), tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) },
+    { key: 'tools', label: t('System tools'), tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) + finite(request.requestOverheadTokens) },
     { key: 'mcp', label: t('MCP tools'), tokens: tokenBuckets(schema, ['mcp']) },
     { key: 'agents', label: t('Custom agents'), tokens: tokenBuckets(schema, ['agents']) },
     { key: 'memory', label: t('Memory files'), tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']) },
     { key: 'skills', label: t('Skills'), tokens: tokenBuckets(schema, ['skills']) },
     { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
   ];
+  // ONE scale for the whole panel. The header meters provider-reported usage
+  // (baseline-backed, provider-calibrated) while the buckets are raw o200k
+  // estimates of the same projection, so the two disagree by the calibration
+  // factor. Project the buckets onto the header total: rows + free space then
+  // always add up to the window instead of leaving a phantom gap.
+  const rawCategorizedTokens = rawCategories.reduce((sum, category) => sum + category.tokens, 0);
+  const categoryScale = rawCategorizedTokens > 0 && used > 0 ? used / rawCategorizedTokens : 1;
+  const categories = rawCategories.map((category) => ({
+    ...category,
+    tokens: Math.round(category.tokens * categoryScale),
+  }));
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
   const autoCompactBufferTokens = Math.max(0, rawWindowTokens - windowTokens);
   const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);

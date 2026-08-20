@@ -12,6 +12,17 @@ export function remoteInstallMode(input: {
   return input.ios ? "ios" : "hidden";
 }
 
+/** iOS install guidance. A Home Screen app runs in its OWN storage container,
+ *  so the pairing has to ride the URL the install captures: "prepare" restores
+ *  the scanned link before the Share sheet. Only a browser whose pairing has
+ *  actually connected can offer one; without it the plain hint stands. */
+export type IosInstallStep = "prepare" | "share" | "plain";
+
+export function iosInstallStep(input: { handoff: boolean; prepared: boolean }): IosInstallStep {
+  if (input.prepared) return "share";
+  return input.handoff ? "prepare" : "plain";
+}
+
 export function isIosInstallPlatform(
   userAgent: string,
   platform: string,

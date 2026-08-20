@@ -94,6 +94,7 @@ export function createRunTurn(bag) {
     let accumulatedThinkingMs = 0;
     let cancelled = false;
     let failed = false;
+    let turnFailureDetail = '';
     let askResult = null;
     let turnFinishedNormally = false;
     let transcriptCompactedThisTurn = false;
@@ -1221,7 +1222,8 @@ export function createRunTurn(bag) {
         } else {
           failed = true;
           finalizeToolHeaders();
-          pushNotice(toolErrorDisplay(error, 'turn'), 'error');
+          turnFailureDetail = toolErrorDisplay(error, 'turn').replace(/^Error:\s*/i, '');
+          pushNotice(turnFailureDetail, 'error');
         }
       }
     } finally {
@@ -1292,7 +1294,18 @@ export function createRunTurn(bag) {
         // in scrollback. (Previously TurnDone rendered only in the
         // bottom-fixed live-status slot and vanished on the next turn.)
         if (!reclaimed && !isNoOpTurn) {
-          closingItems.push({ kind: 'turndone', id: nextId(), elapsedMs, status: turnStatus, outputTokens: finalOutputTokens, thinkingElapsedMs, verb: completionVerb, at: Date.now(), ...turnRouteMeta });
+          closingItems.push({
+            kind: 'turndone',
+            id: nextId(),
+            elapsedMs,
+            status: turnStatus,
+            outputTokens: finalOutputTokens,
+            thinkingElapsedMs,
+            verb: completionVerb,
+            at: Date.now(),
+            ...(turnFailureDetail ? { detail: turnFailureDetail } : {}),
+            ...turnRouteMeta,
+          });
         }
         // Deferred cards + turndone + status all land in ONE set() (one commit).
         appendItemsBatch(closingItems, {

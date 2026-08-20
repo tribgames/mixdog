@@ -59,7 +59,7 @@ export function createToolCallHandler({ handleSearch, handleMemoryAction }) {
         return { ...result, text: cappedText, content: [{ type: 'text', text: cappedText }], isError: result.isError || false }
       }
       if (name === 'memory') {
-        const result = await handleMemoryAction(args || {}, signal)
+        const result = await handleMemoryAction({ action: 'core', ...(args || {}) }, signal)
         return { ...result, content: [{ type: 'text', text: result.text }], isError: result.isError || false }
       }
       return { content: [{ type: 'text', text: `unknown tool: ${name}` }], isError: true }

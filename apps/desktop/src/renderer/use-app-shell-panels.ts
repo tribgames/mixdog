@@ -11,7 +11,12 @@ import {
   hasDesktopUtilityDockFeature,
   resolveDesktopUtilityDockTab,
 } from "./desktop-feature-config";
-import { clampDockWidth, DOCK_STATE_KEY, readDockState, type UtilityDockTab } from "./UtilityDock";
+import {
+  clampDockWidth,
+  DOCK_STATE_KEY,
+  readDockState,
+  type UtilityDockTab,
+} from "./utility-dock-state";
 import { DEFAULT_PROBLEMS_PANEL_FILTER, type ProblemsPanelFilter } from "./WorkbenchProblems";
 import {
   createProjectsPane,
@@ -124,8 +129,16 @@ export function useAppShellPanels() {
     setSidebarMotion(motion);
     setSidebarOpen(open);
   }, []);
-  const applyDockOpen = useCallback((open: boolean) => {
+  // The right sheet slides like the drawer, so it needs the drawer's motion
+  // signal too: a 940px band correction must apply its state without playing
+  // the slide (user rule: 해상도 전환엔 애니 없음).
+  const [dockMotion, setDockMotion] = useState<"animated" | "instant">("animated");
+  const applyDockOpen = useCallback((
+    open: boolean,
+    motion: "animated" | "instant" = "animated",
+  ) => {
     dockOpenIntent.current = open;
+    setDockMotion(motion);
     setDockOpen(open);
   }, []);
   // The bottom panel is the SAME kind of narrow-band surface as the side
@@ -259,7 +272,7 @@ export function useAppShellPanels() {
       applySidebarOpen(desktopSidebarOpen.current, "instant");
     }
     if (desktopDockOpen.current !== dockOpenIntent.current) {
-      applyDockOpen(desktopDockOpen.current);
+      applyDockOpen(desktopDockOpen.current, "instant");
     }
   }, [narrowShell, applyDockOpen, applySidebarOpen]);
   // Bottom panel band (≤940px = the width where it becomes an overlay
@@ -467,6 +480,7 @@ export function useAppShellPanels() {
     commandSurface,
     commandSurfaceLane,
     dismissSheetsForBottomPanel,
+    dockMotion,
     dockOpen,
     dockOpenIntent,
     dockSettled,

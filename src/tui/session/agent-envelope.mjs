@@ -102,7 +102,7 @@ export function parseBackgroundTaskEnvelope(text) {
     if (match) fields[match[1].toLowerCase()] = match[2].trim();
   }
   const surface = String(fields.surface || fields.operation || 'task').toLowerCase();
-  const name = surface === 'search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
+  const name = surface === 'web_search' || surface === 'shell' || surface === 'agent' ? surface : 'task';
   const status = String(fields.status || '').toLowerCase();
   const taskId = fields.task_id || fields.taskid || '';
   const errorText = fields.error || '';
@@ -254,7 +254,7 @@ export function buildExecutionResponseToolItem(text, {
 } = {}) {
   const surface = String(executionSurface || '').trim().toLowerCase();
   const status = String(executionStatus || '').trim().toLowerCase();
-  const explicitName = /^(agent|shell|search)$/.test(surface) ? surface : '';
+  const explicitName = /^(agent|shell|web_search)$/.test(surface) ? surface : '';
   const parsed = parseSyntheticAgentMessage(text);
   const synthetic = parsed || (explicitName ? {
     name: explicitName,

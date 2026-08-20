@@ -60,10 +60,24 @@ export function shouldFocusSurfaceInput(
   return !selection || selection.isCollapsed;
 }
 
+/** Settings and the command surfaces stay MOUNTED after closing so a reopen is
+ *  warm, and their dialog keeps a static aria-modal. A bare
+ *  `querySelector('[aria-modal="true"]')` therefore reported a phantom modal
+ *  for the rest of the window's life and silently killed every workbench
+ *  shortcut (user: Ctrl+N으로 new task가 갑자기 안 된다). A parked surface is
+ *  inert / aria-hidden / an inactive preserved layer; only a dialog outside all
+ *  of those actually owns the keyboard. */
+const PARKED_SURFACE_SELECTOR = '[inert],[aria-hidden="true"],[data-surface-active="false"]';
+
+export function modalDialogPresented(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>('[aria-modal="true"]'))
+    .some((dialog) => !dialog.closest(PARKED_SURFACE_SELECTOR));
+}
+
 export function shouldFocusComposerFromWindowKey(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
   if (event.key.length !== 1 && event.key !== "Process" && event.key !== "Dead") return false;
-  if (document.querySelector('[aria-modal="true"]')) return false;
+  if (modalDialogPresented()) return false;
   const target = event.target;
   return !(target instanceof Element) || !target.closest(SURFACE_KEYBOARD_OWNER_SELECTOR);
 }

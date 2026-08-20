@@ -106,6 +106,36 @@ function decodeEntities(s) {
     .replace(/&amp;/g, '&');
 }
 
+// CommonMark refuses to close `**0.118%**이며` / `**A.**B`: punctuation sits
+// right before the closing delimiter and a letter right after it, so the run is
+// not right-flanking and the markers stay visible as literal text. Repair that
+// natural-language boundary on the leftover text, exactly like the desktop
+// pipeline's repairAdjacentStrongPunctuation mdast plugin.
+const ADJACENT_STRONG_RE =
+  /(?:\*\*(?!\s)([^*\n]*?[^\s\p{L}\p{N}*])\*\*|__(?!\s)([^_\n]*?[^\s\p{L}\p{N}_])__)(?=[\p{L}\p{N}])/gu;
+
+function repairAdjacentStrong(text) {
+  const value = String(text ?? '');
+  if (value.indexOf('**') === -1 && value.indexOf('__') === -1) return value;
+  ADJACENT_STRONG_RE.lastIndex = 0;
+  return value.replace(ADJACENT_STRONG_RE, (_, starred, scored) =>
+    chalk.bold(starred ?? scored ?? ''));
+}
+
+// Raw HTML has no terminal rendering, but silently dropping the token deleted
+// the author's text with it. Show the markup verbatim (the desktop pipeline
+// does the same) and drop only comments, which are never meant to be read.
+const HTML_COMMENT_ONLY_RE = /^\s*<!--[\s\S]*?-->\s*$/;
+
+function renderHtmlToken(token) {
+  const raw = decodeEntities(String(token.raw ?? token.text ?? ''));
+  if (!raw.trim() || HTML_COMMENT_ONLY_RE.test(raw)) return '';
+  return raw.replace(/<!--[\s\S]*?-->/g, '');
+}
+
+/** Schemes we are willing to hand to the terminal as an OSC 8 target. */
+const SAFE_LINK_SCHEME_RE = /^(?:https?|mailto|file|ftp):/i;
+
 // ── Fenced code block rendering ─────────────────────────────────────────────
 // Gutter-indented, syntax-highlighted body with NO background band and no ```
 // fences. Diff/patch languages (and bodies that look like unified diffs) keep
@@ -687,7 +717,7 @@ function getListNumber(depth, orderedListNumber) {
  * marked token switch (minus table / hyperlink deps).
  */
 export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null, width = 0, depth = 0) {
-  const { accent, codeBlock, hrLine } = colorizers();
+  const { accent, codeBlock, hrLine, headingAccent } = colorizers();
   const ex = extraColorizers();
   switch (token.type) {
     case 'blockquote': {
@@ -720,15 +750,25 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
     case 'strong':
       // Bold only — no color tint (stays body-colored, just heavier weight).
       return chalk.bold((token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join(''));
-    case 'heading':
+    case 'heading': {
+      // A six-level ladder, not one bold tier: `strong` is ALSO plain bold, so
+      // h2-h6 rendered identically to inline emphasis and the document had no
+      // visible structure (user: 강조 표기가 티도 안 난다). Reference split —
+      // codex TUI ladders h1 bold+underline → h4-h6 italic, gemini-cli tiers
+      // the top rungs by COLOR — so headings take the theme's heading ink and
+      // strong keeps color-free bold.
+      const inner = (token.tokens ?? []).map((t) => formatToken(t)).join('');
       switch (token.depth) {
         case 1:
-          return (
-            chalk.bold.italic.underline((token.tokens ?? []).map((t) => formatToken(t)).join('')) + EOL + EOL
-          );
-        default: // h2+
-          return chalk.bold((token.tokens ?? []).map((t) => formatToken(t)).join('')) + EOL + EOL;
+          return chalk.bold.underline(headingAccent(inner)) + EOL + EOL;
+        case 2:
+          return chalk.bold(headingAccent(inner)) + EOL + EOL;
+        case 3:
+          return chalk.bold.italic(inner) + EOL + EOL;
+        default: // h4-h6: the quiet tail, dimmed rather than sized
+          return chalk.dim.italic(inner) + EOL + EOL;
       }
+    }
     case 'hr': {
       // Span the available content width with a box-drawing rule. width is only
       // threaded from the top-level token loop; recursive calls pass 0 and fall
@@ -736,11 +776,23 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       const w = Math.max(3, Number(width) || 80);
       return hrLine(HR_LINE.repeat(w)) + EOL;
     }
-    case 'image':
-      return token.href;
+    case 'image': {
+      // The alt text is the only description a terminal reader gets; dropping
+      // it for the bare URL threw away the author's caption.
+      const alt = decodeEntities(String(token.text ?? '')).trim();
+      const href = String(token.href ?? '');
+      if (!alt) return ex.link(href);
+      return href ? `${ex.linkText(alt)} ${chalk.dim(`(${href})`)}` : ex.linkText(alt);
+    }
     case 'link': {
       if (token.href.startsWith('mailto:')) {
         return ex.linkText(token.href.replace(/^mailto:/, ''));
+      }
+      if (!SAFE_LINK_SCHEME_RE.test(String(token.href ?? ''))) {
+        // Footnote references and other non-URL reference targets must not be
+        // handed to the terminal as a hyperlink destination.
+        const label = (token.tokens ?? []).map((t) => formatToken(t, 0, null, token)).join('');
+        return ex.linkText(label || String(token.href ?? ''));
       }
       const linkText = (token.tokens ?? []).map((t) => formatToken(t, 0, null, token)).join('');
       const plain = stripAnsi(linkText);
@@ -788,13 +840,24 @@ export function formatToken(token, listBaseIndent = 0, orderedListNumber = null,
       if (token.tokens) {
         return token.tokens.map((t) => formatToken(t, listBaseIndent, orderedListNumber, token, width, depth)).join('');
       }
-      return decodeEntities(token.text);
+      return repairAdjacentStrong(decodeEntities(token.text));
     case 'escape':
       return decodeEntities(token.text);
-    case 'def':
     case 'del':
+      // GFM strikethrough (pair-only `~~`), rendered with the SGR 9 line.
+      return chalk.strikethrough(
+        (token.tokens ?? []).map((t) => formatToken(t, 0, null, parent)).join(''),
+      );
+    case 'def': {
+      // A footnote definition carries body prose the reader needs; a link
+      // reference definition ([1]: https://…) is plumbing and stays hidden.
+      const tag = String(token.tag ?? '');
+      if (!tag.startsWith('^')) return '';
+      const body = decodeEntities(String(token.title || token.href || ''));
+      return body ? `${chalk.dim(`[${tag}]`)} ${body}${EOL}` : '';
+    }
     case 'html':
-      return '';
+      return renderHtmlToken(token);
     default:
       return '';
   }
@@ -826,7 +889,11 @@ function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth 
     ? '-'
     : `${getListNumber(depth, orderedListNumber)}.`;
   const marker = listBullet(markerPlain);
-  const markerPrefix = `${' '.repeat(listBaseIndent)}${marker} `;
+  // GFM task item: [ ]/[x] IS the item's meaning. marked strips the checkbox
+  // from the item text, so without re-emitting it here a done and a pending
+  // item render identically.
+  const checkbox = token.task ? chalk.dim(token.checked ? '[x] ' : '[ ] ') : '';
+  const markerPrefix = `${' '.repeat(listBaseIndent)}${marker} ${checkbox}`;
   const continuationPrefix = ' '.repeat(stripAnsi(markerPrefix).length);
   const nestedListIndent = continuationPrefix.length;
   const childWidth = contentWidthAfterPrefix(width, continuationPrefix);

@@ -16,14 +16,18 @@ import {
   availableWorkflowId,
   availableAgentId,
   DEFAULT_WORKFLOW_ID,
-  normalizeSearchRouteConfig,
+  normalizeWebSearchRouteConfig,
   clearAgentDefinitionCache,
 } from './workflow.mjs';
-import { ONBOARDING_VERSION } from './quick-search-models.mjs';
+import { ONBOARDING_VERSION } from './quick-web-search-models.mjs';
 import { findOutputStyle } from './output-styles.mjs';
 import { ensureProviderEnabled } from './config-helpers.mjs';
 import { fastCapableFor } from './model-capabilities.mjs';
-import { canonicalizeAgentRouteStorage } from '../runtime/shared/agent-route-config.mjs';
+import {
+  canonicalizeAgentRouteStorage,
+  isAgentDisabled,
+  withAgentDisabled,
+} from '../runtime/shared/agent-route-config.mjs';
 
 // Onboarding + agents/workflows/output-style selection surface. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
@@ -44,7 +48,7 @@ export function createWorkflowAgentsApi(deps) {
     async completeOnboarding(payload = {}) {
       // Only fall back to the live runtime route when the caller actually sent a
       // defaultRoute. The onboarding "partial save" path (Main left unset, only
-      // Search/agent picks) omits defaultRoute entirely and must NOT persist the
+      // Web Search/agent picks) omits defaultRoute entirely and must NOT persist the
       // current route as Main or recreate the session.
       const config = getConfig();
       const workflowInput = payload.workflowRoutes && typeof payload.workflowRoutes === 'object'
@@ -105,11 +109,11 @@ export function createWorkflowAgentsApi(deps) {
         completedAt: new Date().toISOString(),
       };
 
-      if (payload.searchRoute) {
-        const searchToSave = clean(payload.searchRoute.provider)
-          ? normalizeSearchRouteConfig(payload.searchRoute)
-          : normalizeSearchRouteConfig({ provider: 'default', model: 'default', toolType: payload.searchRoute.toolType });
-        if (searchToSave) nextConfig.searchRoute = searchToSave;
+      if (payload.webSearchRoute) {
+        const webSearchToSave = clean(payload.webSearchRoute.provider)
+          ? normalizeWebSearchRouteConfig(payload.webSearchRoute)
+          : normalizeWebSearchRouteConfig({ provider: 'default', model: 'default', toolType: payload.webSearchRoute.toolType });
+        if (webSearchToSave) nextConfig.webSearchRoute = webSearchToSave;
       }
 
       saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
@@ -124,11 +128,17 @@ export function createWorkflowAgentsApi(deps) {
     listAgents() {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const config = getConfig();
+      // Agents have two states only (a model, or off), so an agent that has
+      // never been pinned reports the effective Main route instead of an empty
+      // one — the surfaces must never offer a third "follows Main" state.
+      const effectiveRoute = (agentId) => agentRouteFromConfig(config, agentId)
+        || normalizeWorkflowRoute(resolveRoute(config, {}));
       const fixed = FIXED_AGENT_SLOTS.map((agent) => ({
         ...agent,
         locked: true,
         userOverride: existsSync(join(dataDir, 'agents', agent.id, 'AGENT.md')),
-        route: agentRouteFromConfig(config, agent.id),
+        route: effectiveRoute(agent.id),
+        disabled: isAgentDisabled(config, agent.id),
         definition: loadAgentDefinition(dataDir, agent.id),
       }));
       // Starter and user-authored custom agents are discovered from
@@ -141,7 +151,8 @@ export function createWorkflowAgentsApi(deps) {
           description: definition?.description || '',
           custom: true,
           userOverride: existsSync(join(dataDir, 'agents', id, 'AGENT.md')),
-          route: agentRouteFromConfig(config, id),
+          route: effectiveRoute(id),
+          disabled: isAgentDisabled(config, id),
           definition,
         };
       });
@@ -316,7 +327,9 @@ export function createWorkflowAgentsApi(deps) {
         body: definition.body,
         custom: !FIXED_AGENT_SLOTS.some((agent) => agent.id === id),
         userOverride: existsSync(join(dataDir, 'agents', id, 'AGENT.md')),
-        route: agentRouteFromConfig(getConfig(), id),
+        route: agentRouteFromConfig(getConfig(), id)
+          || normalizeWorkflowRoute(resolveRoute(getConfig(), {})),
+        disabled: isAgentDisabled(getConfig(), id),
       };
     },
     async saveAgentDefinition(payload = {}) {
@@ -407,6 +420,12 @@ export function createWorkflowAgentsApi(deps) {
       // stored route as the fallback instead, and never write the bucket here.
       const requested = { ...(next || {}) };
       const stored = agentRouteFromConfig(getConfig(), id) || {};
+      // Off is an explicit state, stored apart from the route so the model the
+      // user picked survives and comes back when the agent is switched on.
+      if (requested.disabled === true) {
+        saveConfigAndAdopt(canonicalizeAgentRouteStorage(withAgentDisabled(getConfig(), id, true)));
+        return { ...(stored || {}), id, disabled: true };
+      }
       // No provider means no explicit override. Remove the stored route so the
       // agent follows Main dynamically; never synthesize a provider.
       if (!clean(requested.provider)) {
@@ -447,7 +466,8 @@ export function createWorkflowAgentsApi(deps) {
 
       const routeToSave = normalizeWorkflowRoute(selectedRoute);
       if (!routeToSave) throw new Error('agent route requires provider and model');
-      const nextConfig = { ...getConfig() };
+      // Picking a model is also the "on" switch — the two states are exclusive.
+      const nextConfig = withAgentDisabled(getConfig(), id, false);
       nextConfig.agents = {
         ...(nextConfig.agents || {}),
         [id]: routeToSave,

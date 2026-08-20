@@ -49,6 +49,9 @@ jobs:
       token_version: ${{ steps.plan.outputs.token_version }}
       token_tag: ${{ steps.plan.outputs.token_tag }}
       runtime_tag: ${{ steps.plan.outputs.runtime_tag }}
+      native_changed: ${{ steps.plan.outputs.native_changed }}
+      runtime_needed: ${{ steps.plan.outputs.runtime_needed }}
+      critical_changed: ${{ steps.plan.outputs.critical_changed }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -184,6 +187,32 @@ jobs:
           });
           const runtimeTag = readJson('src/runtime/memory/data/runtime-manifest.json').release_tag;
           if (!/^runtime-v\d+\.\d+\.\d+$/.test(runtimeTag)) throw new Error(`Invalid runtime tag ${runtimeTag}`);
+          const nativeChanged = mode !== 'skip'
+            && [patch, graph, spawn, token].some(component => component.build);
+          const runtimeNeeded = mode !== 'skip' && (mode === 'force' || changedSince(currentTag, [
+            '.github/workflows/build-runtime.yml',
+            'scripts/build-runtime-linux.sh',
+            'scripts/build-runtime-macos.sh',
+            'scripts/build-runtime-windows.ps1',
+            'scripts/generate-runtime-manifest.mjs',
+            'src/runtime/memory/data/runtime-manifest.json',
+          ]));
+          const criticalChanged = changedSince(currentTag, [
+            'native',
+            'src/runtime/agent/orchestrator',
+            'src/runtime/shared',
+            'scripts/verify-release-assets.mjs',
+            'scripts/release-gate-test.mjs',
+            'scripts/prepare-native-assets.mjs',
+            'scripts/prepare-native-assets-test.mjs',
+            'scripts/apply-patch-edit-smoke.mjs',
+            'scripts/provider-toolcall-test.mjs',
+            'scripts/provider-contract-test.mjs',
+            'scripts/provider-stream-outcome-test.mjs',
+            'scripts/cursor-provider-test.mjs',
+            'package.json',
+            'package-lock.json',
+          ]);
 
           const values = {
             app_version: appVersion,
@@ -205,6 +234,9 @@ jobs:
             token_version: token.version,
             token_tag: token.tag,
             runtime_tag: runtimeTag,
+            native_changed: String(nativeChanged),
+            runtime_needed: String(runtimeNeeded),
+            critical_changed: String(criticalChanged),
           };
           for (const [key, value] of Object.entries(values)) appendFileSync(output, `${key}=${value}\n`);
           console.log(JSON.stringify({ mode, resume, preBumped, ...values }, null, 2));
@@ -213,6 +245,7 @@ jobs:
   prepare-native:
     name: prepare-native-tags
     needs: plan
+    if: ${{ needs.plan.outputs.native_changed == 'true' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -313,8 +346,8 @@ jobs:
 
   runtime:
     name: incremental-runtime
-    needs: [plan, prepare-native]
-    if: ${{ inputs.native != 'skip' }}
+    needs: plan
+    if: ${{ needs.plan.outputs.runtime_needed == 'true' }}
     uses: ./.github/workflows/build-runtime.yml
     with:
       tag: ${{ needs.plan.outputs.runtime_tag }}
@@ -365,7 +398,7 @@ jobs:
       ${{
         always()
         && needs.plan.result == 'success'
-        && needs.prepare-native.result == 'success'
+        && (needs.prepare-native.result == 'success' || needs.prepare-native.result == 'skipped')
         && (needs.runtime.result == 'success' || needs.runtime.result == 'skipped')
         && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
         && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
@@ -461,4 +494,5 @@ jobs:
     with:
       tag: ${{ needs.plan.outputs.app_tag }}
       ref: ${{ needs.prepare-app.outputs.sha }}
+      run_critical: ${{ needs.plan.outputs.critical_changed == 'true' }}
     secrets: inherit

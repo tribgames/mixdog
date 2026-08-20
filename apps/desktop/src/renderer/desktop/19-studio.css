@@ -1,0 +1,1140 @@
+/* Desktop layer 19 — Studio pane, tiles, composer, detail view.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Media studio page (sidebar → Studio): session-chat grammar — a scrolling
+   result surface with the generation composer docked at the bottom. */
+/* Main content stays on the same flat sheet as chat and editor panes. */
+.studio-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  border-radius: 0;
+  background: var(--mx-workspace-sheet);
+  box-shadow: none;
+}
+.studio-shell {
+  position: relative;
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Gallery + detail overlay. The composer dock stays a sibling below so a
+   stacked preview cannot bury the prompt. */
+.studio-stage-host {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Mode stays centered; thumbnail scale occupies an independent right slot. */
+.studio-topbar {
+  box-sizing: border-box;
+  container-type: inline-size;
+  width: min(100%, var(--pane-column));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  padding: 16px var(--pane-inset) 0;
+}
+/* The workspace tab already labels Studio on desktop. Phones restore this
+   row only for the drawer reopen control because their tab strip is hidden. */
+.studio-header { display: none; }
+.studio-topbar > .studio-kind { grid-column: 2; }
+.studio-topbar > .studio-density { grid-column: 3; justify-self: end; }
+/* Right slot holds the side-panel toggle; a loose child fell to a new row. */
+.studio-topbar-tools {
+  grid-column: 3;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.studio-density {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  width: clamp(44px, 18cqi, 112px);
+  max-width: 100%;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-1);
+}
+.studio-density input { flex: 1 1 auto; min-width: 0; width: 100%; }
+.studio-folder {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 6px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-icon);
+  background: var(--mx-bg-layer-1);
+  cursor: pointer;
+}
+.studio-folder:hover { color: var(--mx-text); background: var(--mx-hover); }
+/* Studio is a full-height tab surface. Its result list owns the flexible
+   middle while the composer remains pinned to the bottom. */
+.studio-root {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* Split panes resize independently of the desktop window. Studio gutters
+     must therefore follow this surface, not a viewport media query. */
+  container-name: studio-pane;
+  container-type: inline-size;
+}
+/* Surface re-entry restarts CSS animations for the shared chat dock. */
+.utility-dock[data-entering='true'] { animation: none; transition: none; }
+/* Range controls follow the app ink instead of the OS accent (user: 색이 튄다). */
+.studio-density input[type="range"],
+.studio-duration input[type="range"] {
+  height: 4px;
+  accent-color: var(--mx-text);
+  cursor: pointer;
+}
+.studio-duration-slot { display: inline-flex; align-items: center; }
+.studio-duration-slot[data-empty="true"] { visibility: hidden; pointer-events: none; }
+.studio-results {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px calc(var(--pane-inset) - var(--mx-scrollbar-gutter)) 8px var(--pane-inset);
+  /* Same owned-gutter grammar as chat: one track, paid from right padding. */
+  scrollbar-gutter: stable;
+}
+/* Task parity: the gallery card is the pane column minus its two insets —
+   exactly the line the dock's composer card holds below it. */
+.studio-grid {
+  width: min(100%, var(--pane-card));
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+/* One justified row per wrapper: tiles scale as flex-grow ratios with CSS
+   aspect-ratio, so a pane width change resizes every thumbnail in the SAME
+   frame as the moving divider — no JS relayout in the loop, no snap a frame
+   later (user: 섬네일이 넓이 조정될 때 튄다). Row BREAKS still come from the
+   solved layout and recommit on the next frame, which only matters when a
+   tile crosses a row boundary. */
+.studio-grid-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.studio-tile {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.studio-tile .studio-tile-open { height: 100%; }
+.studio-blank {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: var(--mx-text-faint);
+  text-align: center;
+}
+.studio-blank p { max-width: 380px; margin: 0; font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+.studio-tile {
+  position: relative;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.studio-tile-open {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--mx-radius-xl);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  cursor: pointer;
+}
+.studio-tile.selected .studio-tile-open { box-shadow: inset 0 0 0 1px var(--mx-border-strong); }
+.studio-tile-open img,
+.studio-tile-open video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.studio-thumbnail-image {
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+.studio-thumbnail-image[data-ready='true'] { opacity: 1; }
+.studio-thumbnail-loading {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--mx-accent);
+  pointer-events: none;
+}
+/* Hover clip sits on top of its own still. */
+.studio-tile-open video { position: absolute; inset: 0; z-index: 1; }
+.studio-tile-glyph { display: grid; place-items: center; height: 100%; color: var(--mx-icon-muted); }
+.studio-tile-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-grey-100);
+  background: var(--mx-media-scrim);
+  font-size: var(--mx-font-micro);
+  letter-spacing: var(--mx-tracking-wide);
+}
+.studio-tile figcaption { display: grid; gap: 2px; padding: 0 2px; }
+.studio-tile figcaption b {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+}
+.studio-tile figcaption small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.studio-tile[data-hidden="true"] { display: none; }
+/* One compact circular delete control in the tile's top-right corner. */
+.studio-tile-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  /* Above the hover clip: the mounted <video> carries z-index 1 and was
+     swallowing the buttons after a few hovers (user). */
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.studio-tile-actions button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--mx-grey-100);
+  background: var(--mx-media-scrim);
+  cursor: pointer;
+}
+.studio-tile-actions button:hover { background: var(--mx-media-scrim-hover); }
+/* Destructive action stays red in both themes. */
+.studio-tile-actions .studio-tile-remove { color: var(--mx-danger); }
+.studio-tile-actions .studio-tile-remove:hover { background: var(--mx-media-danger); color: var(--mx-on-media); }
+.studio-tile:hover .studio-tile-actions,
+.studio-tile-actions:focus-within { opacity: 1; }
+/* Pending slot: reserves the result's place with a quiet plate. */
+.studio-tile--pending .studio-tile-open {
+  display: grid;
+  place-items: center;
+  cursor: default;
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+}
+/* A queue slot owns the reference and prompt captured at submit time. Showing
+   that snapshot makes later composer edits visibly belong to the next run. */
+.studio-pending-reference {
+  position: absolute;
+  inset: 0;
+  opacity: .42;
+  filter: saturate(.72);
+}
+.studio-pending-prompt {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  display: -webkit-box;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 5px 7px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-bg-base) 78%, transparent);
+  font-size: var(--mx-font-meta);
+  line-height: 1.35;
+  text-align: center;
+}
+.studio-tile--pending[data-size="compact"] .studio-pending-prompt { -webkit-line-clamp: 2; }
+.studio-tile--pending[data-size="tiny"] .studio-pending-prompt { display: none; }
+/* The sweep is a transform-only overlay: animating the tile's own background
+   repainted it every frame and the keyframe wrap popped the band back
+   (user: 섬네일 애니가 튄다 / 가볍게). It enters and leaves fully off the tile,
+   so the loop is seamless, and the band is faint enough to read as breathing. */
+.studio-tile--pending .studio-tile-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* Wider, softer falloff on a near-vertical axis: the steep narrow band read
+     as a hard streak crossing the plate (user: 흐르는 거 더 깔끔하게). */
+  background: linear-gradient(94deg,
+    transparent 8%,
+    color-mix(in srgb, var(--mx-text) 5%, transparent) 34%,
+    color-mix(in srgb, var(--mx-text) 9%, transparent) 50%,
+    color-mix(in srgb, var(--mx-text) 5%, transparent) 66%,
+    transparent 92%);
+  transform: translate3d(-100%, 0, 0);
+  /* Slow glide with a beat of rest between passes, so the loop reads as one
+     deliberate breath instead of a treadmill. */
+  animation: studio-pending 3.2s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes studio-pending {
+  0%, 10% { transform: translate3d(-100%, 0, 0); }
+  100% { transform: translate3d(100%, 0, 0); }
+}
+/* Status and Cancel share ONE header row. As opposing absolute corners they
+   overlapped on a narrow slot (user: 제너레이트와 캔슬이 겹침), so the status
+   is now a bare spinner and only Cancel carries a label. */
+.studio-pending-head {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: none;
+}
+.studio-tile--pending[data-size="tiny"] .studio-pending-head { top: 5px; left: 5px; right: 5px; }
+/* Spinner only (user): the percentage and the clock live on the rail below. */
+.studio-pending-chip {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  pointer-events: auto;
+}
+.studio-tile--pending:not([data-size="wide"]) .studio-pending-cancel { gap: 0; padding: 0 6px; }
+.studio-tile--pending:not([data-size="wide"]) .studio-pending-cancel span { display: none; }
+/* Status foot: elapsed clock and percentage over the rail. */
+.studio-pending-foot {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  /* Above the sweep overlay: the band must not wash over the numbers. */
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+}
+.studio-pending-meta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  line-height: 12px;
+}
+/* A tiny slot has no room for the numbers; the rail still reads. */
+.studio-tile--pending[data-size="tiny"] .studio-pending-foot { left: 6px; right: 6px; bottom: 6px; }
+.studio-tile--pending[data-size="tiny"] .studio-pending-meta { display: none; }
+/* Pending progress rail, last line of the foot. */
+.studio-pending-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+}
+.studio-pending-bar > span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--mx-text);
+  /* Long ease: the rail advances between polls instead of stepping. */
+  transition: width 600ms linear;
+}
+/* Lanes that report nothing get an indeterminate sliver instead of a rail
+   driven by an invented estimate (user: 퍼센테이지가 안 맞는다). */
+.studio-pending-bar--idle > span {
+  width: 34%;
+  transition: none;
+  animation: studio-pending-idle 1.8s ease-in-out infinite;
+}
+@keyframes studio-pending-idle {
+  0% { transform: translate3d(-100%, 0, 0); }
+  100% { transform: translate3d(300%, 0, 0); }
+}
+/* Failed run keeps its slot: the reason and the retry live on the tile. */
+.studio-tile--failed .studio-tile-open {
+  animation: none;
+  background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-layer-1));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 38%, transparent);
+}
+/* A failed slot is a static plate: the sweep overlay has no business there. */
+.studio-tile--failed .studio-tile-open::after { content: none; }
+.studio-failed-body {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 12px;
+  color: var(--mx-danger);
+  text-align: center;
+}
+.studio-failed-body p {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  margin: 0;
+  max-width: 240px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.studio-failed-actions { display: flex; gap: 6px; }
+.studio-failed-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-2);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.studio-failed-actions button:hover { background: var(--mx-hover); }
+.studio-pending-cancel {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  /* Stopping a run is destructive, so it carries the danger tint like the
+     tile's delete action (user: 중단은 빨간 계통). */
+  color: var(--mx-danger);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button), inset 0 0 0 1px color-mix(in srgb, var(--mx-danger) 34%, transparent);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.studio-pending-cancel:hover {
+  color: var(--mx-grey-50);
+  background: color-mix(in srgb, var(--mx-danger) 72%, transparent);
+}
+.studio-spinner { animation: studio-spin 1.1s linear infinite; }
+@keyframes studio-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-tile--pending .studio-tile-open::after, .studio-spinner { animation: none; }
+  /* A still sliver would read as a stalled run: fill the rail instead. */
+  .studio-pending-bar--idle > span { width: 100%; animation: none; opacity: var(--mx-op-disabled); }
+}
+/* Composer parity with the session chat lives in the single canonical
+   .studio-composer textarea / -bar rules further down (one owner — two
+   parallel parity blocks had drifted on max-height). */
+.studio-attach {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  /* Chat parity: the + tool carries text ink like .composer-tool. */
+  color: var(--mx-text);
+  background: transparent;
+  cursor: pointer;
+}
+.studio-attach:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.studio-attach:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.studio-refs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
+.studio-ref { position: relative; width: 44px; height: 44px; }
+.studio-ref img { width: 100%; height: 100%; object-fit: cover; border-radius: var(--mx-radius-md); display: block; }
+.studio-ref button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  color: var(--mx-grey-100);
+  background: var(--mx-media-scrim-hover);
+  cursor: pointer;
+}
+/* Bottom dock: same grammar as the session composer — a raised card that owns
+   the prompt, the lane pills, and the send action. */
+.studio-dock {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: min(100%, var(--pane-column));
+  margin: 0 auto;
+  /* Same floor gap as .composer-region so a 2×2 split lines the cards up. */
+  padding: 0 var(--pane-inset) 16px;
+  /* Anchor for the floating density overlay above the composer. */
+  position: relative;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+}
+.studio-status { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.studio-status-error { color: var(--mx-danger); }
+.studio-composer {
+  /* Match the session form's block flow. Its inline textarea line box plus
+     footer is the rendered chat-card height; grid tracks made Studio shorter. */
+  display: block;
+  /* Chat-composer parity (user): same radius, type scale, and row metrics. */
+  border-radius: var(--mx-radius-xl);
+  min-height: 84px;
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-raised);
+  overflow: hidden;
+}
+.studio-composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  field-sizing: content;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 16px var(--composer-text-inset) 8px;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-body);
+  letter-spacing: 0;
+  resize: none;
+  outline: none;
+}
+.studio-composer textarea::placeholder { color: var(--mx-text-faint); }
+/* Neutral accents app-wide (user: 파란 강조/선택 톤 제거). Native controls,
+   text selection, and focus rings follow the app ink instead of the OS blue. */
+:root {
+  accent-color: var(--mx-text);
+  /* Focus ring token feeds every :focus-visible shadow in the shell. */
+  --mx-focus: var(--mx-border-strong);
+}
+::selection { color: var(--mx-bg-base); background: var(--mx-text); }
+/* Android Chromium paints the IME's composing syllable with the ::selection
+   COLOR but not its background, so the inverted ink above rendered each
+   composing character invisible on the dark surface (user: 타이핑한 글자가
+   투명이 됨). Editable fields on touch devices keep their own ink and take a
+   translucent highlight that reads for both selection and composition. */
+@media (pointer: coarse) {
+  input::selection, textarea::selection {
+    color: var(--mx-text);
+    background: color-mix(in srgb, var(--mx-text) 28%, transparent);
+  }
+}
+.studio-composer[data-dropping="true"] { box-shadow: var(--mx-raised), inset 0 0 0 1.5px var(--mx-border-strong); }
+.dock-terminal-surface[data-dropping="true"],
+.pane-cell[data-file-dropping="true"] .pane-surface-stack {
+  box-shadow: inset 0 0 0 1.5px var(--mx-border-strong);
+}
+.studio-composer-bar {
+  display: flex;
+  align-items: center;
+  /* Chat footer parity: tools sit nearly flush like + · model · effort. */
+  gap: 2px;
+  height: 44px;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 0 8px;
+  /* Mode switch must not reflow the dock: one line, fixed height, whether the
+     model exposes two controls or four (user: "너무 심하게 튄다"). */
+  flex-wrap: nowrap;
+  overflow: visible;
+  /* The bar is a GRID item: without this its automatic minimum is its content
+     width, and with the side panel open the whole composer card overflowed the
+     pane and clipped the send button (user: 입력창이 잘린다). */
+  min-width: 0;
+}
+.studio-composer-spacer { flex: 1; }
+.studio-kind { display: inline-flex; gap: 2px; padding: 3px; border-radius: var(--mx-radius-pill); background: var(--mx-bg-layer-1); }
+.studio-kind[data-empty="true"] { visibility: hidden; pointer-events: none; }
+.studio-kind button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* Text-only pills read a size small (user: 토글이 너무 작다): step the
+     control up to the session-header control scale. */
+  height: 30px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.studio-kind button.active { color: var(--mx-text); background: var(--mx-bg-base); box-shadow: var(--mx-button); }
+.studio-pill-select .mx-select-trigger {
+  height: 28px;
+  /* Chat-composer grammar (user): frameless natural-width value + chevron,
+     hover reveals the plate — matches the session effort/fast controls. */
+  width: max-content;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: none;
+  box-shadow: none;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.studio-pill-select .mx-select-trigger:hover:not(:disabled),
+.studio-pill-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+/* Truncate only the trigger: the open menu must size to its longest label so
+   provider names never read as "Grok Imagine (…". */
+.studio-pill-select .mx-select-value { max-width: 148px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-pill-select .mx-select-menu { min-width: max-content; }
+.studio-pill-select .mx-select-menu .mx-select-option { white-space: nowrap; }
+.studio-model-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  /* Chat-composer grammar (user): frameless natural-width triggers like the
+     session model/effort controls — no pill box, hover reveals the plate. */
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: none;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.studio-model-trigger:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.studio-model-trigger:hover:not(:disabled),
+.studio-model-trigger[aria-expanded="true"]:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+/* Model menu: wide enough that no row truncates, trigger stays fixed width. */
+.studio-model-select .mx-select-trigger {
+  height: 28px;
+  width: max-content;
+  min-width: 0;
+  max-width: 200px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: none;
+  box-shadow: none;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.studio-model-select .mx-select-trigger:hover:not(:disabled),
+.studio-model-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.studio-model-select .mx-select-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-model-select .mx-select-menu { min-width: 240px; }
+/* Anchored model popover: own width, provider headings, opens upward. */
+.studio-model-menu { position: relative; display: inline-flex; }
+.studio-model-panel {
+  position: fixed;
+  z-index: 950;
+  width: 268px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: var(--mx-radius-xl);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
+  /* Chat-composer parity: the panel scales out of the expanding pill. */
+  transform-origin: bottom left;
+  animation: route-sheet-morph-in 160ms cubic-bezier(.22, 1, .36, 1) both;
+}
+.studio-model-panel > * { animation: route-sheet-content-in 140ms ease-out 40ms both; }
+/* Codex-style pill: expands to the panel width while open. */
+.studio-model-trigger[data-morph] {
+  max-width: none;
+  justify-content: space-between;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  transition: width 110ms cubic-bezier(.22, 1, .36, 1);
+}
+.studio-model-panel section + section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: .5px solid var(--mx-border-muted);
+}
+.studio-model-panel h4 {
+  margin: 4px 8px 5px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: var(--mx-tracking-wide);
+  text-transform: uppercase;
+}
+.studio-model-panel button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background 85ms ease-out, box-shadow 85ms ease-out;
+}
+.studio-model-panel button:hover,
+.studio-model-panel button:focus-visible {
+  outline: 0;
+  background: var(--mx-hover);
+}
+/* Flat rows (chat catalog parity): the neutral check alone marks selection. */
+.studio-model-panel button.active {
+  background: transparent;
+  box-shadow: none;
+  font-weight: var(--mx-weight-regular);
+}
+.studio-model-panel button.active:hover,
+.studio-model-panel button.active:focus-visible {
+  background: var(--mx-hover);
+}
+.studio-model-panel button.active svg {
+  color: var(--mx-text);
+}
+/* The panel is portalled to the viewport, so on a phone it must fit one:
+   the component clamps its left edge, this caps the box itself. */
+.studio-model-panel { max-width: calc(100vw - 16px); max-height: min(320px, 60vh); }
+/* The generation controls ride one strip; the send action sits outside it,
+   exactly like the chat composer's route strip and send button. */
+/* The strip SCROLLS instead of clipping the model picker at ANY width — the
+   side panel narrows the desktop shell exactly like a phone viewport, and the
+   generate button keeps its own slot at the end of the row (chat parity). */
+.studio-composer-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.studio-composer-controls::-webkit-scrollbar { display: none; }
+.studio-composer-controls > * { flex: 0 0 auto; }
+@media (max-width: 700px) {
+  /* The desktop trigger is a fixed 156px slot so pills never shift; a phone
+     has no room for that — truncate the model name instead. */
+  .studio-model-trigger { min-width: 0; max-width: 132px; }
+  .studio-composer-spacer { display: none; }
+  .studio-generate { flex: 0 0 auto; margin-left: 6px; }
+}
+/* Keep Studio controls on the loaded Latin UI face and skip text-affecting
+   hover transitions. The mounted control row can then repaint in place when
+   its media contract changes. */
+.studio-composer-bar,
+.studio-model-trigger,
+.studio-pill-select .mx-select-trigger,
+.studio-model-select .mx-select-trigger,
+.studio-kind button,
+.studio-duration {
+  font-family: var(--mx-font-sans);
+}
+.studio-model-trigger,
+.studio-pill-select .mx-select-trigger,
+.studio-model-select .mx-select-trigger,
+.studio-kind button { transition: none; }
+.studio-duration { display: inline-flex; align-items: center; gap: 6px; color: var(--mx-text); font-size: var(--mx-font-minor); }
+.studio-duration input { width: 88px; }
+.studio-generate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  /* Same contrast disc as the chat send button. */
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  cursor: pointer;
+}
+.studio-generate svg.lucide { stroke-width: 1.75px; }
+.studio-generate:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
+}
+.studio-generate:focus-visible { outline: 0; box-shadow: 0 0 0 1px var(--mx-border-strong); }
+.studio-generate:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.studio-generate.is-busy { color: var(--mx-text); background: var(--mx-bg-layer-1); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
+.desktop-boot-gate {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--mx-window-band);
+}
+.desktop-boot-gate-content {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content { visibility: hidden; }
+.desktop-boot-cover {
+  position: absolute;
+  z-index: 1000;
+  inset: 0;
+  display: flex;
+  background: var(--mx-window-band);
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+.desktop-boot-cover[data-leaving="true"] { opacity: 0; pointer-events: none; }
+.desktop-boot-cover > .desktop-loading-surface {
+  border-radius: 0;
+  box-shadow: none;
+}
+/* Native/PWA splash and the in-app watermark use different coordinate
+   spaces. Never show both marks at once: the cover exits first, then the
+   final content-space mark fades in without appearing to jump position. */
+.desktop-boot-gate[data-brand-handoff] .welcome-logo {
+  animation: desktop-boot-brand-in 180ms 20ms ease-out both;
+}
+@keyframes desktop-boot-brand-in {
+  from { opacity: 0; }
+  to { opacity: .08; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-boot-cover { transition: none; }
+  .desktop-boot-gate[data-brand-handoff] .welcome-logo { animation: none; }
+}
+/* Detail view: media on the stage, metadata and actions in a side rail. */
+.studio-detail {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  container-name: studio-detail;
+  container-type: size;
+  isolation: isolate;
+  /* Same scrim as other dialogs. No backdrop-filter: it blacked out the
+     window on Windows GPU during slider drags. Gallery stays hidden so
+     tiles cannot ghost through the veil. */
+  background: var(--mx-scrim);
+  animation: studio-detail-in 140ms ease-out;
+}
+.studio-shell:has(.studio-detail) .studio-results,
+.studio-shell:has(.studio-detail) .studio-topbar {
+  visibility: hidden;
+}
+/* Detail card follows the shared dialog grammar (model picker / settings):
+   rounded frame, hairline ring, overlay elevation over the scrim. */
+.studio-detail-card {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: var(--mx-radius-xl);
+  background: var(--mx-workspace-sheet);
+  box-shadow: var(--mx-overlay), inset 0 0 0 .5px var(--mx-border-muted);
+}
+.studio-detail-stage {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+.studio-detail-stage img,
+.studio-detail-stage video {
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  border-radius: var(--mx-radius-md);
+  animation: studio-stage-in 160ms ease-out;
+}
+.studio-detail-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+  background: var(--mx-bg-base);
+  box-shadow: inset .5px 0 0 var(--mx-border-muted);
+  animation: studio-side-in 160ms ease-out;
+}
+@keyframes studio-detail-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes studio-stage-in {
+  from { opacity: 0; transform: scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes studio-side-in {
+  from { transform: translateX(12px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-detail, .studio-detail-stage img, .studio-detail-stage video, .studio-detail-side { animation: none; }
+}
+.studio-detail-side > header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+}
+.studio-detail-side > header b { font-size: var(--mx-font-ui); }
+.studio-detail-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.studio-detail-block {
+  display: grid;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.studio-detail-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-micro);
+  letter-spacing: var(--mx-tracking-wide);
+}
+.studio-detail-block-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  padding: 3px 7px;
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.studio-detail-block p { margin: 0; font-size: var(--mx-font-minor); line-height: var(--mx-line-minor); }
+/* Prompt shares the DETAILS block card: the old full-bleed band pushed its
+   head row (label + copy) against the strip edges. */
+.studio-detail-prompt {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  max-height: 72px;
+  overflow: hidden;
+  cursor: default;
+}
+.studio-detail-prompt[data-open='true'] {
+  display: block;
+  max-height: 72px;
+  overflow-y: auto;
+}
+.studio-detail-block dl { margin: 0; display: grid; gap: 6px; }
+.studio-detail-block dl > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.studio-detail-block dt { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.studio-detail-block dd {
+  margin: 0;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-meta);
+}
+.studio-detail-actions { display: grid; flex: 0 0 auto; gap: 6px; margin-top: auto; }
+.studio-detail-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 0;
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.studio-detail-primary { color: var(--mx-bg-base) !important; background: var(--mx-text) !important; box-shadow: none !important; }
+.studio-detail-danger { color: var(--mx-danger) !important; }
+/* Stage close shows when the detail card stacks (narrow pane). */
+.studio-detail-stage-close { display: none; }
+
+/* Stack in a split pane: a short-but-wide 2×2 still clips a side rail. */
+@container studio-detail (max-width: 899px) or (max-height: 559px) {
+  .studio-detail-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    border-radius: var(--mx-radius-xl);
+    background: var(--mx-bg-base);
+    box-shadow: var(--mx-overlay), inset 0 0 0 .5px var(--mx-border-muted);
+  }
+  .studio-detail-stage {
+    position: relative;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    padding: 8px;
+  }
+  .studio-detail-stage img,
+  .studio-detail-stage video {
+    max-width: 100%;
+    max-height: 100%;
+    min-width: 0;
+    min-height: 0;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: var(--mx-radius-md);
+    box-shadow: none;
+  }
+  .studio-detail-stage-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: var(--mx-radius-pill);
+    color: var(--mx-on-media);
+    background: var(--mx-media-scrim);
+  }
+  .studio-detail-side {
+    position: relative;
+    z-index: 1;
+    min-height: 0;
+    gap: 10px;
+    max-height: none;
+    overflow: hidden;
+    padding: 14px;
+    /* The rounded card frame owns the shape now: a second sheet curve here
+       stacked a 16px arc inside the 12px card corner. */
+    border-radius: 0;
+    box-shadow: inset 0 .5px 0 var(--mx-border-muted);
+  }
+  .studio-detail-side > header { display: none; }
+  .studio-detail-block {
+    padding: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .studio-detail-block--prompt {
+    padding: 10px 12px;
+    border-radius: var(--mx-radius-lg);
+    background: var(--mx-bg-layer-1);
+    box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  }
+  .studio-detail-block + .studio-detail-block .studio-detail-block-head { display: none; }
+  .studio-detail-block dl { display: flex; flex-wrap: wrap; gap: 6px; }
+  .studio-detail-block dl > div {
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: var(--mx-radius-pill);
+    background: var(--mx-bg-layer-1);
+    box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  }
+  .studio-detail-block dd { max-width: 150px; }
+  .studio-detail-prompt {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    max-height: 36px;
+    overflow: hidden;
+  }
+  .studio-detail-prompt[data-open='true'] {
+    display: block;
+    max-height: 36px;
+    overflow-y: auto;
+  }
+  .studio-detail-actions {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .studio-detail-actions button {
+    min-height: 32px;
+    gap: 5px;
+    padding-inline: 6px;
+    font-size: var(--mx-font-meta);
+    white-space: nowrap;
+  }
+}
+

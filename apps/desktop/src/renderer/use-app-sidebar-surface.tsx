@@ -1,6 +1,5 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { DesktopProjectSummary } from "../shared/contract";
-import { scheduleStableSurfaceCommit } from "./PaneSurfaceGate";
 import { SidebarPanelBoundary } from "./sidebar-panel-surface";
 import { SidebarPanelSection } from "./session-sidebar";
 import type { SidebarPanelKey } from "./app-shell-components";
@@ -137,9 +136,13 @@ export function useAppSidebarSurface({
     // full settle for the still-unresolved destination.
     if (!sidebarOpen || !sidebarTreeMounted) return undefined;
     // Never swap onto an unresolved chunk: the outgoing surface keeps its
-    // pixels until the incoming panel can actually paint content.
+    // pixels until the incoming panel can actually paint content. Once the
+    // hidden pane is mounted and resolved, commit from the layout effect so
+    // the requested destination appears in the click's next paint without an
+    // extra font/three-frame settle window.
     if (!requestedSidebarPanelReady) return undefined;
-    return scheduleStableSurfaceCommit(() => setLaggedSidebarSurface(requestedSidebarSurface));
+    setLaggedSidebarSurface(requestedSidebarSurface);
+    return undefined;
   }, [
     laggedSidebarSurface,
     requestedSidebarPanelReady,

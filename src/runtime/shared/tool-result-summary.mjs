@@ -367,14 +367,6 @@ export function summarizeToolResult(name, args, resultText, isError = false) {
       if (status) return `HTTP ${status[1]}`;
       return null;
     }
-    case 'search': {
-      const match = /(\d+)\s+results?/i.exec(text);
-      if (match) {
-        const n = Number(match[1]);
-        return `${n} ${pluralize(n, 'result')}`;
-      }
-      return null;
-    }
     case 'search_query':
     case 'image_query':
     case 'web_search':

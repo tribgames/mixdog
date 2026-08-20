@@ -1,0 +1,625 @@
+/* Desktop layer 30 — Dialog system and late cross-surface overrides.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* ── Dialog system ─────────────────────────────────────────────────────────
+   ONE grammar for every modal card: guided setup, the panel editors
+   (schedules/webhooks/workflows/projects), settings confirmations, the OAuth
+   sheet and the mx-dialog primitive. Same scrim, card, title ladder, footer
+   plate and button variants — each family keeps only its size and hero
+   deltas. Appended last so the older per-family rules settle in one place. */
+.onboarding-layer,
+.schedules-dialog-layer,
+.settings-confirm-layer,
+.mx-dialog-layer {
+  position: fixed;
+  /* The scrim covers the window band too, so the DOM titlebar dims with the
+     native caption band (titlebar-dim.ts composites the same scrim onto the
+     WCO). Only the CARD keeps clear of the min/max/close controls
+     (user: 팝업이 위에 - ㅁ x 를 가린다). */
+  inset: 0;
+  z-index: 940;
+  display: grid;
+  place-items: center;
+  /* SYMMETRIC block padding: the one-sided caption reserve pushed every
+     card 12-13px below true center (user: 가운데 정렬 안 맞는다). Mirroring
+     the reserve keeps cards clear of min/max/close AND dead-centered; tall
+     editors give up ~25px of height for the balance. */
+  padding: calc(var(--titlebar-height) + 14px) 24px;
+  background: var(--mx-scrim);
+  backdrop-filter: blur(2px);
+}
+/* A confirmation always paints above the card that raised it. */
+.settings-confirm-layer { z-index: 950; }
+.onboarding-dialog,
+.schedules-dialog,
+.settings-confirm-dialog,
+.settings-oauth-dialog,
+.mx-dialog {
+  box-sizing: border-box;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--mx-radius-xl);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  /* Flat by decision (user: 입체감은 별로, 플랫한 게 좋다): one hairline ring
+     and the scrim carry the separation — no drop shadow, no lift. */
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  animation: mx-dialog-in .12s ease-out;
+}
+.mx-dialog { width: min(480px, calc(100vw - 32px)); }
+/* The guided-setup card is fixed-size, so it follows the shorter layer too. */
+.onboarding-dialog { height: min(720px, 100%); }
+@keyframes mx-dialog-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-dialog,
+  .schedules-dialog,
+  .settings-confirm-dialog,
+  .settings-oauth-dialog,
+  .mx-dialog { animation: none; }
+}
+/* Header: one title ladder (15/600) over an optional muted description. */
+.schedules-dialog > header,
+.settings-confirm-dialog > header,
+.settings-oauth-dialog > header,
+.mx-dialog > header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 20px 12px;
+}
+.schedules-dialog > header h2,
+.settings-confirm-dialog > header h3,
+.settings-oauth-dialog > header h3,
+.mx-dialog > header h2,
+.mx-dialog > header h3 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  color: var(--mx-text);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  letter-spacing: var(--mx-tracking-tight);
+}
+.settings-oauth-dialog > header p,
+.settings-confirm-dialog > p {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-minor);
+}
+.settings-confirm-dialog > p { margin: 0; padding: 0 20px 18px; }
+/* Close affordance: the same 26px ghost square on every card. */
+.schedules-dialog > header > button,
+.settings-confirm-dialog > header > button,
+.settings-oauth-dialog > header > button,
+.mx-dialog > header > button,
+.onboarding-top-actions > button {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.schedules-dialog > header > button:hover:not(:disabled),
+.settings-confirm-dialog > header > button:hover:not(:disabled),
+.settings-oauth-dialog > header > button:hover:not(:disabled),
+.mx-dialog > header > button:hover:not(:disabled),
+.onboarding-top-actions > button:hover:not(:disabled) {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+/* Footer plate. The schedules family keeps its sticky geometry (that footer
+   rides the scrolling form), so only its tone joins the system here. */
+.settings-confirm-dialog > footer,
+.settings-oauth-dialog > footer,
+.mx-dialog > footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: .5px solid var(--mx-border);
+  background: var(--mx-bg-base);
+}
+/* One button ladder: quiet plate, contrast primary, ghost secondary, danger. */
+.schedules-dialog footer button,
+.settings-confirm-dialog > footer button,
+.settings-oauth-dialog > footer button,
+.onboarding-dialog > footer button,
+.mx-dialog > footer button {
+  min-height: 30px;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+/* Row actions stay one notch denser than the footer, same ink. */
+.onboarding-provider-list button,
+.onboarding-star-actions button {
+  min-height: 28px;
+  padding: 0 11px;
+  border-radius: var(--mx-radius-md);
+}
+.schedules-dialog footer button:hover:not(:disabled),
+.settings-confirm-dialog > footer button:hover:not(:disabled),
+.settings-oauth-dialog > footer button:hover:not(:disabled),
+.onboarding-dialog > footer button:hover:not(:disabled),
+.mx-dialog > footer button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.schedules-dialog footer button:active:not(:disabled),
+.settings-confirm-dialog > footer button:active:not(:disabled),
+.settings-oauth-dialog > footer button:active:not(:disabled),
+.onboarding-dialog > footer button:active:not(:disabled),
+.mx-dialog > footer button:active:not(:disabled) { background: var(--mx-flat-press); }
+/* Submit IS the primary action of the panel editors. */
+.schedules-dialog footer button[type="submit"],
+.schedules-dialog footer button.primary,
+.settings-confirm-dialog > footer button.primary,
+.settings-oauth-dialog > footer button.primary,
+.onboarding-dialog > footer button.primary,
+.mx-dialog > footer button.primary {
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  box-shadow: var(--mx-button-contrast);
+  font-weight: var(--mx-weight-semibold);
+}
+.schedules-dialog footer button[type="submit"]:hover:not(:disabled),
+.schedules-dialog footer button.primary:hover:not(:disabled),
+.settings-confirm-dialog > footer button.primary:hover:not(:disabled),
+.settings-oauth-dialog > footer button.primary:hover:not(:disabled),
+.onboarding-dialog > footer button.primary:hover:not(:disabled),
+.mx-dialog > footer button.primary:hover:not(:disabled) { background: var(--mx-flat-hover-contrast); }
+.schedules-dialog footer button[type="submit"]:active:not(:disabled),
+.schedules-dialog footer button.primary:active:not(:disabled),
+.settings-confirm-dialog > footer button.primary:active:not(:disabled),
+.settings-oauth-dialog > footer button.primary:active:not(:disabled),
+.onboarding-dialog > footer button.primary:active:not(:disabled),
+.mx-dialog > footer button.primary:active:not(:disabled) { background: var(--mx-flat-press-contrast); }
+/* Quiet exits (Cancel/Skip/Later) never compete with the primary plate. */
+.schedules-dialog footer button.secondary,
+.settings-confirm-dialog > footer button.secondary,
+.settings-oauth-dialog > footer button.secondary,
+.onboarding-dialog > footer button.secondary,
+.mx-dialog > footer button.secondary {
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+.schedules-dialog footer button.secondary:hover:not(:disabled),
+.settings-confirm-dialog > footer button.secondary:hover:not(:disabled),
+.settings-oauth-dialog > footer button.secondary:hover:not(:disabled),
+.onboarding-dialog > footer button.secondary:hover:not(:disabled),
+.mx-dialog > footer button.secondary:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.schedules-dialog footer button.danger,
+.settings-confirm-dialog > footer button.danger,
+.settings-oauth-dialog > footer button.danger,
+.onboarding-dialog > footer button.danger,
+.mx-dialog > footer button.danger {
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
+}
+.schedules-dialog footer button.danger:hover:not(:disabled),
+.settings-confirm-dialog > footer button.danger:hover:not(:disabled),
+.settings-oauth-dialog > footer button.danger:hover:not(:disabled),
+.onboarding-dialog > footer button.danger:hover:not(:disabled),
+.mx-dialog > footer button.danger:hover:not(:disabled) {
+  color: var(--mx-danger);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
+}
+/* The solid pressed plate carries the danger read — drop the resting ring. */
+.schedules-dialog footer button.danger:active:not(:disabled),
+.settings-confirm-dialog > footer button.danger:active:not(:disabled),
+.settings-oauth-dialog > footer button.danger:active:not(:disabled),
+.onboarding-dialog > footer button.danger:active:not(:disabled),
+.mx-dialog > footer button.danger:active:not(:disabled) {
+  background: var(--mx-flat-press-danger);
+  box-shadow: none;
+}
+.schedules-dialog footer button:disabled,
+.settings-confirm-dialog > footer button:disabled,
+.settings-oauth-dialog > footer button:disabled,
+.onboarding-dialog > footer button:disabled,
+.mx-dialog > footer button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Text fields inside a dialog share one plate and one focus read. */
+.schedules-dialog input,
+.settings-oauth-dialog input,
+.mx-dialog input {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+}
+.schedules-dialog input:focus,
+.settings-oauth-dialog input:focus,
+.mx-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+/* Guided setup keeps its hero, but its body text joins the shared ramp. */
+.onboarding-hero p { font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+/* Guided-setup surfaces are flat too (user: 아이템 프레임이 블록처럼 느껴진다):
+   no lift gradient, no drop shadow — a hairline ring plus a hover wash carry
+   every row and card. Selected states keep their own plate. */
+.onboarding-provider-list > form,
+.onboarding-provider-row,
+.onboarding-model-grid > label:not(.selected),
+.onboarding-star-card,
+.onboarding-choice-grid > button:not(.selected),
+.onboarding-memory-options > button:not(.selected) {
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  transition: background-color .12s ease;
+}
+.onboarding-provider-list > form:hover,
+.onboarding-provider-row:hover,
+.onboarding-model-grid > label:not(.selected):hover {
+  background: var(--mx-hover);
+}
+/* Dialog chrome buttons answer hover with a wash only — no frame appears on
+   hover, and the keyboard ring stays a hairline. */
+.schedules-dialog > header > button:focus-visible,
+.settings-confirm-dialog > header > button:focus-visible,
+.settings-oauth-dialog > header > button:focus-visible,
+.mx-dialog > header > button:focus-visible,
+.onboarding-top-actions > button:focus-visible,
+.schedules-dialog footer button:focus-visible,
+.settings-confirm-dialog > footer button:focus-visible,
+.settings-oauth-dialog > footer button:focus-visible,
+.onboarding-dialog > footer button:focus-visible,
+.mx-dialog > footer button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+}
+/* One ringed action per row: the quiet twin drops its outline entirely. */
+.onboarding-provider-list button.ghost,
+.onboarding-star-actions button.ghost {
+  /* A hairline still reads as a BUTTON (user: 포갓엔 버튼이 없고) — the quiet
+     twin differs by ink, not by losing its frame. */
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.onboarding-provider-list button.ghost:hover:not(:disabled),
+.onboarding-star-actions button.ghost:hover:not(:disabled) {
+  background: var(--mx-hover);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+}
+/* Provider rows: the state sits under the name for every kind, and the OAuth
+   action shares the API rows' action column. */
+.onboarding-provider-state { color: var(--mx-text-muted); }
+.onboarding-provider-state.connected { color: var(--mx-success); }
+.onboarding-provider-row > .onboarding-provider-action { grid-column: 4; }
+.onboarding-provider-row > .onboarding-provider-action > button { width: 100%; }
+/* ONE control skin for every dialog form field (user: 테두리 스타일이
+   중구난방): 32px, 8px radius, hairline at rest, and the canonical keyboard
+   ring tucked one pixel off the field instead of floating around it. */
+.schedules-dialog input,
+.settings-oauth-dialog input,
+.mx-dialog input,
+.onboarding-provider-list input,
+.onboarding-model-grid input,
+.onboarding-profile-fields input,
+.onboarding-dialog .mx-select-root .mx-select-trigger {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.schedules-dialog input:hover:not(:disabled),
+.settings-oauth-dialog input:hover:not(:disabled),
+.mx-dialog input:hover:not(:disabled),
+.onboarding-provider-list input:hover:not(:disabled),
+.onboarding-model-grid input:hover:not(:disabled),
+.onboarding-profile-fields input:hover:not(:disabled),
+.onboarding-dialog .mx-select-root .mx-select-trigger:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+}
+.schedules-dialog input:focus,
+.settings-oauth-dialog input:focus,
+.mx-dialog input:focus,
+.onboarding-provider-list input:focus,
+.onboarding-model-grid input:focus,
+.onboarding-profile-fields input:focus,
+.onboarding-dialog .mx-select-root .mx-select-trigger:focus-visible {
+  /* Quiet focus (user: 호버나 선택 시 강조 최소화): a single hairline ring
+     tight to the field instead of a thick detached halo. */
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+}
+/* Multi-line fields share the same frame, only taller. */
+.schedules-composer,
+.workflows-md-field textarea { border-radius: var(--mx-radius-md); }
+/* Memory step: the decorative brain tile bought nothing but height and pushed
+   the fixed-height card into a scrollbar (user: 메모리에 스크롤 안 생기게,
+   아이콘 빼고 제목 살짝 키우자). The heading carries the step instead. */
+.onboarding-context-card { gap: 12px; padding: 24px 28px; }
+.onboarding-context-card .onboarding-connect-title { font-size: 18px; }
+.onboarding-context-card > p,
+.onboarding-context-card div > p { margin-top: 5px; }
+/* Step entry fades only. The old translateY(10px) pushed the incoming step
+   past the scroll box for a few frames, so a scrollbar flashed in and out on
+   every step change (user: 진입할 때 스크롤바가 잠시 생겼다 사라진다). */
+.onboarding-step-view { animation: onboarding-step-fade .2s ease-out; }
+@keyframes onboarding-step-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Wizard density at the default install size (1040×700): the channel step
+   overflowed by ~100px purely on rhythm. Rows give back 4px of vertical
+   padding and the step gaps tighten; the provider and model lists stay
+   scrollable by nature (user: 프로바이더/모델은 어쩔 수 없지). */
+.onboarding-step-view { gap: 16px; }
+.onboarding-body { margin-top: 16px; }
+.onboarding-model-section { gap: 10px; }
+.onboarding-provider-list,
+.onboarding-model-grid { gap: 8px; }
+.onboarding-provider-list > form,
+.onboarding-provider-row,
+.onboarding-model-grid > label { padding: 10px 16px; }
+
+/* The surface axis (Dark · Gray · White) is GONE: Gray became THE dark ramp
+   in :root and White folded into the light theme, so the palette no longer
+   depends on a desktop-only attribute that the web shell never set. */
+/* Alpha ink dropped labels a full contrast step below their neighbours
+   (measured 0.55α tab labels vs 15:1 body text — user: 일부 폰트가 너무
+   흐리다). Labels move to SOLID ink; alpha stays for decoration.
+   An inactive tab is not a disabled tab: it is a document you can read the
+   name of, and its glyph inherits the same currentColor, so muted dimmed the
+   title AND the icon together (user: 선택하지 않은 pane 라벨이 너무 연하다).
+   The active tab is already told apart by its plate and underline, so the
+   resting label can sit one step under full ink instead of two. */
+.workspace-tab { color: var(--mx-text-soft); }
+.workspace-tab.active { color: var(--mx-text); }
+.session-sidebar-panels .schedules-row-copy small,
+.utility-dock .agent-activity-copy small { color: var(--mx-text-muted); }
+.session-sidebar-panels .agent-route-summary .model-route-label-model,
+.utility-dock .agent-activity-page .agent-route-summary .model-route-label-model {
+  color: var(--mx-text);
+}
+.session-panel-section-title,
+.sidebar-section-title {
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+}
+/* ── Rail gutter ───────────────────────────────────────────────────────────
+   ONE token drives every left/right inset in both rails (user: 공통값으로
+   한 번에 적용되게). Panel title, category heads, section heads, session rows
+   and panel cards all start on the same axis, and their trailing actions land
+   in the same right column. Nested groups add NO second inset — the group
+   header already says they are nested. */
+.session-sidebar,
+.session-sidebar-panels,
+.utility-dock {
+  --mx-rail-gutter: 12px;
+  --mx-rail-gap: 8px;
+}
+/* ── Left-rail BOX LINE ──────────────────────────────────────────────────
+   ONE 12px inset from the panel edge is THE line (user: 아이템까지의
+   패딩을 고려하고 카테고리나 헤더는 그 선에 맞추고 똑같이): every item
+   box — cards, session pills, the search field, the filter tags — opens on
+   it, and header/category TEXT sits on the same line instead of a deeper
+   text gutter. Item text keeps its own 14px inside its box. The sidebar
+   already pads 8, so containers add 4. */
+.sidebar.session-sidebar > .session-sidebar-scroll { padding-inline: 4px; }
+.session-sidebar .session-panel-header {
+  /* Title text on the box line; the 28px "+" box closes on the SAME 4px the
+     scroller below pays, so its center lands exactly on the list's
+     dot/spinner axis (row edge − 14px). The old 5px bezel put it 1px off. */
+  padding-inline: 4px;
+}
+/* In-card trailing actions (⋯/✎) close flush on the card edge, so every
+   action pill in the rail shares one right column with the boxes. */
+.session-sidebar-panels .schedules-row .row-overflow-trigger,
+.session-sidebar-panels .schedules-row .session-panel-action {
+  margin-right: calc(-1 * var(--mx-rail-gutter));
+}
+.session-sidebar .session-group h2,
+.session-sidebar .sidebar-section-heading,
+.session-sidebar .project-group-heading { padding-inline: 0; }
+/* Recent/Automations/Remote/Archived rows share one inner frame inset while
+   the trailing gutter stays reserved for spinner/unread/actions. */
+.session-sidebar .session-row { padding-inline: 8px var(--mx-rail-gutter); }
+/* Automation run rows are the second level beneath their disclosure group:
+   8px base inset + 12px hierarchy step. */
+.session-sidebar .automation-group-past .session-row { padding-left: 20px; }
+.session-sidebar-panels .session-row,
+.utility-dock .session-row { padding-inline: var(--mx-rail-gutter); }
+.session-sidebar-panels .schedules-row,
+.utility-dock .schedules-row { padding: 12px var(--mx-rail-gutter); }
+.session-sidebar-panels .workflows-section-head { padding: 6px 0 0; }
+.utility-dock .workflows-section-head { padding: 6px var(--mx-rail-gutter) 0; }
+/* min-width:0 keeps the heading row inside its grid area (default `auto`
+   floors a grid item at its min-content width, which nowrap text makes the
+   full title). Without it the head still overflowed the pinned track. */
+.utility-dock .agent-activity-page .workflows-section-head {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding-inline: 0;
+}
+.session-sidebar-panels .workflows-section-head h2,
+.utility-dock .workflows-section-head h2 { padding: 0; }
+.session-sidebar-panels .workflows-models h2 { padding: 0; }
+/* Grouped rows keep the shared axis instead of stacking a second gutter. */
+.session-sidebar .automation-group-past,
+.session-sidebar .automation-group > div,
+.session-sidebar .project-group > div { padding-left: 0; }
+.session-sidebar-panels .schedules-page,
+.session-sidebar-panels .schedules-list,
+.utility-dock .schedules-list { gap: var(--mx-rail-gap); }
+/* ── Rail type ramp ──────────────────────────────────────────────────────
+   Shared left/right/bottom ladder: panel 15 > category 14 > item/tab/group
+   13 > meta 12. Text walks the 12px gutter; trailing actions land on the
+   shared right column. */
+.session-sidebar .sidebar-recent-heading { padding-inline: 0; }
+.session-sidebar-panels .workflows-section-head h2,
+.utility-dock .workflows-section-head h2 {
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  color: var(--mx-text);
+}
+/* Agent groups are session entities, not categories. Semibold distinguishes
+   the group label from its 13/400 agent cards without promoting it to 14px. */
+.utility-dock .agent-activity-page .agent-session-heading h2 {
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-semibold);
+}
+
+/* ── Color roles ───────────────────────────────────────────────────────────
+   Four roles, one meaning each (user decision): indigo = INTERACTION (focus,
+   selection, links, primary), amber = NEEDS YOU (approvals, attention),
+   green/red = terminal OUTCOME, and work in progress stays neutral ink with
+   motion. Routine turn milestones were painted with the interaction accent,
+   which made the brand color ordinary and left nothing to notice. */
+/* The running band is the ONE place the interaction accent belongs (user:
+   스피너는 강조색): it is the live, in-progress state of the surface you are
+   looking at. Muted made the rhombus and its phrase the same washed grey, so
+   the band read as disabled and the shimmer had nothing to peak against —
+   the accent restores both. The band keeps the accent to itself; settled
+   milestones stay neutral so it does not become ordinary.
+   .live-activity's own default already IS var(--mx-accent), so no override
+   is declared here anymore. */
+/* A settled turn stays NEUTRAL — hue is reserved for the running band and for
+   tool outcomes that actually differ (red / amber) — but it is not switched
+   off either. These three used to sit on --mx-text-faint, our weakest ink;
+   the phrase and ◈ now rest one step under full ink and the clock takes the
+   muted tier under them. The arrival glint above supplies the shine. */
+.turn-status.complete,
+.turn-status.success { color: var(--mx-text-soft); }
+.turn-status.complete::before,
+.turn-status.success::before { color: var(--mx-text-soft); }
+.turn-status.complete small,
+.turn-status.success small { color: var(--mx-text-muted); }
+/* A failed turn IS the outcome worth a color. */
+.turn-status.failed { color: var(--mx-danger); }
+/* An interruption is INFORMATION, not an error and not a task: it dropped to
+   neutral ink so the warm tones stay reserved (user: 빨간색을 둘 다 쓰냐 —
+   실패와 사용량 경고에만 남긴다). */
+.turn-status.interrupted { color: var(--mx-text-muted); }
+/* Context compaction is a timeline event, not an action. */
+.compaction-divider { color: var(--mx-text-muted); }
+.compaction-divider svg {
+  color: var(--mx-text-muted);
+  filter: none;
+}
+
+/* ── Route menu drill-down (narrow surfaces) ────────────────────────────────
+   A phone has no room for a second column beside the sheet, and the stacked
+   fallback left the submenu pinned against the viewport top, detached from
+   the pill (user: 서브 창이 공간이 부족해서 위에 붙어 뜬다). Below that
+   width the pane REPLACES the sheet inside the same footprint — the edge
+   facing the pill stays put, the root steps aside, and a back header walks
+   one level up, exactly like a phone settings screen. */
+.route-sheet {
+  transition: top 200ms cubic-bezier(.22, 1, .36, 1),
+    height 200ms cubic-bezier(.22, 1, .36, 1),
+    max-height 200ms cubic-bezier(.22, 1, .36, 1);
+}
+.route-sheet[data-drilled] { overflow: hidden; }
+.route-sheet-rows,
+.route-sheet-pane {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.route-sheet-pane { overflow: auto; overscroll-behavior: contain; }
+/* The catalog gives up its height:100% to the back header's flex row. */
+.route-sheet-pane > .model-catalog-panel,
+.route-sheet-pane > .model-catalog-list {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.route-sheet-pane > .model-catalog-panel > .model-catalog-body {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.route-sheet[data-state="open"] > .route-sheet-pane {
+  animation: route-drill-in 170ms cubic-bezier(.22, 1, .36, 1) both;
+}
+@keyframes route-drill-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-sheet { transition: none; }
+  .route-sheet[data-state="open"] > .route-sheet-pane { animation: none; }
+}
+/* 34px = ROUTE_DRILL_HEADER_HEIGHT (route-editor-logic.ts). */
+.route-sheet-back {
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.route-sheet-back:hover,
+.route-sheet-back:focus-visible { outline: 0; background: var(--mx-hover); }
+.route-sheet-back svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.route-sheet-back span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The drilled catalog runs edge to edge under its header. */
+.route-sheet[data-drilled] > .route-sheet-pane > .model-catalog-panel,
+.route-sheet[data-drilled] > .route-sheet-pane > .model-catalog-list { margin-top: 2px; }

@@ -217,7 +217,7 @@ function isQueuedAgentEntry(statuses = []) {
 
 // Agent-side web search activity for the L2 "Web Searching" segment: any live
 // sub-session owned by THIS lead (ownerSessionId / clientHostPid match) whose
-// CURRENT tool call classifies as 'Web Research' (search/web_fetch/...). The
+// CURRENT tool call classifies as 'Web Research' (web_search/web_fetch/...). The
 // lead's own calls are excluded — those arrive via activeTools from the
 // transcript — so counts never double.
 export function agentWebSearchStatus({ sessionId = '', clientHostPid = 0 } = {}) {

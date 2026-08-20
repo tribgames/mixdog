@@ -1,0 +1,606 @@
+/* Desktop layer 12 — Session header, message turns, prose rhythm.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Workspace header and thread rhythm. */
+.workspace {
+  container-name: chat-pane;
+  container-type: inline-size;
+}
+/* ONE pane inset ladder. Every surface inside a pane — header, transcript,
+   composer, watermark, Studio topbar/results/dock — spends the SAME inset and
+   the SAME centered column, so no two edges drift apart at any pane width
+   (user: pane 안 컨텐츠 패딩을 해상도별로 다 맞춰라). Scrollers get their own
+   column token: the reserved scrollbar track is paid out of the RIGHT inset
+   instead of stealing a second column from the reading frame. */
+.workspace > .session-header,
+.conversation,
+.studio-shell {
+  --pane-inset: 20px;
+  --pane-column: 100%;
+  --pane-scroll-column: 100%;
+  --pane-card: 100%;
+  /* Floating chrome (context overlay, activity chip, jump pill) hugs the pane
+     edge on ONE offset instead of three hand-tuned ones. */
+  --pane-chrome-inset: 12px;
+  /* The composer BOX lands on the pane inset, but its textarea holds the
+     typed line another 16px in — so the transcript, which stopped at the box
+     edge, ran 16px wider than the words directly under it (user: 스크립트
+     좌우 여백을 텍스트박스랑 맞춰줘, 살짝 넓다). Both now spend this token,
+     so the reading line and the typing line share one edge at EVERY pane
+     width, including the 12/20/24px inset steps. */
+  --composer-text-inset: 16px;
+}
+@container chat-pane (max-width: 419px) {
+  .workspace > .session-header,
+  .conversation { --pane-inset: 12px; }
+}
+@container chat-pane (min-width: 640px) {
+  .workspace > .session-header,
+  .conversation { --pane-inset: 24px; }
+}
+@container chat-pane (min-width: 768px) {
+  .workspace > .session-header,
+  .conversation {
+    --pane-inset: 24px;
+    --pane-column: 800px;
+    /* var() substitution happens AFTER the cascade, so the 1536 step only has
+       to raise --pane-column and these two follow it. */
+    --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-gutter));
+    --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
+  }
+}
+@container chat-pane (min-width: 1536px) {
+  .workspace > .session-header,
+  .conversation { --pane-column: 1000px; }
+}
+@container studio-pane (max-width: 419px) {
+  .studio-shell { --pane-inset: 12px; }
+}
+@container studio-pane (min-width: 640px) {
+  .studio-shell { --pane-inset: 24px; }
+}
+@container studio-pane (min-width: 768px) {
+  .studio-shell {
+    --pane-inset: 24px;
+    --pane-column: 800px;
+    --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-gutter));
+    --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
+  }
+}
+@container studio-pane (min-width: 1536px) {
+  .studio-shell { --pane-column: 1000px; }
+}
+@container mixdog-pane (max-width: 419px) {
+  .workspace > .session-header,
+  .conversation,
+  .studio-shell { --pane-inset: 12px; }
+}
+@container mixdog-pane (min-width: 640px) {
+  .workspace > .session-header,
+  .conversation,
+  .studio-shell { --pane-inset: 24px; }
+}
+@container mixdog-pane (min-width: 768px) {
+  .workspace > .session-header,
+  .conversation,
+  .studio-shell {
+    --pane-inset: 24px;
+    --pane-column: 800px;
+    --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-gutter));
+    --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
+  }
+}
+@container mixdog-pane (min-width: 1536px) {
+  .workspace > .session-header,
+  .conversation,
+  .studio-shell { --pane-column: 1000px; }
+}
+.session-header { flex-basis: 48px; min-height: 48px; border-bottom: 0; background: var(--mx-workspace-sheet); }
+.session-header-content {
+  width: 100%;
+  max-width: var(--pane-column);
+  height: 48px;
+  margin: 0 auto;
+  padding: 12px var(--pane-inset);
+  gap: 8px;
+}
+/* Studio and the TASK header consume the full pane width. The TASK
+   conversation keeps its desktop 800/1000px reading column; projected mobile
+   explicitly fills the pane below. */
+.workspace > .session-header,
+.studio-shell {
+  --pane-column: 100%;
+  --pane-scroll-column: 100%;
+  --pane-card: 100%;
+}
+html[data-mixdog-mobile-tabs] .conversation {
+  --pane-column: 100%;
+  --pane-scroll-column: 100%;
+  --pane-card: 100%;
+}
+/* Conversation title is important info: one step up from tab chrome. */
+.session-header h1 { color: var(--mx-text); font-size: var(--mx-font-panel-title); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-emphasis); letter-spacing: 0; }
+.session-title-mode {
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+}
+.session-title-mode > .session-title-trigger,
+.session-title-mode > .session-header-title-input { grid-area: 1 / 1; }
+.session-title-mode[data-editing="false"] > .session-header-title-input,
+.session-title-mode[data-editing="true"] > .session-title-trigger {
+  visibility: hidden;
+  pointer-events: none;
+}
+.session-title-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 28px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+}
+.session-title-trigger:hover,
+.session-title-trigger:focus-visible { background: var(--mx-hover); }
+.session-header-title-input {
+  field-sizing: content;
+  min-width: 6ch;
+  width: auto;
+  max-width: 100%;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  font: inherit;
+}
+.session-header-title-input[aria-invalid="true"] { outline-color: var(--mx-danger); }
+.session-project-badge {
+  flex: 0 1 auto;
+  max-width: 220px;
+  height: 20px;
+  padding: 0 7px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.transcript {
+  /* One reserve only. The projected rows spend that reserve from their RIGHT
+     inset AND from their column (--pane-scroll-column), so the reading frame
+     lands on exactly the same two edges as the composer below it. */
+  scrollbar-gutter: stable;
+  /* Virtual-core owns end anchoring and measurement compensation. */
+  overflow-anchor: none;
+}
+.transcript:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: -2px;
+}
+/* OpenCode MessageTimeline parity: the timeline itself stays full-width.
+   Each projected row owns its centered frame and message inset below. */
+.thread {
+  width: 100%;
+  /* The status island hangs at the scroller's top-right corner, so the first
+     row opens BELOW it (island height + --pane-chrome-inset) instead of
+     starting underneath the capsule; scrolled rows pass behind its plate. */
+  padding: 44px 0 0;
+  gap: 0;
+}
+/* Review chrome rides the SCROLLED thread (OpenCode session-turn-diffs), so a
+   late worker result grows scroll content the bottom anchor already owns
+   instead of resizing the viewport under the composer. */
+.transcript-virtual-space {
+  position: relative;
+  width: 100%;
+  flex: 0 0 auto;
+  /* The scrolling viewport already owns compositing. Promoting each pane's
+     inner sizer creates independent layers that can present different scroll
+     phases when a fast wheel ramp collides with the bottom boundary. */
+  contain: layout style;
+  overflow: hidden;
+}
+.transcript-live-part { min-width: 0; }
+.transcript-virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  /* The row box is exactly the geometry the virtualizer believes in: content
+     that has not settled yet is clipped instead of pushing its neighbours. */
+  background: var(--mx-workspace-sheet);
+  overflow: clip;
+}
+/* Within a turn, parts use a compact measured step. Turn boundaries are their
+   own rows, so no flex gap or negative margin can disagree with geometry. */
+.transcript-virtual-row-content[data-tag="UserMessage"],
+.transcript-virtual-row-content[data-tag="AssistantPart"],
+.transcript-virtual-row-content[data-tag="Thinking"],
+.transcript-virtual-row-content[data-tag="Error"] {
+  width: 100%;
+  max-width: var(--pane-scroll-column);
+  margin-inline: auto;
+  /* Every surface uses the pane gutter plus the composer's text inset, so the
+     transcript and typed text share one reading column. */
+  padding-left: calc(var(--pane-inset) + var(--composer-text-inset));
+  padding-right: calc(var(--pane-inset) + var(--composer-text-inset) - var(--mx-scrollbar-gutter));
+}
+.transcript-virtual-row-content[data-tag="UserMessage"],
+.transcript-virtual-row-content[data-tag="AssistantPart"],
+.transcript-virtual-row-content[data-tag="Thinking"],
+.transcript-virtual-row-content[data-tag="Error"] { padding-bottom: 12px; }
+/* The hover meta line (top:100% overlay, 24px) must fit INSIDE the clipped
+   row box — user rows reserve its height as padding instead of lifting the
+   clip (user: 차라리 유저 행 아래 패딩을 조금 더 주는 게 낫다). */
+.transcript-virtual-row-content[data-tag="UserMessage"] { padding-bottom: 24px; }
+.transcript-virtual-row-content[data-turn-end="true"] { padding-bottom: 0; }
+.transcript-turn-gap { height: 20px; }
+.thread-welcome {
+  width: min(100%, 440px);
+  display: grid;
+  justify-items: center;
+  padding: 0 var(--pane-inset) 64px;
+}
+/* VS Code-style empty editor: a quiet brand watermark anchors the otherwise
+   blank canvas without becoming an app-card or another clickable surface.
+   Letterpress scale (ref vscode editorgroupview.css): 256px on the fully
+   empty workspace, 200px on secondary empty surfaces (draft pane, Studio). */
+.welcome-logo {
+  width: 256px;
+  height: 256px;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text);
+  opacity: .08;
+}
+.thread-welcome-task .welcome-logo,
+.studio-blank .welcome-logo { width: 200px; height: 200px; }
+.welcome-logo svg {
+  width: 100%;
+  height: 100%;
+}
+.starter-grid { display: none; }
+/* The empty workspace surface (no pane yet): flat on the window band like
+   Orca, content centered in the whole main area. */
+.workspace-empty {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+/* VS Code watermark grammar (ref vscode editorgroupview.css): a fixed-width
+   stack of full-width rows — `dl { display:flex; justify-content:space-between }`
+   puts each label LEFT and its keycaps flush RIGHT, keys joined by `+`
+   (`dd { text-align:left; margin-inline-start:24px }`, box max-width 272px). */
+.welcome-shortcuts {
+  width: min(100%, 272px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 42px;
+  font-size: var(--mx-font-ui);
+  /* VS Code descriptionForeground-class ink — faint was illegible (user). */
+  color: var(--mx-text-muted);
+}
+.welcome-shortcuts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.welcome-shortcuts > div > span:first-child {
+  text-align: left;
+  letter-spacing: var(--mx-tracking-wide);
+}
+/* VS Code keybindingLabel grammar (ref keybindingLabel.css + theme defaults):
+   UI font (not mono), 11px in a min-width 12px centered chip — every
+   single-letter key renders the same width — padding 3px 5px, radius 3px,
+   grey 17% plate with a 1px frame and inset bottom edge. The `+` separator
+   is plain full-ink text, not a faded glyph. */
+.welcome-keys {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+}
+.welcome-keys i { font-style: normal; font-size: var(--mx-font-minor); }
+.welcome-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* VS Code's `min-width: 12px` is CONTENT-box: 12 + 5+5 padding + 1+1
+     border = a uniform 24px chip for every single-letter key, which is what
+     keeps the Ctrl / + / key columns gridded across rows (user: 틀어짐). */
+  box-sizing: content-box;
+  min-width: 12px;
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  line-height: 12px;
+  padding: 3px 5px;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 -1px 0 var(--mx-border);
+}
+/* The `+` occupies one fixed cell too, so every row's separator lands on the
+   same column. */
+.welcome-keys i {
+  display: inline-block;
+  width: 8px;
+  text-align: center;
+}
+/* Task transcript scale: Codex-like prose keeps paragraphs and lists on a
+   roomier 15/24 reading rhythm. The composer and compaction boundary use the
+   same reading tier; operational rows retain their smaller chrome scale. */
+/* 450 optical weight: variable Geist/Pretendard fill Hangul strokes the way
+   heavier chat faces do — 400 read thin next to it. */
+/* Reading surface runs Pretendard-first for BOTH scripts: with Geist leading,
+   Latin words inside Korean prose rendered in a different face and read a
+   visible half-tone lighter (user: "폰트가 균일하게 잘 안보여"). One face for
+   the whole paragraph = one ink density; Pretendard's Latin is
+   Inter-metric-compatible so rhythm is preserved. Chrome (13px UI) stays
+   Geist-led. */
+.message-body {
+  color: var(--mx-text);
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-prose);
+  letter-spacing: 0;
+}
+/* Half a prose line, so the paragraph break stays proportional to the looser
+   26px rhythm instead of shrinking against it. */
+.message-body p { margin: 0 0 14px; }
+/* Turn rhythm: the LAST paragraph's bottom margin stacked on the thread's
+   16px row gap and read as a two-line hole between turns (user) — collapse
+   it so turn-to-turn spacing is the single 16px gap. */
+.message-body p:last-child { margin-bottom: 0; }
+.message { position: relative; }
+/* Hover meta overlays float over the 16px gap; lift the hovered message (and
+   its virtual row) above the next sibling so the actions stay clickable. */
+.message:hover, .message:focus-within { z-index: 1; }
+.transcript-virtual-row:hover, .transcript-virtual-row:focus-within { z-index: 1; }
+.message:focus-visible {
+  border-radius: var(--mx-radius-md);
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 4px;
+}
+/* No content-visibility on settled rows: the transcript is already
+   virtualized, and the 88px intrinsic placeholder made off-screen rows paint
+   late (ghost flash) then re-measure on entry (scroll jump). */
+.message-actions {
+  position: absolute;
+  z-index: 2;
+  top: -4px;
+  right: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 85ms ease-out, color 85ms ease-out, background 85ms ease-out;
+}
+.message.user .message-actions {
+  top: 50%;
+  right: calc(100% + 6px);
+  transform: translateY(-50%);
+}
+.message:hover .message-actions,
+.message:focus-within .message-actions,
+.message-actions:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.message-actions:hover {
+  color: var(--mx-icon);
+  background: transparent;
+  outline: 0;
+}
+.message-actions:focus-visible {
+  color: var(--mx-icon);
+  background: transparent;
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.message-actions[data-copied="true"], .message-actions.copied { color: var(--mx-text); }
+.message-meta-line {
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 85ms ease-out, visibility 0s linear 85ms;
+}
+.message.user:hover .message-meta-line,
+.message.user:focus-within .message-meta-line {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.message-meta { flex: 0 0 auto; white-space: nowrap; }
+.message.user .message-meta-line .message-actions {
+  position: static;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  color: var(--mx-icon-muted);
+  background: transparent;
+  box-shadow: none;
+  opacity: var(--mx-op-secondary);
+  pointer-events: auto;
+  transform: none;
+}
+.message.user .message-meta-line .message-actions:hover,
+.message.user .message-meta-line .message-actions:focus-visible { opacity: 1; }
+.response-footer {
+  min-height: 24px;
+  display: flex;
+  /* Centre — and every text in this row now runs at ONE size (see
+     .message-time). Two different type sizes can share a row either by their
+     boxes or by their baselines, never by both, and the leftover fraction
+     snapped the clock a whole device pixel off at 125%/150% scaling (user:
+     시간이랑 복사버튼은 올라가 있다). Same size = same box = same baseline. */
+  align-items: center;
+  /* Same 7px the status rows and the live band use, so the copy control sits
+     on the row's own rhythm instead of a footer-only one. */
+  gap: 7px;
+  margin-top: 6px;
+  color: var(--mx-text-faint);
+}
+/* Uniform 20px rhythm (user): a response footer now exists ONLY on a settled
+   turn (turn-status / compaction divider), so it always carries visible
+   content and stays in flow — the 20px gap starts under it. Mid-turn parts
+   render no footer at all, so nothing floats over the next row. */
+/* The clock is built exactly like the status row beside it: a 24px box, one
+   20px line inside it, and the SAME type size as the phrase. The 12px metadata
+   tier is what pulled it off the line — a smaller face centred in the same row
+   carries a different baseline, and the remainder landed on a half device
+   pixel at fractional display scaling. It stays quiet through colour instead. */
+.message-time {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  white-space: nowrap;
+}
+/* Completion replaces the live band: 16px thread row gap + the band's own
+   24px = 40px, and the footer restates that as 24px controls with a 16px
+   lead-in. Both states occupy exactly 40px below the response body, so
+   settlement cannot nudge the row. Verified against .live-activity below —
+   its three disagreeing heights are what made settlement jump. */
+.message.assistant .response-footer:has(.turn-status) { min-height: 24px; margin-top: 16px; }
+.message.assistant .response-footer .message-actions {
+  position: static;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  /* An icon has no baseline worth sharing: it keeps box centring while the two
+     texts beside it align on theirs. */
+  align-self: center;
+  color: var(--mx-icon-muted);
+  background: transparent;
+  box-shadow: none;
+  /* Settled-response copy: hidden at rest, revealed on hover/focus. */
+  opacity: 0;
+  pointer-events: none;
+}
+.message.assistant:hover .response-footer .message-actions,
+.message.assistant:focus-within .response-footer .message-actions,
+.message.assistant .response-footer .message-actions:hover,
+.message.assistant .response-footer .message-actions:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.message.user {
+  max-width: min(82%, 64ch);
+  /* Anchor the whole user block to the RIGHT edge: with the default stretch
+     anchor, a long multi-line bubble grew from the LEFT edge and read like an
+     assistant block (user report). */
+  margin-left: auto;
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+}
+.message.user .message-body {
+  width: fit-content;
+  /* The user bubble measure caps at 64ch — full-width lines were a
+     major readability drag for long prompts. */
+  max-width: min(100%, 64ch);
+  padding: 8px 12px;
+  border: 1px solid var(--mx-border-muted);
+  /* Grok-web user pill: a softer, rounder bubble. */
+  border-radius: var(--mx-radius-lg);
+  /* User bubble reads too faint at the 3–4% plate (user feedback):
+     use the deeper pressed tint so the pill is clearly a block. */
+  background: var(--mx-pressed);
+}
+.message-pending-status {
+  position: absolute;
+  top: calc(100% + 1px);
+  right: 2px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  letter-spacing: 0;
+  pointer-events: none;
+}
+.message.user .message-body p { margin: 0; }
+.message.user .message-meta-line {
+  /* Overlay below the bubble: the hidden hover row must not reserve layout
+     space, or user→assistant spacing runs 28px against the 20px grid. Its
+     right edge stays on the bubble while short prompts let the full clock and
+     copy control grow leftward instead of truncating the clock. */
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: auto;
+  width: max-content;
+  min-width: 100%;
+  min-height: 24px;
+  margin-top: 0;
+  padding-inline: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.markdown pre, .detail-block pre {
+  padding: 12px;
+  border: 0;
+  /* Content containers share one rounded-8 language (Grok-web cleanliness):
+     code blocks, shell output, diffs, and tables all read as quiet cards. */
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  /* Code blocks sit on the sheet tone with a hairline border — not a darker
+     inset well. The base size here is the CHROME mono; .detail-block keeps it
+     (tool output lives in 13px chrome), .markdown steps up to the prose mono
+     right below. */
+  background: var(--mx-bg-base);
+  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+/* Code is an operational tier inside prose: the mono face has a larger optical
+   body, so 13px sits cleanly beside 14px reading text without protruding. */
+.markdown pre { font-size: var(--mx-font-code); }
+

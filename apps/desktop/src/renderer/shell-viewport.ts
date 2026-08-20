@@ -5,15 +5,26 @@ function remoteSurface(): boolean {
   return Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
 }
 
+// visualViewport scroll/resize fire on EVERY frame of an Android URL-bar
+// collapse or keyboard animation. Each root variable write invalidates style
+// for the whole document, so a value is written only when it changed.
+const appliedViewportVars = new Map<string, string>();
+
+function writeViewportVar(root: HTMLElement, name: string, value: string): void {
+  if (appliedViewportVars.get(name) === value) return;
+  appliedViewportVars.set(name, value);
+  root.style.setProperty(name, value);
+}
+
 function syncViewportVars(): void {
   const root = document.documentElement;
   const visual = window.visualViewport;
   const width = visual?.width ?? window.innerWidth;
   const height = visual?.height ?? window.innerHeight;
-  root.style.setProperty("--vvw", `${Math.round(width)}px`);
-  root.style.setProperty("--vvh", `${Math.round(height)}px`);
-  root.style.setProperty("--vv-offset-left", `${Math.round(visual?.offsetLeft ?? 0)}px`);
-  root.style.setProperty("--vv-offset-top", `${Math.round(visual?.offsetTop ?? 0)}px`);
+  writeViewportVar(root, "--vvw", `${Math.round(width)}px`);
+  writeViewportVar(root, "--vvh", `${Math.round(height)}px`);
+  writeViewportVar(root, "--vv-offset-left", `${Math.round(visual?.offsetLeft ?? 0)}px`);
+  writeViewportVar(root, "--vv-offset-top", `${Math.round(visual?.offsetTop ?? 0)}px`);
 }
 
 function syncShellFlags(): void {
@@ -26,17 +37,31 @@ function syncShellFlags(): void {
 }
 
 export function installShellViewport(): () => void {
-  const sync = () => {
+  let frame = 0;
+  const apply = () => {
     syncViewportVars();
     syncShellFlags();
   };
-  sync();
+  const sync = () => {
+    if (frame !== 0) return;
+    if (typeof window.requestAnimationFrame !== "function") {
+      apply();
+      return;
+    }
+    frame = window.requestAnimationFrame(() => {
+      frame = 0;
+      apply();
+    });
+  };
+  apply();
   const visual = window.visualViewport;
   window.addEventListener("resize", sync);
   window.addEventListener("orientationchange", sync);
   visual?.addEventListener("resize", sync);
   visual?.addEventListener("scroll", sync);
   return () => {
+    if (frame !== 0) window.cancelAnimationFrame?.(frame);
+    frame = 0;
     window.removeEventListener("resize", sync);
     window.removeEventListener("orientationchange", sync);
     visual?.removeEventListener("resize", sync);

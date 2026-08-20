@@ -4,7 +4,6 @@
 // keeps composition and session flow.
 import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { ActiveAgentsIndicator, ActiveShellsIndicator } from "./ActiveAgentsIndicator";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -38,8 +37,22 @@ import {
   conversationMarkdownPending,
 } from "./first-submit-stability";
 import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
-import { ContextUsageIndicator, TranscriptRow } from "./TranscriptView";
-import { UtilityDock } from "./UtilityDock";
+import { SessionStatusIsland } from "./SessionStatusIsland";
+import { TranscriptRow } from "./TranscriptView";
+
+let utilityDockModulePromise: Promise<typeof import("./UtilityDock")> | null = null;
+function loadUtilityDockModule() {
+  utilityDockModulePromise ||= import("./UtilityDock").catch((error) => {
+    utilityDockModulePromise = null;
+    throw error;
+  });
+  return utilityDockModulePromise;
+}
+export function preloadUtilityDock(): Promise<unknown> {
+  return loadUtilityDockModule();
+}
+const UtilityDock = React.lazy(() => loadUtilityDockModule()
+  .then((module) => ({ default: module.UtilityDock })));
 
 export const selectDesktopSnapshot = (snapshot: Snapshot) => snapshot;
 
@@ -378,31 +391,15 @@ if (typeof window !== "undefined") {
   window.addEventListener("mixdog:remote-state-gap", recoverSessionLanesFromRemoteGap);
 }
 
-/** Context gauge docked immediately right of the composer's model selector.
- *  Every pane status slot reads its own lane. Focus never changes data
- *  ownership. */
-export function PaneContextStatus({ sessionId, hidden, onOpen }: {
+/** Session status island: the context gauge and the live Agent/Shell chips as
+ *  ONE capsule at the transcript's top-right corner. Every pane status slot
+ *  reads its own lane through a single subscription — the gauge and the chips
+ *  share the same header-scoped comparator, so one lane read now feeds both.
+ *  Focus never changes data ownership. */
+export function PaneStatusIsland({ sessionId, hidden, onOpenContext, onOpenAgents }: {
   sessionId: string;
   hidden: boolean;
-  onOpen(): void;
-}) {
-  const lane = useSessionLane(
-    sessionId,
-    defaultSessionLaneStore,
-    desktopHeaderSnapshotsEqual,
-    !hidden && Boolean(sessionId),
-  );
-  const visibleSnapshot = hidden || !sessionId
-    ? EMPTY_SNAPSHOT
-    : lane ?? EMPTY_SNAPSHOT;
-  return <ContextUsageIndicator snapshot={visibleSnapshot} onOpen={onOpen} />;
-}
-
-/** Agent/Shell live-work chips: they ride the thinking line's right end while
- *  a turn runs and float above the diff/composer stack while idle. */
-export function PaneLiveWork({ sessionId, hidden, onOpenAgents }: {
-  sessionId: string;
-  hidden: boolean;
+  onOpenContext(): void;
   onOpenAgents?(): void;
 }) {
   const lane = useSessionLane(
@@ -414,15 +411,13 @@ export function PaneLiveWork({ sessionId, hidden, onOpenAgents }: {
   const visibleSnapshot = hidden || !sessionId
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
-  return <>
-    <ActiveAgentsIndicator snapshot={visibleSnapshot} onOpen={onOpenAgents} />
-    <ActiveShellsIndicator snapshot={visibleSnapshot} />
-  </>;
+  return <SessionStatusIsland snapshot={visibleSnapshot}
+    onOpenContext={onOpenContext} onOpenAgents={onOpenAgents} />;
 }
 
 
 type SnapshotUtilityDockProps =
-  Omit<React.ComponentProps<typeof UtilityDock>, "snapshot"> & {
+  Omit<React.ComponentProps<(typeof import("./UtilityDock"))["UtilityDock"]>, "snapshot"> & {
     snapshotStore: DesktopSnapshotStore;
     hidden: boolean;
   };
@@ -439,10 +434,18 @@ export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
   hidden,
   ...props
 }: SnapshotUtilityDockProps) {
+  const [activated, setActivated] = useState(!hidden);
+  useEffect(() => {
+    if (!hidden && !activated) setActivated(true);
+  }, [activated, hidden]);
   const hostSnapshot = useDesktopSnapshotSelector(
     snapshotStore,
     selectDesktopSnapshot,
     desktopDockSnapshotsEqual,
+    activated || !hidden,
   );
-  return <UtilityDock {...props} snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />;
+  if (!activated && hidden) return null;
+  return <React.Suspense fallback={null}>
+    <UtilityDock {...props} snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />
+  </React.Suspense>;
 });

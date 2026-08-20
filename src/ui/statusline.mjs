@@ -366,7 +366,7 @@ function renderNativeStatusline({
   const spin = `${GRN}${sp}${R}`;
   const elapsedSuffix = (label) => (label ? ` ${D}·${R} ${label}` : '');
   // Segment order: Running Agents → Web Searching → Running Shells.
-  // (activeTools.search counts WEB searches — category 'Web Research' — not
+  // (activeTools.web_search counts WEB searches — category 'Web Research' — not
   // local file search, which is intentionally not surfaced.)
   if (runningWorkers.length) {
     const n = runningWorkers.length;
@@ -379,17 +379,17 @@ function renderNativeStatusline({
     addL2(`${spin} ${B}${label}${R}${elapsedSuffix(elapsed)}`);
   }
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
-  const searchInfo = tools.search || null;
-  // Web Searching = lead's own web searches (activeTools.search) PLUS any
+  const webSearchInfo = tools.web_search || null;
+  // Web Searching = lead's own web searches (activeTools.web_search) PLUS any
   // spawned agent sub-session whose current tool call is a web search
   // (agentWebSearchStatus reads the live session-runtime map). Earliest start
   // wins for the elapsed label.
   const agentSearch = agentWebSearchStatus({ sessionId, clientHostPid });
-  const webSearchCount = (searchInfo ? num(searchInfo.count) : 0) + num(agentSearch.count);
+  const webSearchCount = (webSearchInfo ? num(webSearchInfo.count) : 0) + num(agentSearch.count);
   if (webSearchCount > 0) {
-    const starts = [searchInfo ? num(searchInfo.startedAt) : 0, num(agentSearch.startedAt)].filter((v) => v > 0);
-    const searchStart = starts.length ? Math.min(...starts) : 0;
-    const elapsed = searchStart > 0 ? formatElapsed(Date.now() - searchStart) : '';
+    const starts = [webSearchInfo ? num(webSearchInfo.startedAt) : 0, num(agentSearch.startedAt)].filter((v) => v > 0);
+    const webSearchStart = starts.length ? Math.min(...starts) : 0;
+    const elapsed = webSearchStart > 0 ? formatElapsed(Date.now() - webSearchStart) : '';
     addL2(`${spin} ${B}Web Searching${R}${elapsedSuffix(elapsed)}`);
   }
   if (shellStatus.count > 0) {

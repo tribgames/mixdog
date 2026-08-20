@@ -129,6 +129,20 @@ export function remoteFrameBudgetAvailable(
     && totalPendingBytes + nextBytes <= MAX_PENDING_REMOTE_TOTAL_BYTES;
 }
 
+/** Encode one transcript lane against exactly one relay client's baseline. */
+export function encodeRelayClientSessionState(
+  encoders: Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>,
+  sessionId: string,
+  snapshot: unknown,
+): unknown {
+  let encoder = encoders.get(sessionId);
+  if (!encoder) {
+    encoder = createSnapshotDeltaEncoder();
+    encoders.set(sessionId, encoder);
+  }
+  return encoder.encode(snapshot);
+}
+
 export function buildRelayMediaResponsePlan(input: {
   size: number;
   mime: string;
@@ -329,6 +343,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     pendingFrames: number;
     pendingBytes: number;
     visibleSessionIds: Set<string>;
+    /** Transcript delta baselines are receiver-specific. A shared encoder
+     *  advances even for clients filtered out of a session, so their first
+     *  later frame would otherwise be an undecodable patch. */
+    sessionStateEncoders: Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>;
     binaryFrames: boolean;
     listDelta: boolean;
     sessionsEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopSessionSummary>>;
@@ -484,7 +502,6 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     void broadcastEncryptedAsync(payload, !publication.critical)
       .finally(() => stateMailbox.acknowledge(sequence));
   });
-  const sessionDeltaEncoders = new Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>();
   const sessionStateMailboxes = new Map<string, LatestStateMailbox<DesktopSessionStateUpdate>>();
   const remotePaintProbes = createRemotePaintProbeTracker({
     enabled: process.env.MIXDOG_DESKTOP_PERF === '1',
@@ -496,30 +513,28 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (retained) return retained;
     let mailbox!: LatestStateMailbox<DesktopSessionStateUpdate>;
     mailbox = createLatestStateMailbox<DesktopSessionStateUpdate>((sequence, update) => {
-      let encoder = sessionDeltaEncoders.get(sessionId);
-      if (!encoder) {
-        encoder = createSnapshotDeltaEncoder();
-        sessionDeltaEncoders.set(sessionId, encoder);
-      }
       const perfProbe = remotePaintProbes.issue(sessionId);
-      const payload = {
-        event: 'sessionState',
-        payload: {
-          sessionId,
-          wire: encoder.encode(update.snapshot),
-          frameSource: update.frameSource,
-          ...(perfProbe ? { perfProbe } : {}),
-          ...(typeof update.contentRevision === 'number'
-            ? { contentRevision: update.contentRevision }
-            : {}),
-        },
-      };
-      void broadcastEncryptedAsync(
-        payload,
-        true,
-        (state) => state.visibleSessionIds.has(sessionId),
-      )
-        .finally(() => mailbox.acknowledge(sequence));
+      void Promise.all([...activeClients].map(([clientId, state]) => {
+        if (!state.channel || !state.visibleSessionIds.has(sessionId)) {
+          return Promise.resolve();
+        }
+        return sendEncryptedFrame(clientId, {
+          event: 'sessionState',
+          payload: {
+            sessionId,
+            wire: encodeRelayClientSessionState(
+              state.sessionStateEncoders,
+              sessionId,
+              update.snapshot,
+            ),
+            frameSource: update.frameSource,
+            ...(perfProbe ? { perfProbe } : {}),
+            ...(typeof update.contentRevision === 'number'
+              ? { contentRevision: update.contentRevision }
+              : {}),
+          },
+        }, true);
+      })).finally(() => mailbox.acknowledge(sequence));
     });
     sessionStateMailboxes.set(sessionId, mailbox);
     return mailbox;
@@ -529,12 +544,36 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     stateMailbox.clear();
     for (const mailbox of sessionStateMailboxes.values()) mailbox.clear();
     sessionStateMailboxes.clear();
-    sessionDeltaEncoders.clear();
     for (const state of activeClients.values()) {
+      state.sessionStateEncoders.clear();
       state.sessionsEncoder.reset();
       state.agentPoolEncoder.reset();
     }
     remotePaintProbes.clear();
+  };
+  // Rosters are pushed only when the store changes, so a lost or undecodable
+  // patch would strand a phone on stale rows (status dots, unread marks) until
+  // the NEXT change — a resync answered with state alone never repaired it.
+  // The last roster is retained and re-sent IN FULL on join and on resync.
+  let lastSessions: DesktopSessionSummary[] = [];
+  let lastAgentPool: DesktopAgentPoolRow[] = [];
+  const sendClientLists = (clientId: string, state: RelayClientState): void => {
+    state.sessionsEncoder.reset();
+    state.agentPoolEncoder.reset();
+    void sendEncryptedFrame(clientId, {
+      event: 'sessions',
+      payload: state.listDelta ? state.sessionsEncoder.encode(lastSessions) : lastSessions,
+    }, false);
+    void sendEncryptedFrame(clientId, {
+      event: 'agentPool',
+      payload: state.listDelta ? state.agentPoolEncoder.encode(lastAgentPool) : lastAgentPool,
+    }, false);
+  };
+  const broadcastLists = (): void => {
+    for (const [clientId, state] of activeClients) {
+      if (!state.channel) continue;
+      sendClientLists(clientId, state);
+    }
   };
   // `critical` marks a FULL snapshot (join / resync answer). The relay drops
   // ordinary pushes for a congested phone; dropping the recovery frame itself
@@ -759,6 +798,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               pendingFrames: 0,
               pendingBytes: 0,
               visibleSessionIds: new Set(),
+              sessionStateEncoders: new Map(),
               binaryFrames: false,
               listDelta: false,
               sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>(
@@ -841,6 +881,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               );
               resetTransportDeltas();
               broadcastState(options.host.getSnapshot(), true);
+              sendClientLists(envelope.clientId as string, client);
             } catch {
               closeClient(envelope.clientId as string, 'relay encryption authentication failed');
             }
@@ -869,7 +910,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
                 .map((value) => String(value || ''))
                 .filter((value) => /^[A-Za-z0-9_-]+$/u.test(value)))]
               : [];
-            client.visibleSessionIds = new Set(requested);
+            const nextVisible = new Set(requested);
+            for (const sessionId of client.sessionStateEncoders.keys()) {
+              if (!nextVisible.has(sessionId)) client.sessionStateEncoders.delete(sessionId);
+            }
+            client.visibleSessionIds = nextVisible;
             const scopedHost = options.host as typeof options.host & {
               setVisibleSessionsForSource?(sourceId: string, ids: string[]): Promise<boolean>;
             };
@@ -890,6 +935,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           if (isStateResyncFrame(clearFrame)) {
             resetTransportDeltas();
             broadcastState(options.host.getSnapshot(), true);
+            broadcastLists();
             return;
           }
           const response = await executeRemoteFrame(methods, clearFrame);
@@ -937,19 +983,23 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // extra arguments as the `critical` flag.
   const unsubscribeState = options.host.subscribe((snapshot) => broadcastState(snapshot));
   const unsubscribeSessions = options.host.subscribeSessions((sessions) => {
+    lastSessions = sessions;
     if (activeClients.size === 0) return;
     for (const [clientId, state] of activeClients) {
       if (!state.channel) continue;
       const payload = state.listDelta ? state.sessionsEncoder.encode(sessions) : sessions;
-      void sendEncryptedFrame(clientId, { event: 'sessions', payload }, true);
+      // Roster frames carry delta patches: dropping one under congestion
+      // breaks the chain for every later push, so they are never droppable.
+      void sendEncryptedFrame(clientId, { event: 'sessions', payload }, false);
     }
   });
   const unsubscribeAgentPool = options.host.subscribeAgentPool((agents) => {
+    lastAgentPool = agents;
     if (activeClients.size === 0) return;
     for (const [clientId, state] of activeClients) {
       if (!state.channel) continue;
       const payload = state.listDelta ? state.agentPoolEncoder.encode(agents) : agents;
-      void sendEncryptedFrame(clientId, { event: 'agentPool', payload }, true);
+      void sendEncryptedFrame(clientId, { event: 'agentPool', payload }, false);
     }
   });
   const unsubscribeSessionStates = options.host.subscribeSessionStates((update) => {

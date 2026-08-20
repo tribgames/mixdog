@@ -509,6 +509,25 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       prefetchedSessionIds.current.delete(sessionId);
     });
   }, [onPrefetchSession]);
+  useEffect(() => {
+    if (!open || !sessionsReady || !onPrefetchSession) return undefined;
+    // Touch has no hover-intent window. Warm only the first two recent rows
+    // during browser idle so the common mobile tap avoids a full relay RTT
+    // without flooding the lane cache with large transcripts.
+    const sessionIds = visibleRecentRows.slice(0, 2).map((session) => session.id);
+    if (sessionIds.length === 0) return undefined;
+    const host = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const warm = () => sessionIds.forEach(requestPrefetch);
+    const idle = host.requestIdleCallback?.(warm, { timeout: 800 });
+    const timer = idle === undefined ? window.setTimeout(warm, 160) : 0;
+    return () => {
+      if (idle !== undefined) host.cancelIdleCallback?.(idle);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [onPrefetchSession, open, requestPrefetch, sessionsReady, visibleRecentRows]);
   const openSessionEditor = useCallback((session: DesktopSessionSummary) => {
     setConfirmingSessionId("");
     setEditingSessionId(session.id);
@@ -1033,10 +1052,14 @@ const SessionRow = React.memo(function SessionRow({
       onFocusCapture={schedulePrefetch}
       onBlurCapture={cancelPrefetch}
       onPointerDown={(event) => {
-        if (event.button !== 0 || event.pointerType === "touch"
-          || editing || confirmingDelete || deleting
+        if (event.button !== 0 || editing || confirmingDelete || deleting
           || (event.target as Element | null)?.closest?.(
             ".session-row-actions, .session-title-input")) return;
+        if (event.pointerType === "touch") {
+          cancelPrefetch();
+          onPrefetchSession(session.id);
+          return;
+        }
         const pointerId = event.pointerId || 1;
         pointerDrag.current = {
           pointerId,

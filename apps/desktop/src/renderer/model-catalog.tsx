@@ -46,6 +46,15 @@ export function filterConfiguredModels(
   });
 }
 
+/** Touch surfaces raise the on-screen keyboard on focus. */
+function coarsePointer(): boolean {
+  try {
+    return window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  } catch {
+    return false;
+  }
+}
+
 function modelKey(option: DesktopModelOption, scope = ''): string {
   return `${scope}model:${option.provider}:${option.model}`;
 }
@@ -103,7 +112,10 @@ export function ModelCatalog({
   useEffect(() => {
     if (!active) return;
     setRecentModelKeys(readRecentModelKeys());
-    search.current?.focus({ preventScroll: true });
+    // Opening the list must not summon the keyboard on a phone: it covered
+    // half the catalog before a single row was read (user: 검색창 터치도 안
+    // 했는데 바로 타이핑창 열리게 하지 말고). The field waits for a tap.
+    if (!coarsePointer()) search.current?.focus({ preventScroll: true });
     modelList.current?.querySelector('[aria-selected="true"]')
       ?.scrollIntoView({ block: 'center' });
   }, [active]);

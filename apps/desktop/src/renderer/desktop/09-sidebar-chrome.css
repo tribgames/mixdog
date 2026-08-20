@@ -1,0 +1,215 @@
+/* Desktop layer 09 — Rail usage toggle, sidebar shell, resize handle.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Pinned usage (user: 핀모드): the rail button trades the pie glyph for a
+   per-brand stack — one icon with its worst-window percentage beneath. */
+.activity-rail > .sidebar-usage-toggle.is-pinned {
+  height: auto;
+  min-height: 48px;
+  padding: 9px 0 8px;
+  /* A monitoring readout must stay readable at rest — never the rail's 40%
+     inactive ghost ink (user: 색상이 애매). */
+  color: var(--mx-text-soft);
+}
+.rail-usage-pin-stack {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  width: 100%;
+}
+.rail-usage-pin-brand {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  width: 100%;
+}
+/* One optical box per brand mark, dead-centered in the 47px cell (user:
+   아이콘 크기가 안 맞아 보임 — the glyphs ink the 40-unit viewBox very
+   differently, so inline sizing read ragged). */
+.rail-usage-pin-brand svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 0 auto;
+}
+/* The sparkle/star marks carry far less ink than the knot/letterforms —
+   one step up keeps their optical size on the same line. */
+.rail-usage-pin-brand svg[data-provider-icon="synthetic"],
+.rail-usage-pin-brand svg[data-provider-icon="google"] { width: var(--mx-icon-lg); height: var(--mx-icon-lg); }
+/* Miniature of the flyout meter (user: 프로그래스라도 중간에): a 3px track
+   between icon and number, filled in accent ink until the tone escalates. */
+.rail-usage-pin-brand > i {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: 26px;
+  height: 3px;
+  border-radius: var(--mx-radius-pill);
+  background: color-mix(in srgb, var(--mx-text) 16%, transparent);
+}
+.rail-usage-pin-brand > i > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  /* Calm resting fill (user: 파란색 너무 눈에 띔): quiet ink until the
+     warning/danger tones below take over. */
+  background: color-mix(in srgb, var(--mx-text) 52%, transparent);
+}
+.rail-usage-pin-brand.tone-warning > i > i { background: var(--mx-warning); }
+.rail-usage-pin-brand.tone-danger > i > i { background: var(--mx-danger); }
+.rail-usage-pin-brand > small {
+  color: var(--mx-text);
+  display: block;
+  width: 100%;
+  text-align: center;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  line-height: 11px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+.rail-usage-pin-brand.tone-warning > small { color: var(--mx-warning); }
+.rail-usage-pin-brand.tone-danger > small { color: var(--mx-danger); }
+/* ONE hairline per seam: the sidebar already draws its right edge and the
+   activity rail its own — the main panel adding a second left hairline
+   doubled the divider to 2px whenever the sidebar was open (user: 테두리
+   굵기 중구난방/겹침). */
+.workspace {
+  position: relative;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--mx-workspace-sheet);
+  box-shadow: none;
+}
+
+/* Session-only sidebar, using compact list density and states. */
+.sidebar.session-sidebar {
+  position: relative;
+  width: var(--session-sidebar-width, 300px);
+  min-width: var(--session-sidebar-min-width, 232px);
+  max-width: var(--session-sidebar-max-width, 420px);
+  height: 100%;
+  flex: 0 0 var(--session-sidebar-width, 300px);
+  margin: 0;
+  /* Keep the footer one rail inset above the physical window floor. The
+     scroll region absorbs this space, so Settings never sinks into the
+     clipped bottom edge even when the session list is full. No TOP inset:
+     the panel header forms the same 36px band as the workspace tab strip
+     next to it (user: 타이틀이 탭보다 아래에 있어 어색). */
+  padding: 0 8px 8px;
+  border: 0;
+  /* Orca-style structure line: the session rail separates from the main
+     area with a hairline instead of relying on the band gap alone. */
+  border-right: 1px solid var(--mx-border-structure);
+  border-radius: 0;
+  /* Grok-web rail, BOTH themes: the sidebar sits flat on the window band —
+     no card, no shadow — so only the content sheet floats. */
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+/* Panel title: shares the workspace tab strip's exact 36px band and owns the
+   top 15px tier. Full-bleed ::after keeps the width contract. */
+.session-panel-header {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 4px 0 6px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-panel-title);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+  letter-spacing: 0;
+  user-select: none;
+}
+.session-panel-header::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: -8px;
+  right: -8px;
+  height: 1px;
+  background: var(--mx-border-muted);
+}
+/* ONE vertical rhythm for every rail page (user: 상단·하단 패딩이 안
+   맞는다 + 서치박스 위쪽 패딩): content opens 12px under the header
+   hairline and closes 12px before the panel bottom — the SAME 12px the
+   horizontal box line uses, so the first box (search field, category row,
+   section head) no longer hugs the header. In-page gaps stay 8. */
+.sidebar.session-sidebar > .session-sidebar-scroll { padding-block: 12px; }
+.session-panel-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* View actions (VS Code grammar): the active rail panel portals its primary
+   action into the title row, so the panel never prints a second header. */
+.session-panel-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+.session-panel-action {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.session-panel-action:hover:not(:disabled),
+.session-panel-action:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.session-panel-action:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Collapse clips a fixed inner layout instead of reflowing every label at
+   each intermediate width. This keeps font rasterization and row identity
+   stable while the outer rail animates. */
+.sidebar.session-sidebar > .session-panel-header,
+.sidebar.session-sidebar > .session-sidebar-scroll {
+  width: 100%;
+  min-width: calc(var(--session-sidebar-min-width, 232px) - 16px);
+}
+/* Desktop rail: mirror the dock's fixed-edge clip. The inner layout holds
+   the rail's OPEN width (not just the 232px floor), anchored to the fixed
+   left edge, so collapse/expand is a pure right-edge clip with zero rewrap
+   between the open width and the floor (user: 좌측이 우측이랑 다르게 튀는
+   느낌). The ≤760px drawer keeps the floor-based minimum above because its
+   width is viewport-capped below the resizable open width. */
+@media (min-width: 761px) {
+  .sidebar.session-sidebar > .session-panel-header,
+  .sidebar.session-sidebar > .session-sidebar-scroll {
+    min-width: calc(var(--session-sidebar-width, 260px) - 16px);
+  }
+}
+.session-sidebar-resize {
+  position: absolute;
+  z-index: 4;
+  top: 10px;
+  right: -5px;
+  bottom: 10px;
+  width: 10px;
+  border-radius: var(--mx-radius-pill);
+  outline: 0;
+  cursor: col-resize;
+  touch-action: none;
+}
+.session-sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  border-radius: var(--mx-radius-pill);
+  background: transparent;
+  transition: background 100ms ease-out;
+}
+.session-sidebar-resize:hover::after,
+.session-sidebar-resize:focus-visible::after,
+body.session-sidebar-resizing .session-sidebar-resize::after { background: var(--mx-focus); }
+body.session-sidebar-resizing { cursor: col-resize; user-select: none; }

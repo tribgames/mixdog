@@ -28,6 +28,7 @@ import {
   TRANSCRIPT_ROW_MEASURE_EVENT,
 } from "./transcript-measure";
 import { isRemoteBrowserRenderer } from "./remote-ui-projection";
+import { isMobileRemoteSurface } from "./mobile-surface";
 
 /**
  * The virtualized transcript timeline.
@@ -127,8 +128,11 @@ export function TranscriptList({
   const spacer = useRef<HTMLDivElement>(null);
   // Web snapshots and native scrolling can update in the same frame. Keep
   // positioning in React there so a later snapshot render cannot briefly
-  // overwrite direct DOM positions with an older virtual range.
-  const reactOwnedLayout = isRemoteBrowserRenderer();
+  // overwrite direct DOM positions with an older virtual range. Phones are
+  // excluded: reconciling every row on every scroll frame starves touch
+  // handling on a projected phone (user: 버튼 반응성이 너무 안 좋다), so the
+  // projected surface keeps the direct-DOM path.
+  const reactOwnedLayout = isRemoteBrowserRenderer() && !isMobileRemoteSurface();
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   // Reader intent reaches the core in the SAME task it was decided in: the
