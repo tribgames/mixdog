@@ -38,5 +38,8 @@
 @import "./desktop/26-editor.css";
 @import "./desktop/27-search-review.css";
 @import "./desktop/28-usage-explorer.css";
-@import "./desktop/29-folder-pane.css";
+/* Layer 29 (folder pane) is imported by FolderPane.lazy.tsx instead: nothing
+   outside that lazy pane uses its rules, and Vite resolves a lazy chunk's
+   stylesheet before the component renders. It still lands after every layer
+   here, so its overrides keep winning exactly as they did in this list. */
 @import "./desktop/30-dialogs.css";

@@ -187,19 +187,18 @@
   /* Soft ink: one step under full text (was ad-hoc 80/82/85% color-mix
      strays). Mix keeps it theme-adaptive like the strays it replaces. */
   --mx-text-soft: color-mix(in srgb, var(--mx-text) 85%, transparent);
-  /* Brand accent = Material 3 indigo TONES, not the 2014 saturated ramp
-     (user: 연한 인디고 맛이 안 난다): primary-80 (#bac3ff) carries the pale
-     Google indigo on dark plates, primary-40 (#4355b9) the same hue on
+  /* Brand accent = Google's own blue (user: 구글색이 낫다). The Material 3
+     indigo tones this replaces sat near hue 275 and read pale violet rather
+     than the Google indigo they were meant to echo: #8ab4f8 is the accent
+     Google draws on its dark UI, #1a73e8 the link/button blue it uses on
      paper. It lives on the THEME, not on a surface attribute, so the web
      shell paints the same accent as the desktop window. */
-  --mx-text-accent: #bac3ff;
+  --mx-text-accent: #8ab4f8;
   --mx-accent: var(--mx-text-accent);
-  /* Markdown inline-code ink, deliberately NOT derived from the brand accent.
-     The indigo tones sit near hue 275 — pale violet rather than blue — so a
-     path in mid-sentence read purple; this is the plain link blue the web
-     reads as "code/reference" (GitHub #79b8ff on dark, #0969da on paper).
-     The accent stays a chrome token (update badge, focus) and the two no
-     longer have to move together. */
+  /* Markdown inline-code ink stays a SEPARATE token from the brand accent.
+     Both are blue now, but code ink answers to "reads as code/reference"
+     (GitHub #79b8ff on dark, #0969da on paper) while the accent answers to
+     the brand, so a future accent move must not drag inline code with it. */
   --mx-md-code: #79b8ff;
   /* Neutral glyphs share the same ink ramp as their companion labels so
      chrome icons never drift darker or pick up a separate color cast. */
@@ -213,9 +212,9 @@
   --mx-border-strong: rgba(255, 255, 255, .24);
 
   /* ── 4. Interaction ── */
-  /* Border-focus: blue-500 on dark; light overrides to blue-600 for
-     contrast on paper. */
-  --mx-focus: #bac3ff;
+  /* Focus ring tracks the brand accent: Google's dark-UI blue here, and the
+     light block overrides to blue-600 so the ring stays legible on paper. */
+  --mx-focus: #8ab4f8;
   --mx-hover: rgba(255, 255, 255, .06);
   --mx-pressed: rgba(255, 255, 255, .10);
   --mx-selected: var(--mx-pressed);
@@ -238,9 +237,11 @@
   --mx-media-scrim-hover: rgba(0, 0, 0, .72);
   --mx-media-danger: rgba(200, 40, 40, .55);
   --mx-on-media: #fff;
-  /* Accent surface (bg-accent: blue-600 in both themes) and the
+  /* Accent SURFACE, one rung deeper than the accent ink: Google blue 700
+     carries white button text at 5:1, where the 600 used for text/links
+     lands at 4:1 — under AA for the recovery button's label. Paired with the
      contrast-button hover overlay (dark: alpha-dark-24, light: alpha-light-12). */
-  --mx-accent-bg: #3d4ca0;
+  --mx-accent-bg: #1967d2;
   --mx-contrast-hover: var(--mx-alpha-dark-24);
   /* Flat action washes: ONE overlay over the family's own plate, composed
      once here so no state rule re-spells the gradient stack. */
@@ -346,7 +347,7 @@
   --mx-text: #17181a;
   --mx-text-muted: #5c6066;
   --mx-text-faint: #717171; /* 4.7:1 on the neutral paper; #8a8f95 sat at 3.1 and read washed under its own rows */
-  --mx-text-accent: #4355b9;
+  --mx-text-accent: #1a73e8;
   --mx-accent: var(--mx-text-accent);
   /* Paper needs the darker rung of the same blue: #79b8ff sits ~2:1 on white. */
   --mx-md-code: #0969da;
@@ -361,7 +362,7 @@
   /* ── 4. Interaction ── */
   /* blue-500 sat ~2:1 against the paper surfaces (user-flagged as washed
      out); blue-600 keeps the same hue with a legible ring. */
-  --mx-focus: #4355b9;
+  --mx-focus: #1a73e8;
   --mx-hover: rgba(0, 0, 0, .05);
   --mx-pressed: rgba(0, 0, 0, .09);
   /* Opaque sidebar-row tones (hover/selected under opaque action gradients). */
@@ -372,7 +373,7 @@
      blotchy double-darkening. */
   --mx-tab-pill: #e6e6e6;
   --mx-scrim: rgba(20, 20, 22, .38);
-  --mx-accent-bg: #4355b9;
+  --mx-accent-bg: #1967d2;
   --mx-contrast-hover: rgba(255, 255, 255, .122);
   --mx-approval-ring: color-mix(in srgb, var(--mx-amber-600) 45%, transparent);
   /* Project-avatar palette (light set: vivid fill, darker border). */

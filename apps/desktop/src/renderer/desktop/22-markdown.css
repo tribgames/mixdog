@@ -147,6 +147,17 @@
   backdrop-filter: blur(12px) saturate(140%);
   box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
 }
+/* A live backdrop blur re-samples the transcript behind this island on EVERY
+   scrolled frame, and the island is pinned over the transcript for the whole
+   session — on a phone GPU that is the single most expensive thing in the
+   scroll path. The projected phone keeps the same plate as a near-opaque tint
+   instead, which reads identically over prose and gives the frame budget back
+   to scrolling. */
+html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before {
+  background: color-mix(in srgb, var(--mx-bg-base) 92%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 /* TWO slots only (user: 쉘하고 에이전트는 합쳐서): work status left, context
    gauge right. The work slot stays mounted while idle so the capsule keeps
    ONE resting width and only its count area grows with live work. */
