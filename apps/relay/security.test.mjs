@@ -32,6 +32,53 @@ import {
   encodeRelayBinaryFrame,
 } from './lib/relay-binary-frame.mjs';
 
+test('precompressed siblings are negotiated and never served directly', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-precompressed-'));
+  const assets = join(dir, 'assets');
+  mkdirSync(assets);
+  const target = join(assets, 'index-AbCdEf123.css');
+  writeFileSync(target, `body{color:red}${' '.repeat(2048)}`);
+  writeFileSync(`${target}.br`, 'brotli-body-placeholder');
+  writeFileSync(`${target}.gz`, 'gzip-body-placeholder');
+
+  const head = (acceptEncoding, file = target) => {
+    let headers = {};
+    sendStaticFile(
+      { method: 'HEAD', headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {} },
+      { writeHead(status, next) { headers = next; }, end() {}, destroy() {} },
+      file,
+    );
+    return headers;
+  };
+
+  const brotli = head('gzip, deflate, br');
+  assert.equal(brotli['Content-Encoding'], 'br');
+  assert.equal(brotli['Content-Length'], statSync(`${target}.br`).size);
+  assert.equal(brotli.Vary, 'Accept-Encoding');
+
+  const gzipOnly = head('gzip');
+  assert.equal(gzipOnly['Content-Encoding'], 'gzip');
+  assert.equal(gzipOnly['Content-Length'], statSync(`${target}.gz`).size);
+
+  const identity = head('');
+  assert.equal(identity['Content-Encoding'], undefined);
+  assert.equal(identity['Content-Length'], statSync(target).size);
+
+  // A raw build with nothing staged beside it keeps the on-the-fly gzip path,
+  // whose length is unknown until the stream ends.
+  const plain = join(assets, 'plain-Zz9YyXx87.css');
+  writeFileSync(plain, `body{color:blue}${' '.repeat(2048)}`);
+  const live = head('br, gzip', plain);
+  assert.equal(live['Content-Encoding'], 'gzip');
+  assert.equal(live['Content-Length'], undefined);
+
+  // The encoded copies answer through negotiation only: fetched directly they
+  // would arrive as an undeclared encoding under the wrong content type.
+  assert.equal(resolveStaticTarget(dir, '/assets/index-AbCdEf123.css.br').status, 404);
+  assert.equal(resolveStaticTarget(dir, '/assets/index-AbCdEf123.css.gz').status, 404);
+  assert.equal(resolveStaticTarget(dir, '/assets/index-AbCdEf123.css').status, 200);
+});
+
 test('static responses apply browser security headers without changing HEAD behavior', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-static-'));
   const target = join(dir, 'index.html');

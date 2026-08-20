@@ -22,10 +22,12 @@ import "@fontsource-variable/jetbrains-mono";
 // unicode-range slices, so a browser/phone downloads only the Hangul blocks it
 // actually paints instead of the whole family on every cold load.
 import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
-// Monaco is lazy JS, but its structural CSS must be present before any editor
-// DOM mounts. Keeping this in the lazy chunk exposed raw textarea/token DOM for
-// a frame before Vite injected the stylesheet.
-import "monaco-editor/min/vs/editor/editor.main.css";
+// Monaco's structural CSS is NOT imported here. The esm build the editor chunk
+// uses pulls in the same rules, and Vite resolves a lazy chunk's stylesheet
+// before its component renders, so editor DOM still never paints unstyled.
+// Importing min/vs/editor/editor.main.css as well put a SECOND ~200KB copy of
+// those rules into the first-paint stylesheet, which every phone downloaded
+// before it could show a single message.
 // VS Code's codicon FONT (B안): chrome-level glyphs render through the text
 // rasterizer on their native 16px grid — crisp on device pixels where the
 // scaled 24-grid lucide SVG strokes went fractional and soft. Loaded BEFORE

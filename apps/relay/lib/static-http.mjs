@@ -31,6 +31,8 @@ export const PAIRING_COOKIE_NAME = 'mixdog_token';
 // (gzip would only burn CPU).
 const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg)/;
 const COMPRESS_MIN_BYTES = 1024;
+// Siblings written by `npm run stage:web` next to each text asset.
+const PRECOMPRESSED_EXTENSIONS = new Set(['.br', '.gz']);
 export const BROWSER_SECURITY_HEADERS = Object.freeze({
   'Content-Security-Policy': [
     "default-src 'self'",
@@ -115,6 +117,12 @@ function pathIsWithin(root, target) {
 }
 
 export function resolveStaticTarget(rootDir, pathname) {
+  // Precompressed siblings answer through content negotiation on the asset's
+  // own URL; a direct request for one would hand back an encoded body with no
+  // Content-Encoding and the wrong type.
+  if (PRECOMPRESSED_EXTENSIONS.has(extname(pathname).toLowerCase())) {
+    return { status: 404, target: '' };
+  }
   const root = resolve(rootDir);
   let realRoot;
   try {
@@ -144,13 +152,33 @@ export function resolveStaticTarget(rootDir, pathname) {
   }
 }
 
-/** Stream a resolved file with cache/gzip/HEAD handling. */
+/** Pick the precompressed sibling (`.br`/`.gz`) the client accepts.
+ *  `npm run stage:web` writes them beside each text asset, so the relay ships
+ *  brotli — well under on-the-fly gzip on a phone link — without spending CPU
+ *  per request. Returns null when nothing suitable was staged, leaving the
+ *  live gzip path in charge (LAN/dev servers run straight off a raw build). */
+export function selectPrecompressed(target, acceptEncoding, fileExists = existsSync) {
+  const accept = String(acceptEncoding || '');
+  if (/\bbr\b/i.test(accept) && fileExists(`${target}.br`)) {
+    return { path: `${target}.br`, encoding: 'br' };
+  }
+  if (/\bgzip\b/i.test(accept) && fileExists(`${target}.gz`)) {
+    return { path: `${target}.gz`, encoding: 'gzip' };
+  }
+  return null;
+}
+
+/** Stream a resolved file with cache/compression/HEAD handling. */
 export function sendStaticFile(request, response, target, extraHeaders = {}) {
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const size = statSync(target).size;
   const hashedAsset = target.split(sep).includes('assets')
     && /-[A-Za-z0-9_-]{8,}\.[^.]+$/.test(target);
-  const gzip = COMPRESSIBLE_TYPE.test(type)
+  const precompressed = COMPRESSIBLE_TYPE.test(type) && size > COMPRESS_MIN_BYTES
+    ? selectPrecompressed(target, request.headers['accept-encoding'])
+    : null;
+  const gzip = !precompressed
+    && COMPRESSIBLE_TYPE.test(type)
     && size > COMPRESS_MIN_BYTES
     && /\bgzip\b/i.test(String(request.headers['accept-encoding'] || ''));
   const headers = {
@@ -173,16 +201,24 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
     Vary: 'Accept-Encoding',
     ...extraHeaders,
   };
-  // Content-Length only survives the uncompressed path — the gzipped byte
-  // count is not known until the stream ends.
-  if (gzip) headers['Content-Encoding'] = 'gzip';
-  else headers['Content-Length'] = size;
+  // A precompressed file has a known length, so the browser gets a real
+  // progress figure. Live gzip does not: its byte count is only settled when
+  // the stream ends.
+  if (precompressed) {
+    headers['Content-Encoding'] = precompressed.encoding;
+    headers['Content-Length'] = statSync(precompressed.path).size;
+  } else if (gzip) {
+    headers['Content-Encoding'] = 'gzip';
+  } else {
+    headers['Content-Length'] = size;
+  }
   response.writeHead(200, headers);
   if (request.method === 'HEAD') {
     response.end();
     return;
   }
-  const source = createReadStream(target).on('error', () => response.destroy());
+  const source = createReadStream(precompressed ? precompressed.path : target)
+    .on('error', () => response.destroy());
   if (gzip) source.pipe(createGzip({ level: 6 })).pipe(response);
   else source.pipe(response);
 }

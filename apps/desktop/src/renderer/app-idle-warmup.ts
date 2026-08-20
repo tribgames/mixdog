@@ -2,6 +2,7 @@
 // usable frame instead of during it. Markdown warms promptly (the first
 // session open needs it); the much heavier diff surface waits for real user
 // idle. Extracted from App.tsx so the component file holds UI only.
+import { connectionQuality } from "./network-conditions";
 import { preloadMarkdownBody, preloadStreamingMarkdownBody } from "./TranscriptView";
 import { prewarmSidebarReferences } from "./sidebar-reference-cache";
 import { loadStudioViewModule } from "./studio-loader";
@@ -130,6 +131,13 @@ export function scheduleRendererWarmups(): () => void {
   // First chat needs Markdown before idle. Studio/rail chunks stay deferred.
   void preloadMarkdownBody().catch(() => undefined);
   void preloadStreamingMarkdownBody().catch(() => undefined);
+  // A browser/phone downloads these panel chunks over the same link the first
+  // screen is still using, so a metered or slow connection skips the warmup
+  // entirely and pays the chunk cost only for a panel the user actually
+  // opens. The native window reads them from local disk and always warms.
+  if (!nativeWindow && connectionQuality() !== "normal") {
+    return () => { stopped = true; };
+  }
   const cancelIdle = schedulePostInteractionIdle(
     () => {
       void Promise.allSettled([
@@ -144,9 +152,13 @@ export function scheduleRendererWarmups(): () => void {
         }
       });
     },
-    nativeWindow ? 2_500 : 0,
-    nativeWindow ? 800 : 250,
-    nativeWindow ? 100 : 0,
+    // The browser has no `mixdog:window-shown` signal, so its numbers are the
+    // fallback path: wait out the opening screen's own transfers, then take a
+    // real idle slot. Starting at zero put these chunks in the download queue
+    // ahead of the session data the user was waiting for.
+    nativeWindow ? 2_500 : 2_000,
+    nativeWindow ? 800 : 800,
+    nativeWindow ? 100 : 250,
   );
   return () => {
     stopped = true;

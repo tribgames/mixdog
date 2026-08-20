@@ -10,23 +10,16 @@
 //
 // Warming every slice once removes that class of stall at the source. The
 // desktop reads local disk, so it warms in one pass; a browser/phone fetches
-// ~2MB over the network, so it warms in small batches during idle time and
-// skips the warmup entirely on a metered or very slow connection, where the
-// dynamic subset's on-demand behavior is the better trade.
+// ~2MB over the network, so it warms in small batches during idle time, holds
+// off until the opening screen has settled, and skips the warmup on a metered
+// or slow connection, where the dynamic subset's on-demand behavior is the
+// better trade. The service worker keeps the fetched slices, so a phone pays
+// for this once rather than on every visit.
+import { connectionQuality, isRemoteSurface } from "./network-conditions";
+
 const REMOTE_WARMUP_BATCH = 6;
-
-type NetworkInformation = { saveData?: boolean; effectiveType?: string };
-
-function meteredConnection(): boolean {
-  try {
-    const connection = (navigator as Navigator & { connection?: NetworkInformation }).connection;
-    if (!connection) return false;
-    if (connection.saveData === true) return true;
-    return /(^|-)2g$/i.test(String(connection.effectiveType || ""));
-  } catch {
-    return false;
-  }
-}
+// The first screen's own transfers own the link until then.
+const REMOTE_WARMUP_DELAY_MS = 3_000;
 
 function loadFace(face: FontFace): Promise<unknown> {
   try {
@@ -40,8 +33,8 @@ function loadFace(face: FontFace): Promise<unknown> {
 export function scheduleFontWarmup(): void {
   try {
     if (!document.fonts || typeof document.fonts.forEach !== "function") return;
-    const remote = !/electron/i.test(navigator.userAgent);
-    if (remote && meteredConnection()) return;
+    const remote = isRemoteSurface();
+    if (remote && connectionQuality() !== "normal") return;
     const idle: (callback: () => void) => unknown =
       typeof window.requestIdleCallback === "function"
         ? (callback) => window.requestIdleCallback(callback, { timeout: 2_000 })
@@ -66,6 +59,7 @@ export function scheduleFontWarmup(): void {
         });
       } catch { /* warmup is a cosmetic guard */ }
     };
-    idle(step);
+    if (remote) window.setTimeout(() => idle(step), REMOTE_WARMUP_DELAY_MS);
+    else idle(step);
   } catch { /* warmup is a cosmetic guard */ }
 }
