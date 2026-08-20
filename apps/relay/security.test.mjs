@@ -16,6 +16,7 @@ import WebSocket from 'ws';
 
 import {
   browserSocketOriginAllowed,
+  CLAIM_TTL_MS,
   decodeHookResponseBody,
   DeviceStore,
   MAX_HOOK_RESPONSE_BODY_BYTES,
@@ -395,7 +396,10 @@ test('an approval mints the credential; the relay only routes the request', asyn
     const { claimId } = await started.json();
     const request = await forwarded;
     assert.equal(request.claimId, claimId);
+    assert.equal(request.clientId, 'bbbbbbbb');
     assert.equal(request.publicKey, publicKey);
+    assert.ok(request.expiresAt > Date.now());
+    assert.ok(request.expiresAt <= Date.now() + CLAIM_TTL_MS);
     // Pending means pending: no credential exists before the desktop answers.
     assert.equal((await (await fetch(`${origin}/claim/${claimId}`)).json()).status, 'pending');
     desktop.send(JSON.stringify({ type: 'claim-approve', claimId, sealed: { box: 'opaque' } }));
@@ -411,6 +415,52 @@ test('an approval mints the credential; the relay only routes the request', asyn
     assert.equal(relay.store.deviceIdForClientToken(answer.token), 'aaaaaaaa');
     // One-shot: the credential leaves this relay exactly once.
     assert.equal((await (await fetch(`${origin}/claim/${claimId}`)).json()).status, 'expired');
+  } finally {
+    try { desktop?.close(); } catch { /* already closed */ }
+    await relay.close();
+  }
+});
+
+test('a reopened request resumes instead of prompting the desktop again', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-claim-resume-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  const origin = `http://127.0.0.1:${relay.port}`;
+  let desktop = null;
+  try {
+    relay.store.authenticate('aaaaaaaa', '0123456789abcdef');
+    desktop = new WebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from('aaaaaaaa:0123456789abcdef').toString('base64')}`,
+      },
+    });
+    await new Promise((opened, failed) => {
+      desktop.once('open', opened);
+      desktop.once('error', failed);
+    });
+    let prompts = 0;
+    desktop.on('message', (raw) => {
+      let value;
+      try { value = JSON.parse(String(raw)); } catch { return; }
+      if (value.type === 'client-claim') prompts += 1;
+    });
+    const claim = (publicKey) => fetch(`${origin}/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({ deviceId: 'aaaaaaaa', clientId: 'bbbbbbbb', publicKey }),
+    }).then((response) => response.json());
+    // A phone that reloads mid-approval re-sends the same request; the user is
+    // already looking at that prompt, so it must not raise another.
+    const first = await claim('k'.repeat(87));
+    const again = await claim('k'.repeat(87));
+    assert.equal(again.claimId, first.claimId);
+    // A different container is a different request and does get its own.
+    const other = await claim('m'.repeat(87));
+    assert.notEqual(other.claimId, first.claimId);
+    await delay(120);
+    assert.equal(prompts, 2);
   } finally {
     try { desktop?.close(); } catch { /* already closed */ }
     await relay.close();

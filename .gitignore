@@ -11,6 +11,7 @@ apps/desktop/dist/
 apps/desktop/out/
 apps/desktop/artifacts/
 apps/relay/renderer/
+apps/relay/.cache/
 # Brotli/gzip siblings written beside each staged web asset by stage:web.
 apps/relay/.web-precompress/
 # Legacy local Android toolchain cache remains machine-only.

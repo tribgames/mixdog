@@ -48,6 +48,13 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+trap {
+  # Windows PowerShell can return exit 0 for an uncaught terminating error in
+  # a -File script. FastDirect callers must never report a failed build/swap as
+  # success, especially when the detached worker was never launched.
+  [Console]::Error.WriteLine(($_ | Out-String))
+  exit 1
+}
 $desktopDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $desktopDir '..\..')).Path
 $distDir = Join-Path $desktopDir 'dist'
@@ -60,6 +67,10 @@ $mixdogDataDir = if ($env:MIXDOG_DATA_DIR) { $env:MIXDOG_DATA_DIR } else { Join-
 $tokenManifest = Join-Path $repoRoot 'native\mixdog-token\Cargo.toml'
 $tokenBuild = Join-Path $repoRoot 'native\mixdog-token\target\release\mixdog_token.dll'
 $fastDirectHelper = Join-Path $PSScriptRoot 'dev-fast-direct.mjs'
+$fastRendererWatchHelper = Join-Path $PSScriptRoot 'dev-renderer-watch.mjs'
+$fastRendererWatchState = Join-Path $desktopDir '.cache\dev-renderer-watch.json'
+$fastRendererWatchLog = Join-Path $desktopDir '.cache\dev-renderer-watch.log'
+$fastRendererWatchErrorLog = Join-Path $desktopDir '.cache\dev-renderer-watch.error.log'
 if ([string]::IsNullOrWhiteSpace($FastPlanPath)) {
   $FastPlanPath = Join-Path $desktopDir '.cache\dev-fast-direct-plan.json'
 }
@@ -344,7 +355,8 @@ function Wait-ForFreshDaemon {
 function Invoke-Build {
   param(
     [string]$OverrideVersion,
-    [switch]$DirectoryOnly
+    [switch]$DirectoryOnly,
+    [object]$Plan = $null
   )
   Push-Location $desktopDir
   try {
@@ -354,12 +366,7 @@ function Invoke-Build {
       # NSIS compression stages.
       & node (Join-Path $repoRoot 'scripts\build-token-addon.mjs') --build --release
       if ($LASTEXITCODE -ne 0) { throw "mixdog-token addon build exited with $LASTEXITCODE" }
-      & npx.cmd electron-vite build
-      if ($LASTEXITCODE -ne 0) { throw "electron-vite build exited with $LASTEXITCODE" }
-      & node scripts/build-daemon.mjs
-      if ($LASTEXITCODE -ne 0) { throw "build-daemon exited with $LASTEXITCODE" }
-      & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-      if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+      Invoke-FastDirectChangedOutputs $Plan
       & npm.cmd run brand:win
       if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
       & npx.cmd electron-builder --dir --win --x64 --publish never "-c.extraMetadata.version=$OverrideVersion"
@@ -394,30 +401,153 @@ function Get-FastDirectPlan {
   return ($output | Out-String | ConvertFrom-Json)
 }
 
-function Invoke-FastDirectIncrementalBuild {
+function Get-FastRendererWatchState {
+  if (-not (Test-Path -LiteralPath $fastRendererWatchState -PathType Leaf)) { return $null }
+  try {
+    return Get-Content -LiteralPath $fastRendererWatchState -Raw | ConvertFrom-Json
+  } catch {
+    return $null
+  }
+}
+
+function Get-FastRendererWatchProcess {
+  $state = Get-FastRendererWatchState
+  if ($null -eq $state -or -not $state.pid) { return $null }
+  $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$state.pid)" `
+    -ErrorAction SilentlyContinue
+  if ($null -eq $process -or $process.CommandLine -notlike '*dev-renderer-watch.mjs*') {
+    return $null
+  }
+  return $process
+}
+
+function Stop-FastRendererWatch {
+  $process = Get-FastRendererWatchProcess
+  if ($process) {
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    try { Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue } catch {}
+  }
+  Remove-Item -LiteralPath $fastRendererWatchState -Force -ErrorAction SilentlyContinue
+}
+
+function Start-FastRendererWatch {
+  $cacheDir = Split-Path -Parent $fastRendererWatchState
+  New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+  Remove-Item -LiteralPath $fastRendererWatchState, $fastRendererWatchLog, `
+    $fastRendererWatchErrorLog -Force -ErrorAction SilentlyContinue
+  $node = (Get-Command node.exe -ErrorAction Stop).Source
+  $process = Start-Process -FilePath $node `
+    -ArgumentList @($fastRendererWatchHelper, "--state=$fastRendererWatchState") `
+    -WorkingDirectory $desktopDir -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput $fastRendererWatchLog `
+    -RedirectStandardError $fastRendererWatchErrorLog
+  Start-Sleep -Milliseconds 250
+  if ($process.HasExited) {
+    $detail = if (Test-Path -LiteralPath $fastRendererWatchErrorLog) {
+      Get-Content -LiteralPath $fastRendererWatchErrorLog -Raw
+    } else { 'no watcher error output' }
+    throw "renderer watcher exited during startup: $detail"
+  }
+}
+
+function Test-FastRendererOutputFresh {
   param([object]$Plan)
-  $targets = @($Plan.targets)
-  if ($targets.Count -gt 0 -and $ReuseBuild) {
-    Write-Step "reusing prebuilt Electron target(s): $($targets -join ', ')"
-  }
-  if ($targets.Count -gt 0 -and -not $ReuseBuild) {
-    Write-Step "building changed Electron target(s): $($targets -join ', ')"
-    Push-Location $desktopDir
-    try {
-      $previousTargets = $env:MIXDOG_ELECTRON_BUILD_TARGETS
-      $env:MIXDOG_ELECTRON_BUILD_TARGETS = $targets -join ','
-      & npx.cmd electron-vite build
-      if ($LASTEXITCODE -ne 0) { throw "electron-vite incremental build exited with $LASTEXITCODE" }
-    } finally {
-      if ($null -eq $previousTargets) {
-        Remove-Item Env:MIXDOG_ELECTRON_BUILD_TARGETS -ErrorAction SilentlyContinue
-      } else {
-        $env:MIXDOG_ELECTRON_BUILD_TARGETS = $previousTargets
-      }
-      Pop-Location
+  $output = Join-Path $desktopDir 'out\renderer\index.html'
+  if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { return $false }
+  $outputMtimeMs = ([DateTimeOffset](Get-Item -LiteralPath $output).LastWriteTimeUtc).ToUnixTimeMilliseconds()
+  $requiredMtimeMs = [Math]::Max(
+    [double]$Plan.groups.renderer.newestMtimeMs,
+    [double]$Plan.groups.package.newestMtimeMs
+  )
+  return $outputMtimeMs -ge $requiredMtimeMs
+}
+
+function Complete-FastRendererWatchBuild {
+  param([object]$Plan)
+  try {
+    $state = Get-FastRendererWatchState
+    $process = Get-FastRendererWatchProcess
+    $configMtimeMs = ([DateTimeOffset](Get-Item -LiteralPath `
+      (Join-Path $desktopDir 'electron.vite.config.ts')).LastWriteTimeUtc).ToUnixTimeMilliseconds()
+    if ($process -and ([double]$state.configMtimeMs + 1) -lt $configMtimeMs) {
+      Write-Step 'restarting renderer watch cache for changed build config'
+      Stop-FastRendererWatch
+      $process = $null
     }
+    if (-not $process) {
+      Write-Step 'starting persistent production renderer build cache'
+      Start-FastRendererWatch
+    } else {
+      Write-Step 'waiting for persistent renderer rebuild'
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(90)
+    while ([DateTime]::UtcNow -lt $deadline) {
+      if (Test-FastRendererOutputFresh $Plan) {
+        Write-Step 'reusing warm renderer build'
+        return Get-FastDirectPlan
+      }
+      $state = Get-FastRendererWatchState
+      if ($state -and $state.status -eq 'error') {
+        throw "renderer watcher failed: $($state.detail)"
+      }
+      if (-not (Get-FastRendererWatchProcess)) {
+        throw 'renderer watcher stopped before producing a fresh build'
+      }
+      Start-Sleep -Milliseconds 200
+    }
+    throw 'renderer watcher did not produce a fresh build within 90 seconds'
+  } catch {
+    Write-Warning "$($_.Exception.Message); falling back to a one-shot renderer build"
+    Stop-FastRendererWatch
+    return $Plan
   }
-  if ($Plan.daemon -and -not $ReuseBuild) {
+}
+
+function Invoke-SelectedElectronBuild {
+  param([string[]]$Targets)
+  if (@($Targets).Count -eq 0) { return }
+  Push-Location $desktopDir
+  try {
+    $previousTargets = $env:MIXDOG_ELECTRON_BUILD_TARGETS
+    $env:MIXDOG_ELECTRON_BUILD_TARGETS = $Targets -join ','
+    & npx.cmd electron-vite build
+    if ($LASTEXITCODE -ne 0) { throw "electron-vite incremental build exited with $LASTEXITCODE" }
+  } finally {
+    if ($null -eq $previousTargets) {
+      Remove-Item Env:MIXDOG_ELECTRON_BUILD_TARGETS -ErrorAction SilentlyContinue
+    } else {
+      $env:MIXDOG_ELECTRON_BUILD_TARGETS = $previousTargets
+    }
+    Pop-Location
+  }
+}
+
+function Invoke-FastDirectChangedOutputs {
+  param([object]$Plan)
+  if ($null -eq $Plan) { throw 'FastDirect build plan is required.' }
+  $targets = if ($Plan.full) {
+    @('main', 'preload', 'renderer')
+  } else {
+    @($Plan.targets)
+  }
+  $reusedTargets = @($targets | Where-Object {
+    $ReuseBuild -or [bool]$Plan.prebuilt.$_
+  })
+  $buildTargets = @($targets | Where-Object { $_ -notin $reusedTargets })
+  if ($reusedTargets.Count -gt 0) {
+    Write-Step "reusing fresh Electron target(s): $($reusedTargets -join ', ')"
+  }
+  if ($buildTargets.Count -gt 0) {
+    Write-Step "building changed Electron target(s): $($buildTargets -join ', ')"
+    Invoke-SelectedElectronBuild $buildTargets
+  }
+
+  $daemonChanged = if ($Plan.full) { [bool]$Plan.changed.daemon } else { [bool]$Plan.daemon }
+  $reuseDaemon = $daemonChanged -and ($ReuseBuild -or [bool]$Plan.prebuilt.daemon)
+  if ($reuseDaemon) {
+    Write-Step 'reusing fresh desktop daemon'
+  } elseif ($daemonChanged) {
     Write-Step 'building changed desktop daemon'
     Push-Location $desktopDir
     try {
@@ -427,7 +557,14 @@ function Invoke-FastDirectIncrementalBuild {
       Pop-Location
     }
   }
-  if ($Plan.runtime) {
+
+  $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
+  $runtimeChanged = if ($Plan.full) {
+    [bool]$Plan.changed.runtime -or -not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)
+  } else {
+    [bool]$Plan.runtime
+  }
+  if ($runtimeChanged) {
     Write-Step 'preparing changed runtime'
     Push-Location $desktopDir
     try {
@@ -437,6 +574,12 @@ function Invoke-FastDirectIncrementalBuild {
       Pop-Location
     }
   }
+}
+
+function Invoke-FastDirectIncrementalBuild {
+  param([object]$Plan)
+  Invoke-FastDirectChangedOutputs $Plan
+  $targets = @($Plan.targets)
   if ($targets.Count -gt 0 -or $Plan.daemon) {
     Write-Step 'staging incremental app.asar'
     & node $fastDirectHelper --action=stage-shell "--install-dir=$InstallDir" `
@@ -763,9 +906,14 @@ if (-not $SkipBuild) {
     Write-Step 'fingerprinting FastDirect inputs'
     $fastPlan = Get-FastDirectPlan
     if ($fastPlan.full) {
+      Stop-FastRendererWatch
       Write-Step 'native/package inputs changed; building complete win-unpacked fallback'
-      Invoke-Build $targetVersion -DirectoryOnly
+      Invoke-Build $targetVersion -DirectoryOnly -Plan $fastPlan
     } else {
+      if (-not $ReuseBuild -and [bool]$fastPlan.changed.renderer -and
+          -not [bool]$fastPlan.prebuilt.renderer) {
+        $fastPlan = Complete-FastRendererWatchBuild $fastPlan
+      }
       Invoke-FastDirectIncrementalBuild $fastPlan
     }
   } else {

@@ -312,7 +312,7 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
     // xAI WS: do NOT pin x-grok-conv-id. Measured parallel runs show that
     // forcing a routing shard via that header alternates cold caches across
     // parallel workers; the automatic prompt-prefix cache holds up better
-    // when each handshake is unpinned. Reference: vercel/ai xai provider.
+    // when each handshake is unpinned.
     const headers = auth.type === 'xai'
         ? {
             'Authorization': `Bearer ${auth.apiKey}`,

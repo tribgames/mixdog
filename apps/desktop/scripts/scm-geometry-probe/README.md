@@ -76,7 +76,7 @@ The rules the overlays must keep:
   and the reported 290px included) `.dock-scm-file-name` renders the path's
   basename in full, is not clipped (`scrollWidth <= clientWidth`) and stays
   inside `.dock-scm-file-copy` — only the dim directory prefix may lose
-  characters to `…` (ScmPathText, path-text.tsx:188-227).
+  characters to `…` (ScmPathText).
 - neither list carries a PAGER: no `.dock-scm-load-more`, no `Show N more` and
   no `Load more` button exists, at any width or fixture, and the changed-file
   row keeps its 29px band (the height the window is computed on).

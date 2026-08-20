@@ -235,7 +235,7 @@
 }
 /* Transcript notices are a card, not bare text: without an inset the copy sat
    flush against the hairline and read as a broken quote block (user: 오류
-   메세지 출력이 이상해). Reference: OpenCode session-turn error Card. */
+   메세지 출력이 이상해). */
 .notice {
   padding: 8px 12px;
   border: 0;

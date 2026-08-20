@@ -599,7 +599,7 @@ export function execShellCommand({
       if (grace.unref) grace.unref();
     };
     child.once('exit', _onChildExit);
-    // Auto-background transition (CC startBackgrounding analogue). Two triggers
+    // Auto-background transition. Two triggers
     // resolve the call immediately with a 'backgrounded' result while the
     // child keeps running, adopted into the shell-jobs registry but still
     // owned by this CLI process:
@@ -904,7 +904,7 @@ export function execShellCommand({
     if (abortSignal) {
       abortHandler = () => {
         // Interrupt (the user typed a NEW message while this was running) is a
-        // "also look at this" signal, not "stop that" — CC backgrounds instead
+        // "also look at this" signal, not "stop that" — it backgrounds instead
         // of killing there, and throwing away a long build the user never asked
         // to stop is the worse outcome. Explicit cancellation (ESC) keeps the
         // kill. The promotion reuses the timeout path's guards verbatim so a

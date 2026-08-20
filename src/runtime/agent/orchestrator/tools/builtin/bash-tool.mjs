@@ -608,7 +608,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         try { bashAbortSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
         catch { bashAbortSignal = null; }
         combinedBashAbort = _combineAbortSignals(bashAbortSignal, options?.abortSignal || null);
-        // Promote-at-timeout (CC shouldAutoBackground parity). When a
+        // Promote-at-timeout. When a
         // foreground one-shot hits its timeout and is still running, adopt it
         // as a background job (task_id + notify) instead of tree-killing it.
         // The truthy MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env restores the old

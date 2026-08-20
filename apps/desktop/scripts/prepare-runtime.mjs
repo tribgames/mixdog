@@ -319,7 +319,14 @@ async function prepareRuntime(manifest, fingerprint) {
     // letting it reach app.asar.unpacked.
     await timed('desktop-node-pty', async () => {
       await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
-      await assertTreeTargetArchitecture(builderDesktopPtyDir, 'Desktop node-pty');
+      // The package intentionally carries third_party/prebuild variants for
+      // several platforms. Only build/Release is loaded by this packaged
+      // desktop; validating the whole multiarch tree rejected its legitimate
+      // win10-arm64 fallback while preparing a win32-x64 app.
+      await assertTreeTargetArchitecture(
+        join(builderDesktopPtyDir, 'build', 'Release'),
+        'Desktop node-pty',
+      );
     });
     // The staging install only needs the production dependency tree. The repo's
     // postinstall (embedding prune + native asset fetch) is driven explicitly by

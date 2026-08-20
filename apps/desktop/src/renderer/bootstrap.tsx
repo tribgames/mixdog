@@ -8,6 +8,7 @@ import "./remote-shim";
 import "./i18n";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { RemoteClaimPrompt } from "./RemoteClaimPrompt";
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from "./RendererRecovery";
 import "@fontsource-variable/inter";
 // Grok-web feel: Geist leads the Latin stack (Universal Sans's closest open
@@ -118,6 +119,7 @@ const reactCommitted = new Promise<void>((resolve) => {
 createRoot(document.getElementById("root")!).render(
   <DesktopErrorBoundary>
     <App />
+    <RemoteClaimPrompt />
   </DesktopErrorBoundary>,
 );
 markBootStage("react-render-requested");

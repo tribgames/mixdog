@@ -456,7 +456,7 @@ export async function consumeCompatChatCompletionStream(stream, {
         if (leakGuard.enabled) flushLeak();
     } catch (err) {
         // Any mid-stream failure after live text was relayed is non-retryable —
-        // but the streamed partial must still ride on the error (CC rule: once
+        // but the streamed partial must still ride on the error (rule: once
         // output is visible, keep it and finalize with a notice instead of
         // discarding the turn). The loop's partial-final path consumes these.
         if (emittedText) {
@@ -1029,7 +1029,7 @@ export async function consumeCompatResponsesStream(stream, {
         const err = truncatedCompatStreamError(label, 'no response.completed');
         if (state.emittedText) {
             // Truncation after visible output: keep the streamed partial
-            // (CC rule) so the loop can finalize it as partial-final instead
+            // (same rule) so the loop can finalize it as partial-final instead
             // of dropping the turn. liveText marking still blocks replay.
             markErrorLiveTextEmitted(err);
             try {

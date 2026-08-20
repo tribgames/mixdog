@@ -9,6 +9,14 @@ export const REMOTE_PAIRING_STORAGE_KEYS = {
   // credential: the installed app launches at /d/<deviceId>/ and needs it to
   // know whom to ask for approval.
   device: 'mixdog.remote-device',
+  // An approval already waiting on the desktop, with the throwaway key it will
+  // be sealed to. A phone OS discards a backgrounded web app freely; without
+  // this the reloaded app would ask again and the user would face prompt after
+  // prompt for one connection.
+  claim: 'mixdog.remote-claim',
+  // When an approval last succeeded here. A credential rejected right after one
+  // is a real failure, not something to paper over by asking again in a loop.
+  approvedAt: 'mixdog.remote-approved-at',
 } as const;
 
 const REMOTE_DEVICE_ID = /^[0-9a-f-]{8,64}$/u;

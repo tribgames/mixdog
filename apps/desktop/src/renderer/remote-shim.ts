@@ -17,10 +17,12 @@ import type {
 } from '../shared/contract';
 import {
   createRelayE2EEClientHandshake,
+  exportRelayClaimKeyPair,
   generateRelayClaimKeyPair,
+  importRelayClaimKeyPair,
   isRelayE2EEChallenge,
   openSealedRelayE2EEPairingMaterial,
-  relayClaimConfirmationCode,
+  type RelayClaimKeyPair,
   type RelayE2EEChannel,
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
@@ -47,6 +49,12 @@ const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
 const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
 const BROWSER_ID_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.browserId;
 const DEVICE_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.device;
+const CLAIM_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.claim;
+const APPROVED_AT_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.approvedAt;
+// A credential refused this soon after an approval is a real failure. Asking
+// again automatically would just raise prompt after prompt on the desktop, so
+// the screen states the reason and waits for a deliberate retry instead.
+const APPROVAL_RETRY_GUARD_MS = 120_000;
 // Sticky proof that this pairing has worked at least once. Without it a browser
 // reopened while the desktop sleeps counts three quick retries and throws the
 // pairing screen over a perfectly valid pairing.
@@ -303,8 +311,50 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, material.serverPublicKey);
       localStorage.setItem(E2EE_SECRET_STORAGE_KEY, material.pairingSecret);
       localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId);
+      localStorage.setItem(APPROVED_AT_STORAGE_KEY, String(Date.now()));
+      localStorage.removeItem(CLAIM_STORAGE_KEY);
       if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
       return true;
+    } catch { return false; }
+  };
+
+  // The request already waiting on the desktop, kept across reloads: a phone OS
+  // discards a backgrounded web app freely, and a forgotten request would mean
+  // asking again — one more prompt on the desktop for the same connection.
+  const savePendingClaim = async (
+    claimId: string,
+    keyPair: RelayClaimKeyPair,
+  ): Promise<void> => {
+    try {
+      localStorage.setItem(CLAIM_STORAGE_KEY, JSON.stringify({
+        claimId,
+        keyPair: await exportRelayClaimKeyPair(keyPair),
+      }));
+    } catch { /* the approval still completes while this page lives */ }
+  };
+
+  const loadPendingClaim = async (): Promise<{
+    claimId: string;
+    keyPair: RelayClaimKeyPair;
+  } | null> => {
+    try {
+      const raw = localStorage.getItem(CLAIM_STORAGE_KEY) || '';
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { claimId?: unknown; keyPair?: unknown };
+      const keyPair = await importRelayClaimKeyPair(parsed.keyPair);
+      if (!keyPair || typeof parsed.claimId !== 'string' || !parsed.claimId) return null;
+      return { claimId: parsed.claimId, keyPair };
+    } catch { return null; }
+  };
+
+  const clearPendingClaim = (): void => {
+    try { localStorage.removeItem(CLAIM_STORAGE_KEY); } catch { /* private storage */ }
+  };
+
+  const approvedRecently = (): boolean => {
+    try {
+      const at = Number(localStorage.getItem(APPROVED_AT_STORAGE_KEY) || 0);
+      return Number.isFinite(at) && at > 0 && Date.now() - at < APPROVAL_RETRY_GUARD_MS;
     } catch { return false; }
   };
 
@@ -314,7 +364,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // the request and can open none of it.
   const requestApproval = async (
     layer: HTMLElement,
-    onCode: (code: string) => void,
     onStatus: (text: string, failed?: boolean) => void,
   ): Promise<void> => {
     if (!deviceId) {
@@ -322,8 +371,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       return;
     }
     const base = serverBase || location.origin;
-    const keyPair = await generateRelayClaimKeyPair();
-    onCode(await relayClaimConfirmationCode(keyPair.publicKey));
+    // Resuming beats asking: the desktop may already be showing the prompt for
+    // the request this app opened before it was discarded.
+    const resumed = await loadPendingClaim();
+    const keyPair = resumed?.keyPair ?? await generateRelayClaimKeyPair();
+    let claimId = resumed?.claimId ?? '';
+    let resuming = Boolean(claimId);
     const profile = await browserProfile();
     const wait = (ms: number): Promise<void> =>
       new Promise((done) => { window.setTimeout(done, ms); });
@@ -345,20 +398,23 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       return typeof body.claimId === 'string' ? body.claimId : '';
     };
     for (;;) {
-      let claimId = '';
-      try {
-        claimId = await open();
-      } catch {
-        onStatus('This desktop no longer recognises this app. Scan its QR code again.', true);
-        return;
-      }
       if (!claimId) {
-        onStatus('Waiting for your desktop to come online…');
-        await wait(5_000);
-        continue;
+        try {
+          claimId = await open();
+        } catch {
+          onStatus('This desktop no longer recognises this app. Scan its QR code again.', true);
+          return;
+        }
+        if (!claimId) {
+          onStatus('Waiting for your desktop to come online…');
+          await wait(5_000);
+          continue;
+        }
+        await savePendingClaim(claimId, keyPair);
       }
       onStatus('Waiting for approval on your desktop…');
-      const deadline = Date.now() + 180_000;
+      const deadline = Date.now() + 300_000;
+      let outcome = 'expired';
       while (Date.now() < deadline) {
         await wait(2_000);
         let payload: { status?: unknown; token?: unknown; sealed?: unknown };
@@ -375,10 +431,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         const status = String(payload?.status || 'pending');
         if (status === 'pending') continue;
         if (status !== 'approved') {
-          onStatus(status === 'denied'
-            ? 'The request was declined on your desktop.'
-            : 'The request expired. Reopen Mixdog to ask again.', true);
-          return;
+          outcome = status;
+          break;
         }
         const material = await openSealedRelayE2EEPairingMaterial(payload.sealed, keyPair);
         const credential = String(payload.token || '');
@@ -386,7 +440,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         if (!material
           || !/^[0-9a-f]{32,128}$/u.test(credential)
           || !persistApproval(credential, material)) {
-          onStatus('That approval could not be verified. Reopen Mixdog to try again.', true);
+          clearPendingClaim();
+          onStatus('That approval could not be verified.', true);
           return;
         }
         layer.classList.add('mrp-ok');
@@ -395,7 +450,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         window.setTimeout(() => location.reload(), 900);
         return;
       }
-      onStatus('The request expired. Reopen Mixdog to ask again.', true);
+      clearPendingClaim();
+      // A resumed request the relay has already forgotten is not an answer:
+      // the user just opened this app and is waiting for a prompt.
+      if (resuming && outcome !== 'denied') {
+        resuming = false;
+        claimId = '';
+        continue;
+      }
+      onStatus(outcome === 'denied'
+        ? 'The request was declined on your desktop.'
+        : 'The request expired.', true);
       return;
     }
   };
@@ -404,7 +469,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // socket at all. Two states, decided by what this container IS: a browser
   // gets the install guide (the installed app is what pairs, never the
   // browser), and an installed app asks this desktop for approval.
-  const showPairingScreen = (message: string): void => {
+  const showPairingScreen = (message: string, autoAsk = true): void => {
     if (document.getElementById('mixdog-remote-pairing')) return;
     const standalone = installedStandalone();
     const ios = /iPad|iPhone|iPod/iu.test(navigator.userAgent)
@@ -432,12 +497,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + '#mixdog-remote-pairing li i{flex:none;display:grid;place-items:center;width:20px;height:20px;'
         + 'border-radius:50%;background:rgba(255,255,255,.14);font-size:11.5px;font-style:normal;'
         + 'font-weight:700;}'
-        + '#mixdog-remote-pairing .mrp-code{display:grid;gap:6px;justify-items:center;width:100%;'
-        + 'padding:18px 12px;border-radius:16px;background:rgba(255,255,255,.07);}'
-        + '#mixdog-remote-pairing .mrp-code span{font:700 36px/40px ui-monospace,SFMono-Regular,monospace;'
-        + 'letter-spacing:8px;text-indent:8px;transition:color 200ms;}'
-        + '#mixdog-remote-pairing .mrp-code small{color:#a8a8a8;font-size:12px;line-height:16px;}'
-        + '#mixdog-remote-pairing.mrp-ok .mrp-code span{color:#4ac885;}'
+        + '@keyframes mrp-spin{to{transform:rotate(360deg)}}'
+        + '#mixdog-remote-pairing .mrp-wait{display:grid;gap:12px;justify-items:center;width:100%;'
+        + 'padding:20px 12px;border-radius:16px;background:rgba(255,255,255,.07);}'
+        + '#mixdog-remote-pairing .mrp-wait i{width:26px;height:26px;border-radius:50%;'
+        + 'border:2.5px solid rgba(255,255,255,.18);border-top-color:#e9e9e9;'
+        + 'animation:mrp-spin 900ms linear infinite;}'
+        + '#mixdog-remote-pairing.mrp-ok .mrp-wait i{border-color:#4ac885;animation:none;}'
+        + '#mixdog-remote-pairing .mrp-wait b{font-size:15px;line-height:20px;}'
         + '#mixdog-remote-pairing .mrp-status{min-height:19px;color:#a8a8a8;font-size:13px;line-height:19px;}'
         + '#mixdog-remote-pairing .mrp-status.mrp-bad{color:#e5484d;}'
         + '#mixdog-remote-pairing button{width:100%;padding:13px;border:0;border-radius:12px;'
@@ -448,9 +515,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + `<b>${standalone ? 'Approve this device' : 'Install Mixdog'}</b>`
         + '<p data-role="note"></p>'
         + (standalone
-          ? '<div class="mrp-code"><span data-role="code">··</span>'
-            + '<small>Approve this number on your desktop.</small></div>'
+          ? '<div class="mrp-wait"><i aria-hidden="true"></i>'
+            + '<b>Waiting for approval</b></div>'
             + '<p class="mrp-status" data-role="status"></p>'
+            + '<button type="button" data-role="ask" hidden>Ask again</button>'
           : (ios
             ? '<ol><li><i>1</i>Tap the Share button</li>'
               + '<li><i>2</i>Choose Add to Home Screen</li>'
@@ -473,19 +541,27 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       document.body.appendChild(layer);
       if (!standalone) return;
       const status = layer.querySelector<HTMLElement>('[data-role="status"]');
-      const code = layer.querySelector<HTMLElement>('[data-role="code"]');
+      const ask = layer.querySelector<HTMLButtonElement>('[data-role="ask"]');
       const setStatus = (text: string, failed?: boolean): void => {
-        if (!status) return;
-        status.textContent = text;
-        status.classList.toggle('mrp-bad', failed === true);
+        if (status) {
+          status.textContent = text;
+          status.classList.toggle('mrp-bad', failed === true);
+        }
+        // A failure waits for a deliberate retry. Asking again on its own is
+        // exactly what turns one connection into prompt after prompt on the
+        // desktop (user: 인증받고 그 화면인데도 계속 또 나오고).
+        if (failed) ask?.removeAttribute('hidden');
       };
-      void requestApproval(
-        layer,
-        (value) => { if (code) code.textContent = value; },
-        setStatus,
-      ).catch(() => {
-        setStatus('Could not reach the relay. Check this device’s connection.', true);
-      });
+      const start = (): void => {
+        ask?.setAttribute('hidden', '');
+        setStatus('', false);
+        void requestApproval(layer, setStatus).catch(() => {
+          setStatus('Could not reach the relay. Check this device’s connection.', true);
+        });
+      };
+      ask?.addEventListener('click', start);
+      if (autoAsk) start();
+      else setStatus('Ask again when you are at your desktop.', true);
     };
     if (document.body) mount();
     else window.addEventListener('DOMContentLoaded', mount, { once: true });
@@ -862,6 +938,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // entry screen, which asks the desktop for a new approval; the device route
   // survives because it is a routing label, not a credential.
   const resetApprovalAndAsk = (message: string): void => {
+    // A credential refused moments after an approval is a real failure, so the
+    // screen states it and waits for a deliberate retry. Asking again on its
+    // own would raise a fresh prompt on the desktop for every attempt.
+    const guarded = approvedRecently();
     try {
       clearStoredRemotePairing(localStorage);
       if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
@@ -872,7 +952,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     everPaired = false;
     browserId = newBrowserId();
     clientRegistered = false;
-    showPairingScreen(message);
+    showPairingScreen(message, !guarded);
   };
 
   let reconnectTimer: number | null = null;
@@ -899,9 +979,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       // 401/403/409: this credential was revoked or its slot is gone — only a
       // new approval fixes it. Anything else (network, 429, 5xx) retries.
       if (status === 401 || status === 403 || status === 409) {
-        resetApprovalAndAsk(
-          'This device is no longer approved. Approve it again on your desktop.',
-        );
+        // The status travels into the message on purpose: this is the one
+        // failure a user can only report, never inspect.
+        resetApprovalAndAsk(`This device is no longer approved (${status}).`);
       } else {
         scheduleReconnect();
       }
@@ -1084,9 +1164,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         pending.clear();
         if (!opened) reject(failure);
         if (isInvalidRemotePairingClose(event)) {
-          resetApprovalAndAsk(
-            'This device is no longer approved. Approve it again on your desktop.',
-          );
+          resetApprovalAndAsk(`This device is no longer approved (${event.code}).`);
           return;
         }
         scheduleReconnect();

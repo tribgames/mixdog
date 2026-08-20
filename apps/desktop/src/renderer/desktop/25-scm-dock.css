@@ -561,8 +561,7 @@
 .dock-scm-group-toggle > b { min-width: 0; flex: 0 1 auto; overflow: hidden; color: inherit; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
 .dock-scm-group-toggle > span { min-width: 0; margin-left: auto; padding: 0; color: var(--mx-text-faint); background: transparent; font-size: var(--mx-font-micro); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); text-align: right; font-variant-numeric: tabular-nums; }
 .dock-scm-group-actions { display: flex; align-items: center; gap: 1px; padding-right: 2px; }
-/* Changes header: the tri-state select-all row on the reference's 29px band
-   (app/styles/ui/changes/_changes-list.scss:14-20). */
+/* Changes header: the tri-state select-all row on a 29px band. */
 /* The header band sits OUTSIDE .dock-scm-scroll, so it pays the dock gutter
    itself: left = --dock-scm-gutter, right = that gutter plus the scrollbar
    reserve the scrolled rows already sit inside of — the same formula as the
@@ -595,8 +594,8 @@
 .dock-scm-list-actions > button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .dock-scm-check-all input[type="checkbox"], .dock-scm-file-check { width: 13px; height: 13px; flex: 0 0 13px; margin: 0; accent-color: var(--mx-focus); cursor: pointer; }
 .dock-scm-file-check:disabled { cursor: default; opacity: var(--mx-op-disabled); }
-/* Row = checkbox + dim directory + file name + trailing status glyph, on the
-   reference's 29px row band (changed-file.tsx:30-43). */
+/* Row = checkbox + dim directory + file name + trailing status glyph, on a
+   29px row band. */
 .dock-scm-file { position: relative; min-width: 0; height: var(--dock-scm-file-row); min-height: var(--dock-scm-file-row); margin: 0; display: flex; align-items: center; gap: 6px; padding: 0 2px 0 var(--dock-scm-row-inset); border-radius: var(--mx-radius-sm); }
 /* The rows a window does not mount are represented by these two spacers, so
    the scroll container keeps the whole list's height. */

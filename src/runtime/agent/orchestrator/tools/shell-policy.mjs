@@ -55,7 +55,7 @@ const BLOCKED_PATTERNS = [
   // cmd `del /s` / `rd /s`) are NOT blocked outright — each is target-checked
   // by a dedicated guard below via _isDangerousDeleteTarget, blocking only
   // filesystem-root / home / top-level-system / whole-cwd targets (CC-level).
-  // `git reset --hard` is likewise no longer hard-blocked (CC prompts; the
+  // `git reset --hard` is likewise no longer hard-blocked (a prompt suffices; the
   // agent workflow already gates destructive git ops).
   // Bare `git push --force` (and `--force=`) still blocks; the safer
   // `--force-with-lease` / `--force-if-includes` variants pass.

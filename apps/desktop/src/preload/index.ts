@@ -5,6 +5,7 @@ import {
   DESKTOP_IPC,
   type DesktopAgentPoolRow,
   type DesktopApi,
+  type DesktopRemoteClientClaim,
   type DesktopRemoteProjectionState,
   type DesktopSessionSummary,
   type DesktopSessionStateUpdate,
@@ -212,6 +213,16 @@ const api: DesktopApi = {
   rotateRemoteAccess: () => ipcRenderer.invoke(DESKTOP_IPC.rotateRemoteAccess),
   revokeRemoteAccessClient: (clientId) =>
     ipcRenderer.invoke(DESKTOP_IPC.revokeRemoteAccessClient, clientId),
+  subscribeRemoteClientClaim: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      claim: DesktopRemoteClientClaim,
+    ): void => listener(claim);
+    ipcRenderer.on(DESKTOP_IPC.remoteClientClaim, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.remoteClientClaim, receive);
+  },
+  resolveRemoteClientClaim: (claimId, approved) =>
+    ipcRenderer.invoke(DESKTOP_IPC.resolveRemoteClientClaim, claimId, approved),
   prefetchSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId),
   setVisibleSessions: (sessionIds) =>
     ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),

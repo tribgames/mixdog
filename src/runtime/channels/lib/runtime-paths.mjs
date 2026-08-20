@@ -289,7 +289,7 @@ function refreshActiveInstance(instanceId, meta, options) {
         }
         preservedExtra.gateway_server_pid = prevGatewayServerPid;
         // Clear session-scoped gateway metrics when the transcript changes —
-        // a new CC session must not inherit the previous session's context
+        // a new session must not inherit the previous session's context
         // usage before the gateway re-advertises.
         const metricTranscript =
           typeof prevForPreserve?.gateway_transcript_path === 'string' && prevForPreserve.gateway_transcript_path

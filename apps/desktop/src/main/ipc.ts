@@ -886,6 +886,15 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
   handle(DESKTOP_IPC.revokeRemoteAccessClient, (_event, clientId) =>
     revokeRemoteAccessClient?.(requiredString(clientId, 'clientId')) ?? null);
+  // The approval itself: this answer is what mints the asking app's credential.
+  handle(DESKTOP_IPC.resolveRemoteClientClaim, async (_event, claimId, approved) => {
+    if (typeof approved !== 'boolean') throw new TypeError('approved must be a boolean.');
+    const handled = await invokeDesktopOperation('remoteAccessResolveClaim', [
+      requiredString(claimId, 'claimId'),
+      approved,
+    ]);
+    return handled === true;
+  });
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
     host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)));
   handle(DESKTOP_IPC.setSessionArchived, (_event, sessionId, archived) => {
@@ -1329,6 +1338,13 @@ export function registerDesktopIpc(
     else if (name === 'lsp-status') window.webContents.send(DESKTOP_IPC.lspStatus, value);
     else if (name === 'remote-projection-state') {
       window.webContents.send(DESKTOP_IPC.remoteProjectionChanged, value);
+    } else if (name === 'remote-client-claim') {
+      // The user is standing at this PC waiting for this prompt, so the window
+      // that shows it has to be on screen — a hidden window would strand the
+      // phone on "waiting for approval" until the request expired.
+      if (!window.isVisible()) window.show();
+      if (window.isMinimized()) window.restore();
+      window.webContents.send(DESKTOP_IPC.remoteClientClaim, value);
     }
   }) ?? (() => {});
   // Renderer perf lines ride a fire-and-forget event channel (no invoke).
@@ -1581,6 +1597,7 @@ export function registerDesktopIpc(
     DESKTOP_IPC.termWrite, DESKTOP_IPC.termResize, DESKTOP_IPC.termAcknowledge,
     DESKTOP_IPC.termData,
     DESKTOP_IPC.lspDiagnostics, DESKTOP_IPC.lspStatus,
+    DESKTOP_IPC.remoteClientClaim,
   ]);
   const channels = Object.values(DESKTOP_IPC).filter((channel) => !eventChannels.has(channel));
   let removed = false;

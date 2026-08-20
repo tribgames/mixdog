@@ -689,7 +689,7 @@ export async function _streamResponse({
                 finish();
             }, interChunkMs);
         };
-        // pi per-event idle: (re)armed only on meaningful output deltas via
+        // Per-event idle: (re)armed only on meaningful output deltas via
         // bumpSemanticIdle(). Keepalive/metadata frames DON'T touch it, so a
         // deltas-then-silent wedge trips this short semantic window.
         const resetSemanticIdle = () => {

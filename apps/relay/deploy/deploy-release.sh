@@ -11,7 +11,17 @@ SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_DIR=/opt/mixdog-relay
 NEXT_DIR="/opt/mixdog-relay.next-${RELEASE_TAG}"
 BACKUP_DIR="/opt/mixdog-relay.backup-${RELEASE_TAG}"
-LOCAL_HASH="$(sha256sum "$SRC_DIR/renderer/index.html" | awk '{print $1}')"
+INCLUDE_RENDERER=0
+RENDERER_MODE="reused"
+RENDERER_DELTA_DIR="$SRC_DIR/.cache/renderer-delta"
+RENDERER_MANIFEST="$SRC_DIR/.cache/renderer-manifest.json"
+if [[ -d "$RENDERER_DELTA_DIR" && -f "$RENDERER_MANIFEST" ]]; then
+  INCLUDE_RENDERER=1
+  RENDERER_MODE="delta"
+elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
+  INCLUDE_RENDERER=1
+  RENDERER_MODE="full"
+fi
 ACTIVATED=0
 
 rollback() {
@@ -32,7 +42,20 @@ test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
 rm -rf "$NEXT_DIR" "$BACKUP_DIR"
 mkdir -p "$NEXT_DIR"
 cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$NEXT_DIR/"
-cp -r "$SRC_DIR/lib" "$SRC_DIR/renderer" "$NEXT_DIR/"
+cp -r "$SRC_DIR/lib" "$NEXT_DIR/"
+if [[ "$RENDERER_MODE" = "delta" ]]; then
+  node "$SRC_DIR/deploy/renderer-delta.mjs" --action=apply \
+    "--base=$INSTALL_DIR/renderer" \
+    "--delta=$RENDERER_DELTA_DIR" \
+    "--manifest=$RENDERER_MANIFEST" \
+    "--output=$NEXT_DIR/renderer"
+elif [[ "$RENDERER_MODE" = "full" ]]; then
+  cp -r "$SRC_DIR/renderer" "$NEXT_DIR/"
+else
+  test -f "$INSTALL_DIR/renderer/index.html"
+  cp -r "$INSTALL_DIR/renderer" "$NEXT_DIR/"
+fi
+LOCAL_HASH="$(sha256sum "$NEXT_DIR/renderer/index.html" | awk '{print $1}')"
 cd "$NEXT_DIR"
 # Deploy-time shortcut (CI/CD 단축): the relay's dependency tree is tiny and
 # rarely moves — when the lockfile hash matches the installed tree, reuse it
@@ -66,4 +89,4 @@ test "$(sha256sum "$INSTALL_DIR/renderer/index.html" | awk '{print $1}')" = "$LO
 rm -rf "$BACKUP_DIR"
 ACTIVATED=0
 trap - ERR
-echo "[deploy] activated $RELEASE_TAG renderer=$LOCAL_HASH"
+echo "[deploy] activated $RELEASE_TAG renderer=$LOCAL_HASH mode=$RENDERER_MODE"

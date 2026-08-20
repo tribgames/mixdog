@@ -152,7 +152,7 @@ export function markSessionAskStart(id) {
     // Publish heartbeat immediately so the status aggregator picks the
     // session up in the connecting / requesting window. Without this the
     // .hb file only landed on the first stream chunk — producing a 3–10s
-    // (xhigh: 30s+) invisible gap where agent sessions ran but the CC
+    // (xhigh: 30s+) invisible gap where agent sessions ran but the
     // statusline showed no maintenance/agent badge. STREAM_FRESH_MS (5 min)
     // still drops a session whose provider truly never returns a chunk;
     // markSessionStreamDelta keeps refreshing once chunks arrive.
