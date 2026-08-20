@@ -6,7 +6,7 @@
 // surface there, so today's single-focused-engine renderer keeps working
 // while the lanes already deliver concurrent live output.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import { t } from "./i18n";
 import {
@@ -15,8 +15,12 @@ import {
 } from "./file-drag";
 import { isMobileRemoteSurface } from "./mobile-surface";
 import {
+  shouldCommitSwipe,
+  SWIPE_LOCK_AXIS_RATIO,
+  SWIPE_LOCK_DISTANCE,
   swipeGestureAllowed,
   swipeIntent,
+  swipeProgress,
   swipeTargetIndex,
 } from "./mobile-tab-swipe";
 import { PaneSplitLayout } from "./PaneSplitLayout";
@@ -309,46 +313,294 @@ export function PaneWorkspace({
   swipeFocusSelection.current = onFocusSelection;
   useEffect(() => {
     if (!isMobileRemoteSurface()) return undefined;
+    type SwipeViewTransition = {
+      ready: Promise<void>;
+      finished: Promise<void>;
+      skipTransition: () => void;
+    };
+    const transitionDocument = document as Document & {
+      startViewTransition?: (update: () => void) => SwipeViewTransition;
+    };
+    const root = document.documentElement;
+    const startViewTransition = transitionDocument.startViewTransition
+      ?.bind(transitionDocument);
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const scrubDuration = 1_000;
     let startX = 0;
     let startY = 0;
     let leafId = "";
+    let gestureCell: HTMLElement | null = null;
     let tracking = false;
-    const onTouchStart = (event: TouchEvent): void => {
-      tracking = false;
-      if (event.touches.length !== 1) return;
-      const target = event.target instanceof Element ? event.target : null;
-      if (!swipeGestureAllowed(target)) return;
-      const cell = target?.closest<HTMLElement>("[data-pane-id]");
-      const id = cell?.dataset.paneId || "";
-      if (!id) return;
-      leafId = id;
-      startX = event.touches[0].clientX;
-      startY = event.touches[0].clientY;
-      tracking = true;
+    let lastX = 0;
+    let lastTime = 0;
+    let velocityX = 0;
+    let lockedIntent: "previous" | "next" | null = null;
+    let dragProgress = 0;
+    let originalKey = "";
+    let originalSelection: WorkspaceSelection | null = null;
+    let transitionCell: HTMLElement | null = null;
+    let activeTransition: SwipeViewTransition | null = null;
+    let snapshotAnimations: Animation[] = [];
+    let pendingCommit: boolean | null = null;
+    let settling = false;
+    const clearTransitionMarkers = (): void => {
+      delete root.dataset.mobileTabSwipe;
+      if (transitionCell) delete transitionCell.dataset.mobileTabSwipeSurface;
+      transitionCell = null;
     };
-    const onTouchEnd = (event: TouchEvent): void => {
-      if (!tracking) return;
-      tracking = false;
-      const touch = event.changedTouches[0];
-      if (!touch) return;
-      const intent = swipeIntent(touch.clientX - startX, touch.clientY - startY);
-      if (!intent) return;
+    const updateVelocity = (x: number, time: number): void => {
+      const elapsed = time - lastTime;
+      if (elapsed > 0 && elapsed <= 100) {
+        const instantaneous = (x - lastX) / elapsed;
+        velocityX = velocityX === 0
+          ? instantaneous
+          : velocityX * 0.65 + instantaneous * 0.35;
+      } else if (elapsed > 100) {
+        velocityX = 0;
+      }
+      lastX = x;
+      lastTime = time;
+    };
+    const setSnapshotProgress = (progress: number): void => {
+      dragProgress = progress;
+      for (const animation of snapshotAnimations) {
+        animation.currentTime = progress * scrubDuration;
+      }
+    };
+    const settleTransition = (commit: boolean): void => {
+      pendingCommit = commit;
+      if (!activeTransition || snapshotAnimations.length === 0 || settling) return;
+      settling = true;
+      const transition = activeTransition;
+      const animations = [...snapshotAnimations];
+      const targetProgress = commit ? 1 : 0;
+      const remaining = Math.abs(targetProgress - dragProgress);
+      const settleDuration = Math.max(90, Math.round(240 * remaining));
+      const playbackRate = (commit ? 1 : -1) * (scrubDuration / settleDuration);
+      for (const animation of animations) {
+        animation.currentTime = dragProgress * scrubDuration;
+        animation.playbackRate = playbackRate;
+        animation.play();
+      }
+      void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+        if (activeTransition !== transition) return;
+        if (!commit && originalSelection && originalKey) {
+          const current = swipeWorkspace.current;
+          const selection = originalSelection;
+          flushSync(() => {
+            current.activateTab(leafId, originalKey);
+            swipeFocusSelection.current(selection);
+          });
+        }
+        activeTransition = null;
+        snapshotAnimations = [];
+        pendingCommit = null;
+        settling = false;
+        originalKey = "";
+        originalSelection = null;
+        transition.skipTransition();
+        clearTransitionMarkers();
+      });
+    };
+    const createSnapshotAnimations = (
+      transition: SwipeViewTransition,
+      intent: "previous" | "next",
+    ): void => {
+      if (activeTransition !== transition) return;
+      const outgoingEnd = intent === "next"
+        ? "translate3d(-100%, 0, 0)"
+        : "translate3d(100%, 0, 0)";
+      const incomingStart = intent === "next"
+        ? "translate3d(100%, 0, 0)"
+        : "translate3d(-100%, 0, 0)";
+      const options = (pseudoElement: string): KeyframeAnimationOptions & {
+        pseudoElement: string;
+      } => ({
+        duration: scrubDuration,
+        easing: "linear",
+        fill: "both",
+        pseudoElement,
+      });
+      const outgoing = root.animate(
+        [
+          { transform: "translate3d(0, 0, 0)" },
+          { transform: outgoingEnd },
+        ],
+        options("::view-transition-old(mobile-tab-surface)"),
+      );
+      const incoming = root.animate(
+        [
+          { transform: incomingStart },
+          { transform: "translate3d(0, 0, 0)" },
+        ],
+        options("::view-transition-new(mobile-tab-surface)"),
+      );
+      snapshotAnimations = [outgoing, incoming];
+      for (const animation of snapshotAnimations) animation.pause();
+      setSnapshotProgress(dragProgress);
+      if (pendingCommit !== null) settleTransition(pendingCommit);
+    };
+    const beginInteractiveTransition = (
+      intent: "previous" | "next",
+    ): boolean => {
+      if (!startViewTransition || reducedMotion || !gestureCell || activeTransition) return false;
+      const current = swipeWorkspace.current;
+      const leaf = current.leaves.find((entry) => entry.id === leafId);
+      if (!leaf || leaf.tabs.length <= 1) return false;
+      const keys = leaf.tabs.map((tab) => navigationKey(tab));
+      const activeIndex = keys.indexOf(leaf.activeKey);
+      const targetIndex = swipeTargetIndex(activeIndex, keys.length, intent);
+      const targetSelection = leaf.tabs[targetIndex];
+      originalSelection = leaf.tabs[activeIndex] ?? null;
+      originalKey = keys[activeIndex] ?? "";
+      if (!targetSelection || !originalSelection || !originalKey) return false;
+      lockedIntent = intent;
+      pendingCommit = null;
+      settling = false;
+      transitionCell = gestureCell;
+      transitionCell.dataset.mobileTabSwipeSurface = "true";
+      root.dataset.mobileTabSwipe = intent;
+      try {
+        const transition = startViewTransition(() => {
+          flushSync(() => {
+            current.activateTab(leaf.id, keys[targetIndex]);
+            swipeFocusSelection.current(targetSelection);
+          });
+        });
+        activeTransition = transition;
+        void transition.ready
+          .then(() => createSnapshotAnimations(transition, intent))
+          .catch(() => {
+            if (activeTransition !== transition) return;
+            activeTransition = null;
+            tracking = false;
+            lockedIntent = null;
+            clearTransitionMarkers();
+          });
+        void transition.finished.catch(() => undefined);
+        return true;
+      } catch {
+        activeTransition = null;
+        lockedIntent = null;
+        originalKey = "";
+        originalSelection = null;
+        clearTransitionMarkers();
+        return false;
+      }
+    };
+    const activateDiscreteTarget = (intent: "previous" | "next"): void => {
       const current = swipeWorkspace.current;
       const leaf = current.leaves.find((entry) => entry.id === leafId);
       if (!leaf || leaf.tabs.length <= 1) return;
       const keys = leaf.tabs.map((tab) => navigationKey(tab));
       const activeIndex = keys.indexOf(leaf.activeKey);
       const targetIndex = swipeTargetIndex(activeIndex, keys.length, intent);
-      if (targetIndex === activeIndex) return;
-      current.activateTab(leaf.id, keys[targetIndex]);
       const selection = leaf.tabs[targetIndex];
-      if (selection) swipeFocusSelection.current(selection);
+      if (!selection || targetIndex === activeIndex) return;
+      current.activateTab(leaf.id, keys[targetIndex]);
+      swipeFocusSelection.current(selection);
+    };
+    const onTouchStart = (event: TouchEvent): void => {
+      tracking = false;
+      gestureCell = null;
+      lockedIntent = null;
+      dragProgress = 0;
+      velocityX = 0;
+      if (activeTransition) return;
+      if (event.touches.length !== 1) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!swipeGestureAllowed(target)) return;
+      const cell = target?.closest<HTMLElement>("[data-pane-id]") ?? null;
+      const id = cell?.dataset.paneId || "";
+      if (!id) return;
+      leafId = id;
+      gestureCell = cell;
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+      lastX = startX;
+      lastTime = event.timeStamp;
+      tracking = true;
+    };
+    const onTouchMove = (event: TouchEvent): void => {
+      if (!tracking || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      updateVelocity(touch.clientX, event.timeStamp);
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+      if (!lockedIntent) {
+        const intent = swipeIntent(deltaX, deltaY, {
+          minDistance: SWIPE_LOCK_DISTANCE,
+          axisRatio: SWIPE_LOCK_AXIS_RATIO,
+        });
+        if (!intent) {
+          if (Math.abs(deltaY) >= SWIPE_LOCK_DISTANCE
+            && Math.abs(deltaY) > Math.abs(deltaX)) {
+            tracking = false;
+            gestureCell = null;
+          }
+          return;
+        }
+        if (!beginInteractiveTransition(intent)) return;
+      }
+      if (!lockedIntent || !activeTransition) return;
+      event.preventDefault();
+      const width = Math.max(1,
+        gestureCell?.getBoundingClientRect().width ?? window.innerWidth);
+      setSnapshotProgress(swipeProgress(deltaX, width, lockedIntent));
+    };
+    const onTouchEnd = (event: TouchEvent): void => {
+      if (!tracking) return;
+      tracking = false;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      updateVelocity(touch.clientX, event.timeStamp);
+      const deltaX = touch.clientX - startX;
+      const deltaY = touch.clientY - startY;
+      if (activeTransition && lockedIntent) {
+        event.preventDefault();
+        const width = Math.max(1,
+          gestureCell?.getBoundingClientRect().width ?? window.innerWidth);
+        setSnapshotProgress(swipeProgress(deltaX, width, lockedIntent));
+        const commit = shouldCommitSwipe(
+          deltaX,
+          width,
+          velocityX,
+          lockedIntent,
+        );
+        gestureCell = null;
+        settleTransition(commit);
+        return;
+      }
+      const intent = swipeIntent(deltaX, deltaY);
+      if (!intent) return;
+      if (gestureCell && beginInteractiveTransition(intent)) {
+        gestureCell = null;
+        settleTransition(true);
+      } else {
+        gestureCell = null;
+        activateDiscreteTarget(intent);
+      }
+    };
+    const onTouchCancel = (): void => {
+      tracking = false;
+      gestureCell = null;
+      if (activeTransition) settleTransition(false);
     };
     document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
-    document.addEventListener("touchend", onTouchEnd, { passive: true, capture: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: false, capture: true });
+    document.addEventListener("touchcancel", onTouchCancel, { passive: true, capture: true });
     return () => {
       document.removeEventListener("touchstart", onTouchStart, true);
+      document.removeEventListener("touchmove", onTouchMove, true);
       document.removeEventListener("touchend", onTouchEnd, true);
+      document.removeEventListener("touchcancel", onTouchCancel, true);
+      const transition = activeTransition;
+      activeTransition = null;
+      for (const animation of snapshotAnimations) animation.cancel();
+      snapshotAnimations = [];
+      transition?.skipTransition();
+      clearTransitionMarkers();
     };
   }, []);
   // Drag-to-split: the titlebar strip publishes pointer frames

@@ -62,14 +62,12 @@ import {
     SHELL_RUNTIME_CANDIDATES,
 } from './runtime-capabilities.mjs';
 import { planDirectExeSpawn } from './shell-direct-exe.mjs';
-import { resolveShellMonitorIntervalMs } from './shell-monitor.mjs';
 
 // Commands start in the foreground. Only work still running after the
-// 15 s coordination budget is promoted to a tracked background task.
-// Raised from 10 s (2026-08-15): repo verification units (node --test +
-// tool-smoke) cluster at 10.7-11.2 s, so every routine check crossed the
-// budget by a hair and cost a notification round-trip.
-export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 15_000;
+// 10 s coordination budget is promoted to a tracked background task.
+// Short commands therefore complete in the original tool turn, while longer
+// work returns partial output plus task_id and finishes by notification.
+export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
 
 // Post-exec drift detection. After a foreground shell command, compare the
 // live mtime+size of files mixdog has already read this session against their
@@ -470,11 +468,6 @@ export async function executeBashTool(args, workDir, options = {}) {
     const _bgTasksDisabled = /^(1|true|yes|on)$/i.test(
         String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
     );
-    const runInBackground = args.run_in_background === true;
-    const monitorIntervalMs = resolveShellMonitorIntervalMs(args.monitor_interval_ms);
-    if (runInBackground && _bgTasksDisabled) {
-        return formatShellToolFailure('background tasks are disabled for this process');
-    }
 
     let shellEffects;
     let combinedBashAbort = null;
@@ -485,7 +478,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     }
     // timeout_ms is a caller-requested HARD total deadline, not a foreground
     // wait budget. Omitted/0 means no deadline: the command starts foreground,
-    // then the 15 s coordination budget promotes it without shortening its
+    // then the 10 s coordination budget promotes it without shortening its
     // lifetime. This matches the public schema and avoids accidental kills
     // caused by callers guessing how long a build might take.
     const _envMaxTimeout = parseInt(process.env.BASH_MAX_TIMEOUT_MS ?? '', 10);
@@ -528,9 +521,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const backgroundMaxMs = Number.isFinite(_bgMaxEnvMs) && _bgMaxEnvMs > 0
         ? Math.min(Math.floor(_bgMaxEnvMs), TIMER_MAX_MS)
         : 0;
-    // A run_in_background start never holds the caller, so the cap IS its
-    // deadline; there is no foreground window to carve out of it first.
-    const execTimeoutMs = runInBackground && !hasExplicitTimeout ? backgroundMaxMs : timeout;
+    const execTimeoutMs = timeout;
     // A caller deadline at or below the foreground window has no remaining
     // budget to transfer. Let execShellCommand enforce that timeout instead of
     // adopting the child with timeoutMs=0, which means unlimited to shell-jobs.
@@ -539,7 +530,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const mergeStderr = true;
     // Main-agent blocking budget. A timeout is the command's total deadline,
     // not permission to hold the conversation open for that whole duration:
-    // after 15 s a still-running command becomes a tracked background task and
+    // after 10 s a still-running command becomes a tracked background task and
     // completion is pushed to the owner. Explicit timeouts keep their remaining
     // deadline after promotion.
     // MIXDOG_SHELL_AUTO_BACKGROUND_MS overrides; an explicit 0 disables.
@@ -623,7 +614,6 @@ export async function executeBashTool(args, workDir, options = {}) {
             timeoutMs: execTimeoutMs,
             abortSignal: combinedBashAbort.signal,
             autoBackgroundMs,
-            startInBackground: runInBackground,
             // On a foreground timeout, promote the still-running child to a
             // tracked background job only when an explicit deadline has
             // remaining budget; omitted deadlines may stay unlimited.
@@ -678,7 +668,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                             stderr: (!mergeStderr && result.stderrPath) ? normalizeOutputPath(result.stderrPath) : null,
                             cwd: bashWorkDir,
                             timeoutMs: result.backgroundTimeoutMs || 0,
-                            monitor_interval_ms: monitorIntervalMs,
+                            monitor_interval_ms: 0,
                         },
                         resultType: 'shell_task_result',
                         cancel: () => killShellJob(result.jobId),
@@ -690,7 +680,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                         callerSessionId: options?.callerSessionId || options?.sessionId,
                         routingSessionId: options?.routingSessionId || options?.sessionId,
                         clientHostPid: options?.clientHostPid,
-                    }, { monitorIntervalMs });
+                    });
                 } catch { /* best effort */ }
             }
             const partialOutput = renderBackgroundPartialOutput(

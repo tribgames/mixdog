@@ -660,10 +660,10 @@ function guardRead(a) {
 }
 
 function guardShell(a) {
-    const allowed = new Set(['command', 'timeout_ms', 'run_in_background', 'monitor_interval_ms']);
+    const allowed = new Set(['command', 'timeout_ms']);
     const unsupported = Object.keys(a).find((key) => !allowed.has(key));
     if (unsupported) {
-        return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, run_in_background, and monitor_interval_ms`;
+        return `Error: shell arg "${unsupported}" is unsupported; use only command and timeout_ms`;
     }
     if (!hasOwn(a, 'command')) {
         return 'Error: shell requires "command"';
@@ -676,12 +676,6 @@ function guardShell(a) {
     }
     if (hasOwn(a, 'timeout_ms') && (typeof a.timeout_ms !== 'number' || !Number.isFinite(a.timeout_ms) || a.timeout_ms < 0)) {
         return `Error: shell arg "timeout_ms" must be a non-negative number (got ${describeType(a.timeout_ms)})`;
-    }
-    if (hasOwn(a, 'run_in_background') && typeof a.run_in_background !== 'boolean') {
-        return `Error: shell arg "run_in_background" must be a boolean (got ${describeType(a.run_in_background)})`;
-    }
-    if (hasOwn(a, 'monitor_interval_ms') && !isValidShellMonitorIntervalMs(a.monitor_interval_ms)) {
-        return `Error: shell arg "monitor_interval_ms" must be 0 or an integer from ${SHELL_MONITOR_INTERVAL_MIN_MS} to ${SHELL_MONITOR_INTERVAL_MAX_MS} ms`;
     }
     return null;
 }

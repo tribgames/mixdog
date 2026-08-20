@@ -11,6 +11,13 @@ export const SWIPE_MIN_DISTANCE = 60;
 /** How much more horizontal than vertical the travel must be. A vertical
  *  scroll that drifts sideways must never steal a tab switch. */
 export const SWIPE_AXIS_RATIO = 2;
+/** Early drag lock used by the interactive phone transition. */
+export const SWIPE_LOCK_DISTANCE = 8;
+export const SWIPE_LOCK_AXIS_RATIO = 1.25;
+/** Native-feeling release thresholds: either distance or directional speed
+ *  can finish the page turn. */
+export const SWIPE_COMMIT_DISTANCE_RATIO = 0.3;
+export const SWIPE_COMMIT_VELOCITY = 0.45;
 
 export type SwipeIntent = "previous" | "next" | null;
 
@@ -31,8 +38,8 @@ export function swipeIntent(
   return deltaX < 0 ? "next" : "previous";
 }
 
-/** The tab a swipe lands on. Ends are hard stops rather than wraps: wrapping
- *  from the last tab to the first reads as a lost gesture on a phone. */
+/** The tab a swipe lands on. The strip is circular, so continuing past either
+ *  end keeps the gesture moving in the same visual direction. */
 export function swipeTargetIndex(
   activeIndex: number,
   tabCount: number,
@@ -40,8 +47,35 @@ export function swipeTargetIndex(
 ): number {
   if (!intent || tabCount <= 1) return activeIndex;
   if (activeIndex < 0 || activeIndex >= tabCount) return activeIndex;
-  const next = intent === "next" ? activeIndex + 1 : activeIndex - 1;
-  return next < 0 || next >= tabCount ? activeIndex : next;
+  const step = intent === "next" ? 1 : -1;
+  return (activeIndex + step + tabCount) % tabCount;
+}
+
+/** Normalized finger travel toward the locked destination. */
+export function swipeProgress(
+  deltaX: number,
+  width: number,
+  intent: SwipeIntent,
+): number {
+  if (!intent || !Number.isFinite(deltaX) || !Number.isFinite(width) || width <= 0) return 0;
+  const directedDistance = intent === "next" ? -deltaX : deltaX;
+  return Math.min(1, Math.max(0, directedDistance / width));
+}
+
+export function shouldCommitSwipe(
+  deltaX: number,
+  width: number,
+  velocityX: number,
+  intent: SwipeIntent,
+  {
+    distanceRatio = SWIPE_COMMIT_DISTANCE_RATIO,
+    minVelocity = SWIPE_COMMIT_VELOCITY,
+  }: { distanceRatio?: number; minVelocity?: number } = {},
+): boolean {
+  if (!intent || !Number.isFinite(velocityX)) return false;
+  const directionalVelocity = intent === "next" ? -velocityX : velocityX;
+  return swipeProgress(deltaX, width, intent) >= distanceRatio
+    || directionalVelocity >= minVelocity;
 }
 
 /** Surfaces that own horizontal gestures themselves. */

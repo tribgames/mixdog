@@ -5,11 +5,7 @@
 // only (behavior + argument shapes); usage policy lives in rules/shared/*.md.
 // Platform-specific command syntax belongs next to the command argument.
 import { GIT_TOOL_DEF } from './git-command-tool.mjs';
-import {
-    SHELL_MONITOR_INTERVAL_DEFAULT_MS,
-    SHELL_MONITOR_INTERVAL_MAX_MS,
-    SHELL_MONITOR_INTERVAL_MIN_MS,
-} from './shell-monitor.mjs';
+import { SHELL_MONITOR_INTERVAL_MAX_MS } from './shell-monitor.mjs';
 const _shellSyntaxCheat =
     process.platform === 'win32'
         ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved.'
@@ -19,10 +15,7 @@ const _shellSyntaxCheat =
 const _shellToolRouting = process.platform === 'win32'
     ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/heredocs/echo/Set-Content.'
     : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/heredocs/echo.';
-// When background tasks are disabled for this process, drop the
-// run_in_background field from the schema entirely so the model cannot burn a
-// failure turn attempting it. Mirrors bash-tool's runtime guard, which stays
-// as defense in depth. Process-stable env, evaluated once at module load.
+// Process-stable switch used to describe foreground-only execution accurately.
 const _shellBackgroundDisabled = /^(1|true|yes|on)$/i.test(
     String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
 );
@@ -87,7 +80,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 15s foreground window by default—not a timeout. Still-running work continues as a tracked task_id and completes by notification. Periodic monitoring is off by default; set monitor_interval_ms to 300000 (5m) or longer. Use run_in_background for known long-running commands or intentional servers/watchers, task monitor to change or disable monitoring, task read for an extra current snapshot, and never poll in a loop.'}`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id and completes by notification. Use task monitor only after promotion when periodic progress is needed, task read for an extra current snapshot, and never poll in a loop.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -97,20 +90,6 @@ export const BUILTIN_TOOLS = [
                     minimum: 0,
                     description: 'Optional hard total deadline in ms; kills the command even after background promotion. Omit or 0 = no deadline.',
                 },
-                ...(_shellBackgroundDisabled ? {} : {
-                    run_in_background: {
-                        type: 'boolean',
-                        default: false,
-                        description: 'Start immediately as a tracked task for a known long-running command or intentional server/watcher. Default false.',
-                    },
-                    monitor_interval_ms: {
-                        type: 'integer',
-                        minimum: 0,
-                        maximum: SHELL_MONITOR_INTERVAL_MAX_MS,
-                        default: SHELL_MONITOR_INTERVAL_DEFAULT_MS,
-                        description: 'Periodic progress interval for tracked shell tasks in ms. Default 0 disables it; use 300000 (5m) or longer to enable.',
-                    },
-                }),
             },
             required: ['command'],
             additionalProperties: false,

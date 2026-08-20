@@ -237,7 +237,9 @@ html[data-mixdog-mobile-tabs] .composer-dictation-cancel > svg {
    glyphs, capsule inset and the icon stroke all follow their desktop measure
    over its own 28 slot from here. */
 html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island {
-  gap: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
+  --session-status-slot: calc(36px * var(--mx-device-scale, 2.5));
+  --session-status-gap: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
+  gap: var(--session-status-gap);
   padding: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator,
@@ -254,9 +256,12 @@ html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator 
   width: calc(36px * 20 / 28 * var(--mx-device-scale, 2.5));
   height: calc(36px * 20 / 28 * var(--mx-device-scale, 2.5));
 }
-html[data-mixdog-mobile-tabs] .session-work-indicator > button > svg {
+html[data-mixdog-mobile-tabs] .session-work-icon-stack,
+html[data-mixdog-mobile-tabs] .session-work-indicator .session-work-icon {
   width: calc(36px * 18 / 28 * var(--mx-device-scale, 2.5));
   height: calc(36px * 18 / 28 * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .session-work-indicator .session-work-icon {
   /* The gauge ring's stroke lives in viewBox units and rescales itself; this
      one is a lucide mark pinned to non-scaling-stroke, so its line needs the
      measure applied explicitly or it thins as the glyph grows. */
@@ -750,7 +755,6 @@ html[data-mixdog-mobile-tabs] {
    `hover: none` fallback in the stylesheet, so it has to be complete: every
    action the desktop reveals under the pointer rests visible here. */
 html[data-mixdog-mobile-tabs] .message .message-actions,
-html[data-mixdog-mobile-tabs] .message .message-meta-line,
 html[data-mixdog-mobile-tabs] .tool-output-copy,
 html[data-mixdog-mobile-tabs] .sidebar-section-action,
 html[data-mixdog-mobile-tabs] .project-task-add,
@@ -836,7 +840,6 @@ html[data-mixdog-mobile-tabs] .queue-remove {
   flex-basis: var(--mx-touch-fixed-main);
 }
 html[data-mixdog-mobile-tabs] .message .response-footer,
-html[data-mixdog-mobile-tabs] .message .message-meta-line,
 html[data-mixdog-mobile-tabs] .message.assistant .response-footer:has(.turn-status),
 html[data-mixdog-mobile-tabs] .markdown-code > header {
   min-height: var(--mx-touch-fixed-main);

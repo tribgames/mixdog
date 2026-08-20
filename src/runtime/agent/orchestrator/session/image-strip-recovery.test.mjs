@@ -164,6 +164,67 @@ test('agent loop heals one rejected tail image and the next turn stays usable', 
     assert.equal(nextCalls, 1);
 });
 
+test('agent loop keeps provider tool snapshots turn-local', async () => {
+    const oldTool = {
+        name: 'shell',
+        description: 'old schema',
+        inputSchema: { type: 'object', properties: { retired: { type: 'boolean' } } },
+    };
+    const currentTool = {
+        name: 'shell',
+        description: 'current schema',
+        inputSchema: { type: 'object', properties: { command: { type: 'string' } } },
+    };
+    const nextTool = {
+        name: 'shell',
+        description: 'next schema',
+        inputSchema: { type: 'object', properties: { command: { type: 'string' }, timeout_ms: { type: 'number' } } },
+    };
+    const sentToolDescriptions = [];
+    const provider = {
+        async send(_messages, _model, tools) {
+            sentToolDescriptions.push(tools?.[0]?.description);
+            return { content: 'done', toolCalls: [], stopReason: 'end_turn' };
+        },
+    };
+    const session = {
+        id: 'provider-tool-snapshot-lifetime-test',
+        owner: 'cli',
+        contextWindow: 200_000,
+        rawContextWindow: 200_000,
+        compaction: { auto: false },
+        _providerToolSurfaceSnapshot: [oldTool],
+    };
+    const messages = [
+        { role: 'system', content: 'system' },
+        { role: 'user', content: 'first turn' },
+    ];
+
+    await agentLoop(
+        provider,
+        messages,
+        'fake-model',
+        [currentTool],
+        null,
+        process.cwd(),
+        { session, sessionId: session.id },
+    );
+    assert.equal(Object.hasOwn(session, '_providerToolSurfaceSnapshot'), false);
+
+    messages.push({ role: 'user', content: 'next turn' });
+    await agentLoop(
+        provider,
+        messages,
+        'fake-model',
+        [nextTool],
+        null,
+        process.cwd(),
+        { session, sessionId: session.id },
+    );
+
+    assert.deepEqual(sentToolDescriptions, ['current schema', 'next schema']);
+});
+
 test('mid-stream xAI generation crash is retryable even as invalid_request_error', () => {
     const err = new Error('xAI Responses stream error: Internal error during token generation');
     err.providerWireError = true;

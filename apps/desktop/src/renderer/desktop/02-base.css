@@ -92,6 +92,31 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 }
 /* Buttons float the ring a hair further out. */
 button:focus-visible { outline-offset: 1.5px; }
+/* …and pointer work leaves NO frame behind. Chromium re-applies
+   :focus-visible to whatever held focus when the window returns, so a control
+   pressed with the mouse — the composer "+" coming back from a native file
+   dialog, the model pill after a settings hop, any trigger a closing menu
+   re-focuses — kept the keyboard ring long after its action ended (user:
+   동작 끝났는데 선택 프레임이 남는다). focus-modality.ts marks the last
+   interaction on the root. Text fields are absent on purpose: a caret needs
+   its field outlined either way, and a keyboard user's very next Tab restores
+   every ring below. The frame is pure decoration, so it is forced off instead
+   of fought for through per-surface specificity. */
+html[data-mx-input="pointer"] :is(button, a, summary, [role="button"],
+[role="combobox"], [role="option"], [role="tab"], [role="menuitem"],
+[role="menuitemradio"], [role="menuitemcheckbox"], [role="switch"]):focus-visible {
+  outline: 0 !important;
+}
+/* The composer, route, and SCM controls draw that ring as a box-shadow. */
+html[data-mx-input="pointer"] :is(.composer-tool, .model-trigger, .fast-mode-toggle,
+.mx-select-trigger, .send-button, .dock-scm-unpushed):focus-visible {
+  box-shadow: none !important;
+}
+/* The attach/mic tools also share the hover wash with :focus-visible. A REAL
+   hover keeps it; a leftover focus does not. */
+html[data-mx-input="pointer"] .composer-tool:focus-visible:not(:hover) {
+  background: transparent !important;
+}
 /* Dialog titles tighten 15px headings to -0.13px. */
 .settings-confirm-dialog > header h3,
 .approval-heading b, .settings-section-heading h2,

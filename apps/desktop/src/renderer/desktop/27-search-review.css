@@ -398,19 +398,19 @@
      it lands in the label column beside a value. */
   grid-column: 1 / -1;
   width: 100%;
-  min-height: 26px;
-  margin-top: 4px;
-  padding: 0 8px;
+  min-height: 32px;
+  margin-top: 6px;
+  padding: 0 10px;
   border: 0;
   border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: var(--mx-alpha-light-6);
+  color: var(--mx-text-accent);
+  background: var(--mx-bg-layer-2);
   box-shadow: var(--mx-button);
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.context-compact:hover:not(:disabled) { background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-alpha-light-6); }
+.context-compact:hover:not(:disabled) { background: var(--mx-bg-layer-3); }
 .context-compact:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 /* ── Main-area Review pane ─────────── */
 /* Diff surface theming: @git-diff-view ships a GitHub palette (blue hunk

@@ -735,3 +735,31 @@
   min-height: 0;
 }
 .main-panel > .pane-carousel { flex: 1 1 auto; min-width: 0; min-height: 0; }
+
+/* Phone swipes keep both browser snapshots alive while JS scrubs their
+   transforms with the finger, then completes or reverses them on release. */
+.pane-cell[data-mobile-tab-swipe-surface="true"] {
+  view-transition-name: mobile-tab-surface;
+}
+html[data-mobile-tab-swipe]::view-transition-group(mobile-tab-surface),
+html[data-mobile-tab-swipe]::view-transition-old(mobile-tab-surface),
+html[data-mobile-tab-swipe]::view-transition-new(mobile-tab-surface) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-mobile-tab-swipe]::view-transition-group(mobile-tab-surface) {
+  overflow: clip;
+}
+html[data-mobile-tab-swipe]::view-transition-old(root) {
+  animation: none;
+  opacity: 0;
+}
+html[data-mobile-tab-swipe]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane-cell[data-mobile-tab-swipe-surface="true"] {
+    view-transition-name: none;
+  }
+}

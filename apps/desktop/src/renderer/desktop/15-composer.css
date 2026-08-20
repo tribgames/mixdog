@@ -809,36 +809,6 @@
 /* The row is a grouping element only; its label and value join the card's grid
    so both columns align across every row. */
 .live-work-row { display: contents; }
-/* Shell rows report work IN FLIGHT, so their label carries the same left→right
-   pass the live-activity band uses instead of sitting static beside a spinning
-   icon (user: 좌에서 우로 띵킹 스피너처럼 타고 흐르는 게 루프되면 좋겠다).
-   Geometry is the one-sided comet from live-activity-sweep — the head is
-   brightest, the cells behind it decay back to base, and nothing runs ahead of
-   it — so the popover and the status band read as one motion language.
-   Span/duration are fixed rather than cell-derived: these labels are commands
-   and counts, not the measured streaming phrase TextShimmer reports cells for.
-   18 cells at the TUI's 120ms-per-cell cadence gives one unhurried pass. */
-.live-work-popover {
-  --live-work-flow-span: 18ch;
-  --live-work-flow-duration: 2160ms;
-}
-.live-work-popover .live-work-row[data-flow="true"] > span {
-  color: transparent;
-  background-image: linear-gradient(
-    90deg,
-    var(--mx-text-muted) 0,
-    var(--mx-text-muted) 3ch,
-    var(--mx-text) 6ch,
-    var(--mx-text-muted) calc(6ch + 1px),
-    var(--mx-text-muted) 100%
-  );
-  background-size: var(--live-work-flow-span) 100%;
-  background-repeat: repeat;
-  background-clip: text;
-  -webkit-background-clip: text;
-  animation: live-work-flow var(--live-work-flow-duration) linear infinite;
-}
-@keyframes live-work-flow { to { background-position: var(--live-work-flow-span) 0; } }
 /* A long shell command stays ONE line: the card is a summary, not a
    transcript. */
 .live-work-popover span {
