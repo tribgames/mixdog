@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { access, chmod, cp, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -10,11 +10,13 @@ import {
   embeddingRuntimeTarget,
   pruneEmbeddingRuntime,
 } from '../../../scripts/prune-embedding-runtime.mjs';
+import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
+import {
+  downloadNativeTool,
+  NATIVE_TOOL_KINDS,
+  nativeToolInstalledName,
+} from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
-import { ensureGraphBinary } from '../../../src/runtime/agent/orchestrator/tools/graph-binary-fetcher.mjs';
-import { ensurePatchBinary } from '../../../src/runtime/agent/orchestrator/tools/patch-binary-fetcher.mjs';
-import { ensureSpawnBinary } from '../../../src/runtime/agent/orchestrator/tools/spawn-binary-fetcher.mjs';
-import { ensureTokenAddon } from '../../../src/runtime/agent/orchestrator/tools/token-addon-fetcher.mjs';
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,12 +37,6 @@ const builderDesktopPtyDir = join(runtimeDir, 'desktop-node-pty');
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
 const preparedRuntimeSchema = 1;
-const DESKTOP_NATIVE_FILES = Object.freeze({
-  graph: process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph',
-  patch: process.platform === 'win32' ? 'mixdog-patch.exe' : 'mixdog-patch',
-  spawn: process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn',
-  token: 'mixdog-token.node',
-});
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
 const npmCacheDir = configuredNpmCacheDir
   ? resolve(configuredNpmCacheDir)
@@ -91,6 +87,46 @@ async function timed(label, operation) {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/** Object headers sit at the front of the file; native addons reach hundreds of
+ *  MiB and never need a full read to name their architecture. */
+async function readFileHeader(path, bytes = 4096) {
+  const handle = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Refuse a compiled artifact that cannot run on the target.
+ *
+ * This is the guard that makes preparing a runtime for another architecture
+ * survivable. A build-host binary inside a foreign-target app packages,
+ * uploads, and publishes without a single warning, and only fails when the
+ * user launches it — so the archive is inspected here, where the failure is
+ * still a build error.
+ */
+async function assertTargetArchitecture(path, label) {
+  if (await nativeBinaryRunsOn(await readFileHeader(path), embeddingTarget.arch)) return;
+  throw new Error(
+    `${label} cannot run on ${embeddingTarget.key}: its header names another architecture. `
+    + `A runtime prepared on ${process.platform}-${process.arch} must still carry only `
+    + `${embeddingTarget.arch} binaries.`,
+  );
+}
+
+/** Same check across a staged package tree. */
+async function assertTreeTargetArchitecture(root, label) {
+  const entries = await readdir(root, { recursive: true, withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile() || !/\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry.name)) continue;
+    await assertTargetArchitecture(join(entry.parentPath, entry.name), `${label} (${entry.name})`);
+  }
 }
 
 function runtimePackageSource(entryPath) {
@@ -158,7 +194,9 @@ async function canReusePreparedRuntime(fingerprint) {
       access(runtimeSidecar),
       access(builderNativeModulesDir),
       access(join(builderDesktopPtyDir, 'package.json')),
-      ...Object.values(DESKTOP_NATIVE_FILES).map((file) => access(join(desktopNativeToolsDir, file))),
+      ...NATIVE_TOOL_KINDS.map((kind) => access(
+        join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget)),
+      )),
     ]);
     return true;
   } catch (error) {
@@ -169,31 +207,33 @@ async function canReusePreparedRuntime(fingerprint) {
   }
 }
 
+/**
+ * Product-native tools for the TARGET.
+ *
+ * These are published, immutable release assets rather than anything compiled
+ * here, so the build host never has to match the target: the manifest names one
+ * verified asset per platform. Each downloaded file is still read back and
+ * checked against the target architecture, because a manifest that pointed at
+ * the wrong asset would otherwise travel all the way to a user's machine.
+ */
 async function prepareDesktopNativeTools() {
-  if (embeddingTarget.platform !== process.platform || embeddingTarget.arch !== process.arch) {
-    throw new Error(
-      `Desktop native tools require a matching build runner: target=${embeddingTarget.key}, `
-      + `host=${process.platform}-${process.arch}.`,
-    );
-  }
   const downloadDataDir = join(runtimeDir, 'native-downloads');
-  const resolved = await Promise.all([
-    ensureGraphBinary(downloadDataDir),
-    ensurePatchBinary(downloadDataDir),
-    ensureSpawnBinary(downloadDataDir),
-    ensureTokenAddon(downloadDataDir),
-  ]);
+  const sources = await Promise.all(NATIVE_TOOL_KINDS.map(
+    (kind) => downloadNativeTool(kind, embeddingTarget, downloadDataDir),
+  ));
   await rm(desktopNativeToolsDir, { recursive: true, force: true });
   await mkdir(desktopNativeToolsDir, { recursive: true });
-  for (const [kind, source] of Object.entries({
-    graph: resolved[0],
-    patch: resolved[1],
-    spawn: resolved[2],
-    token: resolved[3],
-  })) {
-    const destination = join(desktopNativeToolsDir, DESKTOP_NATIVE_FILES[kind]);
-    await cp(source, destination);
-    if (process.platform !== 'win32' && kind !== 'token') await chmod(destination, 0o755);
+  for (const [index, kind] of NATIVE_TOOL_KINDS.entries()) {
+    const destination = join(
+      desktopNativeToolsDir,
+      nativeToolInstalledName(kind, embeddingTarget),
+    );
+    await cp(sources[index], destination);
+    await assertTargetArchitecture(destination, `Native tool ${kind}`);
+    // Executability belongs to the target's OS, not the machine that packed it.
+    if (embeddingTarget.platform !== 'win32' && kind !== 'token') {
+      await chmod(destination, 0o755);
+    }
   }
   await rm(downloadDataDir, { recursive: true, force: true });
 }
@@ -273,11 +313,14 @@ async function prepareRuntime(manifest, fingerprint) {
 
   try {
     await timed('native-tools', () => prepareDesktopNativeTools());
-    await timed('desktop-node-pty', () => cp(
-      desktopPtyPackageDir,
-      builderDesktopPtyDir,
-      { recursive: true },
-    ));
+    // node-pty is taken from the DESKTOP's own node_modules, which npm resolved
+    // for the build host. It is therefore the one input here that a foreign
+    // target cannot simply inherit — the check refuses a host copy rather than
+    // letting it reach app.asar.unpacked.
+    await timed('desktop-node-pty', async () => {
+      await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
+      await assertTreeTargetArchitecture(builderDesktopPtyDir, 'Desktop node-pty');
+    });
     // The staging install only needs the production dependency tree. The repo's
     // postinstall (embedding prune + native asset fetch) is driven explicitly by
     // this script, and prepare-native-assets.mjs imports from src/, which is not
@@ -437,6 +480,7 @@ async function prepareRuntime(manifest, fingerprint) {
         const pathParts = archivePath.split('/');
         const source = join(runtimeSidecar, ...pathParts);
         await access(source);
+        await assertTargetArchitecture(source, `Runtime addon ${entry}`);
 
         // electron-builder filters paths containing a source node_modules
         // directory. Stage its contents under a neutral name, then map that neutral

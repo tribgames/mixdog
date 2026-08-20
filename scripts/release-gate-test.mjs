@@ -386,10 +386,16 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.doesNotMatch(desktopOutKey, /package-lock\.json/,
     'the lock file reaches this key only through the version-neutral digest');
   assert.match(automaticGate,
-    /name:\s*Warm the release desktop output cache[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
+    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
+  assert.match(automaticGate, /name:\s*Build desktop[\s\S]*steps\.desktop-out\.outputs\.cache-hit != 'true'/,
+    'an unchanged desktop bundle must not be rebuilt by the gate');
   assert.match(automaticGate, /manifest-cache-key\.mjs/);
   assert.match(desktopRuntime, /manifest-cache-key\.mjs/);
-  assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@v7/);
+  // Actions are SHA-pinned with the release as a trailing comment, so the
+  // major version is asserted through that comment. Matching a bare `@v7` tag
+  // could never succeed here and left the check permanently red.
+  assert.match(release,
+    /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@[0-9a-f]{40} # v7/);
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-runtime\.yml/g) || []).length, 5);
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
   for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
@@ -407,7 +413,8 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
     'the hidden .runtime directory must be included in the staged artifact');
   assert.match(release,
     /prepare-github-release:[\s\S]*needs:\s*\[validate\][\s\S]*draft:\s*true/);
-  assert.match(desktopPackage, /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@v8/);
+  assert.match(desktopPackage,
+    /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@[0-9a-f]{40} # v8/);
   assert.match(desktopPackage, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
   assert.match(desktopRuntime, /name:\s*Resolve runtime dependency cache key/);
   assert.match(desktopRuntime, /name:\s*Restore pruned runtime dependencies/);
@@ -563,7 +570,7 @@ advisoryTest('native release workflows are reusable and unchanged runtime platfo
 
 advisoryTest('runtime platform smoke restores npm downloads on every runner', async () => {
   const smoke = await workflow('runtime-platform-smoke.yml');
-  assert.match(smoke, /actions\/setup-node@v6[\s\S]*cache:\s*npm/);
+  assert.match(smoke, /actions\/setup-node@[0-9a-f]{40} # v6[\s\S]*cache:\s*npm/);
   assert.match(smoke, /cache-dependency-path:\s*package-lock\.json/);
   assert.match(smoke, /npm ci --prefer-offline --no-audit --no-fund/);
 });

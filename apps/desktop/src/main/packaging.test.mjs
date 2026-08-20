@@ -438,10 +438,17 @@ test('runtime preparation reuses prepared output and persistent validated depend
   assert.match(preparation, /await rename\(temporaryCacheDir,\s*dependencyCacheDir\)/);
   assert.match(preparation, /timed\('npm-ci'/);
   assert.match(preparation, /timed\('native-tools'/);
-  assert.match(preparation, /ensureGraphBinary\(downloadDataDir\)/);
-  assert.match(preparation, /ensurePatchBinary\(downloadDataDir\)/);
-  assert.match(preparation, /ensureSpawnBinary\(downloadDataDir\)/);
-  assert.match(preparation, /ensureTokenAddon\(downloadDataDir\)/);
+  // Native tools resolve for the TARGET rather than the build host: the runtime
+  // fetchers answer for whatever machine they run on, which is right for an
+  // installed app and wrong for preparing another platform's runtime.
+  assert.match(preparation, /downloadNativeTool\(kind,\s*embeddingTarget,\s*downloadDataDir\)/);
+  assert.doesNotMatch(preparation, /require a matching build runner/);
+  // Architecture is read back from every compiled artifact that reaches the
+  // package. A foreign binary otherwise publishes cleanly and fails only when
+  // the user launches the app.
+  assert.match(preparation, /assertTargetArchitecture\(destination,\s*`Native tool \$\{kind\}`\)/);
+  assert.match(preparation, /assertTreeTargetArchitecture\(builderDesktopPtyDir/);
+  assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{entry\}`\)/);
   assert.match(preparation, /timed\('asar-create'/);
   assert.match(preparation, /finally\s*\{[\s\S]*rm\(stagingDir/);
   assert.match(preparation, /if\s*\(ownsNpmCache\)\s*\{[\s\S]*rm\(npmCacheDir/);
