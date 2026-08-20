@@ -1,8 +1,9 @@
 // --- Tool definitions for external models ---
 //
 // CANONICAL SOURCE for built-in tool schemas and annotations (compressible,
-// readOnlyHint, destructiveHint, etc.). Descriptions carry the tool CONTRACT
-// only (behavior + argument shapes); usage policy lives in rules/shared/*.md.
+// readOnlyHint, destructiveHint, etc.). A description carries the tool's
+// behavior, argument shapes, and the usage boundaries that only apply to that
+// tool; cross-tool policy lives in rules/shared/*.md.
 // Platform-specific command syntax belongs next to the command argument.
 import { GIT_TOOL_DEF } from './git-command-tool.mjs';
 import { SHELL_MONITOR_INTERVAL_MAX_MS } from './shell-monitor.mjs';
@@ -13,8 +14,8 @@ const _shellSyntaxCheat =
 // Keep the routing map short and adjacent to the shell's primary description.
 // PowerShell aliases appear only on win32.
 const _shellToolRouting = process.platform === 'win32'
-    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/heredocs/echo/Set-Content.'
-    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/heredocs/echo.';
+    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/echo/Set-Content or a file-writing heredoc.'
+    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/echo or a file-writing heredoc.';
 // Process-stable switch used to describe foreground-only execution accurately.
 const _shellBackgroundDisabled = /^(1|true|yes|on)$/i.test(
     String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
@@ -25,7 +26,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail. Never re-open spans grep or code_graph already returned.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -51,7 +52,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Edit',
         annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-        description: 'Replace exact text in one file. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file.',
+        description: 'Replace exact text in one file. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file. Use exact text already in context; never re-open the file to build old_string or to verify a successful edit.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -121,7 +122,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches and return contextual path:line blocks. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
+        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -173,7 +174,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only.',
+        description: 'Read-only; safe to batch in parallel. Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No content or symbol search.',
         inputSchema: {
             type: 'object',
             properties: {

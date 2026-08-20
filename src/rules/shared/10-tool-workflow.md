@@ -1,17 +1,27 @@
 # Tool Workflow
 
+- Investigate, build, and verify only what the requested outcome requires, at
+  the level it requires; trust internal and framework guarantees.
 - Minimize tool turns through maximal useful parallelism: in each turn, issue
   every necessary non-overlapping call whose inputs are already known.
-- Defer a call only when its inputs depend on an earlier result; never add
-  duplicate or irrelevant calls merely to increase fanout.
+- Cost is counted in rounds, not calls: a batch of N calls in one message is
+  one round, so a call-count saving never justifies a worse-routed call.
+- Plan the fewest evidence-complete dependent rounds first, then the fewest
+  calls within each round.
+- Defer a call only when its inputs depend on an earlier result; the mere
+  possibility that a result could reshape later work never defers an
+  independent call, and duplicate or irrelevant calls never increase fanout.
+- Before each batch, deduplicate the remaining facets and route each once to
+  the cheapest sufficient tool; never split a facet across tools, widen
+  retrieval speculatively, or cap fanout.
 - Apply one analysis to many targets as one parameterized call when supported,
   not one call per target.
 1. Determine the required outcome and missing information; requirements are
    not evidence.
 2. If needed, gather only missing information through Research or Exploration;
    use Execution when the information can only be produced by running a program
-   or observing runtime state. Stop when it is already known or sufficiently
-   obtained.
+   or observing runtime state. Stop investigation as soon as sufficient evidence
+   determines the answer or change.
 3. Perform the required answer, edit, or execution in the fewest safe coherent
    calls.
 4. Verify only affected facets and essential invariants when required.
