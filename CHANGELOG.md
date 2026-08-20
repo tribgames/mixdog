@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.139 - 2026-08-20
+
 - Antigravity OAuth arrives as a provider: one Google login exposes Gemini 3.x
   and Claude through the Cloud Code Assist gateway, with login, token refresh,
   and endpoint failover following the existing OAuth provider shape.
