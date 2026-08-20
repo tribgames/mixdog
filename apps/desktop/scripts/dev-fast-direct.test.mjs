@@ -40,6 +40,21 @@ test('unchanged installed build is a no-op', () => {
   );
 });
 
+test('an explicit release version forces a shell rebuild without rebuilding unchanged runtime', () => {
+  const plan = decidePlan({
+    previous,
+    groups,
+    installedMatches: true,
+    bootstrapFresh: null,
+    forceFull: true,
+  });
+  assert.equal(plan.full, true);
+  assert.deepEqual(plan.targets, []);
+  assert.equal(plan.changed.package, true);
+  assert.equal(plan.changed.runtime, false);
+  assert.equal(plan.changed.daemon, false);
+});
+
 test('renderer-only change builds only renderer', () => {
   const changedGroups = structuredClone(groups);
   changedGroups.renderer.hash = 'renderer-new';

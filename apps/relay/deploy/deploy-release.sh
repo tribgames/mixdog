@@ -76,7 +76,7 @@ systemctl restart mixdog-relay
 
 for _ in $(seq 1 30); do
   if systemctl is-active --quiet mixdog-relay \
-    && curl --fail --silent --show-error \
+    && curl --fail --silent \
       --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/healthz" >/tmp/mixdog-relay-health; then
     break
   fi
