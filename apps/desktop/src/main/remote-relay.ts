@@ -19,6 +19,7 @@ import {
   acceptRelayE2EEClientHello,
   createRelayE2EEChallenge,
   isRelayE2EEHello,
+  relayE2EECompressionSupported,
   relayE2EEPairingMaterial,
   type RelayE2EEChannel,
   type RelayE2EEChallenge,
@@ -134,10 +135,11 @@ export function encodeRelayClientSessionState(
   encoders: Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>,
   sessionId: string,
   snapshot: unknown,
+  compact = false,
 ): unknown {
   let encoder = encoders.get(sessionId);
   if (!encoder) {
-    encoder = createSnapshotDeltaEncoder();
+    encoder = createSnapshotDeltaEncoder({ compact });
     encoders.set(sessionId, encoder);
   }
   return encoder.encode(snapshot);
@@ -269,7 +271,10 @@ function revokeIdentity(
     const ws = new WebSocket(connection.url, {
       headers: connection.headers,
       maxPayload: MAX_WS_PAYLOAD_BYTES,
-      perMessageDeflate: true,
+      // Frames on this leg are E2EE ciphertext (incompressible) or small
+      // control envelopes; payload compression happens inside the encrypted
+      // envelope instead. Transport deflate only cost CPU on both ends.
+      perMessageDeflate: false,
     });
     sockets.add(ws);
     let settled = false;
@@ -349,6 +354,13 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sessionStateEncoders: Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>;
     binaryFrames: boolean;
     listDelta: boolean;
+    /** Compact transcript frames: unchanged patch sections are dropped and the
+     *  envelope addresses a session by handle. */
+    compactWire: boolean;
+    /** Per-client session handles: a live frame repeats the session id ~26
+     *  bytes at a time, which is most of an envelope that carries ~30 bytes of
+     *  new text. The name travels once, with the handle that replaces it. */
+    sessionHandles: Map<string, number>;
     sessionsEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopSessionSummary>>;
     agentPoolEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopAgentPoolRow>>;
   }
@@ -518,21 +530,47 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         if (!state.channel || !state.visibleSessionIds.has(sessionId)) {
           return Promise.resolve();
         }
-        return sendEncryptedFrame(clientId, {
-          event: 'sessionState',
-          payload: {
-            sessionId,
-            wire: encodeRelayClientSessionState(
-              state.sessionStateEncoders,
+        const wire = encodeRelayClientSessionState(
+          state.sessionStateEncoders,
+          sessionId,
+          update.snapshot,
+          state.compactWire,
+        );
+        if (!state.compactWire) {
+          return sendEncryptedFrame(clientId, {
+            event: 'sessionState',
+            payload: {
               sessionId,
-              update.snapshot,
-            ),
-            frameSource: update.frameSource,
-            ...(perfProbe ? { perfProbe } : {}),
-            ...(typeof update.contentRevision === 'number'
-              ? { contentRevision: update.contentRevision }
-              : {}),
-          },
+              wire,
+              frameSource: update.frameSource,
+              ...(perfProbe ? { perfProbe } : {}),
+              ...(typeof update.contentRevision === 'number'
+                ? { contentRevision: update.contentRevision }
+                : {}),
+            },
+          }, true);
+        }
+        // Compact envelope. The nested event/payload/sessionId trio costs
+        // ~110 bytes on a frame whose new content is often ~30, so the keys
+        // shrink to single letters and the session travels as a handle whose
+        // name is sent once (`n`).
+        let handle = state.sessionHandles.get(sessionId);
+        const firstUse = handle === undefined;
+        if (handle === undefined) {
+          handle = state.sessionHandles.size + 1;
+          state.sessionHandles.set(sessionId, handle);
+        }
+        return sendEncryptedFrame(clientId, {
+          e: 'T',
+          s: handle,
+          ...(firstUse ? { n: sessionId } : {}),
+          w: wire,
+          // 'live' is the overwhelming default; only a replay announces itself.
+          ...(update.frameSource && update.frameSource !== 'live'
+            ? { f: update.frameSource }
+            : {}),
+          ...(perfProbe ? { pp: perfProbe } : {}),
+          ...(typeof update.contentRevision === 'number' ? { cr: update.contentRevision } : {}),
         }, true);
       })).finally(() => mailbox.acknowledge(sequence));
     });
@@ -698,7 +736,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     const ws = new WebSocket(connection.url, {
       headers: connection.headers,
       maxPayload: MAX_WS_PAYLOAD_BYTES,
-      perMessageDeflate: true,
+      // Frames on this leg are E2EE ciphertext (incompressible) or small
+      // control envelopes; payload compression happens inside the encrypted
+      // envelope instead. Transport deflate only cost CPU on both ends.
+      perMessageDeflate: false,
     });
     socket = ws;
     // Idle NAT paths silently kill this leg; protocol pings keep it warm and
@@ -785,6 +826,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               ...createRelayE2EEChallenge(),
               ...(relayBinaryFrames ? { binaryFrames: 1 as const } : {}),
               listDelta: 1 as const,
+              ...(relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
+              compactWire: 1 as const,
             };
             const handshakeTimer = setTimeout(() => {
               closeClient(envelope.clientId as string, 'relay encryption handshake timed out');
@@ -801,6 +844,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               sessionStateEncoders: new Map(),
               binaryFrames: false,
               listDelta: false,
+              compactWire: false,
+              sessionHandles: new Map(),
               sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>(
                 (session, index) => String(session.id || `session:${index}`),
               ),
@@ -874,6 +919,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               );
               client.binaryFrames = hello.binaryFrames === 1;
               client.listDelta = hello.listDelta === 1;
+              client.compactWire = hello.compactWire === 1;
               clearTimeout(client.handshakeTimer);
               await sendEncryptedFrame(
                 envelope.clientId as string,
@@ -1017,8 +1063,20 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (activeClients.size > 0) terminalBuffer.push(event);
   }) ?? (() => {});
   const unsubscribeDesktopEvents = options.host.subscribeDesktopEvents?.(({ name, value }) => {
-    if (name !== 'remote-projection-state' || activeClients.size === 0) return;
-    broadcastEncrypted({ event: 'remoteProjection', payload: value }, false);
+    if (activeClients.size === 0) return;
+    // Explorer live refresh and language-server pushes are the same lanes the
+    // Electron window receives; a paired browser stays as fresh as the desktop.
+    // None of them is droppable: a dropped frame leaves a stale listing or a
+    // stale squiggle behind with no later push to correct it.
+    if (name === 'remote-projection-state') {
+      broadcastEncrypted({ event: 'remoteProjection', payload: value }, false);
+    } else if (name === 'folder-changed') {
+      broadcastEncrypted({ event: 'folderChanged', payload: value }, false);
+    } else if (name === 'lsp-diagnostics') {
+      broadcastEncrypted({ event: 'lspDiagnostics', payload: value }, false);
+    } else if (name === 'lsp-status') {
+      broadcastEncrypted({ event: 'lspStatus', payload: value }, false);
+    }
   }) ?? (() => {});
 
   return {

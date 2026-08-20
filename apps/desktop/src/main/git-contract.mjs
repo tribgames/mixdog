@@ -23,3 +23,13 @@ export function requiredGitResetMode(value) {
   if (value === 'soft' || value === 'mixed' || value === 'hard') return value;
   throw new TypeError('Git reset mode is invalid.');
 }
+
+/** Diff-tab editor mode revision: `HEAD`/`:0` (index) or a commit hash,
+ *  optionally `^`-suffixed for its first parent. */
+export function requiredGitRevision(value) {
+  const rev = typeof value === 'string' ? value.trim() : '';
+  if (!rev || rev.length > 128) throw new TypeError('A git revision is required.');
+  if (rev === 'HEAD' || rev === ':0') return rev;
+  const parent = rev.endsWith('^');
+  return `${requiredCommitHash(parent ? rev.slice(0, -1) : rev)}${parent ? '^' : ''}`;
+}

@@ -2,6 +2,16 @@ const E2EE_VERSION = 1 as const;
 const E2EE_CONTEXT = 'mixdog-relay-e2ee-v1';
 const E2EE_BINARY_MAGIC = new Uint8Array([0x4d, 0x58, 0x45, 0x01]);
 const E2EE_BINARY_HEADER_BYTES = 24;
+// Payload compression belongs INSIDE the encrypted envelope. Everything the
+// relay handles is ciphertext, which cannot be compressed, so this is the only
+// place where a transcript's repetition can still be squeezed out — 4-6x on a
+// full snapshot (session switch, reconnect, resync). The first plaintext byte
+// records the encoding, and JSON text can never begin with 0x01, so a peer
+// that predates this still decodes what it receives.
+const E2EE_PLAINTEXT_DEFLATED = 0x01;
+// Under this size a deflate stream saves nothing worth the round of work, and
+// live streaming frames must not pay latency for a few bytes.
+const E2EE_COMPRESS_MIN_BYTES = 512;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -22,6 +32,12 @@ export interface RelayE2EEChallenge {
   challenge: string;
   binaryFrames?: 1;
   listDelta?: 1;
+  /** The desktop can deflate payloads; the browser echoes it when it can
+   *  inflate them. An older peer on either side simply omits it. */
+  deflate?: 1;
+  /** Compact transcript frames: unchanged patch sections are omitted and the
+   *  envelope is addressed by session handle instead of by name. */
+  compactWire?: 1;
 }
 
 export interface RelayE2EEHello {
@@ -32,6 +48,8 @@ export interface RelayE2EEHello {
   proof: string;
   binaryFrames?: 1;
   listDelta?: 1;
+  deflate?: 1;
+  compactWire?: 1;
 }
 
 interface RelayE2EEBox {
@@ -46,6 +64,89 @@ function cryptoApi(): Crypto {
   const value = globalThis.crypto;
   if (!value?.subtle) throw new Error('Web Crypto is unavailable.');
   return value;
+}
+
+interface ByteTransformStream {
+  readable: ReadableStream<Uint8Array>;
+  writable: WritableStream<Uint8Array>;
+}
+
+let compressionSupport: boolean | null = null;
+
+/** Raw-deflate streams are platform-provided (Node 21+, Chrome 103+, Safari
+ *  16.4+). A runtime without them keeps exchanging plain JSON, which every
+ *  peer still understands. */
+export function relayE2EECompressionSupported(): boolean {
+  if (compressionSupport !== null) return compressionSupport;
+  try {
+    void new CompressionStream('deflate-raw');
+    void new DecompressionStream('deflate-raw');
+    compressionSupport = true;
+  } catch {
+    compressionSupport = false;
+  }
+  return compressionSupport;
+}
+
+async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+async function runByteTransform(
+  bytes: Uint8Array,
+  stream: ByteTransformStream,
+): Promise<Uint8Array> {
+  const writer = stream.writable.getWriter();
+  // Writing and reading have to run together: a payload past the stream's
+  // internal queue would otherwise wait on a reader that has not started.
+  const written = writer.write(bytes).then(() => writer.close());
+  const [output] = await Promise.all([collectStream(stream.readable), written]);
+  return output;
+}
+
+/** Plaintext framing: `[0x01][deflate-raw bytes]` when compression paid off,
+ *  otherwise the raw JSON bytes — which is byte-for-byte what a peer that
+ *  predates compression sends and expects. */
+async function packPlaintext(body: Uint8Array, compress: boolean): Promise<Uint8Array> {
+  if (!compress || body.byteLength < E2EE_COMPRESS_MIN_BYTES) return body;
+  let deflated: Uint8Array;
+  try {
+    deflated = await runByteTransform(
+      body,
+      new CompressionStream('deflate-raw') as unknown as ByteTransformStream,
+    );
+  } catch {
+    return body;
+  }
+  if (deflated.byteLength + 1 >= body.byteLength) return body;
+  const framed = new Uint8Array(deflated.byteLength + 1);
+  framed[0] = E2EE_PLAINTEXT_DEFLATED;
+  framed.set(deflated, 1);
+  return framed;
+}
+
+async function unpackPlaintext(bytes: Uint8Array): Promise<Uint8Array> {
+  if (bytes.byteLength === 0 || bytes[0] !== E2EE_PLAINTEXT_DEFLATED) return bytes;
+  return runByteTransform(
+    bytes.subarray(1),
+    new DecompressionStream('deflate-raw') as unknown as ByteTransformStream,
+  );
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -225,6 +326,8 @@ export class RelayE2EEChannel {
   constructor(
     private readonly key: CryptoKey,
     private readonly role: 'client' | 'server',
+    /** Set when the handshake proved BOTH peers can deflate/inflate. */
+    private readonly compression = false,
   ) {}
 
   private encrypt(value: unknown, binary: boolean): Promise<string | Uint8Array> {
@@ -247,7 +350,10 @@ export class RelayE2EEChannel {
           ),
         },
         this.key,
-        arrayBuffer(encoder.encode(JSON.stringify(value))),
+        arrayBuffer(await packPlaintext(
+          encoder.encode(JSON.stringify(value)),
+          this.compression,
+        )),
       );
       const encrypted = new Uint8Array(ciphertext);
       resolveResult(binary
@@ -308,7 +414,11 @@ export class RelayE2EEChannel {
         this.key,
         arrayBuffer(ciphertext),
       );
-      const value = JSON.parse(decoder.decode(plaintext)) as unknown;
+      // Compression is decided per frame by the sender, so the encoding is
+      // read off the plaintext rather than assumed from the handshake.
+      const value = JSON.parse(
+        decoder.decode(await unpackPlaintext(new Uint8Array(plaintext))),
+      ) as unknown;
       this.receiveSequence = sequence;
       resolveResult(value);
     }).catch(rejectResult);
@@ -435,6 +545,11 @@ export async function createRelayE2EEClientHandshake(
     ),
     ...(challenge.binaryFrames === 1 ? { binaryFrames: 1 as const } : {}),
     ...(challenge.listDelta === 1 ? { listDelta: 1 as const } : {}),
+    // Echoed only when this browser can also inflate what it asks for.
+    ...(challenge.deflate === 1 && relayE2EECompressionSupported()
+      ? { deflate: 1 as const }
+      : {}),
+    ...(challenge.compactWire === 1 ? { compactWire: 1 as const } : {}),
   };
   const key = await deriveChannelKey({
     privateKey: pair.privateKey,
@@ -444,7 +559,7 @@ export async function createRelayE2EEClientHandshake(
     serverPublicKey: pairing.serverPublicKey,
     clientPublicKey,
   });
-  return { hello, channel: new RelayE2EEChannel(key, 'client') };
+  return { hello, channel: new RelayE2EEChannel(key, 'client', hello.deflate === 1) };
 }
 
 export async function acceptRelayE2EEClientHello(
@@ -474,5 +589,9 @@ export async function acceptRelayE2EEClientHello(
     serverPublicKey: identity.serverPublicKey,
     clientPublicKey: hello.clientPublicKey,
   });
-  return new RelayE2EEChannel(key, 'server');
+  return new RelayE2EEChannel(
+    key,
+    'server',
+    hello.deflate === 1 && relayE2EECompressionSupported(),
+  );
 }
