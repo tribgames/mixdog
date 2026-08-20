@@ -108,7 +108,7 @@ test('apply_patch keeps grammar and mutation behavior on the freeform surface', 
   assert.match(applyPatch.freeformDescription, /failing without changes if the target already exists/i);
   assert.match(applyPatch.freeformDescription, /one Add\/Delete\/Update File block per target path/i);
   assert.match(applyPatch.freeformDescription, /Multi-file patches commit valid files and report rejected files separately/i);
-  assert.equal(applyPatch.inputSchema.properties.patch.minLength, undefined);
+  assert.equal(applyPatch.inputSchema.properties.patch.minLength, 1);
 });
 
 test('toSessionWorkflowMeta keeps delegatesAgents for Solo packs', () => {

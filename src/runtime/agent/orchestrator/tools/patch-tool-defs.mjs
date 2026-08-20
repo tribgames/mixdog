@@ -42,7 +42,7 @@ export const PATCH_TOOL_DEFS = [
     inputSchema: {
       type: 'object',
       properties: {
-        patch: { type: 'string', description: 'Complete V4A patch text.' },
+        patch: { type: 'string', minLength: 1, description: 'Complete V4A patch text.' },
       },
       required: ['patch'],
       additionalProperties: false,
