@@ -365,7 +365,7 @@ function renderNativeStatusline({
   const sp = l2SpinnerFrame(spinnerNow);
   const spin = `${GRN}${sp}${R}`;
   const elapsedSuffix = (label) => (label ? ` ${D}·${R} ${label}` : '');
-  // Segment order: Running Agents → Web Searching → Running Shells.
+  // Segment order: Running Agents → Running Shells → Web Searching.
   // (activeTools.web_search counts WEB searches — category 'Web Research' — not
   // local file search, which is intentionally not surfaced.)
   if (runningWorkers.length) {
@@ -377,6 +377,11 @@ function renderNativeStatusline({
     }, Infinity);
     const elapsed = Number.isFinite(oldestStart) ? formatElapsed(Date.now() - oldestStart) : '';
     addL2(`${spin} ${B}${label}${R}${elapsedSuffix(elapsed)}`);
+  }
+  if (shellStatus.count > 0) {
+    const n = shellStatus.count;
+    const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
+    addL2(`${spin} ${B}${label}${R}${elapsedSuffix(shellStatus.elapsedLabel)}`);
   }
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
   const webSearchInfo = tools.web_search || null;
@@ -391,11 +396,6 @@ function renderNativeStatusline({
     const webSearchStart = starts.length ? Math.min(...starts) : 0;
     const elapsed = webSearchStart > 0 ? formatElapsed(Date.now() - webSearchStart) : '';
     addL2(`${spin} ${B}Web Searching${R}${elapsedSuffix(elapsed)}`);
-  }
-  if (shellStatus.count > 0) {
-    const n = shellStatus.count;
-    const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
-    addL2(`${spin} ${B}${label}${R}${elapsedSuffix(shellStatus.elapsedLabel)}`);
   }
   // Memory cycle segment — single unified "Memory" wording for all states:
   // running -> "⠋ Memory · 12s". Backlog is intentionally NOT rendered

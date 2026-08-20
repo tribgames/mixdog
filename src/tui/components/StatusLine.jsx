@@ -17,6 +17,10 @@ import {
   statuslineFooterIdentityChanged,
 } from '../statusline-ansi-bridge.mjs';
 import { useSharedTick } from '../hooks/useSharedTick.mjs';
+// Cache-only synchronous read (never touches fs on the render path), so the
+// instant-local L2 can render the Shell segment itself instead of grafting it
+// out of the previous full line.
+import { shellJobsStatus } from '../../ui/statusline-segments.mjs';
 
 // Loaded at RUNTIME (not bundled) so its vendored statusline-lib relative
 // imports resolve from the real src/ui location, not the dist/ bundle dir.
@@ -277,12 +281,16 @@ function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
 // L2 assembly only — themed SGR (statusColors SUCCESS/STATUS/SUBTLE), already in
 // the active palette, so this must NOT be passed through normalizeStatusLine.
 // Returns the joined L2 string or '' when no active segment. Order:
-// Agents → Exploring → Web Searching → Shells. (Shell segment is disk-based and
-// not available to the instant-local path; intentionally omitted here.)
+// Agents → Shells → Exploring → Web Searching. shellJobsStatus() is a cache-only
+// synchronous read (its refresh runs in the background, never on the render
+// path), so the shell count is computed here directly instead of being grafted
+// out of the previously cached full line.
 function localStatusLineL2({
   agentWorkers = [],
   agentJobs = [],
   activeTools = null,
+  sessionId = '',
+  clientHostPid = 0,
 } = {}, now = Date.now()) {
   const { STATUS, SUBTLE, SUCCESS } = statusColors();
   const spin = `${SUCCESS}${localL2SpinnerFrame(now)}${RESET}`;
@@ -295,6 +303,17 @@ function localStatusLineL2({
     const oldestStart = localOldestWorkerStartMs(agentWorkers, agentJobs);
     const elapsed = oldestStart > 0 ? localFormatElapsed(now - oldestStart) : '';
     l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(elapsed)}`);
+  }
+  // Session-scoped like the full path: one host process owns many sessions'
+  // jobs, so an owner-wide aggregate would light up every other pane.
+  const shellScope = String(sessionId ?? '').trim();
+  const shellStatus = shellScope
+    ? shellJobsStatus({ clientHostPid, sessionId: shellScope })
+    : shellJobsStatus({ clientHostPid });
+  const shellCount = Number(shellStatus?.count) || 0;
+  if (shellCount > 0) {
+    const label = `Running ${shellCount} Shell${shellCount === 1 ? '' : 's'}`;
+    l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(shellStatus.elapsedLabel || '')}`);
   }
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
   const exploreInfo = tools.explore || null;
@@ -310,65 +329,6 @@ function localStatusLineL2({
   return l2Parts.length ? l2Parts.join(segSep) : '';
 }
 
-// Invert localFormatElapsed (`Xs`, `Xm Ys`, `Xh Ym Zs`, `Xd Yh Zm`) back to ms so
-// a grafted shell segment's elapsed can ADVANCE in real time. Returns 0 for empty
-// or unparseable input. Each unit has a distinct suffix letter, so order doesn't
-// matter; the `m(?!s)` guard avoids mis-reading a stray `ms` (our format never
-// emits `ms`, but be safe).
-function parseElapsedLabelMs(label = '') {
-  const s = String(label).trim();
-  if (!s) return 0;
-  let ms = 0;
-  const d = /(\d+)\s*d/.exec(s); if (d) ms += Number(d[1]) * 86_400_000;
-  const h = /(\d+)\s*h/.exec(s); if (h) ms += Number(h[1]) * 3_600_000;
-  const m = /(\d+)\s*m(?!s)/.exec(s); if (m) ms += Number(m[1]) * 60_000;
-  const sec = /(\d+)\s*s/.exec(s); if (sec) ms += Number(sec[1]) * 1000;
-  return ms;
-}
-
-// Rebuild the Shell L2 segment(s) from a cached (normalized) L2 line so a graft
-// onto the cached L1 does not drop `Running N Shell(s) · …` for one ~150ms frame.
-// The instant-local path has NO disk access to shell jobs, so we cannot recompute
-// the segment from args; instead we parse the count + elapsed from the cached L2's
-// VISIBLE (ANSI-stripped) text and re-emit the segment in fresh themed SGR (with a
-// current spinner frame so it stays in sync with the fresh Agents/Explore/Search
-// segments). The cached elapsed is ADVANCED by (now - capturedAt) so seconds keep
-// ticking between full renders with zero disk access; if capturedAt is 0 (cache
-// from before this change / wiped) we fall back to the cached text as-is. Returns
-// an array of themed segment strings (usually 0 or 1) in canonical tail order.
-function extractCachedShellSegments(cachedL2 = '', now = Date.now(), capturedAt = 0) {
-  const visible = stripAnsi(cachedL2);
-  if (!visible) return [];
-  const { STATUS, SUBTLE, SUCCESS } = statusColors();
-  const spin = `${SUCCESS}${localL2SpinnerFrame(now)}${RESET}`;
-  const elapsedSuffix = (label) => (label ? ` ${SUBTLE}·${RESET} ${label}` : '');
-  const out = [];
-  // Split the visible L2 on the segment separator ` │ ` and keep Shell segments.
-  for (const seg of visible.split(' │ ')) {
-    // Start-anchored so only a REAL standalone shell segment matches. A visible
-    // segment is `<spinner-glyph> Running N … [· elapsed]`, so allow the single
-    // leading spinner token via `^(?:\S+\s+)?` then pin `Running N Shell(s)` to
-    // that position. An Agents segment is `<glyph> Running N Agents · …` →
-    // `Shells?` cannot match `Agents`; any shell-like text after the Agents label
-    // is not at the pinned start, so it cannot produce a false match.
-    const m = /^(?:\S+\s+)?Running (\d+) Shells?\b(?:\s·\s(.+?))?\s*$/.exec(seg.trim());
-    if (!m) continue;
-    const n = Number(m[1]) || 0;
-    if (n <= 0) continue;
-    // Advance the cached elapsed by (now - capturedAt) so seconds keep ticking
-    // between full renders — pure arithmetic, no disk I/O. Reformatted through
-    // localFormatElapsed so it matches the full-render shape (no visual jump).
-    // If there was no cached elapsed, keep it empty (don't fabricate one); if
-    // capturedAt is 0, fall back to the cached text verbatim (no advance).
-    const cachedElapsedText = (m[2] || '').trim();
-    const baseMs = parseElapsedLabelMs(cachedElapsedText);
-    const advancedMs = baseMs > 0 && capturedAt > 0 ? baseMs + Math.max(0, now - capturedAt) : baseMs;
-    const elapsed = advancedMs > 0 ? localFormatElapsed(advancedMs) : cachedElapsedText;
-    const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
-    out.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(elapsed)}`);
-  }
-  return out;
-}
 
 function localBootStatusLine(args = {}) {
   const {
@@ -443,9 +403,6 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   const themeEpochRef = useRef(themeEpoch);
   const lastRawFullLineRef = useRef('');
   const lastRawFullLineCacheKeyRef = useRef('');
-  // When (Date.now()) the cached full line was captured, so a grafted shell
-  // segment can advance its elapsed by (now - capturedAt) without disk access.
-  const lastRawFullLineAtRef = useRef(0);
 
   const statuslineArgs = {
     sessionId, clientHostPid, provider, model, effort, fast, cwd, stats,
@@ -551,7 +508,6 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
     if (routeChanged) {
       lastRawFullLineRef.current = '';
       lastRawFullLineCacheKeyRef.current = '';
-      lastRawFullLineAtRef.current = 0;
       bootFullDoneRef.current = false;
     }
     const snapLocalNow = themeChanged
@@ -578,20 +534,14 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
         // cached line somehow normalizes to empty (never emit a blank).
         const cachedNormalized = normalizeStatusLine(lastRawFullLineRef.current);
         if (cachedNormalized) {
-          const [cachedL1, cachedL2 = ''] = cachedNormalized.split('\n');
+          const [cachedL1] = cachedNormalized.split('\n');
           const now = Date.now();
-          // Share ONE `now` across fresh + grafted-shell segments so every L2
-          // spinner shows the SAME frame even across a 120ms frame boundary.
+          // One shared `now` so every L2 spinner shows the SAME frame even
+          // across a 120ms frame boundary. The local L2 now renders every
+          // segment itself (Agents → Shells → Explore → Search), so the cached
+          // L2 is discarded outright instead of being mined for its Shell tail.
           const freshL2 = localStatusLineL2(args, now); // already themed — do NOT normalize
-          // Preserve the cached L2's Shell segment(s): the local path can't recompute
-          // them (disk-based), so carry them as the canonical tail (Agents → Explore →
-          // Searching → Shells). Rebuilt in themed SGR with a current spinner frame so
-          // they animate in sync with the fresh segments.
-          const shellSegments = extractCachedShellSegments(cachedL2, now, lastRawFullLineAtRef.current);
-          const { SUBTLE } = statusColors();
-          const localSegSep = ` ${SUBTLE}│${RESET} `;
-          const grafted = [freshL2, ...shellSegments].filter(Boolean).join(localSegSep);
-          localNext = grafted ? `${cachedL1}\n${grafted}` : cachedL1;
+          localNext = freshL2 ? `${cachedL1}\n${freshL2}` : cachedL1;
         } else {
           localNext = normalizeStatusLine(localBootStatusLine(args));
         }
@@ -654,7 +604,6 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
           if (!isCurrentEffect() || s == null) return;
           lastRawFullLineCacheKeyRef.current = footerCacheKey;
           lastRawFullLineRef.current = String(s);
-          lastRawFullLineAtRef.current = Date.now();
           bootFullDoneRef.current = true;
           bootFullRetryBackoffMsRef.current = STATUSLINE_BOOT_FULL_RETRY_MS;
           bootFullNextAttemptAtRef.current = 0;
