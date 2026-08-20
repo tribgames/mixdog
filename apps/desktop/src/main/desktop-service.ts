@@ -178,7 +178,6 @@ export async function createDesktopService(
       relay: {
         clientUrl: remoteRelay.clientUrl,
         token: remoteRelay.token,
-        pairing: remoteRelay.pairing,
         clients,
       },
     };

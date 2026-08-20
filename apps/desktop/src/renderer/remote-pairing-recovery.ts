@@ -5,21 +5,14 @@ export const REMOTE_PAIRING_STORAGE_KEYS = {
   browserId: 'mixdog.remote-browser-id',
   e2eePublicKey: 'mixdog.remote-e2ee-public-key',
   e2eeSecret: 'mixdog.remote-e2ee-secret',
-  // The scanned link itself. Registration replaces the scanned token with a
-  // per-browser credential bound to THIS browser's client id, so the stored
-  // token can never pair a second storage container — and an iOS Home Screen
-  // app is exactly that. Keeping the bootstrap link is what lets a pairing
-  // that already proved itself travel into an install without a new scan.
-  pairingLink: 'mixdog.remote-pairing-link',
+  // Which desktop this container belongs to. A routing label, never a
+  // credential: the installed app launches at /d/<deviceId>/ and needs it to
+  // know whom to ask for approval.
+  device: 'mixdog.remote-device',
 } as const;
 
-export interface ParsedRemotePairingLink {
-  url: string;
-  origin: string;
-  token: string;
-  serverPublicKey: string;
-  pairingSecret: string;
-}
+const REMOTE_DEVICE_ID = /^[0-9a-f-]{8,64}$/u;
+const DEVICE_COOKIE_NAME = 'mixdog_device';
 
 function isLoopbackHostname(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[|\]$/gu, '');
@@ -38,51 +31,23 @@ export function normalizeRemoteRelayOrigin(value: string): string {
   return '';
 }
 
-export function parseRemotePairingLink(value: string): ParsedRemotePairingLink | null {
-  try {
-    const link = new URL(String(value || '').trim());
-    const origin = normalizeRemoteRelayOrigin(link.toString());
-    if (!origin) return null;
-    const fragment = new URLSearchParams(link.hash.replace(/^#/u, ''));
-    const token = link.searchParams.get('token') || '';
-    const serverPublicKey = fragment.get('e2eeKey') || link.searchParams.get('e2eeKey') || '';
-    const pairingSecret = fragment.get('e2eeSecret') || link.searchParams.get('e2eeSecret') || '';
-    if (
-      !/^[0-9a-f]{32,128}$/u.test(token)
-      || !/^[A-Za-z0-9_-]{87}$/u.test(serverPublicKey)
-      || !/^[A-Za-z0-9_-]{43}$/u.test(pairingSecret)
-    ) return null;
-    return {
-      url: link.toString(),
-      origin,
-      token,
-      serverPublicKey,
-      pairingSecret,
-    };
-  } catch {
-    return null;
+/** Which desktop to ask for approval: the /d/<deviceId>/ route this container
+ *  was launched at, or the cookie the relay set for it when a navigation
+ *  landed outside that route. Neither is a credential — approval is. */
+export function readRemoteDeviceId(pathname: string, cookie: string): string {
+  const routed = /^\/d\/([0-9a-f-]{8,64})(?:\/|$)/u.exec(String(pathname || ''));
+  if (routed) return routed[1];
+  for (const part of String(cookie || '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq <= 0 || part.slice(0, eq).trim() !== DEVICE_COOKIE_NAME) continue;
+    try {
+      const value = decodeURIComponent(part.slice(eq + 1).trim());
+      return REMOTE_DEVICE_ID.test(value) ? value : '';
+    } catch {
+      return '';
+    }
   }
-}
-
-export function storeRemotePairingLink(
-  storage: Pick<Storage, 'setItem'>,
-  link: ParsedRemotePairingLink,
-): void {
-  try {
-    storage.setItem(REMOTE_PAIRING_STORAGE_KEYS.pairingLink, link.url);
-  } catch {
-    // Private-mode storage; the install handoff simply stays unavailable.
-  }
-}
-
-/** The scanned link, or '' when this browser has none to hand over. */
-export function readRemotePairingLink(storage: Pick<Storage, 'getItem'>): string {
-  try {
-    const stored = storage.getItem(REMOTE_PAIRING_STORAGE_KEYS.pairingLink) || '';
-    return parseRemotePairingLink(stored)?.url || '';
-  } catch {
-    return '';
-  }
+  return '';
 }
 
 export function normalizeRemoteExternalUrl(value: string): string {

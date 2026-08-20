@@ -340,7 +340,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     return out;
   }, [dirs]);
   const navRows = useMemo(() => rows.filter((row) => !row.error), [rows]);
-  // Auto-reveal (explorerView.ts selectActiveFile): expand ancestors of the
+  // Auto-reveal: expand ancestors of the
   // active editor file step by step; each load/expand re-runs this effect
   // until the row exists, then select + scroll without stealing focus.
   const revealTarget = useRef("");

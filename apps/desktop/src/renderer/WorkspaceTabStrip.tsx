@@ -228,9 +228,8 @@ export function WorkspaceTabStrip({
   // keep the full tab strip untouched; the count opens the grid
   // overview instead of the old dropdown list.
   const compact = isMobileRemoteSurface();
-  // Chromium layout INPUT: the width the tab run may spend — the shell minus
-  // the fixed + slot and the trailing controls (tab_strip.cc passes the
-  // available width into CalculateTabBounds the same way).
+  // Layout INPUT: the width the tab run may spend — the shell minus the
+  // fixed + slot and the trailing controls.
   const measureWidths = useCallback(() => {
     const shell = shellNode.current;
     if (!shell) return;

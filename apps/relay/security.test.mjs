@@ -322,8 +322,8 @@ test('installability assets bypass the pairing gate; the app shell never does', 
   }
 });
 
-test('the Home Screen handoff manifest drops start_url and stays public', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-inherit-manifest-'));
+test('the device route opens the shell and aims its manifest back at that route', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-device-route-'));
   const renderer = join(dir, 'renderer');
   mkdirSync(renderer);
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
@@ -333,18 +333,116 @@ test('the Home Screen handoff manifest drops start_url and stays public', async 
   );
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
   try {
+    relay.store.authenticate('aaaaaaaa', '0123456789abcdef');
     const origin = `http://127.0.0.1:${relay.port}`;
-    const canonical = await (await fetch(`${origin}/manifest.webmanifest`)).json();
-    // Chromium installability keeps needing start_url, so the default is intact.
-    assert.equal(canonical.start_url, '/');
-    // Without it, an iOS install captures the launching document URL instead —
-    // the only way a paired page can hand its pairing to the installed app.
-    const response = await fetch(`${origin}/manifest.webmanifest?inherit=1`);
-    assert.equal(response.status, 200);
-    const inherited = await response.json();
-    assert.equal('start_url' in inherited, false);
-    assert.equal(inherited.id, '/');
-    assert.equal(inherited.scope, '/');
+    // A route naming a desktop this relay never registered reveals nothing.
+    assert.equal((await fetch(`${origin}/d/cccccccc/`)).status, 401);
+    // Nor does the bare app shell: it is for approved browsers only.
+    assert.equal((await fetch(`${origin}/`)).status, 401);
+    const shell = await fetch(`${origin}/d/aaaaaaaa/`);
+    assert.equal(shell.status, 200);
+    // The cookie carries the route across the root asset requests that follow.
+    assert.match(String(shell.headers.get('set-cookie')), /mixdog_device=aaaaaaaa/);
+    const manifest = await (await fetch(`${origin}/d/aaaaaaaa/manifest.webmanifest`)).json();
+    // An install captures start_url, so it is what tells the installed app
+    // which desktop to ask for approval.
+    assert.equal(manifest.start_url, '/d/aaaaaaaa/');
+    assert.equal(manifest.scope, '/d/aaaaaaaa/');
+    assert.equal(manifest.id, '/d/aaaaaaaa/');
+  } finally {
+    await relay.close();
+  }
+});
+
+test('an approval mints the credential; the relay only routes the request', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-claim-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  const origin = `http://127.0.0.1:${relay.port}`;
+  const publicKey = 'k'.repeat(87);
+  let desktop = null;
+  try {
+    relay.store.authenticate('aaaaaaaa', '0123456789abcdef');
+    desktop = new WebSocket(`ws://127.0.0.1:${relay.port}/desktop`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from('aaaaaaaa:0123456789abcdef').toString('base64')}`,
+      },
+    });
+    await new Promise((opened, failed) => {
+      desktop.once('open', opened);
+      desktop.once('error', failed);
+    });
+    const forwarded = new Promise((received) => {
+      desktop.on('message', (raw) => {
+        let value;
+        try { value = JSON.parse(String(raw)); } catch { return; }
+        if (value.type === 'client-claim') received(value);
+      });
+    });
+    const started = await fetch(`${origin}/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({
+        deviceId: 'aaaaaaaa',
+        clientId: 'bbbbbbbb',
+        publicKey,
+        name: 'iPhone · Web app',
+      }),
+    });
+    assert.equal(started.status, 202);
+    const { claimId } = await started.json();
+    const request = await forwarded;
+    assert.equal(request.claimId, claimId);
+    assert.equal(request.publicKey, publicKey);
+    // Pending means pending: no credential exists before the desktop answers.
+    assert.equal((await (await fetch(`${origin}/claim/${claimId}`)).json()).status, 'pending');
+    desktop.send(JSON.stringify({ type: 'claim-approve', claimId, sealed: { box: 'opaque' } }));
+    let answer = { status: 'pending' };
+    for (let attempt = 0; attempt < 40 && answer.status === 'pending'; attempt += 1) {
+      await delay(25);
+      answer = await (await fetch(`${origin}/claim/${claimId}`)).json();
+    }
+    assert.equal(answer.status, 'approved');
+    assert.match(answer.token, /^[0-9a-f]{64}$/);
+    // The relay forwards the sealed material without a key to open it.
+    assert.deepEqual(answer.sealed, { box: 'opaque' });
+    assert.equal(relay.store.deviceIdForClientToken(answer.token), 'aaaaaaaa');
+    // One-shot: the credential leaves this relay exactly once.
+    assert.equal((await (await fetch(`${origin}/claim/${claimId}`)).json()).status, 'expired');
+  } finally {
+    try { desktop?.close(); } catch { /* already closed */ }
+    await relay.close();
+  }
+});
+
+test('a claim for an unknown desktop is refused and never reaches a leg', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-claim-unknown-'));
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data') });
+  const origin = `http://127.0.0.1:${relay.port}`;
+  try {
+    const refused = await fetch(`${origin}/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({
+        deviceId: 'dddddddd',
+        clientId: 'bbbbbbbb',
+        publicKey: 'k'.repeat(87),
+      }),
+    });
+    assert.equal(refused.status, 404);
+    // Cross-origin callers cannot open a claim at all.
+    const crossOrigin = await fetch(`${origin}/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://evil.example' },
+      body: JSON.stringify({
+        deviceId: 'dddddddd',
+        clientId: 'bbbbbbbb',
+        publicKey: 'k'.repeat(87),
+      }),
+    });
+    assert.equal(crossOrigin.status, 403);
   } finally {
     await relay.close();
   }

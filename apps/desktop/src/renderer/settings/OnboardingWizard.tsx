@@ -110,7 +110,7 @@ const STEPS = [
     id: 'connection',
     label: () => t('Remote'),
     title: () => t('Pair a remote'),
-    subtitle: () => t('Scan with your phone camera — the web app works on any network, nothing to install.'),
+    subtitle: () => t('Scan with your phone camera, install the app, then approve it here.'),
   },
   {
     id: 'star',
@@ -1264,7 +1264,7 @@ function PairStep({ api }: { api: DesktopApi }) {
     <div className="settings-connection-grid">
       <figure className="settings-connection-card">
         <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: info?.relayBrowserQrSvg || '' }} />
-        <figcaption><b>{t('Open the web app')}</b><small>{t('Works on iPhone and Android — nothing to install')}</small></figcaption>
+        <figcaption><b>{t('Install the web app')}</b><small>{t('Works on iPhone and Android — approve it here once')}</small></figcaption>
       </figure>
     </div>
     <p className="onboarding-note">{t('You can pair more devices later in Settings → Connection.')}</p>

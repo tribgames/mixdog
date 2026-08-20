@@ -217,16 +217,17 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
       </div>
     </Group>;
   }
-  // Relay-only pairing: the web app is the only remote client and can be
-  // installed directly by the browser.
+  // Relay-only pairing: the installed web app is the only remote client. The
+  // scanned link routes to this desktop and carries no credential — approving
+  // the request the installed app makes is what grants access.
   const browserQrSvg = info.relayBrowserQrSvg || '';
   return <>
     <Group title="Web app"
-      description="Works on any network. Scan or open the secure browser link.">
+      description="Works on any network. Scan to install the app, then approve it here.">
       <div className="settings-connection-grid">
         <figure className="settings-connection-card">
           <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: browserQrSvg }} />
-          <figcaption><b>{t('Open or install the web app')}</b><small>{t('Chrome/Edge: Install app · Safari: Add to Home Screen')}</small></figcaption>
+          <figcaption><b>{t('Scan to install the web app')}</b><small>{t('Chrome/Edge: Install app · Safari: Add to Home Screen')}</small></figcaption>
         </figure>
       </div>
     </Group>
@@ -269,7 +270,7 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
       })}
     </div>
     <ResourceRow title="Unpair every device"
-      description="Mints a new pairing token. Browsers paired so far lose access and must scan again."
+      description="Every device approved so far loses access and must be approved again."
       actions={<ActionButton disabled={rotating} onClick={() => {
         if (!confirmRotate) {
           setConfirmRotate(true);

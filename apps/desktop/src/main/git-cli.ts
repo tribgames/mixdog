@@ -372,10 +372,9 @@ export async function gitUnstage(cwd: string, paths: string[]): Promise<void> {
 
 /**
  * What a `.gitignore` entry is asked to cover. `file` keeps the historical
- * behavior — one repository-rooted literal path. `extension` is GitHub
- * Desktop's "Ignore all <ext> files", which appends the unanchored `*<ext>`
- * rule (app/src/ui/changes/filter-changes-list.tsx:755 → sidebar.tsx:274 →
- * lib/git/gitignore.ts:63 `appendIgnoreRule`).
+ * behavior — one repository-rooted literal path. `extension` is the
+ * "Ignore all <ext> files" action, which appends the unanchored `*<ext>`
+ * rule.
  */
 /** Glob metacharacters inside text that must match literally. */
 function escapedIgnoreLiteral(value: string): string {
@@ -606,21 +605,19 @@ export async function gitAbortOperation(cwd: string): Promise<string> {
 // ── History context menu ───────────────────
 // Every action below moves HEAD, the index or a ref — but they are
 // NOT all gated alike:
-//   * a LIVE OPERATION blocks cherry-pick only. The reference's history menu
-//     disables that single item while a multi-commit operation runs
-//     (app/src/ui/history/commit-list.tsx:843-870 `canCherryPick`) and leaves
-//     the reset/checkout/revert/branch/tag dispatchers callable; git itself
+//   * a LIVE OPERATION blocks cherry-pick only: that single item is disabled
+//     while a multi-commit operation runs, and the
+//     reset/checkout/revert/branch/tag dispatchers stay callable; git itself
 //     refuses the ones that really cannot run (a revert on top of a merge, a
 //     checkout over unmerged entries) with its own wording.
 //   * a DIRTY WORKTREE blocks cherry-pick only, for the same reason: the
-//     reference runs `_checkForUncommittedChanges` (app-store.ts:9155) on the
+//     uncommitted-changes check applies on the
 //     cherry-pick path, while "Check out commit" explicitly carries safe local
 //     changes across and revert is handed to git, which refuses only when the
 //     revert would overwrite the edited file.
 //   * `--hard` reset still refuses a dirty worktree outright — it deletes the
 //     work — and `--mixed` reset REPORTS the risk instead of silently
-//     unstaging staged work (app-store.ts:5839-5856 raises
-//     `PopupType.WarningBeforeReset` before it resets).
+//     unstaging staged work (it warns before resetting).
 // Where a check does apply, an untracked file counts as dirty, exactly as
 // `gitMergeBranch` above already decided.
 // What git itself leaves half-done (a conflicted cherry-pick or revert) is
@@ -762,8 +759,8 @@ export const GIT_RESET_DIRTY_CODE = 'git-reset-dirty-worktree';
 /**
  * Move the current branch to `value`. The mode is the caller's, never implied.
  * `hard` rewrites the worktree, so a dirty one is refused outright. `mixed`
- * rewrites the INDEX: staged work silently becomes unstaged, which is why the
- * reference stops for a confirmation first (app-store.ts:5839-5856), so a
+ * rewrites the INDEX: staged work silently becomes unstaged, which is why a
+ * confirmation is required first, so a
  * dirty worktree is reported here — named files and a `code` — until the
  * caller comes back with `confirmedDirty`. `soft` touches neither.
  */
@@ -796,8 +793,8 @@ export async function gitResetToCommit(
 export async function gitRevertCommit(cwd: string, value: string): Promise<string> {
   const commit = await checkedCommit(cwd, value);
   // A MERGE commit has no single "before", so git needs the mainline stated —
-  // without it every revert of a merge fails. The reference tests the parent
-  // count for exactly this (app/src/lib/git/revert.ts:28-33).
+  // without it every revert of a merge fails, so the parent count is what
+  // decides here.
   const mainline = await commitParentCount(cwd, commit) > 1 ? ['-m', '1'] : [];
   try {
     return await run(cwd, ['revert', '--no-edit', ...mainline, commit]);
@@ -806,8 +803,7 @@ export async function gitRevertCommit(cwd: string, value: string): Promise<strin
   }
 }
 
-// `--empty=keep` is the reference's flag (app/src/lib/git/cherry-pick.ts:
-// 165-179) and the only reason an EMPTY commit can be replayed at all: git's
+// `--empty=keep` is the only reason an EMPTY commit can be replayed at all: git's
 // default STOPS such a pick (exit 1) and leaves CHERRY_PICK_HEAD on disk, so
 // `sequencerFailure` below would report it as a conflict — one the dock cannot
 // resolve, because it offers no "skip". It also keeps a commit that became
@@ -838,8 +834,8 @@ export async function gitCherryPickCommit(cwd: string, value: string): Promise<s
   const action = `cherry-picking ${commit.slice(0, 8)}`;
   await assertNoOperationInProgress(cwd, action);
   await assertCleanWorktree(cwd, action);
-  // Same mainline rule as revert. The reference passes `-m 1` unconditionally
-  // (app/src/lib/git/cherry-pick.ts:165-179); we pass it only for a merge,
+  // Same mainline rule as revert. Rather than passing `-m 1` unconditionally,
+  // we pass it only for a merge,
   // because a git older than 2.36 rejects a mainline on a non-merge commit
   // ("mainline was specified but commit … is not a merge") and mixdog does not
   // pin the user's git.

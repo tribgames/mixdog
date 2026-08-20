@@ -590,7 +590,7 @@ export function useMouseInput({
           const now = Date.now();
           // Shift+click on an existing word/line (anchorSpan) selection extends
           // that selection by whole words/lines to the click point, preserving
-          // the original anchor span (mirrors selection.ts extendSelection).
+          // the original anchor span.
           if (
             extendHeld
             && dragRef.current.region === region

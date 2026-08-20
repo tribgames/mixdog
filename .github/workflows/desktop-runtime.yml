@@ -41,13 +41,19 @@ jobs:
             --platform=${{ inputs.platform }} --arch=${{ inputs.arch }})" >> "$GITHUB_OUTPUT"
           echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
             apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          # The three manifests leave hashFiles below and arrive as a
+          # version-neutral digest: Deploy rewrites their version field before
+          # this job runs, so keying on their raw bytes retired the prepared
+          # runtime of all five platforms on every release.
+          echo "manifest_key=$(node scripts/manifest-cache-key.mjs \
+            package.json package-lock.json apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
           echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
       - name: Restore prepared runtime archive
         id: prepared-runtime
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.runtime
-          key: desktop-prepared-runtime-v1-${{ steps.runtime-dependencies.outputs.key }}-${{ hashFiles('package.json', 'package-lock.json', 'README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/package-lock.json', 'apps/desktop/scripts/prepare-runtime.mjs') }}
+          key: desktop-prepared-runtime-v2-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs') }}
       - name: Restore stable desktop npm downloads
         if: steps.prepared-runtime.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -12,6 +12,10 @@ component listed here. Each component keeps its own copyright notice.
   https://github.com/microsoft/vscode-codicons
   Copyright (c) Microsoft Corporation
 
+  Octicons
+  https://github.com/primer/octicons
+  Copyright (c) GitHub, Inc.
+
   GitHub Pull Requests and Issues (VS Code extension)
   https://github.com/microsoft/vscode-pull-request-github
   Copyright (c) Microsoft Corporation. All rights reserved.

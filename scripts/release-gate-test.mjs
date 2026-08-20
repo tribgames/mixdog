@@ -376,7 +376,16 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.match(release, /desktop-build:[\s\S]*name:\s*build-desktop-once/);
   assert.doesNotMatch(release, /desktop-build:\s*\n(?:[^\n]*\n){0,3}\s*needs:/);
   assert.doesNotMatch(release, /name:\s*Execute code graph from a clean cache/);
-  assert.match(release, /Restore unchanged desktop output[\s\S]*desktop-out-v1-\$\{\{ hashFiles/);
+  // Version-neutral keys: Deploy rewrites the manifest version one job before
+  // these caches are read, so a raw hashFiles() key can never hit on the run
+  // that needs it. The gate warms the identical key on every main push.
+  assert.match(release,
+    /Restore unchanged desktop output[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
+  assert.doesNotMatch(release, /desktop-out-v2-[\s\S]{0,400}apps\/desktop\/package-lock\.json/);
+  assert.match(automaticGate,
+    /name:\s*Warm the release desktop output cache[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
+  assert.match(automaticGate, /manifest-cache-key\.mjs/);
+  assert.match(desktopRuntime, /manifest-cache-key\.mjs/);
   assert.match(release, /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@v7/);
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-runtime\.yml/g) || []).length, 5);
   assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
@@ -405,7 +414,9 @@ advisoryTest('application release overlaps gates and publishes one exact hidden 
   assert.equal((desktopRuntime.match(
     /if:\s*steps\.prepared-runtime\.outputs\.cache-hit != 'true'/g,
   ) || []).length, 4);
-  assert.match(desktopRuntime, /desktop-prepared-runtime-v1-/);
+  assert.match(desktopRuntime, /desktop-prepared-runtime-v2-/);
+  assert.doesNotMatch(desktopRuntime,
+    /desktop-prepared-runtime-v2-[^\n]*hashFiles\([^)]*package(?:-lock)?\.json/);
   assert.match(desktopRuntime, /name:\s*Restore stable desktop npm downloads/);
   assert.match(desktopPackage, /name:\s*Restore stable desktop npm downloads/);
   assert.match(desktopRuntime, /dependency-lock-cache-key\.mjs/);

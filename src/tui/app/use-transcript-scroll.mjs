@@ -16,7 +16,7 @@ import {
   accumulateDirectionalScrollDelta,
   selectionRectsEqual,
   shiftSelectionRectY,
-  comparePoints,
+  compareCellOrder,
   upperBound,
   transcriptRowAt,
 } from './transcript-window.mjs';
@@ -101,7 +101,7 @@ export function useTranscriptScroll({
   // Synchronous sibling of harvestStitchRowsSoon: snapshot the rows CURRENTLY
   // under the selection into the stitch buffer immediately, keyed by the given
   // (pre-scroll) offset. Called right before a scroll shifts those rows out of
-  // view — mirrors selection.ts captureScrolledRows, which grabs the outgoing
+  // view — the harvest has to grab the outgoing
   // rows BEFORE scrollBy overwrites them. The deferred harvest could never see
   // rows that a fast drag/wheel scrolled past between paint and its setTimeout.
   // selectionRows is harvested by the renderer UNCONDITIONALLY (even on the
@@ -373,35 +373,43 @@ export function useTranscriptScroll({
     };
   }, []);
 
-  // Port of selection.ts extendSelection onto the linear-rect model, hoisted to
-  // component scope so BOTH the mouse handler (motion/release) AND the
-  // auto-scroll path (scrollTranscriptRows) can rebuild a span-aware rect. Grows
-  // a word/line multi-click selection from its anchor span to the word/line under
-  // the cursor: target ends before the span → extend backward (span.hi→targetLo);
-  // target starts after → extend forward (span.lo→targetHi); overlapping → the
-  // span. The moving end snaps to the word (getWordRectAt) or line (getLineRectAt)
-  // at the cursor; a miss (blank/gutter) falls back to the raw cell. spanScroll
-  // re-anchors the span to the current transcript scroll (status never scrolls) so
-  // the original word/line tracks the content while dragging/auto-scrolling.
+  // Grow a word/line multi-click selection from its anchor span out to the
+  // word/line under the cursor. Hoisted to component scope so BOTH the mouse
+  // handler (motion/release) AND the auto-scroll path can rebuild a span-aware
+  // rect. The moving end snaps to the word or line under the cursor and falls
+  // back to the raw cell on a miss; spanScroll re-anchors the stored span to
+  // the current transcript scroll (the status band never scrolls) so the
+  // original word keeps tracking its content while dragging or auto-scrolling.
   const buildSpanRect = useCallback((span, x, y, region, spanScroll = 0) => {
-    const conv = (pt) => (region === 'status' ? pt : selectionPointAtCurrentScroll(pt, spanScroll));
-    const spanLo = conv(span.lo);
-    const spanHi = conv(span.hi);
-    let mLo;
-    let mHi;
-    if (span.kind === 'word') {
-      const wr = store.getWordRectAt?.(x, y);
-      if (wr) { mLo = { x: wr.x1, y: wr.y1 }; mHi = { x: wr.x2, y: wr.y2 }; }
-      else { mLo = { x, y }; mHi = { x, y }; }
+    const atCurrentScroll = (point) => (
+      region === 'status' ? point : selectionPointAtCurrentScroll(point, spanScroll)
+    );
+    const anchorStart = atCurrentScroll(span.lo);
+    const anchorEnd = atCurrentScroll(span.hi);
+
+    const snapped = span.kind === 'word'
+      ? store.getWordRectAt?.(x, y)
+      : store.getLineRectAt?.(y);
+    let targetStart;
+    let targetEnd;
+    if (snapped) {
+      targetStart = { x: snapped.x1, y: snapped.y1 };
+      targetEnd = { x: snapped.x2, y: snapped.y2 };
+    } else if (span.kind === 'word') {
+      targetStart = { x, y };
+      targetEnd = { x, y };
     } else {
-      const lr = store.getLineRectAt?.(y);
-      if (lr) { mLo = { x: lr.x1, y: lr.y1 }; mHi = { x: lr.x2, y: lr.y2 }; }
-      else { mLo = { x: 0, y }; mHi = { x: Math.max(0, frameColumns - 1), y }; }
+      targetStart = { x: 0, y };
+      targetEnd = { x: Math.max(0, frameColumns - 1), y };
     }
-    const rect = (a, b) => ({ mode: 'linear', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
-    if (comparePoints(mHi, spanLo) < 0) return rect(spanHi, mLo);
-    if (comparePoints(mLo, spanHi) > 0) return rect(spanLo, mHi);
-    return rect(spanLo, spanHi);
+
+    // The anchor span always stays whole; the rect reaches from it toward the
+    // target when the target sits clear of it on either side, and collapses
+    // back to the anchor when the two overlap.
+    const linear = (from, to) => ({ mode: 'linear', x1: from.x, y1: from.y, x2: to.x, y2: to.y });
+    if (compareCellOrder(targetEnd, anchorStart) < 0) return linear(anchorEnd, targetStart);
+    if (compareCellOrder(targetStart, anchorEnd) > 0) return linear(anchorStart, targetEnd);
+    return linear(anchorStart, anchorEnd);
   }, [store, frameColumns, selectionPointAtCurrentScroll]);
 
   const transcriptViewportRows = useCallback(() => {
@@ -538,7 +546,7 @@ export function useTranscriptScroll({
     }
     // Before the scroll moves selected rows out of view, snapshot the rows
     // currently under the selection into the stitch buffer keyed by the
-    // PRE-scroll offset (ref selection.ts captureScrolledRows). Runs for BOTH
+    // PRE-scroll offset. Runs for BOTH
     // an active drag and a wheel-shift of a released selection, so Ctrl+C
     // reconstructs the full text no matter how far it scrolled off-screen.
     if (appliedDelta !== 0 && dragRef.current.region === 'transcript' && dragRef.current.rect) {

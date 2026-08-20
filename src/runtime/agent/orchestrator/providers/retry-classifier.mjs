@@ -215,10 +215,10 @@ export function isNonTerminalStreamClose(err) {
 /**
  * Should this failed stream be re-issued as a NON-STREAMING request?
  *
- * cc's last safety net: when a stream dies it repeats the same request with
- * `stream:false` instead of failing the turn (claude.ts, gated off only when
+ * A last safety net: when a stream dies, repeat the same request with
+ * `stream:false` instead of failing the turn (gated off only when
  * streaming tool execution could double-run a tool). MixDog dispatches tools
- * eagerly, so this stays deliberately narrower than cc: only a stream that
+ * eagerly, so this stays deliberately narrow: only a stream that
  * exposed NOTHING qualifies. An exposed stream is already covered by the
  * loop-level retraction replay (send-with-recovery), which asks the owner to
  * withdraw the rendered characters first.

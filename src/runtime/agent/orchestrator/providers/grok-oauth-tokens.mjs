@@ -110,7 +110,7 @@ export function resolveGrokOAuthResponsesTransport() {
 // Retired model aliases xAI no longer exposes by their old ids. The live
 // catalog surfaces the coding model as grok-build-0.1; map the legacy ids to
 // it so a stale config selection doesn't hit a model-not-found. Exact table,
-// not a heuristic. Mirrors openclaw extensions/xai/model-definitions.ts.
+// not a heuristic.
 const RETIRED_MODEL_ALIASES = Object.freeze({
     'grok-code-fast-1': 'grok-build-0.1',
     'grok-code-fast': 'grok-build-0.1',

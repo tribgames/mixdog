@@ -147,17 +147,29 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      # The lock file cannot enter this key through hashFiles: Deploy rewrites
+      # its version field one job earlier, which missed the cache on every
+      # single release. The manifest digest below ignores that field, so the
+      # key follows the dependency tree instead of the release number and the
+      # gate's build of the same source can serve this job.
+      - name: Resolve version-neutral desktop cache key
+        id: desktop-key
+        shell: bash
+        run: |
+          echo "manifest=$(node scripts/manifest-cache-key.mjs \
+            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+
+      # Key mirrored in release-gate.yml, which warms it on every main push.
       - name: Restore unchanged desktop output
         id: desktop-out
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/out
           key: >-
-            desktop-out-v1-${{ hashFiles(
+            desktop-out-v2-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
               'apps/desktop/src/**',
               'apps/desktop/electron.vite.config.ts',
               'apps/desktop/tsconfig*.json',
-              'apps/desktop/package-lock.json',
               'src/runtime/shared/**'
             ) }}
 

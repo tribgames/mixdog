@@ -3,18 +3,16 @@
 // the directory prefix — its separators included — is dim, the file name is
 // bright. There is no name/path column pair and no second line.
 //
-// Truncation is the reference's ALGORITHM, never a CSS ellipsis that eats the
-// file name at narrow dock widths: `truncatePath` (path-text.tsx:107-139)
-// keeps the FILE NAME whole and shortens the DIRECTORY prefix to `pre…/name`,
-// the directory/file split walks the truncated text back apart
-// (path-text.tsx:188-227), and the full path only moves into a tooltip once
-// something was actually dropped (path-text.tsx:316-355). The available width
-// is measured on the rendered box and the text against the row's own font
-// (canvas measureText), the same measure-then-fit loop `resizeIfNecessary`
-// runs, re-run whenever the row resizes.
+// Truncation is an ALGORITHM, never a CSS ellipsis that eats the file name at
+// narrow dock widths: the FILE NAME stays whole while the DIRECTORY prefix
+// shortens to `pre…/name`, the directory/file split walks the truncated text
+// back apart, and the full path only moves into a tooltip once something was
+// actually dropped. The available width is measured on the rendered box and
+// the text against the row's own font (canvas measureText) in a
+// measure-then-fit loop, re-run whenever the row resizes.
 import { useLayoutEffect, useRef, useState } from "react";
 
-/** path-text.tsx:83-98 — middle ellipsis, the fallback when not even
+/** Middle ellipsis — the fallback when not even
  *  `…/name` fits the available width. */
 export function truncateMid(value: string, length: number): string {
   if (value.length <= length) return value;
@@ -26,7 +24,7 @@ export function truncateMid(value: string, length: number): string {
   return `${pre}…${post}`;
 }
 
-/** path-text.tsx:107-139 — truncate a path to exactly `length` CHARACTERS,
+/** Truncate a path to exactly `length` CHARACTERS,
  *  spending them on the file name first and the directory prefix last. */
 export function truncateScmPath(path: string, length: number): string {
   if (path.length <= length) return path;
@@ -43,7 +41,7 @@ export function truncateScmPath(path: string, length: number): string {
   return `${pre}…${post}`;
 }
 
-/** path-text.tsx:188-227 — split the truncated text back into its dim
+/** Split the truncated text back into its dim
  *  directory prefix and its bright file name by matching the untruncated
  *  directory character by character; a `…` (and the `/` right after it) counts
  *  towards the directory, purely for looks. */
@@ -153,7 +151,7 @@ export function ScmPathText({ path, name, title }: {
     ? fullText
     : truncateScmPath(fullText, length);
   const { directoryText, fileText } = splitScmPath(shownText, directory);
-  // path-text.tsx:321,347-355: the tooltip appears once anything was dropped.
+  // The tooltip appears once anything was dropped.
   const tooltip = title ?? (shownText === fullText ? "" : fullText);
   return <span ref={hostRef} className="dock-scm-file-copy"
     {...(tooltip ? { title: tooltip } : {})}>

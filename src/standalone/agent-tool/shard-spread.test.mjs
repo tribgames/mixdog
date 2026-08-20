@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { remoteTurnHandoffReady } from './shard-spread.mjs';
+import { createAgentShardSpread, remoteTurnHandoffReady } from './shard-spread.mjs';
+
+test('manager wrapper owns writable overrides when the source manager is immutable', () => {
+  const localSession = { id: 'local-session' };
+  const createSession = () => localSession;
+  const mgr = Object.freeze({
+    createSession,
+    getSession: (id) => (id === localSession.id ? localSession : null),
+  });
+
+  const spread = createAgentShardSpread({ mgr });
+
+  assert.equal(Object.hasOwn(spread.mgr, 'getSession'), true);
+  assert.equal(spread.mgr.getSession(localSession.id), localSession);
+  assert.equal(spread.mgr.createSession, createSession);
+});
 
 test('remote turn waits through the turndone-to-save gap for assistant content', () => {
   assert.equal(remoteTurnHandoffReady({

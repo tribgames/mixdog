@@ -104,7 +104,7 @@ import {
   TRANSCRIPT_MEASURED_ROWS,
   selectionRectsEqual,
   shiftSelectionRectY,
-  comparePoints,
+  compareCellOrder,
   upperBound,
   resolveAnchorScrollOffset,
   transcriptItemVariantKey,
@@ -641,8 +641,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // | null. Press decides it; motion/release stay in that region.
   // anchorSpan: for word/line multi-click selections, the initial word/line
   // bounds ({ lo:{x,y}, hi:{x,y}, kind:'word'|'line' }) so a subsequent drag
-  // extends the selection whole-word/whole-line from that span (see selection.ts
-  // extendSelection). Null ⇔ ordinary char-drag selection.
+  // extends the selection whole-word/whole-line from that span. Null ⇔ an
+  // ordinary char-drag selection.
   const dragRef = useRef({ anchor: null, anchorScroll: 0, last: null, active: false, rect: null, region: null, anchorSpan: null });
   const transcriptViewportRef = useRef({ top: 0, bottom: 0 });
   const panelTransitionRef = useRef({ signature: '', reserve: 0, clearRows: 0, guardRows: 0, epoch: 0 });

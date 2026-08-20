@@ -179,7 +179,7 @@ for (const scenario of report) {
   }
 
   // Changes | History must be two EQUAL halves spanning the panel width
-  // (_tab-bar.scss:33-52, `flex: 1` per item).
+  // (`flex: 1` per item).
   const tabs = scenario.tabs || [];
   if (!check(scenario, tabs.length === 2, `expected 2 tab halves, measured ${tabs.length}`)) {
     console.log(`   tab bar      MISSING (${tabs.length} halves)`);
@@ -207,7 +207,7 @@ for (const scenario of report) {
   }
 
   // History rows: one fixed height, never a wrapped title or byline, and no
-  // commit-graph rail (commit-list-item.tsx has none).
+  // commit-graph rail (history rows have none).
   const rows = scenario.historyRows || [];
   if (!check(scenario, rows.length > 0, "no history rows were measured")) {
     console.log("   history rows MISSING");
@@ -333,7 +333,7 @@ for (const scenario of report) {
       + ` ${changes} vs ${history}`);
   }
 
-  // Path truncation keeps the FILE NAME (path-text.tsx:188-227): the dim
+  // Path truncation keeps the FILE NAME: the dim
   // directory prefix is the only part allowed to lose characters, so the name
   // is never ellipsized, never clipped and never overflows its path column —
   // at 300px (DESKTOP_UTILITY_DOCK_MIN_WIDTH) and at the reported 290px too.

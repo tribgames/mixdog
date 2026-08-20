@@ -20,9 +20,8 @@ function snapshotBodyWasReturnedByRead(snapshot) {
         || source.startsWith('apply_patch_');
 }
 
-// BOM-only read-encoding detection. Mirrors CC fileRead.ts:34
-// (buffer[0]===0xff && buffer[1]===0xfe -> 'utf16le') / file.ts
-// detectFileEncoding. STRICTLY a leading-BOM rule — no content sniffing
+// BOM-only read-encoding detection: buffer[0]===0xff && buffer[1]===0xfe
+// means 'utf16le', and so on. STRICTLY a leading-BOM rule — no content sniffing
 // and no heuristic fallback.
 // Returns the decoder name plus the BOM byte length to strip before
 // decoding. utf8-with-BOM (EF BB BF) keeps the utf-8 decoder; its leading
