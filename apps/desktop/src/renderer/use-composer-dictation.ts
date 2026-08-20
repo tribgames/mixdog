@@ -53,11 +53,23 @@ export function useComposerDictation({
         showNotice("No microphone was detected. Connect one and try again.");
         return;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Transcription needs intelligibility, not fidelity: engines resample to
+      // 16 kHz mono anyway, and 24 kbps Opus is transparent for speech. The
+      // browser default (48 kHz stereo, 48-64 kbps) sent two to three times
+      // the bytes over a phone link for no gain in accuracy. Every constraint
+      // is `ideal`, so a device that cannot honour one still records.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 16_000 },
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 24_000 });
       const session = {
         recorder,
         stream,
