@@ -1,7 +1,6 @@
-// Optional-sharp image resize / downsample helper. Mirrors reference
-// imageResizer.ts (maybeResizeAndDownsampleImageBuffer +
-// readImageWithTokenBudget) so a `read` on an image returns a viewable,
-// budget-bounded image block instead of refusing oversized originals.
+// Optional-sharp image resize / downsample helper: a `read` on an image
+// returns a viewable, budget-bounded image block instead of refusing
+// oversized originals.
 //
 // sharp is a direct runtime dependency. Entry points still degrade to `null`
 // when a platform-native binding cannot load so a damaged install reports the

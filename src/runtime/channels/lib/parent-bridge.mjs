@@ -28,11 +28,11 @@ function setChannelNotifySink(fn) {
 
 function createParentBridge({ getInstanceId, ipcProcess = process }) {
   function sendNotifyToParent(method, params) {
-    // CC channel schema requires meta: Record<string,string> (channelNotification.ts).
+    // The channel schema requires meta: Record<string,string>.
     // Coerce every meta value to string so a non-string (e.g. a Discord
     // interaction.type number) can't fail zod and silently drop the notify.
     // silent_to_agent stays boolean — an internal routing flag the daemon
-    // router / agentNotify consume (=== true) before the CC zod boundary.
+    // router / agentNotify consume (=== true) before the zod boundary.
     const outParams = normalizeChannelNotifyParams(method, params);
     if (_notifySink) {
       try { _notifySink(method, outParams); }

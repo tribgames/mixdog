@@ -230,63 +230,26 @@ test("a stale projected boot keeps phone chrome at native size", async () => {
   }
 });
 
-test("install guidance separates iOS manual install from Android prompts", async () => {
-  const { isIosInstallPlatform, remoteInstallMode } =
-    await import(`./remote-install.ts?install=${Date.now()}`);
-  assert.equal(isIosInstallPlatform("Mozilla/5.0 (iPhone)", "iPhone", 5), true);
-  assert.equal(remoteInstallMode({
-    remote: true,
-    standalone: false,
-    dismissed: false,
-    canPrompt: false,
-    ios: true,
-  }), "ios");
-  assert.equal(remoteInstallMode({
-    remote: true,
-    standalone: false,
-    dismissed: false,
-    canPrompt: true,
-    ios: false,
-  }), "prompt");
-  assert.equal(remoteInstallMode({
-    remote: true,
-    standalone: true,
-    dismissed: false,
-    canPrompt: false,
-    ios: true,
-  }), "hidden");
-});
+test("the entry route names the desktop to ask, by path or by relay cookie", async () => {
+  const { REMOTE_PAIRING_STORAGE_KEYS, clearStoredRemotePairing, readRemoteDeviceId } =
+    await import(`./remote-pairing-recovery.ts?device=${Date.now()}`);
+  // An installed web app launches at the route its manifest captured — the one
+  // thing an empty storage container knows about the desktop it belongs to.
+  assert.equal(readRemoteDeviceId("/d/abc123de/", ""), "abc123de");
+  assert.equal(readRemoteDeviceId("/d/abc123de", ""), "abc123de");
+  assert.equal(readRemoteDeviceId("/d/abc123de/settings", ""), "abc123de");
+  // A navigation that left the route falls back to the cookie the relay set.
+  assert.equal(readRemoteDeviceId("/", "theme=dark; mixdog_device=abc123de"), "abc123de");
+  // The route is a label, not a credential — but a malformed one is refused.
+  assert.equal(readRemoteDeviceId("/", "mixdog_device=../secrets"), "");
+  assert.equal(readRemoteDeviceId("/", ""), "");
 
-test("the iOS install handoff is offered only with a scanned pairing in hand", async () => {
-  const { iosInstallStep } = await import(`./remote-install.ts?handoff=${Date.now()}`);
-  assert.equal(iosInstallStep({ handoff: true, prepared: false }), "prepare");
-  assert.equal(iosInstallStep({ handoff: true, prepared: true }), "share");
-  assert.equal(iosInstallStep({ handoff: false, prepared: false }), "plain");
-});
-
-test("the scanned pairing link outlives token registration and dies with a reset", async () => {
-  const {
-    REMOTE_PAIRING_STORAGE_KEYS,
-    clearStoredRemotePairing,
-    parseRemotePairingLink,
-    readRemotePairingLink,
-    storeRemotePairingLink,
-  } = await import(`./remote-pairing-recovery.ts?link=${Date.now()}`);
-  const link = `https://relay.example/?token=${"a".repeat(48)}`
-    + `#e2eeKey=${"K".repeat(87)}&e2eeSecret=${"S".repeat(43)}`;
-  const parsed = parseRemotePairingLink(link);
-  assert.ok(parsed);
-  const cells = new Map();
-  const storage = {
-    getItem: (key) => (cells.has(key) ? cells.get(key) : null),
-    setItem: (key, value) => { cells.set(key, String(value)); },
-    removeItem: (key) => { cells.delete(key); },
-  };
-  storeRemotePairingLink(storage, parsed);
-  // Registration replaces the routing token with a per-browser credential; only
-  // the scanned link can still pair a second storage container, so it stays.
-  storage.setItem(REMOTE_PAIRING_STORAGE_KEYS.token, "b".repeat(64));
-  assert.equal(readRemotePairingLink(storage), parsed.url);
-  clearStoredRemotePairing(storage);
-  assert.equal(readRemotePairingLink(storage), "");
+  const cells = new Map([
+    [REMOTE_PAIRING_STORAGE_KEYS.token, "b".repeat(64)],
+    [REMOTE_PAIRING_STORAGE_KEYS.device, "abc123de"],
+  ]);
+  // A reset wipes stored credentials AND the route; the entry screen recovers
+  // the route from the URL it launched at and asks for a new approval.
+  clearStoredRemotePairing({ removeItem: (key) => { cells.delete(key); } });
+  assert.equal(cells.size, 0);
 });

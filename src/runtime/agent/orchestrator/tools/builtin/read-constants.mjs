@@ -3,9 +3,8 @@ import { TOOL_OUTPUT_MAX_BYTES } from './tool-output-limit.mjs';
 
 // Read tool caps.
 //
-// READ_MAX_SIZE_BYTES (10 MB) — fast-path file-size threshold mirroring
-// Reference FAST_PATH_MAX_SIZE (readFileInRange.ts:44). Files at or below
-// this size use readFile + in-memory split by default, which CC measured at
+// READ_MAX_SIZE_BYTES (10 MB) — fast-path file-size threshold. Files at or below
+// this size use readFile + in-memory split by default, measured at
 // ~2x faster than createReadStream + readline for typical source. Explicit
 // offset/limit windows on files above READ_STREAM_RANGE_MIN_BYTES take the
 // streaming path too, so a targeted read avoids materialising a whole

@@ -135,6 +135,31 @@ jobs:
       - name: Build desktop
         if: needs.changes.outputs.desktop_css_only != 'true'
         run: npm run build --prefix apps/desktop
+      # Deploy rebuilt this exact bundle minutes later because nothing kept the
+      # gate's output. Save it under the key release.yml restores so a release
+      # whose desktop source is unchanged reuses this build instead of paying
+      # for Vite again. The CSS-only path is excluded: it emits the renderer
+      # alone, which would poison the key with a partial output.
+      - name: Resolve version-neutral desktop cache key
+        id: desktop-key
+        if: needs.changes.outputs.desktop_css_only != 'true'
+        shell: bash
+        run: |
+          echo "manifest=$(node scripts/manifest-cache-key.mjs \
+            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+      - name: Warm the release desktop output cache
+        if: needs.changes.outputs.desktop_css_only != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/out
+          key: >-
+            desktop-out-v2-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+              'apps/desktop/src/**',
+              'apps/desktop/electron.vite.config.ts',
+              'apps/desktop/tsconfig*.json',
+              'src/runtime/shared/**'
+            ) }}
 
   graph:
     needs: changes

@@ -135,11 +135,10 @@ export function shiftSelectionRectY(rect, deltaY) {
   return { ...rect, y1: rect.y1 + dy, y2: rect.y2 + dy };
 }
 
-// Reading-order compare (row then col): -1 if a<b, 1 if a>b, 0 equal.
-export function comparePoints(a, b) {
-  if (a.y !== b.y) return a.y < b.y ? -1 : 1;
-  if (a.x !== b.x) return a.x < b.x ? -1 : 1;
-  return 0;
+// Reading order over grid cells: the row decides, the column breaks ties.
+// Returns the sign of the difference, so it drops straight into comparisons.
+export function compareCellOrder(a, b) {
+  return a.y === b.y ? Math.sign(a.x - b.x) : Math.sign(a.y - b.y);
 }
 
 

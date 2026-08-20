@@ -611,9 +611,11 @@ export function createAgentShardSpread({ mgr, log = null } = {}) {
   const createRemoteSession = createRemoteAgentSession;
   const remote = (id) => handles.get(String(id || '')) || null;
 
-  // mgr facade: prototype delegation keeps every manager method reachable;
-  // only session-addressed methods gain the remote-handle routing.
-  const wrapped = Object.create(mgr);
+  // mgr is normally an ESM module namespace. Copy its enumerable exports onto
+  // a writable facade before overriding the session-addressed methods. Using
+  // the namespace as a prototype makes assignment hit its immutable exports
+  // under Node 24 (Electron 41), so even `wrapped.getSession = ...` throws.
+  const wrapped = Object.assign(Object.create(null), mgr);
   wrapped.getSession = (id) => {
     const handle = remote(id);
     return handle ? handle.facade : mgr.getSession(id);

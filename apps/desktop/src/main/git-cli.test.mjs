@@ -2383,7 +2383,7 @@ test("reset moves the branch in the mode the caller names, --hard refuses work a
     // mixed REWRITES THE INDEX: that staged file would silently become
     // unstaged, so the risk is reported — named files plus a code the UI can
     // match — instead of run, as the reference asks first (WarningBeforeReset,
-    // app-store.ts:5839-5856).
+    // warn-before-reset rule).
     const warned = await gitResetToCommit(cwd, base, "mixed").then(() => null, (error) => error);
     assert.ok(warned, "a --mixed reset must not silently unstage uncommitted work");
     assert.match(warned.message, /--mixed/);
@@ -2611,7 +2611,7 @@ test("cherry-pick lands a commit here and a conflicted one stays abortable", asy
 // git's DEFAULT stops an empty pick (exit 1) and leaves CHERRY_PICK_HEAD on
 // disk, which sequencerFailure would then report as a conflict — one the dock
 // cannot resolve, because it offers no "skip". The reference keeps the commit
-// instead (cherry-pick.ts:165-179 `--empty=keep`), so the picked summary lands
+// instead (`--empty=keep`), so the picked summary lands
 // in this branch's history and nothing half-done is left behind.
 test("cherry-pick keeps an empty commit instead of stranding the sequencer", async () => {
   const cwd = await createRepository();
@@ -2773,14 +2773,14 @@ test("a merge commit is reverted and cherry-picked against its first parent", as
     );
 
     // A merge has no single "before", so git refuses to revert one until a
-    // mainline is named; `-m 1` names the first parent (revert.ts:28-33).
+    // mainline is named; `-m 1` names the first parent.
     assert.match(await gitRevertCommit(cwd, merge), /revert/i);
     assert.match(await git(cwd, ["log", "-1", "--format=%s"]), /Revert "Merge/);
     assert.equal(await stat(join(cwd, "side.txt")).then(() => true, () => false), false);
     assert.equal(await stat(join(cwd, "main.txt")).then(() => true, () => false), true);
     assert.equal((await gitStatus(cwd)).files.length, 0);
 
-    // Same rule for cherry-pick (cherry-pick.ts:165-179): replayed onto another
+    // Same rule for cherry-pick: replayed onto another
     // branch, the merge contributes the diff against its first parent.
     await git(cwd, ["checkout", "-b", "target", base]);
     assert.equal(await stat(join(cwd, "side.txt")).then(() => true, () => false), false);

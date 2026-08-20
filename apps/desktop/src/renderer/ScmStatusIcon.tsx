@@ -1,30 +1,27 @@
-// The changed-file STATUS GLYPH, shared by every file list in the
-// dock (working directory, commit detail, pull-request changes) so all three
-// read identically. Mapping: app/src/ui/octicons/status.ts:16-37; colours:
-// app/styles/mixins/_octicon-status.scss:1-24 (see desktop.css for the token
-// each `--color-*` lands on).
+// The changed-file STATUS GLYPH, shared by every file list in the dock
+// (working directory, commit detail, pull-request changes) so all three read
+// identically. Each status colour lands on one of our own semantic tokens —
+// see desktop.css.
 //
-// The glyphs are the reference's OWN 16px octicon paths, copied VERBATIM from
-// app/src/ui/octicons/octicons.generated.ts — `diffAdded` (:1524-1528),
-// `diffModified` (:1557-1561), `diffRemoved` (:1574-1578), `diffRenamed`
-// (:1591-1595) and `alert` (:87-91), each the symbol's single `'16'.p[0]`
-// string. Nothing here is reassembled, subset or re-derived: the octicon is a
-// THIN OUTLINED rounded square (outer contour + inner contour) with the +, ·,
-// − or → sitting INSIDE it, rendered on a 16 viewBox with fill="currentColor"
-// exactly like octicon.tsx:85-105.
+// The five path strings below are Octicons glyphs carried unmodified:
+// diffAdded, diffModified, diffRemoved, diffRenamed and alert, each the
+// symbol's single 16px path. Nothing is reassembled, subset or re-derived —
+// the glyph is a thin outlined rounded square (outer contour + inner contour)
+// with the +, ·, − or → sitting INSIDE it, drawn on a 16 viewBox with
+// fill="currentColor". Attribution and license: NOTICE.md.
 
-/** octicons.generated.ts diffAdded '16'.p[0] (:1527). */
+/** Octicons diffAdded, 16px path. */
 const DIFF_ADDED = "M2.75 1h10.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1Zm10.5 1.5H2.75a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 4a.75.75 0 0 1 .75.75v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5A.75.75 0 0 1 8 4Z";
-/** octicons.generated.ts diffModified '16'.p[0] (:1560). */
+/** Octicons diffModified, 16px path. */
 const DIFF_MODIFIED = "M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z";
-/** octicons.generated.ts diffRemoved '16'.p[0] (:1577). */
+/** Octicons diffRemoved, 16px path. */
 const DIFF_REMOVED = "M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25Zm8.5 6.25h-6.5a.75.75 0 0 1 0-1.5h6.5a.75.75 0 0 1 0 1.5Z";
-/** octicons.generated.ts diffRenamed '16'.p[0] (:1594). */
+/** Octicons diffRenamed, 16px path. */
 const DIFF_RENAMED = "M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25Zm9.03 6.03-3.25 3.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.97-1.97H4.75a.75.75 0 0 1 0-1.5h4.69L7.47 5.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l3.25 3.25a.75.75 0 0 1 0 1.06Z";
-/** octicons.generated.ts alert '16'.p[0] (:90) — the conflict glyph. */
+/** Octicons alert, 16px path — the conflict glyph. */
 const ALERT = "M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z";
 
-/** One 16px octicon, drawn from the reference's single path string. */
+/** One 16px octicon, drawn from its single path string. */
 function StatusGlyph({ path, size }: { path: string; size: number }) {
   return <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor"
     className="dock-scm-status-glyph" aria-hidden="true" focusable="false">
@@ -40,8 +37,8 @@ export type ScmStatusKind =
   | "deleted"
   | "conflicted";
 
-/** `iconForStatus` (status.ts:16-37) on the reference's own octicons:
- *  diffAdded, diffModified, diffRemoved, diffRenamed and alert. The label is
+/** Status-to-glyph mapping over the Octicons set: diffAdded, diffModified,
+ *  diffRemoved, diffRenamed and alert. The label is
  *  the icon's ACCESSIBLE NAME — the row still says "Modified" out loud now
  *  that the letter badge is gone. */
 const STATUS_ICONS: Record<ScmStatusKind, { path: string; label: string }> = {

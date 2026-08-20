@@ -302,15 +302,13 @@ export default class Output {
         // text is trailing-space-trimmed and partial first/last rows respect
         // x1/x2. Null when there is no selection (mirrors selectedText).
         let selectionRows = null;
-        // [mixdog fork] noSelect exclusion (skip gutter / line-number
-        // / diff-sigil cells from both highlight and copy via screen.noSelect):
-        // mixdog's cell model has NO noSelect marker — the Output grid stores only
-        // {value, styles} per cell, with no flag distinguishing gutter cells from
-        // content. Inferring gutters from position/content would be a fragile
-        // heuristic (line numbers, diff +/- sigils, and real content are
-        // indistinguishable at the cell level), so this is deliberately NOT
-        // implemented. It needs a noSelect bit threaded through the render
-        // pipeline before it can be done cleanly.
+        // [mixdog fork] Excluding gutter / line-number / diff-sigil cells from
+        // the highlight and the copy is deliberately NOT implemented: the Output
+        // grid stores only {value, styles} per cell, with no flag distinguishing
+        // chrome from content. Inferring gutters from position or content would
+        // be a fragile heuristic (line numbers, diff +/- sigils and real content
+        // are indistinguishable at the cell level), so this needs an explicit
+        // no-select bit threaded through the render pipeline first.
         if (sel) {
             const captureSelectedText = sel.captureText !== false;
             if (!captureSelectedText) {

@@ -1,9 +1,9 @@
 /**
  * termio-keypress.js — chunked keypress pipeline built on the termio tokenizer.
  *
- * Keypress parsing (parseMultipleKeypresses +
- * paste IN_PASTE buffering + orphaned mouse-tail resynthesis + terminal-response
- * / SGR-mouse recognition) to plain ESM JS.
+ * Tokens arrive as text runs and raw escape sequences; this layer decides what
+ * each one MEANS: bracketed-paste accumulation, terminal-response replies,
+ * SGR/X10 mouse events, orphaned mouse tails, and ordinary keypresses.
  *
  * It emits a flat list of typed events:
  *   { kind: 'key',      sequence, isPasted, ... }  normal keypress or paste
@@ -148,93 +148,124 @@ export const INITIAL_STATE = {
   pasteBuffer: '',
 };
 
+// An orphaned mouse tail: the ESC was flushed on its own as a lone Escape (a
+// heavy render blocked the event loop past the pending-ESC timer), so the
+// continuation reached us as plain text. The X10 Cb slot is narrowed to the
+// wheel range so ordinary typing like `[MAX]` batched into one read is not
+// mistaken for a click.
+// eslint-disable-next-line no-control-regex
+const ORPHAN_SGR_TAIL_RE = /^\[<\d+;\d+;\d+[Mm]$/;
+// eslint-disable-next-line no-control-regex
+const ORPHAN_X10_TAIL_RE = /^\[M[\x60-\x7f][\x20-\uffff]{2}$/;
+
+/** A non-paste sequence token becomes a response, a mouse event, or a key. */
+function eventForSequence(sequence) {
+  const response = parseTerminalResponse(sequence);
+  if (response) return { kind: 'response', sequence, response };
+  return parseMouseEvent(sequence) ?? asKey(sequence);
+}
+
+/** Restore the ESC an orphaned mouse tail lost, or null when it is real text. */
+function eventForOrphanTail(text) {
+  if (!ORPHAN_SGR_TAIL_RE.test(text) && !ORPHAN_X10_TAIL_RE.test(text)) return null;
+  const restored = `\x1b${text}`;
+  return parseMouseEvent(restored) ?? asKey(restored);
+}
+
 /**
- * Feed a chunk (or null to flush) through the tokenizer + paste/mouse/response
- * classification. Returns [events, newState]. The tokenizer instance lives on
- * the returned state so incomplete sequences buffer across calls.
+ * Cut a text run at every DEL/BS byte. A held backspace arrives as one chunk
+ * (`\x7f\x7f\x7f`) and must land as three key events, not one garbage key.
+ * Carriage returns and tabs stay inside their run.
+ */
+function splitEditingBytes(text) {
+  const pieces = [];
+  let run = '';
+  for (const character of text) {
+    if (character !== '\x7f' && character !== '\x08') {
+      run += character;
+      continue;
+    }
+    if (run) pieces.push(run);
+    pieces.push(character);
+    run = '';
+  }
+  if (run) pieces.push(run);
+  return pieces;
+}
+
+/** Bracketed-paste accumulator: everything between the markers is literal. */
+function pasteAccumulator(open, buffer) {
+  return {
+    open,
+    buffer,
+    start() {
+      this.open = true;
+      this.buffer = '';
+    },
+    absorb(text) {
+      this.buffer += text;
+    },
+    take() {
+      const content = this.buffer;
+      this.open = false;
+      this.buffer = '';
+      return content;
+    },
+  };
+}
+
+function asInputString(input) {
+  if (typeof input === 'string') return input;
+  return String(input ?? '');
+}
+
+/**
+ * Feed a chunk (or null to flush) through the tokenizer and turn the resulting
+ * tokens into typed events. Returns [events, newState]; the tokenizer instance
+ * rides on the returned state so incomplete sequences buffer across calls.
  */
 export function parseMultipleKeypresses(prevState, input = '') {
-  const isFlush = input === null;
-  const inputString = isFlush ? '' : typeof input === 'string' ? input : String(input ?? '');
-
+  const flushing = input === null;
   const tokenizer = prevState._tokenizer ?? createTokenizer({ x10Mouse: true });
-  const tokens = isFlush ? tokenizer.flush() : tokenizer.feed(inputString);
+  const tokens = flushing ? tokenizer.flush() : tokenizer.feed(asInputString(input));
 
-  const keys = [];
-  let inPaste = prevState.mode === 'IN_PASTE';
-  let pasteBuffer = prevState.pasteBuffer;
+  const events = [];
+  const paste = pasteAccumulator(prevState.mode === 'IN_PASTE', prevState.pasteBuffer);
 
   for (const token of tokens) {
-    if (token.type === 'sequence') {
-      if (token.value === PASTE_START) {
-        inPaste = true;
-        pasteBuffer = '';
-      } else if (token.value === PASTE_END) {
-        // Always emit a paste key, even for empty pastes.
-        keys.push(createPasteKey(pasteBuffer));
-        inPaste = false;
-        pasteBuffer = '';
-      } else if (inPaste) {
-        // Sequences inside paste are literal text.
-        pasteBuffer += token.value;
-      } else {
-        const response = parseTerminalResponse(token.value);
-        if (response) {
-          keys.push({ kind: 'response', sequence: token.value, response });
-        } else {
-          const mouse = parseMouseEvent(token.value);
-          keys.push(mouse ?? asKey(token.value));
-        }
-      }
-    } else if (token.type === 'text') {
-      if (inPaste) {
-        pasteBuffer += token.value;
-      } else if (
-        /^\[<\d+;\d+;\d+[Mm]$/.test(token.value) ||
-        /^\[M[\x60-\x7f][\x20-\uffff]{2}$/.test(token.value)
-      ) {
-        // Orphaned SGR/X10 mouse tail (fullscreen only). A heavy render blocked
-        // the event loop past the pending-ESC flush timer, so the buffered ESC
-        // flushed as a lone Escape and the continuation `[<btn;col;rowM` arrived
-        // as text. Re-synthesize with the ESC prefix so the scroll/mouse event
-        // still fires. X10 Cb slot narrowed to wheel range [\x60-\x7f] so typed
-        // input like `[MAX]` batched into one read isn't dropped as a click.
-        const resynthesized = '\x1b' + token.value;
-        const mouse = parseMouseEvent(resynthesized);
-        keys.push(mouse ?? asKey(resynthesized));
-      } else {
-        // Split 0x7F (DEL) and 0x08 (BS) bytes into individual key events so
-        // held-backspace chunks (`\x7f\x7f\x7f`) don't parse as one garbage
-        // key. \r and \t are left intact — only backspace bytes are split.
-        let run = '';
-        for (const ch of token.value) {
-          if (ch === '\x7f' || ch === '\x08') {
-            if (run) {
-              keys.push(asKey(run));
-              run = '';
-            }
-            keys.push(asKey(ch));
-          } else {
-            run += ch;
-          }
-        }
-        if (run) keys.push(asKey(run));
-      }
+    const isText = token.type === 'text';
+    if (!isText && token.value === PASTE_START) {
+      paste.start();
+      continue;
     }
+    if (!isText && token.value === PASTE_END) {
+      // An empty paste still emits a key so callers can react to it.
+      events.push(createPasteKey(paste.take()));
+      continue;
+    }
+    if (paste.open) {
+      paste.absorb(token.value);
+      continue;
+    }
+    if (!isText) {
+      events.push(eventForSequence(token.value));
+      continue;
+    }
+    const orphan = eventForOrphanTail(token.value);
+    if (orphan) {
+      events.push(orphan);
+      continue;
+    }
+    for (const piece of splitEditingBytes(token.value)) events.push(asKey(piece));
   }
 
-  if (isFlush && inPaste && pasteBuffer) {
-    keys.push(createPasteKey(pasteBuffer));
-    inPaste = false;
-    pasteBuffer = '';
-  }
+  // A paste left open at end-of-stream is delivered rather than dropped.
+  if (flushing && paste.open && paste.buffer) events.push(createPasteKey(paste.take()));
 
-  const newState = {
-    mode: inPaste ? 'IN_PASTE' : 'NORMAL',
+  return [events, {
+    mode: paste.open ? 'IN_PASTE' : 'NORMAL',
     incomplete: tokenizer.buffer(),
-    pasteBuffer,
+    pasteBuffer: paste.buffer,
     _tokenizer: tokenizer,
-  };
-
-  return [keys, newState];
+  }];
 }

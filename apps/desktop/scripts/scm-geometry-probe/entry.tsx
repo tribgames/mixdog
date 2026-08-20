@@ -460,7 +460,7 @@ const measure = async (scenario: {
         height: round(rect.height),
       };
     }),
-    // Path truncation (ScmPathText, path-text.tsx:188-227): jsdom cannot tell
+    // Path truncation (ScmPathText): jsdom cannot tell
     // whether the FILE NAME survived the narrow dock, so the name box, the
     // path column it sits in and the tooltip are measured here.
     changesFiles: [...document.querySelectorAll(".dock-scm-file")].map((row, index) => ({
@@ -541,7 +541,7 @@ const measure = async (scenario: {
   report.commitRow = rectOf(".dock-scm-commit-split");
   report.commitControls = document.querySelectorAll(".dock-scm-commit-split > button").length;
 
-  // Tab bar: two EQUAL halves spanning the panel width (_tab-bar.scss:33-52).
+  // Tab bar: two EQUAL halves spanning the panel width.
   report.tabBar = rectOf(".dock-scm-tab-bar");
   report.tabs = [...document.querySelectorAll(".dock-scm-tab")].map((tab) => ({
     option: (tab as HTMLElement).dataset.reviewOption || "",

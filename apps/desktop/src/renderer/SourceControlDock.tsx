@@ -150,7 +150,7 @@ export function SourceControlDock({
   const [selectedCommit, setSelectedCommit] = useState("");
   const [commitDetail, setCommitDetail] = useState<DesktopGitCommitDetails | null>(null);
   /** Outcome of the last SHA copy — the copy affordance's confirmation
-   *  (expandable-commit-summary.tsx:443-448). `ok: false` means the clipboard
+   *  `ok: false` means the clipboard
    *  was unavailable or refused, which must NOT read as "Copied". */
   const [shaCopy, setShaCopy] = useState<{ hash: string; ok: boolean } | null>(null);
   const [openCommitFile, setOpenCommitFile] = useState("");
@@ -435,7 +435,7 @@ export function SourceControlDock({
     }
   }, [reload]);
 
-  // ONE flat working-directory list (filter-changes-list.tsx): no staged /
+  // ONE flat working-directory list: no staged /
   // unstaged / merge groups, just changed files with checkboxes.
   const files = useMemo(() => status?.files ?? [], [status]);
   const conflicts = useMemo(() => files.filter((file) => file.conflicted), [files]);
@@ -827,8 +827,7 @@ export function SourceControlDock({
         // A `--mixed` reset REWRITES THE INDEX, so the main side refuses a
         // dirty worktree with a message that NAMES the files it would unstage
         // (git-cli.ts GIT_RESET_DIRTY_CODE) instead of doing it silently. That
-        // refusal IS the reference's WarningBeforeReset (app-store.ts:
-        // 5839-5846): it is shown as the warning, and a confirmed reset comes
+        // refusal IS the warning: it is surfaced as such, and a confirmed reset comes
         // back WITH the flag the main side waits for. Anything else is a real
         // Git failure and keeps travelling to the error banner.
         if (!isDirtyResetRefusal(reason)) throw reason;
@@ -867,12 +866,12 @@ export function SourceControlDock({
       () => api?.gitCreateTag?.(projectPath, name.trim(), entry.hash));
   };
   /** `Delete tag <name>` — the reference names the tag in the item itself
-   *  (commit-list.tsx:889-924) and one item per tag replaces its submenu. */
+   *  and one item per tag replaces its submenu. */
   const deleteTagAt = (entry: DesktopGitLogEntry, tag: string) => {
     if (!confirmCommit(entry, `Delete tag "${tag}"? The tag is removed locally.`)) return;
     void run(`tag-delete:${tag}`, () => api?.gitDeleteTag?.(projectPath, tag));
   };
-  /** `Amend commit…` / `Undo commit…` (commit-list.tsx:754-771): both belong to
+  /** `Amend commit…` / `Undo commit…`: both belong to
    *  the MOST RECENT commit only, and undo additionally to a local one. They
    *  moved here from the deleted commit split menu, which is where the
    *  reference has kept them all along. */
@@ -926,7 +925,7 @@ export function SourceControlDock({
     setCommitDiffs({});
     setShaCopy(null);
   };
-  /** Short SHA + copy affordance (expandable-commit-summary.tsx:434-449).
+  /** Short SHA + copy affordance.
    *  The Clipboard API can be absent (insecure context) or refuse; either way
    *  the outcome is reported — announced through the header's live region and
    *  surfaced in the error banner — instead of claiming a copy that never
@@ -1101,7 +1100,7 @@ export function SourceControlDock({
         : <RefreshCw size={14} aria-hidden="true" />}
     </button>, headerSlot)
     : null;
-  /** Stash grammar (filter-changes-list.tsx:549-556 `Stash all changes`): the
+  /** Stash grammar (`Stash all changes`): the
    *  changed-files header owns it, refused with a reason while another action
    *  or an in-progress operation holds the repository. */
   const stashReason = busy
@@ -1288,7 +1287,7 @@ export function SourceControlDock({
               ?.querySelector<HTMLButtonElement>(`[data-review-option="${next.id}"]`)
               ?.focus();
           }}>
-          {/* repository.tsx:225-232 — one `with-indicator` span per tab, the
+          {/* One `with-indicator` span per tab, the
               label then the changed-file counter (files-changed-badge.tsx). */}
           <span className="dock-scm-tab-content">
             <span className="dock-scm-tab-label">{option.label}</span>
@@ -1368,8 +1367,8 @@ export function SourceControlDock({
               onClick={discardAllChanges}>
               <Undo2 size={14} aria-hidden="true" />
             </button>
-            {/* Stash all changes / Pop stash: the reference hangs them off the
-                changed-files list (filter-changes-list.tsx:549-556), which is
+            {/* Stash all changes / Pop stash hang off the
+                changed-files list, which is
                 where they landed when the commit split menu was deleted. */}
             <button type="button" aria-label="Stash Changes"
               title={stashReason || "Stash Changes"}
@@ -1475,7 +1474,7 @@ export function SourceControlDock({
         const autoDraft = !summary.trim() && autoCommitMessage;
         const branchName = status?.detached ? "" : status?.branch || "";
         const selectedCommitCount = includedFiles.length;
-        // Reference button text (commit-message.tsx:1519-1541): verb, then
+        // Button text: verb, then
         // "N file(s) ", then "to " and the BOLD branch.
         const verb = committing ? "Committing…" : "Commit";
         const countText = selectedCommitCount > 0
@@ -1485,7 +1484,7 @@ export function SourceControlDock({
         // blank summary, nothing selected, a commit in flight, an in-progress
         // Git operation, or unresolved conflicts.
         const primaryDisabled = commitBlocked;
-        // Reference tooltip strings, commit-message.tsx:1579-1598.
+        // Tooltip strings.
         const primaryTitle = autoDraft
           ? "Commit with an auto-generated message"
           : !summary.trim()
@@ -1520,7 +1519,7 @@ export function SourceControlDock({
           runCommitFlow("commit");
         }}>
           {/* Two DISTINCT fields, never two identical empty boxes
-              (_commit-message.scss:83-100 vs :209-250): a real single-line
+              — a real single-line
               bordered text input, then the description's own focus container
               underneath it. */}
           <input type="text" className="dock-scm-commit-summary" aria-label="Summary"
@@ -1554,11 +1553,10 @@ export function SourceControlDock({
         </form>;
       })()}
     </> : selectedCommit ? (() => {
-      // Commit header grammar: expandable-commit-summary.tsx:495-522 — title,
-      // then ONE meta row of author NAME (no monogram — the header follows the
-      // history rows, where the disc only ate width), commit ref (short SHA +
-      // copy button, :434-449) and the added/deleted line totals (:552-566);
-      // the changed-file list is introduced by selected-commits.tsx:278-283's
+      // Commit header grammar: title, then ONE meta row of author NAME (no
+      // monogram — the header follows the history rows, where the disc only
+      // ate width), commit ref (short SHA + copy button) and the added/deleted
+      // line totals; the changed-file list is introduced by an
       // `N changed files` header. The files themselves keep routing to the
       // existing diff surface — no third pane inside a ~300px dock.
       const detailFiles = commitDetail?.files ?? [];
@@ -1634,7 +1632,7 @@ export function SourceControlDock({
             }}>
             {/* Same one-sentence path grammar as the working-directory rows —
                 the file name is kept whole and only the dim directory prefix
-                loses characters (path-text.tsx:107-139). */}
+                loses characters. */}
             <ScmPathText title={file.path}
               path={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path} />
             {/* The counts are a FIXED right-aligned column, so the path keeps
@@ -1662,7 +1660,7 @@ export function SourceControlDock({
         <p className="utility-dock-empty">No file changes in this commit.</p>}
     </div>;
     })() : <div className="dock-scm-history" ref={historyScrollRef}>
-      {/* commit-list-item.tsx:136-194 without the avatar stack (the dock has
+      {/* History row without the avatar stack (the dock has
           no avatar service, and a monogram only ate width): a one-line
           summary, the byline (`author • relative age`), then the tag and the
           unpushed push button as compact TRAILING affordances so neither can
@@ -1679,7 +1677,7 @@ export function SourceControlDock({
         const tagsKnown = Array.isArray(entry.tags);
         const tags = entry.tags ?? [];
         // `Amend commit…` / `Undo commit…` belong to the most recent commit
-        // (commit-list.tsx:730-732), undo additionally to a LOCAL one.
+        // undo additionally applies to a LOCAL one.
         const isTipCommit = entryIndex === 0;
         const summary = (entry.subject ?? "").trim();
         const author = (entry.author ?? "").trim();
@@ -1691,7 +1689,7 @@ export function SourceControlDock({
           refs.length ? `refs: ${refs.join(", ")}` : "",
           entry.pushed ? "" : "unpushed",
         ].filter(Boolean).join(" · ");
-        // The reference's history context menu (commit-list.tsx:724-865) in its
+        // The history context menu in its
         // own order: Amend, Undo, Reset, Checkout, Reorder, Revert, then the
         // branch/tag group and the copy group. Every destructive entry confirms
         // while NAMING the commit, every entry is refused (with the reason in
@@ -1776,7 +1774,7 @@ export function SourceControlDock({
             onSelect: () => guarded(() => createTagAt(entry)),
           },
           // One `Delete tag <name>` per tag — the reference names the tag in
-          // the item (commit-list.tsx:901-923). Without tag data (older host)
+          // the item. Without tag data (older host)
           // or without a tag on this commit, ONE disabled entry says why.
           ...(tags.length
             ? tags.map((tag, tagIndex) => ({

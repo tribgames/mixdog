@@ -8,8 +8,12 @@ import {
   acceptRelayE2EEClientHello,
   createRelayE2EEChallenge,
   createRelayE2EEClientHandshake,
+  generateRelayClaimKeyPair,
   isRelayE2EEHello,
+  openSealedRelayE2EEPairingMaterial,
+  relayClaimConfirmationCode,
   relayE2EEPairingMaterial,
+  sealRelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
 import {
   loadOrCreateRelayE2EEIdentity,
@@ -149,7 +153,7 @@ test('rejects a client that does not possess the fragment secret', async () => {
   );
 });
 
-test('persists and rotates identity, keeping browser secret in the fragment', async () => {
+test('persists and rotates identity, keeping every secret out of the entry link', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-persist-'));
   const first = await loadOrCreateRelayE2EEIdentity(dir);
   assert.deepEqual(await loadOrCreateRelayE2EEIdentity(dir), first);
@@ -159,14 +163,51 @@ test('persists and rotates identity, keeping browser secret in the fragment', as
 
   const info = await buildRemoteAccessInfo({
     relay: {
-      clientUrl: 'https://relay.example/?token=route',
+      clientUrl: 'https://relay.example/d/abc123de/',
       token: 'route-token',
-      pairing: relayE2EEPairingMaterial(rotated),
     },
   });
+  // The scanned link routes to a desktop and carries nothing else: a
+  // photographed QR grants no access, because approval does.
   const browser = new URL(info.relayBrowserUrl);
-  assert.equal(browser.searchParams.has('e2eeSecret'), false);
-  assert.equal(new URLSearchParams(browser.hash.slice(1)).get('e2eeSecret'), rotated.pairingSecret);
+  assert.equal(browser.pathname, '/d/abc123de/');
+  assert.equal(browser.search, '');
+  assert.equal(browser.hash, '');
+  assert.equal(info.relayBrowserUrl.includes(rotated.pairingSecret), false);
+  assert.equal(info.relayBrowserUrl.includes('route-token'), false);
+});
+
+test('an approval seals the pairing to one container and to nobody else', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-claim-'));
+  const identity = await loadOrCreateRelayE2EEIdentity(dir);
+  const pairing = relayE2EEPairingMaterial(identity);
+  const asking = await generateRelayClaimKeyPair();
+  const sealed = await sealRelayE2EEPairingMaterial(pairing, asking.publicKey);
+
+  // What the relay forwards is a box: no plaintext of either secret in it.
+  const wire = JSON.stringify(sealed);
+  assert.equal(wire.includes(pairing.pairingSecret), false);
+  assert.equal(wire.includes(pairing.serverPublicKey), false);
+  assert.deepEqual(await openSealedRelayE2EEPairingMaterial(sealed, asking), pairing);
+
+  // Another container's key opens nothing, and neither does a tampered box.
+  const other = await generateRelayClaimKeyPair();
+  assert.equal(await openSealedRelayE2EEPairingMaterial(sealed, other), null);
+  assert.equal(
+    await openSealedRelayE2EEPairingMaterial(
+      { ...sealed, ephemeralPublicKey: other.publicKey },
+      asking,
+    ),
+    null,
+  );
+  assert.equal(await openSealedRelayE2EEPairingMaterial(null, asking), null);
+
+  // The confirmation number is derived from the key being sealed to, so a
+  // swapped key cannot keep the digits the desktop is showing.
+  const code = await relayClaimConfirmationCode(asking.publicKey);
+  assert.match(code, /^[0-9]{2}$/);
+  assert.equal(await relayClaimConfirmationCode(asking.publicKey), code);
+  assert.notEqual(await relayClaimConfirmationCode(other.publicKey), code);
 });
 
 test('persists and rotates the relay routing token', async () => {

@@ -403,7 +403,7 @@
   display: block;
   padding: 8px calc(var(--dock-scm-gutter) + var(--dock-scm-scrollbar)) 8px var(--dock-scm-gutter);
   border: 0;
-  /* _commit-message.scss:5 `border-top: 1px solid var(--box-border-color)`. */
+  /* Top hairline over the commit form. */
   border-top: 1px solid var(--mx-border-muted);
   border-radius: 0;
   /* :11 `background-color: var(--box-alt-background-color)` — ONE tone darker
@@ -424,8 +424,8 @@
   outline: 2px solid var(--mx-focus);
   outline-offset: 1px;
 }
-/* `Summary (required)` is a REAL single-line text field (_commit-message.scss:
-   83-100 `.summary .summary-field input`): its own border, radius and fill on
+/* `Summary (required)` is a REAL single-line text field: its own border,
+   radius and fill on
    the darker form background, plus a focus border + ring. */
 .dock-scm-commit-summary {
   box-sizing: border-box;
@@ -458,8 +458,7 @@
   line-height: var(--mx-line-meta);
 }
 .dock-scm-commit-format-warning code { color: inherit; }
-/* `Description` gets its OWN focus container beneath the summary
-   (_commit-message.scss:209-250 `.description-focus-container`): the border and
+/* `Description` gets its OWN focus container beneath the summary: the border and
    the focus ring live on the container, the textarea inside is borderless, and
    the box fakes being a text field for the pointer (`cursor: text`). */
 .dock-scm-commit-description-box {
@@ -540,8 +539,7 @@
   opacity: 1;
   cursor: default;
 }
-/* Action row under the description (_commit-message.scss:321-334
-   `.commit-button { max-width: 100%; margin-top: var(--spacing); }`): the
+/* Action row under the description: the
    button spans the form's full width — the split chevron beside it is gone,
    so nothing shares the row any more. */
 .dock-scm-commit-split { position: relative; height: 28px; margin-top: 8px; display: flex; align-items: center; gap: 2px; padding: 0; }
@@ -603,7 +601,7 @@
 /* The rows a window does not mount are represented by these two spacers, so
    the scroll container keeps the whole list's height. */
 .dock-scm-row-spacer { flex: 0 0 auto; width: 100%; pointer-events: none; }
-/* Tab counter bubble (_tab-bar.scss:77-86). */
+/* Tab counter bubble. */
 .dock-review-count { flex: 0 0 auto; margin-left: 4px; padding: 2px 5px; border-radius: 20px; color: var(--mx-text); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
 .dock-scm-file:hover, .dock-scm-file:focus-within { background: var(--mx-hover); }
 .dock-scm-file[data-selected="true"] { background: var(--mx-pressed); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
@@ -669,7 +667,7 @@
 .dock-scm-clean { margin: 0; padding: 14px 14px 10px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); text-align: center; }
 .dock-scm-error { margin: 0; padding: 7px 10px; border-bottom: 1px solid var(--mx-danger); color: var(--mx-danger); font-size: var(--mx-font-meta); }
 .dock-scm-loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
-/* History rows: commit-list-item.tsx:136-194 — ONE-line summary and a
+/* History rows: ONE-line summary and a
    `author · relative age` byline (no avatar monogram), on a FIXED row height.
    Nothing inside the row may grow it: the byline, the ref badge and the push
    button all truncate or clip instead (the row wrapped into 3-4 lines
@@ -683,15 +681,15 @@
 /* No monogram anywhere in the History surface: the commit-detail header reads
    the same as the rows (author name, age, short SHA, totals) and the freed
    width goes to the text. */
-/* An EMPTY commit message is labelled and dimmed (commit-list-item.tsx:127-134
-   `empty-summary`), which also keeps it distinct from the loading string. */
+/* An EMPTY commit message is labelled and dimmed, which also keeps it
+   distinct from the loading string. */
 .dock-scm-commit-info > b[data-empty], .dock-scm-commit-headline > b[data-empty] { color: var(--mx-text-muted); font-style: italic; }
 /* Copy outcome: announced to AT, never a visible layout shift. */
 .dock-scm-copy-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .dock-scm-commit-info { min-width: 0; flex: 1; display: grid; gap: 1px; }
 .dock-scm-commit-info > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-code); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); letter-spacing: 0; }
 .dock-scm-commit-info > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-muted); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); }
-/* Trailing indicators (commit-list-item.tsx:180-211): they yield width to the
+/* Trailing indicators: they yield width to the
    summary and never wrap. */
 .dock-scm-commit-indicators { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; }
 /* Unpushed commits end in a round PUSH button (the toolbar's push action), not
@@ -704,7 +702,7 @@
 .dock-scm-unpushed:active:not(:disabled) { background: linear-gradient(var(--mx-alpha-dark-24), var(--mx-alpha-dark-24)), var(--mx-accent-bg); }
 .dock-scm-unpushed:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--mx-focus); }
 .dock-scm-unpushed:disabled { cursor: default; opacity: var(--mx-op-disabled); }
-/* Commit detail header: expandable-commit-summary.tsx:495-522 title + meta
+/* Commit detail header: title + meta
    row (author, short SHA with a copy button, +adds/−dels). */
 .dock-scm-commit-header { display: grid; gap: 6px; padding: 8px 10px 8px 6px; border-bottom: 1px solid var(--mx-border-muted); }
 .dock-scm-commit-headline { min-width: 0; display: flex; align-items: center; gap: 4px; }
@@ -719,7 +717,7 @@
 .dock-scm-commit-copy:hover { color: var(--mx-text); background: var(--mx-hover); }
 .dock-scm-commit-lines i { color: var(--mx-success); font-style: normal; }
 .dock-scm-commit-lines em { color: var(--mx-danger); font-style: normal; }
-/* selected-commits.tsx:278-283 `N changed files`. */
+/* The `N changed files` header. */
 .dock-scm-commit-files-header { padding: 7px 10px 5px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
 .dock-scm-commit-file { border-bottom: 1px solid var(--mx-border-muted); }
 .dock-scm-commit-file-row { width: 100%; min-height: 22px; display: flex; align-items: center; gap: 6px; padding: 1px 8px 1px 11px; border: 0; color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
@@ -997,7 +995,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 .dock-scm-operation small { color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
 .dock-scm-operation button { min-height: 24px; padding: 0 7px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-meta); cursor: pointer; }
 .dock-scm-operation button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-/* Ref badges ride INSIDE the row (commit-list-item.tsx:251-266): the first ref
+/* Ref badges ride INSIDE the row: the first ref
    only, ellipsized, plus a dot when more exist. */
 .dock-scm-refs { min-width: 0; display: flex; align-items: center; gap: 3px; font-style: normal; }
 /* ONE badge style for EVERY ref — a local `main`, a remote `origin/main` and a
