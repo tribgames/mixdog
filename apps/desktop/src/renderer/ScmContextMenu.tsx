@@ -1,6 +1,6 @@
-// Row context menus for the Source Control dock — GitHub Desktop's right-click
-// grammar (app/src/ui/changes/changed-file.tsx and app/src/ui/history's commit
-// context menus): ONE flat menu of labelled actions, opened by the right
+// Row context menus for the Source Control dock — the right-click
+// grammar shared by changed-file rows and commit
+// context menus: ONE flat menu of labelled actions, opened by the right
 // button or by the keyboard (Menu / Shift+F10), dismissed by Escape, an
 // outside click, a resize or a scroll. The per-row "…" trigger buttons the
 // dock used to carry are gone; this menu replaces them.
@@ -9,6 +9,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { t } from "./i18n";
+import { useMobileBack } from "./mobile-back";
 
 export interface ScmContextMenuItem {
   /** Stable semantic action identity; labels and enabled state may update in place. */
@@ -38,7 +39,7 @@ export function pointerMenuPoint(event: { clientX: number; clientY: number }): {
 }
 
 /** Keyboard invocation has no pointer, so the menu opens under the ROW
- *  (GitHub Desktop anchors its keyboard menus to the focused item). */
+ *  (keyboard menus anchor to the focused item). */
 export function elementMenuPoint(element: Element | null): { x: number; y: number } {
   const rect = element?.getBoundingClientRect?.();
   return { x: (rect?.left ?? 0) + 8, y: rect?.bottom ?? 0 };
@@ -117,6 +118,9 @@ export function ScmContextMenu({
       if (previous?.isConnected) previous.focus?.();
     };
   }, [onClose, open]);
+
+  // ABB: hardware back closes the menu instead of leaving the PWA.
+  useMobileBack(open, onClose);
 
   if (!state) return null;
 

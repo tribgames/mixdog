@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ModelCatalog } from './model-catalog';
 import { formatContextWindow, ModelRouteLabel } from './provider-display';
@@ -390,6 +391,14 @@ export function RouteEditor({
   useEffect(() => {
     if (!surfaceActive && (open || closing)) closeAll(false, true);
   }, [closeAll, closing, open, surfaceActive]);
+
+  // ABB: sheet and drilled pane each own ONE back step, in the order they
+  // opened — back walks the pane away first, then the sheet, exactly like
+  // Escape does above.
+  useMobileBack(open, () => closeAll(true));
+  useMobileBack(Boolean(pane), () => {
+    if (pane) closePane(pane, true);
+  });
 
   useEffect(() => {
     if (!mounted) return undefined;

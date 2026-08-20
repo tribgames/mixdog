@@ -10,7 +10,21 @@ const ALWAYS_READ = new Set([
     'whatchanged',
 ]);
 
-function commandHasShellSyntax(command) {
+const SHELL_OPERATOR_CHARS = '|&;<>()';
+
+function atTokenBoundary(char) {
+    return char === undefined || /\s/.test(char);
+}
+
+// The git tool spawns git directly and never opens a shell, so an operator that
+// survives this guard can only reach git as literal argument text — it can
+// never chain, redirect, or substitute. The guard therefore exists to reject
+// commands WRITTEN as shell pipelines (`git a && git b`), not to sanitize
+// arguments. Operators count only in operator position (a whitespace-delimited
+// run), which keeps literal separators inside one token usable unquoted:
+// `--format=%h|%ad|%s` and `:(exclude)dir` were being rejected outright.
+// Substitution and embedded newlines stay rejected wherever they appear.
+export function commandHasShellSyntax(command) {
     const text = String(command || '');
     let quote = null;
     for (let index = 0; index < text.length; index++) {
@@ -26,7 +40,12 @@ function commandHasShellSyntax(command) {
             continue;
         }
         if (char === "'" || char === '"') { quote = char; continue; }
-        if ('|&;<>()\n\r'.includes(char) || char === '$' || char === '`') return true;
+        if (char === '$' || char === '`' || char === '\n' || char === '\r') return true;
+        if (!SHELL_OPERATOR_CHARS.includes(char)) continue;
+        let end = index;
+        while (end + 1 < text.length && SHELL_OPERATOR_CHARS.includes(text[end + 1])) end++;
+        if (atTokenBoundary(text[index - 1]) && atTokenBoundary(text[end + 1])) return true;
+        index = end;
     }
     return quote !== null;
 }

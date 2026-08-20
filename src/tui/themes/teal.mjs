@@ -65,7 +65,7 @@ export const tealPalette = {
   mdDiffContext: 'rgb(128,128,128)', // toolDiffContext = gray
   mdDiffAddedBg: 'rgb(40,50,40)', // toolSuccessBg #283228
   mdDiffRemovedBg: 'rgb(60,40,40)', // toolErrorBg #3c2828
-  syntaxComment: 'rgb(106,153,85)', // #6A9955 (VS Code Dark+)
+  syntaxComment: 'rgb(106,153,85)', // #6A9955 (Dark+ green)
   syntaxKeyword: 'rgb(86,156,214)', // #569CD6
   syntaxFunction: 'rgb(220,220,170)', // #DCDCAA
   syntaxVariable: 'rgb(156,220,254)', // #9CDCFE

@@ -35,7 +35,7 @@
 .workbench-search-mode button:focus-visible, .dock-scm-tab:focus-visible { outline: 1px solid var(--mx-focus); outline-offset: -1px; }
 .dock-scm-tab-content { min-width: 0; max-width: 100%; display: flex; align-items: center; justify-content: center; }
 .dock-scm-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Orca empty state: one centered hint under generous whitespace. */
+/* Empty state: one centered hint under generous whitespace. */
 .workbench-explorer > .utility-dock-empty { margin-top: 44px; text-align: center; }
 .workbench-search-name-row { min-height: 24px; width: 100%; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
 .workbench-search-name-row:hover { background: var(--mx-hover); }
@@ -195,7 +195,7 @@
 .turn-review-bar .diff-stats { font-variant-numeric: tabular-nums; }
 .turn-review-bar .diff-stats i,
 .turn-review-bar .diff-stats em { min-width: 30px; text-align: right; }
-/* Codex/OpenCode parity: disclosure geometry commits once. Animating this
+/* Disclosure geometry commits once. Animating this
    grid row forced the transcript viewport through ~12 separate heights and
    made followed content visibly travel even though every frame was re-pinned. */
 .turn-review-collapse {
@@ -394,6 +394,9 @@
 .queue-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
 .session-context-indicator[data-open="true"] .session-context-popover { pointer-events: auto; }
 .context-compact {
+  /* The card is ONE two-column grid, so the action has to span both tracks or
+     it lands in the label column beside a value. */
+  grid-column: 1 / -1;
   width: 100%;
   min-height: 26px;
   margin-top: 4px;

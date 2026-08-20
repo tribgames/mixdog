@@ -5,6 +5,8 @@
 // 지금은 그냥 닫히는데). With no layer open, back falls through to the
 // browser default. Desktop/Electron surfaces never register: the helper
 // no-ops unless the mobile-tabs marker is present.
+import { useEffect, useRef } from "react";
+
 type BackEntry = { close: () => void };
 
 const stack: BackEntry[] = [];
@@ -48,4 +50,19 @@ export function registerMobileBack(close: () => void): () => void {
     suppressedPops++;
     history.back();
   };
+}
+
+/** Arms the sentinel for as long as `open` stays true.
+ *
+ *  Every transient layer in the renderer registers through this hook, so the
+ *  registration order IS the visual stacking order and back always closes the
+ *  topmost one. The close callback is read through a ref: a re-render must
+ *  never re-push history, only the open transition may. */
+export function useMobileBack(open: boolean, close: () => void): void {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return undefined;
+    return registerMobileBack(() => closeRef.current());
+  }, [open]);
 }

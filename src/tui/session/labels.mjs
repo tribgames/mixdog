@@ -42,7 +42,12 @@ export function compactEventDetail(event = {}) {
   const parts = [];
   const elapsed = formatElapsedSeconds(Number(event.durationMs ?? event.elapsedMs ?? 0));
   if (elapsed) parts.push(elapsed);
-  const before = Number(event.pressureTokens ?? event.beforeTokens ?? 0);
+  // ONE scale on both sides (user: 컴팩트될 때 표기량이 달랐다). pressureTokens
+  // is the provider-baseline-anchored decision numerator while afterTokens is a
+  // raw transcript estimate, so leading with it printed a reduction that never
+  // happened. Both ends now read the same estimator, matching the agent-side
+  // detail line.
+  const before = Number(event.beforeTokens ?? event.pressureTokens ?? 0);
   const after = Number(event.afterTokens ?? 0);
   const fmtTok = (n) => {
     const v = Number(n) || 0;

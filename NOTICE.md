@@ -1,9 +1,10 @@
 # NOTICE
 
-Mixdog itself is MIT-licensed (see `LICENSE`). Parts of it were written
-against the public source of the projects listed below. Their terms are
-preserved here in one place so the individual source files can stay free of
-scattered attribution comments.
+Mixdog itself is MIT-licensed (see `LICENSE`). The license sections below
+cover third-party code and data that Mixdog actually carries. The closing
+"Behavioral references" section records projects that only informed the
+implementation, with no code taken. Everything is kept here in one place so
+the individual source files stay free of scattered attribution comments.
 
 Full license texts live in `LICENSES/`:
 
@@ -12,6 +13,10 @@ Full license texts live in `LICENSES/`:
 - `LICENSES/Apache-2.0.txt` — the Apache License 2.0.
 - `LICENSES/codex-NOTICE.txt` — the upstream NOTICE file of the Codex CLI,
   carried forward as Apache-2.0 section 4(d) requires.
+- `LICENSES/ripgrep-NOTICE.txt` — the ripgrep notice for the search crates
+  compiled into the native binaries.
+- `LICENSES/editor-assets-NOTICE.txt` — the editor icon and language-data
+  notice referenced by the generated files.
 
 ## MIT
 
@@ -34,6 +39,14 @@ language contributions used to generate the Monaco pane languages.
 `editor-ansi.ts` the terminal ANSI palette values, and `seti-icons.ts` /
 `editor-languages.ts` are generated from the shipped extension data.
 
+### Visual Studio Code Codicons — Copyright (c) Microsoft Corporation
+
+<https://github.com/microsoft/vscode-codicons>
+
+The chrome-level UI glyph font used by the desktop and web renderer. The code
+is MIT; the icons themselves are licensed under Creative Commons Attribution
+4.0 International (CC BY 4.0).
+
 ### GitHub Pull Requests extension — Copyright (c) Microsoft Corporation
 
 <https://github.com/microsoft/vscode-pull-request-github>
@@ -46,39 +59,17 @@ The default pull-request query set and its category labels in
 Bundled glyphs and colour tables. Full license text in
 `apps/desktop/THIRD-PARTY-NOTICES.txt`.
 
-### Files — Copyright (c) Files Community
+### ripgrep — Copyright (c) 2015 Andrew Gallant
 
-<https://github.com/files-community/Files>
+<https://github.com/BurntSushi/ripgrep>
 
-Folder-pane grouping keys, date-span labels, size buckets and the discrete
-layout size ladder in `apps/desktop/src/renderer/FolderPane.lazy.tsx`.
+The `grep` and `ignore` library crates are compiled into the native search
+binary, and the packaged `rg` executable ships as the grep tool's fast path.
+ripgrep is offered under the MIT License OR the Unlicense; Mixdog takes the
+MIT terms. The upstream notice is preserved as `LICENSES/ripgrep-NOTICE.txt`.
 
-### OpenCode — Copyright (c) Anomaly / SST
-
-<https://github.com/anomalyco/opencode>
-
-Transcript auto-scroll gesture grammar, virtual-timeline anchoring and the
-streaming-markdown projection model.
-
-- `apps/desktop/src/renderer/use-transcript-follow.ts`, `TranscriptList.tsx`,
-  `transcript-measure.ts`, `transcript-rows.ts`, `transcript-virtual-cache.ts`,
-  `StreamingMarkdownBody.tsx`, `streaming-markdown.ts`, `Conversation.tsx`
-
-### pi — Copyright (c) 2025 Mario Zechner
-
-<https://github.com/earendil-works/pi>
-
-`trimPartialClosingFences()` in `src/tui/markdown/stream-fence.mjs`, ported
-from the TUI markdown component.
-
-### Orca — Copyright (c) 2026 Lovecast Inc.
-
-Editor-surface and tab-hierarchy structure, the terminal host portal, the
-keep-awake power-save blocker and the hosted-review link derivation.
-
-- `apps/desktop/src/renderer/EditorPane.lazy.tsx`, `PaneSurfaceGate.tsx`,
-  `PullRequestsPane.tsx`, `SourceControlDock.tsx`
-- `apps/desktop/src/main/agent-awake.ts`
+- `native/mixdog-graph/` (the `grep` and `ignore` crates)
+- `src/runtime/agent/orchestrator/tools/builtin/` (the `rg` fast path)
 
 ### Ink — Copyright (c) Vadim Demedes
 
@@ -107,3 +98,44 @@ upstream NOTICE file is preserved as `LICENSES/codex-NOTICE.txt`.
 The Apache-2.0 terms require this notice to travel with any redistribution of
 the derived files. Full license text: `LICENSES/Apache-2.0.txt`
 (<https://www.apache.org/licenses/LICENSE-2.0>).
+
+## Behavioral references
+
+The projects below informed Mixdog through publicly observable behavior, a
+published wire contract, or a documented algorithm. No source code from them
+is present in Mixdog, so no license obligation travels with the result; they
+are recorded here because the source files themselves carry no attribution
+comments.
+
+- **Chromium** — the workspace tab strip follows Chromium's tab-strip layout
+  semantics: two layout domains around the crossover width, the active-tab
+  floor, the inactive sliver floor, the left-to-right remainder grant and the
+  icon visibility ladder. The implementation is independent TypeScript and CSS
+  on Mixdog's own constants (`apps/desktop/src/renderer/WorkspaceTabStrip.tsx`,
+  `apps/desktop/src/renderer/desktop/04-workspace-tabs.css`).
+- **GitHub Desktop** — the Source Control dock grammar: commit-form layout,
+  changed-file status glyph semantics, single-sentence path colouring, history
+  context-menu gating, and detached-checkout / tag rules. Painted entirely on
+  Mixdog's own semantic tokens.
+- **OpenCode** — transcript auto-scroll gesture grammar, virtual-timeline
+  anchoring and the streaming-markdown projection model.
+- **Orca** — editor-surface and tab-hierarchy structure, the terminal host
+  portal, the keep-awake power-save blocker and the hosted-review link
+  derivation.
+- **Files** — the folder pane's grouping keys, date-span labels, size buckets
+  and discrete layout size ladder
+  (`apps/desktop/src/renderer/FolderPane.lazy.tsx`).
+- **Claude Code** (Anthropic) — terminal input tokenizing and keypress
+  parsing, the TUI selection word model in `node_modules/ink`, and interactive turn
+  semantics such as queued-message recall, message-selector rewind and
+  background-task lifetime. The Anthropic OAuth route additionally sends the
+  client identity that Anthropic's token edge validates; those values are a
+  wire requirement, not a derivation.
+- **opencode-antigravity-auth** — MIT
+  (<https://github.com/NoeFabris/opencode-antigravity-auth>). The Google Cloud
+  Code Assist wire contract used by the Antigravity OAuth provider: OAuth
+  client parameters, endpoint fallback order, client impersonation headers,
+  request envelope and thinking-signature handling.
+- **assistant-ui, Chatbox, Cherry Studio, Jan, Zed** — the heading-size and
+  list-density survey behind the desktop markdown ladder in
+  `apps/desktop/src/renderer/desktop/22-markdown.css`.

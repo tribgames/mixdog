@@ -1,5 +1,7 @@
 import { lazy } from "react";
 
+import type { WorkspaceSelection } from "./nav-types";
+
 const importDiffView = () => import("./DiffView.lazy");
 const importTerminalPane = () => import("./TerminalPane");
 const importEditorPane = () => import("./EditorPane.lazy");
@@ -55,6 +57,29 @@ export function prefetchEditorPane(): Promise<unknown> {
   return editorPrefetch;
 }
 
+/**
+ * Start the chunk a selection is about to need, without waiting for it.
+ *
+ * Pointer surfaces call this from hover/focus. A phone has neither, so its
+ * first open of a file/terminal/diff/folder tab paid the ENTIRE fetch and
+ * evaluate at open time — over the relay that is ~1MB brotli for Monaco alone
+ * (user: 창 들어갈 때 지연). Touch-down is the phone's equivalent intent
+ * signal, and because every prefetch here returns the same shared promise the
+ * real open awaits, an unfinished one simply merges into that load.
+ */
+export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void {
+  const promise = selection.kind === "file"
+    ? prefetchEditorPane()
+    : selection.kind === "diff"
+      ? prefetchDiffView()
+      : selection.kind === "terminal"
+        ? prefetchTerminalPane()
+        : selection.kind === "folder"
+          ? prefetchFolderPane()
+          : null;
+  void promise?.catch(() => undefined);
+}
+
 type EditorIntentHost = typeof window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
   __mixdogWindowShown?: boolean;
@@ -76,7 +101,13 @@ const EDITOR_INTENT_QUIET_MS = 150;
 export function scheduleEditorPanePrefetch(): void {
   if (editorIntentScheduled || editorPrefetch || typeof window === "undefined") return;
   const host = window as EditorIntentHost;
-  if (host.__mixdogWindowShown !== true || host.__mixdogDesktopRevealed !== true) return;
+  // Only the Electron main process emits the window-shown handshake, so
+  // requiring it here excluded every relay-served browser and phone from this
+  // prefetch entirely — exactly the surfaces where the fetch costs the most.
+  // The boot gate sets the reveal marker on both, and it still holds startup.
+  if (host.__mixdogDesktopRevealed !== true) return;
+  const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+  if (nativeWindow && host.__mixdogWindowShown !== true) return;
   editorIntentScheduled = true;
   const start = () => {
     void prefetchEditorPane().catch(() => { editorIntentScheduled = false; });

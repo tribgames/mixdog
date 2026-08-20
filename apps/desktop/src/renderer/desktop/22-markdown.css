@@ -208,19 +208,69 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   0%, 100% { opacity: .55; }
   50% { opacity: 1; }
 }
-.session-work-indicator:hover .live-work-popover,
-.session-work-indicator:focus-within .live-work-popover {
+/* Hover and keyboard focus are the DESKTOP affordances, and the button no
+   longer opens the Agents dock (user: 클릭 시 나오는 팝업/화면전환은 필요없음),
+   so nothing here is clickable on a hover surface. A touch surface has neither
+   hover nor a focus it can release — a tap would leave :hover stuck on the
+   slot and :focus-within latched to the button, so the card could never be
+   tapped shut. There the explicit data-open toggle owns the card alone. */
+@media (hover: hover) {
+  .session-work-indicator > button { cursor: default; }
+  .session-work-indicator:hover .live-work-popover,
+  .session-work-indicator:focus-within .live-work-popover {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+}
+.session-work-indicator[data-open="true"] .live-work-popover {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+  pointer-events: auto;
 }
+/* Hover bridge: the card hangs 6px below its slot, and crossing that gap left
+   the slot's subtree — the card closed before the pointer could reach a Stop
+   button inside it. The bridge belongs to the CARD, so the pointer stays
+   inside the slot for the whole trip. */
+.session-work-indicator .live-work-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 0;
+  left: 0;
+  height: 6px;
+}
+/* The rows gain a third track ONLY when something in the list can be stopped,
+   so a shell-only card keeps its two columns and its resting width. */
+.session-work-indicator .live-work-popover[data-actions="true"] {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  column-gap: 12px;
+}
+.session-work-indicator .live-work-row > i { width: 0; height: 0; }
+.live-work-stop {
+  width: 18px;
+  height: 18px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.live-work-stop:hover:not(:disabled) { color: var(--mx-danger); background: var(--mx-hover); }
+.live-work-stop:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .session-work-indicator[data-active="true"] .session-work-icon {
     opacity: 1;
     animation: none;
   }
 }
-/* Workspace tabs live inside each pane's strip row (VS Code editor groups). */
+/* Workspace tabs live inside each pane's strip row (editor groups). */
 .workspace-tabs-shell {
   position: relative;
   width: auto;
@@ -238,7 +288,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   align-items: center;
   gap: 0;
 }
-/* Right-edge strip controls (VS Code editor actions): context/remote,
+/* Right-edge strip controls (editor actions): context/remote,
    review, and panel toggles dock after the + button. */
 .workspace-tabs-trailing {
   margin-left: auto;
@@ -425,26 +475,26 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
      (or one Hangul 어절) onto a second line. */
   text-wrap: balance;
 }
-/* Reference ladder (opencode 17/15/13 + muted tail, cherry-studio 1.65/1.35/
-   1.15em, zed 3xl→sm): every rung must differ from BODY, not just from the
-   rung above. h3-h6 all sat at the 15px body size, so anything below h2 was
-   invisible as structure — size carries h1-h3, ink carries h4-h6. The boundary
-   moved down once content weight collapsed to one emphasis step: h4 sits at
-   body size, so with the same ink it was indistinguishable from an inline
-   `**strong**` lead-in. */
+/* Heading ladder — surveyed chat renderers land near 17/15/13px, 1.65/1.35/
+   1.15em, or 3xl→sm: every rung must differ from BODY, not just from the
+   rung above — size carries h1-h3, ink carries h4-h6. h4 sits at body size, so
+   with the same ink it was indistinguishable from an inline `**strong**`
+   lead-in, which is why the tail is muted rather than sized up. */
 /* No underline rule: an h1 hairline turns a chat answer into a README page
-   (assistant-ui / jan / chatbox all leave h1 bare). Size + the top margin
+   (chat renderers leave h1 bare). Size + the top margin
    already open the section. */
-/* Literal metrics, like the other content headings: the 22px chrome step gave
-   a 20px heading a 1.1 ratio, and Hangul fills its line box to the edge — a
+/* Literal metrics, like the other content headings, and the ladder is capped
+   at 18: a 20px h1 ran 1.33x the body, and Hangul fills its line box edge to
+   edge so it read larger still (user: 제목이 뭐 이렇게 크냐). Line heights stay
+   literal too — the 22px chrome step gave a 20px heading a 1.1 ratio and a
    two-line title closed up on itself. */
 .markdown h1 {
   margin: 24px 0 8px;
-  font-size: 20px;
-  line-height: 28px;
+  font-size: 18px;
+  line-height: 26px;
 }
-.markdown h2 { margin: 20px 0 8px; font-size: 18px; line-height: 26px; }
-.markdown h3 { margin: 16px 0 6px; font-size: 16px; line-height: var(--mx-line-body); }
+.markdown h2 { margin: 20px 0 8px; font-size: 16px; line-height: var(--mx-line-body); }
+.markdown h3 { margin: 16px 0 6px; font-size: var(--mx-font-body); line-height: var(--mx-line-body); }
 /* Body size, so INK is what separates it from an inline bold lead-in. */
 .markdown h4 {
   margin: 14px 0 6px;
@@ -484,8 +534,8 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
    between the parent line and its own children. */
 .markdown li > ul, .markdown li > ol { margin: 6px 0 0; }
 /* TIGHT items are single lines and belong to one block: a flat 10px scattered
-   a three-item list into three paragraphs (reference density: assistant-ui
-   4px, jan 8px). A LOOSE item carries its own <p> and IS a paragraph, so it
+   a three-item list into three paragraphs (reference density is
+   4-8px). A LOOSE item carries its own <p> and IS a paragraph, so it
    keeps the wider gap that separates prose blocks. */
 .markdown li { margin-bottom: 6px; }
 .markdown li:has(> p) { margin-bottom: 12px; }
@@ -582,7 +632,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   color: var(--mx-md-code);
   /* RELATIVE, so one rule covers every tier: mono has a larger optical body
      than Pretendard, and .88em keeps it a step under its host text whether the
-     host is 15px prose, a 20px h1, or a 15px table cell. The old absolute 13px
+     host is 15px prose, an 18px h1, or a 15px table cell. The old absolute 13px
      needed a second rule inside headings and still read oversized in prose. */
   font-size: .88em;
   overflow-wrap: anywhere;
@@ -854,6 +904,13 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
     background: none;
   }
   .live-work-spinner { animation: none; }
+  /* Reduced motion drops the pass AND the gradient it clipped through, so the
+     label falls back to ordinary text rather than a frozen half-lit string. */
+  .live-work-row[data-flow="true"] > span {
+    animation: none;
+    color: inherit;
+    background: none;
+  }
   .live-activity-status,
   .live-activity-glyph-spin,
   .live-activity-glyph-core,
@@ -868,6 +925,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 :root[data-mixdog-motion="paused"] .session-row-spinner,
 :root[data-mixdog-motion="paused"] .workspace-tab-status,
 :root[data-mixdog-motion="paused"] .live-work-spinner,
+:root[data-mixdog-motion="paused"] .live-work-row[data-flow="true"] > span,
 :root[data-mixdog-motion="paused"] .live-activity-glyph-spin,
 :root[data-mixdog-motion="paused"] .live-activity-glyph-core,
 :root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"],

@@ -872,6 +872,61 @@ export class SessionHost implements DesktopService {
     }
   }
 
+  /**
+   * /inherit — carry an existing conversation into a NEW session id running on
+   * the currently selected model. The source session file is untouched, so the
+   * two transcripts share a prefix and then diverge.
+   */
+  async inheritSession(
+    sourceSessionId: string,
+    route?: DesktopModelSelection | null,
+  ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
+    const source = sessionIdOf(sourceSessionId);
+    const rows = await this.listSessions();
+    const projectPath = String(
+      rows.find((entry) => entry.id === source)?.projectPath || '',
+    ).trim();
+    const registeredProject = projectPath
+      ? await this.projects.knownPath(projectPath)
+      : '';
+    const cwd = registeredProject
+      ? await this.canonicalDirectory(registeredProject)
+      : await this.taskWorkspace();
+    const desktopSession = registeredProject
+      ? { classification: 'project' as const, projectPath: cwd }
+      : { classification: 'task' as const, projectPath: null };
+    const created = await this.sessionClient.create(
+      { cwd, desktopSession },
+      this.callOptions(`session-create:${process.pid}:${randomUUID()}`),
+    );
+    const sessionId = sessionIdOf(created.sessionId);
+    this.pendingCatalogSessionIds.add(sessionId);
+    this.applySessionResult(sessionId, created);
+    try {
+      // The heir opens on the route the user is looking at; without this it
+      // would inherit the daemon's current default instead.
+      if (route) {
+        await this.invokeSession(sessionId, 'setRoute', [{
+          ...route,
+          applyToCurrentSession: true,
+        }]);
+      }
+      const inherited = await this.invokeSession(sessionId, 'inheritFrom', [source]);
+      await this.sessionMetadata.load();
+      this.pendingCatalogSessionIds.delete(sessionId);
+      void this.publishCatalogs();
+      return { sessionId, snapshot: inherited.snapshot ?? null };
+    } catch (error) {
+      // A half-built heir must not linger in the catalog.
+      try {
+        await this.sessionClient.unsubscribe({ sessionId }, this.callOptions());
+      } catch { /* the create is being abandoned either way */ }
+      throw error;
+    } finally {
+      this.pendingCatalogSessionIds.delete(sessionId);
+    }
+  }
+
   async submitToSession(
     sessionId: string,
     prompt: DesktopPromptContent,

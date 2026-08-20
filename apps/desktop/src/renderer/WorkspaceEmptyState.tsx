@@ -1,4 +1,4 @@
-// The empty workspace follows VS Code's quiet editor watermark: no pane,
+// The empty workspace is a quiet editor watermark: no pane,
 // tabs, composer, actions, or product wordmark — just the brand mark and the
 // small set of shortcuts that remain useful before a first task exists.
 import React from "react";
@@ -6,7 +6,7 @@ import React from "react";
 import { t } from "./i18n";
 
 // 23-A is the high-contrast in-app mark. Watermarks crop to the glyph bounds
-// so the visible mark fills the box like VS Code's letterpress.
+// so the visible mark fills the box like a letterpress.
 export function BrandTile({ crop = false }: { crop?: boolean } = {}): React.JSX.Element {
   return (
     <svg viewBox={crop ? "45 45 166 166" : "0 0 256 256"} role="presentation">

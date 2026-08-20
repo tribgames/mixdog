@@ -337,7 +337,7 @@ export async function moveProjectEntryIn(root: string, relPath: string, targetDi
 }
 
 /** Files tree: copy an entry into a project folder. Collisions take the
- *  VS Code paste name — "name copy", then "name copy 2", ... */
+ *  conventional paste name — "name copy", then "name copy 2", ... */
 export async function copyProjectEntryIn(
   root: string,
   relPath: string,

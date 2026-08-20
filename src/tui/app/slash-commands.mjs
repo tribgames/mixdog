@@ -10,6 +10,7 @@ export const SLASH_COMMANDS = [
   { name: 'autoclear', usage: '/autoclear', params: '[on|off|duration]', description: 'Reduce cache-miss cost after long idle gaps' },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat' },
   { name: 'context', usage: '/context', description: 'Show current context surface' },
+  { name: 'inherit', usage: '/inherit', description: 'Carry this conversation into a new session on the current model' },
   { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance' },
   { name: 'model', usage: '/model', params: '[name|refresh]', description: 'Switch model for subsequent turns' },
   { name: 'websearch', usage: '/websearch', description: 'Set the web search provider/model' },

@@ -8,24 +8,18 @@ component listed here. Each component keeps its own copyright notice.
   https://github.com/microsoft/vscode
   Copyright (c) 2015 - present Microsoft Corporation
 
+  Visual Studio Code Codicons (icon font; the icons are CC BY 4.0)
+  https://github.com/microsoft/vscode-codicons
+  Copyright (c) Microsoft Corporation
+
   GitHub Pull Requests and Issues (VS Code extension)
   https://github.com/microsoft/vscode-pull-request-github
   Copyright (c) Microsoft Corporation. All rights reserved.
 
-  Files
-  https://github.com/files-community/Files
-  Copyright (c) 2018 - present Files Community
-
-  OpenCode
-  https://github.com/anomalyco/opencode
-  Copyright (c) 2025 opencode
-
-  pi
-  https://github.com/earendil-works/pi
-  Copyright (c) 2025 Mario Zechner
-
-  Orca
-  Copyright (c) 2026 Lovecast Inc.
+  ripgrep (grep/ignore crates plus the packaged rg executable; offered as
+  MIT OR Unlicense — the MIT terms are taken here)
+  https://github.com/BurntSushi/ripgrep
+  Copyright (c) 2015 Andrew Gallant
 
   Ink (distributed under its own license)
   https://github.com/vadimdemedes/ink

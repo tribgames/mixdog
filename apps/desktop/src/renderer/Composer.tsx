@@ -1,5 +1,5 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
 import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPastedText, DesktopPromptAttachment, DesktopPromptContent, DesktopRendererComposerActionDiagnostic, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
@@ -10,6 +10,7 @@ import {
   readFileDragPayload,
 } from "./file-drag";
 import { t } from "./i18n";
+import { useMobileBack } from "./mobile-back";
 import { ModelSelector } from "./model-controls";
 import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
@@ -83,12 +84,36 @@ export {
   readPromptHistory
 };
 
-// The recording chip renders m:ss inline in the composer footer. The
-// placeholder cannot carry this signal: it is blank once a session has
-// content (see `placeholder` below).
+// The recording overlay renders m:ss over the typing surface. The placeholder
+// cannot carry this signal: it is blank once a session has content (see
+// `placeholder` below).
 function formatDictationElapsed(elapsedMs: number): string {
   const seconds = Math.max(0, Math.floor(elapsedMs / 1_000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+// Envelope of the level meter: one shared level, five bars, tallest in the
+// middle so the row reads as a voice instead of a progress bar.
+const DICTATION_BAR_GAINS = [0.42, 0.72, 1, 0.78, 0.5];
+
+// The meter owns its own animation frame and writes ONLY a CSS variable, so a
+// live 60fps level never re-renders the composer around it.
+function DictationMeter({ levelRef }: { levelRef: MutableRefObject<number> }) {
+  const host = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    let frame = window.requestAnimationFrame(function paint() {
+      host.current?.style.setProperty('--mx-dictation-level', levelRef.current.toFixed(3));
+      frame = window.requestAnimationFrame(paint);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [levelRef]);
+  return (
+    <span className="composer-dictation-meter" ref={host} aria-hidden="true">
+      {DICTATION_BAR_GAINS.map((gain, index) => (
+        <span key={index} style={{ '--mx-dictation-gain': gain } as CSSProperties} />
+      ))}
+    </span>
+  );
 }
 
 function reportComposerAction(diagnostic: DesktopRendererComposerActionDiagnostic): void {
@@ -259,7 +284,7 @@ export const Composer = memo(function Composer({
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
-  const { dictationState, toggleDictation, recordingElapsedMs } = useComposerDictation({
+  const { dictationState, toggleDictation, cancelDictation, recordingElapsedMs, dictationLevelRef } = useComposerDictation({
     transitioningRef,
     textarea,
     setDraft,
@@ -433,6 +458,11 @@ export const Composer = memo(function Composer({
     : '';
   const mentionOpen = Boolean(composerFocused && projectScope && mentionMatch && !transitioning &&
     mentionDismissed !== mentionSignature);
+  // ABB: each open composer palette answers hardware back with the same
+  // dismissal its own Escape performs.
+  useMobileBack(slashOpen, () => setSlashDismissedDraft(draft));
+  useMobileBack(mentionOpen, () => setMentionDismissed(mentionSignature));
+  useMobileBack(selectorOpen, () => setSelectorOpen(false));
   const paletteCommandToken = (command: (typeof SLASH_COMMANDS)[number] | undefined) => {
     if (!command) return '';
     const typedToken = draft.slice(1).trim().toLowerCase();
@@ -1030,7 +1060,7 @@ export const Composer = memo(function Composer({
     setSelectorOpen(true);
   };
   // Selecting a row drops the conversation from that prompt onward (engine
-  // side) and returns its text for editing — Claude Code's "restore
+  // side) and returns its text for editing — the "restore
   // conversation".
   const rewindToMessage = async (messageId: string) => {
     if (!messageId || restoring) return;
@@ -1875,6 +1905,26 @@ export const Composer = memo(function Composer({
           </button>
         </div>)}
       </div>}
+      {/* Recording takes over the typing surface, never the footer: the stop
+          and send discs below stay reachable, and the draft underneath is
+          untouched until the transcript is appended to it. */}
+      {dictationState !== 'idle' && <div className="composer-dictation-overlay">
+        {dictationState === 'recording' ? <>
+          <DictationMeter levelRef={dictationLevelRef} />
+          {/* No live region on the timer: a polite announcement twice a second
+              would talk over everything else. The mic button's label carries
+              the state instead. */}
+          <span className="composer-dictation-elapsed">{formatDictationElapsed(recordingElapsedMs)}</span>
+          <button type="button" className="composer-dictation-cancel"
+            aria-label={t("Discard recording")} data-tooltip={t("Discard · Esc")} data-tooltip-side="top"
+            onClick={() => cancelDictation()}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </> : <>
+          <ProgressSpinner className="composer-mic-spinner" size={16} />
+          <span className="composer-dictation-elapsed" role="status">{t("Transcribing…")}</span>
+        </>}
+      </div>}
       <textarea ref={textarea} value={draft} onChange={(event) => {
         // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
         // logged only when a frame is actually slow.
@@ -1954,27 +2004,29 @@ export const Composer = memo(function Composer({
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied} />
-        {dictationState === 'recording' && <span className="composer-dictation-timer" role="status">
-          <span className="composer-dictation-dot" aria-hidden="true" />
-          {formatDictationElapsed(recordingElapsedMs)}
-        </span>}
         <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}
           aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
           aria-pressed={dictationState === 'recording'}
-          data-tooltip={dictationState === 'recording' ? t('Stop and transcribe')
+          data-tooltip={dictationState === 'recording' ? t('Stop and transcribe · Enter')
             : dictationState === 'transcribing' ? t('Transcribing…') : t('Dictate (local Whisper)')}
           data-tooltip-side="top"
           onClick={() => void toggleDictation()}>
-          {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={16} /> : <Mic size={16} />}
+          {/* Recording swaps the glyph for the stop square: the disc alone
+              never said that pressing it ENDS the take. */}
+          {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={16} />
+            : dictationState === 'recording' ? <MxIcon name="stop" size={16} />
+              : <Mic size={16} />}
         </button>
         <button type={stopOnly ? "button" : "submit"}
           className={`send-button${stopOnly ? " stop" : ""}`}
           onClick={stopOnly ? () => void stop() : undefined}
+          // Sending mid-take would drop what was just spoken: the transcript
+          // only reaches the draft after the recorder stops.
           disabled={stopOnly ? false
             : (!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true))
-              || (submitting && Boolean(draftMode)) || transitioning}
+              || (submitting && Boolean(draftMode)) || transitioning || dictationState !== 'idle'}
           aria-label={stopOnly ? t("Stop generation")
             : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))
               : turnBusy ? t("Queue or steer active turn")

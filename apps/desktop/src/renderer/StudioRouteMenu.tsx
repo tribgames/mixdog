@@ -3,6 +3,7 @@ import { type CSSProperties, useCallback, useEffect, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ProviderIcon } from './provider-display';
 import {
@@ -225,6 +226,15 @@ export function StudioRouteMenu({
   };
 
   const mounted = open || closing;
+
+  // ABB: back closes the drilled pane first, then the sheet — same order the
+  // Escape handler below walks.
+  useMobileBack(open, () => closeAll());
+  useMobileBack(Boolean(pane), () => {
+    setPane(null);
+    setFlyoutBox(null);
+    setDrill(false);
+  });
 
   useEffect(() => {
     if (!mounted) return undefined;

@@ -31,7 +31,7 @@ export function commitCompletionModuleUrl(
   return pathToFileURL(modulePath).href;
 }
 
-// Keeps the maintenance-route prompt affordable (ORCA budgets ~200KB).
+// Keeps the maintenance-route prompt affordable (~200KB budget).
 const DIFF_TOTAL_BUDGET = 160_000;
 
 function commitStyleHint(preferences: DesktopGitPreferences | null): string {
@@ -73,7 +73,7 @@ export function createCommitMessageGenerator({
   ): Promise<string> {
     const sections: string[] = [];
     // Every file gets a fair slice so one huge diff cannot starve the rest
-    // (ORCA's water-filling allocator, simplified to an even split).
+    // (a water-filling allocator, simplified to an even split).
     const perFile = Math.max(4_000, Math.floor(DIFF_TOTAL_BUDGET / Math.max(1, files.length)));
     let used = 0;
     for (const file of files) {

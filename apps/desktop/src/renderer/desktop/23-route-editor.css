@@ -516,17 +516,66 @@
   max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
   border-radius: var(--mx-radius-xl);
 }
+/* ONE frame (user: 프레임이 내측과 바깥쪽 두 개인데 내측만 남긴 원프레임으로,
+   제목 안으로): the dialog WEARS the context card's own surface — top-light
+   gradient over layer-1 under a hairline — and the card inside drops its
+   frame, so the popup reads as that single card with its title inside it
+   instead of a card floating inside a second dialog box. The 24px body inset
+   goes with it: the sections carry their own padding, and the doubled inset
+   was pure height on a phone. */
+.command-surface[data-surface="context"] {
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted), var(--mx-overlay);
+}
 .command-surface[data-surface="context"] .mixdog-settings__panel {
   max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
+  background: transparent;
+}
+/* The title bar becomes the card's first band: it lets the frame's gradient
+   through and divides on the SAME hairline the card uses between its own
+   sections, with its text on the sections' 22px column. */
+.command-surface[data-surface="context"] .mixdog-settings__header {
+  padding: 0 12px 0 22px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  background: transparent;
 }
 .command-surface[data-surface="context"] .mixdog-settings__body {
   flex: 0 1 auto;
   overflow-y: auto;
-  padding: 24px;
+  padding: 0;
 }
+.command-surface[data-surface="context"] .context-card {
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+/* The body inset is gone, so the loading line brings its own. */
+.command-surface[data-surface="context"] .settings-loading { padding: 22px; }
 .command-surface .mixdog-settings__body { gap: 28px; }
 .command-surface .mixdog-settings__header h1 { flex: 1 1 auto; }
 .command-surface-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+/* /inherit readings: three short label/value pairs above the decision. */
+.command-surface-facts { display: grid; gap: 6px; margin: 0; }
+.command-surface-facts > div {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.command-surface-facts dt {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.command-surface-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-item);
+}
 .command-surface .settings-section-heading p {
   display: block;
   margin: 5px 0 0;
@@ -630,6 +679,13 @@
   opacity: .45;
 }
 .session-context-indicator > button:disabled { cursor: default; }
+/* The gauge stopped opening the context surface (user: 클릭 시 나오는
+   팝업/화면전환은 필요없음), so a hover surface must not advertise a click —
+   its hover card is the whole answer. Touch keeps the pointer cursor because
+   there a tap is what opens that same card. */
+@media (hover: hover) {
+  .session-context-indicator > button { cursor: default; }
+}
 .session-context-indicator {
   position: relative;
   width: 28px;
@@ -707,6 +763,18 @@
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+}
+/* Hover bridge: the card hangs 6px below the gauge, and crossing that gap left
+   the slot's subtree — the card closed before the pointer could ever reach the
+   Compact button inside it. The bridge belongs to the CARD, so the pointer
+   stays inside the slot for the whole trip. */
+.session-context-popover::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 0;
+  left: 0;
+  height: 6px;
 }
 /* The row is a grouping element only; its label/value join the popover grid so
    both columns align across rows. */

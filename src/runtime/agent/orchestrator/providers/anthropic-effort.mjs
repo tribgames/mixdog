@@ -292,7 +292,7 @@ export function applyAnthropicEffortToBody(
         // Adaptive-thinking models (4.6+) require `thinking:{type:"adaptive"}`
         // rather than the legacy budget_tokens shape — sending
         // `thinking:{type:"enabled"}` here 400s on sonnet-5/opus-4-7/4-8.
-        // Match Claude Code's default wire shape: omit `display` and let the
+        // Keep the default wire shape: omit `display` and let the
         // model/API choose its default. Operators and benchmarks can explicitly
         // request either supported display mode.
         const display = (process.env.MIXDOG_ANTHROPIC_THINKING_DISPLAY || '').trim();

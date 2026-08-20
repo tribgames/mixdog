@@ -1,10 +1,10 @@
 // Regenerates src/renderer/seti-icons.ts and src/renderer/seti.woff from the
-// VS Code built-in "theme-seti" extension (which packages Seti UI, (c) 2014
-// Jesse Weed — MIT; see THIRD-PARTY-NOTICES.txt).
+// bundled "theme-seti" icon theme. Attribution and license details live in
+// LICENSES/editor-assets-NOTICE.txt and THIRD-PARTY-NOTICES.txt.
 //
 //   node scripts/generate-seti-icons.mjs [path-to-theme-seti]
 //
-// Only the dark-theme glyph/colour set is emitted. VS Code resolves the theme's
+// Only the dark-theme glyph/colour set is emitted. The theme resolves its
 // languageIds through every built-in language contribution, so those derived
 // extensions/file names must be folded back in alongside explicit overrides.
 import { copyFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -12,7 +12,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = resolve(process.argv[2] || 'C:/Project/refs/vscode/extensions/theme-seti');
+const sourceArg = process.argv[2] || process.env.MIXDOG_SETI_THEME_SOURCE || '';
+if (!sourceArg) {
+  throw new Error('Pass the theme-seti extension directory as argv[2] (or set MIXDOG_SETI_THEME_SOURCE).');
+}
+const source = resolve(sourceArg);
 const theme = JSON.parse(readFileSync(join(source, 'icons/vs-seti-icon-theme.json'), 'utf8'));
 
 const escapeChar = (definition) =>
@@ -60,7 +64,7 @@ const languageAssociations = () => {
 };
 const language = languageAssociations();
 // Explicit Seti associations are exceptions to the language-derived icon and
-// therefore win, matching VS Code's generated theme resolution.
+// therefore win, matching the generated theme resolution.
 const extensions = { ...language.extensions, ...mapOf(theme.fileExtensions) };
 const names = { ...language.names, ...mapOf(theme.fileNames) };
 claim(theme.file);
@@ -74,8 +78,7 @@ const recordSource = (record) => Object.entries(record)
 
 const output = [
   '// GENERATED FILE — do not edit by hand: run scripts/generate-seti-icons.mjs.',
-  '// Glyph/colour tables from the VS Code built-in Seti file icon theme',
-  '// (extensions/theme-seti), which packages Seti UI (c) 2014 Jesse Weed — MIT.',
+  '// Attribution and license details live in LICENSES/editor-assets-NOTICE.txt.',
   '// See THIRD-PARTY-NOTICES.txt. Dark-theme colour set.',
   '',
   `export const SETI_DEFAULT_ID = ${JSON.stringify(theme.file)};`,
@@ -94,7 +97,7 @@ const output = [
   '',
   'export interface SetiIcon { glyph: string; color: string; }',
   '',
-  '/** VS Code fileIconTheme resolution: exact file name, then every dotted',
+  '/** File icon-theme resolution: exact file name, then every dotted',
   ' *  suffix ("a.test.ts" -> "test.ts" -> "ts"), then the generic file icon. */',
   'export function setiIconFor(fileName: string): SetiIcon {',
   "  const lower = String(fileName || '').toLowerCase();",

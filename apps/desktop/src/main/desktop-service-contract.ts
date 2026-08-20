@@ -62,6 +62,12 @@ export interface DesktopService {
     options?: DesktopSubmitOptions,
     draft?: DesktopNewTaskDraft,
   ): Promise<DesktopNewTaskSubmitResult>;
+  /** /inherit — copy one session's conversation into a NEW session id running
+   *  on the supplied route; the source session is left untouched. */
+  inheritSession(
+    sourceSessionId: string,
+    route?: DesktopModelSelection | null,
+  ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }>;
   /** Split panes use daemon-owned session addresses directly. Pane actions
    *  never fall back to whichever session happens to be focused. */
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
@@ -128,6 +134,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'setVisibleSessions',
   'searchProjectFiles',
   'submitNewTask',
+  'inheritSession',
   'submitToSession',
   'abortSession',
   'resolveToolApprovalForSession',

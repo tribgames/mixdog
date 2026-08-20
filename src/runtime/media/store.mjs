@@ -19,7 +19,6 @@ import {
   renditionSpec,
 } from './renditions.mjs';
 
-const MAX_INDEX_ENTRIES = 2_000;
 // Renderer transport is base64 over IPC: refuse to inline anything larger.
 const MAX_INLINE_BYTES = 48 * 1024 * 1024;
 const MAX_CACHED_THUMBNAIL_BYTES = 4 * 1024 * 1024;
@@ -211,15 +210,11 @@ export function saveMediaAsset({ kind, lane, model, prompt, options = {}, mime, 
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, bytes);
   entry.file = file;
+  // The gallery is NOT capped (user). An entry-count trim used to unlink the
+  // oldest files here, which is data loss nobody asked for: a generated asset
+  // leaves this store only through an explicit delete.
   withFileLockSync(indexLockPath(), () => {
-    const assets = [entry, ...readIndex()];
-    const kept = assets.slice(0, MAX_INDEX_ENTRIES);
-    for (const dropped of assets.slice(MAX_INDEX_ENTRIES)) {
-      const droppedPath = storedAssetPath(dropped.file);
-      try { if (droppedPath) unlinkSync(droppedPath); } catch {}
-      removeRenditions(renditionsDir(), dropped.id);
-    }
-    writeIndex(kept);
+    writeIndex([entry, ...readIndex()]);
   });
   // The first gallery paint after a generation would otherwise be the one that
   // pays for the tile rendition; build it now, off the caller's path.

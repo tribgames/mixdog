@@ -56,10 +56,17 @@ let _kiwi = null
 let _log = () => {}
 let _initMs = 0
 let _idleTimer = null
+// Idle window before the analyzer is released. A cold rebuild costs ~1.5-1.8s
+// and BLOCKS the recall path (buildFtsQuery awaits it for Hangul queries), so a
+// 60s window expired between ordinary conversational turns and made nearly
+// every interactive recall pay that rebuild. 5 minutes keeps the analyzer alive
+// across a normal back-and-forth while still reclaiming its ~560MB once the
+// session genuinely goes quiet. MIXDOG_KO_MORPH_IDLE_TIMEOUT_MS overrides;
+// 0 disables the release entirely.
 const _envIdleMs = Number(process.env.MIXDOG_KO_MORPH_IDLE_TIMEOUT_MS)
 const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0
   ? _envIdleMs
-  : 60_000
+  : 300_000
 
 export function isReady() { return _state === 'ready' && _kiwi != null }
 export function state() { return _state }

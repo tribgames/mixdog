@@ -152,7 +152,7 @@ exit 0
 async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
     const script = getSnapshotScript(shellPath, snapshotPath, configFileExists);
     let stderrBuf = '';
-    // Mirror reference implementation (bash/ShellSnapshot.ts:458):
+    // Snapshot shell invocation:
     // `-c -l` (login non-interactive). Earlier `-ic` (interactive command)
     // forced bash-completion to load — Git's completion loader spawns `find`
     // in subshells (__git_find_on_cmdline etc.) which detach on Windows when
@@ -160,7 +160,7 @@ async function _runSnapshot(shellPath, snapshotPath, configFileExists) {
     // mode runs .bash_profile / .profile (which typically sources .bashrc)
     // without triggering completion init. The script also explicitly sources
     // the rc file, so the interactive-guard `[[ $- == *i* ]] && return` is
-    // accepted as a known tradeoff (matches the reference choice).
+    // accepted as a known tradeoff.
     const env = (() => {
       // P3 fix: blank prompts so an interactive sourcing in -ic does not
       // print PS1 / PS2 / RPROMPT / PROMPT noise to stderr (which our

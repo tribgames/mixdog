@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { executeGitTool, GIT_TOOL_DEF, _gitCommandInternals } from './git-command-tool.mjs';
+import { commandHasShellSyntax } from './git-command-policy.mjs';
 
 function parseOk(result) {
     assert.doesNotMatch(String(result), /^Error:/, String(result));
@@ -138,12 +139,55 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     assert.match(String(await executeGitTool({ command: 'git status && git log' }, root)), /^Error: git command must not contain shell operators/);
 });
 
+test('git tool answers semantic exits and keeps literal operator characters', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-semantic-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    writeFileSync(join(repo, 'base.txt'), 'base\n');
+    parseOk(await git(repo, 'add --all'));
+    parseOk(await git(repo, 'commit -m base'));
+
+    // A separator inside one token is argument text, not a pipeline.
+    assert.match(JSON.stringify(parseOk(await git(repo, 'log --format=%h|%s -n 1'))), /\|base/);
+    assert.equal(commandHasShellSyntax('git log -- ":(exclude)node_modules"'), false);
+    assert.equal(commandHasShellSyntax('git log --format=$(whoami)'), true);
+    assert.match(String(await git(repo, 'log | head')), /^Error: git command must not contain shell operators/);
+
+    // grep exit 1 is "no match", not a failure.
+    assert.equal(parseOk(await git(repo, 'grep -n base -- base.txt')).matched, true);
+    assert.equal(parseOk(await git(repo, 'grep -n mixdog-absent-token')).matched, false);
+
+    // diff reports through the exit code for --quiet and --check.
+    assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, false);
+    assert.equal(parseOk(await git(repo, 'diff --check')).problems, false);
+    writeFileSync(join(repo, 'base.txt'), 'base\ntrailing   \n');
+    assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, true);
+    const check = parseOk(await git(repo, 'diff --check'));
+    assert.equal(check.problems, true);
+    assert.match(JSON.stringify(check), /trailing whitespace/);
+});
+
+test('git failure detail folds progress frames and keeps the fatal tail', () => {
+    const { failureText, foldProgressFrames } = _gitCommandInternals;
+    assert.equal(
+        foldProgressFrames('Updating files:   1% (5/49152)\rUpdating files:  99% (48000/49152)\nfatal: boom'),
+        'Updating files:  99% (48000/49152)\nfatal: boom',
+    );
+    const noisy = [...Array.from({ length: 60 }, (_, i) => `line-${i}`), 'fatal: boom'].join('\n');
+    const text = failureText(noisy, 5);
+    assert.match(text, /^…\[56 earlier lines omitted\]\n/);
+    assert.match(text, /fatal: boom$/);
+});
+
 test('git schema exposes only the compact shell-compatible contract', () => {
     const properties = GIT_TOOL_DEF.inputSchema.properties;
     assert.deepEqual(Object.keys(properties), ['command', 'confirm', 'output_limit']);
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
     assert.equal(properties.command.minLength, undefined);
     assert.match(properties.confirm.description, /only when a rejected high-risk command/i);
-    assert.match(GIT_TOOL_DEF.description, /Read-only queries.*run in parallel/i);
+    assert.match(GIT_TOOL_DEF.description, /Run one Git command directly, without a shell/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });

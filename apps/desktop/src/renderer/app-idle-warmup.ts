@@ -2,6 +2,7 @@
 // usable frame instead of during it. Markdown warms promptly (the first
 // session open needs it); the much heavier diff surface waits for real user
 // idle. Extracted from App.tsx so the component file holds UI only.
+import { loadCommandSurfaceModule } from "./command-surface-loader";
 import { connectionQuality } from "./network-conditions";
 import { preloadMarkdownBody, preloadStreamingMarkdownBody } from "./TranscriptView";
 import { prewarmSidebarReferences } from "./sidebar-reference-cache";
@@ -135,11 +136,23 @@ export function scheduleRendererWarmups(): () => void {
   // screen is still using, so a metered or slow connection skips the warmup
   // entirely and pays the chunk cost only for a panel the user actually
   // opens. The native window reads them from local disk and always warms.
+  // The command dialog (/context · /usage · /doctor) has no hover trigger on a
+  // phone and was in no warmup list at all, so its first open always paid a
+  // relay round trip before it could paint. At a few KB it is worth warming
+  // even on the links where the heavier panel chunks below are skipped.
+  const warmCommandSurface = () => {
+    void loadCommandSurfaceModule().catch(() => undefined);
+  };
   if (!nativeWindow && connectionQuality() !== "normal") {
-    return () => { stopped = true; };
+    const cancelLightIdle = schedulePostInteractionIdle(warmCommandSurface, 2_000, 800, 250);
+    return () => {
+      stopped = true;
+      cancelLightIdle();
+    };
   }
   const cancelIdle = schedulePostInteractionIdle(
     () => {
+      warmCommandSurface();
       void Promise.allSettled([
         loadStudioViewModule(),
         import("./SchedulesView"),

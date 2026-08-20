@@ -12,7 +12,6 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { resolve as pathResolve, dirname as pathDirname, join as pathJoin } from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { startChildGuardian } from '../../../../shared/child-guardian.mjs';
 import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensurePatchBinary, findCachedPatchBinary } from '../patch-binary-fetcher.mjs';
@@ -144,7 +143,13 @@ class NativePatchServer {
     // flashes an empty console window on Windows. Especially visible now that the
     // idle watchdog exits the server and it respawns on the next request.
     this.child = spawn(binPath, ['--server'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    startChildGuardian({ childPid: this.child.pid, label: 'native-patch-server', orphanGraceMs: 5000, forceGraceMs: 2000 });
+    // No child guardian here. The server is self-terminating on BOTH orphan
+    // paths: stdin EOF ends its request loop the moment this host's pipe handle
+    // closes, and MIXDOG_PATCH_SERVER_IDLE_MS bounds the surviving-handle case
+    // that EOF cannot see. A guardian added nothing those two already cover,
+    // but it pinned the shared child-guardian broker — an Electron-as-node
+    // process (~100MB RSS) — for the whole host lifetime, once per host, to
+    // watch a ~10MB Rust process that outlives nothing.
     this.stderr = '';
     this.lines = [];
     this.waiters = [];

@@ -4,8 +4,8 @@ import { join } from 'node:path';
 const DEFAULT_PRUNED_DIRECTORIES = new Set(['.git', 'node_modules']);
 const MAX_SCANNED_ENTRIES = 100_000;
 // Cached file lists per project root so a keystroke burst scores an in-memory
-// index instead of re-walking the tree per keystroke (VS Code file-picker
-// parity). Invalidation is TTL-based ON PURPOSE: a recursive fs.watch on the
+// index instead of re-walking the tree per keystroke (file-picker
+// behavior). Invalidation is TTL-based ON PURPOSE: a recursive fs.watch on the
 // project root silently flips the process exit code to 1 on Windows when the
 // watched root itself is deleted (no 'error' event, verified empirically), so
 // a short TTL is the reliable cross-platform staleness bound.

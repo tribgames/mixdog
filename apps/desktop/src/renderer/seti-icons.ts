@@ -887,7 +887,7 @@ export const SETI_FILE_NAMES: Record<string, string> = {
 
 export interface SetiIcon { glyph: string; color: string; }
 
-/** VS Code fileIconTheme resolution: exact file name, then every dotted
+/** File icon-theme resolution: exact file name, then every dotted
  *  suffix ("a.test.ts" -> "test.ts" -> "ts"), then the generic file icon. */
 export function setiIconFor(fileName: string): SetiIcon {
   const lower = String(fileName || '').toLowerCase();

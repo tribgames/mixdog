@@ -6,6 +6,7 @@ import {
   type MutableRefObject,
   type RefObject,
 } from "react";
+import { isMobileRemoteSurface } from "./mobile-surface";
 
 /**
  * Transcript auto-scroll + session scroll-gesture grammar.
@@ -30,7 +31,7 @@ const REATTACH_THRESHOLD_PX = 32;
 const SCROLL_KEYS = ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "];
 // A release must be a real upward move, not sub-pixel reflow noise. Fractional
 // row heights under a parallel stream deliver 1px scrollTop wobble that is not
-// reader intent; the reference implementation never sees it because it does not
+// reader intent; a plain scroll listener never sees it because it does not
 // virtualize (user: 병렬 작업 중 타이핑하면 스크롤이 계속 풀린다).
 const RELEASE_MOVE_PX = 1;
 const POINTER_DRAG_PX = 4;
@@ -199,6 +200,9 @@ export interface TranscriptFollow {
   followingRef: RefObject<boolean>;
   showJump: boolean;
   hasScrollGesture(): boolean;
+  /** True ONLY while a finger is on the glass (touchstart → touchend). A
+   *  corrective scroll write cancels a fling but not a tracked drag. */
+  isTouchActive(): boolean;
   handleScroll(): void;
   handleWheel(event: WheelLike): void;
   handlePointerDown(event: PointerLike): void;
@@ -264,7 +268,7 @@ export function useTranscriptFollow({
   // bottom it had BEFORE that growth (see grewWhileAtBottom).
   const lastScrollHeight = useRef(0);
   // Distance from the bottom as of the last event that was NOT a content
-  // mutation — the pre-mutation snapshot the reference implementations take.
+  // mutation — the pre-mutation snapshot a plain listener takes.
   const lastDistance = useRef(0);
   // Jump-to-latest re-pin loop: frame handle, deadline, settled-frame count.
   const jumpPinFrame = useRef(0);
@@ -314,6 +318,10 @@ export function useTranscriptFollow({
     () => hasGesture() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
     [hasGesture],
   );
+  // Contact, not motion: the fling AFTER a lift is the phase a corrective
+  // write would cancel, so the timeline compensates only while the finger is
+  // still tracked.
+  const isTouchActive = useCallback(() => touchGesture.current !== undefined, []);
 
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
     const time = Date.now();
@@ -606,7 +614,13 @@ export function useTranscriptFollow({
     // timeline owns anchoring (overflow-anchor:none). Once the reader has left
     // the tail, browser auto-anchoring helps keep the reading position still
     // across rewrap/content mutations.
-    element.style.overflowAnchor = followingRef.current ? "none" : "auto";
+    // A phone NEVER hands anchoring back. The projected surface writes row
+    // positions straight to the DOM, so the browser's correction and the
+    // timeline's own correction landed on the same size change and fought
+    // each other frame by frame (user: 스크롤 올리는 중에 위아래로 덜덜거림).
+    element.style.overflowAnchor = followingRef.current || isMobileRemoteSurface()
+      ? "none"
+      : "auto";
     // Chromium always provides ResizeObserver. The renderer's jsdom harness
     // intentionally omits it in tests that do not exercise layout delivery.
     if (typeof ResizeObserver !== "function") return undefined;
@@ -635,7 +649,7 @@ export function useTranscriptFollow({
       // was NOT this content mutation.
       const distanceBefore = lastDistance.current;
       lastDistance.current = distance;
-      // Opencode parity (createAutoScroll): a transcript that no longer
+      // Auto-scroll rule: a transcript that no longer
       // OVERFLOWS holds no reading position, so it re-arms follow. The CONTENT
       // side of that rule is driven by the rows commit in Conversation, not by
       // a second observer here — virtual-core stays the only content-growth
@@ -710,6 +724,7 @@ export function useTranscriptFollow({
     followingRef,
     showJump,
     hasScrollGesture: hasReaderScroll,
+    isTouchActive,
     handleScroll,
     handleWheel,
     handlePointerDown,

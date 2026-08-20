@@ -556,7 +556,7 @@ const bootstrap = harnessInstalled
     return rect && Math.round(rect.top) === 0 && Math.round(rect.height) === 40
       ? { titlebar, rect }
       : null;
-  }, 'OpenCode titlebar geometry', 30000);
+  }, 'Titlebar geometry', 30000);
   const titlebarRect = titlebarReady.rect;
   await waitFor(() => document.querySelector('#session-sidebar'), 'session sidebar');
   await waitFor(() => document.querySelector('nav[aria-label="Open workspaces"]'), 'workspace tabs');
@@ -581,7 +581,7 @@ const bootstrap = harnessInstalled
   ];
   const missingShellFeatures = requiredShellFeatures.filter((name) => !openCodeShell[name]);
   if (missingShellFeatures.length) {
-    throw new Error('OpenCode shell controls are missing: ' + missingShellFeatures.join(', ') + '.');
+    throw new Error('Shell controls are missing: ' + missingShellFeatures.join(', ') + '.');
   }
   const bootstrapState = {
     bridgeMethods: requiredMethods.length,

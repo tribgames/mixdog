@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { projectIdentity, SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { publishSidebarProjects } from './sidebar-reference-cache';
@@ -140,6 +141,10 @@ export function ProjectsPane({
     setAddName('');
     setAddError('');
   };
+  // ABB: each open project dialog owns one hardware-back step. A busy editor
+  // refuses to close, exactly as its own Cancel does.
+  useMobileBack(Boolean(active && addOpen), closeAdd);
+  useMobileBack(Boolean(active && editTarget), closeEdit);
   // Hidden panel, no body portal: collapsing the sidebar or presenting another
   // destination closes the dialogs (and disarms a pending removal) while the
   // list itself keeps its state.

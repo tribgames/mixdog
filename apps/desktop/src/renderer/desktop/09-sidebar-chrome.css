@@ -99,7 +99,7 @@
      next to it (user: 타이틀이 탭보다 아래에 있어 어색). */
   padding: 0 8px 8px;
   border: 0;
-  /* Orca-style structure line: the session rail separates from the main
+  /* Structure line: the session rail separates from the main
      area with a hairline instead of relying on the band gap alone. */
   border-right: 1px solid var(--mx-border-structure);
   border-radius: 0;
@@ -148,7 +148,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* View actions (VS Code grammar): the active rail panel portals its primary
+/* View actions: the active rail panel portals its primary
    action into the title row, so the panel never prints a second header. */
 .session-panel-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
 .session-panel-action {

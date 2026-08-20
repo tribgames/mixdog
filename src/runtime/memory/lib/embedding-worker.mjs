@@ -57,11 +57,16 @@ const execFileAsync = promisify(execFile)
 const _envLoadCores = Number(process.env.MIXDOG_EMBED_LOAD_CORES)
 const LOAD_AFFINITY_CORES = Number.isInteger(_envLoadCores) && _envLoadCores >= 1 ? _envLoadCores : 1
 const MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')
-// Reclaim the model after a short idle window. The parent retires this worker
-// thread so the next recall reloads on demand without keeping hundreds of MB
-// resident throughout an otherwise idle desktop session.
+// Reclaim the model after an idle window. The parent retires this worker thread
+// so the next recall reloads on demand without keeping hundreds of MB resident
+// throughout an otherwise idle desktop session. The window is 5 minutes rather
+// than 60s because a disposed model does not just cost the ~1.4s reload: recall
+// skips its dense leg entirely and returns lexical-only results while the
+// reload runs in the background, and a 60s window expired between ordinary
+// conversational turns. MIXDOG_EMBED_IDLE_TIMEOUT_MS overrides; 0 disables the
+// release entirely.
 const _envIdleMs = Number(process.env.MIXDOG_EMBED_IDLE_TIMEOUT_MS)
-const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 60_000
+const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 300_000
 
 // Defensive belt against giant model inputs. Callers should already bound text
 // (see memory-embed truncateForEmbed), but the worker is the last line before

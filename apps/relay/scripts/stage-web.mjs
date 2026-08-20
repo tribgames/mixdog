@@ -18,7 +18,7 @@ import {
 import { dirname, extname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { brotliCompress, constants, gzip } from 'node:zlib';
+import { brotliCompress, constants } from 'node:zlib';
 
 const relayRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const rendererDist = join(relayRoot, '..', 'desktop', 'out', 'renderer');
@@ -28,7 +28,6 @@ const webDir = join(relayRoot, 'renderer');
 const cacheDir = join(relayRoot, '.web-precompress');
 
 const compressBrotli = promisify(brotliCompress);
-const compressGzip = promisify(gzip);
 
 // woff2/png/ico arrive compressed; re-encoding them only burns build time.
 const COMPRESSIBLE = new Set([
@@ -87,24 +86,22 @@ async function precompress(file) {
   const cacheKey = relativeName.split(sep).join('_');
   const cacheable = HASHED_NAME.test(relativeName);
   const quality = raw.length >= LARGE_FILE_BYTES ? 10 : 11;
-  const [brotliBody, gzipBody] = await Promise.all([
-    encode(`${cacheKey}.br`, cacheable, () => compressBrotli(raw, {
-      params: {
-        [constants.BROTLI_PARAM_QUALITY]: quality,
-        [constants.BROTLI_PARAM_SIZE_HINT]: raw.length,
-      },
-    })),
-    encode(`${cacheKey}.gz`, cacheable, () => compressGzip(raw, { level: 9 })),
-  ]);
+  // Brotli only. A staged .gz would add ~4.6MB of already-compressed bytes to
+  // every deploy upload for the vanishingly rare client that negotiates gzip
+  // but not brotli — and the relay still answers that client from its
+  // on-the-fly gzip path.
+  const brotliBody = await encode(`${cacheKey}.br`, cacheable, () => compressBrotli(raw, {
+    params: {
+      [constants.BROTLI_PARAM_QUALITY]: quality,
+      [constants.BROTLI_PARAM_SIZE_HINT]: raw.length,
+    },
+  }));
   if (brotliBody.length < raw.length * KEEP_RATIO) {
     writeFileSync(`${file}.br`, brotliBody);
     stats.files += 1;
     stats.raw += raw.length;
     stats.brotli += brotliBody.length;
   }
-  // Kept for the rare client that negotiates gzip only; the relay still falls
-  // back to on-the-fly gzip when neither sibling exists.
-  if (gzipBody.length < raw.length * KEEP_RATIO) writeFileSync(`${file}.gz`, gzipBody);
 }
 
 if (!existsSync(join(rendererDist, 'index.html'))) {

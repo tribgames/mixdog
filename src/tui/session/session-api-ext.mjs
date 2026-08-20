@@ -905,6 +905,25 @@ export function createSessionApiB(bag) {
         set({ commandBusy: false });
       }
     },
+    /**
+     * /inherit — open a NEW session on the current route and carry this
+     * conversation into it. The source session file is left as it is, so the
+     * two transcripts share a prefix and then diverge.
+     */
+    inheritSession: async () => {
+      if (getState().commandBusy) return false;
+      const sourceId = getState().sessionId || null;
+      if (!sourceId) return false;
+      set({ commandBusy: true });
+      try {
+        await runtime.newSession();
+        const result = await runtime.inheritFrom(sourceId);
+        set({ sessionId: runtime.sessionId ?? getState().sessionId });
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     switchContext: async (options) => {
       if (getState().commandBusy) return false;
       set({ commandBusy: true });

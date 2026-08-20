@@ -174,7 +174,7 @@ export function createSessionService({
   }
 
   // ── Stored-session views ────────────────────────────────────────────────────
-  // Parity with the codex/claude-code/opencode session models: a stored
+  // Standard stored-session model: a stored
   // session that is merely VISIBLE is served from disk; only execution
   // (submit/abort/approve/action/create) materializes a runtime. A client that
   // subscribed while the session was cold is remembered here and adopted by
@@ -249,7 +249,7 @@ export function createSessionService({
 
   function sessionBusy(entry) {
     const sessionId = currentSessionId(entry);
-    // CC parity: detached views do not make their background commands
+    // Detached views do not make their background commands
     // disposable. Keep the owner runtime (and daemon self-shutdown guard) live
     // until the task reaches a terminal state and its completion can be
     // delivered back into this session.

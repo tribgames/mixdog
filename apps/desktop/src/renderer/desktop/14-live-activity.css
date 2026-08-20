@@ -291,9 +291,11 @@
 }
 @keyframes turn-status-mark-settle {
   /* The rotation IS the shape now, so every frame has to carry it — a bare
-     scale() would unrotate the rhombus back into a square mid-glint. */
-  from { color: var(--mx-text); transform: rotate(45deg) scale(1.25); }
-  to { color: var(--mx-text-soft); transform: rotate(45deg) scale(1); }
+     scale() would unrotate the rhombus back into a square mid-glint. Keep the
+     centring translation too: animation keyframes replace the base transform,
+     so omitting it dropped the completed mark below the running one. */
+  from { color: var(--mx-text); transform: translateY(-50%) rotate(45deg) scale(1.25); }
+  to { color: var(--mx-text-soft); transform: translateY(-50%) rotate(45deg) scale(1); }
 }
 .turn-status.failed {
   width: 100%;
@@ -452,7 +454,7 @@
 @keyframes transcript-live-pulse {
   50% { opacity: var(--mx-op-dim); }
 }
-/* OpenCode prompt-dock parity: approval belongs to the composer stack, never
+/* Prompt-dock rule: approval belongs to the composer stack, never
    outside the virtual timeline's declared height. */
 .composer-approval-row { margin-bottom: 8px; }
 .approval-card {

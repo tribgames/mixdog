@@ -145,7 +145,7 @@ function dropZoneStyle(preview: DropPreview): React.CSSProperties {
     case "bottom": return { left, top: top + height / 2, width, height: height / 2 };
   // Center merge highlights the whole target group.
     case "center": return { left, top, width, height };
-    // Strip insertion caret: the rect IS the bar (VS Code tabs drop index).
+    // Strip insertion caret: the rect IS the bar (tab drop index).
     case "insert": return { left, top, width, height };
   }
 }
@@ -351,7 +351,7 @@ export function PaneWorkspace({
       document.removeEventListener("touchend", onTouchEnd, true);
     };
   }, []);
-  // Drag-to-split (VS Code/orca): the titlebar strip publishes pointer frames
+  // Drag-to-split: the titlebar strip publishes pointer frames
   // once a tab drag leaves the strip band; hit-test the pane under the
   // pointer, preview the edge zone, and split on drop. Refs keep the single
   // subscription stable across renders.
@@ -518,15 +518,15 @@ export function PaneWorkspace({
     }
     // A drop that cannot move anything draws no overlay at
     // all — a group over its own pane, or a single-tab group over itself
-    // (editorDropTarget hides the overlay for both instead of previewing a
+    // (the overlay stays hidden for both instead of previewing a
     // silent no-op).
     if (sourceLeafId === leafId
       && (groupDrag || (sourceOwnsTab && (sourceLeaf?.tabs.length ?? 0) < 2))) {
       setDropPreview(null);
       return;
     }
-    // VS Code drops target the editor area BELOW the tab row
-    // (getOverlayOffsetHeight): both the zone bands and the preview overlay
+    // Drops target the editor area BELOW the tab row
+    // — both the zone bands and the preview overlay
     // exclude the strip so top-split geometry is not skewed by it.
     const stripRect = paneScope
       ?.querySelector(".workspace-tabs-shell")?.getBoundingClientRect() ?? null;
@@ -570,11 +570,11 @@ export function PaneWorkspace({
     } else if (!groupDrag && sourceLeafId !== leafId && targetActive
       && navigationKey(targetActive) === navigationKey(frame.selection)) {
       // An edge drop beside a pane that already shows the view is a no-op;
-      // splitting a group with its OWN tab stays allowed (VS Code).
+      // splitting a group with its OWN tab stays allowed.
       setDropPreview(null);
       return;
     }
-    // Foreign-strip hover inserts at the pointed tab position (VS Code
+    // Foreign-strip hover inserts at the pointed tab position (a
     // tabs-container drop): the feedback is an insertion caret in the strip,
     // not the editor-area merge wash, and the drop lands at that index.
     let insertIndex: number | undefined;
@@ -685,7 +685,7 @@ export function PaneWorkspace({
     && (treeMinimum.width > panelSize.width || treeMinimum.height > panelSize.height));
   const overlay = dropPreview
     ? createPortal(
-      // VS Code creates one DropOverlay per editor group: the highlight
+      // ONE drop overlay per editor group: the highlight
       // glides between zones INSIDE a pane but never slides across panes —
       // the key remounts the element when the pane (or surface kind)
       // changes, so only intra-pane moves animate.
@@ -960,7 +960,7 @@ export function PaneWorkspace({
   };
   if (workspace.layout.type === "leaf") {
     const leaf = workspace.layout;
-    // A single pane still owns its tab strip (VS Code single editor group);
+    // A single pane still owns its tab strip (one editor group);
     // the cell stacks the strip above the classic interactive markup.
     return (<>
       <div className="pane-cell is-focused" data-pane-id={leaf.id}

@@ -35,6 +35,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const {
+  DEFAULT_OUTPUT_STYLE_ID,
+  matchOutputStyle,
+  outputStyleMetaFromMarkdown,
+  sortOutputStyles,
+} = require('./output-style-meta.cjs');
 
 /**
  * Read a single section from mixdog-config.json (unified config).
@@ -187,6 +193,7 @@ function buildLanguageSection(dataDir) {
   const lines = [
     `- Default user-facing language${source}: ${language.prompt}. Use it for all user-facing text (preambles, progress, questions, reports, notices), overriding output style; switch only when the user does or asks.`,
     `- Keep code identifiers, paths, commands, symbols, API names, and exact errors in original form.`,
+    `- Never coin a word-for-word translation of source jargon; use the established original term or a plain functional description.`,
   ];
   return `# Language\n\n${lines.join('\n')}`;
 }
@@ -221,84 +228,10 @@ function omitToolRoutes(text, omitTools = []) {
   return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
 }
 
-const DEFAULT_OUTPUT_STYLE_ID = 'simple';
-const OUTPUT_STYLE_ORDER = ['detailed', 'simple', 'minimal', 'extreme-minimal'];
-const OUTPUT_STYLE_ALIASES = new Map([
-  ['extreme', 'extreme-minimal'],
-  ['extremesimple', 'extreme-minimal'],
-  ['extreme-simple', 'extreme-minimal'],
-  ['extreme_simple', 'extreme-minimal'],
-  ['extrememinimal', 'extreme-minimal'],
-  ['extreme_minimal', 'extreme-minimal'],
-  ['mono', 'extreme-minimal'],
-  ['oneline', 'extreme-minimal'],
-  ['one-line', 'extreme-minimal'],
-  ['one_line', 'extreme-minimal'],
-]);
-
-function normalizeOutputStyleId(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return '';
-  const slug = raw.replace(/[_\s]+/g, '-').replace(/^-+|-+$/g, '');
-  const compact = slug.replace(/[_.-]+/g, '');
-  if (OUTPUT_STYLE_ALIASES.has(slug)) return OUTPUT_STYLE_ALIASES.get(slug);
-  if (OUTPUT_STYLE_ALIASES.has(compact)) return OUTPUT_STYLE_ALIASES.get(compact);
-  return /^[a-z0-9.-]+$/.test(slug) ? slug : '';
-}
-
-function outputStyleCompactKey(value) {
-  return normalizeOutputStyleId(value).replace(/[_.-]+/g, '');
-}
-
-function titleCaseOutputStyle(id) {
-  return String(id || '')
-    .split(/[_.-]+/)
-    .filter(Boolean)
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(' ') || 'Default';
-}
-
-function parseOutputStyleFrontmatter(markdown) {
-  const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  const meta = {};
-  if (!match) return meta;
-  for (const line of match[1].split(/\r?\n/)) {
-    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*?)\s*$/);
-    if (!kv) continue;
-    meta[kv[1]] = kv[2].replace(/^['"]|['"]$/g, '').trim();
-  }
-  return meta;
-}
-
-function outputStyleFlag(value, fallback) {
-  const raw = String(value ?? '').trim().toLowerCase();
-  if (!raw) return fallback;
-  if (/^(?:true|1|yes|on)$/.test(raw)) return true;
-  if (/^(?:false|0|no|off)$/.test(raw)) return false;
-  return fallback;
-}
-
-function readOutputStyleEntry(filePath, source) {
-  const raw = readOptional(filePath);
-  if (!raw) return null;
-  const meta = parseOutputStyleFrontmatter(raw);
-  if (/^(?:true|1|yes)$/i.test(String(meta.partial || '').trim())) return null;
-  const fileId = normalizeOutputStyleId(path.basename(filePath).replace(/\.md$/i, ''));
-  const id = normalizeOutputStyleId(meta.name) || fileId;
-  if (!id) return null;
-  return {
-    id,
-    label: String(meta.title || meta.label || '').trim() || titleCaseOutputStyle(id),
-    aliases: String(meta.aliases || '').split(',')
-      .map((alias) => normalizeOutputStyleId(alias))
-      .filter(Boolean),
-    // Built-in and custom styles both inherit the shared format partial; a
-    // style opts out only by declaring `keep-shared-format: false`.
-    keepSharedFormat: outputStyleFlag(meta['keep-shared-format'], true),
-    source,
-    raw,
-  };
-}
+// Framing line under the style header: the block owns user-facing prose only,
+// so a style (including a `keep-shared-format: false` replacement) never reads
+// as guidance for code or tool payloads.
+const OUTPUT_STYLE_ANCHOR = 'The section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.';
 
 function listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR }) {
   const byId = new Map();
@@ -309,27 +242,12 @@ function listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR }) {
     let files = [];
     try { files = fs.readdirSync(dir).filter((name) => name.toLowerCase().endsWith('.md')).sort(); } catch {}
     for (const name of files) {
-      const style = readOutputStyleEntry(path.join(dir, name), source);
-      if (style) byId.set(style.id, style);
+      const raw = readOptional(path.join(dir, name));
+      const meta = raw ? outputStyleMetaFromMarkdown(raw, name) : null;
+      if (meta) byId.set(meta.id, { ...meta, source, raw });
     }
   }
-  return [...byId.values()].sort((a, b) => {
-    const ai = OUTPUT_STYLE_ORDER.indexOf(a.id);
-    const bi = OUTPUT_STYLE_ORDER.indexOf(b.id);
-    if (ai !== bi) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-    return a.label.localeCompare(b.label, 'en', { sensitivity: 'base' });
-  });
-}
-
-function findOutputStyleEntry(value, styles) {
-  const id = normalizeOutputStyleId(value);
-  const compact = outputStyleCompactKey(value);
-  if (!id && !compact) return null;
-  return styles.find((style) => {
-    if (style.id === id || outputStyleCompactKey(style.id) === compact) return true;
-    if (outputStyleCompactKey(style.label) === compact) return true;
-    return style.aliases.some((alias) => alias === id || outputStyleCompactKey(alias) === compact);
-  }) || null;
+  return sortOutputStyles([...byId.values()]);
 }
 
 /** Shared format partial: a user copy in DATA_DIR overrides the built-in one. */
@@ -343,14 +261,14 @@ function loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
   // `agent.outputStyle` key is dropped by config canonicalization.
   const configured = String(readUnifiedConfig(DATA_DIR).outputStyle || '').trim() || DEFAULT_OUTPUT_STYLE_ID;
   const styles = listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR });
-  const style = findOutputStyleEntry(configured, styles)
-    || findOutputStyleEntry(DEFAULT_OUTPUT_STYLE_ID, styles)
+  const style = matchOutputStyle(configured, styles)
+    || matchOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles)
     || styles[0];
   if (!style) return '';
   const selected = stripFrontmatter(style.raw);
   if (!selected) return '';
   const common = style.keepSharedFormat ? readSharedFormatPartial({ PLUGIN_ROOT, DATA_DIR }) : '';
-  return [`# Output Style: ${style.label}`, common, selected].filter(Boolean).join('\n\n');
+  return [`# Output Style: ${style.label}`, OUTPUT_STYLE_ANCHOR, common, selected].filter(Boolean).join('\n\n');
 }
 
 function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [] } = {}) {

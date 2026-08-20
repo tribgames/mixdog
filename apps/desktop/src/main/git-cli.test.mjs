@@ -135,7 +135,7 @@ const POSIX_ONLY = process.platform === "win32"
   ? "POSIX-only: needs real permission bits, symlinks or process groups"
   : false;
 
-test("pull request creation builds the Orca harness payload without a browser", () => {
+test("pull request creation builds the gh payload without a browser", () => {
   assert.deepEqual(buildGhPrCreateArgs({
     base: "main",
     head: "e2e-secondary",
@@ -2302,8 +2302,8 @@ test("pathspec commit serializes per repository and resolves the repository's ow
 });
 
 // ── History context menu ───────────────────
-// Gated the way GitHub Desktop gates it: only cherry-pick refuses on top of a
-// live operation (commit-list.tsx:843-870 `canCherryPick`) or over uncommitted
+// Gated narrowly: only cherry-pick refuses on top of a
+// live operation or over uncommitted
 // work; checkout and branch creation carry safe local changes across, revert is
 // left to git, and every action refuses a ref/tag/commit git itself would not
 // accept.
@@ -2327,7 +2327,7 @@ test("only cherry-pick refuses to stack on a live Git operation", async () => {
 
     await assert.rejects(() => gitCherryPickCommit(cwd, rival), inProgress);
 
-    // A tag only writes refs/tags, so it is never gated — the reference's tag
+    // A tag only writes refs/tags, so it is never gated — the tag
     // dispatchers stay available while an operation runs.
     assert.match(await gitCreateTag(cwd, "v1.0.0", base), /v1\.0\.0/);
     assert.equal((await git(cwd, ["tag", "-l"])).trim(), "v1.0.0");

@@ -384,7 +384,7 @@ export function buildDeferredToolManifest(entries) {
     list.sort((a, b) => a.name.localeCompare(b.name));
     return [
         '<available-deferred-tools>',
-        'You may call any tool listed below directly by name with its arguments; it auto-loads on first call.',
+        'You may call any tool listed below directly by name with its arguments; it auto-loads on first call. When you do not know its exact arguments, call load_tool first to surface the schema.',
         ...list.map((entry) => (entry.description ? `- ${entry.name}: ${entry.description}` : `- ${entry.name}`)),
         '</available-deferred-tools>',
     ].join('\n');

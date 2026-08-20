@@ -352,9 +352,55 @@ let unsubscribeServiceSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
 };
+interface RemoteClientClaimEvent {
+  claimId: string;
+  name: string;
+  platform: string;
+  browser: string;
+  code: string;
+}
+
+// An installed web app runs in its own storage container: it can inherit no
+// pairing and must ask for one. This prompt IS the grant — the relay only
+// routed the request. The number is derived from the key being sealed to, so a
+// swapped key shows a different one on the two screens.
+async function approveRemoteClient(claim: RemoteClientClaimEvent): Promise<void> {
+  const claimId = String(claim.claimId || '');
+  if (!claimId) return;
+  let approved = false;
+  try {
+    const options = {
+      type: 'question' as const,
+      title: 'Mixdog',
+      message: `Connect ${claim.name || 'this device'}?`,
+      detail: `Approve only if this number is showing on the device: ${claim.code}`,
+      buttons: ['Approve', 'Deny'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    };
+    const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    const { response } = parent
+      ? await dialog.showMessageBox(parent, options)
+      : await dialog.showMessageBox(options);
+    approved = response === 0;
+  } catch {
+    approved = false;
+  }
+  try {
+    await serviceClient.invokeDesktopOperation('remoteAccessResolveClaim', [claimId, approved]);
+  } catch {
+    // The request expires on the relay; the device retries or gives up.
+  }
+}
+
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
+    return;
+  }
+  if (name === 'remote-client-claim' && value && typeof value === 'object') {
+    void approveRemoteClient(value as RemoteClientClaimEvent);
   }
 });
 let quitAfterDispose = false;

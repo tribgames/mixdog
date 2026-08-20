@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { t } from "./i18n";
+import { useMobileBack } from "./mobile-back";
 import { iosInstallStep, isIosInstallPlatform, remoteInstallMode } from "./remote-install";
 import "./remote-install-prompt.css";
 
@@ -98,6 +99,8 @@ export function RemoteInstallPrompt() {
     canPrompt: Boolean(installEvent),
     ios,
   });
+  // ABB: back dismisses the card instead of leaving the page behind it.
+  useMobileBack(mode !== "hidden", dismiss);
   if (mode === "hidden") return null;
   const step = mode === "ios" ? iosInstallStep({ handoff: Boolean(handoff), prepared }) : "plain";
 

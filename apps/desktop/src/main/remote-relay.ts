@@ -18,9 +18,12 @@ import { loadOrCreatePairingToken } from './remote-pairing-token';
 import {
   acceptRelayE2EEClientHello,
   createRelayE2EEChallenge,
+  isRelayClaimPublicKey,
   isRelayE2EEHello,
+  relayClaimConfirmationCode,
   relayE2EECompressionSupported,
   relayE2EEPairingMaterial,
+  sealRelayE2EEPairingMaterial,
   type RelayE2EEChannel,
   type RelayE2EEChallenge,
   type RelayE2EEPairingMaterial,
@@ -94,10 +97,24 @@ export interface RemoteRelayOptions extends RemoteMethodDependencies {
   userDataPath: string;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
   onClientCountChanged?: () => void;
+  /** Ask the user to approve one credential-less container. Resolving false
+   *  (or throwing) denies it; the relay never decides this. */
+  onClientClaim?: (claim: RemoteClientClaim) => Promise<boolean>;
+}
+
+/** One browser container asking this desktop for access. It holds no
+ *  credential: the answer here is the credential. */
+export interface RemoteClientClaim {
+  claimId: string;
+  name: string;
+  platform: string;
+  browser: string;
+  /** Two digits shown on both screens so the approval names the phone in hand. */
+  code: string;
 }
 
 export interface RemoteRelayHandle {
-  /** URL a phone opens (relay origin + pairing token). */
+  /** URL a phone opens: the relay origin plus this desktop's device route. */
   clientUrl: string;
   token: string;
   pairing: RelayE2EEPairingMaterial;
@@ -128,6 +145,13 @@ export function remoteFrameBudgetAvailable(
     && pendingBytes + nextBytes <= MAX_PENDING_REMOTE_FRAME_BYTES
     && totalPendingFrames < MAX_PENDING_REMOTE_TOTAL_FRAMES
     && totalPendingBytes + nextBytes <= MAX_PENDING_REMOTE_TOTAL_BYTES;
+}
+
+/** A push lane reaches a browser that registered it, or one that predates the
+ *  lane protocol and therefore still expects everything. An empty set is a
+ *  deliberate "nothing right now", not a missing registration. */
+export function clientReadsLane(lanes: ReadonlySet<string> | null, lane: string): boolean {
+  return lanes === null || lanes.has(lane);
 }
 
 /** Encode one transcript lane against exactly one relay client's baseline. */
@@ -307,11 +331,15 @@ function revokeIdentity(
   });
 }
 
-function relayClientUrl(relayUrl: string, token: string): string {
+/** The entry URL carries a ROUTE, not a credential: it only says which desktop
+ *  to ask. An install captures this URL through the manifest's start_url, which
+ *  is what lets a freshly installed web app — a storage container that can
+ *  inherit nothing — request approval from the right machine. */
+function relayClientUrl(relayUrl: string, deviceId: string): string {
   const url = new URL(relayUrl);
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-  url.pathname = '/';
-  url.search = `token=${encodeURIComponent(token)}`;
+  url.pathname = `/d/${deviceId}/`;
+  url.search = '';
   url.hash = '';
   return url.toString();
 }
@@ -319,8 +347,8 @@ function relayClientUrl(relayUrl: string, token: string): string {
 export async function startRemoteRelay(options: RemoteRelayOptions): Promise<RemoteRelayHandle> {
   const relayUrl = validatedRelayUrl(options.relayUrl);
   const token = await loadOrCreatePairingToken(options.userDataPath);
-  const clientUrl = relayClientUrl(relayUrl, token);
   const { deviceId, deviceSecret } = await loadOrCreateDevice(options.userDataPath);
+  const clientUrl = relayClientUrl(relayUrl, deviceId);
   const e2eeIdentity = await loadOrCreateRelayE2EEIdentity(options.userDataPath);
   const pairing = relayE2EEPairingMaterial(e2eeIdentity);
   const methods = createRemoteMethods(options);
@@ -335,6 +363,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // encoder tracks the delta stream; any client join or resync request
   // resets it, which downgrades the next push to a full snapshot for all.
   const deltaEncoder = createSnapshotDeltaEncoder();
+  // Compact clients keep their own baseline. Two encoders cover any number of
+  // phones, so the fan-out cost does not grow with the audience.
+  const compactDeltaEncoder = createSnapshotDeltaEncoder({ compact: true });
   // Phones currently attached through the relay (client-open/-close
   // envelopes). With zero phones the relay would drop every broadcast on
   // the floor anyway, so the desktop goes quiet instead of streaming state
@@ -357,6 +388,13 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     /** Compact transcript frames: unchanged patch sections are dropped and the
      *  envelope addresses a session by handle. */
     compactWire: boolean;
+    /** Push lanes this browser actually reads ('terminal', 'editor',
+     *  'files'). Terminal output, diagnostics and folder events are produced
+     *  by DESKTOP activity — a build, a save — and used to reach every paired
+     *  phone whether or not it had those surfaces open, so a phone left
+     *  connected paid for a whole build log it never displayed. null means a
+     *  client that predates this and still receives everything. */
+    lanes: Set<string> | null;
     /** Per-client session handles: a live frame repeats the session id ~26
      *  bytes at a time, which is most of an envelope that carries ~30 bytes of
      *  new text. The name travels once, with the handle that replaces it. */
@@ -501,18 +539,34 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         ? sendEncryptedFrame(clientId, payload, droppable)
         : Promise.resolve()),
   ).then(() => undefined);
-  const broadcastEncrypted = (payload: unknown, droppable: boolean): void => {
-    void broadcastEncryptedAsync(payload, droppable);
+  const broadcastEncrypted = (
+    payload: unknown,
+    droppable: boolean,
+    include?: (state: RelayClientState) => boolean,
+  ): void => {
+    void broadcastEncryptedAsync(payload, droppable, include);
   };
+  const readsLane = (lane: string) => (state: RelayClientState): boolean =>
+    clientReadsLane(state.lanes, lane);
   type StatePublication = { snapshot: unknown; critical: boolean };
   let stateMailbox!: LatestStateMailbox<StatePublication>;
   stateMailbox = createLatestStateMailbox<StatePublication>((sequence, publication) => {
-    const payload = {
-      event: 'state',
-      payload: deltaEncoder.encode(publication.snapshot),
-    };
-    void broadcastEncryptedAsync(payload, !publication.critical)
-      .finally(() => stateMailbox.acknowledge(sequence));
+    // Each shape is encoded at most once per publication, and only when a
+    // client that reads it is actually attached.
+    let legacyFrame: unknown;
+    let compactFrame: unknown;
+    void Promise.all([...activeClients].map(([clientId, state]) => {
+      if (!state.channel) return Promise.resolve();
+      if (state.compactWire) {
+        compactFrame ??= { e: 'S', w: compactDeltaEncoder.encode(publication.snapshot) };
+        return sendEncryptedFrame(clientId, compactFrame, !publication.critical);
+      }
+      legacyFrame ??= {
+        event: 'state',
+        payload: deltaEncoder.encode(publication.snapshot),
+      };
+      return sendEncryptedFrame(clientId, legacyFrame, !publication.critical);
+    })).finally(() => stateMailbox.acknowledge(sequence));
   });
   const sessionStateMailboxes = new Map<string, LatestStateMailbox<DesktopSessionStateUpdate>>();
   const remotePaintProbes = createRemotePaintProbeTracker({
@@ -579,6 +633,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   };
   const resetTransportDeltas = (): void => {
     deltaEncoder.reset();
+    compactDeltaEncoder.reset();
     stateMailbox.clear();
     for (const mailbox of sessionStateMailboxes.values()) mailbox.clear();
     sessionStateMailboxes.clear();
@@ -620,6 +675,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (activeClients.size === 0) return;
     if (critical) {
       deltaEncoder.reset();
+      compactDeltaEncoder.reset();
       stateMailbox.reset({ snapshot, critical: true });
       return;
     }
@@ -810,6 +866,35 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           }
           return;
         }
+        // Approval handoff. An installed web app starts with an empty storage
+        // container, so it cannot present a pairing — it asks instead, and the
+        // user answers HERE. The pairing material is sealed to that
+        // container's throwaway public key, so the relay forwards a box it
+        // has no key for.
+        if (envelope.type === 'client-claim') {
+          const claimId = String(envelope.claimId || '');
+          const publicKey = envelope.publicKey;
+          if (!claimId || !isRelayClaimPublicKey(publicKey)) return;
+          void (async () => {
+            let sealed: unknown = null;
+            try {
+              const approved = await options.onClientClaim?.({
+                claimId,
+                name: String(envelope.name || 'Web app').slice(0, 80),
+                platform: String(envelope.platform || '').slice(0, 80),
+                browser: String(envelope.browser || '').slice(0, 80),
+                code: await relayClaimConfirmationCode(publicKey),
+              });
+              if (approved) sealed = await sealRelayE2EEPairingMaterial(pairing, publicKey);
+            } catch {
+              sealed = null;
+            }
+            sendEnvelope(sealed
+              ? { type: 'claim-approve', claimId, sealed }
+              : { type: 'claim-deny', claimId });
+          })();
+          return;
+        }
         if (envelope.type === 'client-open') {
           if (typeof envelope.clientId === 'string') {
             if (!activeClients.has(envelope.clientId)
@@ -845,6 +930,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               binaryFrames: false,
               listDelta: false,
               compactWire: false,
+              lanes: null,
               sessionHandles: new Map(),
               sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>(
                 (session, index) => String(session.id || `session:${index}`),
@@ -950,6 +1036,24 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             return;
           }
           const call = clearPayload as { id?: unknown; method?: unknown; params?: unknown } | null;
+          // Transport-scoped, like setVisibleSessions: it registers what THIS
+          // browser reads rather than asking the host for anything.
+          if (call?.method === 'setRemoteLanes' && Array.isArray(call.params)) {
+            const requested = Array.isArray(call.params[0]) ? call.params[0] : [];
+            client.lanes = new Set(
+              requested
+                .map((value: unknown) => String(value || ''))
+                .filter((value: string) => /^[a-z]{1,16}$/u.test(value)),
+            );
+            if (typeof call.id === 'number') {
+              await sendEncryptedFrame(envelope.clientId as string, {
+                id: call.id,
+                ok: true,
+                value: true,
+              });
+            }
+            return;
+          }
           if (call?.method === 'setVisibleSessions' && Array.isArray(call.params)) {
             const requested = Array.isArray(call.params[0])
               ? [...new Set(call.params[0]
@@ -1055,12 +1159,20 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   let terminalBuffer!: TerminalDataBufferer;
   terminalBuffer = new TerminalDataBufferer((event) => {
     if (activeClients.size > 0) {
-      broadcastEncrypted({ event: 'termData', payload: event }, true);
+      broadcastEncrypted({ event: 'termData', payload: event }, true, readsLane('terminal'));
     }
     terminalBuffer.acknowledge(event.id, event.data.length);
   }, 16);
+  const terminalReaderAttached = (): boolean => {
+    for (const state of activeClients.values()) {
+      if (state.channel && readsLane('terminal')(state)) return true;
+    }
+    return false;
+  };
   const unsubscribeTerminals = options.subscribeTerminalData?.((event) => {
-    if (activeClients.size > 0) terminalBuffer.push(event);
+    // A build running on the desktop must not even enter the buffer when no
+    // phone is showing a terminal.
+    if (terminalReaderAttached()) terminalBuffer.push(event);
   }) ?? (() => {});
   const unsubscribeDesktopEvents = options.host.subscribeDesktopEvents?.(({ name, value }) => {
     if (activeClients.size === 0) return;
@@ -1071,11 +1183,11 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (name === 'remote-projection-state') {
       broadcastEncrypted({ event: 'remoteProjection', payload: value }, false);
     } else if (name === 'folder-changed') {
-      broadcastEncrypted({ event: 'folderChanged', payload: value }, false);
+      broadcastEncrypted({ event: 'folderChanged', payload: value }, false, readsLane('files'));
     } else if (name === 'lsp-diagnostics') {
-      broadcastEncrypted({ event: 'lspDiagnostics', payload: value }, false);
+      broadcastEncrypted({ event: 'lspDiagnostics', payload: value }, false, readsLane('editor'));
     } else if (name === 'lsp-status') {
-      broadcastEncrypted({ event: 'lspStatus', payload: value }, false);
+      broadcastEncrypted({ event: 'lspStatus', payload: value }, false, readsLane('editor'));
     }
   }) ?? (() => {});
 

@@ -28,6 +28,7 @@ import {
 } from "./explorer-logic";
 import { COMPOSER_PROJECT_PATHS_MIME } from "./composer-support";
 import { t } from "./i18n";
+import { useMobileBack } from "./mobile-back";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
 import { setiIconFor } from "./seti-icons";
 import { copyTextToClipboard } from "./text-format";
@@ -55,7 +56,7 @@ interface ExplorerEdit {
 const TYPE_AHEAD_RESET_MS = 700;
 const DRAG_EXPAND_DELAY_MS = 500;
 
-/** Seti file glyph (VS Code file icon theme; folders stay icon-less). */
+/** Seti file glyph (file icon theme; folders stay icon-less). */
 export function SetiFileIcon({ name, className = "" }: { name: string; className?: string }) {
   const icon = setiIconFor(name);
   // The colour goes out as a custom property, never as an inline `color`: the
@@ -301,6 +302,8 @@ export const FilesRootPane = memo(function FilesRootPane({
       if (previous?.isConnected) previous.focus?.();
     };
   }, [menu]);
+  // ABB: hardware back closes the menu instead of leaving the PWA.
+  useMobileBack(Boolean(menu), () => setMenu(null));
   // renderInputBox: focus the inline editor and pre-select the basename
   // without its extension (rename of a file); create starts empty.
   useEffect(() => {
@@ -612,7 +615,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       setSelected(new Set(navRows.map((candidate) => candidate.rel)));
     } else if (event.key.toLowerCase() === "c" && event.shiftKey && event.altKey
       && !event.ctrlKey && !event.metaKey) {
-      // VS Code copyFilePath (Shift+Alt+C): absolute paths of the selection.
+      // Copy file path (Shift+Alt+C): absolute paths of the selection.
       event.preventDefault();
       const rels = selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : [];
       if (rels.length) void copyTextToClipboard(rels.map(absOf).join("\n"));
@@ -707,7 +710,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     if (isCut) className += " explorer-cut";
     if (dropTarget !== null && row.dir && row.rel === dropTarget) className += " explorer-drop-target";
     // Indent guides: the CSS rule paints one hairline per ancestor level and
-    // only needs the covered width (VS Code renderIndentGuides "onHover").
+    // only needs the covered width (guides render on hover).
     const guides = row.level > 0
       ? { "--guide-size": `${row.level * 8}px 100%` } as React.CSSProperties
       : undefined;
@@ -740,7 +743,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           paths: rels,
         }));
         if (rels.length > 1) {
-          // VS Code multi-drag feedback: an "N items" badge replaces the
+          // Multi-drag feedback: an "N items" badge replaces the
           // default row snapshot as the drag image.
           const ghost = document.createElement("div");
           ghost.className = "explorer-drag-badge";
@@ -861,7 +864,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         if (event.target === event.currentTarget && !editingRef.current) beginCreate(false);
       }}
       onContextMenu={(event) => {
-        // Background right-click (VS Code: New File / New Folder / Paste on
+        // Background right-click (New File / New Folder / Paste on
         // empty space). Rows preventDefault first, so they are excluded here.
         if (event.defaultPrevented) return;
         if ((event.target as HTMLElement).closest?.(".explorer-edit-box")) return;

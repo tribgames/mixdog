@@ -8,6 +8,7 @@ import {
     compactOffloadedToolResultText,
     maybeOffloadToolResult,
 } from './tool-result-offload.mjs';
+import { normalizeToolEnvelope } from './tool-envelope.mjs';
 import { pruneToolOutputsUnanchored } from './compact/budget.mjs';
 import { executeBuiltinTool } from '../tools/builtin.mjs';
 
@@ -112,13 +113,13 @@ test('artifact failure preserves the complete inline result', async () => {
 });
 
 test('completed shell output is not middle-truncated at 400 lines', async () => {
-    const result = await executeBuiltinTool(
+    const result = normalizeToolEnvelope(await executeBuiltinTool(
         'shell',
         { command: `node -e "for (let i=0;i<450;i++) console.log('line-'+i)"`, timeout_ms: 10_000 },
         process.cwd(),
         { sessionId: 'session-shell-lines', toolCallId: 'call-shell-lines' },
-    );
-    assert.doesNotMatch(result, /lines omitted|tool-output truncated/);
-    assert.match(result, /(?:^|\n)line-0\n/);
-    assert.match(result, /(?:^|\n)line-449(?:\n|$)/);
+    ));
+    assert.doesNotMatch(result.result, /lines omitted|tool-output truncated/);
+    assert.match(result.result, /(?:^|\n)line-0\n/);
+    assert.match(result.result, /(?:^|\n)line-449(?:\n|$)/);
 });

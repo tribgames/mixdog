@@ -59,7 +59,7 @@ function cssVariables(palette: ThemePalette): Record<string, string> {
     '--mx-scrollbar-thumb-hover': palette.promptBorder,
     // The highlight ramp belongs to the palette too: without these a registry
     // theme repainted every surface except the inside of its own code card,
-    // which kept the VS Code Dark+ hues from desktop.css. Fallbacks mirror the
+    // which kept the Dark+ hues from desktop.css. Fallbacks mirror the
     // TUI renderer (comment → subtle, the rest → the flat code-body ink) so a
     // palette without a full syntax ramp still lands in-theme.
     '--mx-syntax-comment': palette.syntaxComment || palette.subtle,

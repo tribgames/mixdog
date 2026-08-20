@@ -6,6 +6,7 @@ import { t } from "./i18n";
 import { DiffView } from "./lazy-widgets";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import { MxIcon } from "./MxIcon";
+import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { normalizeApplyPatch, parseUnifiedDiff } from "./renderer-logic.mjs";
 import {
@@ -15,6 +16,7 @@ import {
   resolveStreamingMarkdownChunks,
 } from "./streaming-markdown";
 import StreamingMarkdownBody from "./StreamingMarkdownBody";
+import { touchPrimaryPointer } from "./surface-input-focus";
 import { asRecord, copyTextToClipboard, formatElapsed, oneLine, publicThinkingSummary } from "./text-format";
 import { requestTranscriptRowMeasure } from "./transcript-measure";
 import { imagePreviewCache, imagePreviewKey } from "./transcript-metrics";
@@ -207,19 +209,26 @@ function contextMetrics(snapshot: Snapshot) {
   return rememberedContextUsage.get(sessionId) ?? usage;
 }
 
-export function ContextUsageIndicator({ snapshot, onOpen }: {
+export function ContextUsageIndicator({ snapshot }: {
   snapshot: Snapshot;
-  onOpen(): void;
 }) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const keyboardFocusIntent = useRef(false);
+  const host = useRef<HTMLDivElement | null>(null);
   const context = contextMetrics(snapshot);
   useEffect(() => {
     const keydown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Tab") keyboardFocusIntent.current = true;
       if (event.key === "Escape") setPopoverOpen(false);
     };
-    const pointerdown = () => { keyboardFocusIntent.current = false; };
+    // A touch surface taps this card open because it has no hover to read it
+    // with, so a pointer landing anywhere else has to close it again.
+    const pointerdown = (event: globalThis.PointerEvent) => {
+      keyboardFocusIntent.current = false;
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && host.current?.contains(target)) return;
+      setPopoverOpen(false);
+    };
     document.addEventListener("keydown", keydown, true);
     document.addEventListener("pointerdown", pointerdown, true);
     return () => {
@@ -234,22 +243,43 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
   const tone = !context ? ""
     : context.percent >= 90 ? "danger"
       : context.percent >= 70 ? "warning" : "";
-  return <div className="session-context-indicator"
+  // Hover and keyboard focus are the WHOLE affordance (user: 클릭 시 나오는
+  // 팝업/화면전환은 필요없음): the gauge no longer opens the context surface,
+  // which stays on /context. A coarse pointer has no hover, so there a tap
+  // toggles the same card instead — and the mouse handlers stand down, because
+  // a tap also fires a synthetic mouseenter that would fight that toggle.
+  const touch = touchPrimaryPointer();
+  const [compacting, setCompacting] = useState(false);
+  const state = asRecord(snapshot);
+  const sessionId = String(state?.sessionId || "").trim();
+  const compactBusy = compacting || Boolean(state?.busy) || Boolean(state?.commandBusy);
+  const compact = async () => {
+    if (!sessionId || compactBusy) return;
+    setCompacting(true);
+    try {
+      await window.mixdogDesktop.invokeCapability({ capability: "compact", sessionId });
+    } catch (reason) {
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), "error");
+    } finally {
+      setCompacting(false);
+    }
+  };
+  return <div className="session-context-indicator" ref={host}
     data-active={context ? "true" : "false"}
     {...(tone ? { "data-tone": tone } : {})}
     data-open={popoverOpen ? "true" : "false"}
-    onMouseEnter={() => setPopoverOpen(true)} onMouseLeave={() => setPopoverOpen(false)}>
+    onMouseEnter={() => { if (!touch) setPopoverOpen(true); }}
+    onMouseLeave={() => { if (!touch) setPopoverOpen(false); }}>
     <button type="button" onClick={() => {
-      if (!context) return;
+      if (!context || !touch) return;
       keyboardFocusIntent.current = false;
-      setPopoverOpen(false);
-      onOpen();
+      setPopoverOpen((open) => !open);
     }} onFocus={() => {
       if (keyboardFocusIntent.current) {
         keyboardFocusIntent.current = false;
         setPopoverOpen(true);
       }
-    }} aria-label={context ? t("Open context details") : t("Context unavailable")}
+    }} aria-label={context ? t("Context usage") : t("Context unavailable")}
       aria-describedby={context ? descriptionId : undefined}
       disabled={!context}>
       <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -269,8 +299,11 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
           ? <div><span>{t("Cost")}</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
           : null;
       })()}
-      {/* Compact action removed from the hover popover by user decision —
-          /compact and auto-compact remain the compaction paths. */}
+      {/* The readout that reports the pressure now relieves it too (user:
+          호버하거나 클릭하면 나오는 곳에 컨텍스트 압축 버튼), so /compact and
+          auto-compact are no longer the only ways in. */}
+      <button type="button" className="context-compact" disabled={compactBusy}
+        onClick={() => { void compact(); }}>{t("Compact context")}</button>
     </div>}
   </div>;
 }

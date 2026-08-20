@@ -189,7 +189,7 @@
   min-height: 0;
   overflow: hidden;
 }
-/* VS Code output parity inside editable log models: the source CSI bytes stay
+/* Output rendering inside editable log models: the source CSI bytes stay
    in Monaco for save/undo, but consume no visual width. */
 .monaco-editor .editor-ansi-control { display: none !important; font-size: 0 !important; }
 .editor-statusbar {

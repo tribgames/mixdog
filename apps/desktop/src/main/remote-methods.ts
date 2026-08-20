@@ -315,6 +315,10 @@ export function createRemoteMethods(
         requiredString(id, 'approval id', 1_024),
         requiredToolApprovalDecision(decision),
       ),
+    inheritSession: ([sourceSessionId, selection]) => host.inheritSession(
+      requiredSessionId(sourceSessionId),
+      selection == null ? null : requiredModelSelection(selection),
+    ),
     listProviderModels: ([options]) => host.listProviderModels(requiredModelCatalogOptions(options)),
     setModelRoute: ([selection, sessionId]) => host.setModelRoute(
       requiredModelSelection(selection),
@@ -327,7 +331,10 @@ export function createRemoteMethods(
     invokeCapability: ([input]) => {
       const request = requiredDesktopCapabilityRequest(input);
       assertRemoteCapability(request.capability);
-      return host.invokeCapability(request.capability, request.args);
+      // A phone addresses the same pane session the desktop does. Dropping the
+      // id answered every session-scoped read (/context, /inherit) from the
+      // blank control session (user: 모바일 /context가 0으로 나온다).
+      return host.invokeCapability(request.capability, request.args, request.sessionId);
     },
     readCapabilities: ([input]) => {
       const requests = requiredDesktopCapabilityReadRequests(input);

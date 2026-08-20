@@ -127,6 +127,7 @@ export function useAppPaneChrome({
       <WorkspaceTabStrip
         tabs={leafTabs}
         activeKey={leaf.activeKey}
+        sessions={sessions}
         workingSessionIds={workingSessionIds}
         unreadSessionIds={unreadSessionIds}
         focused={leaf.id === paneWorkspace.focusedLeafId}

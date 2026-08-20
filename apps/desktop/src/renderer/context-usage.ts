@@ -45,11 +45,16 @@ export function resolveContextDisplayUsage(input: ContextDisplayUsageInput) {
   const exact = nonNegativeNumber(stats.currentContextTokens);
   const estimated = nonNegativeNumber(stats.currentEstimatedContextTokens);
   const fallback = nonNegativeNumber(input.fallbackUsedTokens);
-  const used = exact || estimated || fallback;
+  // The runtime publishes ONE gauge number — provider-billed baseline plus
+  // calibrated growth — in currentEstimatedContextTokens, while
+  // currentContextTokens carries only a pure provider-reported total. Read the
+  // estimate first so this gauge and the TUI status line resolve the same field
+  // in the same order and can never disagree for one session.
+  const used = estimated || exact || fallback;
   const usage = resolveContextUsage({ ...input, usedTokens: used });
   if (!usage) return idle;
   return {
     ...usage,
-    estimated: exact === 0 && used > 0,
+    estimated: used !== exact,
   };
 }

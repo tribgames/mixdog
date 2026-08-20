@@ -1,4 +1,4 @@
-// Guided first-run setup (orca-style welcome flow): a full-window hero card
+// Guided first-run setup: a full-window hero card
 // with clickable progress bars, per-step hero titles, and Ctrl+Enter to
 // advance. The capability wiring (completeOnboarding / skipOnboarding and the
 // provider/model reads) is shared with Settings and stays authoritative.
@@ -427,7 +427,7 @@ export function OnboardingWizard({ api, onDone }: {
       if (!dialog) return;
       const nested = dialog.querySelector<HTMLElement>('[data-settings-nested-dialog]');
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        // Screen-local submit (orca grammar): never advance underneath a
+        // Screen-local submit: never advance underneath a
         // nested dialog (OAuth login, skip confirmation).
         if (nested) return;
         event.preventDefault();
@@ -475,7 +475,7 @@ export function OnboardingWizard({ api, onDone }: {
 
   return createPortal(<div ref={layerRef} className="onboarding-layer"
     onMouseDown={(event) => {
-      // Click-off dismissal stays available on every step (orca grammar):
+      // Click-off dismissal stays available on every step:
       // only a press on the scrim itself asks for skip confirmation.
       if (event.target !== event.currentTarget || pending || confirmSkip) return;
       requestSkip(closeRef.current);

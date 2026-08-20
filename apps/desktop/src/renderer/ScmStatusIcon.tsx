@@ -1,4 +1,4 @@
-// GitHub Desktop's changed-file STATUS GLYPH, shared by every file list in the
+// The changed-file STATUS GLYPH, shared by every file list in the
 // dock (working directory, commit detail, pull-request changes) so all three
 // read identically. Mapping: app/src/ui/octicons/status.ts:16-37; colours:
 // app/styles/mixins/_octicon-status.scss:1-24 (see desktop.css for the token

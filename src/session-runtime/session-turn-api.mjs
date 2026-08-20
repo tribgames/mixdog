@@ -205,6 +205,16 @@ export function createSessionTurnApi(deps) {
           catch (error) { process.stderr.write(`mixdog: transcript-writer: appendUser failed: ${error?.message || error}\n`); }
         }
         session0 = getSession();
+        // Internal tools are process-global, while each live session owns its
+        // own Project. Give tool dispatch an owning-runtime callback so `cwd`
+        // can update the caller instead of whichever runtime registered the
+        // shared internal-tool executor most recently.
+        Object.defineProperty(session0, '_applyResolvedCwdForCaller', {
+          value: applyResolvedCwd,
+          enumerable: false,
+          configurable: true,
+          writable: true,
+        });
         startTurnSnapshot(session0?.id);
         const firstTitleAfter = new Promise((resolve) => {
           releaseFirstTitle = () => {
@@ -336,6 +346,7 @@ export function createSessionTurnApi(deps) {
             onToolResult: (message) => options.onToolResult?.(message),
             onToolApproval: options.onToolApproval,
             onCompactEvent: options.onCompactEvent,
+            onContextPressure: options.onContextPressure,
             onStageChange: options.onStageChange,
             onProviderSendStarted: (...args) => {
               // This callback is emitted immediately before provider.send,
@@ -551,6 +562,21 @@ export function createSessionTurnApi(deps) {
         callerSessionId,
         clientHostPid: session?.clientHostPid || process.pid,
         notifyFn: notifyFnForSession(callerSessionId),
+      });
+    },
+    // Background-task control (list/read/monitor/cancel) for a SURFACE that
+    // already shows the running job — the same path the `task` tool takes, so
+    // a shell cancel is one authority, not a second kill route. Ownership
+    // scoping rides the caller session, exactly like agentControl. Loaded on
+    // demand: the shell-job registry stays out of the boot path.
+    async taskControl(args = {}) {
+      const session = getSession();
+      const { executeTaskTool } = await import(
+        '../runtime/agent/orchestrator/tools/builtin/task-tool.mjs'
+      );
+      return executeTaskTool(args || {}, {
+        callerSessionId: session?.id || null,
+        clientHostPid: session?.clientHostPid || process.pid,
       });
     },
     onNotification(listener) {

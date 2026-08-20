@@ -954,8 +954,10 @@ export function extractShellApplyPatchInvocation(command) {
 //   - last top-level segment is a byte-exact suffix of the command
 //   - >= 2 pipeline stages; stage 0 is NOT a pure filter; stages 1..n are ALL
 //     known pure pass-through filters; no stage redirects to a file
-// Tee-Object passes objects through unchanged and does not touch
-// $LASTEXITCODE, so success-path output and exit semantics are identical.
+// Tee-Object passes objects through unchanged. The producer runs in a child
+// scriptblock with a reference cell that captures its native exit immediately;
+// the outer script exits with that value after filters finish, so cmdlets (or
+// a native findstr stage) cannot replace the producer's status.
 const _PS_PURE_FILTER_HEADS = new Set([
     'select-string', 'sls', 'select-object', 'select',
     'where-object', 'where', 'foreach-object', '%', 'findstr',
@@ -1002,10 +1004,13 @@ export function buildPowerShellFilterTeePlan(command) {
     for (let i = 1; i < tokenized.length; i++) {
         if (!_PS_PURE_FILTER_HEADS.has(_teeStageHead(tokenized[i]))) return null;
     }
-    const teePath = join(tmpdir(), `mixdog-tee-${randomUUID().slice(0, 8)}.log`);
+    const token = randomUUID().replaceAll('-', '').slice(0, 8);
+    const teePath = join(tmpdir(), `mixdog-tee-${token}.log`);
     if (teePath.includes("'")) return null;
     const head = trimmed.slice(0, trimmed.length - last.length);
-    const rewritten = `${head}${stages[0]} | Tee-Object -FilePath '${teePath}' | ${stages.slice(1).join(' | ')}`;
+    const exitRef = `$__mixdogProducerExit${token}`;
+    const producer = `& { $global:LASTEXITCODE = 0; ${stages[0]}; ${exitRef}.Value = $global:LASTEXITCODE }`;
+    const rewritten = `${head}${exitRef} = [ref]0; ${producer} | Tee-Object -FilePath '${teePath}' | ${stages.slice(1).join(' | ')}; exit ${exitRef}.Value`;
     return { command: rewritten, teePath };
 }
 

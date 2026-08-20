@@ -688,6 +688,12 @@ export class DesktopServiceClient implements DesktopService {
     );
     return result;
   }
+  inheritSession(
+    sourceSessionId: string,
+    route?: DesktopModelSelection | null,
+  ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
+    return this.invoke('inheritSession', [sourceSessionId, route ?? null]);
+  }
   submitToSession(
     sessionId: string,
     prompt: DesktopPromptContent,

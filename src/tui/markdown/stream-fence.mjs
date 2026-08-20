@@ -11,26 +11,49 @@
  * Kept in its own dependency-free module so it can be unit-tested without the
  * ink/JSX render stack.
  */
+// The opening run of a code token: three or more of ONE fence char at the very
+// start of `raw`. An indented (list/blockquote-nested) fence never matches, so
+// its block is left alone rather than trimmed against the wrong marker.
+const OPENING_RUN_RE = /^([`~])\1*/;
+const CONTAINER_DESCENT_MAX = 64;
+
+/** The tail `code` token, descending through trailing containers, or null. */
+function tailCodeToken(tokens) {
+  let siblings = tokens;
+  for (let depth = 0; depth < CONTAINER_DESCENT_MAX; depth += 1) {
+    const token = Array.isArray(siblings) ? siblings[siblings.length - 1] : undefined;
+    if (!token) return null;
+    if (token.type === 'code') return token;
+    if (token.type === 'blockquote') {
+      siblings = token.tokens ?? [];
+      continue;
+    }
+    if (token.type === 'list') {
+      const items = token.items ?? [];
+      siblings = items[items.length - 1]?.tokens ?? [];
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
 export function trimPartialClosingFences(tokens) {
-  const token = tokens?.[tokens.length - 1];
+  const token = tailCodeToken(tokens);
   if (!token) return;
-  if (token.type === 'list') {
-    const items = token.items ?? [];
-    trimPartialClosingFences(items[items.length - 1]?.tokens ?? []);
-    return;
+  const raw = String(token.raw ?? '');
+  const opening = OPENING_RUN_RE.exec(raw)?.[0] ?? '';
+  if (opening.length < 3) return;
+  const tail = raw.slice(raw.lastIndexOf('\n') + 1);
+  // A run that reaches the opening length IS the real closing fence and is
+  // marked's business; only a shorter run of the same char is half-arrived.
+  if (!tail || tail.length >= opening.length) return;
+  for (let at = 0; at < tail.length; at += 1) {
+    if (tail[at] !== opening[0]) return;
   }
-  if (token.type === 'blockquote') {
-    trimPartialClosingFences(token.tokens ?? []);
-    return;
-  }
-  if (token.type !== 'code') return;
-  const marker = /^(`{3,}|~{3,})/.exec(token.raw ?? '')?.[1];
-  const lastLine = String(token.raw ?? '').split('\n').pop();
-  if (!marker || !lastLine) return;
-  // Only trim a partial fence: shorter than the opening marker and made up
-  // solely of the same fence char. A complete closing fence is left intact.
-  if (lastLine.length >= marker.length || lastLine !== marker[0].repeat(lastLine.length)) return;
-  token.text = String(token.text ?? '').slice(0, -lastLine.length).replace(/\n$/, '');
+  const text = String(token.text ?? '');
+  const kept = text.slice(0, Math.max(0, text.length - tail.length));
+  token.text = kept.endsWith('\n') ? kept.slice(0, -1) : kept;
 }
 
 /**

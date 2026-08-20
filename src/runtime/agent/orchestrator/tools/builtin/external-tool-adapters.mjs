@@ -20,6 +20,7 @@ import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component, isBlockedDevic
 import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { executeBashTool } from './bash-tool.mjs';
 import { runServerEdit } from '../patch/native-server.mjs';
+import { nearestPatchLineMatch } from '../patch/matcher.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 
@@ -177,14 +178,33 @@ function formatEditFailureExcerpt(content, oldStr, errorText) {
         if (at >= 0) center = source.slice(0, at).split('\n').length - 1;
     }
     if (center < 0) {
-        const keyword = String(oldStr || '')
-            .split('\n')
-            .find((line) => line.trim())
-            ?.split(/\s+/)
-            .sort((a, b) => b.length - a.length)[0];
-        if (keyword && keyword.length >= 4) center = lines.findIndex((line) => line.includes(keyword));
+        // Longest tokens from ANY line of old_string, not just the first one:
+        // an edit whose opening line is `}` or blank still carries a
+        // distinctive token further down.
+        const tokens = String(oldStr || '')
+            .split(/\s+/)
+            .filter((token) => token.length >= 4)
+            .sort((a, b) => b.length - a.length)
+            .slice(0, 5);
+        for (const token of tokens) {
+            const hit = lines.findIndex((line) => line.includes(token));
+            if (hit >= 0) { center = hit; break; }
+        }
     }
-    if (center < 0) return '';
+    if (center < 0) {
+        // Fuzzy scorer shared with apply_patch: whitespace, rename and
+        // reflow drift still land on the right region.
+        const wanted = String(oldStr || '').split('\n').find((line) => line.trim());
+        const best = nearestPatchLineMatch(lines, wanted, 0);
+        if (best) center = best.index;
+    }
+    if (center < 0) {
+        // A bare "old_string not found" with no excerpt was the one edit
+        // failure that reliably produced retry storms. State what IS known so
+        // the retry changes target instead of repeating itself.
+        return `\ncurrent file has ${lines.length} line(s) and contains nothing resembling old_string`
+            + ' — verify the path and re-read before retrying.';
+    }
     const start = Math.max(0, center - 3);
     const end = Math.min(lines.length, start + 10);
     const rows = [];

@@ -1,5 +1,5 @@
 // Predictive local echo for the REMOTE terminal (relay RTT hides every
-// keystroke for a full round trip). Modeled on VS Code's terminal typeahead:
+// keystroke for a full round trip). Terminal typeahead:
 // each predicted keystroke is queued with the exact echo bytes it expects,
 // rendered locally only after the shell has proven it echoes canonically, and
 // rolled back the moment reality disagrees. Shells that repaint their line on

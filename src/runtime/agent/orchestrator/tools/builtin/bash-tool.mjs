@@ -517,6 +517,20 @@ export async function executeBashTool(args, workDir, options = {}) {
     const promotedTimeoutMs = hasExplicitTimeout && backgroundOnTimeout
         ? Math.max(0, totalTimeout - timeout)
         : 0;
+    // Background safety net. An omitted timeout_ms means "no caller deadline",
+    // which is right for a build or an intentional server, but it also lets a
+    // forgotten task outlive whatever spawned it: shell-job RECORDS age out,
+    // a live job never does. MIXDOG_SHELL_BACKGROUND_MAX_MS bounds only that
+    // omitted case. An explicit caller timeout is never shortened, and the
+    // default 0 preserves today's unlimited behaviour, so capping stays a
+    // deliberate choice rather than a surprise kill of a long build or watcher.
+    const _bgMaxEnvMs = Number(process.env.MIXDOG_SHELL_BACKGROUND_MAX_MS);
+    const backgroundMaxMs = Number.isFinite(_bgMaxEnvMs) && _bgMaxEnvMs > 0
+        ? Math.min(Math.floor(_bgMaxEnvMs), TIMER_MAX_MS)
+        : 0;
+    // A run_in_background start never holds the caller, so the cap IS its
+    // deadline; there is no foreground window to carve out of it first.
+    const execTimeoutMs = runInBackground && !hasExplicitTimeout ? backgroundMaxMs : timeout;
     // A caller deadline at or below the foreground window has no remaining
     // budget to transfer. Let execShellCommand enforce that timeout instead of
     // adopting the child with timeoutMs=0, which means unlimited to shell-jobs.
@@ -606,7 +620,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             directArgv,
             env: spawnEnv,
             cwd: bashWorkDir,
-            timeoutMs: timeout,
+            timeoutMs: execTimeoutMs,
             abortSignal: combinedBashAbort.signal,
             autoBackgroundMs,
             startInBackground: runInBackground,
@@ -618,7 +632,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             // Soft/interrupt promotion happens before the foreground cap.
             // Preserve an explicit total deadline by passing it separately;
             // omitted-timeout promotions retain the existing unlimited job.
-            backgroundDeadlineMs: hasExplicitTimeout ? totalTimeout : 0,
+            backgroundDeadlineMs: hasExplicitTimeout ? totalTimeout : backgroundMaxMs,
             // Threaded so an auto-backgrounded foreground job is stamped with
             // the dispatching terminal's claude.exe pid (per-terminal scope).
             clientHostPid: options?.clientHostPid,
@@ -712,7 +726,8 @@ export async function executeBashTool(args, workDir, options = {}) {
         let _rescueNote = '';
         if (_teePlan) {
             const _rescueTail = consumeFilterTeeCapture(_teePlan.teePath);
-            if (isReallyErrored && _rescueTail && !stdout.trim() && !stderr.trim()) {
+            const commandExitedNonzero = completedExit && exitCode !== 0 && !benignExit;
+            if ((isReallyErrored || commandExitedNonzero) && _rescueTail && !stdout.trim() && !stderr.trim()) {
                 _rescueNote = `\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\n${_rescueTail}`;
             }
         }

@@ -12,6 +12,8 @@ import type {
 } from "react";
 import { createPortal } from "react-dom";
 
+import { useMobileBack } from "./mobile-back";
+
 import type { DesktopGitBranch, DesktopGitStatus } from "../shared/contract";
 import { commitImmediateOverlay } from "./immediate-overlay";
 import { touchPrimaryPointer } from "./surface-input-focus";
@@ -92,6 +94,8 @@ export function SourceControlBranchPicker({
   onMerge(branch: DesktopGitBranch): void;
   onToggleMergeMode(): void;
 }) {
+  // ABB: the open branch panel owns hardware back.
+  useMobileBack(open, onClose);
   const operationReason = status.operation
     ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
     : "";

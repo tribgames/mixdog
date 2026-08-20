@@ -11,7 +11,7 @@ import {
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
-  resolveCurrentContextTokens,
+  resolveGaugeContextTokens,
   resolveCompactionPressureTokens,
   resolveWorkerCompactPolicy,
 } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
@@ -276,7 +276,9 @@ export function createContextStatus({
       compactPolicy,
       { messages, sessionRef: session },
     );
-    const usedTokens = resolveCurrentContextTokens(
+    // Same numerator the auto-compact trigger decides on, so the gauge reaches
+    // 100% exactly when compaction fires instead of still showing headroom.
+    const usedTokens = resolveGaugeContextTokens(
       messageSummary.estimatedTokens,
       compactPolicy,
       { messages, sessionRef: session },

@@ -287,7 +287,7 @@ export function usePromptHandlers({
 
     let result;
     try {
-      // Match Claude Code: Esc interrupts the active turn but never
+      // Esc interrupts the active turn but never
       // resurrects the submitted prompt. Idle queue recall stays a separate
       // Escape path handled above.
       const options = { restorePrompt: false };

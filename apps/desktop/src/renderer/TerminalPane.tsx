@@ -8,6 +8,7 @@ import '@xterm/xterm/css/xterm.css';
 import { Check, ChevronDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import {
   beginBootSurface,
   reportBootSurfaceStage,
@@ -361,6 +362,8 @@ export default function TerminalPane({
   const [shell, setShell] = useState(() => readShellChoice(key));
   const [profiles, setProfiles] = useState<ShellProfile[] | null>(() => shellProfilesCache);
   const [shellMenuOpen, setShellMenuOpen] = useState(false);
+  // ABB: the shell picker closes on hardware back.
+  useMobileBack(shellMenuOpen, () => setShellMenuOpen(false));
   const [droppingPaths, setDroppingPaths] = useState(false);
   beginBootSurface('terminal', key);
   reportBootSurfaceStage('terminal', key, 'module');

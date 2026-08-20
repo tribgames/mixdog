@@ -6,13 +6,11 @@ import type { BrowserWindow } from 'electron';
 import QRCode from 'qrcode';
 
 import type { DesktopRemoteAccessInfo, DesktopRemoteClientInfo } from '../shared/contract';
-import type { RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
 
 export interface RemoteAccessDescriptor {
   relay: {
     clientUrl: string;
     token: string;
-    pairing: RelayE2EEPairingMaterial;
     clients?: DesktopRemoteClientInfo[];
   };
 }
@@ -24,13 +22,11 @@ export async function buildRemoteAccessInfo(
   descriptor: RemoteAccessDescriptor,
 ): Promise<DesktopRemoteAccessInfo> {
   const { relay } = descriptor;
-  // The relay-visible token only routes the socket. E2EE material stays in
-  // the browser fragment so it never reaches HTTP logs.
-  const relayOrigin = new URL(relay.clientUrl).origin;
-  const key = encodeURIComponent(relay.pairing.serverPublicKey);
-  const secret = encodeURIComponent(relay.pairing.pairingSecret);
-  const relayBrowserUrl = `${relayOrigin}/?token=${encodeURIComponent(relay.token)}`
-    + `#e2eeKey=${key}&e2eeSecret=${secret}`;
+  // The QR carries a ROUTE to this desktop, no credential: it opens the
+  // install guide, and access is granted by approving the request the
+  // installed app then makes. Nothing secret ever reaches an HTTP log or a
+  // photographed code.
+  const relayBrowserUrl = relay.clientUrl;
   return {
     relayBrowserUrl,
     relayBrowserQrSvg: await qrSvg(relayBrowserUrl),
@@ -47,7 +43,7 @@ export async function showRemoteAccessWindow(
   const paired = Boolean(browserQr);
   const body = paired
     ? `<div class="grid single">
-  <div class="card"><b>Open or install the web app</b>${browserQr}<small>Chrome/Edge: Install app · Safari: Add to Home Screen</small></div>
+  <div class="card"><b>Scan to install the web app</b>${browserQr}<small>Safari: Add to Home Screen · Chrome/Edge: Install app<br/>Opening the installed app asks this PC for approval.</small></div>
 </div>`
     : `<div class="grid single">
   <div class="card"><b>Connecting…</b><small>Establishing the secure relay link. Close this window and press Ctrl+Shift+R again in a moment. If this persists, check this PC's internet connection.</small></div>
@@ -68,7 +64,7 @@ export async function showRemoteAccessWindow(
   .card small { color: #a8a8a8; font-size: 11px; text-align: center; }
 </style>
 <h1>Web app</h1>
-<p>Works on any network. Scan the secure link, then install it from the browser menu if desired.</p>
+<p>Works on any network. Scan to install it, then approve the connection request that appears here.</p>
 ${body}`;
   const window = new ElectronBrowserWindow({
     width: 560,

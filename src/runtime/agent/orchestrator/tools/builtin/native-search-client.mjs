@@ -293,7 +293,11 @@ function _ensureServer() {
     onExit: (code, signal) => {
       if (_server === server) {
         _teardown(null, {
-          countFailure: true,
+          // A clean code-0 exit is the server's own idle self-shutdown
+          // (MIXDOG_SEARCH_SERVER_IDLE_MS), not a fault. Counting it would let
+          // two quiet stretches trip the restart backoff and refuse the next
+          // real search for 30s.
+          countFailure: code !== 0,
           detail: `exit code=${code ?? 'null'} signal=${signal ?? 'null'}`,
         });
       }

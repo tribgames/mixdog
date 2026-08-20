@@ -1,77 +1,34 @@
-// Output-style catalog + metadata parsing. Roots are injected so this module
-// stays free of the runtime's path constants.
-import { basename, join } from 'node:path';
+// Output-style catalog for pickers and config. Roots are injected so this
+// module stays free of the runtime's path constants; the metadata contract
+// (ids, frontmatter, ordering, lookup) lives in ../lib/output-style-meta.cjs,
+// shared with the CJS rules builder that injects the style into the prompt.
+import { join } from 'node:path';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
+import {
+  DEFAULT_OUTPUT_STYLE_ID,
+  matchOutputStyle,
+  normalizeOutputStyleId,
+  outputStyleMetaFromMarkdown,
+  sortOutputStyles,
+  titleCaseOutputStyle,
+} from '../lib/output-style-meta.cjs';
 
-const DEFAULT_OUTPUT_STYLE_ID = 'simple';
-const OUTPUT_STYLE_ORDER = ['detailed', 'simple', 'minimal', 'extreme-minimal'];
-const OUTPUT_STYLE_ALIASES = new Map([
-  ['extreme', 'extreme-minimal'],
-  ['extremesimple', 'extreme-minimal'],
-  ['extreme-simple', 'extreme-minimal'],
-  ['extreme_simple', 'extreme-minimal'],
-  ['extrememinimal', 'extreme-minimal'],
-  ['extreme_minimal', 'extreme-minimal'],
-  ['mono', 'extreme-minimal'],
-  ['oneline', 'extreme-minimal'],
-  ['one-line', 'extreme-minimal'],
-  ['one_line', 'extreme-minimal'],
-]);
+export { normalizeOutputStyleId };
 
-export function normalizeOutputStyleId(value) {
-  const raw = clean(value).toLowerCase();
-  if (!raw) return '';
-  const slug = raw.replace(/[_\s]+/g, '-').replace(/^-+|-+$/g, '');
-  const compact = slug.replace(/[_.-]+/g, '');
-  if (OUTPUT_STYLE_ALIASES.has(slug)) return OUTPUT_STYLE_ALIASES.get(slug);
-  if (OUTPUT_STYLE_ALIASES.has(compact)) return OUTPUT_STYLE_ALIASES.get(compact);
-  return /^[a-z0-9.-]+$/.test(slug) ? slug : '';
-}
-
-function outputStyleCompactKey(value) {
-  return normalizeOutputStyleId(value).replace(/[_.-]+/g, '');
-}
-
-function titleCaseOutputStyle(id) {
-  return clean(id)
-    .split(/[_.-]+/)
-    .filter(Boolean)
-    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(' ') || 'Default';
-}
-
-function parseOutputStyleFrontmatter(markdown) {
-  const match = String(markdown || '').match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  const meta = {};
-  if (!match) return meta;
-  for (const line of match[1].split(/\r?\n/)) {
-    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*?)\s*$/);
-    if (!kv) continue;
-    meta[kv[1]] = kv[2].replace(/^['"]|['"]$/g, '').trim();
-  }
-  return meta;
-}
-
-function computeOutputStyleMetadata(filePath, source) {
+function computeOutputStyleMetadata(filePath, fileName, source) {
   let raw = '';
   try { raw = readFileSync(filePath, 'utf8'); } catch { return null; }
-  const meta = parseOutputStyleFrontmatter(raw);
-  if (/^(?:true|1|yes)$/i.test(clean(meta.partial))) return null;
-  const fileId = normalizeOutputStyleId(basename(filePath).replace(/\.md$/i, ''));
-  const id = normalizeOutputStyleId(meta.name) || fileId;
-  if (!id) return null;
-  const aliases = clean(meta.aliases)
-    .split(',')
-    .map((value) => normalizeOutputStyleId(value))
-    .filter(Boolean);
-  const label = clean(meta.title || meta.label) || titleCaseOutputStyle(id);
+  const meta = outputStyleMetaFromMarkdown(raw, fileName);
+  if (!meta) return null;
+  // Picker/IPC shape stays metadata-only: keep-shared-format is a prompt-build
+  // concern and never crosses the wire.
   return {
-    id,
-    label,
-    description: clean(meta.description),
-    aliases,
+    id: meta.id,
+    label: meta.label,
+    description: meta.description,
+    aliases: meta.aliases,
     source,
   };
 }
@@ -81,12 +38,12 @@ function computeOutputStyleMetadata(filePath, source) {
 // nothing changed. File content edits (unchanged dir mtime) are still caught by
 // the per-file mtime check.
 const styleFileCache = new Map();
-function readOutputStyleMetadata(filePath, source) {
+function readOutputStyleMetadata(filePath, fileName, source) {
   let mtimeMs = 0;
   try { mtimeMs = statSync(filePath).mtimeMs; } catch { mtimeMs = 0; }
   const hit = styleFileCache.get(filePath);
   if (hit && hit.mtimeMs === mtimeMs) return hit.value;
-  const value = computeOutputStyleMetadata(filePath, source);
+  const value = computeOutputStyleMetadata(filePath, fileName, source);
   styleFileCache.set(filePath, { mtimeMs, value });
   return value;
 }
@@ -121,27 +78,15 @@ export function listOutputStyleCatalog(rootDir, dataDir, { fresh = false } = {})
     const files = listStyleDirFiles(dir, fresh);
     if (!files) continue;
     for (const name of files) {
-      const style = readOutputStyleMetadata(join(dir, name), source);
+      const style = readOutputStyleMetadata(join(dir, name), name, source);
       if (style) byId.set(style.id, style);
     }
   }
-  return [...byId.values()].sort((a, b) => {
-    const ai = OUTPUT_STYLE_ORDER.indexOf(a.id);
-    const bi = OUTPUT_STYLE_ORDER.indexOf(b.id);
-    if (ai !== bi) return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi);
-    return a.label.localeCompare(b.label, 'en', { sensitivity: 'base' });
-  });
+  return sortOutputStyles([...byId.values()]);
 }
 
 export function findOutputStyle(value, styles) {
-  const id = normalizeOutputStyleId(value);
-  const compact = outputStyleCompactKey(value);
-  if (!id && !compact) return null;
-  return (styles || []).find((style) => {
-    if (style.id === id || outputStyleCompactKey(style.id) === compact) return true;
-    if (outputStyleCompactKey(style.label) === compact) return true;
-    return (style.aliases || []).some((alias) => alias === id || outputStyleCompactKey(alias) === compact);
-  }) || null;
+  return matchOutputStyle(value, styles);
 }
 
 // Root `outputStyle` is the only configured location; the retired

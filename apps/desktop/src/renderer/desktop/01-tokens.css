@@ -141,7 +141,7 @@
      masked-input 2px) stay literal. */
   --mx-tracking-tight: -.01em;
   --mx-tracking-wide: .04em;
-  /* TWO-step chrome weight ramp (VS Code's Modern UI ramp, fontRamp.css:
+  /* TWO-step chrome weight ramp (a modern UI ramp:
      Body/Label = 400, Strong = 600 — no middle step). The old ramp kept a
      500 tier that 121 rules used as their DEFAULT, so a 600 heading only
      ever cleared its rows by half a step and nothing read as emphasized
@@ -205,7 +205,7 @@
   --mx-icon: var(--mx-text);
   --mx-icon-muted: var(--mx-text-muted);
   /* Neutral hairlines, one step stronger than the old warm set so the
-     sidebar/dock/tab-strip seams read crisply (VS Code #2b2b2b-class). */
+     sidebar/dock/tab-strip seams read crisply (#2b2b2b-class). */
   --mx-border-muted: rgba(255, 255, 255, .09);
   --mx-border: rgba(255, 255, 255, .125);
   --mx-border-structure: rgba(255, 255, 255, .16);
@@ -223,7 +223,7 @@
      rectangle around the actions). */
   --mx-hover-opaque: color-mix(in srgb, var(--mx-text) 6%, var(--mx-bg-base));
   --mx-pressed-opaque: color-mix(in srgb, var(--mx-text) 10%, var(--mx-bg-base));
-  /* One shell-wide scrollbar ink (VS Code grammar); registry themes inject
+  /* One shell-wide scrollbar ink; registry themes inject
      their own pair from the TUI palette. */
   --mx-scrollbar-thumb: color-mix(in srgb, var(--mx-text) 24%, transparent);
   --mx-scrollbar-thumb-hover: color-mix(in srgb, var(--mx-text) 42%, transparent);

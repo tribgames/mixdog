@@ -193,7 +193,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   outline: 2px solid var(--mx-focus);
   outline-offset: -2px;
 }
-/* OpenCode MessageTimeline parity: the timeline itself stays full-width.
+/* Message timeline: the timeline itself stays full-width.
    Each projected row owns its centered frame and message inset below. */
 .thread {
   width: 100%;
@@ -203,7 +203,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   padding: 44px 0 0;
   gap: 0;
 }
-/* Review chrome rides the SCROLLED thread (OpenCode session-turn-diffs), so a
+/* Review chrome rides the SCROLLED thread (turn diffs), so a
    late worker result grows scroll content the bottom anchor already owns
    instead of resizing the viewport under the composer. */
 .transcript-virtual-space {
@@ -258,7 +258,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   justify-items: center;
   padding: 0 var(--pane-inset) 64px;
 }
-/* VS Code-style empty editor: a quiet brand watermark anchors the otherwise
+/* Empty editor: a quiet brand watermark anchors the otherwise
    blank canvas without becoming an app-card or another clickable surface.
    Letterpress scale (ref vscode editorgroupview.css): 256px on the fully
    empty workspace, 200px on secondary empty surfaces (draft pane, Studio). */
@@ -277,8 +277,8 @@ html[data-mixdog-mobile-tabs] .conversation {
   height: 100%;
 }
 .starter-grid { display: none; }
-/* The empty workspace surface (no pane yet): flat on the window band like
-   Orca, content centered in the whole main area. */
+/* The empty workspace surface (no pane yet): flat on the window band,
+   content centered in the whole main area. */
 .workspace-empty {
   flex: 1 1 auto;
   min-width: 0;
@@ -288,7 +288,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   justify-content: center;
   overflow: auto;
 }
-/* VS Code watermark grammar (ref vscode editorgroupview.css): a fixed-width
+/* Watermark grammar: a fixed-width
    stack of full-width rows — `dl { display:flex; justify-content:space-between }`
    puts each label LEFT and its keycaps flush RIGHT, keys joined by `+`
    (`dd { text-align:left; margin-inline-start:24px }`, box max-width 272px). */
@@ -299,7 +299,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   gap: 8px;
   margin-top: 42px;
   font-size: var(--mx-font-ui);
-  /* VS Code descriptionForeground-class ink — faint was illegible (user). */
+  /* Description-foreground-class ink — faint was illegible (user). */
   color: var(--mx-text-muted);
 }
 .welcome-shortcuts > div {
@@ -312,7 +312,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   text-align: left;
   letter-spacing: var(--mx-tracking-wide);
 }
-/* VS Code keybindingLabel grammar (ref keybindingLabel.css + theme defaults):
+/* Keybinding-label grammar:
    UI font (not mono), 11px in a min-width 12px centered chip — every
    single-letter key renders the same width — padding 3px 5px, radius 3px,
    grey 17% plate with a 1px frame and inset bottom edge. The `+` separator
@@ -328,7 +328,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* VS Code's `min-width: 12px` is CONTENT-box: 12 + 5+5 padding + 1+1
+  /* The `min-width: 12px` is CONTENT-box: 12 + 5+5 padding + 1+1
      border = a uniform 24px chip for every single-letter key, which is what
      keeps the Ctrl / + / key columns gridded across rows (user: 틀어짐). */
   box-sizing: content-box;

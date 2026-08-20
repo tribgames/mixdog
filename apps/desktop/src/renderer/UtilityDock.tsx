@@ -358,7 +358,7 @@ const SearchPane = memo(function SearchPane({
   const totalMatches = contentResults.reduce((sum, result) => sum + result.matchCount, 0);
   return <div className="workbench-explorer">
     {/* Workspace open/add/save toolbar removed on purpose: Mixdog exposes
-        ONE Project concept — no VS Code multi-root workspace UI (user:
+        ONE Project concept — no multi-root workspace UI (user:
         Project 개념만 있고 워크트리 격리가 없는데 혼용돼 헷갈린다). */}
     <div className="workbench-explorer-search">
       <label className="workbench-search-input">
@@ -508,7 +508,7 @@ export const UtilityDock = memo(function UtilityDock({
   entering?: boolean;
   /** The shell may pre-mount at width 0; defer the expensive selected body. */
   contentReady?: boolean;
-  /** VS Code workbench uses this surface as a left Primary Side Bar. */
+  /** This surface hosts the left Primary Side Bar. */
   side?: "left" | "right";
   /** Activity Bar owns view selection in the coding workbench. */
   showTabs?: boolean;
@@ -1058,7 +1058,7 @@ export const UtilityDock = memo(function UtilityDock({
           ref={setHeaderActionsSlot} />
       </header>}
       {/* The project picker is the Source Control toolbar's repository
-          section now (GitHub Desktop: repository | branch | push-pull), so it
+          section now (repository | branch | push-pull), so it
           is handed to the dock instead of sitting in its own row. */}
       <MemoSourceControlDock
         projectPath={dockProjectPath}

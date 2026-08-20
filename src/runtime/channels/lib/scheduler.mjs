@@ -656,7 +656,7 @@ ${Scheduler.INSTANCE_UUID}`;
       try {
         const wrapped = this.wrapPrompt(schedule.name, prompt, type);
         this.injectFn(channelId, `schedule:${schedule.name}`, " ", { type: "schedule", instruction: wrapped });
-        logSchedule(`${schedule.name}: injected into Lead session queue (CC-parity interactive fire)\n`);
+        logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
         return true;
       } catch (err) {
         logSchedule(`${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`);

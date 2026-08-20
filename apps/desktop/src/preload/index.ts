@@ -494,6 +494,8 @@ const api: DesktopApi = {
       ipcRenderer.removeListener(DESKTOP_IPC.sessionState, receive);
     };
   },
+  inheritSession: (sourceSessionId, selection) =>
+    ipcRenderer.invoke(DESKTOP_IPC.inheritSession, sourceSessionId, selection ?? null),
   listProviderModels: (options) => ipcRenderer.invoke(DESKTOP_IPC.listProviderModels, options),
   setModelRoute: (selection, sessionId) =>
     ipcRenderer.invoke(DESKTOP_IPC.setModelRoute, selection, sessionId),

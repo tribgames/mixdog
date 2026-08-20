@@ -1,7 +1,7 @@
 /* Desktop layer 21 — Guided setup wizard.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Guided setup — full-window welcome flow (orca grammar, mixdog primitives):
+/* Guided setup — full-window welcome flow (mixdog primitives):
    hero card, clickable progress bars, per-step titles, step transitions. */
 .onboarding-layer {
   position: fixed;
@@ -174,7 +174,7 @@
   background: var(--mx-hover);
   box-shadow: inset 0 0 0 .5px var(--mx-border);
 }
-/* Separated row cards (orca integrations grammar) instead of one tall sheet:
+/* Separated row cards instead of one tall sheet:
    the stack keeps an even rhythm and no half-cut hairline at the fold. */
 .onboarding-provider-list, .onboarding-model-grid {
   display: grid;

@@ -580,7 +580,7 @@ export function registerDesktopIpc(
     const result = await dialog.showOpenDialog(window, {
       title: 'Open Workspace',
       properties: ['openFile'],
-      filters: [{ name: 'VS Code Workspace', extensions: ['code-workspace'] }],
+      filters: [{ name: 'Workspace file', extensions: ['code-workspace'] }],
     });
     const file = result.canceled ? '' : result.filePaths[0] || '';
     if (!file) return null;
@@ -603,7 +603,7 @@ export function registerDesktopIpc(
       const result = await dialog.showSaveDialog(window, {
         title: 'Save Workspace As',
         defaultPath: 'workspace.code-workspace',
-        filters: [{ name: 'VS Code Workspace', extensions: ['code-workspace'] }],
+        filters: [{ name: 'Workspace file', extensions: ['code-workspace'] }],
       });
       if (result.canceled || !result.filePath) return null;
       file = result.filePath;
@@ -988,6 +988,13 @@ export function registerDesktopIpc(
       requiredString(id, 'approval id', 1_024),
       requiredToolApprovalDecision(input),
     ));
+  handle(DESKTOP_IPC.inheritSession, (_event, sourceSessionId, selection) =>
+    host.inheritSession(
+      requiredSessionId(sourceSessionId),
+      selection === undefined || selection === null
+        ? null
+        : requiredModelSelection(selection),
+    ));
   handle(DESKTOP_IPC.listProviderModels, (_event, options) =>
     host.listProviderModels(requiredModelCatalogOptions(options)));
   handle(DESKTOP_IPC.setModelRoute, (_event, selection, sessionId) =>
@@ -1215,7 +1222,7 @@ export function registerDesktopIpc(
   ipcMain.on(DESKTOP_IPC.stateResync, onStateResync);
   // Sleep/resume: the renderer may have missed pushes while its frames were
   // throttled and the delta baseline cannot be trusted — restart the state
-  // lane from a full snapshot on wake (orca-style system-resume broadcast).
+  // lane from a full snapshot on wake (system-resume broadcast).
   const onSystemResume = (): void => {
     if (window.isDestroyed() || window.webContents.isDestroyed()) return;
     sentItems = null;

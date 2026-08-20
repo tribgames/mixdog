@@ -16,6 +16,7 @@
 // better trade. The service worker keeps the fetched slices, so a phone pays
 // for this once rather than on every visit.
 import { connectionQuality, isRemoteSurface } from "./network-conditions";
+import { resolveUiLanguage } from "./i18n";
 
 const REMOTE_WARMUP_BATCH = 6;
 // The first screen's own transfers own the link until then.
@@ -39,9 +40,17 @@ export function scheduleFontWarmup(): void {
       typeof window.requestIdleCallback === "function"
         ? (callback) => window.requestIdleCallback(callback, { timeout: 2_000 })
         : (callback) => window.setTimeout(callback, 250);
+    // Hangul is 2.8MB of the 3.4MB font inventory. A remote surface whose UI
+    // is not Korean warms the rest and leaves those slices to the dynamic
+    // subset's own on-demand loading — the behaviour they would have had
+    // anyway, for text they are unlikely to type. Korean UI and the local
+    // desktop (disk reads) keep the full warmup.
+    const warmHangul = !remote || resolveUiLanguage() === "ko";
     const pending: FontFace[] = [];
     document.fonts.forEach((face) => {
-      if (face.status === "unloaded") pending.push(face);
+      if (face.status !== "unloaded") return;
+      if (!warmHangul && /pretendard/i.test(face.family)) return;
+      pending.push(face);
     });
     if (pending.length === 0) return;
     // Local faces resolve in single-digit milliseconds, so the desktop pays

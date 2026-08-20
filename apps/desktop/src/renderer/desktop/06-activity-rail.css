@@ -1,10 +1,10 @@
 /* Desktop layer 06 — 48px activity rail and the side-panel frame.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* VS Code-style Activity Bar: one 48px global rail on every surface. The top
+/* Activity Bar: one 48px global rail on every surface. The top
    cluster hosts New task / Sessions / primary destinations, the foot hosts
    the updater badge and Settings. The adjacent session panel collapses
-   independently, exactly like VS Code's Primary Side Bar. */
+   independently, exactly like a Primary Side Bar. */
 .activity-rail {
   width: 48px;
   min-width: 48px;
@@ -13,14 +13,14 @@
   flex-direction: column;
   align-items: stretch;
   border-right: 1px solid var(--mx-border-structure);
-  /* VS Code activity-bar ink, exact upstream values (user: 색감): inactive
+  /* Activity-bar ink, exact values (user: 색감): inactive
      = activityBar.inactiveForeground #ffffff66 (40%), hover/active = full
      foreground via the button rules below. */
   color: color-mix(in srgb, var(--mx-text) 40%, transparent);
   background: var(--mx-window-band);
   user-select: none;
 }
-/* Codicon-scale glyphs: VS Code draws 24px icons in the 48px cell; the
+/* Codicon-scale glyphs: 24px icons in the 48px cell; the
    global 1.5px square-cap stroke already matches the codicon weight. */
 .activity-rail > nav > button > svg,
 .activity-rail > button > svg {
@@ -56,7 +56,7 @@
 .activity-rail > button::before {
   content: "";
   position: absolute;
-  /* VS Code activeBorder grammar, one step bolder (user: 좀 두껍게, 테두리
+  /* Active-border grammar, one step bolder (user: 좀 두껍게, 테두리
      없이): a 3px FULL-HEIGHT bar FLUSH with the window edge in foreground
      ink — no offset, no outline. */
   inset: 0 auto 0 0;

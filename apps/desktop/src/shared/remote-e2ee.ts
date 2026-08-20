@@ -517,6 +517,168 @@ export function relayE2EEPairingMaterial(
   };
 }
 
+/** Approval handoff. An installed web app starts with an empty storage
+ *  container: it has no pairing to present and no way to be handed one over a
+ *  relay that must never learn the secret. It generates a throwaway key pair
+ *  instead, and the desktop seals the pairing material to that public key once
+ *  the user approves on the PC. The relay only ever forwards this box. */
+export interface SealedRelayE2EEPairing {
+  version: typeof E2EE_VERSION;
+  ephemeralPublicKey: string;
+  nonce: string;
+  ciphertext: string;
+}
+
+export interface RelayClaimKeyPair {
+  publicKey: string;
+  privateKey: CryptoKey;
+}
+
+const E2EE_CLAIM_CONTEXT = `${E2EE_CONTEXT}\0claim`;
+
+/** Two digits shown on BOTH screens so the user approves the phone in hand.
+ *  Derived from the key being sealed to, so a substituted key cannot keep the
+ *  number the desktop displays. */
+export async function relayClaimConfirmationCode(clientPublicKey: string): Promise<string> {
+  const digest = await cryptoApi().subtle.digest(
+    'SHA-256',
+    arrayBuffer(base64UrlDecode(clientPublicKey)),
+  );
+  const bytes = new Uint8Array(digest);
+  return String((((bytes[0] << 8) | bytes[1]) >>> 0) % 100).padStart(2, '0');
+}
+
+export function isRelayClaimPublicKey(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{86,88}$/u.test(value);
+}
+
+async function claimSealKey(input: {
+  privateKey: CryptoKey;
+  peerPublicKey: string;
+  clientPublicKey: string;
+  ephemeralPublicKey: string;
+}): Promise<CryptoKey> {
+  const sharedBits = await cryptoApi().subtle.deriveBits(
+    { name: 'ECDH', public: await importPublicKey(input.peerPublicKey) },
+    input.privateKey,
+    256,
+  );
+  const keyMaterial = await cryptoApi().subtle.importKey(
+    'raw',
+    sharedBits,
+    'HKDF',
+    false,
+    ['deriveKey'],
+  );
+  return cryptoApi().subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: arrayBuffer(new Uint8Array(32)),
+      info: arrayBuffer(encoder.encode(
+        `${E2EE_CLAIM_CONTEXT}\0${input.clientPublicKey}\0${input.ephemeralPublicKey}`,
+      )),
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+export async function generateRelayClaimKeyPair(): Promise<RelayClaimKeyPair> {
+  const pair = await cryptoApi().subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits'],
+  ) as CryptoKeyPair;
+  return {
+    publicKey: base64UrlEncode(new Uint8Array(
+      await cryptoApi().subtle.exportKey('raw', pair.publicKey),
+    )),
+    privateKey: pair.privateKey,
+  };
+}
+
+export async function sealRelayE2EEPairingMaterial(
+  material: RelayE2EEPairingMaterial,
+  clientPublicKey: string,
+): Promise<SealedRelayE2EEPairing> {
+  if (!isRelayClaimPublicKey(clientPublicKey)) {
+    throw new Error('Invalid approval key.');
+  }
+  const pair = await cryptoApi().subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits'],
+  ) as CryptoKeyPair;
+  const ephemeralPublicKey = base64UrlEncode(new Uint8Array(
+    await cryptoApi().subtle.exportKey('raw', pair.publicKey),
+  ));
+  const key = await claimSealKey({
+    privateKey: pair.privateKey,
+    peerPublicKey: clientPublicKey,
+    clientPublicKey,
+    ephemeralPublicKey,
+  });
+  const nonce = randomBytes(12);
+  const ciphertext = new Uint8Array(await cryptoApi().subtle.encrypt(
+    { name: 'AES-GCM', iv: arrayBuffer(nonce) },
+    key,
+    arrayBuffer(encoder.encode(JSON.stringify({
+      version: material.version,
+      serverPublicKey: material.serverPublicKey,
+      pairingSecret: material.pairingSecret,
+    }))),
+  ));
+  return {
+    version: E2EE_VERSION,
+    ephemeralPublicKey,
+    nonce: base64UrlEncode(nonce),
+    ciphertext: base64UrlEncode(ciphertext),
+  };
+}
+
+/** null for anything that does not open: a forged or corrupted box is a
+ *  refused approval, never a half-applied pairing. */
+export async function openSealedRelayE2EEPairingMaterial(
+  sealed: unknown,
+  keyPair: RelayClaimKeyPair,
+): Promise<RelayE2EEPairingMaterial | null> {
+  try {
+    const box = sealed as Partial<SealedRelayE2EEPairing> | null;
+    if (!box || box.version !== E2EE_VERSION || !isRelayClaimPublicKey(box.ephemeralPublicKey)) {
+      return null;
+    }
+    const key = await claimSealKey({
+      privateKey: keyPair.privateKey,
+      peerPublicKey: box.ephemeralPublicKey,
+      clientPublicKey: keyPair.publicKey,
+      ephemeralPublicKey: box.ephemeralPublicKey,
+    });
+    const plaintext = await cryptoApi().subtle.decrypt(
+      { name: 'AES-GCM', iv: arrayBuffer(base64UrlDecode(String(box.nonce || ''))) },
+      key,
+      arrayBuffer(base64UrlDecode(String(box.ciphertext || ''))),
+    );
+    const parsed = JSON.parse(decoder.decode(new Uint8Array(plaintext))) as Partial<
+      RelayE2EEPairingMaterial
+    >;
+    if (
+      parsed.version !== E2EE_VERSION
+      || !/^[A-Za-z0-9_-]{87}$/u.test(String(parsed.serverPublicKey || ''))
+      || !/^[A-Za-z0-9_-]{43}$/u.test(String(parsed.pairingSecret || ''))
+    ) return null;
+    return {
+      version: E2EE_VERSION,
+      serverPublicKey: parsed.serverPublicKey as string,
+      pairingSecret: parsed.pairingSecret as string,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function createRelayE2EEClientHandshake(
   pairing: RelayE2EEPairingMaterial,
   challenge: RelayE2EEChallenge,

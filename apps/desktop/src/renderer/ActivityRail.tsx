@@ -11,6 +11,7 @@ import {
   desktopSidebarDestinationEnabled,
 } from "./desktop-feature-config";
 import { t } from "./i18n";
+import { useMobileBack } from "./mobile-back";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import { ProviderIcon } from "./provider-display";
 import { SidebarUsage, usagePinEntries } from "./SidebarUsage";
@@ -101,7 +102,7 @@ export function ActivityRail({
   primaryNavigation?: React.ReactNode;
 }) {
   // Codicon names (user: 레일 아이콘이 오히려 흐려 — B안 확장): the rail
-  // renders VS Code's activity-bar font glyphs, pixel-crisp at their native
+  // renders codicon activity-bar font glyphs, pixel-crisp at their native
   // sizes, instead of scaled lucide SVG strokes.
   const surfaces: ReadonlyArray<{
     id: ActivityRailSurface;
@@ -144,6 +145,8 @@ export function ActivityRail({
   // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
   // shared store below so the first open never starts from nothing.
   const [usageOpen, setUsageOpen] = useState(false);
+  // ABB: the usage flyout closes on hardware back.
+  useMobileBack(usageOpen, () => setUsageOpen(false));
   // Pin mode (user: 핀모드): pinned, the Usage button trades the pie glyph
   // for one icon per brand with its worst-window percentage beneath it. The
   // shared store the rail already prewarms feeds it; no extra requests.
@@ -244,7 +247,7 @@ export function ActivityRail({
     <aside className="activity-rail" aria-label={t("Activity Bar")}>
       <nav className="sidebar-primary-nav" aria-label={t("Sidebar")}>
         {primaryNavigation ?? <>
-        {/* The Sessions toggle mirrors VS Code's Explorer button: pressing it
+        {/* The Sessions toggle behaves like an Explorer button: pressing it
             expands/collapses the session panel. is-active (not selected)
             tracks the OPEN panel so surface selection stays separate. */}
         {desktopFeatureEnabled("sessions") && <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}

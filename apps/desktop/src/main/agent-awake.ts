@@ -1,11 +1,11 @@
-// Agent keep-awake (orca-inspired): while the engine reports live work, hold
+// Agent keep-awake: while the engine reports live work, hold
 // an Electron powerSaveBlocker so the OS never suspends mid-turn; release it
 // the moment the work stops. `prevent-app-suspension` keeps the machine and
 // network alive while still letting the display sleep.
 import type { SessionSnapshot } from '../shared/contract';
 
 // A crashed engine can freeze the last snapshot on "working". Never hold the
-// machine awake on a signal older than this window (matches orca's staleness).
+// machine awake on a signal older than this window (staleness guard).
 export const AWAKE_STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 export interface PowerSaveBlockerLike {

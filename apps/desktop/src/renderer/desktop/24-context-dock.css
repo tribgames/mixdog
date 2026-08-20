@@ -139,7 +139,7 @@
   /* Flat layout (user): square dock, hairline-separated — no card chrome.
      Rail surface = window band, mirroring the left sidebar: both side
      panels share one tone and only the CENTER workspace sheet reads
-     lighter (VS Code rails/editor separation — user: the two side tabs
+     lighter (rails/editor separation — user: the two side tabs
      looked like different designs). */
   border-radius: 0;
   background: var(--mx-window-band);

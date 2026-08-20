@@ -565,7 +565,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
 
   /** Drag-to-split: drop a dragged tab on one pane's edge zone. The new pane
    *  opens on that side and takes focus. With a sourceLeafId the tab MOVES
-   *  (VS Code): it leaves its source group, which collapses when emptied.
+   *  — it leaves its source group, which collapses when emptied.
    *  Dropping a view onto a pane that already shows it is a no-op. */
   const splitLeafAt = useCallback((
     leafId: string,
@@ -580,8 +580,8 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       const targetActive = paneActiveSelection(target);
       // A drop beside a DIFFERENT pane that already shows the view is a
       // no-op; splitting a multi-tab group with its own tab is the standard
-      // VS Code gesture. (A single-tab self split shows no overlay upstream
-      // — VS Code hides it — and stays a guarded no-op here.)
+      // gesture. (A single-tab self split shows no overlay
+      // and stays a guarded no-op here.)
       if (sourceLeafId !== leafId && targetActive
         && navigationKey(targetActive) === key) return prev;
       let layout: PaneNode = prev.layout;
@@ -618,9 +618,9 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     });
   }, []);
 
-  /** Drag-to-merge (VS Code center/strip drop): move a tab into another
+  /** Drag-to-merge (center/strip drop): move a tab into another
    *  group; the emptied source group collapses and the target takes focus.
-   *  A strip drop passes the pointed insert index (VS Code tabs drop). */
+   *  A strip drop passes the pointed insert index. */
   const moveTab = useCallback((
     sourceLeafId: string,
     key: string,

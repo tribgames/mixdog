@@ -25,8 +25,36 @@ import { formatCuratedCoreMemoryLine } from './core-memory-file.mjs'
 import { isBootstrapComplete, cleanMemoryText } from './memory.mjs'
 import { resolveProjectScope } from './project-id-resolver.mjs'
 import { openTraceDatabase, insertAgentCalls, enqueueTraceEvents, registerTraceExitDrain } from './trace-store.mjs'
+import { init as initKoMorph, isReady as koMorphReady } from './ko-morph.mjs'
+import { warmupEmbeddingProvider, isEmbeddingModelReady } from './embedding-provider.mjs'
+import { embeddingWarmupCanStart, memorySecondaryMode } from './memory-config-flags.mjs'
 
 const MEMORY_INSTRUCTIONS_TEXT = ''
+
+// Both recall-path models (kiwi morph analyzer, embedding ONNX session) load
+// lazily and self-dispose after an idle window, so the first recall of a session
+// otherwise pays a blocking kiwi build AND falls back to lexical-only results
+// while the embedding model warms. Session start is the earliest reliable signal
+// that interactive recall is coming, so warm both there: fire-and-forget, never
+// on the response path, and the idle timers still reclaim the memory afterwards.
+// The cooldown keeps a burst of session starts (e.g. background cycle agents)
+// from queueing redundant warmups.
+const RECALL_PREWARM_COOLDOWN_MS = 30_000
+let _lastRecallPrewarmAt = 0
+function prewarmRecallModels(dataDir, log, reason = 'session-start') {
+  if (memorySecondaryMode()) return
+  const now = Date.now()
+  if (now - _lastRecallPrewarmAt < RECALL_PREWARM_COOLDOWN_MS) return
+  _lastRecallPrewarmAt = now
+  if (!koMorphReady()) {
+    void Promise.resolve(initKoMorph(dataDir, log)).catch((e) =>
+      log(`[memory-service] ${reason} kiwi prewarm failed: ${e?.message || e}\n`))
+  }
+  if (!isEmbeddingModelReady() && embeddingWarmupCanStart()) {
+    void warmupEmbeddingProvider().catch((e) =>
+      log(`[memory-service] ${reason} embedding prewarm failed: ${e?.message || e}\n`))
+  }
+}
 
 export function createHttpRouter({
   getDb,
@@ -407,6 +435,9 @@ export function createHttpRouter({
         const body = await readBody(req)
         const { projectId, dbLines, userLines } = await buildSessionCoreMemoryPayload(body.cwd)
         sendJson(res, { ok: true, projectId, dbLines, userLines })
+        // Response is already flushed; warm the recall models for the session
+        // that just started so its first recall is not a cold one.
+        prewarmRecallModels(dataDir, log)
       } catch (e) { sendError(res, e.message) }
       return
     }

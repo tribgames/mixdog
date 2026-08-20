@@ -39,9 +39,10 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
   const request = record(context.request);
   const schema = record(request.toolSchemaBreakdown);
   const compaction = record(context.compaction);
-  // Keep the expanded surface byte-for-byte aligned with the header hover:
-  // provider-reported usage wins over the live estimate, and the resolved
-  // auto-compact trigger is the denominator before the full context window.
+  // Keep the expanded surface byte-for-byte aligned with the header hover: the
+  // same published gauge number (provider baseline + calibrated growth) wins,
+  // and the resolved auto-compact trigger is the denominator before the full
+  // context window.
   const usage = resolveContextDisplayUsage({
     sessionId: state.sessionId || context.sessionId || (context.contextWindow ? 'context' : ''),
     stats: state.stats,

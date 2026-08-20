@@ -1,5 +1,5 @@
 // Pull Requests service: GitHub CLI (`gh`) calls from the singleton daemon,
-// mirroring the VS Code "GitHub Pull Requests" extension's default queries.
+// with the conventional default pull-request queries.
 // gh owns auth (keyring) — no tokens ever touch this process.
 import { execFile } from 'node:child_process';
 import { childEnvironment } from './child-environment';
@@ -78,8 +78,8 @@ const LIST_FIELDS =
   'number,title,author,headRefName,baseRefName,isDraft,state,url,updatedAt,reviewDecision,statusCheckRollup';
 const DETAIL_FIELDS = `${LIST_FIELDS},body,additions,deletions,changedFiles,files,mergeable,mergeStateStatus,createdAt,labels,comments,reviews,reviewRequests`;
 
-// The VS Code extension's default PR tree categories. "Local Pull Request
-// Branches" is assembled renderer-side from All Open, matching the extension.
+// The default PR tree categories. "Local Pull Request
+// Branches" is assembled renderer-side from All Open.
 export const PR_CATEGORIES: ReadonlyArray<{ key: string; label: string; search: string }> = [
   { key: 'copilot', label: 'Copilot on My Behalf', search: 'is:open author:copilot assignee:@me' },
   { key: 'review-requested', label: 'Waiting For My Review', search: 'is:open review-requested:@me' },

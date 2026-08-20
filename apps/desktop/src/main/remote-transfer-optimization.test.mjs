@@ -7,7 +7,7 @@ import {
   createSnapshotDeltaEncoder,
   markCompactWire,
 } from "./state-delta.ts";
-import { encodeRelayClientSessionState } from "./remote-relay.ts";
+import { clientReadsLane, encodeRelayClientSessionState } from "./remote-relay.ts";
 import { createRemotePaintProbeTracker } from "../shared/remote-performance.ts";
 import {
   createKeyedListDeltaDecoder,
@@ -38,6 +38,19 @@ test("session transcript updates cross the relay as compact deltas", () => {
   assert.equal(decoded.ok, true);
   assert.deepEqual(decoded.snapshot, next);
   assert.ok(JSON.stringify(wire).length < JSON.stringify(next).length / 100);
+});
+
+test("desktop-driven push lanes reach only the browsers that opened them", () => {
+  // Terminal output, diagnostics and folder events are produced by desktop
+  // activity — a build, a save — so a phone that never opened those surfaces
+  // used to receive an entire build log.
+  assert.equal(clientReadsLane(new Set(), "terminal"), false);
+  assert.equal(clientReadsLane(new Set(["editor"]), "terminal"), false);
+  assert.equal(clientReadsLane(new Set(["terminal"]), "terminal"), true);
+  assert.equal(clientReadsLane(new Set(["editor", "files"]), "files"), true);
+  // A browser that predates the lane protocol keeps receiving everything.
+  assert.equal(clientReadsLane(null, "terminal"), true);
+  assert.equal(clientReadsLane(null, "files"), true);
 });
 
 test("compact frames omit unchanged sections and stay lossless", () => {

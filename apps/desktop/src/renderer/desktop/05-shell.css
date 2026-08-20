@@ -8,7 +8,7 @@
   min-width: 0;
   gap: 0;
   overflow: hidden;
-  /* Flat Orca layout (user request): panels sit flush — no floating gaps —
+  /* Flat layout (user request): panels sit flush — no floating gaps —
      and hairlines carry the structure. The top line lives here (not on the
      topbar) so the Windows caption overlay cannot cover it. */
   padding: 0;
@@ -73,7 +73,7 @@
   -webkit-user-select: none;
 }
 /* Desktop side-panel toggles commit their FINAL layout synchronously in one
-   frame — VS Code workbench grammar (user decision). No snapshots, no
+   frame — workbench grammar (user decision). No snapshots, no
    interpolation: crossfading old/new text left afterimages and font shimmer
    over the reflowing workspace. Mobile sheets keep their overlay slide via
    --mx-sheet-motion because they never reflow the workspace. */

@@ -1,6 +1,6 @@
 import { mediaError } from './lanes.mjs';
 import { readResponseBuffer } from '../shared/bounded-download.mjs';
-import { assertPublicUrl, pinnedFetch } from '../search/lib/ssrf-guard.mjs';
+import { assertPublicUrl, pinnedFetch } from '../web-search/lib/ssrf-guard.mjs';
 
 export const MAX_GENERATED_MEDIA_BYTES = 256 * 1024 * 1024;
 export const MAX_GENERATED_MEDIA_BASE64_CHARS =

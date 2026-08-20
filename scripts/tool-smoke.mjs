@@ -512,9 +512,10 @@ const listArrayErr = validateBuiltinArgs('list', { path: ['scripts'] });
 if (!/must be string/.test(String(listArrayErr))) {
   throw new Error(`list path array must be rejected: ${listArrayErr}`);
 }
-const listBlankPathErr = validateBuiltinArgs('list', { path: ' ' });
-if (!/non-empty string/.test(String(listBlankPathErr))) {
-  throw new Error(`list blank path must be rejected: ${listBlankPathErr}`);
+const listBlankPathArgs = { path: ' ' };
+const listBlankPathErr = validateBuiltinArgs('list', listBlankPathArgs);
+if (listBlankPathErr || Object.prototype.hasOwnProperty.call(listBlankPathArgs, 'path')) {
+  throw new Error(`list blank optional path must normalize to omission: err=${listBlankPathErr} args=${JSON.stringify(listBlankPathArgs)}`);
 }
 for (const key of ['hidden', 'meta']) {
   const err = validateBuiltinArgs('list', { path: 'scripts', [key]: 'false' });
@@ -592,11 +593,15 @@ for (const [key, value] of [['pattern', ['*.mjs']], ['path', ['src']]]) {
     throw new Error(`glob ${key} array must be rejected: ${err}`);
   }
 }
-for (const key of ['pattern', 'path']) {
-  const args = key === 'pattern' ? { pattern: ' ' } : { pattern: '*.mjs', path: ' ' };
+const globBlankPatternErr = validateBuiltinArgs('glob', { pattern: ' ' });
+if (!/non-empty string/.test(String(globBlankPatternErr))) {
+  throw new Error(`glob blank pattern must be rejected: ${globBlankPatternErr}`);
+}
+for (const key of ['path', 'root']) {
+  const args = { pattern: '*.mjs', [key]: ' ' };
   const err = validateBuiltinArgs('glob', args);
-  if (!/non-empty string/.test(String(err))) {
-    throw new Error(`glob blank ${key} must be rejected: ${err}`);
+  if (err || Object.prototype.hasOwnProperty.call(args, key)) {
+    throw new Error(`glob blank optional ${key} must normalize to omission: err=${err} args=${JSON.stringify(args)}`);
   }
 }
 for (const sort of ['recent', true]) {
@@ -676,9 +681,10 @@ const findPathArrayErr = validateBuiltinArgs('find', { query: 'tool smoke', path
 if (!/must be a string/.test(String(findPathArrayErr))) {
   throw new Error(`find path array must be rejected: ${findPathArrayErr}`);
 }
-const findBlankPathErr = validateBuiltinArgs('find', { query: 'tool smoke', path: ' ' });
-if (!/non-empty string/.test(String(findBlankPathErr))) {
-  throw new Error(`find blank path must be rejected: ${findBlankPathErr}`);
+const findBlankPathArgs = { query: 'tool smoke', path: ' ' };
+const findBlankPathErr = validateBuiltinArgs('find', findBlankPathArgs);
+if (findBlankPathErr || Object.prototype.hasOwnProperty.call(findBlankPathArgs, 'path')) {
+  throw new Error(`find blank optional path must normalize to omission: err=${findBlankPathErr} args=${JSON.stringify(findBlankPathArgs)}`);
 }
 const findNoiseTypeErr = validateBuiltinArgs('find', { query: 'tool smoke', include_noise: 'false' });
 if (!/must be a boolean/.test(String(findNoiseTypeErr))) {
@@ -1354,7 +1360,7 @@ const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
 const editProps = editTool?.inputSchema?.properties || {};
 if (!editTool
   || JSON.stringify(editTool.inputSchema?.required) !== JSON.stringify(['file_path', 'old_string', 'new_string'])
-  || editProps.file_path?.minLength !== 1
+  || editProps.file_path?.minLength !== undefined
   || editProps.replace_all?.default !== false
   || editTool.inputSchema?.additionalProperties !== false
   || !/^Replace exact text in one file\./i.test(editTool.description || '')
@@ -1364,7 +1370,7 @@ if (!editTool
 }
 const shellProps = shellTool?.inputSchema?.properties || {};
 if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'run_in_background', 'monitor_interval_ms'])
-  || shellProps.command?.minLength !== 1
+  || shellProps.command?.minLength !== undefined
   || shellProps.run_in_background?.default !== false
   || shellProps.monitor_interval_ms?.type !== 'integer'
   || shellProps.monitor_interval_ms?.minimum !== 0
@@ -1418,7 +1424,7 @@ if (shellDisabledMonitorErr
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
 if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'monitor', 'cancel'])
-  || publicTaskProps.task_id?.minLength !== 1
+  || publicTaskProps.task_id?.minLength !== undefined
   || publicTaskProps.monitor_interval_ms?.minimum !== 0
   || publicTaskProps.monitor_interval_ms?.maximum !== 2_147_483_647
   || publicTaskProps.timeout_ms || publicTaskProps.after_ms || publicTaskProps.poll_ms) {
@@ -1426,6 +1432,34 @@ if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 're
 }
 if (JSON.stringify(publicTaskTool?.inputSchema?.required) !== JSON.stringify(['action'])) {
   throw new Error('task schema must require an explicit action');
+}
+for (const [action, taskId, monitorInterval] of [
+  ['list', '', 0],
+  ['read', 'task_action_shape_smoke', 0],
+  ['cancel', 'task_action_shape_smoke', 300_000],
+]) {
+  const args = { action, task_id: taskId, monitor_interval_ms: monitorInterval };
+  const err = validateBuiltinArgs('task', args);
+  if (err
+    || Object.prototype.hasOwnProperty.call(args, 'monitor_interval_ms')
+    || (action === 'list' && Object.prototype.hasOwnProperty.call(args, 'task_id'))) {
+    throw new Error(`task ${action} must discard fields owned by other actions: err=${err} args=${JSON.stringify(args)}`);
+  }
+}
+const taskMonitorShapeArgs = {
+  action: 'monitor',
+  task_id: 'task_action_shape_smoke',
+  monitor_interval_ms: 300_000,
+};
+const taskMonitorShapeErr = validateBuiltinArgs('task', taskMonitorShapeArgs);
+if (taskMonitorShapeErr || taskMonitorShapeArgs.monitor_interval_ms !== 300_000) {
+  throw new Error(`task monitor must retain its interval: err=${taskMonitorShapeErr} args=${JSON.stringify(taskMonitorShapeArgs)}`);
+}
+const taskReadMissingIdArgs = { action: 'read', monitor_interval_ms: 0 };
+const taskReadMissingIdErr = validateBuiltinArgs('task', taskReadMissingIdArgs);
+if (!/requires "task_id"/i.test(String(taskReadMissingIdErr))
+  || Object.prototype.hasOwnProperty.call(taskReadMissingIdArgs, 'monitor_interval_ms')) {
+  throw new Error(`task read must discard monitor defaults but retain task_id validation: err=${taskReadMissingIdErr} args=${JSON.stringify(taskReadMissingIdArgs)}`);
 }
 const taskWaitOut = await executeBuiltinTool('task', {
   action: 'wait',
@@ -1660,6 +1694,13 @@ for (const [key, value] of [['path', [root]], ['glob', ['*.mjs']]]) {
     throw new Error(`grep ${key} array must be rejected: ${err}`);
   }
 }
+for (const key of ['path', 'root']) {
+  const args = { pattern: 'smoke', [key]: ' ' };
+  const err = validateBuiltinArgs('grep', args);
+  if (err || Object.prototype.hasOwnProperty.call(args, key)) {
+    throw new Error(`grep blank optional ${key} must normalize to omission: err=${err} args=${JSON.stringify(args)}`);
+  }
+}
 
 const grepContextPolicyArgs = { pattern: 'smoke', path: root, context: GREP_CONTEXT_MAX + 999 };
 applyGrepContextLeadPolicy(grepContextPolicyArgs);
@@ -1812,7 +1853,7 @@ if (AGENT_TOOL.inputSchema?.required?.join(',') !== 'type'
   throw new Error('agent schema must require type and describe each action target');
 }
 for (const name of ['task_id', 'agent', 'tag', 'prompt', 'message', 'file', 'cwd', 'context']) {
-  if (agentProps[name]?.minLength !== 1) {
+  if (agentProps[name]?.minLength !== undefined) {
     throw new Error(`agent schema field ${name} must reject empty strings`);
   }
 }
@@ -2187,7 +2228,7 @@ setInternalToolsProvider({
     if (!loadedSkill
       || /^---/m.test(loadedSkill.content)
       || !loadedSkill.content.startsWith('# Demo Skill')) {
-      throw new Error(`Skill loader must strip SKILL.md frontmatter like Claude Code: ${JSON.stringify(loadedSkill)}`);
+      throw new Error(`Skill loader must strip SKILL.md frontmatter: ${JSON.stringify(loadedSkill)}`);
     }
     const trimmedSkill = loadSkillResource('  demo-skill  ', skillManifestTmp);
     if (!trimmedSkill || trimmedSkill.filePath !== loadedSkill.filePath) {
@@ -2653,7 +2694,7 @@ if (/line\+context/i.test(readDescription) || !/Known-file contents or line rang
   throw new Error('read description must stay compact and file-oriented');
 }
 if (readProps.file_path?.type !== 'string'
-  || readProps.file_path?.minLength !== 1
+  || readProps.file_path?.minLength !== undefined
   || readProps.file_path?.anyOf
   || readProps.file_path?.description !== 'Known file path as plain text; not a JSON array or annotated path. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.'
   || readProps.path
@@ -2784,12 +2825,12 @@ const recallIdArrayShape = recallIdShapes.find((shape) => shape?.type === 'array
 if (!/prior work/i.test(recallTool?.description || '') || !recallProps.id?.anyOf || !/Do not invent ids/i.test(recallProps.id?.description || '')) {
   throw new Error('recall schema must preserve scoped prior-context guidance and id lookup shape');
 }
-if (recallQueryStringShape?.minLength !== 1
-  || recallQueryArrayShape?.minItems !== 1
+if (recallQueryStringShape?.minLength !== undefined
+  || recallQueryArrayShape?.minItems !== undefined
   || recallQueryArrayShape?.maxItems !== 5
-  || recallQueryArrayShape?.items?.minLength !== 1
+  || recallQueryArrayShape?.items?.minLength !== undefined
   || recallIdStringShape?.minimum !== 1
-  || recallIdArrayShape?.minItems !== 1
+  || recallIdArrayShape?.minItems !== undefined
   || recallIdArrayShape?.items?.type !== 'integer'
   || recallIdArrayShape?.items?.minimum !== 1
   || !/independent fan-out/i.test(recallProps.query?.description || '')
@@ -2869,7 +2910,7 @@ if (CWD_TOOL.title !== 'Project'
   || CWD_TOOL.annotations?.title !== 'Project'
   || CWD_TOOL.description !== 'Show the active Project, or set it to path. A shell-local cd does not change the Project.'
   || Object.keys(cwdProps).join(',') !== 'path'
-  || cwdProps.path?.minLength !== 1
+  || cwdProps.path?.minLength !== undefined
   || CWD_TOOL.inputSchema?.additionalProperties !== false) {
   throw new Error('cwd schema must expose only an optional non-empty Project path');
 }
@@ -2921,9 +2962,9 @@ if (!/Runs synchronously/i.test(webSearchTool?.description || '')
   || webSearchProps.action
   || webSearchProps.task_id
   || !webSearchProps.query?.anyOf
-  || webSearchQueryStringShape?.minLength !== 1
-  || webSearchQueryArrayShape?.minItems !== 1
-  || webSearchQueryArrayShape?.items?.minLength !== 1
+  || webSearchQueryStringShape?.minLength !== undefined
+  || webSearchQueryArrayShape?.minItems !== undefined
+  || webSearchQueryArrayShape?.items?.minLength !== undefined
   || !/array for lossless fan-out/i.test(webSearchProps.query?.description || '')
   || !webSearchTool?.inputSchema?.required?.includes('query')) {
   throw new Error('web_search schema must preserve sync execution guidance and string/array query shape');
@@ -2943,11 +2984,11 @@ const webFetchUrlShapes = webFetchProps.url?.anyOf || [];
 const webFetchUrlStringShape = webFetchUrlShapes.find((shape) => shape?.type === 'string');
 const webFetchUrlArrayShape = webFetchUrlShapes.find((shape) => shape?.type === 'array');
 if (!/^Fetch page\/docs body from URL\.$/i.test(webFetchTool?.description || '')
-  || webFetchUrlStringShape?.minLength !== 1
+  || webFetchUrlStringShape?.minLength !== undefined
   || webFetchUrlStringShape?.format !== 'uri'
-  || webFetchUrlArrayShape?.minItems !== 1
+  || webFetchUrlArrayShape?.minItems !== undefined
   || webFetchUrlArrayShape?.maxItems !== 10
-  || webFetchUrlArrayShape?.items?.minLength !== 1
+  || webFetchUrlArrayShape?.items?.minLength !== undefined
   || webFetchUrlArrayShape?.items?.format !== 'uri'
   || !/Public HTTP\(S\) URL/i.test(webFetchProps.url?.description || '')
   || !/array of up to 10 URLs/i.test(webFetchProps.url?.description || '')) {
@@ -2968,9 +3009,9 @@ const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) =>
 if (!/Load named deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
   || !/Direct calls auto-load/i.test(TOOL_SEARCH_TOOL.description || '')
   || !toolSearchNamesSchema
-  || toolSearchNamesStringSchema?.minLength !== 1
-  || toolSearchNamesArraySchema?.minItems !== 1
-  || toolSearchNamesArraySchema?.items?.minLength !== 1
+  || toolSearchNamesStringSchema?.minLength !== undefined
+  || toolSearchNamesArraySchema?.minItems !== undefined
+  || toolSearchNamesArraySchema?.items?.minLength !== undefined
   || TOOL_SEARCH_TOOL.inputSchema?.required?.join(',') !== 'names'
   || TOOL_SEARCH_TOOL.inputSchema?.properties?.select
   || TOOL_SEARCH_TOOL.inputSchema?.additionalProperties !== false) {
@@ -2979,7 +3020,7 @@ if (!/Load named deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
 const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
 if (!/named SKILL\.md into context/i.test(SKILL_TOOL.description || '')
   || skillNameSchema?.type !== 'string'
-  || skillNameSchema?.minLength !== 1
+  || skillNameSchema?.minLength !== undefined
   || !/Exact name from available-skills/i.test(skillNameSchema?.description || '')
   || SKILL_TOOL.inputSchema?.required?.join(',') !== 'name'
   || SKILL_TOOL.inputSchema?.additionalProperties !== false) {
@@ -3303,17 +3344,17 @@ const grepPatternShapes = grepTool?.inputSchema?.properties?.pattern?.anyOf;
 const grepStringPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'string');
 const grepArrayPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'array');
 if (!grepStringPatternShape
-    || grepStringPatternShape?.minLength !== 1
+    || grepStringPatternShape?.minLength !== undefined
     || grepArrayPatternShape?.items?.type !== 'string'
-    || grepArrayPatternShape?.items?.minLength !== 1
-    || grepArrayPatternShape?.minItems !== 1
+    || grepArrayPatternShape?.items?.minLength !== undefined
+    || grepArrayPatternShape?.minItems !== undefined
     || grepArrayPatternShape?.maxItems !== 10
     || grepTool?.inputSchema?.properties?.pattern?.type
     || grepTool?.inputSchema?.properties?.path?.type !== 'string'
-    || grepTool?.inputSchema?.properties?.path?.minLength !== 1
+    || grepTool?.inputSchema?.properties?.path?.minLength !== undefined
     || grepTool?.inputSchema?.properties?.path?.anyOf
     || grepTool?.inputSchema?.properties?.glob?.type !== 'string'
-    || grepTool?.inputSchema?.properties?.glob?.minLength !== 1
+    || grepTool?.inputSchema?.properties?.glob?.minLength !== undefined
     || grepTool?.inputSchema?.properties?.glob?.anyOf
     || grepTool?.inputSchema?.properties?.limit?.type !== 'integer'
     || grepTool?.inputSchema?.properties?.offset?.type !== 'integer'
@@ -3370,10 +3411,10 @@ if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.desc
   throw new Error('glob description must state its known-base wildcard path contract');
 }
 if (globTool?.inputSchema?.properties?.pattern?.type !== 'string'
-    || globTool?.inputSchema?.properties?.pattern?.minLength !== 1
+    || globTool?.inputSchema?.properties?.pattern?.minLength !== undefined
     || globTool?.inputSchema?.properties?.pattern?.anyOf
     || globTool?.inputSchema?.properties?.path?.type !== 'string'
-    || globTool?.inputSchema?.properties?.path?.minLength !== 1
+    || globTool?.inputSchema?.properties?.path?.minLength !== undefined
     || globTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('glob schema must expose scalar pattern and path');
 }
@@ -3390,18 +3431,18 @@ if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || !/not a prerequisite for another tool/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')
     || listTool?.inputSchema?.properties?.path?.type !== 'string'
-    || listTool?.inputSchema?.properties?.path?.minLength !== 1
+    || listTool?.inputSchema?.properties?.path?.minLength !== undefined
     || !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '')
     || listTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('list description must state its known-directory immediate-entry contract');
 }
 if (findTool?.inputSchema?.properties?.query?.type !== 'string'
-    || findTool?.inputSchema?.properties?.query?.minLength !== 1
+    || findTool?.inputSchema?.properties?.query?.minLength !== undefined
     || findTool?.inputSchema?.properties?.query?.anyOf) {
   throw new Error('find schema must expose scalar query');
 }
 if (findTool?.inputSchema?.properties?.path?.type !== 'string'
-    || findTool?.inputSchema?.properties?.path?.minLength !== 1
+    || findTool?.inputSchema?.properties?.path?.minLength !== undefined
     || !/omit for the current Project/i.test(findTool?.inputSchema?.properties?.path?.description || '')
     || /No content or symbol search/i.test(findTool?.description || '')) {
   throw new Error('find schema must expose a non-empty optional Project-relative base directory');
@@ -3422,13 +3463,13 @@ if (!/find_symbol returns declaration\/body/i.test(codeGraphDescription)
     || !/references is opt-in/i.test(codeGraphBodyDescription)) {
   throw new Error('code_graph descriptions must distinguish declarations, usages, and relation locations');
 }
-if (codeGraphFileStringShape?.minLength !== 1
-    || codeGraphFileArrayShape?.minItems !== 1
-    || codeGraphFileArrayShape?.items?.minLength !== 1
-    || codeGraphSymbolStringShape?.minLength !== 1
-    || codeGraphSymbolArrayShape?.minItems !== 1
-    || codeGraphSymbolArrayShape?.items?.minLength !== 1
-    || codeGraphProps.cwd?.minLength !== 1
+if (codeGraphFileStringShape?.minLength !== undefined
+    || codeGraphFileArrayShape?.minItems !== undefined
+    || codeGraphFileArrayShape?.items?.minLength !== undefined
+    || codeGraphSymbolStringShape?.minLength !== undefined
+    || codeGraphSymbolArrayShape?.minItems !== undefined
+    || codeGraphSymbolArrayShape?.items?.minLength !== undefined
+    || codeGraphProps.cwd?.minLength !== undefined
     || codeGraphProps.limit?.maximum !== 500
     || !/overview hierarchy or caller traversal depth/i.test(codeGraphProps.depth?.description || '')) {
   throw new Error('code_graph schema must reject blank targets and expose runtime result/depth bounds');

@@ -15,6 +15,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
+import { useMobileBack } from "./mobile-back";
 import { monaco, resolveThemeColor } from "./monaco-setup";
 import { ProgressSpinner } from "./ProgressSpinner";
 // Monaco caches glyph metrics at mount. If the mono face lands AFTER a cold
@@ -1362,6 +1363,10 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
       window.requestAnimationFrame(() => breadcrumbButtonRefs.current[sourceIndex]?.focus());
     }
   }, [breadcrumbFocusIndex, breadcrumbPicker?.anchor.sourceIndex]);
+  // ABB: the editor's portaled layers close on hardware back instead of
+  // letting the phone leave the PWA.
+  useMobileBack(Boolean(breadcrumbPicker), () => closeBreadcrumbPicker(true));
+  useMobileBack(Boolean(callHierarchy), () => closeCallHierarchy());
   const showBreadcrumbFiles = useCallback((
     anchor: BreadcrumbPickerAnchor,
     directory: string,

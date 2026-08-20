@@ -229,6 +229,10 @@ export class CaptureService implements DesktopService {
   async setVisibleSessions(): Promise<boolean> { return true; }
   async searchProjectFiles(): Promise<string[]> { return []; }
   async submitToSession(): Promise<boolean> { return true; }
+  async inheritSession(): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }> {
+    const sessionId = `capture_inherit_${Date.now()}`;
+    return { sessionId, snapshot: { ...this.snapshot, sessionId } };
+  }
   async abortSession(
     _sessionId: string,
     _options: DesktopAbortOptions = {},

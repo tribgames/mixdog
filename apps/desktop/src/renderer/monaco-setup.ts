@@ -1,4 +1,4 @@
-// Monaco bootstrap (orca-parity: refs/orca monaco-setup.ts) — locally bundled
+// Monaco bootstrap — locally bundled
 // workers, no CDN. TypeScript/JavaScript language intelligence is owned by the
 // project LSP in the main process; Monaco keeps editing and tokenization only.
 import { loader } from '@monaco-editor/react';

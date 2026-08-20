@@ -143,7 +143,7 @@ function waitForValue(predicate, timeoutMs = 2_000) {
 
 test('protocol stays at 1 while revision then app build chooses the daemon', () => {
   assert.equal(SESSION_PROTOCOL, 1);
-  assert.equal(SESSION_REVISION, 2);
+  assert.equal(SESSION_REVISION, 3);
   assert.match(SESSION_CAPABILITY_FINGERPRINT, /^[0-9a-f]{16}$/);
   assert.equal(sessionDaemonCompatibility({
     protocol: 1,

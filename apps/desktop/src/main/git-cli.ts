@@ -312,7 +312,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
   };
 }
 
-// Branch rows carry their tip age (GitHub Desktop shows "16 days ago") and,
+// Branch rows carry their tip age ("16 days ago") and,
 const branchOperations = createGitBranchOperations({ run, currentGitOperation, gitStatus });
 const { checkedBranchName } = branchOperations;
 export const {
@@ -466,7 +466,7 @@ export function gitAmend(cwd: string, message = ''): Promise<string> {
 }
 
 export function gitUndoLastCommit(cwd: string): Promise<string> {
-  // VS Code's Undo Last Commit keeps the commit's complete index intact.
+  // Undo Last Commit keeps the commit's complete index intact.
   return run(cwd, ['reset', '--soft', 'HEAD~1']);
 }
 
@@ -604,8 +604,8 @@ export async function gitAbortOperation(cwd: string): Promise<string> {
 }
 
 // ── History context menu ───────────────────
-// Every action below moves HEAD, the index or a ref — but GitHub Desktop does
-// NOT gate them all alike, so neither do we:
+// Every action below moves HEAD, the index or a ref — but they are
+// NOT all gated alike:
 //   * a LIVE OPERATION blocks cherry-pick only. The reference's history menu
 //     disables that single item while a multi-commit operation runs
 //     (app/src/ui/history/commit-list.tsx:843-870 `canCherryPick`) and leaves
@@ -869,7 +869,7 @@ export async function gitDeleteTag(cwd: string, value: string): Promise<string> 
 }
 
 /**
- * GitHub Desktop's "Check out commit": a detached HEAD at that commit. Local
+ * "Check out commit": a detached HEAD at that commit. Local
  * changes are git's business — it carries the safe ones across and refuses the
  * checkout itself when they would be overwritten.
  */
@@ -1001,8 +1001,8 @@ interface DecodedRefs {
 
 /**
  * `%D` reads "HEAD -> refs/heads/main, tag: refs/tags/v1, tag: refs/tags/a,b".
- * GitHub Desktop splits on the ", " separator and tests each entry for the
- * `tag: ` prefix (app/src/lib/git/log.ts:178-184) precisely because a regex
+ * Splitting on the ", " separator and testing each entry for the
+ * `tag: ` prefix is required precisely because a regex
  * like /tag: ([^\s,]+)/ clips a tag name containing a comma. Refnames cannot
  * contain a space, so ", " can only ever be git's own separator.
  */
