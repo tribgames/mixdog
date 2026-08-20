@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { access, chmod, cp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, cp, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -278,9 +278,16 @@ async function prepareRuntime(manifest, fingerprint) {
       builderDesktopPtyDir,
       { recursive: true },
     ));
-    for (const fileName of ['package.json', 'package-lock.json']) {
-      await cp(join(rootDir, fileName), join(stagingDir, fileName));
-    }
+    // The staging install only needs the production dependency tree. The repo's
+    // postinstall (embedding prune + native asset fetch) is driven explicitly by
+    // this script, and prepare-native-assets.mjs imports from src/, which is not
+    // staged until the runtime package copy below — so letting `npm ci` run it
+    // fails the install. Stripping scripts leaves the lockfile tree unchanged.
+    await mkdir(stagingDir, { recursive: true });
+    const stagingPackage = JSON.parse(await readFile(join(rootDir, 'package.json'), 'utf8'));
+    delete stagingPackage.scripts;
+    await writeFile(join(stagingDir, 'package.json'), `${JSON.stringify(stagingPackage, null, 2)}\n`);
+    await cp(join(rootDir, 'package-lock.json'), join(stagingDir, 'package-lock.json'));
     await mkdir(join(stagingDir, 'scripts'), { recursive: true });
     await cp(
       join(rootDir, 'scripts', 'prune-embedding-runtime.mjs'),
@@ -344,13 +351,43 @@ async function prepareRuntime(manifest, fingerprint) {
     // NSIS is very slow when it has to create the production dependency tree one
     // file at a time. Electron reads ASARs directly, so install one archive and
     // unpack only native addons that the OS loader must access as real files.
-    await timed('asar-create', () => createPackageWithOptions(stagingDir, runtimeArchive, {
-      dot: true,
-      // @electron/asar matches this against absolute Windows paths with
-      // matchBase enabled. A basename glob is therefore portable; **/*.node is
-      // not, because minimatch treats Windows separators differently.
-      unpack: '*.{node,dll,dylib,so,so.*}',
-    }));
+    // @electron/asar crawls the staging tree first and only then lstats every
+    // entry it collected. On Windows a real-time AV scan can hold a freshly
+    // installed dependency file across that gap, so the lstat reports ENOENT for
+    // a path that exists before and after the pack — two consecutive runs died
+    // on different random files (hono/dist/types.js, discord-api-types
+    // /payloads/v9/oauth2.js.map). Bounded retries absorb the same race the
+    // embedding prune already retries around, and only for transient
+    // filesystem codes: a missing input the crawl never saw still fails loudly.
+    // Each attempt discards the partial archive and sidecar so a retry never
+    // packs on top of half-written output.
+    await timed('asar-create', async () => {
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          await createPackageWithOptions(stagingDir, runtimeArchive, {
+            dot: true,
+            // @electron/asar matches this against absolute Windows paths with
+            // matchBase enabled. A basename glob is therefore portable; **/*.node is
+            // not, because minimatch treats Windows separators differently.
+            unpack: '*.{node,dll,dylib,so,so.*}',
+          });
+          return;
+        } catch (error) {
+          const transient = ['ENOENT', 'EPERM', 'EBUSY', 'ENOTEMPTY', 'UNKNOWN']
+            .includes(error?.code);
+          if (!transient || attempt >= 5) throw error;
+          console.warn(
+            `ASAR pack attempt ${attempt} failed with ${error.code} at `
+            + `${error.path || 'an unreported path'}; retrying from a clean archive.`,
+          );
+          await rm(runtimeArchive, { force: true, maxRetries: 10, retryDelay: 250 });
+          await rm(runtimeSidecar, {
+            recursive: true, force: true, maxRetries: 10, retryDelay: 250,
+          });
+          await new Promise((done) => { setTimeout(done, 500 * attempt); });
+        }
+      }
+    });
 
     const archiveEntries = new Set(
       listPackage(runtimeArchive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')),
@@ -449,7 +486,79 @@ async function prepareRuntime(manifest, fingerprint) {
   }
 }
 
+// Preparation is exclusive per checkout. Every run starts by deleting and
+// rebuilding .runtime, so two overlapping deployments destroyed each other: the
+// second wiped the staging tree the first was packing into runtime.asar, which
+// surfaced as ENOENT on a different random dependency file every attempt and,
+// once the deletion won the race outright, as an archive missing /package.json.
+// A later run now waits for the holder instead, and then normally takes the
+// fingerprint reuse path rather than repeating the whole preparation.
+const runtimeLockPath = join(desktopDir, '.cache', 'prepare-runtime.lock');
+const runtimeLockTimeoutMs = 30 * 60 * 1000;
+
+function lockHolderAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM means the pid exists under another account; only ESRCH proves the
+    // holder is gone and its lock can be reclaimed.
+    return error?.code === 'EPERM';
+  }
+}
+
+async function acquireRuntimeLock() {
+  await mkdir(dirname(runtimeLockPath), { recursive: true });
+  const deadline = Date.now() + runtimeLockTimeoutMs;
+  let announcedHolder = 0;
+  let unreadablePolls = 0;
+  for (;;) {
+    try {
+      const handle = await open(runtimeLockPath, 'wx');
+      try {
+        await handle.writeFile(JSON.stringify({
+          pid: process.pid,
+          target: embeddingTarget.key,
+          startedAt: new Date().toISOString(),
+        }));
+      } finally {
+        await handle.close();
+      }
+      return () => rm(runtimeLockPath, { force: true, maxRetries: 5, retryDelay: 250 });
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    let holder = null;
+    try {
+      holder = JSON.parse(await readFile(runtimeLockPath, 'utf8'));
+      unreadablePolls = 0;
+    } catch {
+      // The holder creates the file before writing its payload. An unreadable
+      // lock only counts as abandoned once it stays that way across polls.
+      unreadablePolls += 1;
+    }
+    if (holder ? !lockHolderAlive(holder.pid) : unreadablePolls > 3) {
+      console.warn(`Reclaiming an abandoned runtime preparation lock: ${runtimeLockPath}`);
+      await rm(runtimeLockPath, { force: true, maxRetries: 5, retryDelay: 250 });
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Runtime preparation is still held by pid ${holder?.pid ?? 'unknown'} `
+        + `after ${Math.round(runtimeLockTimeoutMs / 60000)} minutes: ${runtimeLockPath}`,
+      );
+    }
+    if (holder && holder.pid !== announcedHolder) {
+      announcedHolder = holder.pid;
+      console.log(`Waiting for the runtime preparation held by pid ${holder.pid}.`);
+    }
+    await new Promise((done) => { setTimeout(done, 1000); });
+  }
+}
+
 const preparationStartedAt = performance.now();
+const releaseRuntimeLock = await timed('preparation-lock', () => acquireRuntimeLock());
 try {
   const manifest = await timed('package-manifest', () => resolveRuntimePackageManifest());
   const fingerprint = await timed(
@@ -462,5 +571,6 @@ try {
     await prepareRuntime(manifest, fingerprint);
   }
 } finally {
+  await releaseRuntimeLock();
   console.log(`[prepare-runtime] total: ${elapsedMs(preparationStartedAt)}ms`);
 }
