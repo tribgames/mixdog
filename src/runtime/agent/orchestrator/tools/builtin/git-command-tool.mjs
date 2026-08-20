@@ -41,12 +41,11 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command directly, without a shell. Shell operators and substitution are rejected. Repository mutations are serialized. High-risk destructive commands require confirm:true. Successful output is compacted.',
+    description: 'Run one Git command directly, without a shell. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
             command: { type: 'string', description: 'Full command beginning with git. Quote arguments as for a shell; shell operators are not allowed.' },
-            confirm: { type: 'boolean', description: 'Set true only when a rejected high-risk command explicitly requires it.' },
             output_limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
         required: ['command'],
@@ -249,34 +248,6 @@ function semanticExit(plan, result) {
 
 function runGit(plan, argv, options = {}) {
     return runProcess('git', [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal });
-}
-
-function destructiveReason(plan) {
-    const { operation, args } = plan;
-    // Dry-run previews mutate nothing: git either prints what WOULD happen or
-    // rejects the flag where unsupported, so the confirm gate only taxes safe
-    // inspection (2026-08-17 bench: `reflog expire --dry-run` was refused and
-    // the model paid a +56s workaround detour). `-n` short clusters count only
-    // for the subcommands where -n MEANS dry-run (clean/push/prune) — on
-    // e.g. `commit -n` it means --no-verify and must keep the gate.
-    if (args.includes('--dry-run')) return '';
-    if (['clean', 'push', 'prune'].includes(operation)
-        && args.some((value) => /^-[a-z]*n[a-z]*$/.test(value))) return '';
-    if (operation === 'reset' && args.includes('--hard')) return 'git reset --hard';
-    if (operation === 'clean' && args.some((value) => value === '--force' || /^-[^-]*f/.test(value))) return 'git clean --force';
-    if (operation === 'gc' && args.some((value) => value === '--prune=now' || value === '--aggressive')) return `git gc ${args.find((value) => value.startsWith('--prune') || value === '--aggressive')}`;
-    if (operation === 'prune') return 'git prune';
-    if (operation === 'filter-branch') return 'git filter-branch';
-    if (operation === 'update-ref' && args.includes('-d')) return 'git update-ref -d';
-    if (operation === 'symbolic-ref' && args.includes('--delete')) return 'git symbolic-ref --delete';
-    if (operation === 'reflog' && ['delete', 'expire'].includes(actionOf(operation, args))) return `git reflog ${actionOf(operation, args)}`;
-    if (operation === 'push' && args.some((value) => value.startsWith('--force') || value.startsWith('+'))) return 'git push --force';
-    if (operation === 'branch' && args.some((value) => value === '-D' || value === '--delete-force')) return 'git branch -D';
-    if (operation === 'commit' && args.includes('--amend')) return 'git commit --amend';
-    if (operation === 'stash' && actionOf(operation, args) === 'clear') return 'git stash clear';
-    if (operation === 'worktree' && actionOf(operation, args) === 'remove' && args.includes('--force')) return 'git worktree remove --force';
-    if (['checkout', 'switch'].includes(operation) && args.some((value) => value === '-f' || value === '--force' || value === '--discard-changes')) return `git ${operation} --force`;
-    return null;
 }
 
 function hasOutputFormat(args) {
@@ -605,8 +576,6 @@ export async function executeGitTool(input, workDir, options = {}) {
     }
     const limitDefault = plan.operation === 'log' ? 10 : 50;
     const limit = Math.min(500, Math.max(1, Number(input.output_limit) || limitDefault));
-    const reason = destructiveReason(plan);
-    if (reason && input.confirm !== true) return fail(`${reason} requires confirm:true`);
     const signal = options?.signal || options?.abortSignal || null;
     if (plan.operation === 'init' || plan.operation === 'clone') {
         const target = creationTarget(plan);

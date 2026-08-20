@@ -142,7 +142,7 @@ test('apply_patch, shell, and mutating git batches invalidate all earlier eviden
         ['apply_patch', {}],
         ['shell', {}],
         ['git', { command: 'git commit -m test' }],
-        ['git', { command: "git reflog delete 'HEAD@{1}'", confirm: true }],
+        ['git', { command: "git reflog delete 'HEAD@{1}'" }],
     ]) {
         const messages = [
             call('read_1', 'read', { file_path: 'src/a.mjs' }),

@@ -51,8 +51,7 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     assert.match(JSON.stringify(parseOk(await git(repo, 'count-objects -v'))), /count:/);
     parseOk(await git(repo, 'check-ref-format refs/heads/test'));
     assert.match(String(await git(repo, 'archive HEAD')), /^Error: git archive requires -o\/--output/);
-    assert.match(String(await git(repo, 'prune')), /^Error: git prune requires confirm:true/);
-    parseOk(await git(repo, 'prune --expire=now', { confirm: true }));
+    parseOk(await git(repo, 'prune --expire=now'));
     const shown = parseOk(await git(repo, `show ${base}`, { output_limit: 5 }));
     assert.equal(shown.commit.oid, base);
     assert.deepEqual(shown.diff.files, ['base.txt']);
@@ -66,8 +65,7 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     const batchShow = parseOk(await git(repo, `show ${base} ${secretCommit}`, { output_limit: 5 })).commits;
     assert.deepEqual(batchShow.map((row) => row.commit.oid), [base, secretCommit]);
 
-    assert.match(String(await git(repo, `reset --hard ${base}`)), /^Error: git reset --hard requires confirm:true/);
-    parseOk(await git(repo, `reset --hard ${base}`, { confirm: true }));
+    parseOk(await git(repo, `reset --hard ${base}`));
     const fsck = parseOk(await git(repo, 'fsck --full --unreachable --no-reflogs', { output_limit: 20 }));
     assert.match(JSON.stringify(fsck), new RegExp(secretCommit));
 
@@ -75,16 +73,13 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     assert.ok(reflog.entries.some((row) => row.oid === secretCommit));
     const selectors = reflog.entries.map((row) => row.selector).filter((value, index, all) => all.indexOf(value) === index).slice(0, 2);
     const deleteCommand = `reflog delete --rewrite ${selectors.map(quote).join(' ')}`;
-    assert.match(String(await git(repo, deleteCommand)), /^Error: git reflog delete requires confirm:true/);
-    parseOk(await git(repo, deleteCommand, { confirm: true }));
-    // Dry-run previews skip the confirm gate: nothing mutates.
+    parseOk(await git(repo, deleteCommand));
+    // Dry-run previews mutate nothing and still return a normal result.
     parseOk(await git(repo, 'reflog expire --dry-run --verbose --expire-unreachable=now --all'));
     parseOk(await git(repo, 'prune --dry-run'));
     parseOk(await git(repo, 'clean -nd'));
-    assert.match(String(await git(repo, 'reflog expire --expire-unreachable=now --all --rewrite')), /^Error: git reflog expire requires confirm:true/);
-    parseOk(await git(repo, 'reflog expire --expire-unreachable=now --all --rewrite', { confirm: true }));
-    assert.match(String(await git(repo, 'gc --prune=now')), /^Error: git gc --prune=now requires confirm:true/);
-    parseOk(await git(repo, 'gc --prune=now', { confirm: true }));
+    parseOk(await git(repo, 'reflog expire --expire-unreachable=now --all --rewrite'));
+    parseOk(await git(repo, 'gc --prune=now'));
 
     renameSync(join(repo, 'base.txt'), join(repo, 'renamed.txt'));
     parseOk(await git(repo, 'add --all'));
@@ -92,7 +87,7 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     const renameText = renameDiff.patch || renameDiff.output;
     assert.match(renameText, /rename from base\.txt/);
     assert.match(renameText, /rename to renamed\.txt/);
-    parseOk(await git(repo, 'reset --hard HEAD', { confirm: true }));
+    parseOk(await git(repo, 'reset --hard HEAD'));
 
     writeFileSync(join(repo, 'base.txt'), `${Array.from({ length: 120 }, (_, i) => `changed-${i}`).join('\n')}\n`);
     const rawDiff = spawnSync('git', ['-C', repo, 'diff', '--', 'base.txt'], { encoding: 'utf8' }).stdout;
@@ -135,7 +130,6 @@ test('git command tool preserves shell syntax, compacts output, and gates destru
     assert.match(JSON.stringify(parseOk(await git(repo, 'worktree list --porcelain'))), /topic/);
     assert.match(JSON.stringify(parseOk(await git(repo, 'branch --list'))), /topic/);
 
-    assert.match(String(await git(repo, 'push --force origin HEAD')), /^Error: git push --force requires confirm:true/);
     assert.match(String(await executeGitTool({ command: 'git status && git log' }, root)), /^Error: git command must not contain shell operators/);
 });
 
@@ -184,10 +178,10 @@ test('git failure detail folds progress frames and keeps the fatal tail', () => 
 
 test('git schema exposes only the compact shell-compatible contract', () => {
     const properties = GIT_TOOL_DEF.inputSchema.properties;
-    assert.deepEqual(Object.keys(properties), ['command', 'confirm', 'output_limit']);
+    assert.deepEqual(Object.keys(properties), ['command', 'output_limit']);
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
     assert.equal(properties.command.minLength, undefined);
-    assert.match(properties.confirm.description, /only when a rejected high-risk command/i);
+    assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
     assert.match(GIT_TOOL_DEF.description, /Run one Git command directly, without a shell/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });
