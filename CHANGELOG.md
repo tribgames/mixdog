@@ -5,11 +5,11 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.142
+
 - Linux desktop packaging validates the target architecture in the ABI
   prebuild directory that `node-pty` actually loads, while compiled Windows and
-  macOS packages keep their `build/Release` validation path.
-
-## v0.9.142 - 2026-08-20
+  macOS packages keep their `build/Release` validation path. - 2026-08-20
 
 - Installed web apps resume one pending desktop approval across reloads, while
   the desktop replaces stale prompts, expires them with the relay request, and
