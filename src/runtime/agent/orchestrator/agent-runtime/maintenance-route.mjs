@@ -1,4 +1,4 @@
-import { configuredAgentRouteCandidates } from '../../../shared/agent-route-config.mjs';
+import { configuredAgentRouteCandidates, isAgentDisabled } from '../../../shared/agent-route-config.mjs';
 import { loadConfig } from '../config.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
 
@@ -31,6 +31,9 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
             const key = hidden.maintKey || hidden.slot;
             const role = key === 'memory' ? 'maintainer' : '';
             if (!role) return config?.maintenance?.[key] ?? null;
+            // A disabled agent must not silently fall back to the Main model:
+            // "off" means the maintenance role does not run at all.
+            if (isAgentDisabled(config, role)) return null;
             const candidates = [
                 ...configuredAgentRouteCandidates(config, role),
                 role ? config?.default : null,

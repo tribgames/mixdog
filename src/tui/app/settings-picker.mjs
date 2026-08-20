@@ -27,7 +27,7 @@ export function createSettingsPicker({
   workflowSwitchNotice,
   themeNotice,
   openModelPicker,
-  openSearchPicker,
+  openWebSearchPicker,
   openAgentsPicker,
   openWorkflowPicker,
   openOutputStylePicker,
@@ -55,7 +55,7 @@ export function createSettingsPicker({
     const compaction = snapshot.compaction || {};
     const recap = snapshot.recap || { enabled: true };
     const toolModules = snapshot.toolModules || {};
-    const webSearchOn = toolModules.search?.enabled !== false;
+    const webSearchOn = toolModules.webSearch?.enabled !== false;
     const memoryToolsOn = toolModules.memory?.enabled !== false;
     const systemShell = snapshot.systemShell || { source: 'auto', command: '', effective: '' };
     const outputStyle = snapshot.outputStyle || {};
@@ -211,11 +211,11 @@ export function createSettingsPicker({
         _action: 'model',
       },
       {
-        value: 'search',
-        label: 'Search model',
-        meta: routeModelLabel(store.getSearchRoute?.()),
-        description: 'Native search model.',
-        _action: 'search',
+        value: 'websearch',
+        label: 'Web search model',
+        meta: routeModelLabel(store.getWebSearchRoute?.()),
+        description: 'Native web-search model.',
+        _action: 'websearch',
       },
       {
         value: 'workflow',
@@ -239,9 +239,10 @@ export function createSettingsPicker({
           // extra (promise-shaped) round-trip per row build.
           const p = snapshot.profile;
           const lang = p?.languageEntry?.label || 'System';
-          return p?.title ? `${p.title} · ${lang}` : lang;
+          const experience = p?.experienceLevelEntry?.label || '';
+          return [p?.title, experience, lang].filter(Boolean).join(' · ');
         })(),
-        description: 'Your title and response language.',
+        description: 'Your title, development experience, and response language.',
         _action: 'profile',
       },
       {
@@ -421,7 +422,7 @@ export function createSettingsPicker({
           returnOnNestedCancel: true,
           onAfterSelect: openSettingsPicker,
         });
-        else if (item._action === 'search') openSearchPicker({
+        else if (item._action === 'websearch') openWebSearchPicker({
           returnTo: openSettingsPicker,
           returnLabel: 'Settings',
           returnOnNestedCancel: true,

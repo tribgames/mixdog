@@ -81,14 +81,18 @@ export function _midstreamSleepWithAbort(ms, signal) {
 
 export function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
     // systemMsgs is an array of { content, cacheTier }. Each non-empty element
-    // becomes its own content block: cacheTier:'tier3' (BP3 sessionMarker) gets
-    // tier3Ttl, every other block (BP1/BP2) gets systemTtl. A null TTL leaves
-    // the corresponding block uncached.
+    // becomes its own content block: cacheTier:'tier3' (BP3 core) gets
+    // tier3Ttl, cacheTier:'env' (volatile session/project environment) is
+    // NEVER marked — it rides the messages-tail breakpoint so an environment
+    // change cannot invalidate the BP3 core write — and every other block
+    // (BP1/BP2) gets systemTtl. A null TTL leaves the block uncached.
     const items = Array.isArray(systemMsgs)
         ? systemMsgs
             .map(m => ({
                 text: typeof m?.content === 'string' ? m.content.trim() : '',
-                tier: m?.cacheTier === 'tier3' ? 'tier3' : 'system',
+                tier: m?.cacheTier === 'tier3' ? 'tier3'
+                    : m?.cacheTier === 'env' ? 'env'
+                        : 'system',
             }))
             .filter(it => it.text)
         : [];
@@ -101,7 +105,7 @@ export function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
     let bpCount = 0;
     return items.map(it => {
         const block = { type: 'text', text: it.text };
-        const ttl = it.tier === 'tier3' ? tier3Ttl : systemTtl;
+        const ttl = it.tier === 'tier3' ? tier3Ttl : it.tier === 'env' ? null : systemTtl;
         if (ttl && bpCount < MAX_SYSTEM_BREAKPOINTS) {
             block.cache_control = ttl;
             bpCount++;

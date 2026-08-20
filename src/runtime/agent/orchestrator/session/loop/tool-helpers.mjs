@@ -83,14 +83,15 @@ export function buildSkillsListResponse(cwd) {
     return JSON.stringify({ skills: entries });
 }
 export function viewSkill(cwd, name) {
-    if (!name) return 'Error: skill name is required';
-    if (isSkillDisabled(name)) return `Error: skill "${name}" is disabled`;
-    const res = loadSkillResource(name, cwd);
-    if (!res) return `Error: skill "${name}" not found`;
+    const skillName = String(name || '').trim();
+    if (!skillName) return 'Error: skill name is required';
+    if (isSkillDisabled(skillName)) return `Error: skill "${skillName}" is disabled`;
+    const res = loadSkillResource(skillName, cwd);
+    if (!res) return `Error: skill "${skillName}" not found`;
     // Return the general tool envelope: the model-visible tool_result is the
     // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
     // delivered ONCE as a separate injected role:'user' message (newMessages).
-    return buildSkillToolEnvelope(name, res.content, res.dir);
+    return buildSkillToolEnvelope(skillName, res.content, res.dir);
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */

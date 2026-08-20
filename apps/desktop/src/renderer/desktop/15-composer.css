@@ -1,0 +1,973 @@
+/* Desktop layer 15 — Prompt dock, model/effort selects, dictation.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Prompt input: 96px raised surface and 28px controls. The composer keeps a
+   real floor gap (user: 채팅창 아래 여백이 부족하다) instead of hugging the
+   window edge. */
+.composer-region {
+  width: 100%;
+  max-width: var(--pane-column);
+  margin: 0 auto;
+  /* Same reading frame as the rows above it — both read the pane ladder. */
+  padding: 0 var(--pane-inset) 16px;
+}
+.composer-context-bar {
+  min-height: 28px;
+  max-height: 56px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  transition: max-height 140ms ease-out, opacity 110ms ease-out,
+    margin-bottom 140ms ease-out, min-height 140ms ease-out;
+}
+/* Promotion exit: collapse instead of an instant unmount (composer jerk). */
+.composer-context-bar-collapsing {
+  min-height: 0;
+  max-height: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+/* Project / workflow pills: one shared boxed-chip grammar. The container owns the plate, ring, and the
+   hover/expanded highlight; the inner select trigger must never paint its own
+   fill or the chip splits into two highlight regions. */
+.composer-project-context,
+.composer-workflow-context {
+  min-width: 112px;
+  height: 28px;
+  gap: 0;
+  padding-left: 8px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+}
+.composer-project-context {
+  box-shadow: none;
+}
+.context-pill-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.context-pill-select .mx-select-trigger {
+  width: 100%;
+  height: 28px;
+  gap: 4px;
+  padding: 0 6px 0 4px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  /* Same ink tier as the model trigger (user: chip read lighter than peers). */
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.project-context-select .mx-select-trigger {
+  outline: 0;
+  box-shadow: none;
+  line-height: var(--mx-line-ui);
+}
+.project-context-select .mx-select-value {
+  line-height: var(--mx-line-ui);
+}
+.context-pill-select .mx-select-trigger:hover:not(:disabled),
+.context-pill-select .mx-select-trigger[aria-expanded="true"],
+.context-pill-select .mx-select-trigger:focus-visible,
+.context-pill-select .mx-select-trigger:active:not(:disabled) {
+  background: transparent;
+  box-shadow: none;
+  /* Ghost chip: the pill container owns the focus read, never the trigger. */
+  outline: 0;
+}
+.composer-project-context:hover,
+.composer-project-context:focus-within,
+.composer-project-context:has(.mx-select-trigger[aria-expanded="true"]),
+.composer-workflow-context:hover,
+.composer-workflow-context:focus-within,
+.composer-workflow-context:has(.mx-select-trigger[aria-expanded="true"]) {
+  color: var(--mx-icon);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
+}
+.composer-project-context:hover .mx-select-trigger,
+.composer-project-context:focus-within .mx-select-trigger,
+.composer-workflow-context:hover .mx-select-trigger,
+.composer-workflow-context:focus-within .mx-select-trigger { color: var(--mx-text); }
+.workflow-context-select .mx-select-value {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer {
+  min-height: 84px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-xl);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-raised);
+  /* Keep textarea autosize layout inside the composer formatting context.
+     Paint containment belongs on the textarea itself: placing it here clips
+     the absolute slash/mention palettes that intentionally open above it. */
+  contain: layout style;
+  transition: box-shadow 85ms ease-out;
+}
+.composer:focus-within {
+  border: 0;
+  box-shadow: var(--mx-raised);
+}
+.composer textarea:focus,
+.composer textarea:focus-visible { outline: 0; box-shadow: none; }
+.composer textarea {
+  min-height: 52px;
+  /* A keystroke must not invalidate the virtual transcript paint, while
+     sibling palettes remain free to paint outside the composer card. */
+  contain: paint;
+  /* Chromium-native autosize: replaces the per-keystroke JS reflow. */
+  field-sizing: content;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 16px var(--composer-text-inset) 8px;
+  color: var(--mx-text);
+  /* Same single-face rule as .message-body: typed Korean+Latin must not mix
+     Geist/Pretendard ink densities inside one sentence. */
+  font-family: var(--mx-font-prose);
+  /* The typing surface matches the submitted message exactly: one 15/24
+     content line at the same optical reading weight. */
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-body);
+  letter-spacing: 0;
+}
+.composer textarea::placeholder { color: var(--mx-text-faint); }
+.composer-footer { height: 44px; gap: 0; padding: 0 8px; }
+/* Push-to-talk dictation states on the mic tool. */
+.composer-mic { margin-left: auto; margin-right: 8px; }
+/* Inline recording chip (no overlay): it takes over the trailing auto margin
+   so the mic stays glued to its right edge. */
+.composer-dictation-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 8px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
+.composer-dictation-timer + .composer-mic { margin-left: 0; }
+.composer-dictation-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-accent-bg);
+  animation: composer-mic-pulse 1.6s ease-out infinite;
+}
+/* Still no red (user, both themes), but the old contrast-grey disc + opacity
+   breath was indistinguishable from send: an accent disc with an expanding
+   ring carries the live signal. Hover/focus must not repaint it. */
+.composer-mic.is-recording,
+.composer-mic.is-recording:hover,
+.composer-mic.is-recording:focus-visible {
+  color: var(--mx-grey-100);
+  background: var(--mx-accent-bg);
+  animation: composer-mic-pulse 1.6s ease-out infinite;
+}
+.composer-mic.is-transcribing { color: var(--mx-text-muted); }
+.composer-mic-spinner { animation: composer-mic-spin 900ms linear infinite; }
+@keyframes composer-mic-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--mx-accent-bg) 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--mx-accent-bg) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--mx-accent-bg) 0%, transparent); }
+}
+@keyframes composer-mic-spin {
+  to { transform: rotate(360deg); }
+}
+.composer-tool, .send-button, .fast-mode-toggle, .effort-control select {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon);
+  background: transparent;
+  box-shadow: none;
+}
+.composer-tool:hover, .composer-tool:focus-visible, .fast-mode-toggle:hover:not(:disabled),
+.effort-control select:hover { color: var(--mx-text); background: var(--mx-hover); }
+/* Attach + and mic match the composer control text ink (model trigger). */
+.composer-tool { color: var(--mx-text); }
+/* Cursor-style composer circles, FLAT (user: the gradient read as 3D).
+   Send is a solid contrast disc; the mic stays a quiet ghost circle until
+   it actually records. Placed after the shared 28px rule so 6px cannot win. */
+.composer-mic, .send-button { border-radius: var(--mx-radius-pill); }
+/* Cursor-weight glyphs inside the circles: the default row stroke reads
+   wispy at 16px on a filled disc. */
+.composer-mic svg.lucide, .send-button svg.lucide { stroke-width: 1.75px; }
+.send-button {
+  color: var(--mx-grey-100);
+  background: var(--mx-bg-contrast);
+  box-shadow: none;
+}
+.send-button:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
+}
+.send-button:focus-visible { outline: 0; box-shadow: 0 0 0 1px var(--mx-border-strong); }
+.send-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.route-controls { gap: 2px; }
+.model-trigger, .effort-control select {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  /* Controls read as controls: medium weight separates chrome from prose
+     (user: "위계가 없다" — New task/Project/pickers all sat at 400). */
+  font-weight: var(--mx-weight-regular);
+}
+/* The 28px square icon-button sizing above must not apply to the effort
+   select: it renders text and needs its natural width and line box. */
+.effort-control select {
+  width: auto;
+  min-width: 0;
+  appearance: none;
+  line-height: 28px;
+  padding-right: 20px;
+}
+.effort-control { position: relative; }
+.fast-control {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.route-controls > .fast-control {
+  flex: 0 0 28px;
+}
+.fast-mode-toggle {
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+}
+.fast-mode-toggle.is-on { color: var(--mx-text-accent); }
+.fast-mode-toggle.is-on:hover:not(:disabled) { color: var(--mx-text-accent); }
+.fast-mode-toggle:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.fast-mode-toggle svg.lucide { stroke-width: 1.25px; }
+.fast-control[aria-busy="true"] .fast-mode-toggle { cursor: progress; }
+.model-trigger:hover, .model-trigger:focus-visible,
+.effort-control select:hover { color: var(--mx-text); background: var(--mx-hover); }
+.mx-select-root.route-select,
+.effort-control .mx-select-root.route-select,
+.fast-control .mx-select-root.route-select {
+  width: max-content;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+.mx-select-root.route-select .mx-select-trigger {
+  width: max-content;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  gap: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.mx-select-root.route-select .mx-select-value {
+  max-width: 220px;
+  overflow: hidden;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-select-root.route-select .mx-select-trigger > svg {
+  width: var(--mx-icon-sm);
+  height: var(--mx-icon-sm);
+  flex: 0 0 var(--mx-icon-sm);
+  color: currentColor;
+  stroke: currentColor;
+}
+.mx-select-root.route-select .mx-select-trigger:hover:not(:disabled),
+.mx-select-root.route-select .mx-select-trigger[aria-expanded="true"]:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.composer-route-workflow {
+  width: max-content;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+}
+.composer-route-workflow .workflow-context-select .mx-select-value { max-width: 220px; }
+.composer-route-workflow:hover,
+.composer-route-workflow:focus-within,
+.composer-route-workflow:has(.mx-select-trigger[aria-expanded="true"]) {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
+}
+.composer-route-workflow .mx-select-trigger:hover:not(:disabled),
+.composer-route-workflow .mx-select-trigger[aria-expanded="true"]:not(:disabled) {
+  background: transparent;
+}
+.model-trigger:focus-visible { outline: 0; }
+.provider-icon { width: 16px; height: 16px; flex: 0 0 16px; color: currentColor; }
+.model-trigger .provider-icon { opacity: var(--mx-op-secondary); transition: opacity 120ms ease-out; }
+.model-trigger:hover .provider-icon,
+.model-trigger:focus-visible .provider-icon,
+.model-trigger[aria-expanded="true"] .provider-icon { opacity: 1; }
+.model-trigger > span { font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+.slash-palette {
+  padding: 2px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+  animation: mx-menu-in 120ms ease-out;
+}
+@keyframes mx-menu-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+.model-search {
+  height: 32px;
+  margin: 2px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+}
+.model-search:focus-within { background: var(--mx-hover); }
+.model-search input { min-width: 0; flex: 1; padding: 0; color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
+.model-search input:focus,
+.model-search input:focus-visible { outline: 0; box-shadow: none; }
+.model-search button {
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+}
+.model-search button:hover { color: var(--mx-icon); background: var(--mx-hover); }
+@keyframes mx-dialog-in { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+.model-provider-add {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  cursor: pointer;
+}
+.model-provider-add:hover,
+.model-provider-add:focus-visible {
+  color: var(--mx-icon);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  outline: none;
+}
+.model-catalog-body { width: 100%; position: relative; }
+.model-catalog-body > .pane-surface-gate {
+  width: 100%;
+  min-height: 280px;
+  background: transparent;
+}
+/* The gate must forward the catalog's definite height to the list; a block
+   content box neutralized .model-catalog-list's flex:1, so .model-list grew to
+   its full content height and never scrolled (user: 스크롤이 아예 안 된다). */
+.model-catalog-body > .pane-surface-gate > .pane-surface-gate-content {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.model-catalog-list {
+  gap: 14px;
+  padding: 0 14px 14px;
+}
+.model-search-wrapper {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  margin-bottom: 2px;
+}
+.model-catalog-panel .model-search {
+  width: 100%;
+  height: auto;
+  min-height: 40px;
+  margin: 0;
+  padding: 8px 10px;
+  gap: 10px;
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-icon-muted);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 70%), var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
+    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 38%, transparent);
+}
+.model-search-container {
+  min-width: 0;
+  min-height: 20px;
+  display: flex;
+  flex: 1 0 0;
+  align-items: center;
+  gap: 8px;
+}
+.model-catalog-panel .model-search:focus-within {
+  color: var(--mx-icon);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
+}
+.model-catalog-panel .model-search input { line-height: var(--mx-line-ui); min-height: 20px; font-size: var(--mx-font-ui); }
+.model-list {
+  gap: 16px;
+  padding: 0 2px 12px;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.model-list::-webkit-scrollbar { display: none; }
+.model-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.model-group:last-child { padding-bottom: 8px; }
+.model-items {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: stretch;
+  gap: 6px;
+}
+.model-option-row {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-text);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 65%), var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
+    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 34%, transparent);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-align: left;
+  scroll-margin-top: 28px;
+  transition: background 100ms ease-out, box-shadow 100ms ease-out;
+}
+.model-option-row:hover,
+.model-option-row:focus-visible,
+.model-option-row[data-active="true"] {
+  outline: 0;
+  color: var(--mx-text);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border),
+    0 2px 5px color-mix(in srgb, var(--mx-bg-deep) 42%, transparent);
+}
+.model-option-row[aria-selected="true"] {
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 65%), var(--mx-bg-layer-2);
+  box-shadow: inset 0 0 0 1px var(--mx-border-strong),
+    0 2px 5px color-mix(in srgb, var(--mx-bg-deep) 42%, transparent);
+}
+.model-option-row[aria-selected="true"]:hover,
+.model-option-row[aria-selected="true"]:focus-visible,
+.model-option-row[aria-selected="true"][data-active="true"] {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-2);
+}
+.model-row-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.model-row-title {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-row-source {
+  margin-left: 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.model-row-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  padding-bottom: 2px;
+}
+.model-row-copy > small {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-bottom: 2px;
+}
+.list-item-selected-icon {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-success);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.model-empty {
+  margin: 0;
+  padding: 24px 16px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+  text-align: center;
+}
+.model-group h3, .slash-palette header {
+  min-height: 36px;
+  padding: 8px 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+  letter-spacing: var(--mx-tracking-wide);
+  text-transform: uppercase;
+}
+.model-group h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+}
+.model-group h3::after {
+  content: "";
+  flex: 1;
+  height: .5px;
+  margin-left: 10px;
+  background: var(--mx-border-muted);
+}
+.model-group--provider h3 {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  align-self: stretch;
+  margin: 0;
+  background: transparent;
+}
+.model-provider-add {
+  background: transparent;
+  box-shadow: none;
+}
+.model-provider-add:hover,
+.model-provider-add:focus-visible {
+  background: var(--mx-hover);
+  box-shadow: none;
+}
+.model-provider-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.model-provider-heading svg {
+  width: 16px;
+  height: 16px;
+  color: var(--mx-icon);
+}
+.model-provider-setup {
+  width: auto !important;
+  height: 20px;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-2);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.model-provider-setup:hover { background: var(--mx-hover); }
+.model-provider-setup:focus-visible { background: var(--mx-hover); outline: 1px solid var(--mx-focus); }
+.model-notice {
+  margin: 4px 6px 8px;
+  padding: 7px 9px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-2);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.model-notice--error { color: var(--mx-warning); }
+.model-provider-empty {
+  margin: 0 10px 8px;
+  padding: 7px 9px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-2);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.slash-palette button {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 12px;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+}
+.slash-palette button:hover,
+.slash-palette button[aria-selected="true"] { color: var(--mx-text); background: var(--mx-hover); }
+.model-loading {
+  position: sticky;
+  bottom: 2px;
+  margin: 4px 2px 2px;
+  padding: 6px 10px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-faint);
+  background: color-mix(in srgb, var(--mx-bg-layer-1) 94%, transparent);
+  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  text-align: center;
+}
+.slash-palette {
+  padding: 4px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+}
+.slash-palette header { color: var(--mx-text-faint); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
+.slash-palette button { grid-template-columns: 136px minmax(0,1fr); }
+.slash-palette.mention-palette button { grid-template-columns: 18px minmax(0,1fr); }
+.mention-palette button > svg { color: var(--mx-icon-muted); }
+.mention-palette .mention-path > span { color: var(--mx-text-muted); }
+.mention-palette .mention-path strong { color: var(--mx-text); }
+.slash-palette code { color: var(--mx-text); font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+.slash-palette button span { color: var(--mx-text-muted); font-size: var(--mx-font-ui); }
+.slash-palette p { color: var(--mx-text-muted); font-size: var(--mx-font-ui); }
+.inline-error { display: none; }
+.runtime-progress { border: 0; color: var(--mx-success); background: var(--mx-success-bg); box-shadow: 0 0 0 .5px var(--mx-success-border); font-size: var(--mx-font-meta); }
+
+/* TUI L2 activity lives beside Context in the session header. */
+.composer-region { position: relative; }
+/* Aggregate activity chip (user decision): spinner + count, breakdown in a
+   hover/focus popover — the header stays quiet. */
+.live-work-status {
+  position: relative;
+  margin-left: 0;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 7px;
+  border-radius: var(--mx-radius-md);
+  /* Same voice as the toggle cluster: label ink, no accent green. */
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-meta);
+}
+.live-work-status:hover, .live-work-status:focus {
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  outline: 0;
+}
+/* Digit centers on the spinner box exactly (user: count sat low). */
+.live-work-count {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  font-weight: var(--mx-weight-regular);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.live-work-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  /* Content-sized, exactly like the context gauge's card (user: 글자가 깨져
+     나온다): the old hard 176px chopped real labels mid-word, so a running
+     shell read as `--…` fragments. The card grows to its widest row and still
+     stays inside a phone screen. */
+  width: max-content;
+  min-width: 184px;
+  max-width: min(280px, calc(100vw - 24px));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 16px;
+  row-gap: 7px;
+  padding: 10px 12px;
+  border: .5px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  /* Detail popovers must mask transcript text beneath them; translucency
+     belongs to the Task header's control frame, not this content surface. */
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-floating);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms;
+  pointer-events: none;
+}
+.live-work-status:hover .live-work-popover,
+.live-work-status:focus .live-work-popover,
+.live-work-status:focus-within .live-work-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+/* The row is a grouping element only; its label and value join the card's grid
+   so both columns align across every row. */
+.live-work-row { display: contents; }
+/* A long shell command stays ONE line: the card is a summary, not a
+   transcript. */
+.live-work-popover span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--mx-font-minor);
+}
+.live-work-popover small {
+  justify-self: end;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.live-work-spinner {
+  flex: 0 0 auto;
+  display: block;
+  color: currentColor;
+  /* Calm rotation — user tuned: 3s still read fast; half speed again. */
+  animation: spin 6s linear infinite;
+}
+.composer-attachments {
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 0;
+}
+.composer-attachments > div {
+  border: 0;
+  color: var(--mx-text);
+  border-radius: var(--mx-radius-md);
+  transition: background 85ms ease-out, box-shadow 85ms ease-out;
+}
+.composer-attachments > div:not(.image) {
+  height: 32px;
+  max-width: 240px;
+  gap: 6px;
+  padding: 3px 4px 3px 6px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+}
+.composer-attachments > div:hover,
+.composer-attachments > div:focus-within {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 1px var(--mx-border-strong);
+}
+.composer-attachments > div.image { height: 64px; }
+.composer-attachments > div:not(.image) > span:first-child {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--mx-icon-muted);
+  background: transparent;
+}
+.composer-attachments > div.image img { width: 56px; height: 56px; flex-basis: 56px; }
+.composer-attachments > div > span:nth-child(2) { padding-inline: 0; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+.composer-attachments .attachment-remove { color: var(--mx-icon-muted); }
+.composer-attachments .attachment-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
+.composer-error { color: var(--mx-danger); background: var(--mx-danger-bg); }
+.composer-notice { color: var(--mx-text-muted); background: var(--mx-bg-layer-2); }
+.task-drop-overlay {
+  position: absolute;
+  z-index: 30;
+  inset: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-bg-layer-2) 92%, transparent);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.queue-list {
+  position: relative;
+  z-index: 0;
+  max-height: 168px;
+  margin-bottom: -10px;
+  padding-bottom: 10px;
+  overflow: hidden;
+  border: .5px solid var(--mx-border-muted);
+  border-bottom: 0;
+  border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+}
+.queue-items { max-height: 130px; padding: 6px 12px; overflow-y: auto; scrollbar-width: none; }
+.queue-items::-webkit-scrollbar { display: none; }
+.queue-item { min-height: 28px; gap: 6px; padding: 0; font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+.queue-item + .queue-item { border-top: .5px solid var(--mx-border-muted); }
+.queue-item-attachments {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.queue-edit,
+.queue-steer {
+  height: 24px;
+  flex: 0 0 auto;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+}
+.queue-steer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mx-accent);
+}
+.queue-edit:hover:not(:disabled),
+.queue-edit:focus-visible,
+.queue-steer:hover:not(:disabled),
+.queue-steer:focus-visible { background: var(--mx-hover); outline: 0; }
+.queue-edit:disabled,
+.queue-steer:disabled { opacity: var(--mx-op-disabled); }
+.composer { z-index: 1; }
+
+/* Shared menu/select primitive used by settings and composer controls. */
+.mx-select-root { position: relative; min-width: 0; }
+.mx-select-trigger {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+  text-align: left;
+  cursor: default;
+}
+.mx-select-root[data-trigger-style="settings"] .mx-select-trigger {
+  height: 32px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 12px;
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+}
+.mx-select-root[data-trigger-style="settings"] .mx-select-trigger:hover:not(:disabled),
+.mx-select-root[data-trigger-style="settings"] .mx-select-trigger[aria-expanded="true"] {
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-button);
+}
+.mx-select-root[data-trigger-style="settings"] .mx-select-trigger svg {
+  width: 16px;
+  height: 20px;
+  padding: 2px;
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-bg-layer-2);
+}
+.mx-select-trigger:hover:not(:disabled), .mx-select-trigger[aria-expanded="true"] {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.mx-select-trigger:focus-visible { outline: 0; background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base); box-shadow: none; }
+/* Settings/action triggers press like the buttons they read as; the composer
+   and schedules ghost variants keep their own transparent treatment. */
+.mx-select-trigger:active:not(:disabled),
+.mx-select-root[data-trigger-style="settings"] .mx-select-trigger:active:not(:disabled) { background: var(--mx-flat-press); }
+.mx-select-trigger:disabled { opacity: var(--mx-op-disabled); cursor: not-allowed; }
+.mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-select-trigger svg { flex: 0 0 auto; color: var(--mx-icon-muted); transition: transform 90ms ease-out; }
+.mx-select-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }

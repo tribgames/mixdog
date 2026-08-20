@@ -43,6 +43,7 @@ export type TranscriptRowModel =
       _tag: "Error";
       key: string;
       turnKey: string;
+      item?: TranscriptItem;
     };
 
 export function isCompletionTranscriptItem(item: TranscriptItem | undefined): boolean {
@@ -168,9 +169,9 @@ export function projectSettledTranscriptRows({
     currentTurnKey: "",
     previousRowWasUser: false,
   };
-  const pushFailure = (turnKey: string) => {
+  const pushFailure = (turnKey: string, item?: TranscriptItem) => {
     beginBuilderTurn(builder, sessionKey, turnKey);
-    builder.rows.push({ _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey });
+    builder.rows.push({ _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey, item });
     builder.previousRowWasUser = false;
   };
   items.forEach((item, index) => {
@@ -178,7 +179,7 @@ export function projectSettledTranscriptRows({
     const failed = failedTurns.has(turnKey);
     if (failed && isCompletionTranscriptItem(item)) {
       // One status row per failed turn, at its last completion marker.
-      if (index === lastCompletionByTurn.get(turnKey)) pushFailure(turnKey);
+      if (index === lastCompletionByTurn.get(turnKey)) pushFailure(turnKey, item);
       return;
     }
     if (foldedCompletions.has(index)) return;
@@ -203,7 +204,7 @@ export function projectSettledTranscriptRows({
     // A turn that failed without ever emitting a completion marker still owes
     // the reader one status row after its last content row.
     if (failed && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {
-      pushFailure(turnKey);
+      pushFailure(turnKey, item);
     }
   });
   return {

@@ -57,6 +57,64 @@ export function repairAdjacentStrongPunctuation() {
   };
 }
 
+// An HTML comment is authoring metadata, never reading material. Raw HTML is
+// preserved as literal text on both pipelines, which made "<!-- note -->" show
+// up verbatim in the transcript; drop comment nodes (and comment runs inside a
+// mixed html node) before that happens.
+const HTML_COMMENT = /<!--[\s\S]*?-->/g;
+
+export function stripHtmlComments() {
+  return (tree: HastLikeNode) => {
+    const visit = (node: HastLikeNode) => {
+      const children = node.children;
+      if (!children) return;
+      const kept: HastLikeNode[] = [];
+      for (const child of children) {
+        if (child.type === "html" && typeof child.value === "string") {
+          HTML_COMMENT.lastIndex = 0;
+          const value = child.value.replace(HTML_COMMENT, "");
+          if (!value.trim()) continue;
+          kept.push({ ...child, value });
+          continue;
+        }
+        visit(child);
+        kept.push(child);
+      }
+      node.children = kept;
+    };
+    visit(tree);
+  };
+}
+
+// `<br>` is the only line break a GFM table cell can carry, and models reach
+// for it constantly. Raw HTML stays literal on both pipelines by design, so
+// that break printed the tag itself in the middle of a cell. Convert the bare
+// break element — and nothing else — into an mdast `break`, leaving every
+// other tag (`<b>`, `<details>`, `<script>`) literal as before.
+const HTML_LINE_BREAK = /^<br\s*\/?>$/i;
+
+export function htmlLineBreaksToBreaks() {
+  return (tree: HastLikeNode) => {
+    const visit = (node: HastLikeNode) => {
+      const children = node.children;
+      if (!children) return;
+      for (let index = 0; index < children.length; index += 1) {
+        const child = children[index];
+        if (
+          child.type === "html"
+          && typeof child.value === "string"
+          && HTML_LINE_BREAK.test(child.value.trim())
+        ) {
+          children[index] = { type: "break" };
+          continue;
+        }
+        visit(child);
+      }
+    };
+    visit(tree);
+  };
+}
+
 // mdast-util-to-hast terminates every fenced block with "\n". The code
 // renderer keeps the highlighted child spans instead of re-printing a
 // trimmed string, so that terminator would paint an empty closing line in

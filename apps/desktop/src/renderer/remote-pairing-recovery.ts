@@ -5,6 +5,12 @@ export const REMOTE_PAIRING_STORAGE_KEYS = {
   browserId: 'mixdog.remote-browser-id',
   e2eePublicKey: 'mixdog.remote-e2ee-public-key',
   e2eeSecret: 'mixdog.remote-e2ee-secret',
+  // The scanned link itself. Registration replaces the scanned token with a
+  // per-browser credential bound to THIS browser's client id, so the stored
+  // token can never pair a second storage container — and an iOS Home Screen
+  // app is exactly that. Keeping the bootstrap link is what lets a pairing
+  // that already proved itself travel into an install without a new scan.
+  pairingLink: 'mixdog.remote-pairing-link',
 } as const;
 
 export interface ParsedRemotePairingLink {
@@ -55,6 +61,27 @@ export function parseRemotePairingLink(value: string): ParsedRemotePairingLink |
     };
   } catch {
     return null;
+  }
+}
+
+export function storeRemotePairingLink(
+  storage: Pick<Storage, 'setItem'>,
+  link: ParsedRemotePairingLink,
+): void {
+  try {
+    storage.setItem(REMOTE_PAIRING_STORAGE_KEYS.pairingLink, link.url);
+  } catch {
+    // Private-mode storage; the install handoff simply stays unavailable.
+  }
+}
+
+/** The scanned link, or '' when this browser has none to hand over. */
+export function readRemotePairingLink(storage: Pick<Storage, 'getItem'>): string {
+  try {
+    const stored = storage.getItem(REMOTE_PAIRING_STORAGE_KEYS.pairingLink) || '';
+    return parseRemotePairingLink(stored)?.url || '';
+  } catch {
+    return '';
   }
 }
 

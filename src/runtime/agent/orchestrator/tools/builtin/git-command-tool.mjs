@@ -41,13 +41,13 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one normal git command without a shell. Read subcommands (status/diff/log/show) are read-only and batch safely in parallel with other read tools. Pipes, redirection, chaining, and substitution are rejected. Success output is compacted; destructive commands require confirm:true.',
+    description: 'Run one Git command directly, without a shell. Shell operators and substitution are rejected. Repository mutations are serialized. High-risk destructive commands require confirm:true. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
-            command: { type: 'string', description: 'Full command beginning with git; quote arguments as in a shell.' },
-            confirm: { type: 'boolean', description: 'Required for destructive commands.' },
-            output_limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Item/line cap; default 50, log 10.' },
+            command: { type: 'string', description: 'Full command beginning with git. Quote arguments as for a shell; shell operators are not allowed.' },
+            confirm: { type: 'boolean', description: 'Set true only when a rejected high-risk command explicitly requires it.' },
+            output_limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
         required: ['command'],
         additionalProperties: false,

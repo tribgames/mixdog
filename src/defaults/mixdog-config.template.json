@@ -1,8 +1,8 @@
 {
-  "outputStyle": "default",
+  "outputStyle": "simple",
   "agent": {
     "mcpServers": {},
-    "profile": { "title": "", "language": "system" },
+    "profile": { "title": "", "language": "system", "experienceLevel": "" },
     "recap": { "enabled": true }
   },
   "channels": {},

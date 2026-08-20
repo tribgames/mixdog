@@ -412,7 +412,7 @@ registerInputPriority(['glob'], ['pattern', 'glob', 'path', 'head_limit', 'offse
 registerInputPriority(['find'], ['query', 'fuzzy', 'path', 'head_limit']);
 registerInputPriority(['list', 'ls'], ['path', 'dir', 'head_limit', 'offset']);
 registerInputPriority(['explore'], ['query', 'cwd']);
-registerInputPriority(['search', 'search_query', 'web_search', 'image_query'],
+registerInputPriority(['search_query', 'web_search', 'image_query'],
   ['query', 'site', 'type', 'maxResults', 'contextSize', 'locale']);
 registerInputPriority(['web_fetch'], ['url', 'uri', 'maxLength', 'startIndex']);
 registerInputPriority(['fetch'], ['url', 'uri', 'channel', 'limit']);

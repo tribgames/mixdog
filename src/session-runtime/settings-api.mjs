@@ -112,8 +112,8 @@ export function createSettingsApi({
       };
     },
     // --- User profile (/profile statusline command) ---------------------
-    // getProfile returns the normalized { title, language } plus the resolved
-    // language catalog entry and the full language list for the picker UI.
+    // getProfile returns the normalized profile plus resolved catalog entries
+    // and full picker lists for language and development experience.
     getProfile() {
       const config = getConfig();
       // In-memory config is flat: `config.profile` is what the save path
@@ -126,11 +126,12 @@ export function createSettingsApi({
         ...profile,
         languageEntry: cfgMod.profileLanguageEntry(profile.language),
         languages: cfgMod.PROFILE_LANGUAGES,
+        experienceLevelEntry: cfgMod.profileExperienceLevelEntry(profile.experienceLevel),
+        experienceLevels: cfgMod.PROFILE_EXPERIENCE_LEVELS,
       };
     },
-    // setProfile patches title and/or language and persists. Unknown language
-    // ids normalize back to 'system'. Prompt-side injection is wired separately
-    // (composeSystemPrompt) — this only owns the stored value.
+    // setProfile patches title, language, and/or development experience.
+    // Prompt-side injection is wired separately; this owns the stored value.
     getDisabledSkills() {
       const config = getConfig();
       return cfgMod.normalizeSkillsConfig(config.skills);
@@ -158,6 +159,9 @@ export function createSettingsApi({
       }
       if (hasOwn(input, 'language') || hasOwn(input, 'lang')) {
         next.language = input.language ?? input.lang ?? 'system';
+      }
+      if (hasOwn(input, 'experienceLevel')) {
+        next.experienceLevel = input.experienceLevel ?? '';
       }
       const normalized = cfgMod.normalizeProfileConfig(next);
       // Persist flat: buildAgentSaveBuilder (config.mjs saveConfig) reads
@@ -221,15 +225,15 @@ export function createSettingsApi({
     },
     getToolModuleSettings() {
       return {
-        search: { enabled: webSearchEnabled() },
+        webSearch: { enabled: webSearchEnabled() },
         memory: { enabled: memoryToolsEnabledFn() },
       };
     },
     async setWebSearchEnabled(enabled) {
       const config = getConfig();
-      saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'search', enabled !== false));
+      saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'webSearch', enabled !== false));
       // Empty/reserved sessions rebuild now so session entry does not still
-      // advertise search. A conversation keeps its frozen schema.
+      // advertise web_search. A conversation keeps its frozen schema.
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },

@@ -13,6 +13,12 @@ import {
   dataTransferHasLocalFiles,
   droppedLocalPaths,
 } from "./file-drag";
+import { isMobileRemoteSurface } from "./mobile-surface";
+import {
+  swipeGestureAllowed,
+  swipeIntent,
+  swipeTargetIndex,
+} from "./mobile-tab-swipe";
 import { PaneSplitLayout } from "./PaneSplitLayout";
 import { PersistentPanePortal } from "./PaneSurfaceGate";
 import type { NavigationSelection, WorkspaceSelection } from "./nav-types";
@@ -213,7 +219,15 @@ export function PaneWorkspace({
   // starts this even earlier on a normal boot; this layout effect preserves
   // the same contract for tests, remote shells, and hot remounts.
   useLayoutEffect(() => defaultSessionLaneStore.start(), []);
-  const paneSessionIds = paneSessionTabIds(workspace.leaves, workspace.focusedLeafId);
+  // A phone shows ONE tab at a time and pays for every mirrored session over
+  // the relay, so restored background tabs stay unregistered until opened
+  // (user: vps라 비용때문에). Wide surfaces keep every pane tab observable.
+  const paneSessionIds = isMobileRemoteSurface()
+    ? workspace.leaves.flatMap((leaf) => {
+      const active = paneActiveSelection(leaf);
+      return active?.kind === "session" ? [active.id] : [];
+    })
+    : paneSessionTabIds(workspace.leaves, workspace.focusedLeafId);
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
   const visibleSessionIds = [...new Set([...observedSessionIds, ...paneSessionIds])];
@@ -283,6 +297,58 @@ export function PaneWorkspace({
       document.removeEventListener("pointerup", release, true);
       document.removeEventListener("pointercancel", release, true);
       release();
+    };
+  }, []);
+  // Phone: a horizontal swipe across the work area steps to the neighbouring
+  // tab, giving the projected surface the same tab traversal the desktop gets
+  // from its keyboard (user: 좌우 스와이프로 pc 컨트롤 방향키처럼). Surfaces
+  // that scroll sideways themselves opt out inside swipeGestureAllowed.
+  const swipeWorkspace = useRef(workspace);
+  swipeWorkspace.current = workspace;
+  const swipeFocusSelection = useRef(onFocusSelection);
+  swipeFocusSelection.current = onFocusSelection;
+  useEffect(() => {
+    if (!isMobileRemoteSurface()) return undefined;
+    let startX = 0;
+    let startY = 0;
+    let leafId = "";
+    let tracking = false;
+    const onTouchStart = (event: TouchEvent): void => {
+      tracking = false;
+      if (event.touches.length !== 1) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!swipeGestureAllowed(target)) return;
+      const cell = target?.closest<HTMLElement>("[data-pane-id]");
+      const id = cell?.dataset.paneId || "";
+      if (!id) return;
+      leafId = id;
+      startX = event.touches[0].clientX;
+      startY = event.touches[0].clientY;
+      tracking = true;
+    };
+    const onTouchEnd = (event: TouchEvent): void => {
+      if (!tracking) return;
+      tracking = false;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      const intent = swipeIntent(touch.clientX - startX, touch.clientY - startY);
+      if (!intent) return;
+      const current = swipeWorkspace.current;
+      const leaf = current.leaves.find((entry) => entry.id === leafId);
+      if (!leaf || leaf.tabs.length <= 1) return;
+      const keys = leaf.tabs.map((tab) => navigationKey(tab));
+      const activeIndex = keys.indexOf(leaf.activeKey);
+      const targetIndex = swipeTargetIndex(activeIndex, keys.length, intent);
+      if (targetIndex === activeIndex) return;
+      current.activateTab(leaf.id, keys[targetIndex]);
+      const selection = leaf.tabs[targetIndex];
+      if (selection) swipeFocusSelection.current(selection);
+    };
+    document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true, capture: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart, true);
+      document.removeEventListener("touchend", onTouchEnd, true);
     };
   }, []);
   // Drag-to-split (VS Code/orca): the titlebar strip publishes pointer frames

@@ -1,0 +1,1078 @@
+/* Desktop layer 25 — File tree, source control dock, pull requests.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Files tab: opencode-style lazy tree */
+/* Rows bleed edge-to-edge (VS Code full-width selection); the former pane
+   padding lives on as --mx-explorer-inset consumed by each row's own
+   paddings, so the chevron keeps landing on the search icon's x. */
+.dock-files { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; --mx-explorer-inset: 12px; padding: 0; }
+.utility-dock[data-show-tabs="true"] .dock-files { --mx-explorer-inset: 8px; padding: 0 0 8px; }
+.workbench-explorer-root {
+  width: 100%;
+  height: 22px;
+  flex: 0 0 22px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: -4px 0 2px;
+  padding: 0 8px;
+  border: 0;
+  border-bottom: 1px solid var(--mx-border-muted);
+  border-radius: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.workbench-explorer-root:hover,
+.workbench-explorer-root:focus-visible { background: var(--mx-hover); outline: 0; }
+.workbench-explorer-root > svg { flex: 0 0 auto; }
+.workbench-explorer-root > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The project root name lives in the shared dock header (Files · root), so
+   the search box is this pane's first element. */
+/* The tree is its own scroller, so it must also be a flex column: otherwise
+   the "no match" message inside it cannot center like the pane-level ones. */
+/* No inset of its own: the tree shares the search field's box, so a row's
+   chevron lands on the SAME x as the search icon and both edges line up
+   (user: 파일탭 > 가 검색창 왼쪽이랑 안 맞는다). */
+.dock-files-tree { display: flex; flex-direction: column; overflow: auto; min-height: 0; flex: 1; padding: 0 0 8px; }
+/* Search fields share ONE geometry across Files, Problems, and Outline: a
+   26px field inside a 34px band, so the first row of every tab lands on the
+   same baseline. */
+/* Clear (×) matches the app's quiet icon-button grammar — the UA default
+   button chrome read as a stray gray square (user). */
+/* VS Code explorer row: fixed 22px (ExplorerDelegate.ITEM_HEIGHT), full-width
+   square highlight, a 16px twistie column reserved on EVERY row so file and
+   folder labels share one x per depth (tree.css .monaco-tl-twistie). */
+.dock-file-row { display: flex; align-items: center; width: 100%; height: 22px; flex: none; border: 0; background: none; padding: 0 var(--mx-explorer-inset, 12px) 0 0; color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-emphasis); letter-spacing: 0; cursor: pointer; text-align: left; border-radius: 0; }
+.dock-file-row:hover { background-color: var(--mx-hover); }
+.dock-file-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-file-icon { color: var(--mx-text-muted); flex: 0 0 auto; margin-right: 5px; }
+/* Modified marker follows the warning semantic — same hue as tinted
+   filenames, gutter stripes, and the minimap ruler. */
+.dock-file-changed { width: 6px; height: 6px; border-radius: 50%; background: var(--mx-warning); margin-left: auto; flex: 0 0 auto; }
+/* VSCode-style git decorations: tinted names + trailing status letter. */
+.dock-file-row.git-modified span { color: var(--mx-warning); }
+.dock-file-row.git-added span { color: var(--mx-success); }
+.dock-file-row.git-deleted span { color: var(--mx-danger); text-decoration: line-through; }
+.dock-file-badge { margin-left: auto; flex: 0 0 auto; font-style: normal; font-size: var(--mx-font-meta); opacity: var(--mx-op-soft); }
+.dock-file-row.git-modified .dock-file-badge { color: var(--mx-warning); }
+.dock-file-row.git-added .dock-file-badge { color: var(--mx-success); }
+.dock-file-row.git-deleted .dock-file-badge { color: var(--mx-danger); }
+/* VSCode folder parity: a folder holding changes tints its name too. */
+.dock-file-row.git-dir-changed span { color: var(--mx-warning); }
+.dock-file-row.git-dir-changed .dock-file-changed { background: var(--mx-warning); }
+/* A single-column `auto` grid track sizes to MAX-CONTENT, so one long symbol
+   or message name widened the entire list past the dock. Pin the column to
+   the container width and let the rows ellipsis inside it. */
+.dock-language-list { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; min-width: 0; }
+.dock-language-toolbar { flex: 0 0 34px; height: 34px; display: flex; align-items: center; gap: 3px; padding: 4px 12px; }
+.dock-language-search { height: 26px; min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: .5px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); color: var(--mx-text-muted); background: var(--mx-workspace-sheet); }
+/* Problems places its search bare in the pane (no toolbar): same 12px gutter
+   and the same 34px band as the Outline toolbar. */
+.utility-dock-pane > .dock-language-search { flex: 0 0 26px; margin: 0 12px 8px; }
+.dock-language-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--mx-text); background: transparent; font: inherit; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; }
+/* The search box itself — box, icon, field and clear button — is declared
+   ONCE, next to .workbench-explorer-search below. */
+.workbench-search-results { min-height: 0; overflow: auto; }
+.workbench-search-results > button {
+  width: 100%;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.workbench-search-results > button:hover,
+.workbench-search-results > button:focus-visible { background: var(--mx-hover); outline: 0; }
+.workbench-search-results > button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.workbench-search-results > button > span { min-width: 0; display: grid; }
+.workbench-search-results b,
+.workbench-search-results small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workbench-search-results b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
+.workbench-search-results small { color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.dock-language-toolbar > button { width: 25px; height: 25px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font-size: var(--mx-font-meta); cursor: pointer; }
+.dock-language-toolbar > button:hover, .dock-language-toolbar > button[aria-pressed="true"] { color: var(--mx-text); background: var(--mx-hover); }
+.dock-problem-file { position: sticky; top: 0; z-index: 1; padding: 5px 12px 3px; color: var(--mx-text-muted); background: var(--mx-workspace-sheet); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; }
+.dock-language-row {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 12px;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-language-row:hover { background: var(--mx-hover); }
+.dock-language-row > svg { flex: 0 0 auto; margin-top: 2px; color: var(--mx-icon-muted); }
+.dock-language-row[data-severity="1"] > svg { color: var(--mx-danger); }
+.dock-language-row[data-severity="2"] > svg { color: var(--mx-warning); }
+.dock-language-row > span { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.dock-language-row b { overflow: hidden; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+.dock-language-row small { overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); text-overflow: ellipsis; white-space: nowrap; }
+.dock-language-row > em { flex: 0 0 auto; color: var(--mx-text-faint); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-regular); line-height: 1.4; font-style: normal; }
+/* Source Control: compact Orca/VS Code-style staged workflow over the
+   existing desktop Git IPCs. */
+.dock-source-control { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; height: auto; min-height: 0; color: var(--mx-text); }
+/* Right-dock hierarchy = left-sidebar ramp (user: 위계 통일): shell inset 8px,
+   BOX LINE 12px; headings 15/600 full ink; item 13/400; meta 12. Every
+   left-edge below rides the same 12px line. The dock's own
+   `.dock-scm-header` band stays gone: the Utility Dock title row is the only
+   header the panel has, and the panel's ONE header action is portaled into
+   that row's action slot. */
+/* The always-available Fetch. The toolbar's morphing rung only offers Fetch
+   while the branch is level, so this compact icon button is pinned at the
+   RIGHT END of the title row, inside `.utility-dock-header-actions` — the slot
+   already owns the 28x28 box, the hover wash and the disabled ink, so only the
+   icon's own centring belongs here. No "…" overflow menu returns with it. */
+.dock-scm-header-fetch { flex: 0 0 auto; }
+.dock-scm-header-fetch > svg { display: block; }
+/* GitHub Desktop's top toolbar: repository | current branch | ONE push/pull
+   button, sitting above the Changes | History tab row. The product keeps a
+   roomier 6px vertical inset so these labels do not crowd the rows around it. */
+.dock-scm-toolbar { position: relative; z-index: 6; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
+/* The three sections are EQUAL THIRDS (user: 1:1:1): same `flex: 1 1 0`, same
+   floor, so the push/pull section is a full segment with a readable verb
+   instead of the intrinsic-width icon stub it used to collapse into. */
+.dock-scm-toolbar-section { min-width: 0; flex: 1 1 0; display: flex; align-items: center; }
+/* Degradation order at narrow dock widths (floor = DESKTOP_UTILITY_DOCK_MIN_WIDTH,
+   shared/window-layout.ts): the push/pull button drops its remote NAME first
+   and keeps its verb down to the last resort; the icon and the ahead/behind
+   badge always survive, and no label is ever truncated into a 1-2 character
+   stub. */
+.dock-scm-toolbar-project { flex: 1 1 0; min-width: 76px; }
+.dock-scm-toolbar-project .dock-project-select { width: 100%; }
+.dock-scm-toolbar-project .mx-select-value { min-width: 5.5ch; }
+.dock-scm-toolbar-project .dock-project-select .mx-select-trigger { width: 100% !important; height: 28px; padding: 0 7px; border: 0 !important; border-radius: var(--mx-radius-md); outline: 0; background: transparent !important; box-shadow: none !important; }
+.dock-scm-toolbar-project .dock-project-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
+.dock-scm-toolbar-branch { position: relative; flex: 1 1 0; min-width: 76px; }
+.dock-scm-toolbar-remote { position: relative; flex: 1 1 0; min-width: 76px; }
+.dock-scm-branch-button, .dock-scm-remote-button {
+  min-width: 0;
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  text-align: left;
+  cursor: pointer;
+}
+.dock-scm-branch-button:hover:not(:disabled),
+.dock-scm-remote-button:hover:not(:disabled) { background: var(--mx-hover); }
+.dock-scm-branch-button:disabled, .dock-scm-remote-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-scm-branch-button > svg, .dock-scm-remote-button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+/* Only the LABEL may shrink; the ahead/behind badge is a sibling span and
+   must keep its intrinsic width. */
+.dock-scm-branch-button > span, .dock-scm-remote-label { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-scm-branch-button > span { flex: 1 1 auto; min-width: 5.5ch; }
+.dock-scm-remote-label { display: inline-flex; }
+.dock-scm-remote-verb, .dock-scm-remote-target { white-space: pre; }
+/* Narrow steps, in order. The section is a THIRD of the dock now, so the
+   remote NAME goes first and early (it is the only piece the verb does not
+   need); then the badge's direction ARROWS, which are decoration on top of
+   counts the verb already explains; the verb itself survives all the way
+   down — icon-only is the LAST resort, well below the product floor, never
+   the dock's normal state, and the icon and the counts never go at all. */
+@container (max-width: 420px) { .dock-scm-remote-target { display: none; } }
+@container (max-width: 340px) {
+  .dock-scm-ahead-behind { gap: 3px; padding: 0 4px; }
+  .dock-scm-ahead-behind > span > svg { display: none; }
+  .dock-scm-remote-button { gap: 4px; padding: 0 5px; }
+}
+@container (max-width: 260px) { .dock-scm-remote-label { display: none; } }
+/* Below the product floor (DESKTOP_UTILITY_DOCK_MIN_WIDTH 300px) the name
+   floors themselves have to give, or the row would overflow the dock and push
+   the ahead/behind badge past the window edge. */
+@container (max-width: 280px) {
+  .dock-scm-toolbar-project { min-width: 56px; }
+  .dock-scm-toolbar-branch { min-width: 56px; }
+  .dock-scm-toolbar-remote { min-width: 56px; }
+}
+.dock-scm-ahead-behind { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 5px; border-radius: var(--mx-radius-pill); color: var(--mx-text-muted); background: var(--mx-hover); font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
+.dock-scm-ahead-behind > span { display: inline-flex; align-items: center; gap: 1px; }
+/* The push/pull button carries no dropdown any more, and no separate Fetch
+   exists to style: the section IS Fetch whenever the branch is level, and the
+   push rung the ladder loses to Pull stays reachable on the unpushed history
+   rows — so the dropdown trigger and its portaled menu have no markup left. */
+.dock-scm-branch-new { height: 24px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-minor); cursor: pointer; }
+.dock-scm-branch-new:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-scm-merge-row { width: 100%; min-height: 30px; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-top: 1px solid var(--mx-border-muted); color: var(--mx-text); background: transparent; font-size: var(--mx-font-minor); text-align: left; cursor: pointer; }
+.dock-scm-merge-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-scm-merge-row > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.dock-scm-merge-row:hover:not(:disabled) { background: var(--mx-hover); }
+.dock-scm-merge-row[aria-pressed="true"] { color: var(--mx-text); background: var(--mx-pressed); }
+.dock-scm-merge-row:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-scm-branch-picker {
+  /* Reference width 365px (app/styles/ui/_branches.scss:3-16); ours is capped
+     to the room the window has and positioned by anchored-panel.ts. */
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  max-height: min(420px, calc(100vh - 96px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+}
+.dock-scm-branch-picker > header {
+  height: 32px;
+  flex: 0 0 32px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.dock-scm-branch-picker > header input {
+  min-width: 0;
+  height: 26px;
+  flex: 1;
+  padding: 0 7px;
+  border: 1px solid var(--mx-focus);
+  border-radius: var(--mx-radius-hair);
+  outline: 0;
+  color: var(--mx-text);
+  background: var(--mx-workspace-sheet);
+  font-size: var(--mx-font-minor);
+}
+.dock-scm-branch-picker > header input:focus { border-color: var(--mx-focus); }
+/* STABLE BOX (user: 브랜치 패널이 튄다). The panel opens instantly with its
+   loading row, and the branches arrive one turn later; when the list sized
+   itself to its content the whole panel grew ~94px on the first open and shrank
+   ~44px on a cached reopen, which reads as a jump. The list therefore keeps ONE
+   height and scrolls INSIDE it, so the outer panel never resizes when the data
+   lands (asserted frame-by-frame — first vs settled — by
+   scripts/scm-geometry-probe). It may still shrink when the WINDOW leaves less
+   room, never when the content changes. */
+.dock-scm-branch-list { height: 240px; min-height: 96px; flex: 0 1 240px; overflow: auto; padding: 2px 0 4px; }
+.dock-scm-branch-list > p {
+  margin: 0;
+  padding: 12px 8px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-align: center;
+}
+/* VS Code quick-pick separators: small muted label over a hairline. */
+.dock-scm-branch-list h3 {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  margin: 4px 0 0;
+  padding: 0 10px;
+  border-top: 1px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
+.dock-scm-branch-list > section:first-of-type h3 { margin-top: 2px; }
+.dock-scm-branch-row { min-width: 0; display: flex; align-items: center; }
+.dock-scm-branch-row:hover { background: var(--mx-hover); }
+.dock-scm-branch-main {
+  min-width: 0;
+  height: 22px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  text-align: left;
+}
+.dock-scm-branch-create { color: var(--mx-text); }
+.dock-scm-branch-create > svg { color: var(--mx-icon-muted); }
+.dock-scm-branch-main > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.dock-scm-branch-main > span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-scm-branch-main > small { overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-meta); text-overflow: ellipsis; white-space: nowrap; }
+.dock-scm-branch-main:disabled { opacity: 1; }
+.dock-scm-branch-action {
+  height: 20px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+  opacity: 0;
+}
+.dock-scm-branch-row:hover .dock-scm-branch-action,
+.dock-scm-branch-row:focus-within .dock-scm-branch-action { opacity: 1; }
+.dock-scm-branch-action:hover { color: var(--mx-text); background: var(--mx-pressed); }
+.dock-scm-branch-action.danger:hover { color: var(--mx-danger); }
+.dock-scm-file-actions button, .dock-scm-group-actions button {
+  width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer;
+}
+.dock-scm-file-actions button:hover, .dock-scm-group-actions button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.dock-scm-file-actions button:disabled, .dock-scm-group-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-scm-view-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  /* Dock gutter grammar, ONE source of truth for every row box, the commit
+     card and the search boxes: the changed-files list is flat (the
+     .dock-scm-group wrapper is gone), so the inset from the panel edge to a
+     row box IS .dock-scm-scroll's padding-inline, and .dock-scm-scroll /
+     .dock-scm-history reserve an 8px classic scrollbar (scrollbar-gutter:
+     stable, measured by scripts/scm-geometry-probe) that the row boxes sit
+     inside of. Surfaces OUTSIDE the scroll container therefore pay
+     gutter + scrollbar on the right, surfaces inside it pay the gutter on
+     both sides. */
+  --dock-scm-gutter: 8px;
+  --dock-scm-scrollbar: var(--mx-scrollbar-gutter);
+  /* The file rows' own left inset — the CHECKBOX COLUMN. The select-all
+     header sits outside .dock-scm-scroll, so it pays the same inset itself and
+     both checkboxes land on ONE x (asserted by scripts/scm-geometry-probe). */
+  --dock-scm-row-inset: 6px;
+  /* The two FIXED row bands the lists are windowed on (SourceControlDock.tsx
+     `useRowWindow`, SCM_FILE_ROW_HEIGHT / SCM_COMMIT_ROW_HEIGHT): a row that
+     is free to grow would make every spacer — and with it the scrollbar and
+     the scroll position — lie about the list. */
+  --dock-scm-file-row: 29px;
+  --dock-scm-commit-row: 46px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.dock-scm-scroll, .dock-scm-history { min-height: 0; flex: 1; overflow: auto; padding-bottom: 12px; }
+/* One scrollbar grammar panel-wide: the dock's scroll regions render the same
+   8px padded thumb as .session-sidebar-scroll (VS Code keeps scrollbars
+   uniform across the workbench). */
+.dock-scm-scroll, .dock-scm-history, .dock-files, .dock-task-list {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.dock-scm-scroll::-webkit-scrollbar, .dock-scm-history::-webkit-scrollbar,
+.dock-files::-webkit-scrollbar, .dock-task-list::-webkit-scrollbar { width: var(--mx-scrollbar-size); }
+.dock-scm-scroll::-webkit-scrollbar-track, .dock-scm-history::-webkit-scrollbar-track,
+.dock-files::-webkit-scrollbar-track, .dock-task-list::-webkit-scrollbar-track { background: transparent; }
+.dock-scm-scroll::-webkit-scrollbar-thumb, .dock-scm-history::-webkit-scrollbar-thumb,
+.dock-files::-webkit-scrollbar-thumb, .dock-task-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-scrollbar-thumb);
+  background-clip: padding-box;
+}
+/* Commit form = GitHub Desktop's .commit-message-component
+   (app/styles/ui/changes/_commit-message.scss:4-13): NOT a floating card. It is
+   the bottom REGION of the view stage, cut off from the file list by a top
+   hairline and painted one tone DARKER than the panel sheet, with the two
+   fields and the full-width commit button stacked inside it. */
+.dock-scm-scroll { padding: 4px var(--dock-scm-gutter) 8px; }
+.dock-scm-commit {
+  position: relative;
+  z-index: 5;
+  min-width: 0;
+  /* Resting stack: summary 28 + gap 6 + description 62 + the button row. */
+  min-height: 84px;
+  flex: 0 0 auto;
+  /* Full-bleed region: the separation IS the border-top plus the darker fill,
+     so the form pays the dock gutter as PADDING instead of a card margin. */
+  margin: 0;
+  display: block;
+  padding: 8px calc(var(--dock-scm-gutter) + var(--dock-scm-scrollbar)) 8px var(--dock-scm-gutter);
+  border: 0;
+  /* _commit-message.scss:5 `border-top: 1px solid var(--box-border-color)`. */
+  border-top: 1px solid var(--mx-border-muted);
+  border-radius: 0;
+  /* :11 `background-color: var(--box-alt-background-color)` — ONE tone darker
+     than the panel sheet (--mx-workspace-sheet #101013 / #fafafa) in both
+     themes, so the form reads as its own region under the list. */
+  background: var(--mx-window-band);
+  box-shadow: none;
+  overflow: visible;
+  isolation: isolate;
+}
+/* A11y: both fields own a real focus border + ring now (they are bordered
+   boxes, not transparent slots), and the button row is a SINGLE control (the
+   commit submit — the split chevron is deleted), so the ring belongs on that
+   CONTROL rather than on its container. Buttons never match :focus-visible on
+   pointer focus, so this ring is keyboard-only by construction. */
+.dock-scm-commit-split > button:focus-visible {
+  border-radius: var(--mx-radius-md);
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+/* `Summary (required)` is a REAL single-line text field (_commit-message.scss:
+   83-100 `.summary .summary-field input`): its own border, radius and fill on
+   the darker form background, plus a focus border + ring. */
+.dock-scm-commit-summary {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: var(--mx-workspace-sheet);
+  caret-color: var(--mx-text);
+  font-family: inherit;
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-minor);
+  outline: 0;
+}
+.dock-scm-commit-summary:focus,
+.dock-scm-commit-summary:focus-visible {
+  border-color: var(--mx-focus);
+  box-shadow: 0 0 0 1px var(--mx-focus);
+  outline: 0;
+}
+.dock-scm-commit-summary::placeholder { color: var(--mx-text-faint); }
+.dock-scm-commit-format-warning {
+  margin: 6px 0 0;
+  color: var(--mx-warning);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.dock-scm-commit-format-warning code { color: inherit; }
+/* `Description` gets its OWN focus container beneath the summary
+   (_commit-message.scss:209-250 `.description-focus-container`): the border and
+   the focus ring live on the container, the textarea inside is borderless, and
+   the box fakes being a text field for the pointer (`cursor: text`). */
+.dock-scm-commit-description-box {
+  margin-top: 6px;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-workspace-sheet);
+  cursor: text;
+}
+.dock-scm-commit-description-box:focus-within {
+  border-color: var(--mx-focus);
+  box-shadow: 0 0 0 1px var(--mx-focus);
+}
+.dock-scm-commit textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  /* The reference's description field is the tall one; three visible text
+     lines keep it distinct from Summary while it still autosizes from there. */
+  min-height: 62px;
+  /* Same Chromium-native autosize as .composer textarea, dock scale. */
+  field-sizing: content;
+  max-height: 108px;
+  overflow-y: auto;
+  resize: none;
+  /* Inside its own focus container now, so the padding is the field's own. */
+  padding: 5px 8px;
+  border: 0;
+  color: var(--mx-text);
+  background: transparent;
+  caret-color: var(--mx-text);
+  font-family: inherit;
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-minor);
+  outline: 0;
+}
+.dock-scm-commit textarea:focus,
+.dock-scm-commit textarea:focus-visible { outline: 0; border-color: transparent; box-shadow: none; }
+.dock-scm-commit textarea::placeholder { color: var(--mx-text-faint); }
+.dock-scm-commit textarea:disabled { opacity: var(--mx-op-dim); cursor: wait; }
+/* The commit button is the form's ONE action and carries the ACCENT when it
+   can run (the reference's suggested commit button), never the heavy neutral
+   contrast block it used to paint in both states. */
+.dock-scm-commit button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-grey-50);
+  background: var(--mx-accent-bg);
+  box-shadow: none;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+/* Hover lifts the accent with the light wash the app's other accent surfaces
+   use; pressed deepens it (the flat grammar has no shadow to press away). */
+.dock-scm-commit button:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-alpha-light-10), var(--mx-alpha-light-10)), var(--mx-accent-bg);
+}
+.dock-scm-commit button:active:not(:disabled) {
+  background: linear-gradient(var(--mx-alpha-dark-24), var(--mx-alpha-dark-24)), var(--mx-accent-bg);
+}
+/* RECEDES when it cannot run (blank summary, nothing selected, a commit in
+   flight, an in-progress operation, unresolved conflicts): the quiet hover
+   wash with faint ink — never a saturated grey block competing with the
+   accented enabled state above. */
+.dock-scm-commit button:disabled {
+  color: var(--mx-text-faint);
+  background: var(--mx-hover);
+  box-shadow: none;
+  opacity: 1;
+  cursor: default;
+}
+/* Action row under the description (_commit-message.scss:321-334
+   `.commit-button { max-width: 100%; margin-top: var(--spacing); }`): the
+   button spans the form's full width — the split chevron beside it is gone,
+   so nothing shares the row any more. */
+.dock-scm-commit-split { position: relative; height: 28px; margin-top: 8px; display: flex; align-items: center; gap: 2px; padding: 0; }
+/* GitHub Desktop's commit button is FULL WIDTH under the message fields
+   (styles/ui/changes/_commit-message.scss): ONE action, no chevron. */
+.dock-scm-commit-split > button:first-child { min-width: 0; max-width: 100%; flex: 1 1 auto; margin-left: 0; }
+/* Label truncates like .model-trigger > span instead of clipping the button. */
+.dock-scm-commit-split > button:first-child > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-scm-commit-split > button:first-child > svg { flex: 0 0 auto; }
+/* Quiet list grammar shared with Search and Tasks. */
+.dock-scm-group { margin: 0 8px 2px; padding: 0; }
+.dock-scm-group > header { position: relative; height: 28px; display: flex; align-items: center; gap: 2px; padding: 0; background: transparent; }
+.dock-scm-group-toggle { min-width: 0; height: 28px; flex: 1; display: flex; align-items: center; gap: 5px; padding: 0 4px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; text-align: left; cursor: pointer; }
+.dock-scm-group-toggle:hover, .dock-scm-group-toggle:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.dock-scm-group-toggle > b { order: 1; }
+.dock-scm-group-toggle > span { order: 2; }
+.dock-scm-group-toggle > svg { order: 0; flex: 0 0 auto; transition: transform 100ms ease-out; }
+.dock-scm-group[data-collapsed] .dock-scm-group-toggle > svg { transform: rotate(-90deg); }
+.dock-scm-group-toggle > b { min-width: 0; flex: 0 1 auto; overflow: hidden; color: inherit; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+.dock-scm-group-toggle > span { min-width: 0; margin-left: auto; padding: 0; color: var(--mx-text-faint); background: transparent; font-size: var(--mx-font-micro); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); text-align: right; font-variant-numeric: tabular-nums; }
+.dock-scm-group-actions { display: flex; align-items: center; gap: 1px; padding-right: 2px; }
+/* Changes header: the tri-state select-all row on the reference's 29px band
+   (app/styles/ui/changes/_changes-list.scss:14-20). */
+/* The header band sits OUTSIDE .dock-scm-scroll, so it pays the dock gutter
+   itself: left = --dock-scm-gutter, right = that gutter plus the scrollbar
+   reserve the scrolled rows already sit inside of — the same formula as the
+   commit card above. */
+.dock-scm-list-header {
+  flex: 0 0 auto;
+  display: grid;
+  /* ONE column that can never be wider than the panel: an `auto` track is
+     sized by its widest item's MAX-content, so a four-digit count
+     (`2000 changed files`) used to push the select-all row — and with it the
+     header — past the file rows' right edge. The count line ellipsizes
+     instead (asserted by scripts/scm-geometry-probe's `:rows` case). */
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0 calc(var(--dock-scm-gutter) + var(--dock-scm-scrollbar)) 0 var(--dock-scm-gutter);
+}
+/* Select-all header: the SAME left inset and the SAME checkbox box as the file
+   rows below it, so the header checkbox and every row checkbox share one x
+   column and the labels start on one text axis (header 6 + 13 + 8 = row
+   6 + 13 + 6 + 2 of .dock-scm-file-main padding = 27px). */
+.dock-scm-check-all { height: 29px; display: flex; align-items: center; gap: 8px; padding: 0 2px 0 var(--dock-scm-row-inset); color: var(--mx-text-muted); font-size: var(--mx-font-minor); cursor: default; }
+.dock-scm-check-all > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Bulk actions live in the `N changed files` header now (Stage All, Unstage
+   All, Discard All) with View & Sort beside them — the panel header's "…"
+   overflow menu that used to own them is gone. They never shrink the label:
+   the count line is what ellipsizes. */
+.dock-scm-check-all > .dock-scm-list-actions { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 1px; overflow: visible; }
+.dock-scm-list-actions > button { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.dock-scm-list-actions > button:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.dock-scm-list-actions > button.danger:hover:not(:disabled) { color: var(--mx-danger); }
+.dock-scm-list-actions > button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-scm-check-all input[type="checkbox"], .dock-scm-file-check { width: 13px; height: 13px; flex: 0 0 13px; margin: 0; accent-color: var(--mx-focus); cursor: pointer; }
+.dock-scm-file-check:disabled { cursor: default; opacity: var(--mx-op-disabled); }
+/* Row = checkbox + dim directory + file name + trailing status glyph, on the
+   reference's 29px row band (changed-file.tsx:30-43). */
+.dock-scm-file { position: relative; min-width: 0; height: var(--dock-scm-file-row); min-height: var(--dock-scm-file-row); margin: 0; display: flex; align-items: center; gap: 6px; padding: 0 2px 0 var(--dock-scm-row-inset); border-radius: var(--mx-radius-sm); }
+/* The rows a window does not mount are represented by these two spacers, so
+   the scroll container keeps the whole list's height. */
+.dock-scm-row-spacer { flex: 0 0 auto; width: 100%; pointer-events: none; }
+/* Tab counter bubble (_tab-bar.scss:77-86). */
+.dock-review-count { flex: 0 0 auto; margin-left: 4px; padding: 2px 5px; border-radius: 20px; color: var(--mx-text); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+.dock-scm-file:hover, .dock-scm-file:focus-within { background: var(--mx-hover); }
+.dock-scm-file[data-selected="true"] { background: var(--mx-pressed); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
+/* GitHub Desktop's status OCTICONS (ui/octicons/status.ts:16-37) painted with
+   _octicon-status.scss:1-24's colour map on our own semantic tokens:
+   --color-new / --color-copied → --mx-success, --color-modified →
+   --mx-warning, --color-deleted → --mx-danger, --color-renamed → --mx-accent
+   (the reference's $blue) and --color-conflicted → --mx-danger (the
+   reference's orange has no semantic token here; danger is the nearest
+   theme-aware one). No new palette value is introduced. */
+.dock-scm-status { flex: 0 0 auto; display: grid; place-items: center; color: var(--mx-icon-muted); }
+.dock-scm-status[data-status="new"],
+.dock-scm-status[data-status="copied"] { color: var(--mx-success); }
+.dock-scm-status[data-status="modified"] { color: var(--mx-warning); }
+.dock-scm-status[data-status="renamed"] { color: var(--mx-accent); }
+.dock-scm-status[data-status="deleted"] { color: var(--mx-danger); }
+.dock-scm-status[data-status="conflicted"] { color: var(--mx-danger); }
+/* Trailing status column of a changed-file row. */
+.dock-scm-file-state { width: 16px; height: 18px; flex: 0 0 16px; }
+/* Section actions reveal on hover/focus without moving the count. */
+.dock-scm-group-actions { opacity: 0; }
+.dock-scm-group > header:hover .dock-scm-group-actions,
+.dock-scm-group > header:focus-within .dock-scm-group-actions { opacity: 1; }
+.dock-scm-file-main { min-width: 0; min-height: 29px; flex: 1; display: flex; align-items: center; gap: 6px; padding: 0 2px; overflow: hidden; border: 0; color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
+/* ONE continuous path sentence — GitHub Desktop separates meaning by COLOUR
+   alone (path-text.tsx:318,345 + _path-text.scss:3-8): the directory prefix,
+   its separators included, is dim and the file name is bright, on ONE line at
+   ONE size and ONE baseline. No name/path column pair, no second line: the
+   children inherit the container's type so the row reads as a sentence. The
+   text itself is truncated in JS by ScmPathText (truncatePath's `pre…/name`),
+   so the file name NEVER shrinks here — any width the row is still short of
+   comes off the dim directory. */
+.dock-scm-file-copy { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 0; overflow: hidden; font-size: var(--mx-font-code); line-height: var(--mx-line-minor); }
+.dock-scm-file-name { min-width: 0; flex: 0 0 auto; overflow: hidden; color: var(--mx-text); font-size: inherit; font-weight: var(--mx-weight-regular); line-height: inherit; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+/* The dim path yields first: the file NAME keeps truncation priority. */
+.dock-scm-file-path { min-width: 0; flex: 0 200 auto; overflow: hidden; color: var(--mx-text-faint); font-size: inherit; font-weight: var(--mx-weight-regular); line-height: inherit; text-overflow: ellipsis; white-space: nowrap; }
+.dock-scm-dir { width: 100%; min-height: 28px; display: flex; align-items: center; gap: 5px; padding: 0 4px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font-size: var(--mx-font-minor); line-height: var(--mx-line-minor); text-align: left; cursor: pointer; }
+.dock-scm-dir:hover, .dock-scm-dir:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.dock-scm-dir > svg { flex: 0 0 auto; }
+.dock-scm-dir > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* VS Code tree indent guides: one 12px cell per depth with a 1px rail. */
+.dock-scm-indent { position: relative; width: 12px; flex: 0 0 12px; align-self: stretch; }
+.dock-scm-indent::before { content: ""; position: absolute; top: 0; bottom: 0; left: 5px; border-left: 1px solid var(--mx-border-muted); }
+/* In-flow action slot that costs NOTHING at rest: zero width + clipped, so
+   the file name keeps the full row width until the row is hovered/focused.
+   On reveal it takes real layout width (never an overlay over the name) and
+   the dim path yields that width first. */
+.dock-scm-file-actions { flex: 0 0 auto; width: 0; height: 24px; margin-left: auto; display: flex; align-items: center; gap: 1px; overflow: hidden; opacity: 0; pointer-events: none; background: transparent; }
+.dock-scm-file:hover .dock-scm-file-actions,
+.dock-scm-file:focus-within .dock-scm-file-actions { width: auto; overflow: visible; opacity: 1; pointer-events: auto; }
+/* Narrow dock (floor = DESKTOP_UTILITY_DOCK_MIN_WIDTH 300px, shared/window-layout.ts).
+   Container query against .utility-dock (container-type: inline-size), the
+   same grammar the Studio surfaces use — the dock resizes independently of
+   the viewport, so a media query would be wrong. This mirrors the composer's
+   own narrow step (@media (max-width: 640px)): pane gutter shrinks, textarea
+   side padding shrinks, and the label-bearing control caps + ellipsizes
+   (.model-trigger) while the fixed-size glyph buttons never shrink. */
+@container (max-width: 340px) {
+  /* Row boxes move to 6px; the card, the search boxes and the history rows
+     all follow the same variable. */
+  .dock-scm-view-stage { --dock-scm-gutter: 6px; }
+}
+.dock-scm-clean { margin: 0; padding: 14px 14px 10px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); text-align: center; }
+.dock-scm-error { margin: 0; padding: 7px 10px; border-bottom: 1px solid var(--mx-danger); color: var(--mx-danger); font-size: var(--mx-font-meta); }
+.dock-scm-loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+/* History rows: commit-list-item.tsx:136-194 — ONE-line summary and a
+   `author · relative age` byline (no avatar monogram), on a FIXED row height.
+   Nothing inside the row may grow it: the byline, the ref badge and the push
+   button all truncate or clip instead (the row wrapped into 3-4 lines
+   before). */
+/* The row box rides the SAME dock gutter as the changed-file rows and the
+   commit card (.dock-scm-view-stage), so the sticky search box above it lines
+   its left and right edges up with the rows. The scrollbar reserve is already
+   outside this container's content box, hence the symmetric inset. */
+.dock-scm-history .dock-scm-commit-row { box-sizing: border-box; width: auto; margin-inline: var(--dock-scm-gutter); height: var(--dock-scm-commit-row); display: flex; align-items: center; gap: 8px; padding: 0 8px 0 6px; overflow: hidden; border: 0; border-bottom: 1px solid var(--mx-border-muted); color: var(--mx-text); background: transparent; font: inherit; text-align: left; cursor: pointer; }
+.dock-scm-history .dock-scm-commit-row:hover { background: var(--mx-hover); }
+/* No monogram anywhere in the History surface: the commit-detail header reads
+   the same as the rows (author name, age, short SHA, totals) and the freed
+   width goes to the text. */
+/* An EMPTY commit message is labelled and dimmed (commit-list-item.tsx:127-134
+   `empty-summary`), which also keeps it distinct from the loading string. */
+.dock-scm-commit-info > b[data-empty], .dock-scm-commit-headline > b[data-empty] { color: var(--mx-text-muted); font-style: italic; }
+/* Copy outcome: announced to AT, never a visible layout shift. */
+.dock-scm-copy-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dock-scm-commit-info { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.dock-scm-commit-info > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-code); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); letter-spacing: 0; }
+.dock-scm-commit-info > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-muted); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); }
+/* Trailing indicators (commit-list-item.tsx:180-211): they yield width to the
+   summary and never wrap. */
+.dock-scm-commit-indicators { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; }
+/* Unpushed commits end in a round PUSH button (the toolbar's push action), not
+   a decorative arrow; it keeps the fixed row height. */
+/* Download-style row action: still smaller than the composer's 28px send
+   control, but the unpushed state now reads immediately through an accent
+   disc and bright arrow. */
+.dock-scm-unpushed { width: 22px; height: 22px; flex: 0 0 22px; margin-left: 0; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-pill); color: var(--mx-grey-50); background: var(--mx-accent-bg); box-shadow: none; cursor: pointer; }
+.dock-scm-unpushed:hover:not(:disabled) { color: var(--mx-grey-50); background: linear-gradient(var(--mx-alpha-light-10), var(--mx-alpha-light-10)), var(--mx-accent-bg); }
+.dock-scm-unpushed:active:not(:disabled) { background: linear-gradient(var(--mx-alpha-dark-24), var(--mx-alpha-dark-24)), var(--mx-accent-bg); }
+.dock-scm-unpushed:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--mx-focus); }
+.dock-scm-unpushed:disabled { cursor: default; opacity: var(--mx-op-disabled); }
+/* Commit detail header: expandable-commit-summary.tsx:495-522 title + meta
+   row (author, short SHA with a copy button, +adds/−dels). */
+.dock-scm-commit-header { display: grid; gap: 6px; padding: 8px 10px 8px 6px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-scm-commit-headline { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.dock-scm-commit-back { width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.dock-scm-commit-back:hover { color: var(--mx-text); background: var(--mx-hover); }
+.dock-scm-commit-headline > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; }
+.dock-scm-commit-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; padding-left: 26px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.dock-scm-commit-meta > span, .dock-scm-commit-meta > time { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.dock-scm-commit-author > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-scm-commit-ref code { font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1; }
+.dock-scm-commit-copy { width: 18px; height: 18px; flex: 0 0 18px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.dock-scm-commit-copy:hover { color: var(--mx-text); background: var(--mx-hover); }
+.dock-scm-commit-lines i { color: var(--mx-success); font-style: normal; }
+.dock-scm-commit-lines em { color: var(--mx-danger); font-style: normal; }
+/* selected-commits.tsx:278-283 `N changed files`. */
+.dock-scm-commit-files-header { padding: 7px 10px 5px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.dock-scm-commit-file { border-bottom: 1px solid var(--mx-border-muted); }
+.dock-scm-commit-file-row { width: 100%; min-height: 22px; display: flex; align-items: center; gap: 6px; padding: 1px 8px 1px 11px; border: 0; color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
+.dock-scm-commit-file-row:hover { background: var(--mx-hover); }
+.dock-scm-commit-file-row > .dock-scm-status { width: 14px; flex: 0 0 14px; }
+/* The path is ScmPathText, exactly as in the Changes list: .dock-scm-file-copy
+   brings its own flex/type/truncation grammar, so nothing here may re-impose a
+   CSS ellipsis — that is what chewed the FILE NAME's tail off. */
+/* The +adds/−dels live in a FIXED, right-aligned column so every row's path
+   starts and ends on the same x and takes all the remaining width. */
+.dock-scm-commit-file-row > small { flex: 0 0 auto; min-width: 54px; display: flex; justify-content: flex-end; gap: 4px; font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
+.dock-scm-commit-file-row > small i { color: var(--mx-success); font-style: normal; }
+/* Row context menus (right button, Menu key, Shift+F10) — the per-row "…"
+   buttons they replace are gone. Portaled to <body> and clamped against the
+   window like the dock's other overlays. */
+.dock-scm-context-menu { position: fixed; z-index: 470; min-width: 200px; max-width: min(320px, calc(100vw - 16px)); display: grid; overflow: auto; padding: 4px; border: 1px solid var(--mx-border-strong); border-radius: var(--mx-radius-md); background: var(--mx-bg-layer-1); box-shadow: var(--mx-floating); }
+.dock-scm-context-menu button { width: 100%; min-height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; box-shadow: none; font-family: inherit; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); text-align: left; cursor: pointer; }
+.dock-scm-context-menu button:hover:not(:disabled),
+.dock-scm-context-menu button:focus-visible { background: var(--mx-hover); outline: 0; }
+.dock-scm-context-menu button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-scm-context-menu button.danger { color: var(--mx-danger); }
+.dock-scm-context-menu button.menu-separator { margin-top: 4px; box-shadow: inset 0 1px var(--mx-border-muted); }
+.dock-scm-context-check { width: 12px; height: 12px; flex: 0 0 12px; display: grid; place-items: center; }
+.dock-scm-context-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Instructions editor (Projects): borrows the WORKFLOW.md editor grammar
+   wholesale, INCLUDING the 800px card width and the shared
+   .workflows-md-field textarea skin (user: 워크플로우 편집 레이아웃에 맞춰). */
+/* Empty DRAFT pane: the same VS Code watermark as the empty workspace (user)
+   — faded brand mark + keycap rows, centered over the (empty) thread as a
+   non-interactive overlay. */
+.thread:has(> .thread-welcome-task) { position: relative; min-height: 100%; }
+.thread-welcome-task {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 0 var(--pane-inset);
+  pointer-events: none;
+}
+/* Warm New Task → session handoff: the requested transcript is already the
+   active DOM and paints below this prior-frame watermark. A fractional alpha
+   prevents Chromium from occlusion-culling the expensive target raster. */
+.thread-welcome-paint-handoff {
+  z-index: 3;
+  background: var(--mx-workspace-sheet);
+  opacity: .999;
+  contain: paint;
+  will-change: opacity;
+}
+/* Titlebar brand mark: sits ON the Activity Rail's axis — a 48px cell whose
+   center matches the rail icons below (user: 마크가 작고 축이 어긋난다). */
+.titlebar-brand {
+  align-self: stretch;
+  /* Cancel the topbar's 5px left padding and mirror the 47px rail button so
+     the mark shares the rail icons' exact axis (measured 23.5px center). */
+  width: 47px;
+  flex: 0 0 47px;
+  margin: 0 0 0 -5px;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-soft);
+  -webkit-app-region: drag;
+}
+.titlebar-brand svg { width: var(--mx-icon-xl); height: var(--mx-icon-xl); }
+.dock-scm-commit-file-row > small em { color: var(--mx-danger); font-style: normal; }
+/* Pull Requests tab: current VS Code GitHub Pull Requests view/title actions
+   live in the dock header; this compact toolbar is only the headerless
+   fallback used when the surface is embedded elsewhere. */
+.dock-pr-toolbar { min-height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 3px 8px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-toolbar > button, .dock-pr-toolbar .row-overflow-trigger { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.dock-pr-toolbar > button:hover:not(:disabled), .dock-pr-toolbar .row-overflow-trigger:hover { color: var(--mx-text); background: var(--mx-hover); }
+.dock-pr-toolbar button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-pr-surface { min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.dock-pr-view-controls.workbench-explorer-search { flex: 0 0 auto; display: block; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-list-header { min-width: 0; height: 29px; flex: 0 0 29px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-scope-select { min-width: 0; flex: 1; }
+.dock-pr-scope-select .mx-select-trigger { width: 100%; min-width: 0; height: 24px; justify-content: flex-start; gap: 5px; padding: 0 5px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; box-shadow: none; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
+.dock-pr-scope-select .mx-select-trigger:hover:not(:disabled),
+.dock-pr-scope-select .mx-select-trigger[aria-expanded="true"] { background: var(--mx-hover); box-shadow: none; }
+.dock-pr-scope-select .mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.dock-pr-scope-select .mx-select-trigger > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.dock-pr-list { min-height: 0; flex: 1; padding: 4px 12px 12px; }
+.dock-pr-create { min-width: 0; display: grid; gap: 10px; padding: 6px 2px 10px; }
+.dock-pr-create > header { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 2px 2px 4px; color: var(--mx-text-muted); }
+.dock-pr-create > header > svg { flex: 0 0 auto; color: var(--mx-success); }
+.dock-pr-create > header > span { min-width: 0; display: grid; }
+.dock-pr-create > header b { color: var(--mx-text); font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
+.dock-pr-create > header small { overflow: hidden; color: var(--mx-text-faint); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: var(--mx-line-micro); text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-create > label:not(.dock-pr-create-draft) { min-width: 0; display: grid; gap: 4px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.dock-pr-create input[type="text"], .dock-pr-create textarea { width: 100%; min-width: 0; border: 1px solid var(--mx-border); border-radius: var(--mx-radius-sm); outline: 0; color: var(--mx-text); background: var(--mx-workspace-sheet); font-size: var(--mx-font-meta); line-height: var(--mx-line-minor); }
+.dock-pr-create input[type="text"] { height: 30px; padding: 0 8px; font-weight: var(--mx-weight-regular); }
+.dock-pr-create textarea { min-height: 108px; padding: 6px 8px; resize: vertical; }
+.dock-pr-create input[type="text"]:focus, .dock-pr-create textarea:focus { border-color: var(--mx-focus); }
+.dock-pr-create-base { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.dock-pr-base-select { min-width: 0; }
+.dock-pr-base-select .mx-select-trigger { width: 100%; min-width: 0; height: 28px; justify-content: flex-start; padding: 0 7px; border: 1px solid var(--mx-border); border-radius: var(--mx-radius-sm); background: var(--mx-workspace-sheet); box-shadow: none; font-family: var(--mx-font-mono); font-size: var(--mx-font-meta); line-height: var(--mx-line-minor); }
+.dock-pr-base-select .mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-create-draft { height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 7px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); font-size: var(--mx-font-minor); cursor: pointer; }
+.dock-pr-create-draft:hover { background: var(--mx-hover); }
+.dock-pr-create-note, .dock-pr-create-error { margin: -2px 0 0; font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.dock-pr-create-note { color: var(--mx-text-faint); }
+.dock-pr-create-error { color: var(--mx-danger); }
+.dock-pr-create > footer { display: flex; justify-content: flex-end; gap: 6px; padding-top: 2px; }
+.dock-pr-create > footer button { min-height: 27px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); cursor: pointer; }
+.dock-pr-create > footer button:hover:not(:disabled) { background: var(--mx-hover); }
+.dock-pr-create > footer button[type="submit"] { border-color: color-mix(in srgb, var(--mx-accent) 65%, var(--mx-border)); background: color-mix(in srgb, var(--mx-accent) 18%, transparent); }
+.dock-pr-create > footer button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-pr-results { min-width: 0; display: grid; gap: 1px; }
+.dock-pr-row { position: relative; width: auto; min-height: 47px; margin: 0; display: flex; align-items: center; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; }
+.dock-pr-row:hover, .dock-pr-row:focus-within { background: var(--mx-hover); }
+.dock-pr-row-main { min-width: 0; min-height: 47px; flex: 1; display: flex; align-items: center; gap: 8px; padding: 5px 4px; overflow: hidden; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.dock-pr-row-icon { width: 18px; height: 18px; flex: 0 0 18px; display: grid; place-items: center; }
+.dock-pr-row-icon > svg { width: var(--mx-icon-md); height: var(--mx-icon-md); }
+.dock-pr-avatar { position: relative; width: var(--mx-icon-md); height: var(--mx-icon-md); flex: 0 0 var(--mx-icon-md); display: grid; place-items: center; overflow: hidden; border-radius: 50%; color: var(--mx-text-muted); background: var(--mx-pressed); }
+.dock-pr-avatar > img { position: absolute; inset: 0; width: var(--mx-icon-md); height: var(--mx-icon-md); object-fit: cover; }
+.dock-pr-row-label { min-width: 0; flex: 1; display: grid; gap: 0; overflow: hidden; }
+.dock-pr-row-label > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; }
+.dock-pr-row-label > small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-faint); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); }
+.dock-pr-row[data-draft] .dock-pr-row-label > b { font-style: italic; }
+.dock-pr-row-signals { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding-right: 3px; color: var(--mx-text-muted); }
+.dock-pr-row-signals > svg { flex: 0 0 auto; }
+.dock-pr-row-active { flex: 0 0 auto; color: var(--mx-accent); }
+.dock-pr-row-checks { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; }
+.dock-pr-row-actions { position: absolute; z-index: 2; top: 9px; right: 2px; min-height: 28px; display: flex; align-items: center; gap: 4px; padding-left: 12px; opacity: 0; pointer-events: none; background: linear-gradient(to right, transparent 0, var(--mx-hover) 12px); }
+.dock-pr-row:hover .dock-pr-row-actions, .dock-pr-row:focus-within .dock-pr-row-actions { opacity: 1; pointer-events: auto; }
+.dock-pr-row-actions > button, .dock-pr-row-actions .row-overflow-trigger { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.dock-pr-row-actions > button:hover:not(:disabled), .dock-pr-row-actions .row-overflow-trigger:hover { color: var(--mx-text); background: var(--mx-pressed); }
+.dock-pr-row-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Loading + empty states center in the list/detail scrollers the same way:
+   both scrollers are plain blocks, so .utility-dock-empty's flex:1 never
+   stretches there and the spinner hugged the top (user: 스피너 높이중앙정렬). */
+.dock-pr-list:has(> .dock-pr-empty),
+.dock-pr-list:has(> .utility-dock-empty),
+.workspace-pr-editor-scroll:has(> .utility-dock-empty) { display: grid; place-items: center; }
+.dock-pr-empty { width: min(226px, calc(100% - 20px)); margin: 0 auto; display: grid; justify-items: center; gap: 5px; color: var(--mx-text-muted); text-align: center; }
+.dock-pr-empty > svg { margin-bottom: 3px; color: var(--mx-text-faint); }
+.dock-pr-empty > b { color: var(--mx-text); font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
+.dock-pr-empty > span { color: var(--mx-text-faint); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.dock-pr-empty > button { min-height: 25px; margin-top: 4px; padding: 0 9px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); cursor: pointer; }
+.dock-pr-empty > button:hover { background: var(--mx-hover); }
+.dock-pr-empty-row { min-height: 22px; display: flex; align-items: center; padding: 1px 8px 1px 34px; color: var(--mx-text-faint); font-size: var(--mx-font-minor); line-height: var(--mx-line-ui); }
+.dock-pr-checks [data-checks="passing"] { color: var(--mx-success); }
+.dock-pr-checks [data-checks="failing"] { color: var(--mx-danger); }
+.dock-pr-checks [data-checks="pending"] { color: var(--mx-warning); }
+i.dock-pr-row-checks[data-checks="passing"] { background: var(--mx-success); }
+i.dock-pr-row-checks[data-checks="failing"] { background: var(--mx-danger); }
+i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
+.dock-pr-state-open { color: var(--mx-success); }
+.dock-pr-state-draft { color: var(--mx-text-muted); }
+.dock-pr-state-merged { color: var(--mx-merged); }
+.dock-pr-state-closed { color: var(--mx-danger); }
+.dock-pr-error-state { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; margin: 8px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--mx-danger) 30%, var(--mx-border-muted)); border-radius: var(--mx-radius-md); color: var(--mx-text); background: color-mix(in srgb, var(--mx-danger) 7%, transparent); }
+.dock-pr-error-state > svg { margin-top: 1px; color: var(--mx-danger); }
+.dock-pr-error-state > div { min-width: 0; display: grid; gap: 2px; }
+.dock-pr-error-state b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.dock-pr-error-state span { overflow-wrap: anywhere; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.dock-pr-error-state > button { grid-column: 2; justify-self: start; min-height: 22px; padding: 0 7px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); cursor: pointer; }
+.dock-pr-error-state > button:hover { background: var(--mx-hover); }
+/* PR detail: Orca's title/meta hierarchy and three stable content tabs,
+   hosted inside Mixdog editor groups. */
+.workspace-pr-editor { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; color: var(--mx-text); background: var(--mx-workspace-sheet); container-type: inline-size; }
+.workspace-pr-editor-header { flex: 0 0 auto; display: grid; gap: 10px; padding: 14px 18px 12px; border-bottom: 1px solid var(--mx-border-muted); }
+.workspace-pr-editor-title-row { min-width: 0; display: flex; align-items: flex-start; gap: 12px; }
+.workspace-pr-editor-title-row h1 { min-width: 0; flex: 1; margin: 0; overflow-wrap: anywhere; font-size: 22px; font-weight: var(--mx-weight-semibold); line-height: 1.3; letter-spacing: -.015em; }
+.workspace-pr-editor-title-row h1 small { margin-left: 8px; color: var(--mx-text-faint); font-size: 17px; font-weight: var(--mx-weight-regular); white-space: nowrap; }
+.workspace-pr-editor-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; }
+.workspace-pr-editor-header-actions > button { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.workspace-pr-editor-header-actions > button:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.workspace-pr-editor-header-actions > button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-pr-editor-meta { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 7px 10px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.dock-pr-author { min-width: 0; display: inline-flex; align-items: center; gap: 5px; }
+.dock-pr-author b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.dock-pr-updated { color: var(--mx-text-faint); white-space: nowrap; }
+.dock-pr-header-actions { margin-top: 1px; }
+.dock-pr-detail-tabs { height: 38px; flex: 0 0 38px; display: flex; align-items: stretch; gap: 4px; padding: 0 18px; overflow-x: auto; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-detail-tabs > button { position: relative; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 0; color: var(--mx-text-muted); background: transparent; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); white-space: nowrap; cursor: pointer; }
+.dock-pr-detail-tabs > button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.dock-pr-detail-tabs > button[aria-selected="true"] { color: var(--mx-text); }
+.dock-pr-detail-tabs > button[aria-selected="true"]::after { position: absolute; right: 6px; bottom: 0; left: 6px; height: 2px; border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0; background: var(--mx-accent); content: ""; }
+.dock-pr-detail-tabs small { min-width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; border-radius: var(--mx-radius-pill); color: var(--mx-text-muted); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); }
+.workspace-pr-editor-scroll { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
+.workspace-pr-editor-scroll > .dock-pr-panel,
+.workspace-pr-editor-scroll > .dock-pr-error-state { width: min(100%, 920px); margin-inline: auto; }
+.workspace-pr-editor .dock-scm-commit-file-row { min-height: 30px; padding-inline: 18px; }
+.workspace-pr-editor .dock-scm-commit-diff { max-height: min(70vh, 720px); }
+.dock-pr-panel { display: grid; gap: 14px; padding: 18px; }
+.dock-pr-description, .dock-pr-section, .dock-pr-check-card { min-width: 0; overflow: hidden; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); background: var(--mx-workspace-sheet); }
+.dock-pr-description > header, .dock-pr-section > header { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 11px; border-bottom: 1px solid var(--mx-border-muted); color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.dock-pr-description > header b, .dock-pr-section > header b { color: var(--mx-text); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.dock-pr-description > header > span:last-child, .dock-pr-section > header > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-section > header > span:last-child { margin-left: auto; }
+.dock-pr-badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 7px; border-radius: var(--mx-radius-pill); background: var(--mx-pressed); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.dock-pr-badge[data-state="OPEN"] { color: var(--mx-success); }
+.dock-pr-badge[data-state="DRAFT"] { color: var(--mx-text-muted); }
+.dock-pr-badge[data-state="MERGED"] { color: var(--mx-merged); }
+.dock-pr-badge[data-state="CLOSED"] { color: var(--mx-danger); }
+.dock-pr-refs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.dock-pr-refs code { padding: 1px 5px; border-radius: var(--mx-radius-sm); background: var(--mx-pressed); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); }
+.dock-pr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dock-pr-actions button { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); color: var(--mx-text); background: transparent; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); cursor: pointer; }
+.dock-pr-actions button:hover:not(:disabled) { background: var(--mx-hover); }
+.dock-pr-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.dock-pr-merge { display: inline-flex; align-items: stretch; }
+.dock-pr-merge > button { border-radius: var(--mx-radius-md) 0 0 var(--mx-radius-md); border-right: 0; color: var(--mx-grey-50); background: var(--mx-accent-bg); border-color: transparent; font-weight: var(--mx-weight-semibold); }
+.dock-pr-merge > button:hover:not(:disabled) { background: var(--mx-accent-bg); filter: brightness(1.1); }
+.dock-pr-merge > select { max-width: 18px; min-height: 26px; padding: 0; border: 0; border-radius: 0 var(--mx-radius-md) var(--mx-radius-md) 0; color: var(--mx-grey-50); background: var(--mx-accent-bg); font-size: var(--mx-font-meta); cursor: pointer; }
+.dock-pr-labels { display: flex; flex-wrap: wrap; gap: 4px; }
+.dock-pr-labels > span { max-width: 100%; padding: 1px 7px; overflow: hidden; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-pill); color: var(--mx-text-muted); background: var(--mx-pressed); font-size: var(--mx-font-micro); line-height: var(--mx-line-minor); text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-body { min-height: 72px; overflow-wrap: anywhere; padding: 11px 12px 13px; color: var(--mx-text); font-size: var(--mx-font-code); line-height: 1.6; white-space: pre-wrap; }
+.dock-pr-check-card > header { min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 0 13px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-check-card > header > div { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.dock-pr-check-card > header b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.dock-pr-check-card > header small { overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-micro); text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-check-state { width: 12px; height: 12px; flex: 0 0 12px; border: 2px solid currentColor; border-radius: 50%; }
+.dock-pr-check-state[data-checks="passing"] { color: var(--mx-success); background: var(--mx-success); box-shadow: inset 0 0 0 2px var(--mx-workspace-sheet); }
+.dock-pr-check-state[data-checks="pending"] { color: var(--mx-warning); }
+.dock-pr-check-state[data-checks="failing"] { color: var(--mx-danger); background: var(--mx-danger); box-shadow: inset 0 0 0 2px var(--mx-workspace-sheet); }
+.dock-pr-check-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.dock-pr-check-grid > span { min-width: 0; display: grid; gap: 2px; padding: 11px 8px; border-right: 1px solid var(--mx-border-muted); text-align: center; }
+.dock-pr-check-grid > span:last-child { border-right: 0; }
+.dock-pr-check-grid b { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); font-variant-numeric: tabular-nums; }
+.dock-pr-check-grid small { overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-micro); text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-reviewers { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px; padding: 9px; }
+.dock-pr-reviewer { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 6px 8px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.dock-pr-reviewer > img { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; background: var(--mx-pressed); }
+.dock-pr-reviewer > span { min-width: 0; display: grid; }
+.dock-pr-reviewer b, .dock-pr-reviewer small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-pr-reviewer b { color: var(--mx-text); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-semibold); }
+.dock-pr-reviewer small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); text-transform: capitalize; }
+.dock-pr-reviewer[data-state="APPROVED"] { border-color: color-mix(in srgb, var(--mx-success) 45%, transparent); color: var(--mx-success); }
+.dock-pr-reviewer[data-state="CHANGES_REQUESTED"] { border-color: color-mix(in srgb, var(--mx-danger) 45%, transparent); color: var(--mx-danger); }
+.dock-pr-review-decision { margin: 0; padding: 0 10px 10px; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-semibold); }
+.dock-pr-review-decision[data-checks="passing"] { color: var(--mx-success); }
+.dock-pr-review-decision[data-checks="pending"] { color: var(--mx-warning); }
+.dock-pr-review-decision[data-checks="failing"] { color: var(--mx-danger); }
+.dock-pr-timeline { display: grid; gap: 12px; padding: 12px; }
+.dock-pr-comment { display: flex; gap: 8px; min-width: 0; }
+.dock-pr-comment > img { width: 24px; height: 24px; flex: 0 0 auto; margin-top: 1px; border-radius: 50%; background: var(--mx-pressed); }
+.dock-pr-comment > div { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.dock-pr-comment > div > header { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.dock-pr-comment > div > header > b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.dock-pr-comment > div > header > em { font-size: var(--mx-font-meta); font-style: normal; color: var(--mx-text-muted); }
+.dock-pr-comment > div > header > em[data-state="APPROVED"] { color: var(--mx-success); }
+.dock-pr-comment > div > header > em[data-state="CHANGES_REQUESTED"] { color: var(--mx-danger); }
+.dock-pr-comment > div > header > i { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-style: normal; }
+.dock-pr-comment p { margin: 0; padding: 6px 8px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); background: var(--mx-workspace-sheet); font-size: var(--mx-font-minor); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dock-pr-files-panel { min-width: 0; }
+.dock-pr-files-summary { min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 18px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-pr-files-summary > div { min-width: 0; flex: 1; display: grid; }
+.dock-pr-files-summary b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.dock-pr-files-summary small { color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.dock-pr-files-summary > span { display: flex; gap: 7px; font-size: var(--mx-font-meta); font-variant-numeric: tabular-nums; }
+.dock-pr-files-summary i { color: var(--mx-success); font-style: normal; }
+.dock-pr-files-summary em { color: var(--mx-danger); font-style: normal; }
+.dock-pr-files { min-width: 0; }
+@container (max-width: 620px) {
+  .workspace-pr-editor-header { padding: 11px 12px 10px; }
+  .workspace-pr-editor-title-row h1 { font-size: 18px; }
+  .workspace-pr-editor-title-row h1 small { font-size: var(--mx-font-body); }
+  .dock-pr-detail-tabs { padding-inline: 8px; }
+  .dock-pr-panel { gap: 10px; padding: 10px; }
+  .dock-pr-check-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dock-pr-check-grid > span:nth-child(2) { border-right: 0; }
+  .dock-pr-check-grid > span:nth-child(-n+2) { border-bottom: 1px solid var(--mx-border-muted); }
+}
+.dock-scm-commit-diff { min-width: 0; overflow: auto; border-top: 1px solid var(--mx-border-muted); background: var(--mx-bg-base); }
+.dock-scm-commit-diff > p { margin: 0; padding: 10px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.dock-scm-commit-diff .diff-fallback { margin: 0; padding: 9px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1.45; }
+.dock-source-control .spin { animation: spin 1s linear infinite; }
+.dock-scm-operation { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--mx-warning); background: var(--mx-warning-bg); }
+.dock-scm-operation > div { min-width: 0; flex: 1; display: grid; }
+.dock-scm-operation b { font-size: var(--mx-font-minor); text-transform: capitalize; }
+.dock-scm-operation small { color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.dock-scm-operation button { min-height: 24px; padding: 0 7px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-meta); cursor: pointer; }
+.dock-scm-operation button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Ref badges ride INSIDE the row (commit-list-item.tsx:251-266): the first ref
+   only, ellipsized, plus a dot when more exist. */
+.dock-scm-refs { min-width: 0; display: flex; align-items: center; gap: 3px; font-style: normal; }
+/* ONE badge style for EVERY ref — a local `main`, a remote `origin/main` and a
+   tag `v0.9.87` differ only in WIDTH: same box, same height, same radius, same
+   type. The `+N` counter that collapses the rest wears the same badge, so the
+   row never mixes two shapes. */
+.dock-scm-refs em, .dock-scm-refs-more { box-sizing: border-box; height: 16px; flex: 0 0 auto; display: inline-block; overflow: hidden; padding: 0 6px; border-radius: var(--mx-radius-pill); color: var(--mx-text-muted); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-style: normal; font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); text-overflow: ellipsis; white-space: nowrap; }
+/* The first ref is the only one that may lose characters to the row's width. */
+.dock-scm-refs em { min-width: 0; flex: 0 1 auto; max-width: 84px; }
+/* The remaining refs stay VISIBLE as a count (`+2`) instead of an anonymous
+   dot; the full list rides the row's accessible name and tooltip. */
+.dock-scm-refs-more { color: var(--mx-text-faint); font-variant-numeric: tabular-nums; }
+.workspace-git-diff { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; background: var(--mx-workspace-sheet); }
+.workspace-git-diff > header { min-height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--mx-border-muted); }
+.workspace-git-diff > header > div:first-child { min-width: 0; flex: 1; display: grid; }
+.workspace-git-diff > header b { overflow: hidden; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-git-diff > header small { color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.workspace-git-diff-actions { display: flex; align-items: center; gap: 3px; }
+.workspace-git-diff-actions button { min-width: 28px; height: 26px; display: grid; place-items: center; padding: 0 7px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font-size: var(--mx-font-meta); cursor: pointer; }
+.workspace-git-diff-actions button:hover, .workspace-git-diff-actions button[aria-pressed="true"] { color: var(--mx-text); background: var(--mx-hover); }
+.workspace-git-diff-body { min-width: 0; min-height: 0; flex: 1; overflow: auto; }
+.workspace-git-diff-hunks { min-width: 0; display: grid; gap: 8px; padding: 8px; }
+.workspace-git-diff-hunk { min-width: 0; overflow: hidden; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); }
+.workspace-git-diff-hunk > header { min-height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 5px 0 9px; border-bottom: 1px solid var(--mx-border-muted); background: var(--mx-bg-base); }
+.workspace-git-diff-hunk > header code { min-width: 0; flex: 1; overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-micro); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-git-diff-hunk > header button { min-height: 24px; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font-size: var(--mx-font-meta); cursor: pointer; }
+.workspace-git-diff-hunk > header button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.workspace-git-diff-hunk > header button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.workspace-git-diff-state { height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+/* Ctrl+Tab MRU switcher (VS Code grammar): most recent first; releasing
+   Ctrl commits the highlighted row. */
+.workspace-tab-switcher { position: fixed; left: 50%; top: 96px; transform: translateX(-50%); z-index: 240; min-width: 300px; max-width: 440px; max-height: 50vh; overflow: auto; padding: 4px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); background: var(--mx-bg-base); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+.workspace-tab-switcher > div { padding: 6px 10px; border-radius: var(--mx-radius-md); color: var(--mx-text-muted); font-size: var(--mx-font-code); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.workspace-tab-switcher > div.active { color: var(--mx-text); background: var(--mx-hover); }
+/* Diff tab "Editor" renderer (Monaco DiffEditor): fill the body, unsaved bar
+   above the editor surface. */
+.workspace-git-diff-editor { height: 100%; min-width: 0; display: flex; flex-direction: column; }
+.workspace-git-diff-editor > div { min-height: 0; flex: 1; }
+.workspace-git-diff-editor-bar { min-height: 30px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 9px; border-bottom: 1px solid var(--mx-border-muted); background: var(--mx-bg-base); color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
+.workspace-git-diff-editor-bar button { min-height: 24px; padding: 0 7px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-meta); cursor: pointer; }
+.workspace-git-diff-editor-bar button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* VS Code Quick Diff defaults to `all`: gutter + minimap gutter + overview
+   ruler. These tokens keep all three surfaces on the same dark/light palette. */
+:root {
+  --mx-editor-diff-add: #487e02;
+  --mx-editor-diff-mod: #1b81a8;
+  --mx-editor-diff-del: #f14c4c;
+}
+:root[data-mixdog-theme="light"] {
+  --mx-editor-diff-add: #48985d;
+  --mx-editor-diff-mod: #2090d3;
+  --mx-editor-diff-del: #b5200d;
+}
+.monaco-editor .editor-dirty-diff {
+  box-sizing: border-box;
+  margin-left: 5px;
+  z-index: 5;
+}
+.monaco-editor .editor-dirty-diff-add,
+.monaco-editor .editor-dirty-diff-mod { border-left: 3px solid; }
+.monaco-editor .editor-dirty-diff-add { border-left-color: var(--mx-editor-diff-add); }
+.monaco-editor .editor-dirty-diff-mod { border-left-color: var(--mx-editor-diff-mod); }
+.monaco-editor .editor-dirty-diff-del::after {
+  position: absolute;
+  bottom: -4px;
+  width: 0;
+  height: 0;
+  content: "";
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 4px solid var(--mx-editor-diff-del);
+  pointer-events: none;
+}
+.dock-file-menu { position: fixed; z-index: 60; min-width: 180px; padding: 4px; border-radius: var(--mx-radius-md); border: .5px solid var(--mx-border-muted); background: var(--mx-workspace-sheet); box-shadow: var(--mx-floating); display: grid; }
+.dock-file-menu button { border: 0; background: none; color: var(--mx-text); font-size: var(--mx-font-minor); text-align: left; padding: 5px 10px; border-radius: var(--mx-radius-md); cursor: pointer; }
+.dock-file-menu button:hover { background: var(--mx-hover); }
+.dock-file-menu button.danger { color: var(--mx-danger); }
+

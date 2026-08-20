@@ -37,6 +37,7 @@ const RULE_FILES = [
   'workflows/default/WORKFLOW.md',
   'workflows/solo/WORKFLOW.md',
   'rules/lead/01-general.md',
+  'rules/lead/02-persona.md',
   'rules/lead/lead-brief.md',
 ];
 

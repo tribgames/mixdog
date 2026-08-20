@@ -1,10 +1,10 @@
-// Provider/search model catalog + cache glue, extracted from
+// Provider/web-search model catalog + cache glue, extracted from
 // mixdog-session-runtime.mjs. Dependency-injected factory following the
-// createWarmupSchedulers/createNativeSearch pattern: mutable cache state lives
+// createWarmupSchedulers/createNativeWebSearch pattern: mutable cache state lives
 // in a caller-owned `caches` object (so the facade's invalidateProviderCaches
 // teardown still sees the same references) and all route/config/registry reads
 // go through supplied accessors so live-binding is preserved (no stale
-// snapshot of route/config/searchRoute).
+// snapshot of route/config/webSearchRoute).
 import { clean } from './session-text.mjs';
 import { effortItemsFor } from './effort.mjs';
 import { fastCapableFor, fastPreferenceFor } from './model-capabilities.mjs';
@@ -69,11 +69,11 @@ export function createProviderModels({
   getRoute,
   getConfig,
   getReg,
-  searchCapableFor,
+  webSearchCapableFor,
   sortProviderModelsRaw,
   providerModelCacheRowRaw,
-  normalizeSearchProviderId,
-  isSearchCapableProvider,
+  normalizeWebSearchProviderId,
+  isWebSearchCapableProvider,
   ensureFullConfig,
   awaitKeychainPrewarm,
   ensureProvidersReady,
@@ -93,7 +93,7 @@ export function createProviderModels({
     caches.providerModelsLoadSeq += 1;
     caches.providerModelsCache = { models: null, at: 0, revision };
     caches.providerModelsPromise = null;
-    caches.searchProviderModelsCache = { models: null, at: 0, revision };
+    caches.webSearchProviderModelsCache = { models: null, at: 0, revision };
     modelMetaByRoute.clear();
     return revision;
   }
@@ -161,27 +161,27 @@ export function createProviderModels({
   }
 
   const sortProviderModels = (models) => sortProviderModelsRaw(models, route().provider);
-  const providerModelCacheRow = (name, m) => providerModelCacheRowRaw(name, m, searchCapableFor);
+  const providerModelCacheRow = (name, m) => providerModelCacheRowRaw(name, m, webSearchCapableFor);
 
   function providerModelsFromCacheRows(rows) {
     return sortProviderModels((rows || []).map(hydrateProviderModelRow));
   }
 
-  async function enabledSearchProviderConfig() {
+  async function enabledWebSearchProviderConfig() {
     await awaitKeychainPrewarm();
     ensureFullConfig();
     const out = {};
     for (const [name, providerConfig] of Object.entries(config().providers || {})) {
-      const providerName = normalizeSearchProviderId(name);
-      if (!providerConfig?.enabled || !isSearchCapableProvider(providerName)) continue;
+      const providerName = normalizeWebSearchProviderId(name);
+      if (!providerConfig?.enabled || !isWebSearchCapableProvider(providerName)) continue;
       out[providerName] = { ...providerConfig, enabled: true };
     }
     return out;
   }
 
-  async function loadSearchProviderModelsFresh({ forceRefresh = false } = {}) {
-    const searchProviders = await enabledSearchProviderConfig();
-    const providerNames = Object.keys(searchProviders);
+  async function loadWebSearchProviderModelsFresh({ forceRefresh = false } = {}) {
+    const webSearchProviders = await enabledWebSearchProviderConfig();
+    const providerNames = Object.keys(webSearchProviders);
     if (!providerNames.length) return [];
     await ensureProvidersReady(config().providers || {});
     const providerResults = await Promise.all(providerNames.map(async (name) => {
@@ -203,9 +203,9 @@ export function createProviderModels({
           if (row.supportsWebSearch !== true) continue;
           rows.push({
             ...row,
-            provider: normalizeSearchProviderId(row.provider),
-            searchCapable: true,
-            searchToolType: row.searchToolType || 'web_search',
+            provider: normalizeWebSearchProviderId(row.provider),
+            webSearchCapable: true,
+            webSearchToolType: row.webSearchToolType || 'web_search',
           });
           modelMetaByRoute.set(modelMetaKey(name, m.id), row);
         }
@@ -218,9 +218,9 @@ export function createProviderModels({
     }));
     const results = [];
     const seen = new Set();
-    quickHelpers.addDefaultSearchModel(results, seen);
+    quickHelpers.addDefaultWebSearchModel(results, seen);
     for (const row of providerResults.flat()) {
-      const key = `${normalizeSearchProviderId(row.provider)}:${row.id}`;
+      const key = `${normalizeWebSearchProviderId(row.provider)}:${row.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
       results.push(row);
@@ -289,24 +289,24 @@ export function createProviderModels({
     return loadSecrets;
   }
 
-  async function collectSearchProviderModels({ force = false } = {}) {
+  async function collectWebSearchProviderModels({ force = false } = {}) {
     const revision = syncCatalogRevision();
-    if (!force && Array.isArray(caches.searchProviderModelsCache.models)) {
-      return providerModelsFromCacheRows(quickHelpers.searchRowsWithDefault(caches.searchProviderModelsCache.models));
+    if (!force && Array.isArray(caches.webSearchProviderModelsCache.models)) {
+      return providerModelsFromCacheRows(quickHelpers.webSearchRowsWithDefault(caches.webSearchProviderModelsCache.models));
     }
     if (!force && Array.isArray(caches.providerModelsCache.models)) {
-      const rows = quickHelpers.searchRowsWithDefault(quickHelpers.searchModelsFromRows(caches.providerModelsCache.models));
-      caches.searchProviderModelsCache = { models: rows, at: Date.now(), revision };
+      const rows = quickHelpers.webSearchRowsWithDefault(quickHelpers.webSearchModelsFromRows(caches.providerModelsCache.models));
+      caches.webSearchProviderModelsCache = { models: rows, at: Date.now(), revision };
       return providerModelsFromCacheRows(rows);
     }
     if (!force) {
-      const rows = quickHelpers.searchRowsWithDefault(quickHelpers.quickSearchProviderModelRows());
-      caches.searchProviderModelsCache = { models: rows, at: Date.now(), revision };
+      const rows = quickHelpers.webSearchRowsWithDefault(quickHelpers.quickWebSearchProviderModelRows());
+      caches.webSearchProviderModelsCache = { models: rows, at: Date.now(), revision };
       return providerModelsFromCacheRows(rows);
     }
     if (force) {
-      const models = await loadSearchProviderModelsFresh({ forceRefresh: true });
-      caches.searchProviderModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
+      const models = await loadWebSearchProviderModelsFresh({ forceRefresh: true });
+      caches.webSearchProviderModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
       return providerModelsFromCacheRows(models);
     }
   }
@@ -378,10 +378,10 @@ export function createProviderModels({
     sortProviderModels,
     providerModelCacheRow,
     providerModelsFromCacheRows,
-    enabledSearchProviderConfig,
-    loadSearchProviderModelsFresh,
+    enabledWebSearchProviderConfig,
+    loadWebSearchProviderModelsFresh,
     loadProviderModelsFresh,
-    collectSearchProviderModels,
+    collectWebSearchProviderModels,
     collectProviderModels,
     warmProviderModelCache,
   };

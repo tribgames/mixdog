@@ -1,21 +1,17 @@
 ---
 name: simple
 title: Simple
-description: Lightly trimmed default-style updates within 800 characters
-aliases: concise, handoff
-keep-coding-instructions: true
+description: Concise summary with the essential explanation
+aliases: default, concise, handoff
 ---
 
-# Output Style
+## Depth Variation
 
-Simple — a teammate's update, tightened; hard cap 800 characters.
+Simple — concise summary.
 
-- Outcome first in complete user-language sentences; no filler or process
-  narration; reports order outcome → changes → verification.
-- Short answers stay plain prose; 3+ parallel facts become a flat `- `
-  list — one fact per bullet, one line, ordered by importance, never nested.
-- Each material fact once, secondary detail and non-load-bearing rationale
-  dropped; `file:line` anchors, technical literals verbatim; the cap is a
-  ceiling, not a target.
-- Never dump raw tool output; blockers and failures in one clause each.
-  Never name this style unless asked.
+- Information depth: preserve enough context for the answer to stand on its own.
+  Retain the main answer, the essential causal sequence, strongest supporting
+  evidence, direct consequences, and material scope or caveat. Prefer a complete
+  explanation over compression that makes the reader infer a missing step. Omit
+  only secondary evidence, exhaustive implementation detail, examples, edge
+  cases, adjacent implications, alternatives, and unrequested remediation.

@@ -1,0 +1,486 @@
+/* Desktop layer 14 — Live activity band, turn status, milestones.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Busy-band slot: no box at all while idle (display: contents keeps the
+   thread's flex/gap grammar identical to the band being a direct child), but
+   a reserved 24px box for the WHOLE busy turn — the band flickering null
+   during a snapshot source swap must not shift the thread (진입/전환 튐). */
+.live-activity-slot { display: contents; }
+.live-activity-slot[data-busy="true"] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 24px;
+}
+.live-activity-status {
+  width: max-content;
+  max-width: 100%;
+  min-height: 24px;
+  display: flex;
+  /* Same contract as the settled footer: verb and readout run at one size, so
+     centring the boxes centres the text too (user: 띵킹 스피너도 마찬가지). */
+  align-items: center;
+  gap: 7px;
+  color: var(--mx-text);
+}
+/* Gated like every other milestone (.turn-status, .compaction-divider): the
+   4px slide belongs to work that STARTS on screen, never to a band restored
+   by re-entering the session. */
+.live-activity-status[data-animate="true"] {
+  animation: transcript-milestone-enter 260ms cubic-bezier(.2, .8, .2, 1);
+}
+.live-activity-icon {
+  width: 16px;
+  height: 20px;
+  flex: 0 0 16px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+  /* No optical nudge. The -1px lift belonged to stroke icons whose ink hangs
+     high in their viewBox; the rhombus is drawn centred in its own 12px box,
+     and the settled ◈ is now centred by box math too — with the lift the mark
+     hopped a pixel at the exact moment the turn settled. */
+}
+/* Shape sweep, verbatim from the TUI spinner (src/tui/spinner-verbs.mjs
+   SPINNER_FRAMES played forward then back): 10 frames × 130ms. Discrete
+   `content` steps keep it a pure CSS animation — no React tick. */
+.live-activity-glyph {
+  display: block;
+  width: 12px;
+  height: 12px;
+  /* The MARK stays neutral ink. Painting the rhombus with the brand accent
+     put a lone indigo shape in a column of grey text and green tool icons and
+     it read as unrelated chrome (user: 도형색은 너무 뜬금없고). Its motion is
+     the signal; the accent is spent on the shimmer head instead, where it
+     travels through the words rather than sitting beside them. */
+  color: var(--mx-text);
+  overflow: visible;
+}
+/* The TUI's hollow -> filled -> ring sweep, drawn as ONE morphing rhombus
+   instead of three swapped characters. As text the frames fell back to Segoe
+   UI Symbol, where 12px hinting crushed the strokes and the characters'
+   different ink weights read as a blink; as vector the same three states are
+   the two ends and the middle of a continuous scale, crisp at any DPI.
+   Rotation runs to 90deg only — a rhombus is symmetric there, so the loop has
+   no seam — and follows grok's rule that motion is continuous while the shape
+   itself carries the state (turn_status.rs). */
+.live-activity-glyph-spin {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  /* 2900 against the core's 1300 is deliberately NOT a whole multiple: at the
+     old 2600/1300 the two locked into the same phase every single turn and the
+     mark read as a mechanism ticking. Drifting phases make the same two
+     animations look hand-animated. */
+  animation: live-activity-glyph-spin 2900ms linear infinite;
+}
+.live-activity-glyph-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linejoin: miter;
+}
+/* Full scale covers the ring exactly (the filled frame), mid-scale reads as
+   the ring-in-ring frame, and the low end leaves the hollow outline. One
+   1300ms round trip keeps the TUI's 10-frame cadence. */
+.live-activity-glyph-core {
+  fill: currentColor;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: live-activity-glyph-core 1300ms cubic-bezier(.4, 0, .6, 1) infinite;
+}
+@keyframes live-activity-glyph-spin { to { transform: rotate(90deg); } }
+@keyframes live-activity-glyph-core {
+  /* The TUI plays ◇ ◆ ◈ — three states, not two. Naming the middle rung on
+     both sides restores that beat: the ring-in-ring frame is a real step
+     instead of a value the interpolator merely passes through. */
+  0%, 100% { transform: scale(.12); opacity: var(--mx-op-ghost); }
+  32% { transform: scale(.58); opacity: var(--mx-op-secondary); }
+  50% { transform: scale(1); opacity: 1; }
+  68% { transform: scale(.58); opacity: var(--mx-op-secondary); }
+}
+.live-activity [data-component="text-shimmer"] {
+  /* TUI contract (src/tui/index.mjs, GLIMMER_SPEED_MS/GLIMMER_TRAIL): the head
+     advances ONE cell per 120ms and the cycle spans `cells + 6`, so any phrase
+     gets exactly one pass and then a short rest. TextShimmer reports the cell
+     count (CJK counted as 2, like a terminal column), so `ch` lines up with
+     the rendered width in either script. */
+  --live-shimmer-span: calc((var(--text-shimmer-cells, 12) + 6) * 1ch);
+  /* Cell-proportional, but clamped: the verb pool runs 4-7 Hangul syllables
+     (8-14 terminal cells), and without the floor/ceiling a short verb sprinted
+     while a long one crawled — the sweep speed itself read as a glitch every
+     time the phrase changed. */
+  --text-shimmer-duration: clamp(1700ms, calc((var(--text-shimmer-cells, 12) + 6) * 120ms), 2600ms);
+  min-width: 0;
+  max-width: 100%;
+  font-weight: var(--mx-weight-medium);
+}
+/* One-sided comet, verbatim from renderShimmerText: the cell AT the head is
+   brightest and the 6 cells BEHIND it decay back to base, with nothing ahead
+   of it. The old gradient was a symmetric glow on a fixed 24ch tile — it read
+   as a lamp sliding under the text, never rested on a short verb, and showed
+   two glints at once on a long one. */
+.live-activity [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
+  background-image: linear-gradient(
+    90deg,
+    var(--mx-text) 0,
+    var(--mx-text) 3ch,
+    var(--live-status-color) 6ch,
+    var(--mx-text) calc(6ch + 1px),
+    var(--mx-text) 100%
+  );
+  background-size: var(--live-shimmer-span) 100%;
+  background-repeat: repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: live-activity-sweep var(--text-shimmer-duration) linear infinite;
+}
+@keyframes live-activity-sweep { to { background-position: var(--live-shimmer-span) 0; } }
+.live-activity [data-slot="text-shimmer-char"] { font-variant-numeric: tabular-nums; }
+/* The byline is STATIC and one tier down: it reports numbers, the verb
+   reports the work. Keeping it out of the shimmer is what lets the sweep run
+   to completion (see TranscriptView), and the smaller muted type stops the
+   band from reading as one long emphasised sentence. */
+.live-activity-meta {
+  min-width: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  /* Explicit 400: the band around it now runs at 600, and the readout was
+     inheriting that — which made the running clock bolder than the settled
+     one. The gauge is read, not emphasised, and it has to match the settled
+     row's timestamp exactly. */
+  font-weight: var(--mx-weight-regular);
+  /* Same size and line box as the verb beside it (and as the settled row's
+     clock): a smaller face centred in the same row cannot share the verb's
+     baseline, and the leftover fraction snapped visibly at 125%/150%. */
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Both band texts are 24px boxes with centred content, the same construction
+   the settled footer uses — equal baseline offsets, so baseline alignment puts
+   the verb and the readout on one line without lifting either off the row's
+   centre. */
+.live-activity-status > [data-component="text-shimmer"],
+.live-activity-meta {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+}
+.live-activity-meta::before {
+  content: "\00B7";
+  margin-right: 7px;
+  color: var(--mx-text-faint);
+}
+.thinking-disclosure { max-width: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-medium); }
+.thinking-disclosure summary {
+  width: max-content;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  cursor: pointer;
+  line-height: var(--mx-line-ui);
+}
+.thinking-disclosure summary:hover,
+.thinking-disclosure summary:focus-visible { color: var(--mx-text); background: var(--mx-hover); }
+.thinking-disclosure pre {
+  max-width: 100%;
+  max-height: 280px;
+  margin: 8px 0 0;
+  padding: 4px 0 0;
+  overflow: auto;
+  border-radius: 0;
+  color: var(--mx-text-muted);
+  /* Reasoning part: quiet muted prose, no boxed plate. */
+  background: transparent;
+  box-shadow: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.turn-status.complete, .turn-status.success,
+.turn-status.failed, .turn-status.interrupted {
+  width: max-content;
+  max-width: 100%;
+  /* ONE 24px row for every state of the turn — settled status, live band and
+     the 24px copy control all share it, so nothing shifts between states and
+     the icons line up (user: 같은 선상에서 정리 / 복사버튼 정렬). */
+  min-height: 24px;
+  /* The phrase — not the marker — has to carry the row's baseline out to the
+     footer: a flex container reports its first baseline-aligned item, and the
+     mark is an empty box that would synthesise one from its border edge. So
+     the mark leaves the flex flow entirely (absolute, see ::before) and the
+     span is the only item left, centred in the full 24px box. */
+  position: relative;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 0;
+  line-height: var(--mx-line-ui);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+}
+.turn-status[data-animate="true"] {
+  animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
+}
+.turn-status.complete, .turn-status.success {
+  color: var(--mx-text-soft);
+  /* The settled row and running band are the same 13px operational line;
+     12px metadata remains the one quiet rung beneath them. */
+  font-weight: var(--mx-weight-medium);
+}
+/* Quiet TUI-style marker instead of a check badge (user): ◈ + phrase, both in
+   NEUTRAL ink. A finished turn is history — colouring its text and mark was
+   too much (user: 폰트색까지 바꾸는 건 과하다 / 완료 후 도형도 굳이). The
+   emphasis budget belongs to the RUNNING band instead; this row only has to
+   stop reading as switched off, which one step up from faint already does. */
+.turn-status.complete::before,
+.turn-status.success::before {
+  /* GEOMETRY, not a character. As text the mark was U+25C8 in a font that does
+     not carry it, so Chromium fell back to Segoe UI Symbol and centred THAT
+     face's line box — the ink then sat off the row's optical centre while the
+     phrase and the clock sat on their own (user: 도형·시간 상하 정렬이 하나도
+     안 맞는다). The running band already abandoned the same character for
+     vector geometry; the settled mark now shares that fix, so a 7px square
+     turned 45° is centred by box math alone. */
+  content: "";
+  /* OUT of the flex flow: as an item it became the container's baseline source
+     and pinned the phrase away from the clock. Absolute keeps the mark exactly
+     centred on the row while the text owns the baseline. */
+  position: absolute;
+  /* Centred in the SAME 16px marker column the running band's
+     .live-activity-icon occupies (8px square → 8 - 4). */
+  left: 4px;
+  top: 50%;
+  /* EVEN box in an even row: at 7px the (24-7)/2 = 8.5px lead put the painted
+     square on a half device pixel while the text beside it snapped to a whole
+     one. 8px keeps the offset integral at every DPI. */
+  width: 8px;
+  height: 8px;
+  margin: 0;
+  background: currentColor;
+  transform: translateY(-50%) rotate(45deg);
+}
+/* ONE left grammar for the running band and its settled twin: a 16px marker
+   column plus the row's 7px gap. The mark is absolute, so the column is paid
+   as padding below. */
+/* 16px marker column + 7px gap = the exact x .live-activity-status opens its
+   verb on. At 17px the phrase jumped 6px left the instant a turn settled
+   (user: done으로 전환될 때 위치 튀는 게 크다). */
+.turn-status.complete, .turn-status.success { padding-left: 23px; }
+/* Settling GLINT: the row arrives at full ink and eases down to its resting
+   soft tier, with the ◈ easing out of a slight overshoot at the same time —
+   the moment of completion flashes, then the row goes quiet on its own. No
+   hue is involved, so the emphasis budget still belongs to the running band.
+   `both` parks the animation on its end frame, which IS the resting color. */
+.turn-status.complete[data-animate="true"],
+.turn-status.success[data-animate="true"] {
+  animation:
+    transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1),
+    turn-status-settle 1100ms cubic-bezier(.2, .8, .2, 1) 120ms both;
+}
+.turn-status.complete[data-animate="true"]::before,
+.turn-status.success[data-animate="true"]::before {
+  animation: turn-status-mark-settle 1100ms cubic-bezier(.2, .8, .2, 1) 120ms both;
+}
+@keyframes turn-status-settle {
+  from { color: var(--mx-text); }
+  to { color: var(--mx-text-soft); }
+}
+@keyframes turn-status-mark-settle {
+  /* The rotation IS the shape now, so every frame has to carry it — a bare
+     scale() would unrotate the rhombus back into a square mid-glint. */
+  from { color: var(--mx-text); transform: rotate(45deg) scale(1.25); }
+  to { color: var(--mx-text-soft); transform: rotate(45deg) scale(1); }
+}
+.turn-status.failed {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) max-content;
+  align-items: start;
+  color: var(--mx-danger);
+}
+.turn-status.failed > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.turn-status.failed .turn-status-icon {
+  align-self: start;
+  margin-top: 2px;
+}
+.turn-status.interrupted {
+  color: var(--mx-warning);
+}
+.turn-status-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-self: center;
+  display: block;
+  transform: translateY(-1px);
+  /* Milestone marks carry more ink than row glyphs; in real pixels the old
+     2.25 24-grid value was 1.5. */
+  stroke-width: 1.5px;
+}
+.turn-status[data-animate="true"] .turn-status-icon {
+  animation: transcript-milestone-icon-pop 420ms cubic-bezier(.2, 1.4, .4, 1);
+}
+.turn-status.complete small, .turn-status.success small {
+  /* The clock is the settled twin of the live band's `4m 36s · 12.7k tokens`
+     readout, so it takes that exact spec — 12px muted behind a quiet middot —
+     instead of floating at the phrase's own size with no separator
+     (user: 시간이 정리가 안 되었잖아). */
+  color: var(--mx-text-muted);
+  /* One size and one 20px line box for every text on the settled row (phrase,
+     detail, clock): a smaller face centred in the same row carries its own
+     baseline, and that remainder is what read as unaligned. Colour, not size,
+     keeps this rung quiet. */
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  font-weight: var(--mx-weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+.turn-status.complete small::before,
+.turn-status.success small::before {
+  content: "\00B7";
+  margin-right: 7px;
+  color: var(--mx-text-faint);
+}
+/* Recovery owns a fixed final column so long failure text wraps without
+   pushing the action out of the pane. */
+.turn-retry {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--mx-accent);
+  background: transparent;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  cursor: pointer;
+}
+.turn-retry:hover:not(:disabled),
+.turn-retry:focus-visible {
+  color: color-mix(in srgb, var(--mx-accent) 72%, var(--mx-text));
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.turn-retry svg { color: var(--mx-accent); }
+.turn-retry:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.compaction-divider {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Breathing room on BOTH sides (user: 상하에 여백 좀 더): this row cuts the
+     thread in two, and at 5px it read as just another line in the stream
+     instead of a boundary between two halves of the conversation. */
+  padding: 12px 0;
+  color: var(--mx-accent);
+  background: transparent;
+  /* Compaction splits the reading flow, so its label stays on the same tier
+     as the prose around it instead of shrinking to operational chrome. */
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-body);
+}
+.compaction-divider[data-animate="true"] {
+  animation: transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1);
+}
+.compaction-divider::before {
+  content: none;
+}
+.compaction-divider::after {
+  content: "";
+  min-width: 24px;
+  /* 2px on a solid hairline ink (user: 띠도 2px에 좀 명확히): the old 1px of
+     48%-accent-tinted border was both thinner and paler than the seams around
+     it, so the rule that is supposed to SPLIT the thread was the faintest
+     line on screen. Neutral, because compaction is a timeline event that
+     needs no action — the colour budget stays with running work, failures
+     and approvals. */
+  height: 2px;
+  flex: 1;
+  margin-left: 4px;
+  background: var(--mx-border-strong);
+}
+.compaction-icon {
+  /* 16px, on the shared icon ladder like every other row glyph. */
+  flex: 0 0 var(--mx-icon-md);
+  align-self: center;
+  display: block;
+  color: var(--mx-accent);
+  /* Same milestone weight as .turn-status-icon, in real pixels. */
+  stroke-width: 1.5px;
+  transform: translateY(-1px);
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--mx-accent) 45%, transparent));
+}
+.compaction-divider[data-animate="true"] .compaction-icon {
+  animation: transcript-milestone-icon-pop 420ms cubic-bezier(.2, 1.4, .4, 1);
+}
+.compaction-divider > span,
+.compaction-divider > small { white-space: nowrap; }
+.compaction-divider > small {
+  min-width: 0;
+  max-width: min(52%, 440px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* The readout matches every other gauge in the thread: 12px muted. It was
+     still tinted with the accent this row no longer uses. */
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
+@keyframes transcript-milestone-enter {
+  from { opacity: 0; transform: translateY(4px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes transcript-milestone-icon-pop {
+  0% { opacity: 0; transform: scale(.55); }
+  65% { opacity: 1; transform: scale(1.18); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes transcript-live-pulse {
+  50% { opacity: var(--mx-op-dim); }
+}
+/* OpenCode prompt-dock parity: approval belongs to the composer stack, never
+   outside the virtual timeline's declared height. */
+.composer-approval-row { margin-bottom: 8px; }
+.approval-card {
+  width: 100%;
+  padding: 16px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 1px var(--mx-approval-ring);
+}
+.approval-heading b { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); }
+.approval-heading small, .approval-card p { color: var(--mx-text-muted); font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
+.approval-card dl { border-top-color: var(--mx-border-muted); color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.approval-actions button, .diff-toggle {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-alpha-light-6);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.approval-actions button:hover:not(:disabled), .diff-toggle:hover:not(:disabled) { background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-alpha-light-6); }
+.approval-actions button:active:not(:disabled), .diff-toggle:active:not(:disabled) { background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-alpha-light-6); }
+.approval-actions button:disabled, .diff-toggle:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.code-diff { border-radius: var(--mx-radius-md); box-shadow: 0 0 0 .5px var(--mx-border); }
+.diff-file > header { height: 32px; border-bottom-color: var(--mx-border-muted); background: var(--mx-bg-layer-1); font-size: var(--mx-font-meta); }
+

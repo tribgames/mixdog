@@ -139,48 +139,152 @@ function hasOpenFence(text) {
   return ticks % 2 === 1 || tildes % 2 === 1;
 }
 
-function hasOpenInlineCode(text) {
-  let count = 0;
-  const value = String(text ?? '');
-  for (let i = 0; i < value.length; i++) {
-    const ch = value[i];
-    if (ch === '\\') {
-      i += 1;
+const FENCED_BLOCK_RE = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm;
+const INLINE_CODE_SPAN_RE = /`+[^`\n]*`+/g;
+const EMPHASIS_MARKERS = new Set(['*', '_', '~']);
+const MARKDOWN_PUNCTUATION_RE = /[!-/:-@[-`{-~\u00a1-\u00bf\u2010-\u2027\u2030-\u205e]/;
+const HEALABLE_SYNTAX_RE = /[`*_~[]/;
+
+/** Close an inline code span the model has not finished typing. */
+function closeInlineCode(text) {
+  let open = 0;
+  let index = 0;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '\\') {
+      index += 2;
       continue;
     }
-    if (ch !== '`') continue;
-    let run = 1;
-    while (value[i + run] === '`') run += 1;
-    if (run === 1) count += 1;
-    i += run - 1;
-  }
-  return count % 2 === 1;
-}
-
-function hasUnclosedDelimiter(text, marker) {
-  let count = 0;
-  const value = String(text ?? '');
-  for (let i = 0; i < value.length; i++) {
-    if (value[i] === '\\') {
-      i += 1;
+    if (character !== '`') {
+      index += 1;
       continue;
     }
-    if (value.startsWith(marker, i)) {
-      count += 1;
-      i += marker.length - 1;
-    }
+    let end = index + 1;
+    while (end < text.length && text[end] === '`') end += 1;
+    const run = end - index;
+    if (!open) open = run;
+    else if (run === open) open = 0;
+    index = end;
   }
-  return count % 2 === 1;
+  return open > 0 ? `${text}${'`'.repeat(open)}` : text;
 }
 
+// Delimiter counting must ignore code, where `**` and `_` are ordinary
+// characters. Masking preserves length, so it stays a pure counting aid.
+function maskCode(text) {
+  FENCED_BLOCK_RE.lastIndex = 0;
+  INLINE_CODE_SPAN_RE.lastIndex = 0;
+  return text
+    .replace(FENCED_BLOCK_RE, (block) => block.replace(/[^\n]/g, ' '))
+    .replace(INLINE_CODE_SPAN_RE, (span) => ' '.repeat(span.length));
+}
+
+function isMarkdownSpace(character) {
+  return !character || /\s/.test(character);
+}
+
+function isMarkdownPunctuation(character) {
+  return Boolean(character) && MARKDOWN_PUNCTUATION_RE.test(character);
+}
+
+// CommonMark flanking rules, so a literal "2 * 3", a "* item" bullet, or an
+// intraword snake_case is never mistaken for an unfinished emphasis run.
+function scanEmphasisRuns(masked) {
+  const runs = [];
+  for (let index = 0; index < masked.length;) {
+    const marker = masked[index];
+    if (marker === '\\') {
+      index += 2;
+      continue;
+    }
+    if (!EMPHASIS_MARKERS.has(marker)) {
+      index += 1;
+      continue;
+    }
+    let end = index + 1;
+    while (masked[end] === marker) end += 1;
+    const length = end - index;
+    const before = index > 0 ? masked[index - 1] : '';
+    const after = end < masked.length ? masked[end] : '';
+    const beforeSpace = isMarkdownSpace(before);
+    const afterSpace = isMarkdownSpace(after);
+    const beforePunctuation = isMarkdownPunctuation(before);
+    const afterPunctuation = isMarkdownPunctuation(after);
+    const left = !afterSpace && (!afterPunctuation || beforeSpace || beforePunctuation);
+    const right = !beforeSpace && (!beforePunctuation || afterSpace || afterPunctuation);
+    if (marker === '~') {
+      // GFM strikethrough only exists as a pair.
+      if (length >= 2) runs.push({ marker, length: 2, canOpen: left, canClose: right });
+    } else if (marker === '_') {
+      runs.push({
+        marker,
+        length,
+        canOpen: left && (!right || beforePunctuation),
+        canClose: right && (!left || afterPunctuation),
+      });
+    } else {
+      runs.push({ marker, length, canOpen: left, canClose: right });
+    }
+    index = end;
+  }
+  return runs;
+}
+
+function closeEmphasis(text) {
+  const open = [];
+  for (const run of scanEmphasisRuns(maskCode(text))) {
+    let length = run.length;
+    while (run.canClose && length > 0) {
+      let match = -1;
+      for (let index = open.length - 1; index >= 0; index -= 1) {
+        if (open[index].marker === run.marker) {
+          match = index;
+          break;
+        }
+      }
+      if (match < 0) break;
+      const opener = open[match];
+      const used = Math.min(opener.length, length);
+      opener.length -= used;
+      length -= used;
+      // Delimiters opened INSIDE the span this closer terminates can never be
+      // closed any more, so they leave with it.
+      open.length = opener.length > 0 ? match + 1 : match;
+    }
+    if (length > 0 && run.canOpen) open.push({ marker: run.marker, length });
+  }
+  let healed = text;
+  for (let index = open.length - 1; index >= 0; index -= 1) {
+    healed += open[index].marker.repeat(Math.min(open[index].length, 3));
+  }
+  return healed;
+}
+
+// Text-only link healing: an unfinished link or image reads as its label until
+// the destination closes, instead of showing "[docs](https://exa" and snapping.
+function healIncompleteLink(text) {
+  const masked = maskCode(text);
+  const open = masked.lastIndexOf('[');
+  if (open < 0) return text;
+  const start = open > 0 && masked[open - 1] === '!' ? open - 1 : open;
+  const label = masked.indexOf(']', open);
+  if (label < 0) return `${text.slice(0, start)}${text.slice(open + 1)}`;
+  // A reference use ("[docs][1]") or a task-list box stays exactly as typed.
+  if (masked[label + 1] !== '(') return text;
+  if (masked.indexOf(')', label + 1) >= 0) return text;
+  return `${text.slice(0, start)}${text.slice(open + 1, label)}`;
+}
+
+/**
+ * Close the inline markers the model has not finished typing yet, so `**계획`
+ * renders bold WHILE it streams instead of showing raw markers that snap into
+ * style when the closer lands. Emphasis (`*`, `_`, `~~`), inline code and
+ * unfinished links are all healed — the same contract as the desktop pipeline.
+ */
 export function balanceStreamingMarkdown(text) {
   const value = String(text ?? '');
-  if (!value || hasOpenFence(value)) return value;
-  if (hasOpenInlineCode(value)) return `${value}\``;
-  let rendered = value;
-  if (hasUnclosedDelimiter(rendered, '**')) rendered += '**';
-  if (hasUnclosedDelimiter(rendered, '__')) rendered += '__';
-  return rendered;
+  if (!value || !HEALABLE_SYNTAX_RE.test(value) || hasOpenFence(value)) return value;
+  return closeEmphasis(healIncompleteLink(closeInlineCode(value)));
 }
 
 export function resetStreamingMarkdownStablePrefix(streamKey) {

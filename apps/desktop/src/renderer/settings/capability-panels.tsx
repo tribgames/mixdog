@@ -478,7 +478,7 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
   const profile = record(data.profile);
   const toolModules = record(data.toolModules);
   const recap = record(data.recap);
-  const searchModule = record(toolModules.search);
+  const webSearchModule = record(toolModules.webSearch);
   const memoryModule = record(toolModules.memory);
   // Voice transcription moved here from the retired Channels page (user:
   // 음성전사만 일반으로): the managed Whisper runtime powers voice input.
@@ -486,6 +486,7 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
   const voiceProgress = record(record(snapshot).progressHint);
   const voiceComponents = record(voice.components);
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
+  const experienceLevelOptions = rows(profile.experienceLevels).map((entry) => ({ value: String(entry.id || entry.value || ''), label: label(entry) }));
   const busy = Boolean(pending);
   return <>
     <Group title="Profile">
@@ -494,10 +495,12 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
         onSave={(title) => void run('setProfile', [{ title }])} />
       <SelectRow title="Language" value={String(profile.language || 'system')} disabled={busy}
         options={languageOptions} onChange={(language) => void run('setProfile', [{ language }])} />
+      <SelectRow title="Experience level" value={String(profile.experienceLevel || '')} disabled={busy}
+        options={experienceLevelOptions} onChange={(experienceLevel) => void run('setProfile', [{ experienceLevel }])} />
     </Group>
     <Group title="Features">
-      <ToggleRow title="Web search" description="Expose search and web fetch tools to new sessions."
-        checked={searchModule.enabled !== false} disabled={busy}
+      <ToggleRow title="Web search" description="Expose web search and web fetch tools to new sessions."
+        checked={webSearchModule.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setWebSearchEnabled', [enabled])} />
       <ToggleRow title="Memory" description={t("Memory and recall tools, core-memory injection, and background memory upkeep.")}
         checked={memoryModule.enabled !== false && recap.enabled !== false} disabled={busy}

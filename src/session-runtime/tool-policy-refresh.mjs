@@ -15,14 +15,22 @@ function toolNames(list) {
   )).filter(Boolean);
 }
 
+function replaceMessageContent(messages, target, content) {
+  const index = messages.indexOf(target);
+  if (index < 0) return false;
+  messages[index] = { ...target, content };
+  return true;
+}
+
 function rewriteSystemHeading(session, heading, nextContent) {
   if (!nextContent) return;
-  const target = (session.messages || []).find((message) => (
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const target = messages.find((message) => (
     message?.role === 'system'
     && typeof message.content === 'string'
     && message.content.startsWith(heading)
   ));
-  if (target) target.content = nextContent;
+  if (target) replaceMessageContent(messages, target, nextContent);
 }
 
 function rewriteBp3Core(session, nextCore) {
@@ -34,8 +42,19 @@ function rewriteBp3Core(session, nextCore) {
       && message.content.startsWith('# Active Workflow:')
     ));
   if (!bp3 || typeof bp3.content !== 'string') return;
+  if (session.bp3EnvSplit === true) {
+    // Split layout: the environment lives in its own cacheTier:'env' system
+    // block — the tier3 block carries the core only.
+    replaceMessageContent(messages, bp3, nextCore || '');
+    session.bp3CoreContext = nextCore || '';
+    return;
+  }
   const env = session.bp3EnvironmentContext || '';
-  bp3.content = [nextCore, env].filter((part) => String(part || '').trim()).join('\n\n---\n\n');
+  replaceMessageContent(
+    messages,
+    bp3,
+    [nextCore, env].filter((part) => String(part || '').trim()).join('\n\n---\n\n'),
+  );
   session.bp3CoreContext = nextCore || '';
 }
 

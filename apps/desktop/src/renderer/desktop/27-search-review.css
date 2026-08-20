@@ -1,0 +1,615 @@
+/* Desktop layer 27 — Workbench search and turn review.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Plain query field, then equal-width mode buttons. Source Control uses this
+   exact top control stack as Search. */
+.workbench-explorer-search, .dock-scm-view-controls { flex: 0 0 auto; display: grid; gap: 3px; padding: 6px 12px 0; border-bottom: 1px solid var(--mx-border-muted); }
+/* THE workbench search/filter box — one component grammar for every panel:
+   the Search pane's `Search files` field is the reference shape, and the
+   dock's Changes `Filter` and History `Search commits` boxes render from
+   THIS rule alone (height, insets, icon box, clear button, hairline and
+   focus affordance). Panels may place the box; they may not restyle it. */
+.workbench-search-input { min-width: 0; height: 28px; display: flex; align-items: center; gap: 5px; padding: 0 3px 0 7px; border: 1px solid var(--mx-border); border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: var(--mx-workspace-sheet); }
+.workbench-search-input:focus-within { border-color: var(--mx-focus); }
+/* The leading glyph is one fixed 14px box in every panel — it never shrinks
+   with the field. */
+.workbench-search-input > svg { width: var(--mx-icon-sm); height: var(--mx-icon-sm); flex: 0 0 var(--mx-icon-sm); }
+.workbench-search-input input { width: 100%; min-width: 0; flex: 1; border: 0; outline: 0; color: var(--mx-text); background: transparent; font: inherit; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; }
+/* type="search" fields would paint Chromium's own cancel glyph beside the
+   component's clear button — two clear affordances in one box. The X below
+   is THE clear button (the native Escape behaviour is untouched). */
+.workbench-search-input input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+.workbench-search-input button { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.workbench-search-input button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.workbench-search-mode, .dock-scm-tab-bar { height: 30px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 4px; padding: 2px 0 4px; background: transparent; }
+/* Flat segmented control (user: 버튼 스타일 파일쪽 문법으로): borderless rows
+   with the pill hover, active = full ink + 600 + the underline bar. Shared by
+   the explorer search mode and Source Control's Changes | History selector. */
+.workbench-search-mode button, .dock-scm-tab { position: relative; min-width: 0; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0 8px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font-family: inherit; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); text-align: center; cursor: pointer; }
+.workbench-search-mode button:hover, .dock-scm-tab:hover { color: var(--mx-text); background: var(--mx-hover); }
+.workbench-search-mode button[aria-selected="true"], .dock-scm-tab[aria-checked="true"] { color: var(--mx-text); background: transparent; box-shadow: none; font-weight: var(--mx-weight-semibold); }
+/* The bar's 4px bottom padding kept the underline floating above the section
+   divider (user: 밑줄이 살짝 떠있는거같은데 붙혀줘 바닥에) — extend the bar
+   through that padding so it lands ON the divider line. */
+.workbench-search-mode button[aria-selected="true"]::after, .dock-scm-tab[aria-checked="true"]::after { position: absolute; right: 3px; bottom: -4px; left: 3px; height: 2px; border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0; background: var(--mx-text); content: ""; }
+.workbench-search-mode button:focus-visible, .dock-scm-tab:focus-visible { outline: 1px solid var(--mx-focus); outline-offset: -1px; }
+.dock-scm-tab-content { min-width: 0; max-width: 100%; display: flex; align-items: center; justify-content: center; }
+.dock-scm-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Orca empty state: one centered hint under generous whitespace. */
+.workbench-explorer > .utility-dock-empty { margin-top: 44px; text-align: center; }
+.workbench-search-name-row { min-height: 24px; width: 100%; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
+.workbench-search-name-row:hover { background: var(--mx-hover); }
+.workbench-search-name-row b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
+.workbench-search-name-row small { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-muted); }
+.workbench-search-results { min-height: 0; flex: 1; overflow: auto; }
+.workbench-search-summary { margin: 0; padding: 5px 10px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.workbench-search-file { border-top: 1px solid var(--mx-border-muted); }
+.workbench-search-file > summary { min-height: 28px; display: flex; align-items: center; gap: 5px; padding: 0 7px; cursor: pointer; }
+.workbench-search-file > summary b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
+.workbench-search-file > summary small { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mx-text-muted); }
+.workbench-search-file > summary i { font-style: normal; color: var(--mx-text-muted); }
+.workbench-search-file > button { width: 100%; min-height: 24px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 5px; align-items: start; border: 0; padding: 3px 8px; text-align: left; color: var(--mx-text); background: transparent; }
+.workbench-search-file > button:hover { background: var(--mx-hover); }
+.workbench-search-file > button > span { color: var(--mx-text-muted); text-align: right; font-size: var(--mx-font-micro); line-height: var(--mx-line-minor); }
+.workbench-search-file > button > code { overflow: hidden; text-overflow: ellipsis; white-space: pre; font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: var(--mx-line-minor); }
+.app-shell > .desktop-body .editor-statusbar { display: none; }
+/* Turn-review bar: attached above the input in the bottom stack (user
+   decision). A late worker result grows the composer region upward and the
+   transcript's bottom anchor absorbs that single layout change. */
+.turn-review-slot {
+  position: relative;
+  z-index: 6;
+  width: 100%;
+  max-width: 100%;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.turn-review-slot:empty:not([data-reserved="true"]) { display: none; }
+.turn-review-slot[data-reserved="true"] {
+  min-height: 28px;
+  margin-bottom: 8px;
+}
+.turn-review-slot:has(.turn-review-bar) { margin-bottom: 8px; }
+.turn-review-slot > * { pointer-events: auto; }
+.turn-review-bar {
+  container-type: inline-size;
+  width: 100%;
+  margin: 0 auto;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.turn-review-summary {
+  width: 100%;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+  cursor: pointer;
+}
+.turn-review-summary:hover { color: var(--mx-text); }
+.turn-review-summary svg { color: var(--mx-icon-muted); }
+.turn-review-summary strong {
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+}
+/* File count and deltas are one left-aligned summary. Attribution is a quiet
+   inline suffix; only controls occupy the right edge. */
+.turn-review-attribution {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-review-summary .diff-stats {
+  display: grid;
+  grid-template-columns: 30px 30px;
+  gap: 6px;
+  margin-left: 0;
+}
+/* One header grammar: disclosure on the left, a single ordered controls group
+   on the right (view mode first, destructive action last). */
+.turn-review-head {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--mx-radius-md);
+}
+.turn-review-bar[data-expanded="true"] .turn-review-head {
+  border-bottom: .5px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0;
+}
+.turn-review-head .turn-review-summary { width: auto; flex: 1; min-width: 0; }
+.turn-review-controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 6px;
+}
+.turn-review-undo {
+  min-height: 24px;
+  min-width: 62px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: var(--mx-button);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-medium);
+  cursor: pointer;
+  justify-content: center;
+}
+.turn-review-undo:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+}
+.turn-review-undo:disabled {
+  /* Busy/unavailable still needs to read as a labeled action at 12px; the
+     quieter plate and lack of hover carry the disabled state. */
+  color: var(--mx-text-soft);
+  background: var(--mx-hover);
+  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+  opacity: 1;
+  cursor: default;
+}
+.turn-review-undo:disabled:hover {
+  color: var(--mx-text-soft);
+  background: var(--mx-hover);
+}
+.turn-review-confirm-all { flex: 0 0 auto; }
+.turn-review-style {
+  flex: 0 0 auto;
+  gap: 0;
+  padding: 2px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-alpha-light-6);
+}
+.turn-review-style button {
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: var(--mx-radius-sm);
+}
+/* No separate expander affordance: the summary row IS the toggle (user
+   request), so the chevron that used to trail it is gone. */
+/* Numeric delta columns share one tabular grid so the header total and every
+   file row line up vertically (+N / -M read as two aligned columns). */
+.turn-review-bar .diff-stats { font-variant-numeric: tabular-nums; }
+.turn-review-bar .diff-stats i,
+.turn-review-bar .diff-stats em { min-width: 30px; text-align: right; }
+/* Codex/OpenCode parity: disclosure geometry commits once. Animating this
+   grid row forced the transcript viewport through ~12 separate heights and
+   made followed content visibly travel even though every frame was re-pinned. */
+.turn-review-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+}
+.turn-review-bar[data-expanded="true"] .turn-review-collapse { grid-template-rows: 1fr; }
+.turn-review-collapse-inner { min-height: 0; overflow: hidden; }
+.turn-review-files {
+  /* Tall upward expansion (user request): the open panel claims up to ~60%
+     of the viewport instead of a 132px sliver, and stays the ONLY scroller
+     (the inline diff below has no height cap of its own). The pane-height
+     term (85cqh minus head/composer chrome) keeps ~10%+ of the pane visible
+     above the open panel in split layouts, where 60vh of the WINDOW used to
+     fill the whole pane (user: 디프창이 가득 안 차게, 위 10%는 남겨줘). */
+  max-height: min(60vh, 720px, max(160px, 85cqh - 160px));
+  margin: 0;
+  padding: 0 6px 4px;
+  overflow-y: auto;
+  list-style: none;
+}
+.turn-review-files li {
+  min-height: 24px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 30px 30px 28px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 0 4px;
+  border-radius: var(--mx-radius-md);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+}
+.turn-review-files li:not(.turn-review-source):hover { background: var(--mx-hover); }
+.turn-review-files li.turn-review-source {
+  min-height: 24px;
+  color: var(--mx-text-muted);
+  border-bottom: .5px solid var(--mx-border-muted);
+  border-radius: 0;
+}
+.turn-review-files li.turn-review-source:not(:first-child) { margin-top: 4px; }
+.turn-review-source strong {
+  grid-column: 1 / 3;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.turn-review-source .diff-stats {
+  display: contents;
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.turn-review-source .diff-stats i,
+.turn-review-source .diff-stats em { min-width: 0; }
+.turn-review-source .diff-stats i { grid-column: 3; }
+.turn-review-source .diff-stats em { grid-column: 4; }
+/* Row → inline diff + guarded revert (user request): the filename is a
+   disclosure button; revert restores the file to this turn's baseline. */
+.turn-review-file {
+  grid-column: 1 / 5;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: subgrid;
+  min-width: 0;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.turn-review-file .turn-review-status {
+  grid-column: 1;
+  width: 14px;
+  justify-self: center;
+  text-align: center;
+}
+.turn-review-file code { grid-column: 2; }
+.turn-review-bar .turn-review-status,
+.turn-review-bar .turn-review-status[data-status] {
+  padding: 0;
+  border-radius: 0;
+  color: var(--mx-text-faint);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.turn-review-bar .turn-review-status[data-status="A"],
+.turn-review-bar .turn-review-status[data-status="C"] { color: var(--mx-success); }
+.turn-review-bar .turn-review-status[data-status="D"] { color: var(--mx-danger); }
+.turn-review-bar .turn-review-status[data-status="M"],
+.turn-review-bar .turn-review-status[data-status="T"] { color: var(--mx-warning); }
+.turn-review-bar .turn-review-status[data-status="R"] { color: var(--mx-accent); }
+.turn-review-file .diff-stats {
+  display: contents;
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  margin-left: 0;
+}
+.turn-review-file .diff-stats i,
+.turn-review-file .diff-stats em { min-width: 0; }
+.turn-review-file .diff-stats i { grid-column: 3; }
+.turn-review-file .diff-stats em { grid-column: 4; }
+.turn-review-files li:hover code { color: var(--mx-text); }
+.turn-review-action-slot {
+  grid-column: 5;
+  width: 28px;
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.turn-review-revert {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  background: transparent;
+  color: var(--mx-text-muted);
+  cursor: pointer;
+}
+.turn-review-revert:hover { color: var(--mx-text); background: var(--mx-hover); }
+.turn-review-revert:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.turn-review-diff {
+  grid-column: 1 / -1;
+  width: 100%;
+  overflow: auto;
+  margin: 4px 0 6px;
+  padding: 4px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+}
+@container (max-width: 540px) {
+  .turn-review-attribution { display: none; }
+  .turn-review-undo {
+    min-width: 24px;
+    width: 24px;
+    padding: 0;
+  }
+  .turn-review-undo > span { display: none; }
+}
+@container (max-width: 440px) {
+  .turn-review-style button { padding: 0 5px; }
+}
+/* Inline X/✓ confirm replaces the native window.confirm (user: OS popup
+   clashed with the app chrome). Same grammar as session-row delete. */
+.turn-review-confirm { display: inline-flex; align-items: center; gap: 2px; }
+.turn-review-revert.danger { color: var(--mx-text); }
+/* A refused revert states its reason on the bar itself. Silence read as a
+   broken button. */
+.turn-review-error {
+  margin: 0;
+  padding: 4px 10px 6px;
+  color: var(--mx-danger);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  overflow-wrap: anywhere;
+}
+.turn-review-files li[data-reverted="true"] code {
+  text-decoration: line-through;
+  color: var(--mx-text-faint);
+}
+.turn-review-files code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+}
+.queue-remove {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.queue-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
+.session-context-indicator[data-open="true"] .session-context-popover { pointer-events: auto; }
+.context-compact {
+  width: 100%;
+  min-height: 26px;
+  margin-top: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-alpha-light-6);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.context-compact:hover:not(:disabled) { background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-alpha-light-6); }
+.context-compact:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* ── Main-area Review pane ─────────── */
+/* Diff surface theming: @git-diff-view ships a GitHub palette (blue hunk
+   bands, saturated pastel add/del). Override its custom properties with our
+   warm tokens — var()-based, so light AND dark themes both resolve. The
+   div-prefixed selector outranks the library's lazily loaded sheet. */
+div.diff-tailwindcss-wrapper[data-theme="light"],
+div.diff-tailwindcss-wrapper[data-theme="dark"] {
+  font-family: var(--mx-font-mono);
+  --diff-border--: var(--mx-border-muted);
+  --diff-plain-content--: var(--mx-bg-base);
+  --diff-plain-lineNumber--: var(--mx-bg-base);
+  --diff-plain-lineNumber-color--: var(--mx-text-faint);
+  --diff-expand-content--: var(--mx-bg-layer-1);
+  --diff-expand-lineNumber--: var(--mx-bg-layer-1);
+  --diff-expand-lineNumber-color--: var(--mx-text-faint);
+  --diff-empty-content--: var(--mx-bg-layer-1);
+  --diff-add-content--: color-mix(in srgb, var(--mx-success) 11%, var(--mx-bg-base));
+  --diff-add-lineNumber--: color-mix(in srgb, var(--mx-success) 20%, var(--mx-bg-base));
+  --diff-add-content-highlight--: color-mix(in srgb, var(--mx-success) 30%, var(--mx-bg-base));
+  --diff-del-content--: color-mix(in srgb, var(--mx-danger) 9%, var(--mx-bg-base));
+  --diff-del-lineNumber--: color-mix(in srgb, var(--mx-danger) 17%, var(--mx-bg-base));
+  --diff-del-content-highlight--: color-mix(in srgb, var(--mx-danger) 27%, var(--mx-bg-base));
+  --diff-hunk-content--: color-mix(in srgb, var(--mx-text) 5%, var(--mx-bg-base));
+  --diff-hunk-lineNumber--: color-mix(in srgb, var(--mx-text) 9%, var(--mx-bg-base));
+  --diff-hunk-lineNumber-hover--: var(--mx-text-muted);
+  --diff-hunk-content-color--: var(--mx-text-muted);
+  --diff-add-widget--: var(--mx-bg-contrast);
+  --diff-add-widget-color--: var(--mx-grey-100);
+}
+.review-pane {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.review-header {
+  flex: 0 0 auto;
+  width: min(100%, 800px);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 32px;
+  background: var(--mx-workspace-sheet);
+}
+/* The scrollbar belongs to the CONTENT band under the header (user), so the
+   header sits outside the scroller and file headers stick at top 0. */
+.review-scroll { min-height: 0; flex: 1; overflow: auto; padding-bottom: 24px; }
+.review-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.review-title h2 { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: 1; }
+.review-branch { color: var(--mx-text-muted); font-size: var(--mx-font-minor); white-space: nowrap; }
+.review-branch b { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
+.review-total { flex: 0 0 auto; font-size: var(--mx-font-minor); }
+.review-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.review-style-toggle { display: flex; gap: 2px; }
+.review-style-toggle button {
+  min-height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.review-style-toggle button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.review-style-toggle button[aria-pressed="true"] { color: var(--mx-text); background: var(--mx-pressed); }
+.review-action-btn {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.review-action-btn:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.review-empty { padding: 32px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); text-align: center; }
+/* Whole-pane states (no project / loading / error): center on both axes. */
+.review-pane > .review-empty:only-child { margin: auto; padding: 0; }
+.review-clean { display: grid; gap: 12px; justify-items: center; }
+.review-empty-state { width: min(100%, 800px); margin: 0 auto; display: grid; gap: 12px; justify-items: center; padding: 0 32px; }
+.review-list { width: min(100%, 800px); margin: 0 auto; display: flex; flex-direction: column; gap: 8px; padding: 0 32px; }
+.review-file {
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.review-file-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-workspace-sheet);
+}
+.review-file[data-open] .review-file-header { border-radius: var(--mx-radius-md) var(--mx-radius-md) 0 0; box-shadow: 0 .5px 0 var(--mx-border-muted); }
+.review-file-trigger {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--mx-icon-muted);
+  text-align: left;
+  cursor: pointer;
+}
+.review-file-name { min-width: 0; flex: 1; display: flex; align-items: baseline; overflow: hidden; white-space: nowrap; }
+.review-file-name small { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
+.review-file-name b { flex: 0 0 auto; color: var(--mx-text); font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); }
+.review-file-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.review-file-meta .diff-stats { font-size: var(--mx-font-meta); font-variant-numeric: tabular-nums; }
+.review-file-meta .diff-stats i, .review-file-meta .diff-stats em { min-width: 36px; text-align: right; }
+.review-change-label { font-size: var(--mx-font-meta); font-style: normal; font-weight: var(--mx-weight-regular); }
+.review-change-label[data-type="added"] { color: var(--mx-success); }
+.review-change-label[data-type="removed"] { color: var(--mx-danger); }
+.review-chevron { flex: 0 0 auto; color: var(--mx-icon-muted); transition: transform .15s ease; }
+.review-file[data-open] .review-chevron { transform: rotate(180deg); }
+/* Revert is a HOVER action (GitHub row grammar): absolutely positioned so
+   the +/− column keeps one right edge on every row. */
+.review-file-header .dock-git-action, .review-file-header .dock-git-revert-confirm {
+  position: absolute;
+  right: 34px;
+  margin: 0;
+  opacity: 0;
+  background: var(--mx-workspace-sheet);
+  box-shadow: 0 0 0 4px var(--mx-workspace-sheet);
+}
+.review-file-header:hover .dock-git-action,
+.review-file-header:focus-within .dock-git-action,
+.review-file-header .dock-git-revert-confirm { opacity: 1; }
+/* Contain the diff library's internal z-indexes (up to 10 !important) so
+   rows can never paint over the sticky header. */
+.review-file-body { position: relative; z-index: 0; padding: 4px 12px 10px; }
+.review-large-diff { display: grid; gap: 6px; justify-items: start; padding: 14px 4px; }
+.review-large-diff b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); }
+.review-large-diff span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
+.review-large-diff button {
+  min-height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+/* Review file context menu: open / reveal / copy / discard. */
+.review-context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 192px;
+  display: grid;
+  padding: 4px;
+  border: .5px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-floating);
+}
+.review-context-menu button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-regular);
+  text-align: left;
+  cursor: pointer;
+}
+.review-context-menu button:hover, .review-context-menu button:focus-visible {
+  background: var(--mx-hover);
+  outline: 0;
+}
+.review-context-menu button[data-danger] { color: var(--mx-danger); }
+
+/* Compact desktop: when both navigation rails are present, keep the Task and
+   Studio content usable instead of spending the remaining pane width on
+   gutters and the Task header's secondary project label. */
+@media (min-width: 761px) and (max-width: 1024px) {
+  .session-header-content { gap: 6px; }
+  .session-header-content h1 {
+    max-width: min(36ch, 100%);
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session-header-status { flex-shrink: 0; }
+  .session-project-badge { display: none; }
+}
+

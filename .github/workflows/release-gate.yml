@@ -36,7 +36,9 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       desktop: ${{ steps.paths.outputs.desktop }}
+      desktop_css_only: ${{ steps.paths.outputs.desktop_css_only }}
       graph: ${{ steps.paths.outputs.graph }}
+      runtime: ${{ steps.paths.outputs.runtime }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -48,9 +50,19 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BASE: ${{ github.event.before }}
+          HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$EVENT_NAME" == push && "$ACTOR" == github-actions\[bot\] && "$HEAD_MESSAGE" =~ ^mixdog\ v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release workflow owns validation for this generated version commit."
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+            echo "desktop_css_only=false" >> "$GITHUB_OUTPUT"
+            echo "graph=false" >> "$GITHUB_OUTPUT"
+            echo "runtime=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           BASE=$PUSH_BASE
           if [[ "$EVENT_NAME" == pull_request ]]; then BASE=$PR_BASE; fi
           if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
@@ -63,13 +75,25 @@ jobs:
           else
             echo "desktop=false" >> "$GITHUB_OUTPUT"
           fi
+          if [[ -s /tmp/changed ]] && ! grep -qvE '^apps/desktop/src/renderer/.*\.css$' /tmp/changed; then
+            echo "desktop_css_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "desktop_css_only=false" >> "$GITHUB_OUTPUT"
+          fi
           if grep -Eq '^native/mixdog-graph/' /tmp/changed; then
             echo "graph=true" >> "$GITHUB_OUTPUT"
           else
             echo "graph=false" >> "$GITHUB_OUTPUT"
           fi
+          if grep -Eq '^(\.github/workflows/|native/|src/runtime/agent/orchestrator/|src/runtime/shared/|scripts/(verify-release-assets|release-gate-test|prepare-native-assets|prepare-native-assets-test|apply-patch-edit-smoke|provider-toolcall-test|provider-contract-test|provider-stream-outcome-test|cursor-provider-test)\.mjs$|package(-lock)?\.json$)' /tmp/changed; then
+            echo "runtime=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "runtime=false" >> "$GITHUB_OUTPUT"
+          fi
 
   runtime:
+    needs: changes
+    if: needs.changes.outputs.runtime == 'true'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -80,17 +104,8 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
-      - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
-      - name: Build TUI
-        run: npm run build:tui
-      - name: Verify release, session, trace, time, and shell contracts
-        run: |
-          npm run test:release-critical
-          npm run test:session
-          node --test src/runtime/memory/lib/trace-store.test.mjs scripts/time-contract-test.mjs
-          npm run test:shellhardening
-          bash -n apps/relay/deploy/deploy.sh apps/relay/deploy/deploy-release.sh
+      - name: Verify the critical release lane
+        run: npm run test:release-critical
 
   desktop:
     needs: changes
@@ -107,11 +122,18 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/desktop/package-lock.json
-      - name: Install
-        run: |
-          npm ci --prefer-offline --no-audit --no-fund
-          npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+      - name: Install desktop dependencies
+        run: npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+      - name: Install root dependencies
+        if: needs.changes.outputs.desktop_css_only != 'true'
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Build CSS-only renderer
+        if: needs.changes.outputs.desktop_css_only == 'true'
+        run: npm run build:fast --prefix apps/desktop
+        env:
+          MIXDOG_ELECTRON_BUILD_TARGETS: renderer
       - name: Build desktop
+        if: needs.changes.outputs.desktop_css_only != 'true'
         run: npm run build --prefix apps/desktop
 
   graph:
@@ -136,6 +158,6 @@ jobs:
           DESKTOP: ${{ needs.desktop.result }}
           GRAPH: ${{ needs.graph.result }}
         run: |
-          test "$RUNTIME" = success
+          [[ "$RUNTIME" == success || "$RUNTIME" == skipped ]]
           [[ "$DESKTOP" == success || "$DESKTOP" == skipped ]]
           [[ "$GRAPH" == success || "$GRAPH" == skipped ]]

@@ -153,6 +153,12 @@ export class SessionHost implements DesktopService {
   private readonly shellJobsPoller: ReturnType<typeof createShellJobsPoller>;
   private readonly taskWorkspacePath: string;
   private shellSnapshot: SessionSnapshot = null;
+  /** Poller-facing engine state. The shell snapshot is the BLANK frame New
+   *  Task/Project publishes: it carries no clientHostPid, so the poller read
+   *  an owner pid of 0 and never scanned a single job record. Session frames
+   *  carry both the owning host pid and the live busy flags. */
+  private engineSnapshot: SessionSnapshot = null;
+  private engineClientHostPid = 0;
   private controlSessionId = '';
   private controlSessionPromise: Promise<string> | null = null;
   private rawSessionRows: Array<Record<string, unknown>> = [];
@@ -170,9 +176,7 @@ export class SessionHost implements DesktopService {
   ) {
     this.sessionClient = sessionClient;
     this.shellJobsPoller = createShellJobsPoller({
-      getEngineState: () => this.shellSnapshot && typeof this.shellSnapshot === 'object'
-        ? this.shellSnapshot as Record<string, unknown>
-        : null,
+      getEngineState: () => this.shellJobsEngineState(),
       moduleUrl: () => '',
       loadModule: runtime.loadStatuslineSegments,
       onChange: (sessionIds) => this.publishShellJobChanges(sessionIds),
@@ -266,6 +270,29 @@ export class SessionHost implements DesktopService {
     this.shellJobsPoller.onEngineEvent();
   }
 
+  /** Live engine state for the shell-job poller: newest session frame first,
+   *  with the blank shell snapshot as the only fallback. A frame that lost its
+   *  pid field still polls under the last known owner. */
+  private shellJobsEngineState(): Record<string, unknown> | null {
+    const base = (this.engineSnapshot ?? this.shellSnapshot) as Record<string, unknown> | null;
+    if (!base || typeof base !== 'object') return null;
+    if (Number(base.ownerClientHostPid || base.clientHostPid) > 0) return base;
+    return this.engineClientHostPid > 0
+      ? { ...base, clientHostPid: this.engineClientHostPid }
+      : base;
+  }
+
+  /** Every session frame refreshes the poller's engine state and re-arms it,
+   *  so a shell promoted to the background surfaces on the fast cadence. */
+  private trackShellJobsEngineState(snapshot: SessionSnapshot): void {
+    if (!snapshot || typeof snapshot !== 'object') return;
+    const state = snapshot as Record<string, unknown>;
+    const pid = Number(state.ownerClientHostPid || state.clientHostPid) || 0;
+    if (pid > 0) this.engineClientHostPid = pid;
+    this.engineSnapshot = snapshot;
+    this.shellJobsPoller.onEngineEvent();
+  }
+
   private snapshotWithShellJobs(sessionId: string, snapshot: SessionSnapshot): SessionSnapshot {
     if (!snapshot || typeof snapshot !== 'object') return snapshot;
     const shellJobs = this.shellJobsPoller.statusFor(sessionId);
@@ -318,6 +345,7 @@ export class SessionHost implements DesktopService {
     if (!snapshot) snapshot = { sessionId: id, items: [], queued: [] } as SessionSnapshot;
     const nextRevision = Number.isFinite(revision) ? revision : (prior?.revision ?? 0);
     this.sessionProjections.set(id, { revision: nextRevision, snapshot });
+    this.trackShellJobsEngineState(snapshot);
     if (publish && id !== this.controlSessionId) this.publishSession(id, snapshot);
     return this.snapshotWithRemoteSession(snapshot);
   }

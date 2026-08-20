@@ -93,6 +93,23 @@ export class TerminalManager {
     return () => this.listeners.delete(listener);
   }
 
+  /** Load the native PTY bindings, forgetting a FAILED load. A cached rejected
+   * import (missing unpacked binding, blocked dlopen) otherwise pins every
+   * later terminal in this service to the first failure, so the view's retry
+   * loop can never recover without restarting the whole daemon. */
+  private loadPtyBindings(): Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> {
+    const pending: Promise<typeof import('@homebridge/node-pty-prebuilt-multiarch')> =
+      this.ptyModule ??= import('@homebridge/node-pty-prebuilt-multiarch')
+        .catch((error: unknown) => {
+          if (this.ptyModule === pending) this.ptyModule = null;
+          throw new Error(
+            'The terminal service could not load its PTY bindings: '
+            + (error instanceof Error ? error.message : String(error)),
+          );
+        });
+    return pending;
+  }
+
   /** Create (or reuse) a PTY; returns id + replay buffer for reattach. */
   async ensure(
     id: string | null,
@@ -104,7 +121,7 @@ export class TerminalManager {
       const existing = this.terminals.get(id);
       if (existing && !existing.disposed) return { id, replay: existing.buffer.read() };
     }
-    const { spawn } = await (this.ptyModule ??= import('@homebridge/node-pty-prebuilt-multiarch'));
+    const { spawn } = await this.loadPtyBindings();
     if (this.disposed) throw new Error('Terminal manager is disposed.');
     const requestedId = id && /^term_[A-Za-z0-9_-]{1,120}$/.test(id) ? id : '';
     const nextId = requestedId || `term_${process.pid}_${++this.sequence}`;

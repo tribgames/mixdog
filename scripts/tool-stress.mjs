@@ -87,11 +87,11 @@ try {
         timed(metric('find'), /tool-defs|no fuzzy match/, () => executeBuiltinTool('find', {
           query: 'tool-defs', limit: 8,
         }, root, opts)),
-        timed(metric('list'), /01-tool\.md|file/, () => executeBuiltinTool('list', {
+        timed(metric('list'), /10-tool-workflow\.md|file/, () => executeBuiltinTool('list', {
           path: 'src/rules/shared',
         }, root, opts)),
-        timed(metric('read'), /Tool Use|read/, () => executeBuiltinTool('read', {
-          path: [['src/rules/shared/01-tool.md', 0, 10], ['package.json', 0, 5]],
+        timed(metric('read'), /Tool Workflow|read/, () => executeBuiltinTool('read', {
+          path: [['src/rules/shared/10-tool-workflow.md', 0, 10], ['package.json', 0, 5]],
         }, root, opts)),
         timed(metric('code_graph'), /symbol|binding|files|edges/i, () => executeCodeGraphTool('code_graph', {
           mode: 'symbols', files: 'scripts/smoke.mjs',

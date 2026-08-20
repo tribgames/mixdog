@@ -37,6 +37,14 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
     title: 'Capture',
     language: 'system',
     languages: [{ id: 'system', label: 'System' }],
+    experienceLevel: 'junior',
+    experienceLevelEntry: { id: 'junior', label: 'Junior' },
+    experienceLevels: [
+      { id: 'beginner', label: 'Beginner' },
+      { id: 'vibe-coder', label: 'Vibe coder' },
+      { id: 'junior', label: 'Junior' },
+      { id: 'expert', label: 'Expert' },
+    ],
   },
   getAutoClear: { enabled: true, idleMs: 3_600_000, providerDefaults: [] },
   getCompactionSettings: { auto: true },
@@ -57,8 +65,8 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
     current: { id: 'default', label: 'Default' },
     styles: [{ id: 'default', label: 'Default' }, { id: 'minimal', label: 'Minimal' }],
   },
-  getSearchRoute: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
-  listSearchModels: [{
+  getWebSearchRoute: { provider: 'openai', model: 'gpt-capture', effort: 'high', fast: true },
+  listWebSearchModels: [{
     provider: 'openai',
     model: 'gpt-capture',
     display: 'Capture',

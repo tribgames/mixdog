@@ -63,7 +63,7 @@ const CAPABILITY_ARITY = {
   contextStatus: [0, 0], addHookRule: [1, 1], setHookRuleEnabled: [2, 2], deleteHookRule: [1, 1],
   memoryControl: [0, 2], recall: [1, 2], runDoctor: [0, 0], compact: [0, 0], listPresets: [0, 0],
   setModel: [1, 1],
-  getSearchRoute: [0, 0], listSearchModels: [0, 1], setSearchRoute: [1, 1], listAgents: [0, 0],
+  getWebSearchRoute: [0, 0], listWebSearchModels: [0, 1], setWebSearchRoute: [1, 1], listAgents: [0, 0],
   listWorkflows: [0, 0], getOutputStyle: [0, 0], listOutputStyles: [0, 0], setOutputStyle: [1, 1],
   setWorkflow: [1, 1],
   getWorkflowPack: [1, 1], saveWorkflowPack: [1, 1], createWorkflow: [1, 1], deleteWorkflow: [1, 1],

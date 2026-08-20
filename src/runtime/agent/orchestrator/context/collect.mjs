@@ -216,8 +216,11 @@ function loadSkillContent(name, cwd) {
  * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR}).
  */
 export function loadSkillResource(name, cwd) {
+    const skillName = String(name || '').trim();
+    if (!skillName)
+        return null;
     const skills = collectSkillsCached(cwd);
-    const skill = skills.find(s => s.name === name);
+    const skill = skills.find(s => s.name === skillName);
     if (!skill)
         return null;
     const content = readSafe(skill.filePath);
@@ -599,7 +602,7 @@ export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {})
             inputSchema: {
                 type: 'object',
                 properties: {
-                    name: { type: 'string', description: 'Skill name' },
+                    name: { type: 'string', description: 'Exact name from available-skills.' },
                 },
                 required: ['name'],
                 additionalProperties: false,
@@ -883,18 +886,25 @@ export function composeSystemPrompt(opts) {
     const sessionMarkerCore = sessionMarkerParts.length
         ? sessionMarkerParts.join('\n\n---\n\n')
         : '';
+    const environmentParts = [];
     for (const value of [
         opts.sessionStartContext,
         opts.projectInstructionsContext,
         opts.environmentContext,
     ]) {
-        if (typeof value === 'string' && value.trim()) sessionMarkerParts.push(value.trim());
+        if (typeof value === 'string' && value.trim()) environmentParts.push(value.trim());
     }
-    const sessionMarker = sessionMarkerParts.length
-        ? sessionMarkerParts.join('\n\n---\n\n')
-        : '';
+    // Volatile session/project environment. Kept OUT of sessionMarkerCore so
+    // Anthropic providers can leave it as an UNMARKED system block (covered by
+    // the messages-tail breakpoint) while prefix-order providers still see it
+    // after the stable context. sessionMarker keeps the combined legacy shape
+    // for callers that consume a single BP3 string.
+    const sessionEnvironment = environmentParts.join('\n\n---\n\n');
+    const sessionMarker = [sessionMarkerCore, sessionEnvironment]
+        .filter(Boolean)
+        .join('\n\n---\n\n');
 
-    return { baseRules, stableSystemContext, sessionMarkerCore, sessionMarker };
+    return { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment, sessionMarker };
 }
 // --- Helpers ---
 function readSafe(path) {

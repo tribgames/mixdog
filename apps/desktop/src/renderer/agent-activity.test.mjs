@@ -5,8 +5,8 @@ import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 
 import { AGENT_POOL_RECONCILE_MS, AgentActivityPane } from "./AgentActivityPane.tsx";
-import { ActiveAgentsIndicator, ActiveShellsIndicator } from "./ActiveAgentsIndicator.tsx";
-import { PaneContextStatus } from "./app-snapshot-views.tsx";
+import { LiveWorkIndicator } from "./SessionStatusIsland.tsx";
+import { PaneStatusIsland } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
 
@@ -41,9 +41,8 @@ test("Agents owner list is independent from the selected session", () => {
   ]), ["lead", "children"]);
 });
 
-const TaskIndicators = ({ snapshot, onOpen }) => React.createElement(React.Fragment, null,
-  React.createElement(ActiveAgentsIndicator, { snapshot, onOpen: onOpen ?? (() => {}) }),
-  React.createElement(ActiveShellsIndicator, { snapshot }));
+const TaskIndicators = ({ snapshot, onOpen }) =>
+  React.createElement(LiveWorkIndicator, { snapshot, onOpen: onOpen ?? (() => {}) });
 
 test("Agent and shell chips follow only their supplied session lane activity", async () => {
   const dom = installDom();
@@ -57,11 +56,7 @@ test("Agent and shell chips follow only their supplied session lane activity", a
         },
       }));
     });
-    assert.deepEqual(
-      [...document.querySelectorAll(".session-agents-count")].map((node) => node.textContent),
-      ["1", "1"],
-    );
-    assert.equal(document.querySelectorAll(".session-shells-indicator").length, 1);
+    assert.equal(document.querySelector(".session-work-indicator")?.dataset.active, "true");
     assert.match(document.body.textContent, /Researcher/);
     assert.match(document.body.textContent, /Shell 1/);
 
@@ -70,9 +65,12 @@ test("Agent and shell chips follow only their supplied session lane activity", a
         snapshot: { sessionId: "lead-a", agentWorkers: [], shellJobs: { count: 0 } },
       }));
     });
-    assert.equal(document.querySelectorAll(".session-agents-indicator").length, 2);
-    assert.equal(document.querySelectorAll('.session-agents-indicator[data-active="false"]').length, 2);
-    assert.equal(document.querySelectorAll(".session-agents-count").length, 0);
+    assert.equal(document.querySelectorAll(".session-work-indicator").length, 1);
+    assert.equal(document.querySelectorAll('.session-work-indicator[data-active="false"]').length, 1);
+    // The card stays mounted while idle (user: 호버해도 그냥 아예 안 나왔거든):
+    // an idle hover answers with one explicit row instead of nothing at all.
+    assert.equal(document.querySelectorAll(".live-work-popover").length, 1);
+    assert.match(document.body.textContent, /No background work/);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -95,12 +93,8 @@ test("Agent chip appears immediately from an active tool call; the shell chip wa
     });
     // Foreground shell calls stream in the transcript tool card; the header
     // chip only surfaces jobs that were promoted to the background.
-    assert.deepEqual(
-      [...document.querySelectorAll(".session-agents-count")].map((node) => node.textContent),
-      ["1"],
-    );
+    assert.equal(document.querySelector(".session-work-indicator")?.dataset.active, "true");
     assert.match(document.body.textContent, /Agent 1/);
-    assert.equal(document.querySelector(".session-shells-indicator")?.dataset.active, "false");
     assert.doesNotMatch(document.body.textContent, /Shell 12/);
 
     await act(async () => {
@@ -116,11 +110,37 @@ test("Agent chip appears immediately from an active tool call; the shell chip wa
         },
       }));
     });
-    assert.deepEqual(
-      [...document.querySelectorAll(".session-agents-count")].map((node) => node.textContent),
-      ["1", "9+"],
-    );
+    assert.equal(document.querySelector(".session-work-indicator")?.dataset.active, "true");
     assert.match(document.body.textContent, /npm test/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("a background shell row reads as its command subject, not raw argv", async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(TaskIndicators, {
+        snapshot: {
+          sessionId: "lead-a",
+          shellJobs: {
+            count: 1,
+            jobs: [{
+              taskId: "job-1",
+              command: 'pwsh -NoProfile -Command "npm run update:dev:fast --prefix apps/desktop"',
+              startedAt: Date.now() - 4_000,
+            }],
+          },
+        },
+      }));
+    });
+    // The card is a summary: a wrapper shell and its flags left only fragments
+    // like `--prefix` behind the ellipsis (user: 문장이 --뭐 이런 걸로 깨져나옴).
+    assert.match(document.body.textContent, /npm run update:dev:fast/);
+    assert.doesNotMatch(document.body.textContent, /--prefix/);
+    assert.doesNotMatch(document.body.textContent, /NoProfile/);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -143,7 +163,7 @@ test("running background agent jobs drive the header icon until terminal", async
         },
       }));
     });
-    assert.equal(document.querySelector(".session-agents-count")?.textContent, "1");
+    assert.equal(document.querySelector(".session-work-indicator")?.dataset.active, "true");
 
     await act(async () => {
       dom.root.render(React.createElement(TaskIndicators, {
@@ -153,7 +173,7 @@ test("running background agent jobs drive the header icon until terminal", async
         },
       }));
     });
-    assert.equal(document.querySelector(".session-agents-indicator")?.dataset.active, "false");
+    assert.equal(document.querySelector(".session-work-indicator")?.dataset.active, "false");
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -277,10 +297,10 @@ test("two session task indicators update independently without focus routing", a
         },
       });
     });
-    assert.equal(document.querySelector('[data-lane="session-a"] .session-agents-count')
-      ?.textContent, "1");
-    assert.equal(document.querySelector('[data-lane="session-b"] .session-agents-count')
-      ?.textContent, "1");
+    assert.equal(document.querySelector('[data-lane="session-a"] .session-work-indicator')
+      ?.dataset.active, "true");
+    assert.equal(document.querySelector('[data-lane="session-b"] .session-work-indicator')
+      ?.dataset.active, "true");
 
     await act(async () => defaultSessionLaneStore.apply({
       sessionId: "session-a",
@@ -288,11 +308,11 @@ test("two session task indicators update independently without focus routing", a
       snapshot: { sessionId: "session-a", shellJobs: { count: 0 } },
     }));
     assert.equal(
-      document.querySelector('[data-lane="session-a"] .session-agents-indicator')?.dataset.active,
+      document.querySelector('[data-lane="session-a"] .session-work-indicator')?.dataset.active,
       "false",
     );
-    assert.equal(document.querySelector('[data-lane="session-b"] .session-agents-count')
-      ?.textContent, "1");
+    assert.equal(document.querySelector('[data-lane="session-b"] .session-work-indicator')
+      ?.dataset.active, "true");
   } finally {
     await act(async () => dom.root.unmount());
     defaultSessionLaneStore.clear();
@@ -304,11 +324,11 @@ test("new task header ignores the previous session lane cache", async () => {
   const dom = installDom();
   const props = {
     hidden: false,
-    onOpen() {},
+    onOpenContext() {},
   };
   try {
     await act(async () => {
-      dom.root.render(React.createElement(PaneContextStatus, {
+      dom.root.render(React.createElement(PaneStatusIsland, {
         ...props,
         sessionId: "session-context",
       }));
@@ -325,7 +345,7 @@ test("new task header ignores the previous session lane cache", async () => {
     assert.match(document.body.textContent, /51%/);
 
     await act(async () => {
-      dom.root.render(React.createElement(PaneContextStatus, {
+      dom.root.render(React.createElement(PaneStatusIsland, {
         ...props,
         sessionId: "",
       }));

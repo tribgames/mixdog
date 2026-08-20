@@ -130,30 +130,85 @@ function bp3SystemMessage(session) {
     )) || null;
 }
 
+function bpEnvSystemMessage(session) {
+    return (Array.isArray(session?.messages) ? session.messages : []).find((message) => (
+        message?.role === 'system' && message.cacheTier === 'env'
+    )) || null;
+}
+
+function joinBp3Parts(parts) {
+    return parts
+        .filter((value) => typeof value === 'string' && value.trim())
+        .map((value) => value.trim())
+        .join(BP3_PART_SEPARATOR);
+}
+
+function replaceSystemMessageContent(session, target, content) {
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    const index = messages.indexOf(target);
+    if (index < 0) return false;
+    messages[index] = { ...target, content };
+    return true;
+}
+
 export function refreshSessionBp3Environment(session, cwd) {
+    // Split layout (bp3EnvSplit): the volatile environment lives in its own
+    // UNMARKED cacheTier:'env' system block; the tier3 core block is never
+    // rewritten, so the refresh cannot invalidate the BP3 cache write.
+    if (session?.bp3EnvSplit === true) {
+        if (typeof session?.bp3EnvironmentContext !== 'string') return false;
+        const sessionBlock = buildSessionStartBlock(session, cwd);
+        const projectBlock = sessionBlock ? buildProjectInstructionsBlock(cwd) : '';
+        const content = joinBp3Parts([sessionBlock, projectBlock, session.bp3EnvironmentContext]);
+        const target = bpEnvSystemMessage(session);
+        if (!target) {
+            if (!content) {
+                session.sessionStartMetaInjected = true;
+                return true;
+            }
+            const messages = Array.isArray(session.messages) ? session.messages : (session.messages = []);
+            let insertAt = 0;
+            while (insertAt < messages.length && messages[insertAt]?.role === 'system') insertAt += 1;
+            messages.splice(insertAt, 0, { role: 'system', content, cacheTier: 'env' });
+        } else {
+            // Session-store delta saves treat stable message references as an
+            // append-only prefix. Replace, never mutate, so a refreshed env
+            // forces the required full snapshot and keeps its prefix guard in sync.
+            replaceSystemMessageContent(session, target, content);
+        }
+        session.sessionStartMetaInjected = true;
+        return true;
+    }
+    // Legacy combined layout: core + environment share the tier3 block.
     const target = bp3SystemMessage(session);
     if (!target || typeof session?.bp3CoreContext !== 'string') return false;
     const sessionBlock = buildSessionStartBlock(session, cwd);
     const projectBlock = sessionBlock ? buildProjectInstructionsBlock(cwd) : '';
-    target.content = [
+    replaceSystemMessageContent(session, target, joinBp3Parts([
         session.bp3CoreContext,
         sessionBlock,
         projectBlock,
         session.bp3EnvironmentContext,
-    ].filter((value) => typeof value === 'string' && value.trim())
-        .map((value) => value.trim())
-        .join(BP3_PART_SEPARATOR);
+    ]));
     session.sessionStartMetaInjected = true;
     return true;
 }
 
 export function resetSessionBp3Environment(session) {
+    if (session?.bp3EnvSplit === true) {
+        const target = bpEnvSystemMessage(session);
+        if (!target || typeof session?.bp3EnvironmentContext !== 'string') return false;
+        replaceSystemMessageContent(session, target, session.bp3EnvironmentContext.trim());
+        session.sessionStartMetaInjected = false;
+        return true;
+    }
     const target = bp3SystemMessage(session);
     if (!target || typeof session?.bp3CoreContext !== 'string') return false;
-    target.content = [session.bp3CoreContext, session.bp3EnvironmentContext]
-        .filter((value) => typeof value === 'string' && value.trim())
-        .map((value) => value.trim())
-        .join(BP3_PART_SEPARATOR);
+    replaceSystemMessageContent(
+        session,
+        target,
+        joinBp3Parts([session.bp3CoreContext, session.bp3EnvironmentContext]),
+    );
     session.sessionStartMetaInjected = false;
     return true;
 }

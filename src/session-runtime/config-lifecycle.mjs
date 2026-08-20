@@ -1,7 +1,7 @@
 // config-lifecycle.mjs — config reload/save/adopt family + output-style status
 // cache, extracted from mixdog-session-runtime.mjs. Dependency-injected factory:
-// closes over config/searchRoute mutable state via getter/setter injection
-// (getConfig/setConfig/getSearchRoute/setSearchRoute) and shared helpers, so the
+// closes over config/webSearchRoute mutable state via getter/setter injection
+// (getConfig/setConfig/getWebSearchRoute/setWebSearchRoute) and shared helpers, so the
 // facade keeps ownership of the mutable locals while the debounce/adopt logic
 // lives here.
 //
@@ -21,8 +21,8 @@ export function createConfigLifecycle({
   // config mutable-state injection
   getConfig,
   setConfig,
-  getSearchRoute,
-  setSearchRoute,
+  getWebSearchRoute,
+  setWebSearchRoute,
   getConfigHasSecrets,
   setConfigHasSecrets,
   getRoute,
@@ -31,7 +31,7 @@ export function createConfigLifecycle({
   sharedCfgMod,
   setConfiguredShell,
   normalizeSystemShellConfig,
-  normalizeSearchRouteConfig,
+  normalizeWebSearchRouteConfig,
   outputStyleStatus,
   LAZY_SECRET_PROVIDERS,
   clean,
@@ -80,9 +80,9 @@ export function createConfigLifecycle({
     setConfigHasSecrets(hasSecrets === true);
     const config = getConfig();
     setConfiguredShell(normalizeSystemShellConfig(config.shell).command);
-    setSearchRoute(
-      normalizeSearchRouteConfig(config.searchRoute)
-        || normalizeSearchRouteConfig(getSearchRoute()),
+    setWebSearchRoute(
+      normalizeWebSearchRouteConfig(config.webSearchRoute)
+        || normalizeWebSearchRouteConfig(getWebSearchRoute()),
     );
     return config;
   }

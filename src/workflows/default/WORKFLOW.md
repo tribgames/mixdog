@@ -22,7 +22,7 @@ one agent. Brief each agent per the Lead Brief contract. A plan that yields
 only one scope buys no parallelism: Lead executes it itself instead of
 wrapping a single agent.
 
-Report the result against the approved plan. Build, deploy, commit,
-and push happen only on an explicit user request.
+Report the result against the approved plan. Build happens only on an explicit
+user request.
 
 On direction change, pause and re-consult the user.

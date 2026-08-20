@@ -9,6 +9,9 @@ type RendererFailureLocation = {
   line?: unknown;
   column?: unknown;
   components?: unknown;
+  /** Explicit classification for a caller that already knows what broke; the
+   *  message-derived code stands in when it is absent. */
+  failureCode?: string;
 };
 
 let lastFingerprint = "";
@@ -86,7 +89,7 @@ function componentNames(value: unknown): string[] | undefined {
   return components.length ? components : undefined;
 }
 
-function reportRendererFailure(
+export function reportRendererFailure(
   phase: RendererFailurePhase,
   reason: unknown,
   location: RendererFailureLocation = {},
@@ -101,7 +104,7 @@ function reportRendererFailure(
     errorName: errorName(reason).slice(0, 80),
     fingerprint,
   };
-  const failureCode = rendererFailureCode(reason);
+  const failureCode = location.failureCode || rendererFailureCode(reason);
   const components = Array.isArray(location.components)
     ? location.components.slice(0, 12).map(String)
     : componentNames(location.components);
@@ -190,12 +193,19 @@ export function DesktopLoadingSurface({
   label,
   overlay = false,
   brand = false,
+  className = "",
 }: {
   label: string;
   overlay?: boolean;
   brand?: boolean;
+  /** Lets a caller dress the cover as the surface it is standing in for. */
+  className?: string;
 }) {
-  return <div className={`desktop-loading-surface${overlay ? " desktop-loading-surface--overlay" : ""}`}
+  return <div className={`desktop-loading-surface${
+      brand ? "" : " desktop-loading-surface--delayed"
+    }${overlay ? " desktop-loading-surface--overlay" : ""}${
+      className ? ` ${className}` : ""
+    }`}
     role="status" aria-live="polite" aria-label={label}>
     {brand
       ? <WindowLoadingMark size={24} aria-hidden="true" />

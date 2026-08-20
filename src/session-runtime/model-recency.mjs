@@ -1,6 +1,6 @@
 // Provider-model version parsing, recency comparison, sorting, and cache-row
 // construction. Extracted from mixdog-session-runtime.mjs. Pure except for the
-// injected route provider (for sort priority) and searchCapableFor predicate.
+// injected route provider (for sort priority) and webSearchCapableFor predicate.
 import { clean } from './session-text.mjs';
 
 function parsedProviderModelVersion(id) {
@@ -88,7 +88,7 @@ export function isSelectableLlmModel(model) {
   return true;
 }
 
-export function providerModelCacheRow(name, m, searchCapableFor) {
+export function providerModelCacheRow(name, m, webSearchCapableFor) {
   return {
     id: m.id,
     provider: name,
@@ -104,7 +104,7 @@ export function providerModelCacheRow(name, m, searchCapableFor) {
     description: m.description || '',
     supportsVision: m.supportsVision === true,
     supportsFunctionCalling: m.supportsFunctionCalling === true,
-    supportsWebSearch: searchCapableFor(name, m),
+    supportsWebSearch: webSearchCapableFor(name, m),
     supportsPromptCaching: m.supportsPromptCaching === true,
     supportsReasoning: m.supportsReasoning === true,
     reasoningLevels: Array.isArray(m.reasoningLevels) ? m.reasoningLevels : undefined,

@@ -12,6 +12,7 @@ import {
   beginBootSurface,
   reportBootSurfaceStage,
 } from './boot-metrics';
+import { reportRendererFailure } from './RendererRecovery';
 import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalWritePump } from './terminal-write-pump';
 import {
@@ -244,6 +245,11 @@ function terminalView(key: string): TerminalView {
           return buffer.cursorX;
         },
         cols: () => term.cols,
+        // One confirmed echo is enough to characterise the shell here: every
+        // extra measured keystroke is a full relay round trip the typist waits
+        // out with nothing on screen (user: 타이핑이 느리다). A mismatch still
+        // rolls back and restarts validation, so the safety net is unchanged.
+        validationStreak: 1,
       })
     : null;
   const created = {
@@ -414,6 +420,15 @@ export default function TerminalPane({
     if (term.element) container.appendChild(term.element);
     else term.open(container);
     tryEnableWebglRenderer(view);
+    // Focus at ATTACH time, not after the PTY round trip. A phone raises its
+    // keypad only for a focus that still sits inside the opening tap's
+    // activation window, so waiting for termEnsure() + replay + fit made the
+    // keyboard arrive seconds later and shove the layout a SECOND time
+    // (user: 터미널 열리고 키패드가 늦게 올라온다). The post-ensure and
+    // activation focus calls stay as fallbacks for a cold or failed attach.
+    if (activeRef.current) {
+      try { term.focus(); } catch { /* element not measurable yet */ }
+    }
     // PTY ensure/replay can be slow. Revealing xterm's empty shell first let
     // the replayed scrollback visibly dump into an already-open terminal
     // (user: PANE 최초 진입 시 스크립트가 튐). Keep PaneSurfaceGate's opaque
@@ -510,15 +525,26 @@ export default function TerminalPane({
       if (disposed || ensureInFlight) return;
       ensureInFlight = runEnsure();
       void ensureInFlight
-        .catch(() => {
+        .catch((error: unknown) => {
           if (disposed) return;
           // Notice/reveal are best-effort (the terminal may already be
           // disposed); retry scheduling must always run.
           if (!noticeShown) {
             noticeShown = true;
+            // Name the concrete failure. A bare "unavailable" hid a missing
+            // native PTY binding behind an endless retry loop.
+            const detail = (error instanceof Error ? error.message : String(error ?? ""))
+              .replace(/\s+/g, " ").trim().slice(0, 200);
             try {
-              term.write("\r\n\x1b[31mterminal service unavailable — retrying…\x1b[0m\r\n");
+              term.write(`\r\n\x1b[31mterminal service unavailable${
+                detail ? ` — ${detail}` : ""} — retrying…\x1b[0m\r\n`);
             } catch { /* xterm disposed mid-failure */ }
+            // A dead PTY host left NO trace in the desktop diagnostics log, so
+            // a terminal that never opened could only be diagnosed live.
+            reportRendererFailure("unhandled-rejection", error, {
+              components: ["TerminalPane"],
+              failureCode: "terminal-pty-unavailable",
+            });
           }
           try {
             onReadyRef.current?.();

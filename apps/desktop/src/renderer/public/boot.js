@@ -1,11 +1,14 @@
-// Android remote web keeps the canonical desktop projection. iOS Safari and
-// home-screen PWAs must retain device-width: WebKit otherwise locks the layout
-// viewport at 1040px before the responsive phone marker can run.
+// Remote phones (iOS and Android Chrome/PWA) keep device-width so the first
+// paint uses native CSS pixels. Desktop browsers still project 1040px.
 if (!/Electron/i.test(navigator.userAgent)) {
   var mixdogViewport = document.querySelector('meta[name="viewport"]');
   var mixdogIos = /iPad|iPhone|iPod/i.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
-  if (mixdogIos) {
+  var mixdogPhone = mixdogIos
+    || (/Android/i.test(navigator.userAgent) && /Mobile/i.test(navigator.userAgent))
+    || ((navigator.maxTouchPoints || 0) > 0
+      && Math.min(screen.width, screen.height) < 768);
+  if (mixdogPhone) {
     if (mixdogViewport) {
       mixdogViewport.setAttribute(
         'content',
@@ -13,8 +16,8 @@ if (!/Electron/i.test(navigator.userAgent)) {
       );
     }
     document.documentElement.dataset.mixdogMobileTabs = '';
-    document.documentElement.dataset.mixdogIosWeb = '';
     document.documentElement.style.setProperty('--mx-device-scale', '1');
+    if (mixdogIos) document.documentElement.dataset.mixdogIosWeb = '';
   } else if (mixdogViewport) {
     mixdogViewport.setAttribute(
       'content',

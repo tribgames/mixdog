@@ -39,7 +39,7 @@ test('refresh migrates PG rows and session reads common plus project scope from 
   const payload = readSessionCoreMemoryPayload(root, project)
 
   assert.equal(migrated.written, true)
-  assert.deepEqual(payload.userLines, ['common rule', 'alpha rule'])
+  assert.deepEqual(payload.userLines, ['[id=1] common rule', '[id=2] alpha rule'])
   assert.deepEqual(payload.dbLines, ['alpha generated', 'common generated'])
 })
 
@@ -93,6 +93,6 @@ test('session core context reads the file without starting memory runtime', asyn
     clean: (value) => String(value ?? '').trim(),
   })
 
-  assert.equal(await plugins.loadCoreMemoryContext(), '- instant context')
+  assert.equal(await plugins.loadCoreMemoryContext(), '- [id=1] instant context')
   assert.equal(memoryStarts, 0)
 })

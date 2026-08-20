@@ -1,0 +1,929 @@
+/* Desktop layer 22 — Markdown prose, code blocks, transcript media.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Progress spinners (tab glyph, session rows, live-work chip) keep rotating
+   under reduced motion: freezing them leaves a broken-circle glyph that reads
+   as a stuck state. The rotation is small, slow, and status-essential. */
+
+/* Transcript audit additions. Kept append-only so the consolidated v2 rules above remain stable. */
+.markdown-code {
+  max-width: 100%;
+  /* CARD rhythm (20px), same as tables, quotes and display math: at 10px the
+     code card sat at half a table's gap and the two never lined up in one
+     answer. Flow blocks (p/lists) keep 12, the section rule keeps 32. */
+  margin: 20px 0;
+  overflow: hidden;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+}
+.markdown-code > header {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 0 12px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-faint);
+  /* A language label is metadata, and the shell's caption tier is 13/16 — at
+     14px it sat above the code it was describing. */
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+/* Parser fallback already uses the final code-block geometry and mono face.
+   Only the copy action arrives with the rich AST, inside the fixed header. */
+.markdown-code-fallback > header { justify-content: flex-start; }
+.markdown-code-copy {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.markdown-code-copy:hover { color: var(--mx-icon); background: transparent; }
+.markdown-code-copy:focus-visible {
+  color: var(--mx-icon);
+  background: transparent;
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.markdown-code > pre {
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  box-shadow: none;
+  /* Wrap long script lines instead of hiding them behind a horizontal
+     scroll (user: commands in the transcript kept getting buried). */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.tool-state.exited { color: var(--mx-warning); }
+.diff-collapsed {
+  position: relative;
+  max-height: 260px;
+  overflow: hidden;
+}
+.diff-collapsed::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 36px;
+  pointer-events: none;
+  background: linear-gradient(transparent, var(--mx-bg-deep));
+}
+
+/* Chat interaction audit additions. */
+.conversation {
+  position: relative;
+  /* Height-queryable pane container: panels inside the pane (turn-review
+     diff) cap themselves against the PANE via cqh, not the window via vh —
+     in a split layout 60vh can exceed the pane and swallow it whole. */
+  container: conversation-pane / size;
+}
+.jump-to-latest {
+  position: absolute;
+  z-index: 9;
+  left: 50%;
+  /* Anchored to .transcript-shell (the scroller's bottom edge): a fixed
+     116/140px guess overlapped the composer whenever it grew (user). */
+  bottom: var(--pane-chrome-inset);
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-2);
+  box-shadow: var(--mx-floating);
+  transform: translateX(-50%);
+}
+/* Hover lightens one layer; --mx-bg-contrast is #242424 in LIGHT mode and
+   turned the pill black on hover. */
+.jump-to-latest:hover, .jump-to-latest:focus-visible { background: var(--mx-bg-layer-3); }
+/* Session status island (user: 우상단에 아이폰 다이나믹 아일랜드 같은 섬).
+   ONE capsule owns the context gauge and the live Agent/Shell chips at the
+   scroller's top-right corner. The readouts used to sit inside the composer
+   footer and float directly above the composer, where they competed with the
+   input surface (user: 채팅 입력을 가린다); here they hang on the pane edge
+   the other floating chrome already uses (--pane-chrome-inset, same ladder as
+   .jump-to-latest). */
+.transcript-shell > .session-status-island {
+  position: absolute;
+  z-index: 9;
+  top: var(--pane-chrome-inset);
+  right: var(--pane-chrome-inset);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--mx-radius-pill);
+}
+/* Translucent frame (user: 프레임은 배경색도 좀 투명하게) on its OWN plate: the
+   capsule tints and blurs the prose behind it instead of stamping an opaque
+   sheet over the transcript, and a hairline keeps its edge readable on both
+   sheets. The blur MUST stay on this pseudo-element — while it sat on the
+   capsule itself, every slot and hover card painted inside the capsule's
+   backdrop-filter group, which cost the cards their crisp text and glued their
+   fade to the frame (user: 글자가 깨져나오고 애니메이션이 프레임에서 진행돼서
+   어색). The island carries z-index 9, so this negative layer stays inside its
+   own stacking context. */
+.transcript-shell > .session-status-island::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--mx-bg-base) 62%, transparent);
+  backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
+}
+/* TWO slots only (user: 쉘하고 에이전트는 합쳐서): work status left, context
+   gauge right. The work slot stays mounted while idle so the capsule keeps
+   ONE resting width and only its count area grows with live work. */
+.session-work-indicator {
+  position: relative;
+  height: 28px;
+  flex: 0 0 auto;
+}
+.session-work-indicator > button {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-faint);
+  background: transparent;
+  cursor: pointer;
+}
+.session-work-indicator > button:disabled { cursor: default; }
+.session-work-indicator > button:hover:not(:disabled),
+.session-work-indicator > button:focus-visible {
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  outline: none;
+}
+/* The glyph carries this slot alone, so it answers the neighboring gauge's
+   ring instead of the row-glyph stroke (user: 아이콘이 너무 얇아). */
+.session-work-indicator .session-work-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75px;
+}
+/* Live work is MOTION only (user: 카운트로 바뀌지 말고 애니만), and the motion
+   belongs to the GLYPH: an accent plate with a gradient sweeping across the
+   whole button box made the island's FRAME look like the thing blinking
+   (user: 애니메이션이 프레임에서 진행돼서 어색). The slot keeps its 28px box,
+   the icon breathes in accent ink, and the exact tally lives in the card. */
+.session-work-indicator[data-active="true"] > button { color: var(--mx-text-accent); }
+.session-work-indicator[data-active="true"] .session-work-icon {
+  animation: work-pulse 1.9s ease-in-out infinite;
+}
+@keyframes work-pulse {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+.session-work-indicator:hover .live-work-popover,
+.session-work-indicator:focus-within .live-work-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-work-indicator[data-active="true"] .session-work-icon {
+    opacity: 1;
+    animation: none;
+  }
+}
+/* Workspace tabs live inside each pane's strip row (VS Code editor groups). */
+.workspace-tabs-shell {
+  position: relative;
+  width: auto;
+  max-width: none;
+  /* The strip self-measures for tab layout widths: the shell must span the
+     full strip row (content-sized boxes cannot report available space). It
+     sits inside the workspace now, so it must NOT drag the window. */
+  min-width: 0;
+  flex: 1 1 0;
+  align-self: center;
+  -webkit-app-region: no-drag;
+  /* The scroll viewport and fixed + slot share one row. The button is a
+     sibling, never an overlay over minimum-width labels. */
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+/* Right-edge strip controls (VS Code editor actions): context/remote,
+   review, and panel toggles dock after the + button. */
+.workspace-tabs-trailing {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding-inline: 4px;
+}
+.workspace-utility-tab {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  overflow: hidden;
+  background: var(--mx-workspace-sheet);
+}
+.terminal-tab-pane { background: var(--mx-terminal-bg); }
+.terminal-tab-pane > .dock-terminal-surface { height: 100%; }
+.workspace { position: relative; }
+.workspace-tabs-shell .workspace-tabs {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  /* Chrome flow (user: PC도 크롬식): the run is CONTENT-sized, so the +
+     button rides right after the last tab instead of a far-edge slot;
+     the leftover row stays the shell's drag band. */
+  flex: 0 1 auto;
+}
+/* Fixed sibling slot: overflow is owned only by the tab viewport, so the last
+   label scrolls up to this edge rather than underneath the + surface. */
+.workspace-tabs-shell > .workspace-tab-new {
+  position: relative;
+  z-index: 3;
+  background: var(--mx-window-band);
+}
+.workspace-tabs[data-group-dragging="true"] { cursor: grabbing; }
+.workspace-tab-close {
+  color: var(--mx-text);
+}
+.workspace-tab-close:hover,
+.workspace-tab-close:focus-visible { color: var(--mx-text); }
+.workspace-tabs .workspace-tab { -webkit-app-region: no-drag; }
+.workspace-tab.preview .workspace-tab-main > span { font-style: italic; }
+.workspace-tab-dirty-glyph {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  color: currentColor;
+  font-size: var(--mx-font-micro);
+  line-height: var(--mx-line-micro);
+}
+.workspace-tab.dirty .workspace-tab-close:hover .workspace-tab-dirty-glyph::before {
+  content: "×";
+  font-size: 16px;
+}
+.workspace-tab.dirty .workspace-tab-close:hover .workspace-tab-dirty-glyph {
+  font-size: 0;
+}
+.workbench-explorer { min-height: 0; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
+.workbench-explorer-root-row { min-width: 0; display: flex; align-items: center; }
+.workbench-explorer-root-row .workbench-explorer-root { min-width: 0; flex: 1; }
+.workbench-explorer-root-remove { flex: 0 0 24px; margin-right: 4px; }
+@media (max-width: 760px) {
+  .workspace-tabs-shell { width: auto; }
+}
+@media (max-width: 480px) {
+  .workspace-tabs-shell { width: auto; }
+}
+
+/* Final surface pass: list, markdown, control, and
+   settings-dialog idioms applied to Mixdog-only capability surfaces. */
+.command-surface .mixdog-settings__body { gap: 36px; }
+.command-surface .settings-group-body {
+  display: grid;
+  padding: 0 20px;
+}
+.command-surface .settings-group-body > p {
+  margin: 0;
+  padding: 20px 0;
+  color: var(--mx-text-muted);
+}
+.command-surface .settings-group-body > label {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: .5px solid var(--mx-border);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.command-surface .settings-group-body > label:last-child { border-bottom: 0; }
+.command-surface input[type="checkbox"],
+.settings-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  margin: 0;
+  border: 1px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-sm);
+  /* Checkbox checked fill is bg-accent (blue-600). */
+  accent-color: var(--mx-accent-bg);
+}
+.command-surface-select-row .mx-select-root { width: min(220px, 100%); margin-left: auto; }
+.command-surface-form {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+}
+.command-surface-form .mx-select-root { min-width: 140px; }
+.command-surface-form input:not([type="checkbox"]),
+.command-surface .settings-group-body > form input:not([type="checkbox"]) {
+  min-width: 120px;
+  height: 28px;
+  flex: 1;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  color: var(--mx-text);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent), var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+}
+.command-surface-form button,
+.command-surface .settings-group-body > button,
+.command-surface .settings-group-body > form button,
+.command-surface .settings-resource-actions button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.command-surface-form button:hover:not(:disabled),
+.command-surface .settings-group-body > button:hover:not(:disabled),
+.command-surface .settings-group-body > form button:hover:not(:disabled),
+.command-surface .settings-resource-actions button:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.command-surface-form button:active:not(:disabled), .command-surface .settings-group-body > button:active:not(:disabled),
+.command-surface .settings-group-body > form button:active:not(:disabled), .command-surface .settings-resource-actions button:active:not(:disabled) { background: var(--mx-flat-press); }
+.command-surface-form button:disabled, .command-surface .settings-group-body > button:disabled,
+.command-surface .settings-group-body > form button:disabled, .command-surface .settings-resource-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.command-surface .settings-resource-actions button.danger { color: var(--mx-danger); }
+.command-surface .tool-detail {
+  max-height: 320px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-deep);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+  white-space: pre-wrap;
+}
+
+/* Restrained transcript heading ladder: prose structure stays visible without
+   breaking the shared 15/24 rhythm into a second typographic system. */
+.markdown h1, .markdown h2, .markdown h3,
+.markdown h4, .markdown h5, .markdown h6 {
+  color: var(--mx-text);
+  /* Content weight is a TWO-step ramp — 450 prose, 650 emphasis — and headings
+     take the emphasis step. The 600 chrome tier put h4 (15/600) BELOW inline
+     `**strong**` (15/650) at the same size, so a bold lead-in outranked the
+     heading above it and read as the real section title. Size and ink carry
+     the heading ladder; weight only answers "emphasized or not". */
+  font-weight: var(--mx-weight-strong);
+  /* A heading is a short line: balance keeps it from dropping one orphan word
+     (or one Hangul 어절) onto a second line. */
+  text-wrap: balance;
+}
+/* Reference ladder (opencode 17/15/13 + muted tail, cherry-studio 1.65/1.35/
+   1.15em, zed 3xl→sm): every rung must differ from BODY, not just from the
+   rung above. h3-h6 all sat at the 15px body size, so anything below h2 was
+   invisible as structure — size carries h1-h3, ink carries h4-h6. The boundary
+   moved down once content weight collapsed to one emphasis step: h4 sits at
+   body size, so with the same ink it was indistinguishable from an inline
+   `**strong**` lead-in. */
+/* No underline rule: an h1 hairline turns a chat answer into a README page
+   (assistant-ui / jan / chatbox all leave h1 bare). Size + the top margin
+   already open the section. */
+/* Literal metrics, like the other content headings: the 22px chrome step gave
+   a 20px heading a 1.1 ratio, and Hangul fills its line box to the edge — a
+   two-line title closed up on itself. */
+.markdown h1 {
+  margin: 24px 0 8px;
+  font-size: 20px;
+  line-height: 28px;
+}
+.markdown h2 { margin: 20px 0 8px; font-size: 18px; line-height: 26px; }
+.markdown h3 { margin: 16px 0 6px; font-size: 16px; line-height: var(--mx-line-body); }
+/* Body size, so INK is what separates it from an inline bold lead-in. */
+.markdown h4 {
+  margin: 14px 0 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-body);
+  line-height: var(--mx-line-body);
+}
+.markdown h5 {
+  margin: 14px 0 6px;
+  color: var(--mx-text-muted);
+  font-size: 14px;
+  line-height: var(--mx-line-body);
+}
+/* h6 remains the quiet final rung through ink rather than another size. */
+.markdown h6 {
+  margin: 14px 0 6px;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  line-height: var(--mx-line-body);
+}
+/* Inline emphasis stays on the prose size but must READ as bold: 500, then 600,
+   both washed out against the 450 prose weight (user: 볼드가 표기 안 된다 →
+   제안값 준 게 제대로 안 나온다), so strong takes its own 650 instance. */
+.markdown strong, .markdown b { color: var(--mx-text); font-weight: var(--mx-weight-strong); }
+.markdown :is(h1, h2, h3, h4, h5, h6) :is(strong, b) { font-weight: inherit; }
+/* ONE list gutter for every marker kind: a 16px marker column plus an 8px gap
+   IS the indent step, so •, 1., 10. and task checkboxes all open their text on
+   the same x, and each nesting level adds exactly one step. Two baselines used
+   to run at once (32px prose lists vs an 18px task list) and the wider step
+   pushed a third level out to 96px, halving the text column in narrow panes. */
+.markdown {
+  --mx-md-indent: 24px;
+}
+.markdown ul, .markdown ol { margin: 12px 0; padding-left: var(--mx-md-indent); }
+/* A NESTED list lives inside its parent item, so the flow-block margin belongs
+   to the outermost list alone — otherwise every level opened a 12px hole
+   between the parent line and its own children. */
+.markdown li > ul, .markdown li > ol { margin: 6px 0 0; }
+/* TIGHT items are single lines and belong to one block: a flat 10px scattered
+   a three-item list into three paragraphs (reference density: assistant-ui
+   4px, jan 8px). A LOOSE item carries its own <p> and IS a paragraph, so it
+   keeps the wider gap that separates prose blocks. */
+.markdown li { margin-bottom: 6px; }
+.markdown li:has(> p) { margin-bottom: 12px; }
+/* The marker is structure, not decoration — faint ink lost the ordinal
+   numbers against the prose they index. */
+.markdown li::marker { color: var(--mx-text-muted); }
+/* Depth-varied ordinals (1. → a. → i.), the ladder the TUI renderer already
+   numbers by hand: three nested levels of bare decimals gave every level the
+   same "1." and the indent alone had to carry the nesting. */
+.markdown ol ol { list-style-type: lower-alpha; }
+.markdown ol ol ol { list-style-type: lower-roman; }
+/* Closing blocks never push their own container open: `p:last-child` covered
+   only paragraphs, so a quote or item ending in a list, table or code card
+   still paid the block margin twice. */
+.markdown blockquote > :last-child,
+.markdown li > :last-child { margin-bottom: 0; }
+.markdown blockquote {
+  margin: 20px 0;
+  /* A quote is a CARD like the code and table blocks, not a bar with prose
+     hanging off it: the plate gives the quoted run its own surface while the
+     ink stays neutral, so no second accent enters the answer. */
+  padding: 10px 14px;
+  border-left: 2px solid var(--mx-border-strong);
+  border-radius: 0 var(--mx-radius-md) var(--mx-radius-md) 0;
+  color: var(--mx-text-muted);
+  background: var(--mx-surface-plate);
+}
+.markdown blockquote > :first-child { margin-top: 0; }
+/* Every table is wrapped in .markdown-table by markdownComponents, and that
+   wrapper owns the box (width, margin, scroll) — only the collapse model is
+   the table's own. The width/margin/display/overflow that used to live here
+   were dead, overridden by `.markdown-table table` further down. */
+.markdown table {
+  border-collapse: collapse;
+  /* A table is a data block, not prose: one step under the 15/26 reading
+     rhythm keeps more of a row on one line, which is what stops a wide table
+     from turning into a scroll strip in a split pane. */
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-emphasis);
+}
+.markdown th, .markdown td {
+  padding: 8px 12px;
+  /* Enough to keep a two-word header off two lines, not enough to inflate a
+     yes/no or count column: at 96px a four-column table forced a horizontal
+     scrollbar it never needed. */
+  min-width: 64px;
+  border-bottom: .5px solid var(--mx-border);
+  text-align: left;
+  vertical-align: top;
+  /* Same Hangul rule as prose — cells wrap between words, and only a token
+     with no break opportunity (a path, a URL) is cut mid-way. */
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  /* Fixed-width digits: a table is where numbers stack, and proportional
+     figures made the columns of counts and sizes wobble row to row. */
+  font-variant-numeric: tabular-nums;
+}
+.markdown th { color: var(--mx-text); font-weight: var(--mx-weight-strong); background: var(--mx-bg-layer-1); }
+.markdown tbody tr:last-child td { border-bottom: 0; }
+
+/* Finished transcript surfaces: constrain rich content without clipping controls or borders. */
+.thread,
+.message,
+.message-body,
+.markdown,
+.tool-card,
+.tool-content,
+.detail-block,
+.code-diff,
+.diff-file { min-width: 0; }
+.message.user {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* Hangul line-breaking: with the default `word-break: normal` the browser may
+   break Korean at ANY syllable, so wrapped prose cut words mid-어절 on every
+   line and the ragged edge read as noise. `keep-all` holds each word together;
+   `overflow-wrap: anywhere` still breaks the long URL/path tokens that would
+   otherwise overflow the column, and `text-wrap: pretty` keeps the last line
+   from ending on a single orphan word. */
+.markdown p, .markdown li, .markdown blockquote {
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  text-wrap: pretty;
+}
+/* Plain-text stand-in while the lazy markdown chunk streams in. */
+.markdown-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Inline code is the ONE colored span in prose (reference rule: the terminal
+   agent colors `codespan` with its accent and leaves headings, strong and
+   links neutral). A single accent has nothing to compete with, so the chip —
+   tint, padding, radius, ring — is gone: color and a box are two marks for one
+   meaning, and the box was the half that squashed against the glyphs. */
+.markdown :not(pre) > code {
+  color: var(--mx-md-code);
+  /* RELATIVE, so one rule covers every tier: mono has a larger optical body
+     than Pretendard, and .88em keeps it a step under its host text whether the
+     host is 15px prose, a 20px h1, or a 15px table cell. The old absolute 13px
+     needed a second rule inside headings and still read oversized in prose. */
+  font-size: .88em;
+  overflow-wrap: anywhere;
+}
+
+/* Byte-free image attachment chips on user messages (reference
+   user-message-attachments): thumbnail when the submitting window still holds
+   the preview, icon + filename after a restart. */
+.message-image-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.message-image-chip {
+  display: inline-flex;
+  overflow: hidden;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+}
+.message-image-chip img { display: block; width: 56px; height: 56px; object-fit: cover; }
+.message-image-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-meta);
+}
+.message-image-fallback svg { color: var(--mx-icon); }
+.message-image-fallback small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+/* Neutral link ink (user: no blue emphasis text) — the underline carries the
+   affordance. Ink and underline live in ONE rule; they used to sit ~6k lines
+   apart, so a later edit could retune half a link. */
+.markdown a {
+  color: var(--mx-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+.markdown a:hover { text-decoration-color: currentColor; }
+.markdown a:focus-visible,
+.markdown-table:focus-visible {
+  border-radius: var(--mx-radius-sm);
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.markdown-table {
+  width: 100%;
+  max-width: 100%;
+  margin: 20px 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  /* Grok-web table container: rounded card with a hairline ring and a tinted
+     header band instead of a naked full-bleed grid. */
+  border-radius: var(--mx-radius-md);
+  box-shadow: 0 0 0 .5px var(--mx-border);
+  background: var(--mx-bg-base);
+}
+.markdown-table table {
+  /* Fill the pane and WRAP. `max-content` sized every column to its longest
+     unbroken line, so a single prose cell pushed the whole table into
+     horizontal scroll while the pane still had room — the columns never got
+     the chance to divide the width they had. Auto layout now splits the pane
+     by content, the per-cell 64px floor keeps a column from collapsing, and
+     the wrapper's overflow-x engages only when that floor truly exceeds the
+     pane (many-column tables). */
+  width: 100%;
+  margin: 0;
+  display: table;
+  overflow: visible;
+  table-layout: auto;
+}
+.markdown-code > pre,
+.detail-block pre,
+.diff-fallback {
+  overscroll-behavior-inline: contain;
+}
+.tool-header { overflow: hidden; }
+.tool-title { min-width: 0; overflow: hidden; }
+.tool-title b,
+.tool-title b [data-component="text-shimmer"],
+.tool-title b [data-slot="text-shimmer-char"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-title small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-state,
+.tool-header > svg { flex: 0 0 auto; }
+.tool-content { overflow: hidden; }
+.detail-block pre {
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.diff-file > header { min-width: 0; }
+.diff-file > header b {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-operation,
+.turn-review-status {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: var(--mx-alpha-light-6);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
+  white-space: nowrap;
+}
+.diff-operation[data-status="A"],
+.turn-review-status[data-status="A"] { color: var(--mx-success); }
+.diff-operation[data-status="D"],
+.turn-review-status[data-status="D"] { color: var(--mx-danger); }
+.diff-operation[data-status="M"],
+.turn-review-status[data-status="M"] { color: var(--mx-warning); }
+.diff-stats { flex: 0 0 auto; display: inline-flex; gap: 6px; white-space: nowrap; }
+/* Conventional review colors: additions green, deletions red (app-wide). */
+.diff-stats i { color: var(--mx-success); font-style: normal; }
+.diff-stats em { color: var(--mx-danger); font-style: normal; }
+.diff-loading {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-faint);
+  background: var(--mx-bg-deep);
+  font-size: var(--mx-font-minor);
+}
+.diff-loading .desktop-loading-spinner {
+  width: 24px;
+  height: 24px;
+}
+.approval-card dd code {
+  display: block;
+  max-height: min(32vh, 240px);
+  overflow: auto;
+}
+.approval-actions {
+  padding-top: 8px;
+}
+
+@media (max-width: 640px) {
+  .approval-card dl { grid-template-columns: 1fr; }
+  .approval-card dd + dt { margin-top: 6px; }
+}
+
+/* Composer cluster: animated status text, compact message navigation, context,
+   count-aware tools, and a dedicated critical tool-error surface. */
+[data-component="text-shimmer"] {
+  /* User tuned: 2000ms still read rushed; half speed again. Applies to the
+     status verb and running tool-title glow alike. */
+  --text-shimmer-duration: 4000ms;
+  /* One source for the band width: the sweep distance below is derived from
+     it, so a narrower band cannot drift out of phase with the loop. */
+  --text-shimmer-size: 320%;
+  display: inline-flex;
+  align-items: baseline;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+}
+[data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
+  display: inline-block;
+  white-space: pre;
+  transition: color 220ms ease-out;
+}
+[data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
+  color: transparent;
+  background: linear-gradient(90deg, var(--mx-text-faint) 15%, var(--mx-text) 48%, var(--mx-text-faint) 82%);
+  background-size: var(--text-shimmer-size) 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: transcript-text-shimmer var(--text-shimmer-duration) linear infinite;
+}
+@keyframes transcript-text-shimmer { to { background-position: calc(-1 * var(--text-shimmer-size)) 0; } }
+.context-usage {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mx-text-faint);
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+}
+.context-usage svg { position: absolute; inset: 4px; width: 20px; height: 20px; transform: rotate(-90deg); }
+.context-usage circle { fill: none; stroke-width: 2; }
+.context-usage-track { stroke: var(--mx-border-strong); }
+.context-usage-value { stroke: var(--mx-text-accent); stroke-linecap: round; }
+/* DELIBERATE sub-micro exception: the readout sits INSIDE a 20px ring, where
+   the 11px micro floor would overflow the stroke. It is a gauge label, not a
+   sentence — the ring itself carries the reading. */
+.context-usage small { font-size: 8px; font-weight: var(--mx-weight-regular); font-variant-numeric: tabular-nums; }
+[data-component="tool-status-title"],
+[data-component="tool-count-summary"],
+[data-component="tool-count-label"] {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.tool-count-label {
+  flex: 0 0 auto;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+}
+/* Failed tools stay visually quiet (TUI parity, user): no red band or card
+   tint — only a failure that arrives on a retained live card blinks. Restored
+   history mounts already failed and must not replay the signal. */
+.tool-card.failed .tool-icon,
+.tool-state.failed { color: var(--mx-danger); }
+.tool-state.warning { color: var(--mx-warning); }
+.tool-card.failed.failure-arrived .tool-icon svg { animation: tool-failed-blink 700ms ease-in-out 2; }
+@keyframes tool-failed-blink { 50% { opacity: var(--mx-op-ghost); } }
+/* TUI toolStatusColor parity, and the user's stated palette: positive green,
+   negative red, neutral amber, running muted. Draining the green was the
+   wrong call — the row's outcome IS the signal people scan for. Order
+   matters: the state rules below override this. */
+/* Saturation follows FREQUENCY: success is the common case (a turn prints six
+   or eight settled rows in a row, which at full chroma reads as a green
+   field), so it keeps the hue but sits back at 70%. Failure and exit are rare
+   and stay at full chroma below, so a problem row now pops out of the stack
+   instead of competing with it. */
+.tool-card.settled .tool-icon { color: color-mix(in srgb, var(--mx-success) 70%, transparent); }
+.tool-card:not(.settled) .tool-icon {
+  color: var(--mx-text-muted);
+}
+/* Re-assert outcome colors AFTER settled green (equal specificity — source
+   order decides). Warning means the invocation returned but its work failed
+   or only part of a mutation committed; red is total invocation failure. */
+.tool-card.failed .tool-icon { color: var(--mx-danger); }
+.tool-card.warning .tool-icon { color: var(--mx-warning); }
+@media (prefers-reduced-motion: reduce) {
+  .tool-card.failed.failure-arrived .tool-icon svg { animation: none; }
+}
+.tool-error-summary {
+  min-width: 0;
+  padding: 0 32px 8px 34px;
+  overflow: hidden;
+  /* STATUS LABEL tier — the same 13px/500 spec as the running band, the
+     settled turn row and the compact tab label. These four are one family of
+     "what is the state of this thing" lines, so only the COLOR separates
+     them: accent while running, soft ink once settled, danger on failure,
+     full ink for the open tab. */
+  color: var(--mx-danger);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-ui);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
+    animation: none;
+  }
+  [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
+    color: inherit;
+    background: none;
+  }
+  .live-work-spinner { animation: none; }
+  .live-activity-status,
+  .live-activity-glyph-spin,
+  .live-activity-glyph-core,
+  .turn-status,
+  .turn-status::before,
+  .turn-status-icon,
+  .compaction-divider,
+  .compaction-icon { animation: none; }
+}
+:root[data-mixdog-motion="paused"] .spin,
+:root[data-mixdog-motion="paused"] .stream-cursor,
+:root[data-mixdog-motion="paused"] .session-row-spinner,
+:root[data-mixdog-motion="paused"] .workspace-tab-status,
+:root[data-mixdog-motion="paused"] .live-work-spinner,
+:root[data-mixdog-motion="paused"] .live-activity-glyph-spin,
+:root[data-mixdog-motion="paused"] .live-activity-glyph-core,
+:root[data-mixdog-motion="paused"] [data-component="text-shimmer"] [data-slot="text-shimmer-char"],
+:root[data-mixdog-motion="paused"] .tool-card:not(.settled) .tool-icon {
+  animation-play-state: paused !important;
+}
+@media (max-width: 640px) {
+  .command-surface-form { align-items: stretch; flex-direction: column; }
+  .command-surface-form .mx-select-root,
+  .command-surface-select-row .mx-select-root { width: 100%; }
+}
+
+/* Finished composer and command surfaces. These rules intentionally stay
+   scoped to Mixdog-owned controls while keeping the dock/menu rhythm. */
+.composer {
+  overflow: visible;
+  isolation: isolate;
+}
+.composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 180px;
+  resize: none;
+  caret-color: var(--mx-text);
+}
+.composer textarea:disabled { opacity: var(--mx-op-dim); cursor: wait; }
+.composer-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.composer-tool,
+.model-trigger,
+.fast-mode-toggle,
+.effort-control .mx-select-trigger,
+.send-button {
+  transition: color 85ms ease-out, background 85ms ease-out, box-shadow 85ms ease-out, opacity 85ms ease-out;
+}
+.composer-tool:focus-visible,
+.model-trigger:focus-visible,
+.fast-mode-toggle:focus-visible,
+.effort-control .mx-select-trigger:focus-visible,
+.send-button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px var(--mx-focus);
+}
+/* Composer/route controls: no :active press-flash (see the press-flash
+   sweep note above) — hover styling already marks the interactive surface. */
+.route-controls {
+  min-width: 0;
+  max-width: calc(100% - 56px);
+  /* Shrink-to-fit, not lane-filling: the context gauge sits IMMEDIATELY
+     right of the model label (user: 모델 문자 바로 오른쪽), so the selector
+     must not reserve the footer's leftover width. Long labels still shrink
+     and ellipsize under the same max-width cap. */
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.model-trigger {
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+.model-trigger > span {
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}

@@ -26,6 +26,7 @@ import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { isOutputLimitStopReason } from './loop/termination.mjs';
 import { isVisibleStreamProgress } from '../../../shared/stream-progress.mjs';
+import { providerRetryStatusText } from '../../../shared/err-text.mjs';
 
 function normalizedIncompleteUsage(raw) {
     if (!raw || typeof raw !== 'object') return undefined;
@@ -139,14 +140,18 @@ export async function sendWithRecovery(ctx) {
     // 5s/15s wait rendered as a frozen turn with no explanation, while codex
     // surfaces "Reconnecting... n/max" through notify_stream_error and cc
     // yields a SystemAPIErrorMessage for the same situation.
-    const emitLoopReconnectProgress = (attempt, waitMs, classifier) => {
+    const emitLoopReconnectProgress = (attempt, waitMs, classifier, error) => {
         try {
             opts?.onStageChange?.('reconnecting', {
                 attempt,
                 max: TRANSPORT_RETRY_MAX,
                 classifier: classifier || null,
                 waitMs,
-                message: `Reconnecting... ${attempt}/${TRANSPORT_RETRY_MAX}`,
+                message: providerRetryStatusText(error, {
+                    attempt,
+                    maxAttempts: TRANSPORT_RETRY_MAX,
+                    delayMs: waitMs,
+                }),
             });
         } catch { /* progress reporting must never break recovery */ }
     };
@@ -316,6 +321,7 @@ export async function sendWithRecovery(ctx) {
                         transportRetriesUsed + 1,
                         waitMs,
                         outcome.stallObserved ? 'stream_stalled' : 'stream_closed',
+                        sendErr,
                     );
                     await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
                     return { action: 'retry_transport' };
@@ -455,6 +461,7 @@ export async function sendWithRecovery(ctx) {
                     transportRetriesUsed + 1,
                     waitMs,
                     sendErr?.retryClassifier || sendErr?.midstreamClassifier || sendErr?.code || null,
+                    sendErr,
                 );
                 await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
                 return { action: 'retry_transport' };

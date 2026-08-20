@@ -25,6 +25,12 @@ import {
 
 import type { WorkspaceTab } from "./nav-types";
 import { t } from "./i18n";
+import {
+  prefetchDiffView,
+  prefetchEditorPane,
+  prefetchFolderPane,
+  prefetchTerminalPane,
+} from "./lazy-widgets";
 import { isMobileRemoteSurface, MobileTabOverview } from "./MobileTabOverview";
 import { registerMobileBack } from "./mobile-back";
 import { ProgressSpinner } from "./ProgressSpinner";
@@ -69,6 +75,19 @@ function tabIsWorking(
   // Established sessions are keyed exclusively by workingSessionIds so a
   // busy session cannot leak its spinner into the newly selected idle tab.
   return tab.selection.kind === "new" && active && activeBusy;
+}
+
+function prefetchTabSurface(tab: WorkspaceTab): void {
+  const promise = tab.selection.kind === "file"
+    ? prefetchEditorPane()
+    : tab.selection.kind === "diff"
+      ? prefetchDiffView()
+      : tab.selection.kind === "terminal"
+        ? prefetchTerminalPane()
+        : tab.selection.kind === "folder"
+          ? prefetchFolderPane()
+          : null;
+  void promise?.catch(() => undefined);
 }
 
 /** Tab-kind glyph shared by the compact current-tab button and the switcher
@@ -165,6 +184,17 @@ export function WorkspaceTabStrip({
   const publishFrame = useCallback((frame: Omit<TabDragFrame, "sourceLeafId">) => {
     publishTabDrag({ ...frame, sourceLeafId: paneId });
   }, [paneId]);
+  const selectTab = useCallback((tab: WorkspaceTab) => {
+    prefetchTabSurface(tab);
+    const startedAt = performance.now();
+    onSelectTab(tab);
+    if (!window.mixdogDesktop?.perfLog) return;
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      window.mixdogDesktop?.perfLog?.(
+        `tab-switch kind=${tab.selection.kind} paint=${(performance.now() - startedAt).toFixed(0)}ms`,
+      );
+    }));
+  }, [onSelectTab]);
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
   const tabStrip = useRef<HTMLElement>(null);
   const ghostNode = useRef<HTMLDivElement | null>(null);
@@ -369,7 +399,7 @@ export function WorkspaceTabStrip({
   const onTabKeyDown = useWorkspaceTabCommands({
     tabs,
     activeKey,
-    onSelectTab,
+    onSelectTab: selectTab,
     onCloseTab: closeTab,
   });
 
@@ -750,9 +780,13 @@ export function WorkspaceTabStrip({
                   style={pinnedTabWidth ? ({
                     "--workspace-tab-current-width": `${pinnedTabWidth}px`,
                   } as React.CSSProperties) : undefined}
+                  onPointerEnter={() => prefetchTabSurface(tab)}
+                  onFocusCapture={() => prefetchTabSurface(tab)}
                   onPointerDown={(event) => {
-                    if (event.button !== 0 || event.pointerType === "touch" ||
+                    if (event.button !== 0 ||
                       (event.target as Element | null)?.closest?.(".workspace-tab-close")) return;
+                    prefetchTabSurface(tab);
+                    if (event.pointerType === "touch") return;
                     const pointerId = event.pointerId || 1;
                     pointerDrag.current = {
                       kind: "tab",
@@ -798,7 +832,7 @@ export function WorkspaceTabStrip({
                         suppressTabClick.current = "";
                         return;
                       }
-                      onSelectTab(tab);
+                      selectTab(tab);
                     }}
                     aria-current={active ? "page" : undefined}
                     data-tooltip={tab.title}
@@ -882,7 +916,7 @@ export function WorkspaceTabStrip({
                   aria-current={active ? "page" : undefined}
                   onClick={() => {
                     setTabSwitcher(null);
-                    onSelectTab(tab);
+                    selectTab(tab);
                   }}>
                   {tabGlyph(tab, 15)}<span>{tab.title}</span>
                 </button>
@@ -985,7 +1019,7 @@ export function WorkspaceTabStrip({
           activeKey={activeKey}
           workingSessionIds={workingSessionIds}
           unreadSessionIds={unreadSessionIds}
-          onSelectTab={onSelectTab}
+          onSelectTab={selectTab}
           onCloseTab={onCloseTab}
           onNewTask={onNewTask}
           onClose={() => setMobileOverviewOpen(false)} />}

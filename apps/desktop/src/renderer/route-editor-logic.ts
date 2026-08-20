@@ -65,21 +65,13 @@ export function routeSheetBox(
   };
 }
 
-export function routeFlyoutBox(
-  sheet: RoutePanelBox,
-  preferredHeight: number,
+function flyoutSides(
+  sheet: { left: number; width: number },
   viewport: RouteViewport,
-  anchorTop?: number,
   preferredWidth?: number,
-  preferredSide: 'left' | 'right' | null = null,
-): RoutePanelBox {
+): { sideWidth: number; canOpenLeft: boolean; canOpenRight: boolean } {
   const viewportLeft = viewport.left ?? 0;
-  const viewportTop = viewport.top ?? 0;
   const viewportRight = viewportLeft + viewport.width;
-  const viewportBottom = viewportTop + viewport.height;
-  // Open the submenu beside the sheet, top-aligned with the row that
-  // spawned it (clamped into the viewport). Stacking above/below is only the
-  // fallback for viewports too narrow to fit a second column.
   const sideWidth = Math.min(
     preferredWidth ?? sheet.width,
     Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2),
@@ -89,8 +81,72 @@ export function routeFlyoutBox(
     0,
     viewportRight - (sheet.left + sheet.width) - ROUTE_PANEL_EDGE - ROUTE_PANEL_GAP,
   );
-  const canOpenLeft = spaceLeft >= sideWidth;
-  const canOpenRight = spaceRight >= sideWidth;
+  return { sideWidth, canOpenLeft: spaceLeft >= sideWidth, canOpenRight: spaceRight >= sideWidth };
+}
+
+/** True while a submenu still fits as a second column beside the sheet. A
+ *  phone never does, and stacking the two panels left the submenu glued to
+ *  the viewport top, detached from the pill (user: 서브 창이 공간이 부족해서
+ *  위에 붙어 뜬다), so narrow surfaces drill down inside the sheet instead. */
+export function routeFlyoutFitsBeside(
+  sheet: { left: number; width: number },
+  viewport: RouteViewport,
+  preferredWidth?: number,
+): boolean {
+  const sides = flyoutSides(sheet, viewport, preferredWidth);
+  return sides.canOpenLeft || sides.canOpenRight;
+}
+
+/** Back header of a drilled pane. */
+export const ROUTE_DRILL_HEADER_HEIGHT = 34;
+
+/** Drilled height: the back header plus the pane, capped to a comfortable
+ *  share of the surface so one long list never swallows the whole screen. */
+export function routeDrillHeight(preferredHeight: number, viewport: RouteViewport): number {
+  const comfortable = clamp(Math.round(viewport.height * 0.55), 260, 460);
+  return ROUTE_DRILL_HEADER_HEIGHT + Math.min(preferredHeight, comfortable);
+}
+
+/** Drill-down box: the pane REPLACES the sheet inside its own footprint and
+ *  keeps the edge that faces the trigger pinned, so the menu grows and
+ *  shrinks in place like a phone settings screen instead of stacking. */
+export function routeDrillBox(
+  sheet: RoutePanelBox,
+  preferredHeight: number,
+  viewport: RouteViewport,
+): RoutePanelBox {
+  const viewportTop = viewport.top ?? 0;
+  const viewportBottom = viewportTop + viewport.height;
+  const above = sheet.placement !== 'below';
+  const pinned = above ? sheet.top + sheet.height : sheet.top;
+  const room = above
+    ? pinned - viewportTop - ROUTE_PANEL_EDGE
+    : viewportBottom - pinned - ROUTE_PANEL_EDGE;
+  const height = Math.max(ROUTE_SHEET_ROW_HEIGHT, Math.min(preferredHeight, room));
+  return {
+    left: sheet.left,
+    top: above ? pinned - height : pinned,
+    width: sheet.width,
+    height,
+    maxHeight: height,
+    placement: above ? 'above' : 'below',
+  };
+}
+
+export function routeFlyoutBox(
+  sheet: RoutePanelBox,
+  preferredHeight: number,
+  viewport: RouteViewport,
+  anchorTop?: number,
+  preferredWidth?: number,
+  preferredSide: 'left' | 'right' | null = null,
+): RoutePanelBox {
+  const viewportTop = viewport.top ?? 0;
+  const viewportBottom = viewportTop + viewport.height;
+  // Open the submenu beside the sheet, top-aligned with the row that
+  // spawned it (clamped into the viewport). Stacking above/below is only the
+  // fallback for viewports too narrow to fit a second column.
+  const { sideWidth, canOpenLeft, canOpenRight } = flyoutSides(sheet, viewport, preferredWidth);
   if (canOpenLeft || canOpenRight) {
     const openLeft = preferredSide === 'right'
       ? !canOpenRight && canOpenLeft

@@ -122,6 +122,55 @@ export function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspace
   }
 }
 
+/** Tabs a phone may carry across a cold open. Terminal/file/folder/diff/PR/
+ *  studio surfaces are deliberately absent: resurrecting them is what made a
+ *  phone entry open a terminal it never asked for. */
+const MOBILE_RESTORABLE_TAB_KINDS = new Set(["session", "new"]);
+const MOBILE_RESTORE_TAB_LIMIT = 16;
+
+/** Reshape a persisted desktop workspace into the ONE pane a phone renders.
+ *  Tab order and the last active tab survive; splits, and every surface the
+ *  phone cannot own, do not. */
+export function mobilePaneWorkspaceState(
+  stored: PaneWorkspaceState | null,
+  limit: number = MOBILE_RESTORE_TAB_LIMIT,
+): PaneWorkspaceState | null {
+  if (!stored) return null;
+  const leaves = paneLeaves(stored.layout);
+  const focused = leaves.find((leaf) => leaf.id === stored.focusedLeafId) ?? leaves[0] ?? null;
+  const activeKeyCandidate = focused
+    ? navigationKey(paneActiveSelection(focused) ?? focused.tabs[0])
+    : "";
+  const tabs: WorkspaceSelection[] = [];
+  const seen = new Set<string>();
+  for (const leaf of leaves) {
+    for (const tab of leaf.tabs) {
+      if (!MOBILE_RESTORABLE_TAB_KINDS.has(tab.kind)) continue;
+      const key = navigationKey(tab);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tabs.push(tab);
+    }
+  }
+  if (tabs.length === 0) return null;
+  // Keep the last active tab even when the cap would have cut it off.
+  const kept = tabs.slice(0, Math.max(1, limit));
+  const active = tabs.find((tab) => navigationKey(tab) === activeKeyCandidate);
+  if (active && !kept.some((tab) => navigationKey(tab) === activeKeyCandidate)) {
+    kept[kept.length - 1] = active;
+  }
+  const leaf = createPaneLeaf(kept[0]);
+  const layout: PaneLeaf = {
+    ...leaf,
+    tabs: kept,
+    activeKey: kept.some((tab) => navigationKey(tab) === activeKeyCandidate)
+      ? activeKeyCandidate
+      : navigationKey(kept[0]),
+    previewKey: undefined,
+  };
+  return { layout, focusedLeafId: layout.id };
+}
+
 export function initialPaneWorkspaceState(
   stored: PaneWorkspaceState | null,
   initialSelection: WorkspaceSelection | null,
@@ -134,16 +183,21 @@ export function initialPaneWorkspaceState(
 export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = null) {
   const startupRestore = useRef<{
     stored: PaneWorkspaceState | null;
+    mobile: boolean;
     requiresSessionValidation: boolean;
   } | null>(null);
   if (!startupRestore.current) {
-    // Phone entry starts CLEAN (user: 열면 터미널이 같이 열리고 "레이아웃
-    // 복원중"이 뜬다): the projected mobile surface skips the stored pane
-    // tree entirely — no restore gate, no resurrected terminal/file tabs —
-    // and the desktop projection then drives the content.
-    const stored = isMobileRemoteSurface() ? null : readStoredPaneLayout(safeLocalStorage());
+    // The phone continues its OWN last visit (user: 마지막으로 열었던 게
+    // 승계되도록): the stored tree is reshaped into a single pane holding
+    // only session/new tabs, so nothing resurrects a terminal or file tab
+    // the phone never asked for. Session addressing is verified in the
+    // background — a phone never sees the restore gate.
+    const mobile = isMobileRemoteSurface();
+    const raw = readStoredPaneLayout(safeLocalStorage());
+    const stored = mobile ? mobilePaneWorkspaceState(raw) : raw;
     startupRestore.current = {
       stored,
+      mobile,
       requiresSessionValidation: Boolean(stored
         && paneLeaves(stored.layout).some((leaf) =>
           leaf.tabs.some((tab) => tab.kind === "session"))),
@@ -151,10 +205,14 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   }
   const restorePlan = startupRestore.current;
   const [restorePending, setRestorePending] = useState(
+    restorePlan.requiresSessionValidation && !restorePlan.mobile,
+  );
+  const [validationPending, setValidationPending] = useState(
     restorePlan.requiresSessionValidation,
   );
   const [restoredFromStorage, setRestoredFromStorage] = useState(
-    Boolean(restorePlan.stored && !restorePlan.requiresSessionValidation),
+    Boolean(restorePlan.stored
+      && (restorePlan.mobile || !restorePlan.requiresSessionValidation)),
   );
   // Keep the stored split tree on the first frame. PaneWorkspace gates every
   // addressable surface while session validation runs, so geometry can restore
@@ -164,15 +222,16 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
   );
 
   useEffect(() => {
-    if (!restorePending || !restorePlan.stored) return undefined;
+    if (!validationPending || !restorePlan.stored) return undefined;
     let cancelled = false;
     const restore = async () => {
       // Reconcile after first paint. Even when the catalog is unavailable,
       // keep file/utility/draft tabs and reject only unverified session
       // addresses; persistence stays paused until this pass settles.
+      let addressable = new Set<string>();
       let filtered = filterPaneLayoutSessions(
         restorePlan.stored!.layout,
-        new Set<string>(),
+        addressable,
       );
       const listSessions = window.mixdogDesktop?.listSessions;
       if (typeof listSessions === "function") {
@@ -193,6 +252,7 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
                 ...(Array.isArray(agents) ? agents : []),
               ].map((row) => String("id" in row ? row.id : row.sessionId || "")),
             );
+            addressable = knownSessionIds;
             filtered = filterPaneLayoutSessions(
               restorePlan.stored!.layout,
               knownSessionIds,
@@ -207,6 +267,25 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
         }
       }
       if (cancelled) return;
+      if (restorePlan.mobile) {
+        // The phone has been interactive since the first frame, so prune the
+        // LIVE tree instead of replaying the stored one — a tab opened or
+        // switched during validation must survive.
+        setState((prev) => {
+          const pruned = filterPaneLayoutSessions(prev.layout, addressable)
+            ?? createNewTaskPaneLeaf();
+          if (pruned === prev.layout) return prev;
+          const leaves = paneLeaves(pruned);
+          return {
+            layout: pruned,
+            focusedLeafId: leaves.some((leaf) => leaf.id === prev.focusedLeafId)
+              ? prev.focusedLeafId
+              : leaves[0].id,
+          };
+        });
+        setValidationPending(false);
+        return;
+      }
       const layout = filtered ?? createNewTaskPaneLeaf();
       const leaves = paneLeaves(layout);
       setState({
@@ -218,10 +297,11 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
       });
       setRestoredFromStorage(filtered !== null);
       setRestorePending(false);
+      setValidationPending(false);
     };
     void restore();
     return () => { cancelled = true; };
-  }, [restorePending, restorePlan]);
+  }, [validationPending, restorePlan]);
 
   const persistState = useCallback(() => {
     if (restorePending) return;

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -9,7 +9,10 @@ import {
   ROUTE_PANEL_PADDING,
   ROUTE_PANEL_WIDTH,
   ROUTE_SHEET_ROW_HEIGHT,
+  routeDrillBox,
+  routeDrillHeight,
   routeFlyoutBox,
+  routeFlyoutFitsBeside,
   routeSheetBox,
   type RoutePanelBox,
 } from './route-editor-logic';
@@ -93,6 +96,9 @@ export function StudioRouteMenu({
   const [modelQuery, setModelQuery] = useState('');
   const [sheetBox, setSheetBox] = useState<RoutePanelBox | null>(null);
   const [flyoutBox, setFlyoutBox] = useState<RoutePanelBox | null>(null);
+  // Narrow surface (phone): the pane takes over the sheet's footprint and the
+  // sheet steps aside, instead of stacking a detached second panel.
+  const [drill, setDrill] = useState(false);
   // While open, the trigger expands to the sheet width.
   const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -123,6 +129,7 @@ export function StudioRouteMenu({
     setPane(null);
     setSheetBox(null);
     setFlyoutBox(null);
+    setDrill(false);
     setTriggerWidth(null);
   }, []);
 
@@ -139,6 +146,34 @@ export function StudioRouteMenu({
     }, CLOSE_DURATION);
   }, [finishClose]);
 
+  // One geometry for every opening: a second column beside the sheet where it
+  // fits, and a drilled pane inside the sheet's own footprint where it does
+  // not (phones), so the menu never breaks into two detached panels.
+  const paneLayout = useCallback((
+    nextSheet: RoutePanelBox,
+    id: string,
+    viewport: { left: number; top: number; width: number; height: number },
+  ): { box: RoutePanelBox; drilled: boolean } => {
+    const size = flyoutSize(id);
+    if (routeFlyoutFitsBeside(nextSheet, viewport, size.width)) {
+      return {
+        box: routeFlyoutBox(
+          nextSheet,
+          size.height,
+          viewport,
+          rowButtons.current[id]?.getBoundingClientRect().top,
+          size.width,
+          'right',
+        ),
+        drilled: false,
+      };
+    }
+    return {
+      box: routeDrillBox(nextSheet, routeDrillHeight(size.height, viewport), viewport),
+      drilled: true,
+    };
+  }, [flyoutSize]);
+
   const layout = useCallback(() => {
     const rect = trigger.current?.getBoundingClientRect();
     if (!rect) return;
@@ -147,18 +182,13 @@ export function StudioRouteMenu({
     setSheetBox(nextSheet);
     if (!pane) {
       setFlyoutBox(null);
+      setDrill(false);
       return;
     }
-    const size = flyoutSize(pane);
-    setFlyoutBox(routeFlyoutBox(
-      nextSheet,
-      size.height,
-      viewport,
-      rowButtons.current[pane]?.getBoundingClientRect().top,
-      size.width,
-      'right',
-    ));
-  }, [flyoutSize, pane, sheetHeight]);
+    const nextBox = paneLayout(nextSheet, pane, viewport);
+    setFlyoutBox(nextBox.box);
+    setDrill(nextBox.drilled);
+  }, [pane, paneLayout, sheetHeight]);
 
   const show = () => {
     const rect = trigger.current?.getBoundingClientRect();
@@ -187,15 +217,9 @@ export function StudioRouteMenu({
       const viewport = viewportBox();
       const nextSheet = routeSheetBox(sheetAnchor(rect, viewport), sheetHeight, viewport);
       setSheetBox(nextSheet);
-      const size = flyoutSize(id);
-      setFlyoutBox(routeFlyoutBox(
-        nextSheet,
-        size.height,
-        viewport,
-        rowButtons.current[id]?.getBoundingClientRect().top,
-        size.width,
-        'right',
-      ));
+      const nextBox = paneLayout(nextSheet, id, viewport);
+      setFlyoutBox(nextBox.box);
+      setDrill(nextBox.drilled);
     }
     setPane(id);
   };
@@ -219,20 +243,29 @@ export function StudioRouteMenu({
       if (pane) {
         setPane(null);
         setFlyoutBox(null);
+        setDrill(false);
       } else {
         closeAll();
       }
     };
     const onViewport = () => layout();
+    // A phone keyboard resizes and offsets the VISUAL viewport, which fires
+    // no window resize on iOS: without these the panel kept its old box while
+    // the composer moved and the two drifted apart.
+    const visual = window.visualViewport;
     window.addEventListener('pointerdown', onPointerDown, true);
     window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('resize', onViewport);
     window.addEventListener('scroll', onViewport, true);
+    visual?.addEventListener('resize', onViewport);
+    visual?.addEventListener('scroll', onViewport);
     return () => {
       window.removeEventListener('pointerdown', onPointerDown, true);
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('resize', onViewport);
       window.removeEventListener('scroll', onViewport, true);
+      visual?.removeEventListener('resize', onViewport);
+      visual?.removeEventListener('scroll', onViewport);
     };
   }, [closeAll, layout, mounted, pane]);
 
@@ -309,6 +342,103 @@ export function StudioRouteMenu({
   })).filter((group) => group.items.length > 0);
   const activeRow = pane ? rows.find((entry) => entry.id === pane) : undefined;
 
+  // A drilled pane replaced the sheet, so its first row walks back up one
+  // level; a flyout that opened beside the sheet keeps the plain title.
+  const paneHeader = (label: string, target: string) => (drill
+    ? <button type="button" className="route-sheet-back" aria-label={t('Back')}
+      onClick={() => {
+        setPane(null);
+        setFlyoutBox(null);
+        setDrill(false);
+        window.setTimeout(() => rowButtons.current[target]?.focus({ preventScroll: true }), 0);
+      }}>
+      <ChevronLeft size={14} aria-hidden="true" />
+      <span>{label}</span>
+    </button>
+    : <div className="route-sheet-flyout-title">{label}</div>);
+
+  const paneTitle = pane === 'model' ? t('Model') : activeRow?.label || slider?.label || '';
+
+  const paneBody = () => <>
+    {pane === 'model' && <div className="model-catalog-list">
+      <div className="model-search-wrapper">
+        <div className="model-search">
+          <div className="model-search-container">
+            <Search size={16} aria-hidden="true" />
+            <input ref={modelSearch} type="text" value={modelQuery}
+              placeholder={t('Search models…')} aria-label={t('Search models')}
+              autoComplete="off" spellCheck={false}
+              onInput={(event) => setModelQuery(event.currentTarget.value)} />
+          </div>
+          {modelQuery && <button type="button" data-component="icon-button"
+            onClick={() => {
+              setModelQuery('');
+              modelSearch.current?.focus();
+            }} aria-label={t('Clear picker search')}>
+            <X size={14} />
+          </button>}
+        </div>
+      </div>
+      <div className="model-list">
+        {visibleLanes.map((group) => <section className="model-group model-group--provider" key={group.id}>
+          <h3><span className="model-provider-heading">
+            <ProviderIcon provider={group.id} />
+            <span>{group.label}</span>
+          </span></h3>
+          <div className="model-items">
+            {group.items.map((entry) => {
+              const active = entry.lane === lane && entry.model === model;
+              return <button type="button" key={`${entry.lane}/${entry.model}`}
+                className="model-option-row" role="menuitemradio" aria-checked={active}
+                onClick={() => {
+                  onSelect(entry);
+                  closeAll();
+                }}>
+                <span className="model-row-copy">
+                  <span className="model-row-title"><strong>{entry.label}</strong></span>
+                </span>
+                {active && <span className="route-selection-check">
+                  <Check size={14} aria-hidden="true" />
+                </span>}
+              </button>;
+            })}
+          </div>
+        </section>)}
+        {visibleLanes.length === 0 && <p className="model-empty">{t('No matching models.')}</p>}
+      </div>
+    </div>}
+    {activeRow && activeRow.options.map((option) => {
+      const selected = option.value === activeRow.value;
+      return <button type="button" key={option.value} className="route-sheet-option"
+        role="menuitemradio" aria-checked={selected} disabled={activeRow.disabled}
+        onClick={() => {
+          if (!selected) activeRow.onPick(option.value);
+        }}>
+        <span>{option.label}</span>
+        {selected && <span className="route-selection-check">
+          <Check size={14} aria-hidden="true" />
+        </span>}
+      </button>;
+    })}
+    {pane === 'slider' && slider && <label className="route-sheet-slider">
+      <input type="range" min={slider.min} max={slider.max} value={slider.value}
+        disabled={slider.disabled} aria-label={t('Duration seconds')}
+        onChange={(event) => {
+          // Read the value BEFORE any state updater runs (chat-composer
+          // slider crash note: currentTarget clears by then).
+          const next = Number(event.currentTarget.value);
+          slider.onChange(next);
+        }} />
+      <span>{slider.value}s</span>
+    </label>}
+  </>;
+
+  // Drilled: ONE panel — the sheet itself takes the pane's box and content,
+  // so the menu stays a single window growing out of the pill instead of a
+  // second card floating over it.
+  const drilled = drill && Boolean(pane);
+  const panelBox = drilled && flyoutBox ? flyoutBox : sheetBox;
+
   return <div className="studio-model-menu">
     <button ref={trigger} type="button" className="studio-model-trigger" disabled={disabled}
       style={triggerWidth !== null ? { width: triggerWidth } : undefined}
@@ -334,108 +464,41 @@ export function StudioRouteMenu({
       <span>{current?.label || model || t('Select model')}</span>
       <ChevronDown size={14} aria-hidden="true" />
     </button>
-    {mounted && sheetBox && createPortal(
-      <div ref={sheet} className="route-sheet" role="menu" aria-label={t('Generation options')}
+    {mounted && panelBox && createPortal(
+      <div ref={sheet} className="route-sheet" role="menu"
+        aria-label={drilled ? paneTitle : t('Generation options')}
         style={{
-          ...sheetBox,
+          ...panelBox,
           '--route-morph-sx': String(Math.min(1,
-            Math.max(0.1, (morphFrom.current?.width || sheetBox.width) / sheetBox.width))),
+            Math.max(0.1, (morphFrom.current?.width || panelBox.width) / panelBox.width))),
           '--route-morph-sy': String(Math.min(1,
-            Math.max(0.1, (morphFrom.current?.height || sheetBox.height) / sheetBox.height))),
+            Math.max(0.1, (morphFrom.current?.height || panelBox.height) / panelBox.height))),
         } as CSSProperties}
-        data-placement={sheetBox.placement}
+        data-placement={panelBox.placement}
+        data-drilled={drilled ? '' : undefined}
         data-state={closing ? 'closing' : 'open'}>
-        {row('model', t('Model'), current?.label || model || t('Select model'))}
-        {rows.map((entry) => row(entry.id, entry.label, entry.valueLabel, entry.disabled))}
-        {slider && row('slider', slider.label, `${slider.value}s`, slider.disabled)}
+        {drilled && pane
+          ? <div className="route-sheet-pane" key={`pane:${pane}`}>
+            {paneHeader(paneTitle, pane)}
+            {paneBody()}
+          </div>
+          : <div className="route-sheet-rows" key="rows">
+            {row('model', t('Model'), current?.label || model || t('Select model'))}
+            {rows.map((entry) => row(entry.id, entry.label, entry.valueLabel, entry.disabled))}
+            {slider && row('slider', slider.label, `${slider.value}s`, slider.disabled)}
+          </div>}
       </div>,
       document.body,
     )}
-    {mounted && pane && flyoutBox && createPortal(
+    {mounted && !drill && pane && flyoutBox && createPortal(
       <div ref={flyout}
         className={`route-sheet-flyout${pane === 'model'
           ? ' route-sheet-flyout--model model-catalog-panel' : ''}`}
-        role="menu"
-        aria-label={pane === 'model' ? t('Model') : activeRow?.label || slider?.label || ''}
+        role="menu" aria-label={paneTitle}
         style={flyoutBox} data-placement={flyoutBox.placement}
         data-state={closing ? 'closing' : 'open'}>
-        {pane === 'model' && <div className="model-catalog-list">
-          <div className="model-search-wrapper">
-            <div className="model-search">
-              <div className="model-search-container">
-                <Search size={16} aria-hidden="true" />
-                <input ref={modelSearch} type="text" value={modelQuery}
-                  placeholder={t('Search models…')} aria-label={t('Search models')}
-                  autoComplete="off" spellCheck={false}
-                  onInput={(event) => setModelQuery(event.currentTarget.value)} />
-              </div>
-              {modelQuery && <button type="button" data-component="icon-button"
-                onClick={() => {
-                  setModelQuery('');
-                  modelSearch.current?.focus();
-                }} aria-label={t('Clear picker search')}>
-                <X size={14} />
-              </button>}
-            </div>
-          </div>
-          <div className="model-list">
-            {visibleLanes.map((group) => <section className="model-group model-group--provider" key={group.id}>
-              <h3><span className="model-provider-heading">
-                <ProviderIcon provider={group.id} />
-                <span>{group.label}</span>
-              </span></h3>
-              <div className="model-items">
-                {group.items.map((entry) => {
-                  const active = entry.lane === lane && entry.model === model;
-                  return <button type="button" key={`${entry.lane}/${entry.model}`}
-                    className="model-option-row" role="menuitemradio" aria-checked={active}
-                    onClick={() => {
-                      onSelect(entry);
-                      closeAll();
-                    }}>
-                    <span className="model-row-copy">
-                      <span className="model-row-title"><strong>{entry.label}</strong></span>
-                    </span>
-                    {active && <span className="route-selection-check">
-                      <Check size={14} aria-hidden="true" />
-                    </span>}
-                  </button>;
-                })}
-              </div>
-            </section>)}
-            {visibleLanes.length === 0 && <p className="model-empty">{t('No matching models.')}</p>}
-          </div>
-        </div>}
-        {activeRow && <>
-          <div className="route-sheet-flyout-title">{activeRow.label}</div>
-          {activeRow.options.map((option) => {
-            const selected = option.value === activeRow.value;
-            return <button type="button" key={option.value} className="route-sheet-option"
-              role="menuitemradio" aria-checked={selected} disabled={activeRow.disabled}
-              onClick={() => {
-                if (!selected) activeRow.onPick(option.value);
-              }}>
-              <span>{option.label}</span>
-              {selected && <span className="route-selection-check">
-                <Check size={14} aria-hidden="true" />
-              </span>}
-            </button>;
-          })}
-        </>}
-        {pane === 'slider' && slider && <>
-          <div className="route-sheet-flyout-title">{slider.label}</div>
-          <label className="route-sheet-slider">
-            <input type="range" min={slider.min} max={slider.max} value={slider.value}
-              disabled={slider.disabled} aria-label={t('Duration seconds')}
-              onChange={(event) => {
-                // Read the value BEFORE any state updater runs (chat-composer
-                // slider crash note: currentTarget clears by then).
-                const next = Number(event.currentTarget.value);
-                slider.onChange(next);
-              }} />
-            <span>{slider.value}s</span>
-          </label>
-        </>}
+        {pane !== 'model' && paneHeader(paneTitle, pane)}
+        {paneBody()}
       </div>,
       document.body,
     )}

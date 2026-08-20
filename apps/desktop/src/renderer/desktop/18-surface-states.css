@@ -1,0 +1,189 @@
+/* Desktop layer 18 — Pane surface gates, loading, recovery screens.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+.pane-surface-gate-content {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+}
+.pane-surface-gate[data-ready="false"] > .pane-surface-gate-content {
+  visibility: hidden;
+}
+.pane-surface-gate > .desktop-loading-surface {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.pane-surface-cover {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  display: flex;
+  background: var(--mx-workspace-sheet);
+}
+.pane-surface-cover > .desktop-loading-surface {
+  border-radius: 0;
+  box-shadow: none;
+}
+.session-unavailable {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.session-unavailable-card {
+  display: flex;
+  max-width: 360px;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--mx-text);
+  text-align: center;
+}
+.session-unavailable-card > span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.session-unavailable-card > button {
+  min-height: 28px;
+  padding: 0 12px;
+}
+/* Navigation progress is delayed globally: warm/short switches stay visually
+   silent, while a genuinely slow cold load still gains a bounded indicator.
+   The branded native boot mark is intentionally exempt. */
+.desktop-loading-surface--delayed {
+  opacity: 0;
+  animation: cover-spinner-reveal 120ms ease-out 600ms forwards;
+}
+@keyframes cover-spinner-reveal { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .desktop-loading-surface--delayed {
+    animation: cover-spinner-reveal 1ms linear 600ms forwards;
+  }
+}
+/* Shared stable-surface grammar. Inactive content remains mounted, measured,
+   and font-resolved; inert/aria-hidden own interaction and accessibility. */
+.stable-surface-switch,
+.stable-content-swap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.stable-surface-layer {
+  position: absolute !important;
+  inset: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.stable-surface-layer[data-surface-active="true"] {
+  visibility: visible;
+  z-index: 1;
+  pointer-events: auto;
+}
+.stable-content-swap-layer[data-surface-active="false"],
+.stable-surface-preserved[data-surface-active="false"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+.stable-content-swap-layer[data-surface-active="true"],
+.stable-surface-preserved[data-surface-active="true"] {
+  visibility: visible;
+}
+/* CSS visibility is CHILD-OVERRIDABLE: an active nested swap/surface layer
+   inside a HIDDEN preserved ancestor repaints itself (the prewarmed CLOSED
+   settings dialog bled its rows over the app once its body adopted
+   StableContentSwap). While any preserved ancestor is inactive, force every
+   descendant visibility-winner back to hidden — the double-attribute
+   selectors outrank the single-attribute enables above. */
+.stable-surface-preserved[data-surface-active="false"] .stable-content-swap-layer[data-surface-active="true"],
+.stable-surface-preserved[data-surface-active="false"] .stable-surface-layer[data-surface-active="true"],
+.stable-surface-preserved[data-surface-active="false"] .stable-surface-preserved[data-surface-active="true"],
+.stable-surface-preserved[data-surface-active="false"] .session-sidebar-surface[data-surface-active="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+.stable-content-swap-layer[data-surface-active="true"] {
+  position: relative;
+  z-index: 1;
+}
+.stable-content-swap-layer[data-surface-active="false"] {
+  position: absolute;
+  inset: 0;
+}
+.main-panel > .stable-takeover-surface[data-surface-active="false"] {
+  position: absolute;
+  inset: 0;
+}
+.editor-pane > .stable-editor-surface[data-surface-active="false"] {
+  position: absolute;
+  inset: 0;
+}
+.persistent-pane-surface {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+}
+.desktop-loading-spinner {
+  width: 24px;
+  height: 24px;
+  display: block;
+  color: var(--mx-text-accent);
+  animation: spin .75s linear infinite;
+}
+.desktop-recovery-screen {
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  color: var(--mx-text);
+  background: var(--mx-window-band);
+}
+.desktop-recovery-card {
+  box-sizing: border-box;
+  width: min(100%, 480px);
+  padding: 28px;
+  border-radius: var(--mx-radius-xl);
+  background: var(--mx-workspace-sheet);
+  box-shadow: var(--mx-overlay);
+}
+.desktop-recovery-mark {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+  font-size: 17px;
+  font-weight: var(--mx-weight-semibold);
+}
+.desktop-recovery-card h1 { margin: 0 0 8px; font-size: 18px; line-height: 26px; }
+.desktop-recovery-card p { margin: 0; color: var(--mx-text-muted); line-height: var(--mx-line-ui); }
+.desktop-recovery-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+.desktop-recovery-actions button {
+  min-height: 32px;
+  padding: 0 13px;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  cursor: pointer;
+}
+.desktop-recovery-actions button.primary {
+  border-color: transparent;
+  color: var(--mx-grey-50);
+  background: var(--mx-accent-bg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .desktop-loading-spinner { animation: none; }
+}

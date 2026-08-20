@@ -33,7 +33,7 @@ export const HELP_LINES = [
   '  /context                      show current context surface',
   '  /usage [refresh]              show total provider quota / balance',
   '  /model [name|refresh]         switch model for subsequent turns',
-  '  /search                       set the web search provider/model',
+  '  /websearch                    set the web search provider/model',
   '  /workflow [name]              switch the active workflow',
   '  /OutputStyle [name]           switch Lead output style (alias: /style)',
   '  /theme [id]                   change the TUI color theme',

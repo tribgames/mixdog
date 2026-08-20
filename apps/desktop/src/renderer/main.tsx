@@ -39,6 +39,7 @@ import "./pane-layout.css";
 import "./webview-zoom";
 import { installShellViewport } from "./shell-viewport";
 import { installMobileSurfaceMarker } from "./mobile-surface";
+import { installScrollbarMetrics } from "./scrollbar-metrics";
 import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
 import { preloadMarkdownBody } from "./TranscriptView";
@@ -67,6 +68,11 @@ const removeAutoDomI18n = installAutoDomI18n();
 window.addEventListener("beforeunload", removeAutoDomI18n, { once: true });
 const removeShellViewport = installShellViewport();
 window.addEventListener("beforeunload", removeShellViewport, { once: true });
+// Measured scrollbar reserve BEFORE the first paint: every gutter-paying
+// layout (session rail, transcript column, settings/studio padding, SCM dock)
+// reads --mx-scrollbar-gutter, which is 0 where scrollbars are overlays.
+const removeScrollbarMetrics = installScrollbarMetrics();
+window.addEventListener("beforeunload", removeScrollbarMetrics, { once: true });
 // Phone marker BEFORE the first React render (user: 첫 진입 레이아웃 시프트):
 // the Chrome-toolbar/drawer/popup CSS keys on the root attribute, so it must
 // exist before the desktop grammar can paint even once.

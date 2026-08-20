@@ -13,6 +13,8 @@ import {
 } from '../../session/manager.mjs';
 import {
     completeBackgroundTask,
+    getBackgroundTask,
+    notifyBackgroundTaskProgress,
 } from '../../../../shared/background-tasks.mjs';
 import {
     adoptNativeTaskByPid,
@@ -38,6 +40,10 @@ import {
     renderShellCompletionEnvelope,
     shellCompletionInstruction,
 } from '../../../../shared/task-notification-envelope.mjs';
+import {
+    resolveShellMonitorIntervalMs,
+    startShellMonitor,
+} from './shell-monitor.mjs';
 
 export { shellJobPublicTaskResult } from './lib/shell-job-insights.mjs';
 
@@ -123,6 +129,35 @@ export function buildShellCompletion(jobId, detail) {
         result: shellJobPublicTaskResult(detail),
         error: taskStatus === 'failed' ? (detail?.error || null) : null,
     };
+}
+
+function shellMonitorState(detail) {
+    return {
+        stdoutBytes: Math.max(0, Number(detail?.stdoutBytes) || 0),
+        stderrBytes: Math.max(0, Number(detail?.stderrBytes) || 0),
+        summary: String(detail?.summary || '').trim(),
+    };
+}
+
+function renderShellMonitorProgress(jobId, detail, previous) {
+    const current = shellMonitorState(detail);
+    const startedAtMs = Date.parse(detail?.startedAt || '');
+    const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : null;
+    const stdoutDelta = Math.max(0, current.stdoutBytes - previous.stdoutBytes);
+    const stderrDelta = Math.max(0, current.stderrBytes - previous.stderrBytes);
+    const latestChanged = current.summary && current.summary !== previous.summary;
+    const lines = [
+        'shell task progress',
+        `task_id: ${jobId}`,
+        'status: running',
+        elapsedMs == null ? null : `elapsed_ms: ${elapsedMs}`,
+        `stdout_bytes: ${current.stdoutBytes}`,
+        `stderr_bytes: ${current.stderrBytes}`,
+        stdoutDelta || stderrDelta ? `new_output_bytes: ${stdoutDelta + stderrDelta}` : null,
+        latestChanged ? '' : null,
+        latestChanged ? `latest: ${current.summary}` : null,
+    ];
+    return { text: lines.filter((line) => line !== null).join('\n'), state: current };
 }
 
 export async function waitForShellJob(jobId, { timeoutMs = 30_000 } = {}) {
@@ -225,7 +260,13 @@ export function cancelBackgroundShellJobWatch(jobId) {
     return entry.notifyCtx || null;
 }
 
-export function watchBackgroundShellJob(jobId, notifyCtx) {
+export function configureBackgroundShellJobMonitor(jobId, intervalMs) {
+    const entry = backgroundShellJobWatchers.get(jobId);
+    if (!entry || typeof entry.setMonitor !== 'function') return null;
+    return entry.setMonitor(intervalMs);
+}
+
+export function watchBackgroundShellJob(jobId, notifyCtx, { monitorIntervalMs } = {}) {
     const ctx = notifyCtx && typeof notifyCtx.notifyFn === 'function'
         ? normalizeToolNotifyContext(notifyCtx)
         : jobNotifyCtxByJobId.get(jobId);
@@ -233,15 +274,48 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
     if (ctx) jobNotifyCtxByJobId.set(jobId, ctx);
     let settled = false;
     let unsubscribe = () => {};
+    let stopMonitor = () => false;
+    let previousMonitorState = shellMonitorState(attachJobInsights(getNativeTask(jobId)));
+    const setMonitor = (value) => {
+        stopMonitor();
+        const nextIntervalMs = resolveShellMonitorIntervalMs(value);
+        previousMonitorState = shellMonitorState(attachJobInsights(getNativeTask(jobId)));
+        const task = getBackgroundTask(jobId);
+        if (task) {
+            task.meta = {
+                ...(task.meta && typeof task.meta === 'object' ? task.meta : {}),
+                monitor_interval_ms: nextIntervalMs,
+            };
+        }
+        stopMonitor = startShellMonitor({
+            intervalMs: nextIntervalMs,
+            onTick: () => {
+                const detail = attachJobInsights(getNativeTask(jobId));
+                if (!detail || detail.status !== 'running') return false;
+                const progress = renderShellMonitorProgress(jobId, detail, previousMonitorState);
+                const sent = notifyBackgroundTaskProgress(jobId, {
+                    text: progress.text,
+                    resultType: 'shell_task_progress',
+                    status: 'running',
+                    once: false,
+                });
+                if (sent) previousMonitorState = progress.state;
+                return true;
+            },
+        });
+        return nextIntervalMs;
+    };
     const cancel = () => {
         if (settled) return;
         settled = true;
+        stopMonitor();
         unsubscribe();
         backgroundShellJobWatchers.delete(jobId);
     };
     const finish = (detail) => {
         if (settled || !detail || detail.status === 'running') return;
         settled = true;
+        stopMonitor();
         unsubscribe();
         backgroundShellJobWatchers.delete(jobId);
         jobNotifyCtxByJobId.delete(jobId);
@@ -288,7 +362,10 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         }
     };
     unsubscribe = subscribeNativeTask(jobId, finish);
-    backgroundShellJobWatchers.set(jobId, { cancel, notifyCtx: ctx });
+    if (!settled) {
+        setMonitor(monitorIntervalMs);
+        backgroundShellJobWatchers.set(jobId, { cancel, notifyCtx: ctx, setMonitor });
+    }
     queueMicrotask(() => finish(getNativeTask(jobId)));
 }
 

@@ -24,6 +24,10 @@ export function useComposerDictation({
   showNotice(message: string, durationMs?: number): void;
 }) {
   const [dictationState, setDictationState] = useState<DictationState>("idle");
+  // Elapsed time backs the composer's inline recording chip: the disc alone
+  // never told the user how long the mic had been live (user-flagged).
+  const [recordingSince, setRecordingSince] = useState(0);
+  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const dictationSession = useRef<{
     recorder: MediaRecorder;
     stream: MediaStream;
@@ -113,6 +117,7 @@ export function useComposerDictation({
           // The recorder already stopped.
         }
       }, 120_000);
+      setRecordingSince(Date.now());
       setDictationState("recording");
     } catch (reason) {
       const name = reason instanceof DOMException ? reason.name : "";
@@ -129,6 +134,18 @@ export function useComposerDictation({
     }
   }, [dictationState, invokeResult, setDraft, showNotice, textarea, transitioningRef]);
 
+  useEffect(() => {
+    if (dictationState !== "recording" || !recordingSince) {
+      setRecordingElapsedMs(0);
+      return;
+    }
+    setRecordingElapsedMs(Date.now() - recordingSince);
+    const timer = window.setInterval(() => {
+      setRecordingElapsedMs(Date.now() - recordingSince);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [dictationState, recordingSince]);
+
   useEffect(() => () => {
     const session = dictationSession.current;
     if (!session) return;
@@ -141,5 +158,5 @@ export function useComposerDictation({
     for (const track of session.stream.getTracks()) track.stop();
   }, []);
 
-  return { dictationState, toggleDictation };
+  return { dictationState, toggleDictation, recordingElapsedMs };
 }

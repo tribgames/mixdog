@@ -162,6 +162,7 @@
   "Checking…": "Comprobando…",
   "Choose": "Elegir",
   "Choose a model for this schedule.": "Elige un modelo para esta programación.",
+  "Choose Add to Home Screen": "Elija Añadir a la pantalla de inicio",
   "Choose how manual commit hints and AI-generated messages should be written.": "Elige cómo deben redactarse las sugerencias manuales de commit y los mensajes generados por IA.",
   "Choose how Mixdog answers": "Elige cómo responde Mixdog",
   "Choose how Mixdog manages long-running and idle sessions.": "Elige cómo gestiona Mixdog las sesiones de larga duración e inactivas.",
@@ -564,6 +565,7 @@
   "Make it feel like home": "Haz que te sientas como en casa",
   "Make it yours": "Hazlo tuyo",
   "Manage in Settings → Git.": "Administrar en Configuración → Git.",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "El runtime administrado de Whisper y ffmpeg está listo para la entrada de voz.",
   "Manifesting": "Manifestando",
   "Manual download": "Descarga manual",
   "Manual login URL": "URL de inicio de sesión manual",
@@ -646,6 +648,7 @@
   "No agents added — every default agent stays available.": "Sin agentes añadidos: todos los agentes predeterminados siguen disponibles.",
   "No agents are running.": "No hay agentes en ejecución.",
   "No API-key providers available.": "No hay proveedores con clave de API disponibles.",
+  "No background work": "Sin trabajo en segundo plano",
   "No changes vs {{base}}.": "Sin cambios respecto a {{base}}.",
   "No commands match.": "Ningún comando coincide.",
   "No connected provider models.": "No hay modelos de proveedores conectados.",
@@ -1083,7 +1086,7 @@
   "System follows your OS. Fine-tune colors any time in Settings.": "El sistema sigue su sistema operativo. Ajusta los colores en cualquier momento en Configuración.",
   "System prompt": "Prompt del sistema",
   "System tools": "Herramientas del sistema",
-  "Tap Share, then Add to Home Screen.": "Toque Compartir y luego Añadir a la pantalla de inicio.",
+  "Tap the Share button": "Toque el botón Compartir",
   "Tell Mixdog what to call you and which language to answer in.": "Dile a Mixdog cómo llamarte y en qué idioma responder.",
   "Tempering": "templado",
   "Terminal": "Terminal",
@@ -1236,6 +1239,5 @@
   "Your example commit message appears here.": "Tu mensaje de commit de ejemplo aparecerá aquí.",
   "Your name or role": "Tu nombre o rol",
   "Zesting": "picante",
-  "Zigzagging": "Zigzagueando",
-  "Managed Whisper and ffmpeg runtime is ready for voice input.": "El runtime administrado de Whisper y ffmpeg está listo para la entrada de voz."
+  "Zigzagging": "Zigzagueando"
 }

@@ -13,33 +13,33 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Deferred-tool activation status; direct calls auto-load — no pre-call needed.',
+  description: 'Load named deferred tools and report activation status. Direct calls auto-load, so no pre-call is needed.',
   inputSchema: {
     type: 'object',
     properties: {
-      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, minItems: 1 }], description: 'Exact deferred tool names/aliases to load.' },
+      names: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Exact deferred tool names/aliases to load.' },
     },
+    required: ['names'],
     additionalProperties: false,
   },
 };
 
 export const CWD_TOOL = {
   name: 'cwd',
-  title: 'Work Project',
+  title: 'Project',
   annotations: {
-    title: 'Work Project',
+    title: 'Project',
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Show or set the session work project for tool execution. Session Cwd is already active; set only to change it.',
+  description: 'Show the active Project, or set it to path. A shell-local cd does not change the Project.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['get', 'set'], description: 'Default get.' },
-      path: { type: 'string', description: 'Project directory for set.' },
+      path: { type: 'string', description: 'New Project directory. Omit to show the active Project.' },
     },
     additionalProperties: false,
   },
@@ -60,7 +60,7 @@ export const SKILL_TOOL = {
   inputSchema: {
     type: 'object',
     properties: {
-      name: { type: 'string', description: 'Skill name.' },
+      name: { type: 'string', description: 'Exact name from available-skills.' },
     },
     required: ['name'],
     additionalProperties: false,

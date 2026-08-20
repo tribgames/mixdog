@@ -188,6 +188,18 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   </div>;
 });
 
+/** The context slider owns the window whenever it is available, so a
+ *  provider's own context-window parameter (Cursor 272K/1M) never travels with
+ *  a route: Cursor derives its variant from selectedContextWindow, and a stale
+ *  272k parameter alongside a raised window has no valid max-mode variant. */
+function routeModelParameters(
+  parameters: Record<string, string>,
+  maxContextWindow: number,
+): Record<string, string> {
+  if (!(maxContextWindow > 0)) return parameters;
+  return Object.fromEntries(Object.entries(parameters).filter(([id]) => id !== 'context'));
+}
+
 export const ModelSelector = memo(function ModelSelector({
   provider, model, effort, fast, fastCapable, modelParameters, contextPercent, modelDisabled, tuningDisabled,
   invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
@@ -263,6 +275,7 @@ export const ModelSelector = memo(function ModelSelector({
   const contextTokens = normalizedContextPercent === contextDefaultPercent
     ? defaultContextWindow
     : Math.floor(maxContextWindow * normalizedContextPercent / 100);
+  const routedModelParameters = routeModelParameters(selectedModelParameters, maxContextWindow);
   const fastControlVisible = shouldShowFastControl(fastCapable, known?.fastCapable);
   const fastAvailable = fastControlVisible
     && modelFastAvailable(known, effort, selectedModelParameters);
@@ -425,7 +438,9 @@ export const ModelSelector = memo(function ModelSelector({
       model: option.model,
       ...(nextEffort ? { effort: nextEffort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
-      ...(option.modelParameterOptions?.length ? { modelParameters: nextModelParameters } : {}),
+      ...(option.modelParameterOptions?.length
+        ? { modelParameters: routeModelParameters(nextModelParameters, optionMaxWindow) }
+        : {}),
       ...(optionMaxWindow > 0 ? { contextPercent: nextContextPercent } : {}),
     });
   };
@@ -472,7 +487,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         ...(nextFast === undefined ? {} : { fast: nextFast }),
-        ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+        ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
         contextPercent: normalizedContextPercent,
       });
       return;
@@ -483,7 +498,7 @@ export const ModelSelector = memo(function ModelSelector({
         model,
         effort,
         fast: false,
-        ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+        ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
         contextPercent: normalizedContextPercent,
       });
       return;
@@ -503,7 +518,7 @@ export const ModelSelector = memo(function ModelSelector({
           model,
           effort,
           ...(nextFast === undefined ? {} : { fast: nextFast }),
-          ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+          ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
           contextPercent: normalizedContextPercent,
         });
       }
@@ -520,7 +535,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(fastControlVisible ? { fast: displayedFast } : {}),
-      ...(Object.keys(selectedModelParameters).length ? { modelParameters: selectedModelParameters } : {}),
+      ...(Object.keys(routedModelParameters).length ? { modelParameters: routedModelParameters } : {}),
       contextPercent: nextContextPercent,
     });
   };
@@ -535,7 +550,7 @@ export const ModelSelector = memo(function ModelSelector({
       model,
       ...(effort ? { effort } : {}),
       ...(nextFast === undefined ? {} : { fast: nextFast }),
-      modelParameters: nextModelParameters,
+      modelParameters: routeModelParameters(nextModelParameters, maxContextWindow),
       contextPercent: normalizedContextPercent,
     });
   };

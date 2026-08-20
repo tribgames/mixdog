@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import WebSocket from 'ws';
 
@@ -61,6 +62,42 @@ test('static responses apply browser security headers without changing HEAD beha
     "script-src 'self'",
   );
   assert.match(headers['Permissions-Policy'], /camera=\(self\)/);
+
+  const assets = join(dir, 'assets');
+  mkdirSync(assets);
+  const hashedAsset = join(assets, 'index-AbCdEf123.js');
+  writeFileSync(hashedAsset, 'export const ready = true;');
+  sendStaticFile(
+    { method: 'HEAD', headers: {} },
+    {
+      writeHead(nextStatus, nextHeaders) {
+        status = nextStatus;
+        headers = nextHeaders;
+      },
+      end() { ended = true; },
+      destroy() {},
+    },
+    hashedAsset,
+  );
+  assert.equal(headers['Cache-Control'], 'public, max-age=31536000, immutable');
+
+  // boot.js has no content hash but is version-locked to index.html: a cached
+  // copy paired with a fresh bundle mismatches the viewport projection.
+  const boot = join(dir, 'boot.js');
+  writeFileSync(boot, 'window.mixdogBoot = true;');
+  sendStaticFile(
+    { method: 'HEAD', headers: {} },
+    {
+      writeHead(nextStatus, nextHeaders) {
+        status = nextStatus;
+        headers = nextHeaders;
+      },
+      end() { ended = true; },
+      destroy() {},
+    },
+    boot,
+  );
+  assert.equal(headers['Cache-Control'], 'no-cache');
 });
 
 test('binary relay envelopes preserve routing metadata without base64', () => {
@@ -238,6 +275,34 @@ test('installability assets bypass the pairing gate; the app shell never does', 
   }
 });
 
+test('the Home Screen handoff manifest drops start_url and stays public', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-inherit-manifest-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  writeFileSync(
+    join(renderer, 'manifest.webmanifest'),
+    JSON.stringify({ id: '/', name: 'Mixdog', start_url: '/', scope: '/' }),
+  );
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  try {
+    const origin = `http://127.0.0.1:${relay.port}`;
+    const canonical = await (await fetch(`${origin}/manifest.webmanifest`)).json();
+    // Chromium installability keeps needing start_url, so the default is intact.
+    assert.equal(canonical.start_url, '/');
+    // Without it, an iOS install captures the launching document URL instead —
+    // the only way a paired page can hand its pairing to the installed app.
+    const response = await fetch(`${origin}/manifest.webmanifest?inherit=1`);
+    assert.equal(response.status, 200);
+    const inherited = await response.json();
+    assert.equal('start_url' in inherited, false);
+    assert.equal(inherited.id, '/');
+    assert.equal(inherited.scope, '/');
+  } finally {
+    await relay.close();
+  }
+});
+
 test('phone /ws accepts only per-browser credentials; others close 4005', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-ws-4005-'));
   const renderer = join(dir, 'renderer');
@@ -264,6 +329,72 @@ test('phone /ws accepts only per-browser credentials; others close 4005', async 
     const registered = relay.store.registerClient('aaaaaaaa', 'bbbbbbbb', {});
     await assert.rejects(closeOf(registered.token), /401/);
   } finally {
+    await relay.close();
+  }
+});
+
+test('phone websocket survives a desktop leg redial and is re-announced', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-desktop-redial-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  const sockets = [];
+  const openSocket = (url, options) => new Promise((resolve, reject) => {
+    const ws = new WebSocket(url, options);
+    sockets.push(ws);
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+  });
+  const nextClientOpen = (ws) => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('client-open timed out')), 2_000);
+    const onMessage = (raw) => {
+      let value;
+      try { value = JSON.parse(String(raw)); } catch { return; }
+      if (value.type !== 'client-open') return;
+      clearTimeout(timeout);
+      ws.off('message', onMessage);
+      resolve(value.clientId);
+    };
+    ws.on('message', onMessage);
+  });
+  try {
+    relay.store.authenticate('aaaaaaaa', '0123456789abcdef');
+    const registered = relay.store.registerClient('aaaaaaaa', 'bbbbbbbb', {});
+    const desktopUrl = `ws://127.0.0.1:${relay.port}/desktop`;
+    const desktopOptions = {
+      headers: {
+        Authorization: `Basic ${Buffer.from('aaaaaaaa:0123456789abcdef').toString('base64')}`,
+      },
+    };
+    const firstDesktop = await openSocket(desktopUrl, desktopOptions);
+    const firstOpen = nextClientOpen(firstDesktop);
+    const phone = await openSocket(
+      `ws://127.0.0.1:${relay.port}/ws?token=${registered.token}`,
+      { headers: { Origin: `http://127.0.0.1:${relay.port}` } },
+    );
+    const relayClientId = await firstOpen;
+    let phoneClosed = false;
+    phone.once('close', () => { phoneClosed = true; });
+
+    firstDesktop.close();
+    await delay(100);
+    assert.equal(phoneClosed, false);
+
+    const secondDesktop = new WebSocket(desktopUrl, desktopOptions);
+    sockets.push(secondDesktop);
+    const secondOpen = nextClientOpen(secondDesktop);
+    await new Promise((resolve, reject) => {
+      secondDesktop.once('open', resolve);
+      secondDesktop.once('error', reject);
+    });
+    assert.equal(await secondOpen, relayClientId);
+    await delay(100);
+    assert.equal(phoneClosed, false);
+  } finally {
+    for (const socket of sockets) {
+      try { socket.terminate(); } catch { /* already closed */ }
+    }
     await relay.close();
   }
 });

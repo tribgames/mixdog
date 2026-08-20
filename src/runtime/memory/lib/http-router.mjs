@@ -21,6 +21,7 @@ import path from 'node:path'
 import { TOOL_DEFS } from '../tool-defs.mjs'
 import { readBody, sendJson, sendError, isLocalOrigin, normalizeCoreProjectId, TOOL_HTTP_BODY_MAX_BYTES } from './http-wire.mjs'
 import { listCore, addCore, deleteCore } from './core-memory-store.mjs'
+import { formatCuratedCoreMemoryLine } from './core-memory-file.mjs'
 import { isBootstrapComplete, cleanMemoryText } from './memory.mjs'
 import { resolveProjectScope } from './project-id-resolver.mjs'
 import { openTraceDatabase, insertAgentCalls, enqueueTraceEvents, registerTraceExitDrain } from './trace-store.mjs'
@@ -97,11 +98,11 @@ export function createHttpRouter({
       ORDER BY score DESC, last_seen_at DESC
     `, projectId !== null ? [projectId] : [])).rows
     const commonRows = (await db.query(
-      `SELECT summary FROM core_entries WHERE project_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`
+      `SELECT id, summary FROM core_entries WHERE project_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`
     )).rows
     const scopedRows = projectId !== null
       ? (await db.query(
-          `SELECT summary FROM core_entries WHERE project_id = $1 AND (status IS NULL OR status = 'active') ORDER BY id ASC`,
+          `SELECT id, summary FROM core_entries WHERE project_id = $1 AND (status IS NULL OR status = 'active') ORDER BY id ASC`,
           [projectId]
         )).rows
       : []
@@ -109,8 +110,8 @@ export function createHttpRouter({
       projectId,
       dbLines: dbRows.map(r => String(r.core_summary || '').trim()).filter(Boolean),
       userLines: [
-        ...commonRows.map(r => String(r.summary || '').trim()).filter(Boolean),
-        ...scopedRows.map(r => String(r.summary || '').trim()).filter(Boolean),
+        ...commonRows.map(formatCuratedCoreMemoryLine).filter(Boolean),
+        ...scopedRows.map(formatCuratedCoreMemoryLine).filter(Boolean),
       ],
     }
   }

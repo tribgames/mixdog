@@ -143,6 +143,7 @@ const StudioPane = lazy(() => loadStudioViewModule()
   .then((module) => ({ default: module.StudioPane })));
 
 const EDITOR_COVER_MAX_MS = 900;
+const TERMINAL_COVER_MAX_MS = 2_000;
 export const EDITOR_STARTUP_DELAY_MS = 32;
 export const DIFF_STARTUP_DELAY_MS = 64;
 export const TERMINAL_STARTUP_DELAY_MS = 96;
@@ -191,7 +192,16 @@ export function ReadyTerminalPane(props: React.ComponentProps<typeof TerminalPan
   beginBootSurface("terminal", metricKey);
   reportBootSurfaceStage("terminal", metricKey, "boundary");
   const [readyKey, setReadyKey] = useState("");
-  return <PaneSurfaceGate ready={readyKey === metricKey}
+  // A terminal whose PTY host never answers must still expose its shell and
+  // its failure notice. TerminalPane's own reveal fallback dies with the mount
+  // effect, so without this expiry the gate can hold "Loading terminal…"
+  // indefinitely over a perfectly live xterm.
+  const [expiredKey, setExpiredKey] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setExpiredKey(metricKey), TERMINAL_COVER_MAX_MS);
+    return () => window.clearTimeout(timer);
+  }, [metricKey]);
+  return <PaneSurfaceGate ready={readyKey === metricKey || expiredKey === metricKey}
     transitionKey={metricKey} label="Loading terminal…">
     <Suspense fallback={null}>
       <TerminalPane {...props} onReady={() => {

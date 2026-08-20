@@ -152,6 +152,15 @@
   .bottom-panel:not([data-settled="true"]) {
     animation: bottom-sheet-in var(--mx-sheet-motion);
   }
+  /* Exit mirrors the entry (user: 열리고 닫힐 때 부드럽게). The panel used to
+     unmount on close, so CSS never had an element left to animate; it is now
+     held for the sheet clock with data-state="closed" and slides back out. */
+  .bottom-panel { transition: transform var(--mx-sheet-motion); }
+  .bottom-panel[data-state="closed"] {
+    transform: translateY(calc(100% + 16px));
+    animation: none;
+    pointer-events: none;
+  }
   /* Overlay ring like the side sheets: painted above children, immune to
      the desktop-body clip and opaque bands. */
   .bottom-panel::after {
@@ -171,6 +180,7 @@
    Explicitly suppress both inline and sheet opening animations for them. */
 .bottom-panel[data-motion="instant"] {
   animation: none;
+  transition: none;
 }
 .bottom-panel-resize {
   position: absolute;

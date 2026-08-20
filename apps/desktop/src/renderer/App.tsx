@@ -84,6 +84,11 @@ import {
   desktopUtilityDockTabEnabled,
 } from "./desktop-feature-config";
 import { primeEditorFileLoad } from "./editor-file-loader";
+import {
+  normalizeProjectionView,
+  shouldAdoptProjectionSelection,
+  useRemoteUiProjection,
+} from "./remote-ui-projection";
 import { isMobileRemoteSurface } from "./MobileTabOverview";
 import { registerMobileBack } from "./mobile-back";
 import {
@@ -197,8 +202,8 @@ const CommandSurface = lazy(() => import("./CommandSurface")
 // app-idle-warmup.ts; importing it arms the schedule.
 import {
   DraftConversation,
-  PaneContextStatus,
-  PaneLiveWork,
+  PaneStatusIsland,
+  preloadUtilityDock,
   selectDesktopSnapshot,
   SnapshotUtilityDock,
   requestSessionRead,
@@ -267,6 +272,7 @@ export function App() {
     commandSurface,
     commandSurfaceLane,
     dismissSheetsForBottomPanel,
+    dockMotion,
     dockOpen,
     dockOpenIntent,
     dockTab,
@@ -313,6 +319,10 @@ export function App() {
     webhooksOpen,
     workflowsOpen,
   } = useAppShellPanels();
+  const settingsMounted = useRef(false);
+  const mountedCommandSurfaces = useRef(new Set<string>());
+  if (settingsOpen) settingsMounted.current = true;
+  if (commandSurface) mountedCommandSurfaces.current.add(commandSurface);
   const enabledSidebarViews = useMemo(
     () => DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) =>
       desktopSidebarDestinationEnabled(panel)),
@@ -943,10 +953,16 @@ export function App() {
     }
   };
 
-  const closeSidebarForNavigation = () => {
+  // Navigating INTO the workspace keeps the sheet slide: the destination sits
+  // under the drawer, so the exit is part of the gesture. A destination that
+  // COVERS the screen (Settings) must close instantly instead — otherwise the
+  // drawer is still sliding while the new screen paints over it, showing both
+  // at once, and its mount work stutters the very slide it overlaps
+  // (user: 설정창 들어갈 때 접히는 거랑 설정창이랑 둘 다 같이 보인다).
+  const closeSidebarForNavigation = (motion: "animated" | "instant" = "animated") => {
     if (window.innerWidth <= 760) {
-      applySidebarOpen(false);
-      applyDockOpen(false);
+      applySidebarOpen(false, motion);
+      applyDockOpen(false, motion);
     }
   };
   // Project navigation and registry edits: app-project-actions.ts.
@@ -1106,22 +1122,22 @@ export function App() {
     const navigationToken = ++navigationEpoch.current;
     closeSidebarForNavigation();
     setRequestedSessionId(sessionId);
-    // Keep the current pane coherent while a cold transcript is fetched.
-    // The requested row still highlights immediately; once the lane exists,
-    // the persistent Conversation can adopt it in the click commit without
-    // exposing the opaque one-frame switch cover.
-    if (!defaultSessionLaneStore.get(sessionId)) {
-      await requestSessionRead(sessionId);
-    }
+    // Select immediately; a cold lane fills behind the already-committed tab
+    // instead of making the relay RTT part of navigation latency.
+    const laneReady = defaultSessionLaneStore.get(sessionId)
+      ? Promise.resolve(true)
+      : requestSessionRead(sessionId);
     if (navigationEpoch.current !== navigationToken) return;
     const session = sessions.find((item) => item.id === sessionId);
     finishPendingConversationHandoff();
-    setRequestedSessionId("");
     // An explicit caller title (agent pool rows: "Reviewer · tag") is PINNED
     // into the selection so pane moves and catalog refreshes cannot swap the
     // label for the child session's auto-generated title (user: 이동했다 오면
     // 네이밍이 이상해진다).
     const pinnedTitle = fallbackTitle.trim();
+    void laneReady.finally(() => {
+      if (navigationEpoch.current === navigationToken) setRequestedSessionId("");
+    });
     activateSelection(
       {
         kind: "session",
@@ -1136,9 +1152,9 @@ export function App() {
     requestSessionRead(sessionId)
   ), []);
   const openSettings = useCallback((section: SlashSettingsSection | null = null) => {
-    // Workflow and search-model settings graduated to the main-pane Workflows
-    // page (user decision): /workflow, /search, and legacy links land there.
-    if (section === "workflow" || section === "search") {
+    // Workflow and web-search-model settings graduated to the main-pane
+    // Workflows page: /workflow and /websearch land there.
+    if (section === "workflow" || section === "websearch") {
       setCommandSurface(null);
       openWorkflows();
       return;
@@ -2102,14 +2118,12 @@ export function App() {
           setCommandSurfaceSessionId(surface === "context" ? paneSessionId : "");
           openConversationCommandSurface(surface);
         },
-        composerContextStatus: <PaneContextStatus sessionId={paneSessionId}
+        statusIsland: <PaneStatusIsland sessionId={paneSessionId}
           hidden={false}
-          onOpen={() => {
+          onOpenContext={() => {
             setCommandSurfaceSessionId(paneSessionId);
             setCommandSurface("context");
-          }} />,
-        liveWorkStatus: <PaneLiveWork sessionId={paneSessionId}
-          hidden={false}
+          }}
           onOpenAgents={desktopFeatureEnabled("agents")
             ? () => openDockTab("agents")
             : undefined} />,
@@ -2135,6 +2149,57 @@ export function App() {
   const activeBottomPanelTab: WorkbenchPanelId = isWorkbenchPanelId(bottomPanel.tab)
     ? bottomPanel.tab
     : "problems";
+  // Desk↔phone continuity. The projection is a small last-writer-wins state,
+  // so it costs nothing while idle and only travels when a surface actually
+  // changes. A cold open adopts the paired surface's selection so picking the
+  // phone up continues the desk; after the first touch, or once the cold
+  // window closes, only genuinely live changes follow.
+  const projectionEntry = useRef(0);
+  if (!projectionEntry.current) projectionEntry.current = Date.now();
+  const projectionApplied = useRef(false);
+  const projectionInteracted = useRef(false);
+  useEffect(() => {
+    const mark = () => { projectionInteracted.current = true; };
+    window.addEventListener("pointerdown", mark, true);
+    window.addEventListener("keydown", mark, true);
+    return () => {
+      window.removeEventListener("pointerdown", mark, true);
+      window.removeEventListener("keydown", mark, true);
+    };
+  }, []);
+  useRemoteUiProjection({
+    view: normalizeProjectionView({
+      selection,
+      sidebarOpen,
+      sidebarPanel,
+      dockOpen,
+      dockTab,
+      bottomPanelOpen: bottomPanel.open,
+      bottomPanelTab: activeBottomPanelTab,
+    }),
+    ready: startupSettled,
+    apply: (state) => {
+      const first = !projectionApplied.current;
+      projectionApplied.current = true;
+      if (!shouldAdoptProjectionSelection({
+        first,
+        elapsedMs: Date.now() - projectionEntry.current,
+        interacted: projectionInteracted.current,
+      })) return;
+      const next = asRecord(state.selection);
+      const kind = String(next?.kind || "");
+      const current = selectionRef.current;
+      if (kind === "session") {
+        const id = String(next?.id || "");
+        if (!id || (current.kind === "session" && current.id === id)) return;
+        void openSessionRef.current(id);
+        return;
+      }
+      if (kind === "new" && current.kind !== "new") {
+        activateSelection({ kind: "new" }, "New task");
+      }
+    },
+  });
   const desktopBootReady = snapshotHydrated
     && projectCatalogReady
     && onboardingReady
@@ -2148,6 +2213,10 @@ export function App() {
   // the disk read that the first click would otherwise pay behind a cover.
   useEffect(() => {
     if (!desktopBootReady) return undefined;
+    // A phone pays for every prewarmed transcript over the relay and only ever
+    // shows one tab, so restored background tabs stay cold until opened
+    // (user: vps라 비용때문에).
+    if (isMobileRemoteSurface()) return undefined;
     const sessionIds = paneSessionTabIds(
       paneWorkspace.leaves,
       paneWorkspace.focusedLeafId,
@@ -2179,6 +2248,7 @@ export function App() {
   }, [desktopBootReady, paneWorkspace.focusedLeafId, paneWorkspace.leaves]);
   useEffect(() => {
     if (!desktopBootReady) return undefined;
+    const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
     let timer = 0;
     let browserFallbackTimer = 0;
     const warmPanels = () => {
@@ -2197,19 +2267,23 @@ export function App() {
         return module;
       };
       void Promise.all([
+        preloadUtilityDock(),
         warmPanel("utilities"),
         warmPanel("schedules"),
         warmPanel("webhooks"),
         warmPanel("projects"),
         warmPanel("workflows"),
       ]).catch(() => {});
-      }, 120);
+      }, nativeWindow ? 120 : 0);
     };
     const host = window as typeof window & { __mixdogWindowShown?: boolean };
-    if (host.__mixdogWindowShown) warmPanels();
+    if (!nativeWindow || host.__mixdogWindowShown) warmPanels();
     else {
       window.addEventListener("mixdog:window-shown", warmPanels, { once: true });
-      // Browser/LAN clients have no Electron main process to emit this event.
+      // A native window normally emits this after show. Keep a bounded
+      // fallback for an abnormal missed event; browser/LAN clients warm
+      // immediately above because every rail click otherwise pays the chunk
+      // and reference-data round trip.
       browserFallbackTimer = window.setTimeout(warmPanels, 1_200);
     }
     return () => {
@@ -2381,7 +2455,7 @@ export function App() {
             if (dockOpenIntent.current && dockTab === surface) applyDockOpen(false);
             else openDockTab(surface);
           }}
-          onOpenSettings={() => { closeSidebarForNavigation(); openSettings(); }}
+          onOpenSettings={() => { closeSidebarForNavigation("instant"); openSettings(); }}
           onPrefetchSettings={warmSettingsView}
           viewGroups={sidebarViewLayout.groups}
           onMoveViewGroup={sidebarViewLayout.moveGroup}
@@ -2548,6 +2622,7 @@ export function App() {
         <WorkbenchSidePanel
           side="right"
           open={dockOpen}
+          motion={dockMotion}
           groups={workbenchSideLayout.layout.right}
           activeRoot={activeSideViews.right}
           descriptors={sideViewDescriptors}
@@ -2615,25 +2690,32 @@ export function App() {
         onSave={() => { void saveAndClosePendingTab(); }}
         onDiscard={discardAndClosePendingTab}
         onCancel={cancelPendingTabClose} />}
-      <Suspense fallback={(settingsOpen || commandSurface || onboardingOpen)
-        ? <DesktopLoadingSurface label="Loading view…" overlay />
-        : null}>
-        {settingsOpen && <SettingsView
-          open
+      <Suspense fallback={settingsOpen
+        ? <DesktopLoadingSurface label="Loading view…" overlay
+            className="settings-loading-surface" />
+        : (commandSurface || onboardingOpen)
+          ? <DesktopLoadingSurface label="Loading view…" overlay />
+          : null}>
+        {(settingsOpen || settingsMounted.current) && <SettingsView
+          open={settingsOpen}
           initialSection={settingsSection}
           onCompose={(text) => {
             setSettingsOpen(false);
             window.dispatchEvent(new CustomEvent('mixdog:composer-draft', { detail: text }));
           }}
           onClose={() => setSettingsOpen(false)} />}
-        {commandSurface && <CommandSurface surface={commandSurface}
-          snapshot={commandSurface === "context"
-            ? commandSurfaceLane ?? EMPTY_SNAPSHOT
-            : snapshot}
-          onClose={() => {
-            setCommandSurface(null);
-            setCommandSurfaceSessionId("");
-          }} />}
+        {(["context", "usage", "doctor"] as const).map((surface) =>
+          commandSurface === surface || mountedCommandSurfaces.current.has(surface)
+            ? <CommandSurface key={surface} surface={surface}
+                open={commandSurface === surface}
+                snapshot={surface === "context"
+                  ? commandSurfaceLane ?? EMPTY_SNAPSHOT
+                  : snapshot}
+                onClose={() => {
+                  setCommandSurface(null);
+                  setCommandSurfaceSessionId("");
+                }} />
+            : null)}
         {onboardingOpen && <OnboardingWizard api={window.mixdogDesktop} onDone={() => setOnboardingOpen(false)} />}
       </Suspense>
       {updateDialogOpen && updaterState.status === "ready" && <DesktopUpdateDialog

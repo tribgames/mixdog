@@ -1,0 +1,429 @@
+/* Desktop layer 04 — Workspace tab strip, drag-and-drop, tab counter.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+.workspace-tabs {
+  height: 35px;
+  align-self: center;
+  gap: 0;
+  padding: 0;
+  /* Chrome desktop grammar (user: PC도 크롬식으로): the run NEVER scrolls —
+     tabs shrink together toward the compact floor with every tab visible,
+     and below that floor the strip collapses to the count switcher. */
+  overflow: hidden;
+}
+.titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
+.workspace-tabs-shell { position: relative; align-self: center; }
+/* Chrome-mobile compact strip (user: 이름 + 숫자 → 목록 선택): when the
+   shell cannot give every tab a readable cell, the run collapses to
+   [active title][count pill][+] and the count opens the switcher list.
+   Wide panes keep the VS Code scroll strip above. */
+.workspace-tabs-shell[data-compact="true"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.workspace-tab-compact-current {
+  min-width: 0;
+  /* The label FILLS the row (user: 라벨 폭이 너무 좁아) so the count and +
+     dock at the right edge like Chrome mobile's control cluster. */
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  /* Same status-label tier as the tabs, the live band and the turn rows:
+     13px/500 through --mx-font-ui, so the four read as one family. */
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+  cursor: pointer;
+}
+.workspace-tab-compact-current:hover { background: var(--mx-hover); }
+.workspace-tab-compact-current > svg { flex: 0 0 auto; }
+.workspace-tab-compact-current > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Chrome's tab counter: a small rounded box drawing its count in chrome
+   ink — quiet rest, wash on hover only (user: 강조 최소화). */
+.workspace-tab-count {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  /* 2px contour (user: 컴팩트 옆에 선이 2px까지 써도 될 듯): at 1.5px the
+     box rendered a half-device-pixel edge that anti-aliased soft next to the
+     3px active-tab band it sits beside. */
+  box-shadow: inset 0 0 0 2px currentColor;
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.workspace-tab-count:hover { color: var(--mx-text); background: var(--mx-hover); }
+/* Switcher rows ride the shared menu card; the trailing close keeps its
+   own hit box. Selectors stay ABOVE the menu's `button` grammar. */
+.workspace-tab-switcher { min-width: 220px; }
+.workspace-tab-switcher-row { display: flex; align-items: center; gap: 2px; }
+.workspace-tab-switcher-row > button[role="menuitem"] {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-tab-switcher-row > button[role="menuitem"] > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-tab-switcher-row.active > button[role="menuitem"] {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-regular);
+}
+.workspace-tab-switcher .workspace-tab-switcher-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.workspace-tab-switcher .workspace-tab-switcher-close:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.titlebar-caption-space {
+  /* WCO shells resolve env() to the real caption edge; plain browsers fall
+     back to 100vw → a 0px reserve, so no phantom 138px strip off-Electron. */
+  width: max(0px, calc(100vw - env(titlebar-area-width, 100vw)));
+  flex: 0 0 max(0px, calc(100vw - env(titlebar-area-width, 100vw)));
+}
+.workspace-tab {
+  --workspace-tab-surface: var(--mx-window-band);
+  position: relative;
+  height: 35px;
+  /* Chromium tab_strip_layout parity (refs/chromium-tabs, user: 크롬 OSS
+     확인): tabs shrink TOGETHER from the 160px preferred width; below the
+     crossover the ACTIVE tab pins at its close-button floor while inactive
+     tabs keep shrinking to a favicon sliver — no mode switch, no scroll.
+     The frozen width variable still pins cells during pointer closes. */
+  container-type: inline-size;
+  min-width: var(--workspace-tab-current-width, 30px);
+  max-width: var(--workspace-tab-current-width, 160px);
+  flex: 1 1 var(--workspace-tab-current-width, 160px);
+  gap: 2px;
+  padding: 0 6px 0 10px;
+  border: 0;
+  /* VS Code tab grammar (user request): square, gapless cells. */
+  border-radius: 0;
+  /* Inactive tabs read clearly dimmer than the active one (VS Code). */
+  color: var(--mx-text-faint);
+  /* Three surface steps (VS Code): empty run < inactive tab < active tab —
+     the cells read as tabs against the deep band, and the leftover run
+     clearly reads as the drag zone. */
+  background: var(--mx-window-band);
+  box-shadow: none;
+  cursor: grab;
+  -webkit-app-region: no-drag;
+}
+/* Chromium crossover floor: the ACTIVE tab stops at the width that still
+   fits favicon+close (Tab::UpdateIconVisibility shows close on active at
+   EVERY size); inactive cells keep giving width down to the sliver. */
+.workspace-tab.active { min-width: var(--workspace-tab-current-width, 56px); }
+/* Chromium visibility ladder (Tab::UpdateIconVisibility, refs/chromium-tabs):
+   1) inactive tabs drop the close button once contents fall under
+      kMinimumContentsWidthForCloseButtons (68 + our 16px insets = 84);
+   2) labels go icon-only below the favicon+title floor;
+   3) a sliver that fits NOTHING keeps its lone glyph and centers it across
+      the whole cell (center_icon_);
+   4) the ACTIVE tab keeps favicon + close to its floor (real-Chrome look,
+      user: 선택탭 넓이 — icon+close fit at 56px); only its label yields. */
+@container (max-width: 84px) {
+  .workspace-tab:not(.active) .workspace-tab-close { display: none; }
+}
+@container (max-width: 48px) {
+  .workspace-tab-main span,
+  /* Doubled class beats the later base `display: block` (the dot rode the
+     sliver edge half-clipped — user: 레드닷 위치가 잘리네). */
+  .workspace-tab .workspace-tab-unread-dot { display: none; }
+  .workspace-tab:not(.active) .workspace-tab-main {
+    flex: 1;
+    justify-content: center;
+    margin-left: -10px;
+    margin-right: -6px;
+    padding: 0;
+  }
+}
+@container (max-width: 64px) {
+  .workspace-tab.active .workspace-tab-main span { display: none; }
+}
+/* Short dividers define background cells without boxing the active tab into
+   the strip. The neighbor immediately before selection also stays open. */
+/* VS Code tab DnD (multieditortabscontrol.css): the source tab stays in
+   place; a text-only ghost label rides the cursor and a 2px accent border
+   marks the insertion index between tabs (drop-target-left/right). */
+.workspace-tab.dragging { cursor: grabbing; }
+.workspace-tab.drop-target-left::after,
+.workspace-tab.drop-target-right::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 2px;
+  background: var(--mx-focus);
+  pointer-events: none;
+  z-index: 11;
+}
+.workspace-tab.drop-target-right::before { left: 0; }
+/* -2px joins the neighbor's drop-target-right line (VS Code). */
+.workspace-tab.drop-target-left::after { right: -2px; }
+.workspace-tab:last-child.drop-target-left::after { right: 0; }
+.workspace-tab-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--mx-bg-layer-1);
+  box-shadow: var(--mx-floating);
+  opacity: var(--mx-op-soft);
+  white-space: nowrap;
+  will-change: transform;
+}
+.session-row-drag-ghost {
+  max-width: min(320px, calc(100vw - 24px));
+  overflow: hidden;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  text-overflow: ellipsis;
+}
+.session-row-drag-ghost > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-tab:not(.active)::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 0;
+  bottom: 8px;
+  width: 1px;
+  background: var(--mx-border-muted);
+  pointer-events: none;
+}
+.workspace-tab:has(+ .workspace-tab.active)::before,
+.workspace-tab:hover::before,
+.workspace-tab:focus-within::before { opacity: 0; }
+.workspace-tab:active { cursor: grabbing; }
+.workspace-tab:hover,
+.workspace-tab:focus-within {
+  --workspace-tab-surface: var(--mx-tab-pill, var(--mx-bg-layer-1));
+  color: var(--mx-text);
+  background: var(--workspace-tab-surface);
+}
+/* The active tab merges with the sheet. Focus ownership is communicated by
+   one inset accent only — never by a second outline around the whole pane. */
+.workspace-tab.active {
+  --workspace-tab-surface: var(--mx-window-band);
+  color: var(--mx-text);
+  background: var(--workspace-tab-surface);
+  /* Chrome-style contour (user: 선택 라벨 좌우 윤곽선이 없어 구분이 안
+     된다): the cell carries its OWN side hairlines, so it reads against
+     sliver neighbors even at the small band↔sheet surface delta. The
+     bottom stays open into the sheet like Chrome's tab shape. */
+  box-shadow: inset 1px 0 0 var(--mx-border), inset -1px 0 0 var(--mx-border);
+}
+.workspace-tab.active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  /* VS Code activeBorderTop: a band across the WHOLE tab, anchored at the top
+     edge and growing DOWNWARD. The old complaint (탭 선택 띠가 너무 두껍다)
+     was about a 2px inset PILL — a rounded floating bar — not this flush
+     full-width line, which is exactly what VS Code marks the active tab with
+     and what the user asked to lean on (파란 띠가 위에 그대로, 두께만 아래로).
+     Moving it to the bottom edge and painting it without focus was tried and
+     reverted (user: 완전 이상한데 — 기존으로 롤백); only the height changed. */
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.workspace-tabs-shell[data-focused="true"] .workspace-tab.active::after {
+  background: var(--mx-accent);
+}
+/* Keep the close affordance fully opaque for active and interaction states. */
+.workspace-tab.active .workspace-tab-close,
+.workspace-tab:hover .workspace-tab-close,
+.workspace-tab:focus-within .workspace-tab-close { opacity: 1; }
+.workspace-tab:focus-within { outline: 0; }
+.workspace-tab:has(> .workspace-tab-main:focus-visible),
+.workspace-tab:has(> .workspace-tab-close:focus-visible) {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.workspace-tab-main:focus-visible, .workspace-tab-close:focus-visible { outline: 0; }
+.workspace-tab-main { gap: 4px; padding: 0; }
+.workspace-tab:not(:first-child) > .workspace-tab-main { padding-left: 4px; }
+.workspace-tab-main > svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: currentColor;
+}
+/* Tabs stay on the shared 13px item tier. Selection adds the 500 label
+   weight; inactive tabs rest at 400 and remain readable through solid ink. */
+.workspace-tab-main span { font-size: var(--mx-font-item); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); }
+.workspace-tab.active .workspace-tab-main span { font-weight: var(--mx-weight-medium); }
+.workspace-tab-new {
+  /* The HIT BOX fills the strip row and a full 34px column (user: +의
+     상하좌우 패딩이 이상해서 누르기 힘들다 — a 28px box in the 35px row
+     left dead edges); the hover pill is drawn on the glyph below, so the
+     visual stays a quiet 26px pill while every pixel of the slot clicks. */
+  width: 34px;
+  align-self: stretch;
+  height: auto;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+.workspace-tab-new:hover,
+.workspace-tab-new:focus-visible {
+  color: var(--mx-text);
+  background: transparent;
+}
+/* Glyph carries the 26px hover pill inside the tall hit box. */
+.workspace-tab-new svg,
+.workspace-tab-new .codicon {
+  box-sizing: content-box;
+  padding: 5px;
+  border-radius: var(--mx-radius-md);
+}
+/* Codicon add: native 16px grid, pixel-crisp like Chrome's own +. */
+.workspace-tab-new .codicon { font-size: 16px; }
+.workspace-tab-new:hover svg,
+.workspace-tab-new:hover .codicon,
+.workspace-tab-new:focus-visible svg,
+.workspace-tab-new:focus-visible .codicon { background: var(--mx-hover); }
+.workspace-tab-new-menu {
+  position: fixed;
+  z-index: 10020;
+  width: 184px;
+  padding: 5px;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-2);
+  box-shadow: 0 12px 32px var(--mx-alpha-dark-30);
+}
+.workspace-tab-new-menu > button {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+.workspace-tab-new-menu > button:hover,
+.workspace-tab-new-menu > button:focus-visible { background: var(--mx-hover); outline: 0; }
+.workspace-tab-new-menu > button > svg {
+  flex: 0 0 15px;
+  color: var(--mx-icon-muted);
+}
+/* Working tab: the tab glyph itself becomes a progress spinner. */
+.workspace-tab-main .workspace-tab-status {
+  flex: 0 0 auto;
+  color: var(--mx-text-muted);
+  animation: spin 1.1s linear infinite;
+}
+.workspace-tab-unread-dot {
+  display: block;
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mx-accent);
+}
+.session-row-status {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  pointer-events: none;
+  /* Optical centering against the TITLE GLYPHS, not the line box: the 21px
+     line carries descender space at the bottom, so a box-centered icon reads
+     ~1px low next to the text (user: center on the font's vertical extent). */
+  transform: translateY(calc(-50% - 1px));
+}
+.session-row-spinner {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  display: block;
+  margin: 0;
+  color: var(--mx-text-muted);
+  /* ProgressSpinner supplies the shared smooth rotation contract. */
+}
+.workspace-tab-close {
+  position: static;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  border-radius: var(--mx-radius-sm);
+  background: transparent;
+}
+.workspace-tab-close svg {
+  width: 14px;
+  height: 14px;
+}
+/* Codicon close at its native 16px (VS Code tab grammar) — pixel-aligned. */
+.workspace-tab-close .codicon { font-size: 16px; }
+.workspace-tab-close:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}

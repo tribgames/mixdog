@@ -38,8 +38,9 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 // reopening /usage paints instantly while a silent refresh runs behind it.
 const surfaceDataCache = new Map<string, Record<string, unknown>>();
 
-export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, onClose }: {
+export function CommandSurface({ surface, open = true, api = window.mixdogDesktop, snapshot, onClose }: {
   surface: CommandSurfaceName;
+  open?: boolean;
   api?: SurfaceApi;
   snapshot?: unknown;
   onClose(): void;
@@ -95,12 +96,15 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
       if (loadingSurface.current === surface) loadingSurface.current = null;
     }
   }, [api, cacheKey, capabilityRequest, surface]);
-  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (error) showDesktopToast(error, 'error');
-  }, [error]);
+    if (open) void load();
+  }, [load, open]);
   useEffect(() => {
-    if (surface !== 'context' || loading || typeof api.subscribeState !== 'function') return undefined;
+    if (open && error) showDesktopToast(error, 'error');
+  }, [error, open]);
+  useEffect(() => {
+    if (!open || surface !== 'context' || loading
+      || typeof api.subscribeState !== 'function') return undefined;
     let disposed = false;
     let refreshRunning = false;
     let refreshQueued = false;
@@ -144,8 +148,9 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
       disposed = true;
       unsubscribe();
     };
-  }, [api, cacheKey, capabilityRequest, loading, surface]);
+  }, [api, cacheKey, capabilityRequest, loading, open, surface]);
   useEffect(() => {
+    if (!open) return undefined;
     const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const shell = document.querySelector<HTMLElement>('.app-shell');
     const isolatedElements = Array.from(shell?.children || [])
@@ -188,7 +193,7 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
       layer.release();
       prior?.focus();
     };
-  }, []);
+  }, [open]);
   const run = async (capability: DesktopCapability, args: unknown[] = []) => {
     if (pending) return undefined;
     setPending(capability);
@@ -203,11 +208,16 @@ export function CommandSurface({ surface, api = window.mixdogDesktop, snapshot, 
     } finally { setPending(''); }
   };
   const title = t(({ context: 'Context', usage: 'Provider usage', doctor: 'Doctor' })[surface]);
-  return createPortal(<div ref={surfaceLayer} className="mixdog-settings-layer" onMouseDown={(event) => {
+  return createPortal(<div ref={surfaceLayer}
+    className="mixdog-settings-layer stable-surface-preserved"
+    data-surface-active={open ? "true" : "false"}
+    inert={open ? undefined : true}
+    aria-hidden={open ? undefined : true}
+    onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
     <section ref={dialog} className="mixdog-settings command-surface" data-surface={surface}
-      role="dialog" aria-modal="true"
+      role="dialog" aria-modal={open ? 'true' : 'false'}
       aria-labelledby="command-surface-title" aria-describedby="command-surface-description" tabIndex={-1}
       aria-busy={loading || Boolean(pending)}>
       <div className="mixdog-settings__panel">

@@ -31,9 +31,9 @@ description: Use this skill only to inspect or modify a Mixdog user's persisted 
 |---|---|
 | Lead 모델 | `agent.presets[id=workflow-lead]` + `agent.default` |
 | 에이전트 라우트 | `agent.agents.<id>` |
-| Search 모델 | `agent.searchRoute` |
+| Web Search 모델 | `agent.webSearchRoute` |
 | Provider·MCP·프로필·스킬·업데이트·셸·autoClear·compaction | `agent.*` |
-| Web search 도구 | `agent.modules.search.enabled` |
+| Web search 도구 | `agent.modules.webSearch.enabled` |
 | Recap(배경 사이클) | `agent.recap.enabled` |
 | 출력 스타일 | 루트 `outputStyle` |
 | Webhook server | `channels.webhook.*` |
@@ -98,11 +98,11 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 
 ### 웹 검색 모델
 
-1. **확인**: Desktop **Workflows → Default agents → Web Search**, TUI `/search`, `getSearchRoute()`, 디스크 `agent.searchRoute`.
-2. **변경**: Desktop **Web Search → Edit** 또는 TUI `/search` → `setSearchRoute()`.
-3. **검증**: 저장 route가 native-search 가능 provider/model인지 확인하고 다음 `search` 도구 호출에서 사용되는지 확인한다.
+1. **확인**: Desktop **Workflows → Default agents → Web Search**, TUI `/websearch`, `getWebSearchRoute()`, 디스크 `agent.webSearchRoute`.
+2. **변경**: Desktop **Web Search → Edit** 또는 TUI `/websearch` → `setWebSearchRoute()`.
+3. **검증**: 저장 route가 native web-search 가능 provider/model인지 확인하고 다음 `web_search` 도구 호출에서 사용되는지 확인한다.
 
-`/search` 인자는 route를 직접 지정하지 않으며 피커를 연다.
+`/websearch` 인자는 route를 직접 지정하지 않으며 피커를 연다.
 
 ### Web search 도구 토글
 
@@ -110,7 +110,7 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 
 1. **확인**: Desktop **Settings → General → Web search**, TUI `/setting → Web search`.
 2. **변경**: toggle → `setWebSearchEnabled()`.
-3. **저장**: `agent.modules.search.enabled`.
+3. **저장**: `agent.modules.webSearch.enabled`.
 4. **검증**: 다음 세션의 tool surface.
 
 ### reasoning effort / Fast
@@ -119,7 +119,7 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 - Fast: `/fast [on|off]` 또는 model picker의 Tab → 현재 Main route에 저장
 - Desktop 세션 헤더에서도 같은 Main route를 바꾼다.
 - 진행 중 turn은 시작 값을 유지하고 새 값은 다음 turn부터 적용된다.
-- agent/search route의 effort/Fast는 각 route에 격리되며 Main의 `modelSettings`를 덮어쓰지 않는다.
+- agent/web-search route의 effort/Fast는 각 route에 격리되며 Main의 `modelSettings`를 덮어쓰지 않는다.
 
 ### 워크플로 팩
 
@@ -188,7 +188,9 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 3. **사용자 정의**: `<mixdogData>/output-styles/<id>.md`.
 4. **검증**: 대화 이력이 있으면 현재 chat에는 적용되지 않으므로 `/clear` 후 확인한다.
 
-`agent.outputStyle`은 읽기 호환용 레거시 경로다. 변경 시 루트 `outputStyle`에 저장하고 `agent.outputStyle`은 제거한다.
+루트 `outputStyle`만 읽고 쓴다. `agent.outputStyle`은 더 이상 읽지 않으므로 발견하면 제거한다.
+
+사용자 정의 스타일은 기본적으로 빌트인 공통 포맷(`output-styles/common.md`)을 상속한다. 전면 교체는 frontmatter에 `keep-shared-format: false`를 넣고, 공통 포맷 자체를 바꾸려면 `<mixdogData>/output-styles/common.md`를 둔다.
 
 ### 테마
 

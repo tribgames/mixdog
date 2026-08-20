@@ -1,0 +1,384 @@
+/* Desktop layer 28 — Usage tables, explorer rows, seti icon font.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Provider usage (/usage): one compact table separates subscription plans
+   from API-key billing while keeping every quota window directly comparable.
+   Fit all nine provider rows at the desktop window's minimum height, while
+   retaining an inner scroller if future providers exceed the available room. */
+.command-surface[data-surface="usage"] {
+  width: min(880px, calc(100vw - 32px));
+  height: auto;
+  max-height: 100%;
+  grid-template-rows: minmax(0, 1fr);
+}
+.command-surface[data-surface="usage"] .mixdog-settings__panel {
+  max-height: 100%;
+}
+.command-surface[data-surface="usage"] .mixdog-settings__body {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  overflow: hidden;
+  gap: 0;
+  padding: 20px;
+}
+.usage-table-shell {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  border: .5px solid var(--mx-border);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+}
+@media (min-width: 761px) {
+  .command-surface[data-surface="usage"] .usage-table-shell {
+    flex: 0 1 auto;
+  }
+}
+.usage-table {
+  width: 100%;
+  min-width: 620px;
+  /* separate+0 keeps the row hairlines while letting the sticky header
+     carry its own border (collapse drops borders from sticky cells). */
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+.usage-provider-column { width: 25%; }
+.usage-plan-column { width: 18%; }
+.usage-values-column { width: 57%; }
+.usage-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  border-bottom: .5px solid var(--mx-border);
+  color: var(--mx-text-faint);
+  background: var(--mx-bg-layer-1);
+  text-align: left;
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: var(--mx-tracking-wide);
+  line-height: var(--mx-line-meta);
+  text-transform: uppercase;
+}
+.usage-table td {
+  padding: 5px 12px;
+  border-bottom: .5px solid var(--mx-border);
+  vertical-align: middle;
+}
+.usage-table tbody tr:last-child td { border-bottom: 0; }
+.usage-provider-cell { min-width: 0; }
+.usage-provider-cell b,
+.usage-provider-cell span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.usage-provider-cell b { color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
+.usage-provider-cell span { color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.usage-plan {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  letter-spacing: var(--mx-tracking-wide);
+  line-height: var(--mx-line-meta);
+}
+.usage-plan[data-plan="subscription"] { color: var(--mx-text); background: var(--mx-bg-layer-2); }
+.usage-plan[data-plan="api"] { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+.usage-row-values { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
+.usage-row-note { color: var(--mx-text-faint); font-size: var(--mx-font-minor); line-height: var(--mx-line-emphasis); }
+.usage-row-link {
+  height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-2);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  cursor: pointer;
+}
+.usage-row-link:hover { color: var(--mx-text); background: var(--mx-hover); }
+.usage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-2);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  flex: none;
+  white-space: nowrap;
+}
+.usage-chip em { color: var(--mx-text-faint); font-style: normal; letter-spacing: var(--mx-tracking-wide); }
+.usage-chip i { color: var(--mx-text-faint); font-style: normal; }
+.usage-chip b { color: var(--mx-success); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
+.usage-chip[data-tone="warn"] b { color: var(--mx-warning); }
+.usage-chip[data-tone="danger"] b { color: var(--mx-danger); }
+.usage-chip[data-tone="estimate"] b { color: var(--mx-warning); }
+.usage-chip[data-tone="credit"] b { color: var(--mx-text); }
+.usage-empty {
+  padding: 28px 12px !important;
+  color: var(--mx-text-muted);
+  text-align: center;
+}
+/* First-open skeleton: same table geometry as loaded rows, so the modal never
+   collapses into a "Loading…" strip and barely reflows when data lands. */
+.usage-skeleton-row td { height: 45px; }
+.usage-skeleton {
+  display: inline-block;
+  max-width: 100%;
+  height: 10px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-2);
+  animation: usage-skeleton-breathe 1.4s ease-in-out infinite;
+}
+.usage-provider-cell .usage-skeleton { display: block; }
+.usage-provider-cell .usage-skeleton + .usage-skeleton { margin-top: 6px; height: 8px; opacity: var(--mx-op-dim); }
+.usage-skeleton-pill { width: 76px; height: 22px; }
+.usage-skeleton-chip { height: 22px; }
+@keyframes usage-skeleton-breathe { 0%, 100% { opacity: var(--mx-op-dim); } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .usage-skeleton { animation: none; } }
+
+/* Markdown supplement (append-only): GFM leftovers the base sheet never
+   covered — hr, images, task lists — plus KaTeX display math geometry. */
+.markdown hr {
+  height: 1px;
+  /* One step above the h1 top margin (24px) so a rule still reads as the
+     loudest separator without punching a hole through a chat answer. */
+  margin: 24px 0;
+  border: 0;
+  background: var(--mx-border-muted);
+}
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--mx-radius-md);
+}
+/* GFM column alignment arrives as the `align` ATTRIBUTE, and a browser maps
+   that to a presentational hint — weaker than ANY author rule. The base
+   `text-align: left` therefore discarded every `:--:` and `--:` column, which
+   is exactly where the tabular figures were supposed to line up. */
+.markdown :is(th, td)[align="left"] { text-align: left; }
+.markdown :is(th, td)[align="center"] { text-align: center; }
+.markdown :is(th, td)[align="right"] { text-align: right; }
+/* A quote inside a quote must not stack a second plate on the first: the bar
+   already marks the nesting. */
+.markdown blockquote blockquote { background: none; }
+/* Loose lists wrap every item's content in <p>, which then inherited the 12px
+   prose margin and doubled each bullet gap. Reference markdown.css collapses
+   the first paragraph into the marker line instead. */
+.markdown li > p:first-child { display: inline; margin: 0; }
+.markdown li > p + p { display: block; margin-top: 8px; }
+/* A response that opens with a heading must not push its own turn down by the
+   heading's block margin (reference markdown.css `> *:first-child`). */
+.markdown > :first-child { margin-top: 0; }
+/* …and the closing block must not push the NEXT turn away either: only <p>
+   was reset before, so any answer ending in a list, table or code card left a
+   12-20px tail on top of the thread's own row gap. */
+.markdown > :last-child { margin-bottom: 0; }
+/* GFM strikethrough: struck text is superseded content, so it recedes to the
+   muted tier instead of staying full-ink behind a line. */
+.markdown del { color: var(--mx-text-muted); }
+/* GFM footnotes are a trailing apparatus, not more body: a rule closes the
+   answer, the list steps one size down, and the ↩ back-links drop the prose
+   underline. The generated "Footnotes" heading is .sr-only (styles.css). */
+.markdown section[data-footnotes] {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mx-border);
+  color: var(--mx-text-muted);
+  /* The apparatus keeps its own metrics: 13px text inheriting the 26px prose
+     rhythm rode at a 2.0 ratio and read looser than the body it annotates. */
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-ui);
+}
+.markdown section[data-footnotes] li { margin-bottom: 4px; }
+.markdown a[data-footnote-backref] { text-decoration: none; }
+.markdown ul.contains-task-list { padding-left: var(--mx-md-indent); list-style: none; }
+/* The checkbox IS this list's marker, so it hangs back into the marker column
+   (13px box right-aligned in the 16px column, then the shared 8px gap) instead
+   of sitting inside the text column and opening a second baseline. */
+.markdown li.task-list-item > input[type="checkbox"] {
+  margin: 0 8px 0 -21px;
+  vertical-align: -2px;
+  accent-color: var(--mx-accent-bg);
+}
+.markdown .katex-display {
+  /* Display math is a CARD block like tables and code (20px), not a flow
+     block: at 16px it sat between the two rhythms and matched neither. */
+  margin: 20px 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+}
+
+/* highlight.js ink over the shared code card, VS Code Dark+/Light+ class.
+   Explicit-language fences only; token hues live as theme tokens so the
+   light sheet swaps the whole ramp in one place. */
+:root {
+  --mx-syntax-comment: #6a9955;
+  --mx-syntax-keyword: #569cd6;
+  --mx-syntax-control: #c586c0;
+  --mx-syntax-string: #ce9178;
+  --mx-syntax-number: #b5cea8;
+  --mx-syntax-type: #4ec9b0;
+  --mx-syntax-function: #dcdcaa;
+  --mx-syntax-variable: #9cdcfe;
+  --mx-syntax-meta: #d16969;
+}
+:root[data-mixdog-theme="light"] {
+  --mx-syntax-comment: #008000;
+  --mx-syntax-keyword: #0000ff;
+  --mx-syntax-control: #af00db;
+  --mx-syntax-string: #a31515;
+  --mx-syntax-number: #098658;
+  --mx-syntax-type: #267f99;
+  --mx-syntax-function: #795e26;
+  --mx-syntax-variable: #001080;
+  --mx-syntax-meta: #cd3131;
+}
+.markdown-code .hljs-comment, .markdown-code .hljs-quote { color: var(--mx-syntax-comment); }
+.markdown-code .hljs-keyword, .markdown-code .hljs-selector-tag,
+.markdown-code .hljs-built_in, .markdown-code .hljs-literal,
+.markdown-code .hljs-tag { color: var(--mx-syntax-keyword); }
+.markdown-code .hljs-doctag, .markdown-code .hljs-formula { color: var(--mx-syntax-control); }
+.markdown-code .hljs-string, .markdown-code .hljs-regexp,
+.markdown-code .hljs-addition { color: var(--mx-syntax-string); }
+.markdown-code .hljs-number, .markdown-code .hljs-symbol,
+.markdown-code .hljs-bullet { color: var(--mx-syntax-number); }
+.markdown-code .hljs-title, .markdown-code .hljs-section { color: var(--mx-syntax-function); }
+.markdown-code .hljs-title.class_, .markdown-code .hljs-type,
+.markdown-code .hljs-selector-class, .markdown-code .hljs-selector-id { color: var(--mx-syntax-type); }
+.markdown-code .hljs-attr, .markdown-code .hljs-attribute, .markdown-code .hljs-variable,
+.markdown-code .hljs-template-variable, .markdown-code .hljs-name,
+.markdown-code .hljs-params { color: var(--mx-syntax-variable); }
+.markdown-code .hljs-meta, .markdown-code .hljs-deletion { color: var(--mx-syntax-meta); }
+.markdown-code .hljs-emphasis { font-style: italic; }
+/* Highlighted emphasis joins the content ramp instead of standing alone at
+   700 — the code card has no third weight tier. */
+.markdown-code .hljs-strong { font-weight: var(--mx-weight-strong); }
+
+/* -- VS Code Explorer port (ExplorerTree) -------------------------------- */
+/* Selection follows list.activeSelectionBackground vs
+   list.inactiveSelectionBackground: the stronger tint and the focus outline
+   need the tree's keyboard focus; a blurred tree keeps a quieter selection. */
+.dock-file-row.explorer-selected {
+  background-color: color-mix(in srgb, var(--mx-focus) 10%, transparent);
+}
+.dock-files-tree:focus-within .dock-file-row.explorer-selected {
+  background-color: color-mix(in srgb, var(--mx-focus) 18%, transparent);
+}
+.dock-files-tree:focus-within .dock-file-row.explorer-focused {
+  outline: 1px solid color-mix(in srgb, var(--mx-focus) 55%, transparent);
+  outline-offset: -1px;
+}
+.dock-file-row.explorer-cut { opacity: var(--mx-op-dim); }
+/* Multi-item drag badge: rendered off-screen, used only as the drag image. */
+.explorer-drag-badge { position: fixed; top: -100px; left: -100px; padding: 2px 8px; border-radius: var(--mx-radius-sm); border: .5px solid var(--mx-border-muted); background: var(--mx-workspace-sheet); color: var(--mx-text); font-size: var(--mx-font-minor); white-space: nowrap; }
+.dock-file-row.explorer-drop-target,
+.dock-files-tree.explorer-drop-root {
+  background-color: color-mix(in srgb, var(--mx-focus) 18%, transparent);
+}
+.dock-files-tree:focus { outline: none; }
+/* Twistie column: 16px reserved on every row; the chevron rotates like the
+   monaco tree codicon (collapsed = -90deg). */
+.explorer-twistie { flex: 0 0 16px; width: 16px; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--mx-text-muted); }
+.explorer-twistie svg { transition: transform 0.1s linear; }
+.explorer-twistie.collapsed svg { transform: rotate(-90deg); }
+/* Indent guides only while the tree is hovered/focused — VS Code's
+   workbench.tree.renderIndentGuides default "onHover". One 1px hairline per
+   ancestor level, landing on that ancestor's twistie center. */
+.dock-files-tree:is(:hover, :focus-within) .dock-file-row[data-guides] {
+  background-image: repeating-linear-gradient(to right, var(--mx-border-muted) 0 1px, transparent 1px 8px);
+  background-size: var(--guide-size);
+  background-position: calc(var(--mx-explorer-inset, 12px) + 8px) 0;
+  background-repeat: no-repeat;
+}
+.dock-file-menu button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* VS Code context-menu grammar: separator-grouped items with right-aligned
+   keybinding hints. */
+.dock-file-menu button { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.dock-file-menu-key { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.dock-file-menu-sep { margin: 4px 2px; border: 0; border-top: 1px solid var(--mx-border-muted); }
+/* Inline create/rename editor (VS Code renderInputBox grammar). */
+.explorer-edit-row { position: relative; overflow: visible; }
+.explorer-edit-box {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.explorer-edit-box input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 6%, transparent);
+  border: 1px solid var(--mx-focus);
+  border-radius: var(--mx-radius-hair);
+  padding: 0 4px;
+  height: 20px;
+  outline: none;
+}
+.explorer-edit-box[data-problem="error"] input { border-color: var(--mx-danger); }
+.explorer-edit-box[data-problem="warning"] input { border-color: var(--mx-warning); }
+.explorer-edit-message {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  padding: 3px 6px;
+  font-size: var(--mx-font-meta);
+  line-height: 1.35;
+  color: var(--mx-grey-50);
+  background: var(--mx-danger);
+  border-radius: 0 0 var(--mx-radius-hair) var(--mx-radius-hair);
+  white-space: normal;
+}
+.explorer-edit-message.warning { background: var(--mx-warning); color: var(--mx-bg-deep); }
+/* Seti icon font — the VS Code built-in file icon theme (theme-seti packages
+   Seti UI, (c) 2014 Jesse Weed, MIT; see THIRD-PARTY-NOTICES.txt). */
+@font-face {
+  font-family: "seti";
+  src: url("../seti.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+.seti-icon {
+  font-family: "seti";
+  font-style: normal;
+  font-weight: var(--mx-weight-regular);
+  /* VS Code renders seti at 150% of the row font. */
+  font-size: var(--mx-icon-md);
+  line-height: 1;
+  width: var(--mx-icon-sm);
+  flex: none;
+  text-align: center;
+  /* The generated table is Seti's DARK colour set (see seti-icons.ts header).
+     ExplorerTree hands it over as --seti-color instead of an inline color, so
+     the light surfaces below can retune it. */
+  color: var(--seti-color, var(--mx-icon-muted));
+  -webkit-font-smoothing: antialiased;
+}
+/* Seti ships no light variant, and its dark accents land between 1.7:1
+   (#cbcb41 json/js) and 2.1:1 (#8dc149 sh/cs) on paper — invisible. Darkening
+   the SAME hue keeps the language identity while clearing the 3:1 floor for
+   non-text glyphs, instead of flattening the icons to one grey. */
+:root[data-mixdog-theme="light"] .seti-icon {
+  color: color-mix(in srgb, var(--seti-color, var(--mx-icon-muted)) 65%, #000);
+}
+

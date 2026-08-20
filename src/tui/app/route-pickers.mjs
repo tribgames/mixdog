@@ -35,19 +35,19 @@ export function createRoutePickers({
 }) {
   // Every opener below is async: on a daemon-backed store the list/get calls
   // are remote, and reading them synchronously yielded promises (empty pickers).
-  const openSearchPicker = async (options = {}) => {
+  const openWebSearchPicker = async (options = {}) => {
     const routeOverride = options.routeOverride || null;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
-    const currentSearchRoute = routeOverride || (await store.getSearchRoute?.()) || null;
+    const currentWebSearchRoute = routeOverride || (await store.getWebSearchRoute?.()) || null;
     void openModelPicker({
-      title: 'Search Model',
-      loadingDescription: 'Loading search-capable models...',
-      providerDescription: 'Choose native search provider.',
-      modelDescription: 'Select native search model. Adjust Effort with ←/→.',
-      emptyNotice: 'no native search models available; connect OpenAI, Grok, Gemini, or Anthropic',
-      cacheRef: 'search',
-      loadModels: store.listSearchModels,
-      currentRoute: currentSearchRoute,
+      title: 'Web Search Model',
+      loadingDescription: 'Loading web-search-capable models...',
+      providerDescription: 'Choose native web-search provider.',
+      modelDescription: 'Select native web-search model. Adjust Effort with ←/→.',
+      emptyNotice: 'no native web-search models available; connect OpenAI, Grok, Gemini, or Anthropic',
+      cacheRef: 'webSearch',
+      loadModels: store.listWebSearchModels,
+      currentRoute: currentWebSearchRoute,
       returnTo,
       returnLabel: options.returnLabel || 'Settings',
       returnOnNestedCancel: options.returnOnNestedCancel === true,
@@ -56,12 +56,12 @@ export function createRoutePickers({
         else setPicker(null);
       },
       onSelectRoute: async (routeInput) => {
-        const result = await store.setSearchRoute?.(routeInput);
+        const result = await store.setWebSearchRoute?.(routeInput);
         if (!result) {
-          store.pushNotice('Search model save is already running.', 'warn');
+          store.pushNotice('Web-search model save is already running.', 'warn');
           return;
         }
-        store.pushNotice(`Search model set to ${routeLabel(result)}`, 'info');
+        store.pushNotice(`Web-search model set to ${routeLabel(result)}`, 'info');
         return result;
       },
       onAfterSelect: null,
@@ -86,9 +86,9 @@ export function createRoutePickers({
     const items = agents.map((agent) => ({
       value: agent.id,
       label: agent.label,
-      metaParts: routeOverrides[agent.id] || agent.route
-        ? agentModelParts(routeOverrides[agent.id] || agent.route)
-        : [{ text: '(follows main)', width: 17 }, { text: '', width: 6 }, { text: '', width: 4 }],
+      metaParts: agent.disabled === true && !routeOverrides[agent.id]
+        ? [{ text: '(not used)', width: 17 }, { text: '', width: 6 }, { text: '', width: 4 }]
+        : agentModelParts(routeOverrides[agent.id] || agent.route || {}),
       description: agent.description || agent.definition?.description || '',
       _agent: agent,
     }));
@@ -110,7 +110,9 @@ export function createRoutePickers({
       onSelect: (_value, item) => {
         const agent = item?._agent;
         if (!agent) return;
-        void openModelPicker({
+        // Agents are either pinned to a model or switched off — the same two
+        // states the desktop panel offers. "Follows Main" is web-search only.
+        const openAgentModelPicker = () => void openModelPicker({
           title: `${agent.label} Model`,
           providerDescription: 'Choose a provider for this agent.',
           refreshModels,
@@ -126,6 +128,48 @@ export function createRoutePickers({
               return;
             }
             store.pushNotice(`${agent.label} model set to ${agentModelProfile(result)}`, 'info');
+          },
+        });
+        setPicker({
+          title: agent.label,
+          description: 'Pick a model for this agent, or turn it off.',
+          help: '↑/↓ Select · Enter Choose · Esc Back',
+          items: [
+            {
+              value: 'model',
+              label: 'Set model…',
+              marker: agent.disabled === true ? '' : '✓',
+              markerColor: theme.success,
+              description: 'Run this agent on a pinned model.',
+            },
+            {
+              value: 'off',
+              label: 'Not used',
+              marker: agent.disabled === true ? '✓' : '',
+              markerColor: theme.success,
+              description: 'Hide this agent from the Lead entirely.',
+            },
+          ],
+          initialIndex: agent.disabled === true ? 1 : 0,
+          onSelect: async (value) => {
+            if (value !== 'off') {
+              openAgentModelPicker();
+              return;
+            }
+            try {
+              const result = await store.setAgentRoute?.(agent.id, { disabled: true });
+              if (!result) {
+                store.pushNotice('Agent save is already running.', 'warn');
+                return;
+              }
+              store.pushNotice(`${agent.label} is no longer used.`, 'info');
+            } catch (e) {
+              store.pushNotice(`could not turn off ${agent.label}: ${e?.message || e}`, 'error');
+            }
+            void openAgentsPicker();
+          },
+          onCancel: () => {
+            void openAgentsPicker();
           },
         });
       },
@@ -281,7 +325,7 @@ export function createRoutePickers({
   };
 
   return {
-    openSearchPicker,
+    openWebSearchPicker,
     openAgentsPicker,
     openWorkflowPicker,
     openOutputStylePicker,

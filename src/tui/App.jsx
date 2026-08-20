@@ -114,8 +114,8 @@ import {
   transcriptSwapReturnsToTail,
 } from './app/transcript-window.mjs';
 import {
-  SEARCH_DEFAULT_ROUTE,
-  isSearchDefaultRoute,
+  WEB_SEARCH_DEFAULT_ROUTE,
+  isWebSearchDefaultRoute,
   terminalSize,
   clean,
   projectNameFromPath,
@@ -528,9 +528,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const workflowTabCycleRef = useRef({ pending: false, lastAt: 0 });
   const scrollFocusRef = useRef({});
   const onboardingStartedRef = useRef(false);
-  const onboardingRef = useRef({ defaultRoute: null, searchRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
+  const onboardingRef = useRef({ defaultRoute: null, webSearchRoute: null, agentRoutes: {}, agents: [], providerModels: [] });
   const providerModelsCacheRef = useRef({ models: null, at: 0 });
-  const searchModelsCacheRef = useRef({ models: null, at: 0 });
+  const webSearchModelsCacheRef = useRef({ models: null, at: 0 });
   const modelPickerRequestRef = useRef(0);
   // Generation guard for the Step 1 background prefetch: bumped on every
   // provider-scope cache clear (e.g. after auth) so a stale in-flight
@@ -542,14 +542,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
       onboardingRef.current.providerModels = [];
       onboardingPrefetchSeqRef.current += 1;
     }
-    if (scope === 'all' || scope === 'search') {
-      searchModelsCacheRef.current = { models: null, at: 0 };
+    if (scope === 'all' || scope === 'webSearch') {
+      webSearchModelsCacheRef.current = { models: null, at: 0 };
     }
   }, []);
   // Boot-time catalog prefetch: warm the /model & /agents provider catalog and
-  // the /search catalog once at startup so those pickers open instantly from
+  // the /websearch catalog once at startup so those pickers open instantly from
   // cache (openModelPicker still TTL-refreshes stale rows in the background).
-  // Provider models load first so the search catalog derives from the full
+  // Provider models load first so the web-search catalog derives from the full
   // runtime cache instead of the sparse quick rows. Guarded by the same
   // generation seq as the onboarding prefetch so an auth-triggered
   // clearModelCaches() can't be clobbered by a stale in-flight result.
@@ -567,12 +567,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
       } catch { /* prefetch is advisory; pickers fall back to their own load */ }
       if (!alive) return;
       try {
-        const searchModels = await Promise.resolve(store.listSearchModels?.() || []);
-        if (alive && Array.isArray(searchModels) && searchModels.length > 0
-          && !Array.isArray(searchModelsCacheRef.current.models)) {
-          searchModelsCacheRef.current = { models: searchModels, at: Date.now() };
+        const webSearchModels = await Promise.resolve(store.listWebSearchModels?.() || []);
+        if (alive && Array.isArray(webSearchModels) && webSearchModels.length > 0
+          && !Array.isArray(webSearchModelsCacheRef.current.models)) {
+          webSearchModelsCacheRef.current = { models: webSearchModels, at: Date.now() };
         }
-      } catch { /* prefetch is advisory; /search falls back to its own load */ }
+      } catch { /* prefetch is advisory; /websearch falls back to its own load */ }
     }, 1500);
     timer.unref?.();
     return () => { alive = false; clearTimeout(timer); };
@@ -600,7 +600,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     openOnboardingAuthStep,
     openProviderSetupPicker,
     openModelPicker,
-    openSearchPicker,
+    openWebSearchPicker,
     openAgentsPicker,
     openWorkflowPicker,
     openOutputStylePicker,
@@ -621,7 +621,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     clearModelCaches,
     onboardingRef,
     providerModelsCacheRef,
-    searchModelsCacheRef,
+    webSearchModelsCacheRef,
     modelPickerRequestRef,
     onboardingPrefetchSeqRef,
     settingsHeavyCacheRef,

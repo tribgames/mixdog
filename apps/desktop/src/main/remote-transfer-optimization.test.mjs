@@ -6,6 +6,7 @@ import {
   createSnapshotDeltaDecoder,
   createSnapshotDeltaEncoder,
 } from "./state-delta.ts";
+import { encodeRelayClientSessionState } from "./remote-relay.ts";
 import { createRemotePaintProbeTracker } from "../shared/remote-performance.ts";
 import {
   createKeyedListDeltaDecoder,
@@ -36,6 +37,34 @@ test("session transcript updates cross the relay as compact deltas", () => {
   assert.equal(decoded.ok, true);
   assert.deepEqual(decoded.snapshot, next);
   assert.ok(JSON.stringify(wire).length < JSON.stringify(next).length / 100);
+});
+
+test("a newly visible relay client receives a full transcript baseline", () => {
+  const first = {
+    sessionId: "session",
+    items: [{ id: "prompt", kind: "user", text: "hello" }],
+  };
+  const next = {
+    ...first,
+    items: [...first.items, { id: "answer", kind: "assistant", text: "done" }],
+  };
+  const firstClient = new Map();
+  const lateClient = new Map();
+  const firstDecoder = createSnapshotDeltaDecoder();
+  const lateDecoder = createSnapshotDeltaDecoder();
+
+  assert.equal(firstDecoder.decode(
+    encodeRelayClientSessionState(firstClient, "session", first),
+  ).ok, true);
+  assert.equal(firstDecoder.decode(
+    encodeRelayClientSessionState(firstClient, "session", next),
+  ).ok, true);
+  const lateResult = lateDecoder.decode(
+    encodeRelayClientSessionState(lateClient, "session", next),
+  );
+
+  assert.equal(lateResult.ok, true);
+  assert.deepEqual(lateResult.snapshot, next);
 });
 
 test("latest-state mailbox drops superseded publications before encoding", () => {

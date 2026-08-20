@@ -43,7 +43,8 @@ export function markdownComponents(CopyControl: MarkdownCopyControl) {
       const language = props.className?.match(/language-([^\s]+)/)?.[1] || "";
       const code = nodeText(props.children).replace(/\n$/, "");
       return <div className="markdown-code">
-        <header><span>{language || "code"}</span>
+        {/* No language, no label — a bare "code" caption named nothing. */}
+        <header><span>{language}</span>
           <CopyControl value={code} label="Copy code" className="markdown-code-copy" /></header>
         <pre data-scrollable><code className={props.className}>{props.children}</code></pre>
       </div>;

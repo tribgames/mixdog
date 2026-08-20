@@ -819,6 +819,16 @@ class MixdogAgent(BaseInstalledAgent):
             **PRISTINE_GUARD_ENV,
             "ANTHROPIC_OAUTH_CREDENTIALS_PATH": CONTAINER_CREDS_PATH,
             "MIXDOG_DATA_DIR": CONTAINER_DATA_DIR,
+            # Uniform transport-policy passthrough (ws-full | ws-delta |
+            # http-sse) for infra A/B probes. Forwarded verbatim only when the
+            # host sets it; absent otherwise, so default runs are unchanged.
+            # Infra-level switch applied identically to every task — never a
+            # task-specific behavior knob.
+            **(
+                {"MIXDOG_OAI_TRANSPORT": os.environ["MIXDOG_OAI_TRANSPORT"]}
+                if os.environ.get("MIXDOG_OAI_TRANSPORT")
+                else {}
+            ),
             # Non-interactive: never open a browser / onboarding from the container.
             "CI": "1",
             # The host preflight above is the sole Anthropic refresh owner.

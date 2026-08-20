@@ -21,8 +21,8 @@ export function shouldMirrorCompletionToPendingQueue({
   return shouldPersistModelVisibleToolCompletion(text, meta);
 }
 
-export async function dispatchSearchRuntimeTool(name, args, callerCtx = {}, {
-  getSearchModule,
+export async function dispatchWebSearchRuntimeTool(name, args, callerCtx = {}, {
+  getWebSearchModule,
   getCurrentCwd,
   getSession,
   notifyFnForSession,
@@ -32,17 +32,17 @@ export async function dispatchSearchRuntimeTool(name, args, callerCtx = {}, {
   const callerCwd = callerCtx?.callerCwd || (typeof getCurrentCwd === 'function' ? getCurrentCwd() : process.cwd());
   const callerSessionId = callerCtx?.callerSessionId || currentSession?.id || null;
   const callerSignal = callerCtx?.signal || currentSession?.controller?.signal;
-  const searchMod = await getSearchModule();
-  if (!searchMod?.handleToolCall) throw new Error('search runtime is not available');
-  return await searchMod.handleToolCall(name, args || {}, {
+  const webSearchMod = await getWebSearchModule();
+  if (!webSearchMod?.handleToolCall) throw new Error('web search runtime is not available');
+  return await webSearchMod.handleToolCall(name, args || {}, {
     callerCwd,
     callerSessionId,
     routingSessionId: callerSessionId,
     clientHostPid: callerCtx?.clientHostPid || currentSession?.clientHostPid || process.pid,
     notifyFn: notifyFnForSession(callerSessionId),
     signal: callerSignal,
-    nativeSearch: name === 'search'
-      ? async (searchArgs) => runNativeWebSearch(searchArgs, { signal: callerSignal })
+    nativeWebSearch: name === 'web_search'
+      ? async (webSearchArgs) => runNativeWebSearch(webSearchArgs, { signal: callerSignal })
       : undefined,
   });
 }

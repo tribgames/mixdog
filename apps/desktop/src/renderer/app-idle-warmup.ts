@@ -126,6 +126,7 @@ export function startSidebarReferencePrewarm(delayMs = 250): () => void {
 export function scheduleRendererWarmups(): () => void {
   let stopped = false;
   let cancelPrewarm: (() => void) | undefined;
+  const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
   // First chat needs Markdown before idle. Studio/rail chunks stay deferred.
   void preloadMarkdownBody().catch(() => undefined);
   void preloadStreamingMarkdownBody().catch(() => undefined);
@@ -138,12 +139,14 @@ export function scheduleRendererWarmups(): () => void {
         import("./WorkflowsView"),
         import("./ProjectsView"),
       ]).then(() => {
-        if (!stopped) cancelPrewarm = startSidebarReferencePrewarm();
+        if (!stopped) {
+          cancelPrewarm = startSidebarReferencePrewarm(nativeWindow ? 250 : 0);
+        }
       });
     },
-    2_500,
-    800,
-    100,
+    nativeWindow ? 2_500 : 0,
+    nativeWindow ? 800 : 250,
+    nativeWindow ? 100 : 0,
   );
   return () => {
     stopped = true;

@@ -1,0 +1,561 @@
+/* Desktop layer 17 — Settings layer, groups, rows, forms.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* Settings dialog: compact modal frame with an independently scrolling capability surface. */
+.mixdog-settings-layer {
+  --settings-layer-safe-top: max(16px, calc(env(titlebar-area-height, 0px) + 8px));
+  --settings-layer-safe-bottom: 16px;
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  width: 100vw;
+  height: var(--vvh, 100vh);
+  display: grid;
+  place-items: center;
+  padding: var(--settings-layer-safe-top) 16px var(--settings-layer-safe-bottom);
+  box-sizing: border-box;
+  background: var(--mx-scrim);
+}
+/* Closed-but-mounted (idle prewarm keeps the ~330ms dialog tree alive):
+   display:none is the one hiding primitive no descendant can override, so
+   the fixed z-60 layer can never paint or hit-test while closed. */
+.mixdog-settings-layer[data-surface-active="false"] {
+  display: none;
+}
+.mixdog-settings {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  width: min(800px, calc(100vw - 32px));
+  height: min(560px, calc(var(--vvh, 100vh) - 32px));
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-overlay);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+}
+.mixdog-settings__panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--mx-bg-base);
+}
+.mixdog-settings__header {
+  position: relative;
+  z-index: 4;
+  width: auto;
+  height: 48px;
+  min-height: 48px;
+  flex: 0 0 48px;
+  padding: 0 12px 0 16px;
+  border-bottom: .5px solid var(--mx-border);
+  background: var(--mx-bg-base);
+}
+.mixdog-settings__header-title { min-width: 0; gap: 8px; }
+.mixdog-settings__header h1 {
+  position: static;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--mx-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+.mixdog-settings__close {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+}
+.mixdog-settings__close svg { width: var(--mx-icon-md); height: var(--mx-icon-md); flex: 0 0 var(--mx-icon-md); }
+.mixdog-settings__close:hover { color: var(--mx-icon); background: var(--mx-hover); }
+.mixdog-settings__back {
+  position: static;
+  flex: 0 0 28px;
+  color: var(--mx-icon-muted);
+}
+.mixdog-settings__back:hover { color: var(--mx-icon); background: var(--mx-hover); }
+.mixdog-settings__body {
+  width: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 24px;
+  padding: 24px calc(32px - var(--mx-scrollbar-gutter)) 32px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.mixdog-settings__body::-webkit-scrollbar { width: var(--mx-scrollbar-size); }
+.mixdog-settings__body::-webkit-scrollbar-track { background: transparent; }
+.mixdog-settings__body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-scrollbar-thumb);
+  background-clip: padding-box;
+}
+.settings-section-heading { min-height: 15px; align-items: center; gap: 16px; }
+/* Section/group heads carry the heading weight, not a half-step: the shell
+   rests at 400, so a title only reads as a title at the 600 strong tier.
+   (The old 500 middle step is gone from the ramp entirely.) */
+.settings-section-heading h2 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: 1; }
+.settings-section-heading p { display: none; }
+.settings-refresh {
+  height: 28px;
+  gap: 6px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.settings-refresh:hover { color: var(--mx-text); background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base); }
+.settings-group { gap: 16px; }
+.settings-group + .settings-group { margin-top: 20px; }
+.settings-group > header { gap: 6px; padding: 0; }
+.settings-group > header h3 { color: var(--mx-text); font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: 1; }
+.settings-group > header p { color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); }
+.settings-group-body, .mixdog-settings__list {
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.mixdog-settings__row, .settings-form-row, .settings-resource {
+  min-height: 0;
+  padding: 20px 0;
+  gap: 16px;
+  border-bottom: .5px solid var(--mx-border);
+}
+.mixdog-settings-v2 .mixdog-settings__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 280px);
+  align-items: center;
+  min-height: 56px;
+  padding: 12px 0;
+}
+.settings-row-control {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.settings-row-control > .settings-select.mx-select-root {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+.mixdog-settings-v2 .settings-form-row,
+.mixdog-settings-v2 .settings-resource {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 280px);
+  align-items: center;
+  min-height: 56px;
+  padding: 12px 0;
+}
+.mixdog-settings-v2 .settings-form-row > div:first-child,
+.mixdog-settings-v2 .settings-resource > div:first-child { flex: none; }
+.mixdog-settings-v2 .settings-form-controls,
+.mixdog-settings-v2 .settings-resource-control {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mixdog-settings-v2 .settings-form-controls input,
+.mixdog-settings-v2 .settings-form-controls .mx-select-root { min-width: 0; flex: 1 1 130px; }
+.mixdog-settings-v2 .settings-resource-meta {
+  display: block;
+  margin-top: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.settings-resource-title { gap: 8px; }
+.settings-status {
+  min-width: 0;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: .5px solid var(--mx-border);
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+  white-space: nowrap;
+}
+.settings-status i { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: currentColor; }
+.settings-status--positive {
+  border-color: color-mix(in srgb, var(--mx-success) 35%, transparent);
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 10%, transparent);
+}
+.settings-status--warning {
+  border-color: color-mix(in srgb, var(--mx-warning) 35%, transparent);
+  color: var(--mx-warning);
+  background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
+}
+.settings-status--danger {
+  border-color: color-mix(in srgb, var(--mx-danger) 35%, transparent);
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
+}
+.mixdog-settings__row:last-child,
+.settings-form-row:last-child,
+.settings-resource:last-child { border-bottom: 0; }
+.mixdog-settings__row-title, .settings-form-row b,
+.settings-resource b, .settings-domain-form > header b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  /* line-height:1 clipped the text box to the em square, so the label rode
+     HIGH against a centered row (user: settings label is not vertically
+     centered). A 20px box balances the half-leading. */
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+}
+.mixdog-settings__copy, .settings-form-row > div:first-child { gap: 8px; }
+.mixdog-settings__description, .settings-form-row small,
+.settings-resource p, .settings-domain-form > header small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.mixdog-settings__switch span {
+  box-sizing: border-box;
+  width: 24px;
+  height: 16px;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  background: linear-gradient(180deg, transparent, var(--mx-alpha-light-20)), var(--mx-bg-layer-3);
+  box-shadow: var(--mx-switch-off);
+  transition: background 90ms ease-out, opacity 90ms ease-out;
+}
+.mixdog-settings__switch span::after {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  /* v2 thumb: white depth gradient over grey-200, elements shadow. */
+  border: .5px solid var(--mx-switch-thumb-border);
+  border-radius: var(--mx-radius-hair);
+  background: linear-gradient(180deg, var(--mx-grey-50), transparent), var(--mx-grey-200);
+  box-shadow: var(--mx-switch-thumb-shadow);
+  transition: transform 90ms ease-out, width 90ms ease-out, border-radius 90ms ease-out;
+}
+.mixdog-settings__switch:hover span::after { width: 13px; border-radius: var(--mx-radius-sm); }
+.mixdog-settings__switch:hover span {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)),
+    linear-gradient(180deg, transparent, var(--mx-alpha-light-20)), var(--mx-bg-layer-3);
+}
+.mixdog-settings__switch input:checked + span {
+  /* v2 checked switch: blue-600 accent under an alpha-light-10 depth wash. */
+  background: linear-gradient(180deg, transparent, var(--mx-alpha-light-10)), var(--mx-accent-bg);
+  box-shadow: var(--mx-switch-on);
+}
+.mixdog-settings__switch:hover input:checked + span {
+  background: linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)),
+    linear-gradient(180deg, transparent, var(--mx-alpha-light-10)), var(--mx-accent-bg);
+}
+.mixdog-settings__switch input:checked + span::after {
+  background: linear-gradient(180deg, var(--mx-grey-50), transparent), var(--mx-grey-300);
+  transform: translateX(8px);
+}
+.mixdog-settings__switch:hover input:checked + span::after { transform: translateX(7px); }
+.mixdog-settings__switch input:focus-visible + span { outline: 2px solid var(--mx-focus); outline-offset: 2px; }
+.settings-select.mx-select-root {
+  width: min(280px, 100%);
+  min-width: 150px;
+  max-width: min(340px, 42vw);
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.settings-row-control .mixdog-settings__switch { justify-self: end; }
+.settings-select--effort.mx-select-root { min-width: 108px; }
+.settings-form-controls .mx-select-root { min-width: 100px; flex: 1; }
+.settings-domain-grid .mx-select-root { width: 100%; }
+.settings-form-controls input,
+.settings-domain-grid input:not([type="checkbox"]), .settings-domain-grid textarea,
+.core-memory-add input, .core-memory-edit input, .settings-oauth-code input, .settings-oauth-url textarea {
+  box-sizing: border-box;
+  min-width: 100px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  color: var(--mx-text);
+  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent), var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+}
+.settings-domain-grid textarea, .settings-oauth-url textarea { min-height: 72px; padding-block: 8px; line-height: var(--mx-line-ui); }
+.settings-form-controls input:hover, .settings-domain-grid input:not([type="checkbox"]):hover,
+.settings-domain-grid textarea:hover {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.settings-form-controls input:focus, .settings-domain-grid input:focus, .settings-domain-grid textarea:focus,
+.core-memory-add input:focus, .core-memory-edit input:focus { outline-color: var(--mx-focus); box-shadow: none; }
+.settings-form-controls button, .settings-action, .settings-domain-form button,
+.core-memory-add button, .core-memory-edit button, .core-memory-row button {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+}
+.settings-form-controls button:hover:not(:disabled), .settings-action:hover:not(:disabled),
+.settings-domain-form button:hover:not(:disabled), .core-memory-add button:hover:not(:disabled),
+.core-memory-edit button:hover:not(:disabled), .core-memory-row button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.settings-action.danger, .core-memory-row button.danger { color: var(--mx-danger); }
+.settings-action:active:not(:disabled) { color: var(--mx-text); background: var(--mx-flat-press); box-shadow: var(--mx-button); }
+/* The pressed danger plate carries the read on its own — drop the ring. */
+.settings-action.danger:active:not(:disabled) { color: var(--mx-danger); background: var(--mx-flat-press-danger); box-shadow: none; }
+.settings-action:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.core-memory-manager { gap: 16px; }
+.core-memory-add-card, .core-memory-list {
+  min-width: 0;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.core-memory-add-card {
+  display: grid;
+  gap: 12px;
+}
+.core-memory-add-card > header {
+  display: grid;
+  gap: 4px;
+}
+.core-memory-add-card > header b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
+}
+.core-memory-add-card > header small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.core-memory-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px;
+}
+.core-memory-add input { min-width: 0; }
+.core-memory-add button { justify-self: end; }
+.core-memory-edit, .core-memory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(72px, 112px) max-content;
+  align-items: center;
+  gap: 16px;
+  min-height: 56px;
+  padding: 12px 0;
+  border-bottom: .5px solid var(--mx-border);
+}
+.core-memory-list > :last-child { border-bottom: 0; }
+.core-memory-list--empty { padding-block: 20px; }
+.core-memory-edit input { min-width: 0; grid-column: 1; }
+.core-memory-copy {
+  min-width: 0;
+  display: grid;
+  grid-column: 1;
+  text-align: left;
+}
+.core-memory-copy b {
+  overflow-wrap: anywhere;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+.core-memory-scope {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  text-align: left;
+}
+.core-memory-actions {
+  display: flex;
+  grid-column: 3;
+  align-self: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* Edit/Delete and Save/Cancel share one column width so entering edit mode
+   never shifts the action column (user-flagged). */
+.core-memory-actions button { min-width: 64px; }
+@media (max-width: 640px) {
+  .core-memory-add { grid-template-columns: 1fr; }
+  .core-memory-add button { justify-self: start; }
+  .core-memory-edit, .core-memory-row { grid-template-columns: minmax(0, 1fr) max-content; gap: 8px 12px; }
+  .core-memory-edit input, .core-memory-copy { grid-column: 1 / -1; }
+  .core-memory-scope { grid-column: 1; }
+  .core-memory-actions { grid-column: 2; }
+}
+/* Shortcuts reference rows: label left, keybind chip right (matching
+   the keybind chip language). */
+.settings-shortcut-list { display: grid; }
+.settings-shortcut-row {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-shortcut-row + .settings-shortcut-row { border-top: .5px solid var(--mx-border-muted); }
+.settings-shortcut-row span { color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); }
+.settings-shortcut-row kbd {
+  padding: 2px 6px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-layer-3);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.settings-meta { color: var(--mx-text-faint); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); }
+.settings-resource-actions { gap: 8px; }
+.settings-resource-actions .settings-action { min-height: 28px; padding-inline: 11px; }
+.settings-domain-form { gap: 16px; padding: 20px 0; }
+.settings-domain-grid { gap: 12px; }
+.settings-domain-grid > label { gap: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); }
+.settings-domain-grid small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.settings-check, .settings-domain-grid .settings-check { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+/* Scheduled-tasks page (sidebar → Schedules): full main-pane list. */
+.schedules-pane { min-width: 0; min-height: 0; flex: 1; display: flex; overflow-y: auto; }
+.schedules-pane > .pane-surface-gate {
+  width: 100%;
+  min-height: 100%;
+  flex: 1 0 auto;
+}
+.schedules-pane > .pane-surface-gate > .pane-surface-gate-content {
+  height: auto;
+  min-height: 100%;
+  /* .schedules-pane is the one scroll owner. A nested auto scroller spent a
+     second vertical track and made wheel/keyboard ownership ambiguous. */
+  overflow: visible;
+}
+.schedules-pane > .pane-surface-gate > .pane-surface-gate-content > .schedules-page {
+  width: 100%;
+}
+.desktop-loading-surface {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--mx-radius-lg);
+  color: var(--mx-text-muted);
+  background: var(--mx-workspace-sheet);
+  box-shadow: var(--mx-raised);
+}
+/* Full-surface loading (Settings/Command/Onboarding lazy chunks): a REAL
+   dim that owns the whole window — the old inset card let the app peek out
+   around a floating frame (user: 딤드할 거면 확실하게 영역 잡아라). */
+.desktop-loading-surface--overlay {
+  position: fixed;
+  z-index: 79;
+  inset: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--mx-scrim) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+/* Compact/phone Settings is a full SCREEN, not a card over the app, so its
+   lazy-chunk cover wears the settings surface instead of a dim scrim: a slow
+   first open then reads as the screen filling in rather than one screen
+   replacing another (user: 처음이 좀 튄다). Same band as settings.css. */
+@media (max-width: 760px), (max-height: 680px) {
+  .desktop-loading-surface--overlay.settings-loading-surface {
+    background: var(--mx-window-band);
+    backdrop-filter: none;
+  }
+}
+/* Sidebar rail panels use the same centered spinner-only grammar without a
+   raised card frame. */
+.session-sidebar-panels .desktop-loading-surface {
+  flex: 1 1 auto;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 0;
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+.pane-surface-gate {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  overflow: hidden;
+  background: var(--mx-workspace-sheet);
+}

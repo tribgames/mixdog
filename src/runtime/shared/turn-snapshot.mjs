@@ -461,6 +461,12 @@ export async function beginTurnSnapshot(_worktree, sessionId) {
       if (snapshot?.root) {
         for (const [otherSessionId, other] of _diffTrackersBySession) {
           if (otherSessionId === ownerSessionId) continue;
+          // A SEALED turn is finished: its baseline already described the
+          // worktree exactly, and completion released its exact-mutation
+          // buffers. Marking it contended from here retroactively stripped a
+          // completed review of EVERY revert source, so contention is decided
+          // between live turns only.
+          if (other.sealed) continue;
           if (other.worktreeSnapshot?.root !== snapshot.root) continue;
           // A whole-worktree baseline cannot attribute concurrent mutations
           // to either session. Mark both turns permanently contended and fall
@@ -547,14 +553,15 @@ export function completeAgentTurnReview(handle, patches = []) {
 export async function completeTurnSnapshot(sessionId) {
   const tracker = _diffTrackersBySession.get(clean(sessionId));
   if (!tracker) return false;
-  if (tracker.worktreeSnapshot && !tracker.worktreeContended) {
+  if (worktreeSnapshotUsable(tracker)) {
     try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
   }
   tracker.sealed = true;
-  // A contended worktree cannot use the shared Git baseline safely. Retain
-  // this session's bounded exact apply_patch before/after buffers so Review can
-  // still undo its own files after the turn completes.
-  if (!tracker.worktreeContended) releaseDiffTrackerContent(tracker);
+  // Only a usable Git baseline can replace the exact apply_patch buffers. A
+  // contended worktree — and a worktree with no Git baseline at all — retains
+  // this session's bounded before/after content so Review can still undo its
+  // own files after the turn completes.
+  if (worktreeSnapshotUsable(tracker)) releaseDiffTrackerContent(tracker);
   return true;
 }
 
@@ -573,21 +580,34 @@ export function cancelTurnSnapshot(sessionId) {
   return removed;
 }
 
+/**
+ * Can this turn's Git baseline own the review and its revert? A contended
+ * worktree cannot attribute concurrent mutations to one session, and a
+ * non-Git worktree never had a baseline to begin with. In both cases the
+ * exact apply_patch buffers are the only safe revert source.
+ */
+function worktreeSnapshotUsable(tracker) {
+  return Boolean(tracker && !tracker.worktreeContended && tracker.worktreeSnapshot);
+}
+
 /** Return the authoritative Lead net diff plus attributed child reviews. */
 export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   if (DISABLED) return { supported: false, files: [], patch: '', agents: [] };
   const ownerSessionId = clean(sessionId);
   const turn = _turnsBySession.get(ownerSessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
-  const isolatedWorktreeSnapshot = tracker?.worktreeContended
-    ? null
-    : tracker?.worktreeSnapshot || null;
+  const isolatedWorktreeSnapshot = worktreeSnapshotUsable(tracker)
+    ? tracker.worktreeSnapshot
+    : null;
   if (isolatedWorktreeSnapshot && !tracker.sealed && options.refresh !== false) {
     try { await refreshTurnWorktreeSnapshot(isolatedWorktreeSnapshot); } catch {}
   }
   const snapshot = isolatedWorktreeSnapshot;
-  const trackedRevertAvailable = tracker?.worktreeContended === true
-    && tracker.valid
+  // Without a usable baseline the review falls back to this session's own
+  // mutations — including a worktree that has no Git repository at all, which
+  // used to leave the bar with no revert mode whatsoever.
+  const trackedRevertAvailable = !snapshot
+    && tracker?.valid === true
     && trackedPairs(tracker).length > 0;
   return {
     supported: true,
@@ -602,15 +622,20 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   };
 }
 
+/** Why this turn cannot revert through its exact apply_patch buffers. */
+function unavailableTrackedRevertReason(tracker) {
+  return tracker.worktreeContended
+    ? 'turn review revert is unavailable while sessions share a worktree'
+    : 'turn review tracked file snapshot is unavailable';
+}
+
 /** Restore one reviewed file to this turn's worktree baseline, never to HEAD. */
 export async function revertTurnReviewFile(_worktree, sessionId, file) {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
-  if (tracker?.worktreeContended) {
+  if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
-    if (pairs.length === 0) {
-      throw new Error('turn review revert is unavailable while sessions share a worktree');
-    }
+    if (pairs.length === 0) throw new Error(unavailableTrackedRevertReason(tracker));
     const pair = pairs.find((entry) => pairMatchesFile(entry, _worktree, file));
     if (!pair) throw new Error('turn review tracked file snapshot is unavailable');
     await revertTrackedPairs(tracker, _worktree, [pair]);
@@ -625,11 +650,9 @@ export async function revertTurnReviewFile(_worktree, sessionId, file) {
 export async function revertTurnReview(_worktree, sessionId) {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
-  if (tracker?.worktreeContended) {
+  if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
-    if (pairs.length === 0) {
-      throw new Error('turn review revert is unavailable while sessions share a worktree');
-    }
+    if (pairs.length === 0) throw new Error(unavailableTrackedRevertReason(tracker));
     await revertTrackedPairs(tracker, _worktree, pairs);
     return await getTurnReviewDiff(_worktree, ownerSessionId);
   }

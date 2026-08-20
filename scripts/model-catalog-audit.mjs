@@ -5,7 +5,7 @@ import {
   loadModelsDevCatalog,
   warmModelMetadataCatalogs,
 } from '../src/runtime/agent/orchestrator/providers/model-catalog.mjs';
-import { QUICK_SEARCH_MODELS } from '../src/session-runtime/quick-search-models.mjs';
+import { QUICK_WEB_SEARCH_MODELS } from '../src/session-runtime/quick-web-search-models.mjs';
 
 const args = new Set(process.argv.slice(2));
 const json = args.has('--json');
@@ -155,7 +155,7 @@ for (const [name, provider] of getAllProviders()) {
 }
 
 const quickRows = [];
-for (const [provider, models] of Object.entries(QUICK_SEARCH_MODELS)) {
+for (const [provider, models] of Object.entries(QUICK_WEB_SEARCH_MODELS)) {
   for (const model of models) {
     if (model?.contextWindow == null) continue;
     const external = externalMeta(modelsDev, litellm, provider, model.id);

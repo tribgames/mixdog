@@ -9,7 +9,7 @@
  * lazy getter wrappers so they resolve the live opener at call time.
  */
 import { theme } from '../theme.mjs';
-import { SEARCH_DEFAULT_ROUTE, isSearchDefaultRoute } from './app-format.mjs';
+import { WEB_SEARCH_DEFAULT_ROUTE, isWebSearchDefaultRoute } from './app-format.mjs';
 import {
   normalizeModelOptions,
   modelDescription,
@@ -130,7 +130,7 @@ export function createOnboardingSteps({
 
   const finishOnboarding = () => {
     const defaultRoute = onboardingRef.current.defaultRoute;
-    const searchRoute = onboardingRef.current.searchRoute || null;
+    const webSearchRoute = onboardingRef.current.webSearchRoute || null;
     const overrides = onboardingRef.current.agentRoutes || {};
     const hasOverrides = Object.keys(overrides).length > 0;
     setPicker(null);
@@ -144,17 +144,17 @@ export function createOnboardingSteps({
       void store.completeOnboarding?.({
         defaultRoute,
         ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
-        ...(searchRoute ? { searchRoute } : {}),
+        ...(webSearchRoute ? { webSearchRoute } : {}),
       }).then(done).catch(failed);
       return;
     }
-    // Branch 2 — Main unset but some Search/agent picks exist: partial persist.
+    // Branch 2 — Main unset but some Web Search/agent picks exist: partial persist.
     // Only the explicit overrides are sent (no defaultRoute); the
     // session skips agents lacking a route and marks onboarding complete.
-    if (hasOverrides || searchRoute) {
+    if (hasOverrides || webSearchRoute) {
       void store.completeOnboarding?.({
         ...(hasOverrides ? { agentRoutes: { ...overrides } } : {}),
-        ...(searchRoute ? { searchRoute } : {}),
+        ...(webSearchRoute ? { webSearchRoute } : {}),
       }).then(done).catch(failed);
       return;
     }
@@ -173,19 +173,19 @@ export function createOnboardingSteps({
   // agents that have no explicit override keep inheriting it.
   const openOnboardingRoleModelPicker = async (target) => {
     const isLead = target === 'lead';
-    const isSearch = target === 'search';
-    // Search uses the search-capable model list; lead/agent use provider models.
+    const isWebSearch = target === 'webSearch';
+    // Web Search uses the web-search-capable model list; lead/agent use provider models.
     let models;
-    if (isSearch) {
-      let searchModels = [];
+    if (isWebSearch) {
+      let webSearchModels = [];
       try {
-        searchModels = await Promise.resolve(store.listSearchModels?.() || []);
+        webSearchModels = await Promise.resolve(store.listWebSearchModels?.() || []);
       } catch (e) {
-        store.pushNotice(`could not list search models: ${e?.message || e}`, 'warn');
+        store.pushNotice(`could not list web-search models: ${e?.message || e}`, 'warn');
       }
-      models = normalizeModelOptions(searchModels || []);
+      models = normalizeModelOptions(webSearchModels || []);
       if (models.length === 0) {
-        store.pushNotice('no native search models available; connect OpenAI, Grok, Gemini, or Anthropic', 'warn');
+        store.pushNotice('no native web-search models available; connect OpenAI, Grok, Gemini, or Anthropic', 'warn');
         void openOnboardingWorkflowStep();
         return;
       }
@@ -198,21 +198,21 @@ export function createOnboardingSteps({
       }
     }
     const overrides = onboardingRef.current.agentRoutes || {};
-    // Current effective route for pre-marking: Main/Search show their own stored
+    // Current effective route for pre-marking: Main/Web Search show their own stored
     // route (or none); agents show their explicit override only (unset = none,
     // so we don't falsely mark the Main Model row on an untouched agent).
     const currentRoute = isLead
       ? (onboardingRef.current.defaultRoute || null)
-      : isSearch
-        ? (onboardingRef.current.searchRoute || null)
+      : isWebSearch
+        ? (onboardingRef.current.webSearchRoute || null)
         : (overrides[target] || null);
     const routeMatchesModel = (route, m) => route?.provider === m.provider && route?.model === m.id;
     // Non-lead targets get a leading "Default" row that makes the target follow
     // the Main Model at runtime. For agents this clears the override (null);
-    // for search this stores the SEARCH_DEFAULT marker route. "Default" is the
-    // pre-marked row when the target is unset (agent) or on the marker (search).
-    const isDefaultSelected = isSearch
-      ? (!currentRoute || isSearchDefaultRoute(currentRoute))
+    // for Web Search this stores the WEB_SEARCH_DEFAULT marker route. "Default"
+    // is pre-marked when the target is unset (agent) or on the web-search marker.
+    const isDefaultSelected = isWebSearch
+      ? (!currentRoute || isWebSearchDefaultRoute(currentRoute))
       : !currentRoute;
     const isUnset = isDefaultSelected;
     const modelItems = models.map((m) => ({
@@ -231,7 +231,7 @@ export function createOnboardingSteps({
             label: 'Default',
             marker: isUnset ? '✓' : '',
             markerColor: theme.success,
-            description: 'follows Main Model',
+            description: isWebSearch ? 'follows Main Model' : 'same as Main Model',
             _default: true,
           },
           ...modelItems,
@@ -242,14 +242,14 @@ export function createOnboardingSteps({
       : (isUnset || matchIdx < 0 ? 0 : matchIdx + 1);
     const label = isLead
       ? 'Main'
-      : isSearch
-        ? 'Search'
+      : isWebSearch
+        ? 'Web Search'
         : (onboardingRef.current.agents || []).find((a) => a.id === target)?.label || target;
     setPicker({
       title: `First Run · ${label}`,
       description: isLead
         ? 'Pick the main model. Agents inherit this unless individually changed.'
-        : isSearch
+        : isWebSearch
           ? 'Pick the native web-search model, or Default to follow the Main Model.'
           : `Pick the model for ${label}, or Default to follow the Main Model.`,
       initialIndex,
@@ -257,10 +257,10 @@ export function createOnboardingSteps({
       onSelect: (_value, item) => {
         // "Default" → clear the override so this target follows the Main Model.
         if (item?._default) {
-          if (isSearch) {
-            // Store the SEARCH_DEFAULT marker so finish persists it and the
+          if (isWebSearch) {
+            // Store the WEB_SEARCH_DEFAULT marker so finish persists it and the
             // runtime follows the Main Model (not a null that drops the field).
-            onboardingRef.current.searchRoute = { ...SEARCH_DEFAULT_ROUTE };
+            onboardingRef.current.webSearchRoute = { ...WEB_SEARCH_DEFAULT_ROUTE };
           } else {
             const nextOverrides = { ...(onboardingRef.current.agentRoutes || {}) };
             delete nextOverrides[target];
@@ -277,8 +277,8 @@ export function createOnboardingSteps({
         }
         if (isLead) {
           onboardingRef.current.defaultRoute = next;
-        } else if (isSearch) {
-          onboardingRef.current.searchRoute = next;
+        } else if (isWebSearch) {
+          onboardingRef.current.webSearchRoute = next;
         } else {
           onboardingRef.current.agentRoutes = {
             ...(onboardingRef.current.agentRoutes || {}),
@@ -323,7 +323,7 @@ export function createOnboardingSteps({
       }
     }
     const defaultRoute = onboardingRef.current.defaultRoute;
-    const searchRoute = onboardingRef.current.searchRoute || null;
+    const webSearchRoute = onboardingRef.current.webSearchRoute || null;
     const overrides = onboardingRef.current.agentRoutes || {};
     const agents = onboardingRef.current.agents || [];
     setProviderPrompt(null);
@@ -346,15 +346,15 @@ export function createOnboardingSteps({
           _target: 'lead',
         },
         {
-          value: 'search-model',
-          label: 'Search',
+          value: 'web-search-model',
+          label: 'Web Search',
           // Marker route = follow Main Model → show a hint, not 'default/default'.
-          metaParts: isSearchDefaultRoute(searchRoute)
+          metaParts: isWebSearchDefaultRoute(webSearchRoute)
             ? [{ text: '(follows main)', width: 17 }, { text: '', width: 6 }, { text: '', width: 4 }]
-            : agentModelParts(searchRoute),
-          description: 'native search model',
+            : agentModelParts(webSearchRoute),
+          description: 'native web-search model',
           _action: 'slot',
-          _target: 'search',
+          _target: 'webSearch',
         },
         ...agents.map((agent) => ({
           value: `agent:${agent.id}`,

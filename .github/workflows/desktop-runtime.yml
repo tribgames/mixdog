@@ -42,25 +42,30 @@ jobs:
           echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
             apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
           echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+      - name: Restore prepared runtime archive
+        id: prepared-runtime
+        uses: actions/cache@v6
+        with:
+          path: apps/desktop/.runtime
+          key: desktop-prepared-runtime-v1-${{ steps.runtime-dependencies.outputs.key }}-${{ hashFiles('package.json', 'package-lock.json', 'README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/package-lock.json', 'apps/desktop/scripts/prepare-runtime.mjs') }}
       - name: Restore stable desktop npm downloads
+        if: steps.prepared-runtime.outputs.cache-hit != 'true'
         uses: actions/cache@v6
         with:
           path: ${{ steps.runtime-dependencies.outputs.npm_cache }}
           key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime-dependencies.outputs.npm_key }}
       - name: Restore pruned runtime dependencies
+        if: steps.prepared-runtime.outputs.cache-hit != 'true'
         uses: actions/cache@v6
         with:
           path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
           key: desktop-${{ steps.runtime-dependencies.outputs.key }}
-      - name: Restore prepared runtime archive
-        uses: actions/cache@v6
-        with:
-          path: apps/desktop/.runtime
-          key: desktop-prepared-runtime-v1-${{ steps.runtime-dependencies.outputs.key }}-${{ hashFiles('package.json', 'package-lock.json', 'README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/package-lock.json', 'apps/desktop/scripts/prepare-runtime.mjs') }}
       - name: Install desktop dependencies
+        if: steps.prepared-runtime.outputs.cache-hit != 'true'
         run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: apps/desktop
       - name: Prepare platform runtime
+        if: steps.prepared-runtime.outputs.cache-hit != 'true'
         shell: bash
         working-directory: apps/desktop
         run: |

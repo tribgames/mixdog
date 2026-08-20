@@ -93,8 +93,14 @@ jobs:
       - name: Verify packaged updater metadata
         run: npm run verify:update-metadata
         working-directory: apps/desktop
-      - name: Verify packaged desktop runtime
+      # Source-shape packaging invariants are platform-neutral and expensive;
+      # run them once on Windows instead of repeating them on all five runners.
+      - name: Verify packaging source invariants once
+        if: inputs.platform == 'win32'
         run: npm run test:packaging
+        working-directory: apps/desktop
+      - name: Verify this platform's packaged runtime layout
+        run: npm run verify:packaging-artifact
         working-directory: apps/desktop
       - name: Smoke packaged desktop memory runtime
         run: npm run verify:packaged-runtime

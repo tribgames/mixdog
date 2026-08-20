@@ -60,18 +60,31 @@ export const PROFILE_LANGUAGES = Object.freeze([
     { id: 'uk', label: 'Українська', prompt: 'Ukrainian (Українська)' },
 ]);
 
+export const PROFILE_EXPERIENCE_LEVELS = Object.freeze([
+    { id: 'beginner', label: 'Beginner' },
+    { id: 'vibe-coder', label: 'Vibe coder' },
+    { id: 'junior', label: 'Junior' },
+    { id: 'expert', label: 'Expert' },
+]);
+
 const PROFILE_LANGUAGE_IDS = new Set(PROFILE_LANGUAGES.map((lang) => lang.id));
+const PROFILE_EXPERIENCE_LEVEL_IDS = new Set(PROFILE_EXPERIENCE_LEVELS.map((level) => level.id));
 const PROFILE_TITLE_MAX = 64;
 
 // Resolve a stored profile (or raw config fragment) into a stable shape:
-//   { title: string, language: <valid id> }
-// Unknown language ids fall back to 'system'; titles are trimmed/capped.
+//   { title: string, language: <valid id>, experienceLevel: <valid id|''> }
+// Unknown language ids fall back to 'system'; unknown experience levels clear.
 export function normalizeProfileConfig(value = {}) {
     const raw = value && typeof value === 'object' ? value : {};
     const title = String(raw.title ?? raw.name ?? '').trim().slice(0, PROFILE_TITLE_MAX);
     const requested = String(raw.language ?? raw.lang ?? 'system').trim();
     const language = PROFILE_LANGUAGE_IDS.has(requested) ? requested : 'system';
-    return { title, language };
+    const requestedExperienceLevel = String(raw.experienceLevel ?? '')
+        .trim().toLowerCase().replace(/[\s_]+/g, '-');
+    const experienceLevel = PROFILE_EXPERIENCE_LEVEL_IDS.has(requestedExperienceLevel)
+        ? requestedExperienceLevel
+        : '';
+    return { title, language, experienceLevel };
 }
 
 /** Persisted `skills.disabled` name list (deduped, trimmed, sorted). */
@@ -88,6 +101,11 @@ export function normalizeSkillsConfig(value = {}) {
 export function profileLanguageEntry(languageId) {
     const id = String(languageId || 'system');
     return PROFILE_LANGUAGES.find((lang) => lang.id === id) || PROFILE_LANGUAGES[0];
+}
+
+export function profileExperienceLevelEntry(experienceLevelId) {
+    const id = String(experienceLevelId || '');
+    return PROFILE_EXPERIENCE_LEVELS.find((level) => level.id === id) || null;
 }
 
 // Map short Anthropic family labels to the full model ids used by the API.
@@ -192,7 +210,7 @@ function clearDurablySavedMcpProjectOverrides(appliedDirty) {
     }
 }
 
-function normalizeSearchRoute(route) {
+function normalizeWebSearchRoute(route) {
     if (!route || typeof route !== 'object' || Array.isArray(route))
         return null;
     const provider = normalizeAgentProviderId(route.provider);
@@ -343,7 +361,7 @@ function canonicalizeShellStorage(value) {
 function canonicalizeModulesStorage(value) {
     const modules = configObject(value);
     delete modules.memory;
-    for (const name of ['search']) {
+    for (const name of ['webSearch']) {
         if (!Object.prototype.hasOwnProperty.call(modules, name)) continue;
         const raw = modules[name];
         modules[name] = {
@@ -385,7 +403,8 @@ function canonicalizeLegacyAgentStorage(value = {}) {
         if (skills.disabled.length) next.skills = skills;
         else delete next.skills;
     }
-    next.searchRoute = normalizeSearchRoute(next.searchRoute);
+    next.webSearchRoute = normalizeWebSearchRoute(next.webSearchRoute);
+    delete next.searchRoute;
     const modules = next.modules && typeof next.modules === 'object' && !Array.isArray(next.modules)
         ? { ...next.modules }
         : {};
@@ -413,6 +432,7 @@ function agentConfigStorageNeedsMigration(value = {}) {
         || Object.prototype.hasOwnProperty.call(value || {}, 'agentMaintenance')
         || Object.prototype.hasOwnProperty.call(value || {}, 'runtime')
         || Object.prototype.hasOwnProperty.call(value || {}, 'search')
+        || Object.prototype.hasOwnProperty.call(value || {}, 'searchRoute')
         || Object.prototype.hasOwnProperty.call(value || {}, 'capabilities')
         || Object.prototype.hasOwnProperty.call(value || {}, 'defaultProvider')
         || presets.some((preset) => !normalizePreset(preset))
@@ -523,10 +543,13 @@ export function loadConfig(options = {}) {
                 default: raw.default || null,
                 maintenance: { ...DEFAULT_MAINTENANCE, ...normalizedMaint },
                 workflowRoutes,
-                searchRoute: normalizeSearchRoute(raw.searchRoute),
+                webSearchRoute: normalizeWebSearchRoute(raw.webSearchRoute),
                 modelSettings,
                 onboarding: raw.onboarding && typeof raw.onboarding === 'object' ? raw.onboarding : {},
                 agents: raw.agents && typeof raw.agents === 'object' ? raw.agents : {},
+                // Explicit "off" roster. canonicalizeAgentRouteStorage normalizes
+                // and drops it when empty, so an all-enabled config stays clean.
+                disabledAgents: Array.isArray(raw.disabledAgents) ? raw.disabledAgents : [],
                 workflow: raw.workflow && typeof raw.workflow === 'object' ? { active: String(raw.workflow.active || 'default') } : { active: 'default' },
                 profile: normalizeProfileConfig(raw.profile),
                 skills: normalizeSkillsConfig(raw.skills),
@@ -585,7 +608,7 @@ export function loadConfig(options = {}) {
         presets: DEFAULT_PRESETS.map(p => ({ ...p })),
         default: null,
         maintenance: { ...DEFAULT_MAINTENANCE },
-        searchRoute: null,
+        webSearchRoute: null,
         modelSettings: {},
         onboarding: {},
         agents: {},
@@ -722,7 +745,7 @@ function buildAgentSaveBuilder(config, appliedDirty) {
             presets,
             default: config.default || null,
             maintenance: canonicalRoutes.maintenance,
-            searchRoute: normalizeSearchRoute(config.searchRoute),
+            webSearchRoute: normalizeWebSearchRoute(config.webSearchRoute),
             modelSettings: config.modelSettings || {},
             onboarding: config.onboarding || {},
             agents: canonicalRoutes.agents,
@@ -744,6 +767,7 @@ function buildAgentSaveBuilder(config, appliedDirty) {
         delete next.runtime;
         delete next.workflowRoutes;
         delete next.search;
+        delete next.searchRoute;
         delete next.capabilities;
         delete next.defaultProvider;
         delete next.guide;

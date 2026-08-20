@@ -287,6 +287,16 @@ export function createMaintenancePickers({
       : [{ id: 'system', label: 'System (locale)' }];
     const currentLangId = profile?.language || 'system';
     const currentLang = languages.find((lang) => lang.id === currentLangId) || languages[0];
+    const experienceLevels = Array.isArray(profile?.experienceLevels) && profile.experienceLevels.length
+      ? profile.experienceLevels
+      : [
+          { id: 'beginner', label: 'Beginner' },
+          { id: 'vibe-coder', label: 'Vibe coder' },
+          { id: 'junior', label: 'Junior' },
+          { id: 'expert', label: 'Expert' },
+        ];
+    const currentExperienceLevelId = profile?.experienceLevel || '';
+    const currentExperienceLevel = experienceLevels.find((level) => level.id === currentExperienceLevelId) || null;
     const titleValue = String(profile?.title || '').trim();
     const cycleLanguage = (direction = 1) => {
       const idx = Math.max(0, languages.findIndex((lang) => lang.id === currentLangId));
@@ -294,6 +304,20 @@ export function createMaintenancePickers({
       try {
         store.setProfile?.({ language: next.id });
         store.pushNotice(`Language set to ${next.label}`, 'info');
+      } catch (e) {
+        store.pushNotice(`profile update failed: ${e?.message || e}`, 'error');
+      }
+      openProfilePicker({ returnTo });
+    };
+    const cycleExperienceLevel = (direction = 1) => {
+      const idx = experienceLevels.findIndex((level) => level.id === currentExperienceLevelId);
+      const nextIdx = idx < 0
+        ? (direction < 0 ? experienceLevels.length - 1 : 0)
+        : (idx + direction + experienceLevels.length) % experienceLevels.length;
+      const next = experienceLevels[nextIdx];
+      try {
+        store.setProfile?.({ experienceLevel: next.id });
+        store.pushNotice(`Experience level set to ${next.label}`, 'info');
       } catch (e) {
         store.pushNotice(`profile update failed: ${e?.message || e}`, 'error');
       }
@@ -307,7 +331,7 @@ export function createMaintenancePickers({
     closeUsagePanel();
     setPicker({
       title: 'Profile',
-      description: 'How the assistant addresses you and which language it replies in.',
+      description: 'How the assistant addresses you, adapts terminology, and chooses its response language.',
       help: '↑/↓ Select · ←/→ Change · Enter Edit · Esc Close',
       indexMode: 'always',
       labelWidth: 12,
@@ -321,6 +345,13 @@ export function createMaintenancePickers({
           _action: 'title',
         },
         {
+          value: 'experience-level',
+          label: 'Experience',
+          meta: currentExperienceLevel?.label || '(not set)',
+          description: 'Development experience. ←/→ to change, Enter to cycle.',
+          _action: 'experience-level',
+        },
+        {
           value: 'language',
           label: 'Language',
           meta: currentLang?.label || 'System (locale)',
@@ -330,9 +361,11 @@ export function createMaintenancePickers({
       ],
       onLeft: (item) => {
         if (item?._action === 'language') cycleLanguage(-1);
+        else if (item?._action === 'experience-level') cycleExperienceLevel(-1);
       },
       onRight: (item) => {
         if (item?._action === 'language') cycleLanguage(1);
+        else if (item?._action === 'experience-level') cycleExperienceLevel(1);
       },
       onSelect: (_value, item) => {
         if (item?._action === 'title') {
@@ -344,6 +377,8 @@ export function createMaintenancePickers({
           });
         } else if (item?._action === 'language') {
           cycleLanguage(1);
+        } else if (item?._action === 'experience-level') {
+          cycleExperienceLevel(1);
         }
       },
       onCancel: () => {

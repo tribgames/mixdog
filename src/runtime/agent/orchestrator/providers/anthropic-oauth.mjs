@@ -175,7 +175,9 @@ function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
         ? systemMsgs
             .map(m => ({
                 text: typeof m?.content === 'string' ? m.content.trim() : '',
-                tier: m?.cacheTier === 'tier3' ? 'tier3' : 'system',
+                tier: m?.cacheTier === 'tier3' ? 'tier3'
+                    : m?.cacheTier === 'env' ? 'env'
+                        : 'system',
             }))
             .filter(it => it.text)
         : [];
@@ -207,7 +209,9 @@ function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
         const tier = b._tier;
         delete b._tier;
         if (b.text === CLAUDE_CODE_SYSTEM_PREFIX) continue;
-        const ttl = tier === 'tier3' ? tier3Ttl : systemTtl;
+        // cacheTier:'env' (volatile session/project environment) is never
+        // marked — it rides the messages-tail breakpoint.
+        const ttl = tier === 'tier3' ? tier3Ttl : tier === 'env' ? null : systemTtl;
         if (ttl && bpCount < MAX_SYSTEM_BREAKPOINTS) {
             b.cache_control = ttl;
             bpCount++;

@@ -29,8 +29,8 @@ export interface SidebarReferenceValues {
   workflows: RecordValue[];
   agents: RecordValue[];
   providerSetup: unknown;
-  searchRoute: RecordValue;
-  searchModels: RecordValue[];
+  webSearchRoute: RecordValue;
+  webSearchModels: RecordValue[];
 }
 
 export type SidebarReferenceKey = keyof SidebarReferenceValues;
@@ -42,8 +42,8 @@ export const SIDEBAR_REFERENCE_KEYS: readonly SidebarReferenceKey[] = [
   'workflows',
   'agents',
   'providerSetup',
-  'searchRoute',
-  'searchModels',
+  'webSearchRoute',
+  'webSearchModels',
 ];
 
 // TTLs reflect how fast each resource actually moves. Channel setup carries
@@ -58,8 +58,8 @@ const TTL_MS: Record<SidebarReferenceKey, number> = {
   workflows: 120_000,
   agents: 120_000,
   providerSetup: 120_000,
-  searchRoute: 120_000,
-  searchModels: 300_000,
+  webSearchRoute: 120_000,
+  webSearchModels: 300_000,
 };
 
 // A failed revalidation keeps the last good snapshot on screen; this backoff
@@ -81,18 +81,18 @@ const DEFAULTS: SidebarReferenceValues = {
   workflows: EMPTY_ROWS,
   agents: EMPTY_ROWS,
   providerSetup: undefined,
-  searchRoute: EMPTY_RECORD,
-  searchModels: EMPTY_ROWS,
+  webSearchRoute: EMPTY_RECORD,
+  webSearchModels: EMPTY_ROWS,
 };
 
 // Provider connect/forget/local-endpoint changes rewrite which models are
 // usable at all, so the setup snapshot and BOTH model catalogs go untrue
-// together. The stored search route is a user choice and only its own
+// together. The stored web-search route is a user choice and only its own
 // mutation invalidates it.
 const PROVIDER_KEYS: readonly SidebarReferenceKey[] = [
   'providerSetup',
   'quickProviderModels',
-  'searchModels',
+  'webSearchModels',
 ];
 
 // Which cached keys a mutation makes untrue. Anything not listed falls back to
@@ -111,16 +111,16 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   saveAgentDefinition: ['agents'],
   deleteAgentDefinition: ['agents'],
   setAgentRoute: ['agents'],
-  setSearchRoute: ['searchRoute'],
+  setWebSearchRoute: ['webSearchRoute'],
   // Provider/auth mutation owners (settings + onboarding capability runners).
   saveProviderApiKey: PROVIDER_KEYS,
   forgetProviderAuth: PROVIDER_KEYS,
   completeOAuthProviderLogin: PROVIDER_KEYS,
   loginOpenCodeGoUsage: PROVIDER_KEYS,
   setLocalProvider: PROVIDER_KEYS,
-  // Onboarding finishes by writing Main, Search, and per-agent routes in one
+  // Onboarding finishes by writing Main, Web Search, and per-agent routes in one
   // capability call.
-  completeOnboarding: ['searchRoute', 'agents', ...PROVIDER_KEYS],
+  completeOnboarding: ['webSearchRoute', 'agents', ...PROVIDER_KEYS],
 };
 
 function record(value: unknown): RecordValue {
@@ -163,8 +163,8 @@ const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
   workflows: async (api) => rows(await capability(api, 'listWorkflows')),
   agents: async (api) => rows(await capability(api, 'listAgents')),
   providerSetup: async (api) => await capability(api, 'getProviderSetup'),
-  searchRoute: async (api) => record(await capability(api, 'getSearchRoute')),
-  searchModels: async (api) => rows(await capability(api, 'listSearchModels', [{ quick: false }])),
+  webSearchRoute: async (api) => record(await capability(api, 'getWebSearchRoute')),
+  webSearchModels: async (api) => rows(await capability(api, 'listWebSearchModels', [{ quick: false }])),
 };
 
 interface CacheEntry {

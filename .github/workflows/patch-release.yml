@@ -139,7 +139,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      max-parallel: 1
       matrix:
         include:
           # win32-x64: native MSVC build on the Windows runner.

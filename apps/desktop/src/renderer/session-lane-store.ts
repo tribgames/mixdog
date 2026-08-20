@@ -79,7 +79,7 @@ function shellActivityCount(snapshot: Snapshot): number {
 }
 
 function surfacedToolActivityIdentity(snapshot: Snapshot): string {
-  return (["agent", "search", "shell"] as const).map((field) => {
+  return (["agent", "web_search", "shell"] as const).map((field) => {
     const activity = snapshot.activeTools?.[field];
     return `${field}:${Math.max(0, Number(activity?.count) || 0)}:${Number(activity?.startedAt) || 0}`;
   }).join("\0");

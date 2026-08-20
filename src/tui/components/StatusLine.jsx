@@ -78,7 +78,7 @@ function stripAnsi(text) {
 function hasActiveStatuslineTools(activeTools = null) {
   if (!activeTools || typeof activeTools !== 'object') return false;
   const e = Number(activeTools.explore?.count) > 0;
-  const s = Number(activeTools.search?.count) > 0;
+  const s = Number(activeTools.web_search?.count) > 0;
   return e || s;
 }
 
@@ -455,14 +455,14 @@ function StatusLineView({ sessionId, clientHostPid, provider, model, effort, fas
   statuslineArgsRef.current = statuslineArgs;
   lineRef.current = line;
   // Stable primitive signature for the activeTools object so the render effect
-  // re-runs when explore/search counts or start times change (object identity
+  // re-runs when explore/web-search counts or start times change (object identity
   // would otherwise be a new ref every render and over-fire the effect).
   const activeToolsSignature = activeTools
     ? [
         Number(activeTools.explore?.count) || 0,
         Number(activeTools.explore?.startedAt) || 0,
-        Number(activeTools.search?.count) || 0,
-        Number(activeTools.search?.startedAt) || 0,
+        Number(activeTools.web_search?.count) || 0,
+        Number(activeTools.web_search?.startedAt) || 0,
       ].join('|')
     : '';
   // Stable primitive signatures so the render effect's dep array doesn't

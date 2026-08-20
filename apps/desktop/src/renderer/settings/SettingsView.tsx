@@ -256,7 +256,11 @@ export function SettingsView({
       if (event.target !== event.currentTarget) return;
       requestClose();
     }}>
-    <section ref={dialogRef} className="mixdog-settings mixdog-settings-v2" role="dialog" aria-modal="true"
+    {/* A CLOSED settings dialog stays mounted for a warm reopen, so it must
+        stop claiming to be modal — the workbench keymap treats any live
+        aria-modal dialog as the owner of every keystroke. */}
+    <section ref={dialogRef} className="mixdog-settings mixdog-settings-v2" role="dialog"
+      aria-modal={open ? 'true' : 'false'}
       aria-labelledby="mixdog-settings-title" tabIndex={-1}>
       <aside className="mixdog-settings__rail" aria-label={t('Settings categories')}>
         <nav>

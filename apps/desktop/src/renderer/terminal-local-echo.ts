@@ -25,6 +25,10 @@ export interface TerminalLocalEchoHooks {
   renderAnchor(): number | null;
   cols(): number;
   now?(): number;
+  /** Consecutive clean echoes required before predictions render. Defaults to
+   *  the conservative streak below; a relay surface pays a full round trip per
+   *  keystroke, so it may start predicting one confirmed echo earlier. */
+  validationStreak?: number;
 }
 
 /** Consecutive clean echo matches required before predictions become visible
@@ -90,7 +94,8 @@ export class TerminalLocalEcho {
     if (!predictableChar(data)) return;
     const width = cellWidth(data);
     let rendered = false;
-    if (this.streak >= VALIDATION_STREAK && this.pending.every((p) => p.rendered)) {
+    const required = Math.max(1, Math.floor(this.hooks.validationStreak ?? VALIDATION_STREAK));
+    if (this.streak >= required && this.pending.every((p) => p.rendered)) {
       const col = this.pending.length
         ? this.anchorCol + this.renderedNetWidth()
         : this.hooks.renderAnchor();

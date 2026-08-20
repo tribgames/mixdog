@@ -42,9 +42,11 @@ export {
 // diverged -25%..+60% depending on script and provider. The residual
 // provider-specific gap between an o200k count and billed prompt tokens is
 // reconciled by providerTokenCalibration(): measured on prefix-verified live
-// sessions, OpenAI billing matches o200k directly (median ratio 1.00) while
-// Anthropic bills the identical projection at ~1.7x o200k (Claude tokenizer +
-// wire framing, median 1.71). Calibration is applied at the provider-aware
+// sessions, OpenAI billing matches o200k directly (median ratio 1.00 against
+// the request prefix) while Anthropic bills the identical projection at
+// ~1.9x o200k (Claude tokenizer + wire framing). The earlier 1.7 was
+// re-measured against live opus-5 sessions and read 12-16% LOW on large
+// transcripts (estimate/billed 0.85-0.94). Calibration is applied at the provider-aware
 // aggregation boundary (compaction pressure / context gauge), never inside
 // the provider-agnostic per-message memo.
 //
@@ -85,6 +87,13 @@ const TOKEN_COUNT_CACHE_MIN_CHARS = 512;
 const TOKEN_COUNT_CACHE_MAX_ENTRIES = 1_024;
 const tokenCountCache = new Map();
 
+// Bumped whenever a native offload lands an exact count for a string that was
+// previously answered with the conservative legacy heuristic. Memoized
+// per-message / per-tool-schema contributions record the generation they were
+// computed under, so the correction actually propagates instead of freezing
+// the (~20% high) fallback value for the lifetime of the message object.
+let tokenEstimateGeneration = 0;
+
 function _tokenCacheSet(key, count) {
     if (tokenCountCache.size >= TOKEN_COUNT_CACHE_MAX_ENTRIES) {
         tokenCountCache.delete(tokenCountCache.keys().next().value);
@@ -117,7 +126,10 @@ function _offloadTokenCountNative(key, s) {
     _nativePendingKeys.add(key);
     countTokensNative(s).then((count) => {
         if (!_nativePendingKeys.delete(key)) return;
-        if (Number.isFinite(count) && count >= 0) _tokenCacheSet(key, count);
+        if (Number.isFinite(count) && count >= 0) {
+            _tokenCacheSet(key, count);
+            tokenEstimateGeneration += 1;
+        }
     }).catch(() => {
         _nativePendingKeys.delete(key);
     });
@@ -156,7 +168,7 @@ function calibrationEnv(name) {
 }
 export function providerTokenCalibration(provider) {
     const p = String(provider || '').toLowerCase();
-    if (p.startsWith('anthropic')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_ANTHROPIC') ?? 1.7;
+    if (p.startsWith('anthropic')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_ANTHROPIC') ?? 1.9;
     if (p.startsWith('gemini') || p.startsWith('google')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_GEMINI') ?? 1.15;
     return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_DEFAULT') ?? 1.0;
 }
@@ -463,7 +475,8 @@ function contextMessageContribution(message) {
     const fingerprint = contextMessageFingerprint(message);
     if (message && typeof message === 'object') {
         const cached = contextMessageMemo.get(message);
-        if (cached && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
+        if (cached && cached.generation === tokenEstimateGeneration
+            && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
     }
     const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
     const text = messageEstimateText(message);
@@ -503,7 +516,7 @@ function contextMessageContribution(message) {
         catch { contribution.toolCallTokens = estimateTokens(`[${message.toolCalls.length} tool calls]`); }
     }
     if (message && typeof message === 'object') {
-        contextMessageMemo.set(message, { fingerprint, contribution });
+        contextMessageMemo.set(message, { fingerprint, contribution, generation: tokenEstimateGeneration });
     }
     return contribution;
 }
@@ -748,11 +761,12 @@ export function toolSchemaSignature(tools) {
 function analyzeToolSchemas(tools) {
     const list = Array.isArray(tools) ? tools : [];
     const cached = Array.isArray(tools) ? toolSchemaAnalysisMemo.get(tools) : null;
-    if (cached && isFinalizedProviderRequestTools(tools)) return cached;
+    const currentGeneration = cached?.generation === tokenEstimateGeneration;
+    if (cached && currentGeneration && isFinalizedProviderRequestTools(tools)) return cached;
     const text = serializeToolSchemas(list);
     const signature = createHash('sha256').update(text).digest('hex');
-    if (cached?.signature === signature) return cached;
-    const analysis = { signature, tokens: estimateTokens(text) };
+    if (cached && currentGeneration && cached.signature === signature) return cached;
+    const analysis = { signature, tokens: estimateTokens(text), generation: tokenEstimateGeneration };
     if (Array.isArray(tools)) toolSchemaAnalysisMemo.set(tools, analysis);
     return analysis;
 }

@@ -224,7 +224,9 @@ export function liveShellRows(snapshot: unknown): LiveShellSummary[] {
     if (!key) return [];
     return [{
       key,
-      command: String(entry.command || '').trim(),
+      // One popover row per job: a multi-line command turned the fixed-width
+      // popover into a wall of wrapped text.
+      command: String(entry.command || '').replace(/\s+/g, ' ').trim(),
       cwd: String(entry.cwd || '').trim(),
       startedAt: timeMs(entry.startedAt) || 0,
     }];

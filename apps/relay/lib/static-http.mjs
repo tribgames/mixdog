@@ -2,7 +2,7 @@
 // relay (apps/relay/server.mjs, plain node on the VPS). The MIME table,
 // path-escape guard, SPA fallback rule, gzip negotiation and pairing cookie
 // live here outside the server entrypoint.
-import { createReadStream, existsSync, realpathSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createGzip } from 'node:zlib';
 
@@ -78,6 +78,33 @@ export function pairingCookieHeaders(queryToken, request) {
   };
 }
 
+/** Home Screen install handoff (iOS): an installed web app runs in its own
+ *  storage container, so the pairing Safari holds never reaches it and the app
+ *  opened on the scanner. A manifest WITHOUT start_url makes the install
+ *  capture the LAUNCHING document URL instead, so an already-paired page can
+ *  carry its pairing link into the install. Chromium keeps the canonical
+ *  manifest — start_url is part of its installability criteria — so only this
+ *  explicitly requested variant drops it. False when the manifest cannot be
+ *  read, leaving the answer to the caller. */
+export function sendInheritStartUrlManifest(request, response, target) {
+  let body;
+  try {
+    const manifest = JSON.parse(readFileSync(target, 'utf8'));
+    delete manifest.start_url;
+    body = JSON.stringify(manifest);
+  } catch {
+    return false;
+  }
+  response.writeHead(200, {
+    ...BROWSER_SECURITY_HEADERS,
+    'Content-Type': MIME_TYPES['.webmanifest'],
+    'Cache-Control': 'no-cache',
+    'Content-Length': Buffer.byteLength(body),
+  });
+  response.end(request.method === 'HEAD' ? undefined : body);
+  return true;
+}
+
 /** Resolve a request path inside `rootDir`.
  *  Returns { status: 403 } for an escape attempt, { status: 404 } for a missing
  *  file route, else
@@ -121,17 +148,28 @@ export function resolveStaticTarget(rootDir, pathname) {
 export function sendStaticFile(request, response, target, extraHeaders = {}) {
   const type = MIME_TYPES[extname(target).toLowerCase()] || 'application/octet-stream';
   const size = statSync(target).size;
+  const hashedAsset = target.split(sep).includes('assets')
+    && /-[A-Za-z0-9_-]{8,}\.[^.]+$/.test(target);
   const gzip = COMPRESSIBLE_TYPE.test(type)
     && size > COMPRESS_MIN_BYTES
     && /\bgzip\b/i.test(String(request.headers['accept-encoding'] || ''));
   const headers = {
     ...BROWSER_SECURITY_HEADERS,
     'Content-Type': type,
+    // boot.js carries no content hash yet is version-locked to index.html (it
+    // picks the viewport projection and the first-paint theme). Under the
+    // generic one-day rule a phone kept an OLD boot.js while index.html
+    // (no-cache) handed it a NEW hashed bundle, and the mismatched pair
+    // rendered the PWA shrunk to a fraction of the screen. It revalidates with
+    // the document it belongs to.
     'Cache-Control': target.endsWith('index.html')
       || target.endsWith('manifest.webmanifest')
       || target.endsWith('sw.js')
+      || target.endsWith('boot.js')
       ? 'no-cache'
-      : 'public, max-age=86400',
+      : hashedAsset
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=86400',
     Vary: 'Accept-Encoding',
     ...extraHeaders,
   };

@@ -1,0 +1,160 @@
+/* Desktop layer 06 — 48px activity rail and the side-panel frame.
+   Loaded in fixed order from ../desktop.css; the cascade depends on that
+   order, so rules must never move between layers or be re-sorted. */
+/* VS Code-style Activity Bar: one 48px global rail on every surface. The top
+   cluster hosts New task / Sessions / primary destinations, the foot hosts
+   the updater badge and Settings. The adjacent session panel collapses
+   independently, exactly like VS Code's Primary Side Bar. */
+.activity-rail {
+  width: 48px;
+  min-width: 48px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border-right: 1px solid var(--mx-border-structure);
+  /* VS Code activity-bar ink, exact upstream values (user: 색감): inactive
+     = activityBar.inactiveForeground #ffffff66 (40%), hover/active = full
+     foreground via the button rules below. */
+  color: color-mix(in srgb, var(--mx-text) 40%, transparent);
+  background: var(--mx-window-band);
+  user-select: none;
+}
+/* Codicon-scale glyphs: VS Code draws 24px icons in the 48px cell; the
+   global 1.5px square-cap stroke already matches the codicon weight. */
+.activity-rail > nav > button > svg,
+.activity-rail > button > svg {
+  width: 24px;
+  height: 24px;
+}
+/* Direct rail controls only: the usage popup nests its own buttons (rows,
+   detail actions) that must keep their list styling. */
+.activity-rail > nav > button,
+.activity-rail > button {
+  position: relative;
+  width: 47px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  transition: color 100ms ease-out, background-color 100ms ease-out;
+}
+.activity-rail > nav > button:hover,
+.activity-rail > button:hover,
+.activity-rail > nav > button:focus-visible,
+.activity-rail > button:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.activity-rail > nav > button.is-active,
+.activity-rail > button.is-active,
+.activity-rail > nav > button.selected,
+.activity-rail > button.selected { color: var(--mx-text); }
+.activity-rail > nav > button::before,
+.activity-rail > button::before {
+  content: "";
+  position: absolute;
+  /* VS Code activeBorder grammar, one step bolder (user: 좀 두껍게, 테두리
+     없이): a 3px FULL-HEIGHT bar FLUSH with the window edge in foreground
+     ink — no offset, no outline. */
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--mx-text);
+  opacity: 0;
+  transform: scaleY(.55);
+  transition: opacity 100ms ease-out, transform 120ms cubic-bezier(.2, .8, .2, 1);
+}
+.activity-rail > nav > button.is-active::before,
+.activity-rail > button.is-active::before,
+.activity-rail > nav > button.selected::before,
+.activity-rail > button.selected::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+.activity-rail > nav > button[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus);
+}
+.activity-rail > nav > button[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus);
+}
+.activity-rail > nav > button[data-drop-position="inside"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.activity-rail > nav > button[draggable="true"],
+.session-panel-title[draggable="true"],
+.sidebar-view-section-header[draggable="true"] { cursor: grab; }
+.activity-rail > nav > button[draggable="true"]:active,
+.session-panel-title[draggable="true"]:active,
+.sidebar-view-section-header[draggable="true"]:active { cursor: grabbing; }
+.activity-rail > .workbench-side-icon-bar.is-vertical,
+.activity-rail > nav.workbench-side-icon-bar.is-vertical {
+  display: flex;
+  flex-direction: column;
+  min-height: 48px;
+}
+.workbench-side-icon-bar.is-vertical > button {
+  position: relative;
+  width: 47px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+.workbench-side-icon-bar.is-vertical > button:hover,
+.workbench-side-icon-bar.is-vertical > button.active {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.workbench-side-icon-bar.is-vertical > button.active::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--mx-text);
+}
+.workbench-side-icon-bar.is-vertical > button[data-drop-position="before"] {
+  box-shadow: inset 0 2px 0 var(--mx-focus);
+}
+.workbench-side-icon-bar.is-vertical > button[data-drop-position="after"] {
+  box-shadow: inset 0 -2px 0 var(--mx-focus);
+}
+.workbench-side-icon-bar.is-vertical > button[data-drop-position="inside"] {
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+}
+.activity-rail-spacer { flex: 1; }
+
+.workbench-side-panel {
+  position: relative;
+  width: var(--workbench-side-panel-width);
+  min-width: var(--workbench-side-panel-min-width);
+  max-width: var(--workbench-side-panel-max-width);
+  height: 100%;
+  flex: 0 0 var(--workbench-side-panel-width);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--mx-text);
+  background: var(--mx-window-band);
+}
+.workbench-side-panel-content {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* The closed panel carries the `hidden` attribute; without this override the
+   class's display:flex beats the UA [hidden] rule and a collapsed side panel
+   lingers as an empty, inert strip. */
+.workbench-side-panel[hidden] { display: none; }
+

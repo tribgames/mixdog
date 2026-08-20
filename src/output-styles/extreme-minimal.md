@@ -1,14 +1,17 @@
 ---
 name: extreme-minimal
 title: Extreme Minimal
-description: Single sentence under 100 characters
+description: Final decision or direct answer in one or two sentences
 aliases: extreme, oneline, one-line, one line, mono
-keep-coding-instructions: true
 ---
 
-# Output Style
+## Depth Variation
 
-Extreme minimal — exactly one sentence under 100 characters.
+Extreme minimal — final decision or answer.
 
-- Net result only; no second sentence, list, heading, label, or follow-up.
-- At most one decisive path, command, symbol, or error verbatim if it fits.
+- Information depth: the entire response is one or two short sentences containing
+  only the final decision, result, or direct answer. Include no heading, label,
+  list, explanation, supporting fact, scope, caveat, recap, or follow-up, even
+  when asked to explain or report. For a cause question, the direct answer is the
+  highest-level cause, not its concrete causal chain. Never pack discarded detail
+  into a longer sentence.

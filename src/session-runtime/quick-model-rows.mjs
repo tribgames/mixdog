@@ -1,9 +1,9 @@
 // Quick (offline) provider/model picker row builders, extracted from
 // mixdog-session-runtime.mjs. Dependency-injected factory: closes over
-// route/config/search accessors and shared row helpers supplied by the facade.
+// route/config/web-search accessors and shared row helpers supplied by the facade.
 import { clean } from './session-text.mjs';
-import { QUICK_SEARCH_MODELS } from './quick-search-models.mjs';
-import { SEARCH_DEFAULT_PROVIDER, SEARCH_DEFAULT_MODEL } from './workflow.mjs';
+import { QUICK_WEB_SEARCH_MODELS } from './quick-web-search-models.mjs';
+import { WEB_SEARCH_DEFAULT_PROVIDER, WEB_SEARCH_DEFAULT_MODEL } from './workflow.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { providerCachedModelsSync } from '../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 
@@ -34,18 +34,18 @@ function hydratedModel(provider, model = {}) {
 
 export function createQuickModelRows({
   getRoute,
-  getSearchRoute,
+  getWebSearchRoute,
   displayConfig,
   providerModelCacheRow,
   providerModelsFromCacheRows,
   sortProviderModels,
   modelMetaByRoute,
   modelMetaKey,
-  normalizeSearchProviderId,
-  normalizeSearchRouteConfig,
-  isSearchCapableProvider,
-  searchCapableFor,
-  currentMainSearchModelMeta,
+  normalizeWebSearchProviderId,
+  normalizeWebSearchRouteConfig,
+  isWebSearchCapableProvider,
+  webSearchCapableFor,
+  currentMainWebSearchModelMeta,
 }) {
   function quickProviderModelRows() {
     const route = getRoute();
@@ -111,10 +111,10 @@ export function createQuickModelRows({
     return providerModelsFromCacheRows(rows);
   }
 
-  function addQuickSearchModel(rows, seen, provider, model) {
-    const providerName = normalizeSearchProviderId(provider);
+  function addQuickWebSearchModel(rows, seen, provider, model) {
+    const providerName = normalizeWebSearchProviderId(provider);
     const modelId = clean(model?.id || model);
-    if (!providerName || !modelId || !isSearchCapableProvider(providerName)) return;
+    if (!providerName || !modelId || !isWebSearchCapableProvider(providerName)) return;
     const key = `${providerName}:${modelId}`;
     if (seen.has(key)) return;
     const resolved = hydratedModel(providerName, model);
@@ -139,84 +139,84 @@ export function createQuickModelRows({
     rows.push({
       ...row,
       provider: providerName,
-      searchCapable: true,
-      searchToolType: row.searchToolType || 'web_search',
+      webSearchCapable: true,
+      webSearchToolType: row.webSearchToolType || 'web_search',
     });
   }
 
-  function addDefaultSearchModel(rows, seen = new Set()) {
+  function addDefaultWebSearchModel(rows, seen = new Set()) {
     const route = getRoute();
-    const mainModel = currentMainSearchModelMeta();
-    if (!mainModel || !searchCapableFor(route.provider, mainModel)) return;
-    const key = `${SEARCH_DEFAULT_PROVIDER}:${SEARCH_DEFAULT_MODEL}`;
+    const mainModel = currentMainWebSearchModelMeta();
+    if (!mainModel || !webSearchCapableFor(route.provider, mainModel)) return;
+    const key = `${WEB_SEARCH_DEFAULT_PROVIDER}:${WEB_SEARCH_DEFAULT_MODEL}`;
     if (seen.has(key)) return;
     seen.add(key);
     rows.push({
-      id: SEARCH_DEFAULT_MODEL,
-      provider: SEARCH_DEFAULT_PROVIDER,
+      id: WEB_SEARCH_DEFAULT_MODEL,
+      provider: WEB_SEARCH_DEFAULT_PROVIDER,
       display: 'Default',
       name: 'Default',
       description: `Use current main model: ${route.provider}/${route.model}`,
       supportsWebSearch: true,
-      searchCapable: true,
-      searchToolType: 'web_search',
+      webSearchCapable: true,
+      webSearchToolType: 'web_search',
       mode: 'chat',
     });
   }
 
-  function quickSearchProviderModelRows() {
+  function quickWebSearchProviderModelRows() {
     const route = getRoute();
     const pickerConfig = displayConfig();
     const rows = [];
     const seen = new Set();
-    addDefaultSearchModel(rows, seen);
+    addDefaultWebSearchModel(rows, seen);
     for (const [name, providerConfig] of Object.entries(pickerConfig.providers || {})) {
-      const providerName = normalizeSearchProviderId(name);
-      if (!providerConfig?.enabled || !isSearchCapableProvider(providerName)) continue;
+      const providerName = normalizeWebSearchProviderId(name);
+      if (!providerConfig?.enabled || !isWebSearchCapableProvider(providerName)) continue;
       const cachedModels = providerCachedModelsSync(providerName);
       const quickModels = cachedModels.length
         ? cachedModels
-        : (QUICK_SEARCH_MODELS[providerName] || []);
+        : (QUICK_WEB_SEARCH_MODELS[providerName] || []);
       for (const model of quickModels) {
-        addQuickSearchModel(rows, seen, providerName, model);
+        addQuickWebSearchModel(rows, seen, providerName, model);
       }
     }
-    const configuredSearch = normalizeSearchRouteConfig(pickerConfig.searchRoute) || normalizeSearchRouteConfig(getSearchRoute());
-    if (configuredSearch?.provider && configuredSearch?.model) {
-      addQuickSearchModel(rows, seen, configuredSearch.provider, {
-        id: configuredSearch.model,
-        display: configuredSearch.model,
+    const configuredWebSearch = normalizeWebSearchRouteConfig(pickerConfig.webSearchRoute) || normalizeWebSearchRouteConfig(getWebSearchRoute());
+    if (configuredWebSearch?.provider && configuredWebSearch?.model) {
+      addQuickWebSearchModel(rows, seen, configuredWebSearch.provider, {
+        id: configuredWebSearch.model,
+        display: configuredWebSearch.model,
       });
     }
-    const mainModel = currentMainSearchModelMeta();
-    if (mainModel && searchCapableFor(route.provider, mainModel)) {
-      addQuickSearchModel(rows, seen, route.provider, {
+    const mainModel = currentMainWebSearchModelMeta();
+    if (mainModel && webSearchCapableFor(route.provider, mainModel)) {
+      addQuickWebSearchModel(rows, seen, route.provider, {
         id: route.model,
         display: route.model,
       });
     }
-    return searchModelsFromRows(rows);
+    return webSearchModelsFromRows(rows);
   }
 
-  function searchModelsFromRows(rows) {
+  function webSearchModelsFromRows(rows) {
     return sortProviderModels((rows || [])
       .filter((row) => row.supportsWebSearch === true)
       .map((row) => ({
         ...row,
-        provider: normalizeSearchProviderId(row.provider),
-        searchCapable: true,
-        searchToolType: row.searchToolType || 'web_search',
+        provider: normalizeWebSearchProviderId(row.provider),
+        webSearchCapable: true,
+        webSearchToolType: row.webSearchToolType || 'web_search',
       })));
   }
 
-  function searchRowsWithDefault(rows = []) {
+  function webSearchRowsWithDefault(rows = []) {
     const out = [];
     const seen = new Set();
-    addDefaultSearchModel(out, seen);
+    addDefaultWebSearchModel(out, seen);
     for (const row of rows || []) {
-      const providerName = normalizeSearchProviderId(row?.provider);
+      const providerName = normalizeWebSearchProviderId(row?.provider);
       const modelId = clean(row?.id || row?.model);
-      if (providerName === SEARCH_DEFAULT_PROVIDER && modelId.toLowerCase() === SEARCH_DEFAULT_MODEL) continue;
+      if (providerName === WEB_SEARCH_DEFAULT_PROVIDER && modelId.toLowerCase() === WEB_SEARCH_DEFAULT_MODEL) continue;
       const key = `${providerName}:${modelId}`;
       if (!providerName || !modelId || seen.has(key)) continue;
       seen.add(key);
@@ -227,10 +227,10 @@ export function createQuickModelRows({
 
   return {
     quickProviderModelRows,
-    addQuickSearchModel,
-    addDefaultSearchModel,
-    quickSearchProviderModelRows,
-    searchModelsFromRows,
-    searchRowsWithDefault,
+    addQuickWebSearchModel,
+    addDefaultWebSearchModel,
+    quickWebSearchProviderModelRows,
+    webSearchModelsFromRows,
+    webSearchRowsWithDefault,
   };
 }

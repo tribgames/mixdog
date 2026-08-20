@@ -31,7 +31,10 @@ import {
   normalizeRemoteExternalUrl,
   normalizeRemoteRelayOrigin,
   parseRemotePairingLink,
+  readRemotePairingLink,
+  storeRemotePairingLink,
 } from './remote-pairing-recovery';
+import { isIosInstallPlatform } from './remote-install';
 import { createSnapshotDeltaDecoder } from '../main/state-delta';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
@@ -78,6 +81,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, parsed.serverPublicKey);
         localStorage.setItem(E2EE_SECRET_STORAGE_KEY, parsed.pairingSecret);
         localStorage.setItem(SERVER_STORAGE_KEY, parsed.origin);
+        storeRemotePairingLink(localStorage, parsed);
       } else {
         clearStoredRemotePairing(localStorage);
         serverBase = '';
@@ -124,6 +128,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const termListeners = new Set<(event: { id: string; data: string }) => void>();
   let socket: WebSocket | null = null;
   let openPromise: Promise<WebSocket> | null = null;
+  let openingSocket: WebSocket | null = null;
+  let openingStartedAt = 0;
+  // Last visible-session registration. The relay gates per-session transcript
+  // frames on a PER CLIENT set, and a reconnect starts a fresh client record
+  // with an empty one, so the shim replays this on every reopen.
+  let lastVisibleSessionIds: string[] = [];
   let everConnected = false;
   let everPaired = false;
   try { everPaired = localStorage.getItem(PAIRED_STORAGE_KEY) === '1'; } catch { /* no storage */ }
@@ -245,6 +255,34 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // before React mounts and even when the socket cannot open.
   let stopPairingCamera: (() => void) | null = null;
 
+  const installedStandalone = (): boolean => {
+    try {
+      return window.matchMedia('(display-mode: standalone)').matches
+        || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    } catch { return false; }
+  };
+
+  // An iOS Home Screen app runs in its OWN storage container: the pairing this
+  // browser holds is invisible there, which is why an installed app landed on
+  // the scanner. Pointing the manifest at the variant WITHOUT start_url makes
+  // the install capture the launching document URL instead, and that URL is
+  // what carries the scanned link across (RemoteInstallPrompt restores it right
+  // before the Share sheet). Only a pairing that has actually connected may be
+  // handed over. Chromium keeps the canonical manifest: start_url belongs to
+  // its installability criteria.
+  let inheritManifestLinked = false;
+  const linkInheritManifest = (): void => {
+    if (inheritManifestLinked || !everPaired || installedStandalone()) return;
+    if (!isIosInstallPlatform(navigator.userAgent, navigator.platform, navigator.maxTouchPoints)) {
+      return;
+    }
+    if (!readRemotePairingLink(localStorage)) return;
+    const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    if (!manifest) return;
+    inheritManifestLinked = true;
+    manifest.href = '/manifest.webmanifest?inherit=1';
+  };
+
   const persistPairing = (raw: string): boolean => {
     try {
       const parsed = parseRemotePairingLink(raw);
@@ -255,6 +293,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       localStorage.setItem(TOKEN_STORAGE_KEY, parsed.token);
       localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, parsed.serverPublicKey);
       localStorage.setItem(E2EE_SECRET_STORAGE_KEY, parsed.pairingSecret);
+      storeRemotePairingLink(localStorage, parsed);
       if (!browserId) {
         browserId = newBrowserId();
         localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId);
@@ -400,6 +439,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + 'background:#222225;color:inherit;font-size:16px;}'
         + '#mixdog-remote-pairing .mrp-connect{padding:13px;border:0;border-radius:12px;background:#e9e9e9;'
         + 'color:#111114;font-weight:600;font-size:15px;cursor:pointer;}'
+        + '#mixdog-remote-pairing .mrp-paste{padding:12px;border:1px solid #3c3c3c;border-radius:12px;'
+        + 'background:#222225;color:inherit;font-weight:600;font-size:15px;cursor:pointer;}'
         + '#mixdog-remote-pairing .mrp-back{justify-self:center;padding:6px 10px;border:0;background:none;'
         + 'color:#a8a8a8;font:500 13.5px/18px system-ui,sans-serif;cursor:pointer;}'
         + '@keyframes mrp-fade{from{opacity:0}to{opacity:1}}'
@@ -439,6 +480,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + '<div class="mrp-backdrop" data-role="close"></div>'
         + '<form><b>Connect with an address</b>'
         + '<small>Copy the browser link from Settings → Connection on your desktop and paste it here.</small>'
+        + '<button type="button" class="mrp-paste" hidden>Paste the link</button>'
         + '<input name="address" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false"'
         + ' placeholder="https://… link with ?token=…" />'
         + '<small data-role="err" hidden>That does not look like a Mixdog link — paste the full address including ?token=…</small>'
@@ -454,12 +496,36 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const form = layer.querySelector('form');
       const input = layer.querySelector('input');
       const error = layer.querySelector<HTMLElement>('[data-role="err"]');
-      if (note) note.textContent = message;
+      // A Home Screen app keeps its own storage container, so a pairing made in
+      // Safari never reaches it. Say that, instead of implying a broken link.
+      if (note) {
+        note.textContent = installedStandalone()
+          ? 'Home Screen apps keep their own storage. Paste the link copied in Safari, or scan the QR once.'
+          : message;
+      }
       if (input && serverBase) input.value = serverBase;
       layer.querySelector('.mrp-manual')?.addEventListener('click', () => {
         sheet?.removeAttribute('hidden');
         input?.focus();
       });
+      // Reading the clipboard needs a user gesture and, on iOS, a permission
+      // tap: the handoff is a button here, never an automatic probe.
+      const paste = layer.querySelector<HTMLButtonElement>('.mrp-paste');
+      if (paste && typeof navigator.clipboard?.readText === 'function') {
+        paste.removeAttribute('hidden');
+        paste.addEventListener('click', () => {
+          void (async () => {
+            let clipboard = '';
+            try { clipboard = await navigator.clipboard.readText(); } catch { /* denied */ }
+            if (persistPairing(clipboard)) {
+              completePairing(layer);
+              return;
+            }
+            if (input) input.style.borderColor = '#e5484d';
+            error?.removeAttribute('hidden');
+          })();
+        });
+      }
       for (const closer of layer.querySelectorAll('[data-role="close"]')) {
         closer.addEventListener('click', () => sheet?.setAttribute('hidden', ''));
       }
@@ -568,12 +634,29 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // short debounce: a tab that flips visibility repeatedly must not pull a
   // full transcript per flip, while a real gap still recovers immediately.
   let lastResyncAt = 0;
+  let trailingResyncTimer: number | null = null;
   const requestResync = (): void => {
     const now = Date.now();
     // Even when the outbound request is debounced, never continue applying
     // patches to a known-invalid local base.
     resetDeltaState();
-    if (now - lastResyncAt < 3_000) return;
+    const sinceLast = now - lastResyncAt;
+    if (sinceLast < 3_000) {
+      // TRAIL it, never drop it: a wake that lands inside the window of the
+      // resync its own disconnect fired would otherwise be swallowed, and a
+      // finished turn sends no further push to expose the gap.
+      if (trailingResyncTimer === null) {
+        trailingResyncTimer = window.setTimeout(() => {
+          trailingResyncTimer = null;
+          requestResync();
+        }, 3_000 - sinceLast);
+      }
+      return;
+    }
+    if (trailingResyncTimer !== null) {
+      window.clearTimeout(trailingResyncTimer);
+      trailingResyncTimer = null;
+    }
     lastResyncAt = now;
     fire('stateResync', []);
     refreshBroadcastLanes();
@@ -675,6 +758,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // Any inbound frame proves the socket is alive; pong frames carry
     // nothing else.
     awaitingPong = false;
+    clearWakePongTimer();
     if ('pong' in message) return;
     // Relay hint: a state push was dropped for this leg (background tab, slow
     // link). The next patch would expose the gap, but a finished turn sends
@@ -794,6 +878,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // reconnects immediately instead of on the next (hanging) tap.
   let heartbeatSentAt = 0;
   let awaitingPong = false;
+  let wakePongTimer: number | null = null;
+  const clearWakePongTimer = (): void => {
+    if (wakePongTimer === null) return;
+    window.clearTimeout(wakePongTimer);
+    wakePongTimer = null;
+  };
   window.setInterval(() => {
     const ws = socket;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -817,6 +907,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const wakeProbe = (event?: Event): void => {
     if (document.visibilityState === 'hidden') {
       resyncOnWake = true;
+      clearWakePongTimer();
       return;
     }
     const shouldResync = resyncOnWake || event?.type === 'online';
@@ -824,12 +915,30 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       resyncOnWake = true;
       retryMs = 500;
+      // A browser can leave a failed VPS handshake in CONNECTING for minutes.
+      // Once the app is foregrounded, retire an old attempt so connect() does
+      // not keep returning its permanently pending promise.
+      if (openingSocket?.readyState === WebSocket.CONNECTING
+        && Date.now() - openingStartedAt >= 1_500) {
+        try { openingSocket.close(); } catch { /* close handler retries */ }
+      }
       void connect().catch(() => { /* the retry loop keeps running */ });
       return;
     }
     heartbeatSentAt = Date.now();
     awaitingPong = true;
     try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
+    // Foreground recovery should not inherit the normal 10s background
+    // heartbeat budget. If this exact probe gets no response, recycle the
+    // half-open socket promptly and let the reconnect loop re-register lanes.
+    clearWakePongTimer();
+    const probeSentAt = heartbeatSentAt;
+    wakePongTimer = window.setTimeout(() => {
+      wakePongTimer = null;
+      if (socket !== ws || !awaitingPong || heartbeatSentAt !== probeSentAt) return;
+      awaitingPong = false;
+      try { ws.close(); } catch { /* reconnect loop takes over */ }
+    }, 2_500);
     // A live socket proves nothing about the transcript: pushes sent while
     // this tab was hidden may have been dropped for a congested leg, and a
     // finished turn never sends another patch to expose it.
@@ -841,6 +950,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   document.addEventListener('visibilitychange', wakeProbe);
   window.addEventListener('online', wakeProbe);
   window.addEventListener('focus', wakeProbe);
+  window.addEventListener('pageshow', wakeProbe);
 
   // The pairing is unrecoverable without a fresh QR: wipe every stored
   // credential and hand the surface to the scanner.
@@ -889,21 +999,43 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     }
     openPromise ??= new Promise<WebSocket>((resolve, reject) => {
       const ws = new WebSocket(wsUrl());
+      openingSocket = ws;
+      openingStartedAt = Date.now();
       ws.binaryType = 'arraybuffer';
       let opened = false;
       let handshakeTimer: number | null = null;
+      const openingTimer = window.setTimeout(() => {
+        if (opened || ws.readyState !== WebSocket.CONNECTING) return;
+        try { ws.close(); } catch { /* close handler retries */ }
+      }, 12_000);
       const finishOpen = () => {
-        if (opened) return;
+        // The relay can preserve this browser socket while the desktop leg
+        // redials. In that case a fresh E2EE challenge makes the already-open
+        // socket temporarily unready, then this same completion path restores
+        // its subscriptions without requiring a browser reconnect.
+        if (opened && connectionReady) return;
+        const firstReady = !opened;
         const reconnected = everConnected;
-        opened = true;
+        if (firstReady) {
+          opened = true;
+          window.clearTimeout(openingTimer);
+          if (openingSocket === ws) openingSocket = null;
+        }
         connectionReady = true;
-        if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
+        if (handshakeTimer !== null) {
+          window.clearTimeout(handshakeTimer);
+          handshakeTimer = null;
+        }
         retryMs = 500;
         stopPairingCamera?.();
         document.getElementById('mixdog-remote-pairing')?.remove();
         if (!everPaired) {
           everPaired = true;
           try { localStorage.setItem(PAIRED_STORAGE_KEY, '1'); } catch { /* no storage */ }
+          // Proof that this pairing works: only now may it be handed to an
+          // install, and only now does the install card offer to arm one.
+          linkInheritManifest();
+          window.dispatchEvent(new Event('mixdog:remote-paired'));
         }
         if (everConnected) {
           // E2EE relay handshakes already trigger an authoritative full state
@@ -911,11 +1043,29 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           if (!e2eePairing) {
             void call<SessionSnapshot>('getSnapshot').then(dispatchState).catch(() => {});
           }
-          refreshBroadcastLanes();
+          // The renderer only announces visible sessions when its pane set
+          // CHANGES, so nothing re-registered this browser with the relay's
+          // fresh client record: the phone silently stopped receiving
+          // transcript frames until a session switch or a reload (user: 다른
+          // 앱 갔다 들어오니 동기 안 됨). Replay it before the lane re-reads
+          // below, whose replay frames pass through the same filter.
+          // Encryption is asynchronous, so merely starting these RPCs in
+          // order does not guarantee wire order. Finish the registration
+          // before any transcript re-read can publish its recovery frame.
+          void (async () => {
+            if (lastVisibleSessionIds.length > 0) {
+              try {
+                await call<boolean>('setVisibleSessions', [lastVisibleSessionIds]);
+              } catch {
+                // The reconnect loop or the next pane registration retries it.
+              }
+            }
+            refreshBroadcastLanes();
+          })();
         }
         resyncOnWake = false;
         everConnected = true;
-        resolve(ws);
+        if (firstReady) resolve(ws);
         // Existing terminal panes can hold PTY ids from the relay leg that
         // just died. Notify them only after the replacement connection has
         // settled so their ensure calls cannot race the reconnecting request.
@@ -956,6 +1106,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           if (!parsed || typeof parsed !== 'object') return;
           const clear = parsed as Record<string, unknown>;
           awaitingPong = false;
+          clearWakePongTimer();
           if ('pong' in clear) return;
           if ('resync' in clear) {
             requestResync();
@@ -966,8 +1117,24 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             return;
           }
           if (isRelayE2EEChallenge(clear)) {
-            if (secureChannel) throw new Error('Duplicate relay encryption challenge.');
+            if (opened) {
+              // The VPS retained this phone while its desktop leg redialed.
+              // Calls sent to the old leg cannot complete; fail them now and
+              // establish a new channel on the existing browser socket.
+              connectionReady = false;
+              resetDeltaState();
+              const failure = new Error('Mixdog desktop connection restarted.');
+              for (const entry of [...pending.values()]) entry.reject(failure);
+              pending.clear();
+            } else if (secureChannel) {
+              throw new Error('Duplicate relay encryption challenge.');
+            }
+            secureChannel = null;
             relayBinaryFrames = clear.binaryFrames === 1;
+            if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
+            handshakeTimer = window.setTimeout(() => {
+              try { ws.close(); } catch { /* reconnect loop handles it */ }
+            }, 10_000);
             const handshake = await createRelayE2EEClientHandshake(e2eePairing, clear);
             secureChannel = handshake.channel;
             ws.send(JSON.stringify(handshake.hello));
@@ -988,12 +1155,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         });
       };
       ws.onclose = (event) => {
+        window.clearTimeout(openingTimer);
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         if (socket === ws) socket = null;
+        if (openingSocket === ws) openingSocket = null;
         openPromise = null;
         connectionReady = false;
         secureChannel = null;
         relayBinaryFrames = false;
+        clearWakePongTimer();
         resyncOnWake = true;
         // A new connection starts a fresh delta lane; a stale base revision
         // must never accidentally match the new encoder's numbering.
@@ -1110,7 +1280,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // Cold session lanes fill through a host-side read; the replay frame
     // arrives on the broadcast sessionState event like any live push.
     prefetchSession: (sessionId) => call<boolean>('prefetchSession', [sessionId]),
-    setVisibleSessions: (sessionIds) => call<boolean>('setVisibleSessions', [sessionIds]),
+    setVisibleSessions: (sessionIds) => {
+      lastVisibleSessionIds = [...sessionIds];
+      return call<boolean>('setVisibleSessions', [lastVisibleSessionIds]);
+    },
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
       call('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]),
     getSnapshot: () => call('getSnapshot'),
@@ -1236,5 +1409,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // connected so the panel shows live status instead of desktop-only pairing.
   (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer =
     serverBase || location.origin;
+  // Install handoff: only a browser whose pairing has already connected may
+  // pass it on, and only the SCANNED link travels — the registered per-browser
+  // token is bound to this client id and cannot pair another container.
+  (w as unknown as { mixdogRemotePairingHandoff?: () => string })
+    .mixdogRemotePairingHandoff = () => (everPaired ? readRemotePairingLink(localStorage) : '');
+  linkInheritManifest();
   void connect().catch(() => { /* the retry loop keeps running */ });
 })();

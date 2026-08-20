@@ -325,6 +325,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const [confirmAll, setConfirmAll] = useState(false);
   const [revertingAll, setRevertingAll] = useState(false);
   const [reverted, setReverted] = useState<string[]>([]);
+  // A refused revert used to vanish into an empty catch, so a legitimate
+  // runtime refusal was indistinguishable from a dead button.
+  const [revertError, setRevertError] = useState("");
   // An expanded review closes on the first pointer press OUTSIDE its own box.
   // Presses inside (rows, revert, diff style) keep it open, so the disclosure
   // never collapses under its own controls.
@@ -339,6 +342,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       setOpenFile("");
       setConfirmFile("");
       setConfirmAll(false);
+      setRevertError("");
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
@@ -663,7 +667,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             const next = !value;
             // Collapsing also closes any open inline diff/confirm so reopening
             // starts from the tidy list, not a tall stale diff.
-            if (!next) { setOpenFile(""); setConfirmFile(""); setConfirmAll(false); }
+            if (!next) {
+              setOpenFile("");
+              setConfirmFile("");
+              setConfirmAll(false);
+              setRevertError("");
+            }
             return next;
           })}>
           <FileDiff size={14} aria-hidden="true" />
@@ -706,6 +715,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                 onClick={() => {
                   setConfirmAll(false);
                   setRevertingAll(true);
+                  setRevertError("");
                   void window.mixdogDesktop.invokeCapability?.({
                     capability: "revertTurnReview",
                     args: [],
@@ -717,7 +727,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                       setReverted([]);
                       await refreshAgentReviews(true);
                     })
-                    .catch(() => setConfirmAll(true))
+                    .catch((reason: unknown) => {
+                      setConfirmAll(true);
+                      setRevertError(
+                        reason instanceof Error ? reason.message : String(reason),
+                      );
+                    })
                     .finally(() => setRevertingAll(false));
                 }}>
                 <Check size={12} />
@@ -739,6 +754,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           ))}
         </div>}
       </div>
+      {/* A refusal stays OUTSIDE the disclosure: Undo lives in the collapsed
+          head, so its reason has to be readable without expanding the bar. */}
+      {revertError && <p className="turn-review-error" role="alert">{revertError}</p>}
       <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
         <div className="turn-review-collapse-inner">
           <ul className="turn-review-files">
@@ -796,6 +814,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                   aria-label={t("Confirm revert of {{file}}", { file: rel })} data-tooltip={t("Revert to turn start")}
                   onClick={() => {
                     setConfirmFile("");
+                    setRevertError("");
                     void window.mixdogDesktop.invokeCapability?.({
                       capability: "revertTurnReviewFile",
                       args: [rel],
@@ -805,7 +824,9 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                         setReverted((current) => [...current, name]);
                         await refreshAgentReviews();
                       })
-                      .catch(() => {});
+                      .catch((reason: unknown) => setRevertError(
+                        reason instanceof Error ? reason.message : String(reason),
+                      ));
                   }}>
                   <Check size={12} />
                 </button>

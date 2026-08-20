@@ -4,9 +4,15 @@ import {
     peekShellJob,
     killShellJob,
     cancelBackgroundShellJobWatch,
+    configureBackgroundShellJobMonitor,
     clearShellJobNotifyCtx,
     shellJobPublicTaskResult,
 } from './shell-jobs.mjs';
+import {
+    isValidShellMonitorIntervalMs,
+    SHELL_MONITOR_INTERVAL_MAX_MS,
+    SHELL_MONITOR_INTERVAL_MIN_MS,
+} from './shell-monitor.mjs';
 import {
     cancelBackgroundTask,
     completeBackgroundTask,
@@ -108,8 +114,8 @@ export async function executeTaskTool(args, options = {}) {
     if (/^sess_/.test(taskId)) {
         return `Error: "${taskId}" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery.`;
     }
-    if (action !== 'read' && action !== 'cancel') {
-        return `Error: task action must be one of list|read|cancel (got ${JSON.stringify(args.action)})`;
+    if (action !== 'read' && action !== 'monitor' && action !== 'cancel') {
+        return `Error: task action must be one of list|read|monitor|cancel (got ${JSON.stringify(args.action)})`;
     }
 
     const task = getBackgroundTask(taskId, { context: options });
@@ -128,6 +134,9 @@ export async function executeTaskTool(args, options = {}) {
                 ? `Error: task already ${recovered.status}: ${taskId}`
                 : `Error: task process control is unavailable after restart: ${taskId}`;
         }
+        if (action === 'monitor') {
+            return `Error: task monitoring is unavailable after restart: ${taskId}`;
+        }
     }
     const isShellTask = task.surface === 'shell';
 
@@ -136,6 +145,22 @@ export async function executeTaskTool(args, options = {}) {
         const latest = getBackgroundTask(taskId, { context: options }) || task;
         const rendered = renderBackgroundTask(latest, { includeResult: true });
         return rendered;
+    }
+
+    if (action === 'monitor') {
+        const intervalMs = args.monitor_interval_ms;
+        if (!isValidShellMonitorIntervalMs(intervalMs)) {
+            return `Error: task monitor_interval_ms must be 0 or an integer from ${SHELL_MONITOR_INTERVAL_MIN_MS} to ${SHELL_MONITOR_INTERVAL_MAX_MS} ms`;
+        }
+        if (!isShellTask) return `Error: task monitoring is only available for shell tasks: ${taskId}`;
+        const configured = configureBackgroundShellJobMonitor(taskId, intervalMs);
+        if (configured == null) return `Error: shell task is not running: ${taskId}`;
+        return [
+            'status: running',
+            `task_id: ${taskId}`,
+            `monitoring: ${configured === 0 ? 'off' : 'on'}`,
+            `monitor_interval_ms: ${configured}`,
+        ].join('\n');
     }
 
     if (action === 'cancel') {
@@ -150,5 +175,5 @@ export async function executeTaskTool(args, options = {}) {
         return renderTaskCancelSuccess(taskId, getBackgroundTask(taskId, { context: options }) || task);
     }
 
-    return `Error: task action must be one of list|read|cancel (got ${JSON.stringify(args.action)})`;
+    return `Error: task action must be one of list|read|monitor|cancel (got ${JSON.stringify(args.action)})`;
 }

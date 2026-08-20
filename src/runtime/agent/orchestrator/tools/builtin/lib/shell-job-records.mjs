@@ -16,6 +16,7 @@
 import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { displayShellCommand } from '../../../../../shared/shell-display.mjs';
 
 // A record whose owner process is gone is garbage. Age alone never deletes a
 // live owner's job, so an unlimited long-running shell keeps its record.
@@ -51,7 +52,7 @@ function terminalRecord(base, detail) {
         jobId: String(detail?.jobId || base?.jobId || ''),
         kind: 'bash',
         status: String(detail?.status || 'failed'),
-        command: String(detail?.command || base?.command || ''),
+        command: displayShellCommand(detail?.command || base?.command || ''),
         cwd: String(detail?.cwd || base?.cwd || ''),
         pid: Number(detail?.pid || base?.pid) || null,
         ownerHostPid: Number(detail?.clientHostPid || base?.ownerHostPid) || null,
@@ -129,7 +130,7 @@ export function publishShellJobRecord(task, { ownerSessionId = null, clientHostP
                 jobId,
                 kind: 'bash',
                 status: 'running',
-                command: String(task?.command || ''),
+                command: displayShellCommand(task?.command || ''),
                 cwd: String(task?.cwd || ''),
                 pid: Number(task?.pid) || null,
                 shellType: task?.shellType || null,

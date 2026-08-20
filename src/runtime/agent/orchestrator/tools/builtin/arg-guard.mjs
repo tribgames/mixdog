@@ -10,6 +10,11 @@
 // `file_path` alias for read.path).
 
 import { coerceReadFamilyPathArg, coerceShapeFlex, hasGlobMagic } from './path-utils.mjs';
+import {
+    isValidShellMonitorIntervalMs,
+    SHELL_MONITOR_INTERVAL_MAX_MS,
+    SHELL_MONITOR_INTERVAL_MIN_MS,
+} from './shell-monitor.mjs';
 
 const MAX_INT = 100000;
 // Explicit grep context should be large enough to frame a function/block without
@@ -28,7 +33,7 @@ const GREP_CTX_HEAD_LIMIT_MAX = 40;
 // Unbounded (no offset/limit) plain full reads default to this window instead of
 // pulling the whole file; the read tool's ranged-read footer then hands the
 // caller the next offset to page with.
-const READ_GUARD_DEFAULT_LIMIT = 800;
+const READ_GUARD_DEFAULT_LIMIT = 1000;
 
 // Best-effort clamp notice channel: stash a one-line note on the args so a
 // surfacing consumer can echo it. Underscore-prefixed; ignored by executors.
@@ -655,10 +660,10 @@ function guardRead(a) {
 }
 
 function guardShell(a) {
-    const allowed = new Set(['command', 'timeout_ms', 'run_in_background']);
+    const allowed = new Set(['command', 'timeout_ms', 'run_in_background', 'monitor_interval_ms']);
     const unsupported = Object.keys(a).find((key) => !allowed.has(key));
     if (unsupported) {
-        return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, and run_in_background`;
+        return `Error: shell arg "${unsupported}" is unsupported; use only command, timeout_ms, run_in_background, and monitor_interval_ms`;
     }
     if (!hasOwn(a, 'command')) {
         return 'Error: shell requires "command"';
@@ -675,6 +680,9 @@ function guardShell(a) {
     if (hasOwn(a, 'run_in_background') && typeof a.run_in_background !== 'boolean') {
         return `Error: shell arg "run_in_background" must be a boolean (got ${describeType(a.run_in_background)})`;
     }
+    if (hasOwn(a, 'monitor_interval_ms') && !isValidShellMonitorIntervalMs(a.monitor_interval_ms)) {
+        return `Error: shell arg "monitor_interval_ms" must be 0 or an integer from ${SHELL_MONITOR_INTERVAL_MIN_MS} to ${SHELL_MONITOR_INTERVAL_MAX_MS} ms`;
+    }
     return null;
 }
 
@@ -685,15 +693,34 @@ function guardTask(a) {
     if (!hasOwn(a, 'action')) {
         return 'Error: task requires explicit "action"';
     }
-    if (!['list', 'read', 'cancel'].includes(action)) {
-        return `Error: task arg "action" must be one of list|read|cancel (got ${JSON.stringify(a.action)})`;
+    if (!['list', 'read', 'monitor', 'cancel'].includes(action)) {
+        return `Error: task arg "action" must be one of list|read|monitor|cancel (got ${JSON.stringify(a.action)})`;
     }
-    if (action === 'list') return null;
+    const allowed = new Set(['action', 'task_id', 'monitor_interval_ms']);
+    const unsupported = Object.keys(a).find((key) => !allowed.has(key));
+    if (unsupported) {
+        return `Error: task arg "${unsupported}" is unsupported; use only action, task_id, and monitor_interval_ms`;
+    }
+    if (action === 'list') {
+        return hasOwn(a, 'monitor_interval_ms')
+            ? 'Error: task arg "monitor_interval_ms" is only valid for action=monitor'
+            : null;
+    }
     if (!hasOwn(a, 'task_id')) {
         return 'Error: task requires "task_id"';
     }
     if (typeof a.task_id !== 'string' || a.task_id.trim().length === 0) {
         return `Error: task arg "task_id" must be a non-empty string (got ${describeType(a.task_id)})`;
+    }
+    if (action === 'monitor') {
+        if (!hasOwn(a, 'monitor_interval_ms')) {
+            return 'Error: task action=monitor requires "monitor_interval_ms"';
+        }
+        if (!isValidShellMonitorIntervalMs(a.monitor_interval_ms)) {
+            return `Error: task arg "monitor_interval_ms" must be 0 or an integer from ${SHELL_MONITOR_INTERVAL_MIN_MS} to ${SHELL_MONITOR_INTERVAL_MAX_MS} ms`;
+        }
+    } else if (hasOwn(a, 'monitor_interval_ms')) {
+        return 'Error: task arg "monitor_interval_ms" is only valid for action=monitor';
     }
     return null;
 }
@@ -702,8 +729,23 @@ function guardList(a) {
     if (hasOwn(a, 'path') && !isString(a.path)) {
         return `Error: list arg "path" must be string (got ${describeType(a.path)})`;
     }
+    if (hasOwn(a, 'path') && a.path.trim().length === 0) {
+        return 'Error: list arg "path" must be a non-empty string';
+    }
+    for (const k of ['hidden', 'meta']) {
+        if (hasOwn(a, k) && typeof a[k] !== 'boolean') {
+            return `Error: list arg "${k}" must be a boolean (got ${describeType(a[k])})`;
+        }
+    }
     if (hasOwn(a, 'pattern') && !isStringOrStringArray(a.pattern)) {
         return `Error: list arg "pattern" must be string or string[] (got ${describeType(a.pattern)})`;
+    }
+    if (hasOwn(a, 'offset') && a.offset !== undefined && a.offset !== null) {
+        const coerced = coerceIntegerString(a.offset);
+        if (coerced !== null) a.offset = coerced;
+        if (!isFiniteInt(a.offset) || a.offset < 0) {
+            return `Error: list arg "offset" must be a non-negative integer (got ${describeType(a.offset)})`;
+        }
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
         const coerced = coerceIntegerString(a.head_limit);
@@ -728,6 +770,12 @@ function guardFind(a) {
     if (hasOwn(a, 'path') && !isString(a.path)) {
         return `Error: find arg "path" must be a string (got ${describeType(a.path)})`;
     }
+    if (hasOwn(a, 'path') && a.path.trim().length === 0) {
+        return 'Error: find arg "path" must be a non-empty string';
+    }
+    if (hasOwn(a, 'include_noise') && typeof a.include_noise !== 'boolean') {
+        return `Error: find arg "include_noise" must be a boolean (got ${describeType(a.include_noise)})`;
+    }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
         const coerced = coerceIntegerString(a.head_limit);
         if (coerced !== null) a.head_limit = coerced;
@@ -748,11 +796,17 @@ function guardGlob(a) {
         if (hasOwn(a, k) && !isString(a[k])) {
             return `Error: glob arg "${k}" must be string (got ${describeType(a[k])})`;
         }
+        if (hasOwn(a, k) && a[k].trim().length === 0) {
+            return `Error: glob arg "${k}" must be a non-empty string`;
+        }
     }
     for (const k of globPatternKeys) {
         if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
         if (hasOwn(a, k) && !isString(a[k])) {
             return `Error: glob arg "${k}" must be string (got ${describeType(a[k])})`;
+        }
+        if (hasOwn(a, k) && a[k].trim().length === 0) {
+            return `Error: glob arg "${k}" must be a non-empty string`;
         }
     }
     const hasAnyPattern = globPatternKeys.some((k) => isNonEmptyPresent(a, k));
@@ -767,6 +821,15 @@ function guardGlob(a) {
         // everything under this path" request; default it instead of
         // erroring out via globMissingPatternMessage() downstream.
         a.pattern = '*';
+    }
+    if (hasOwn(a, 'sort')) {
+        if (!isString(a.sort)) {
+            return `Error: glob arg "sort" must be one of natural|mtime (got ${describeType(a.sort)})`;
+        }
+        a.sort = a.sort.trim();
+        if (!['natural', 'mtime'].includes(a.sort)) {
+            return `Error: glob arg "sort" must be one of natural|mtime (got ${JSON.stringify(a.sort)})`;
+        }
     }
     if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
         const coerced = coerceIntegerString(a.head_limit);

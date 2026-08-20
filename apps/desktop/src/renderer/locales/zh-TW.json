@@ -162,6 +162,7 @@
   "Checking…": "檢查中…",
   "Choose": "選擇",
   "Choose a model for this schedule.": "請為此排程選擇模型。",
+  "Choose Add to Home Screen": "選擇「加入主畫面」",
   "Choose how manual commit hints and AI-generated messages should be written.": "選擇手動提交提示與 AI 生成訊息的撰寫方式。",
   "Choose how Mixdog answers": "選擇 Mixdog 的回答方式",
   "Choose how Mixdog manages long-running and idle sessions.": "選擇 Mixdog 管理長時間執行及閒置工作階段的方式。",
@@ -564,6 +565,7 @@
   "Make it feel like home": "讓這裡有家的感覺",
   "Make it yours": "讓它成為你的",
   "Manage in Settings → Git.": "在“設定”→“Git”中管理。",
+  "Managed Whisper and ffmpeg runtime is ready for voice input.": "託管的 Whisper 與 ffmpeg 執行環境已準備好進行語音輸入。",
   "Manifesting": "體現",
   "Manual download": "說明書下載",
   "Manual login URL": "手動登入 URL",
@@ -646,6 +648,7 @@
   "No agents added — every default agent stays available.": "未新增代理 — 所有預設代理皆可使用。",
   "No agents are running.": "沒有執行中的代理。",
   "No API-key providers available.": "沒有可用的 API 金鑰提供者。",
+  "No background work": "沒有背景工作",
   "No changes vs {{base}}.": "與 {{base}} 無差異。",
   "No commands match.": "沒有相符的命令。",
   "No connected provider models.": "沒有已連線提供者的模型。",
@@ -1083,7 +1086,7 @@
   "System follows your OS. Fine-tune colors any time in Settings.": "系統遵循您的作業系統。隨時在“設定”中微調顏色。",
   "System prompt": "系統提示詞",
   "System tools": "系統工具",
-  "Tap Share, then Add to Home Screen.": "點一下「分享」，然後選擇「加入主畫面」。",
+  "Tap the Share button": "點一下「分享」按鈕",
   "Tell Mixdog what to call you and which language to answer in.": "告訴 Mixdog 給您打電話以及用哪種語言接聽。",
   "Tempering": "回火",
   "Terminal": "終端機",
@@ -1236,6 +1239,5 @@
   "Your example commit message appears here.": "您的提交訊息範例會顯示在此處。",
   "Your name or role": "你的名字或角色",
   "Zesting": "熱情",
-  "Zigzagging": "之字形",
-  "Managed Whisper and ffmpeg runtime is ready for voice input.": "託管的 Whisper 與 ffmpeg 執行環境已準備好進行語音輸入。"
+  "Zigzagging": "之字形"
 }

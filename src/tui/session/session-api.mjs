@@ -250,7 +250,9 @@ export function createSessionApiA(bag) {
     checkForUpdate: (input = {}) => runtime.checkForUpdate?.(input),
     runUpdateNow: () => runtime.runUpdateNow?.(),
     getUpdateStatus: () => runtime.getUpdateStatus?.() || { phase: 'idle' },
-    getProfile: () => runtime.getProfile?.() || { title: '', language: 'system', languages: [] },
+    getProfile: () => runtime.getProfile?.() || {
+      title: '', language: 'system', languages: [], experienceLevel: '', experienceLevels: [],
+    },
     setProfile: (input = {}) => {
       const next = runtime.setProfile?.(input) || runtime.getProfile?.() || null;
       return next;
@@ -300,7 +302,7 @@ export function createSessionApiA(bag) {
     },
     getToolModuleSettings: () => {
       return runtime.getToolModuleSettings?.() || {
-        search: { enabled: true },
+        webSearch: { enabled: true },
         memory: { enabled: true },
       };
     },

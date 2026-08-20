@@ -1,5 +1,7 @@
 // electron-vite configuration for the desktop app.
 // Third-party derivation notices: NOTICE.md at the repository root.
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // SWC transform (user: 빌드 과정이 느리다): no custom babel plugins exist, so
@@ -18,21 +20,46 @@ const selectedBuildTargets = new Set(
 const buildTargetEnabled = (target: 'main' | 'preload' | 'renderer'): boolean =>
   selectedBuildTargets.size === 0 || selectedBuildTargets.has(target);
 
-// Every bundled face (Inter/Geist/JetBrains Mono + Pretendard's ~93 Hangul
+// Every bundled face (Inter/Geist/JetBrains Mono + Pretendard's 92 Hangul
 // subset slices) ships with font-display:swap, so text created AFTER first
 // paint — menu/tab navigation, new session rows — painted fallback glyphs and
-// then visibly swapped + reflowed when the local woff2 landed (user: 메뉴 이동
-// 시 레이아웃 쉬프트/폰트 튐). All assets are local, so block's invisible
-// window lasts single-digit milliseconds and the real face paints directly.
-const localFontDisplayBlock: Plugin = {
-  name: 'mixdog-local-font-display-block',
+// then visibly swapped + reflowed when the woff2 landed (user: 메뉴 이동 시
+// 레이아웃 쉬프트/폰트 튐).
+//
+// `block` fixed the swap but paints NOTHING while a face loads. That is
+// invisible on local disk reads and brutal over the network: typing Korean
+// reaches a Hangul range whose slice was never fetched, and the glyph stayed
+// blank until it arrived (user: 타이핑하는 글자가 자꾸 투명해진다).
+// `fallback` keeps the anti-swap intent — a ~100ms invisible window, then
+// fallback text, and NO late swap after ~3s — while guaranteeing that typed
+// text is always painted.
+const localFontDisplayFallback: Plugin = {
+  name: 'mixdog-local-font-display-fallback',
   enforce: 'pre',
   transform(code, id) {
     if (!/[\\/]node_modules[\\/](?:@fontsource-variable|pretendard)[\\/].*\.css(?:\?|$)/.test(id)) {
       return null;
     }
     if (!code.includes('font-display')) return null;
-    return { code: code.replace(/font-display:\s*swap/gi, 'font-display: block'), map: null };
+    return { code: code.replace(/font-display:\s*swap/gi, 'font-display: fallback'), map: null };
+  },
+};
+
+// boot.js lives in publicDir, so it ships WITHOUT a content hash even though
+// it decides the viewport projection for the whole document and is version-
+// locked to the bundle index.html loads. A phone that had cached an older copy
+// kept pairing it with a fresh bundle: the stale script pinned the 1040px
+// desktop projection while the new bundle marked the phone, so the ≤760px
+// grammar never fired and settings/model/task rows rendered half-projected
+// (user: 모바일 분기 안 타는 것처럼). index.html is served no-cache, so
+// stamping the reference with the file's own hash gives every revision a fresh
+// URL and retires the cached copy on the next load.
+const bootScriptVersion: Plugin = {
+  name: 'mixdog-boot-script-version',
+  transformIndexHtml(html) {
+    const source = readFileSync(resolve(__dirname, 'src/renderer/public/boot.js'));
+    const version = createHash('sha256').update(source).digest('hex').slice(0, 8);
+    return html.replace('src="./boot.js"', `src="./boot.js?v=${version}"`);
   },
 };
 
@@ -131,11 +158,17 @@ export default defineConfig({
           // instead of re-downloading it inside the main bundle.
           manualChunks: {
             'react-vendor': ['react', 'react-dom', 'react-dom/client', 'scheduler'],
+            'ui-vendor': [
+              '@tanstack/react-virtual',
+              '@tanstack/virtual-core',
+              'i18next',
+              'lucide-react',
+            ],
           },
         },
       },
     },
-    plugins: [localFontDisplayBlock, react()],
+    plugins: [localFontDisplayFallback, bootScriptVersion, react()],
     server: {
       host: '127.0.0.1',
     },

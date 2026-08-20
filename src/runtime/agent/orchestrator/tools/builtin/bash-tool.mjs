@@ -62,6 +62,7 @@ import {
     SHELL_RUNTIME_CANDIDATES,
 } from './runtime-capabilities.mjs';
 import { planDirectExeSpawn } from './shell-direct-exe.mjs';
+import { resolveShellMonitorIntervalMs } from './shell-monitor.mjs';
 
 // Commands start in the foreground. Only work still running after the
 // 15 s coordination budget is promoted to a tracked background task.
@@ -470,6 +471,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
     );
     const runInBackground = args.run_in_background === true;
+    const monitorIntervalMs = resolveShellMonitorIntervalMs(args.monitor_interval_ms);
     if (runInBackground && _bgTasksDisabled) {
         return formatShellToolFailure('background tasks are disabled for this process');
     }
@@ -662,6 +664,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                             stderr: (!mergeStderr && result.stderrPath) ? normalizeOutputPath(result.stderrPath) : null,
                             cwd: bashWorkDir,
                             timeoutMs: result.backgroundTimeoutMs || 0,
+                            monitor_interval_ms: monitorIntervalMs,
                         },
                         resultType: 'shell_task_result',
                         cancel: () => killShellJob(result.jobId),
@@ -673,7 +676,7 @@ export async function executeBashTool(args, workDir, options = {}) {
                         callerSessionId: options?.callerSessionId || options?.sessionId,
                         routingSessionId: options?.routingSessionId || options?.sessionId,
                         clientHostPid: options?.clientHostPid,
-                    });
+                    }, { monitorIntervalMs });
                 } catch { /* best effort */ }
             }
             const partialOutput = renderBackgroundPartialOutput(

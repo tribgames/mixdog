@@ -15,6 +15,44 @@ export function isCompleteAgentRoute(value) {
     && !!String(value.model || '').trim();
 }
 
+function agentIdKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+}
+
+// "Off" is a first-class agent state, not an absent route: config.agents[<id>]
+// only survives canonicalization with a complete provider+model pair, so a
+// disabled agent keeps its stored model and is listed here instead. Turning the
+// agent back on therefore restores the model the user last picked.
+export function disabledAgentIds(config) {
+  const raw = config?.disabledAgents;
+  if (!Array.isArray(raw)) return [];
+  const ids = new Set();
+  for (const entry of raw) {
+    const id = agentIdKey(entry);
+    if (id) ids.add(id);
+  }
+  return [...ids].sort();
+}
+
+export function isAgentDisabled(config, agentId) {
+  const id = agentIdKey(agentId);
+  if (!id) return false;
+  return disabledAgentIds(config).includes(id);
+}
+
+export function withAgentDisabled(config, agentId, disabled) {
+  const next = { ...(config || {}) };
+  const id = agentIdKey(agentId);
+  if (!id) return next;
+  const ids = new Set(disabledAgentIds(config));
+  if (disabled) ids.add(id);
+  else ids.delete(id);
+  const list = [...ids].sort();
+  if (list.length) next.disabledAgents = list;
+  else delete next.disabledAgents;
+  return next;
+}
+
 // Canonical route location is config.agents[<id>] only. No migration: routes
 // left under retired slots (agents.maintenance, workflowRoutes.*,
 // maintenance.memory, generated workflow-* presets) are scrubbed by
@@ -50,18 +88,25 @@ export function canonicalizeAgentRouteStorage(config = {}) {
   const presets = Array.isArray(config?.presets)
     ? config.presets.filter((preset) => !isRedundantGeneratedRoutePreset(preset, config?.default))
     : [];
-  return {
+  const next = {
     ...rest,
     agents: canonicalizeAgentRoutes(config),
     maintenance,
     presets,
   };
+  const disabled = disabledAgentIds(config);
+  if (disabled.length) next.disabledAgents = disabled;
+  else delete next.disabledAgents;
+  return next;
 }
 
 export function agentRouteStorageNeedsMigration(config = {}) {
   const agents = record(config?.agents);
   const maintenance = record(config?.maintenance);
+  const disabled = disabledAgentIds(config);
   return Object.prototype.hasOwnProperty.call(config || {}, 'workflowRoutes')
+    || (Object.prototype.hasOwnProperty.call(config || {}, 'disabledAgents')
+      && JSON.stringify(config.disabledAgents) !== JSON.stringify(disabled.length ? disabled : undefined))
     || Object.prototype.hasOwnProperty.call(agents, 'maintenance')
     || Object.prototype.hasOwnProperty.call(maintenance, 'memory')
     || Object.values(agents).some((route) => !isCompleteAgentRoute(route))

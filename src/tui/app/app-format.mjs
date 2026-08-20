@@ -8,11 +8,12 @@ import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { formatToolSurface } from '../../runtime/shared/tool-surface.mjs';
 
-// SEARCH_DEFAULT marker — mirrors search defaults SEARCH_DEFAULT_PROVIDER/MODEL
-// (mixdog-session-runtime.mjs 1167-1168). A search route of {provider:'default',
-// model:'default'} means "follow the Main Model" at runtime (nativeSearchRoutes).
-export const SEARCH_DEFAULT_ROUTE = Object.freeze({ provider: 'default', model: 'default' });
-export const isSearchDefaultRoute = (route) =>
+// WEB_SEARCH_DEFAULT marker — mirrors web-search defaults
+// WEB_SEARCH_DEFAULT_PROVIDER/MODEL. A web-search route of
+// {provider:'default', model:'default'} means "follow the Main Model" at
+// runtime (nativeWebSearchRoutes).
+export const WEB_SEARCH_DEFAULT_ROUTE = Object.freeze({ provider: 'default', model: 'default' });
+export const isWebSearchDefaultRoute = (route) =>
   String(route?.provider || '').toLowerCase() === 'default'
   && String(route?.model || '').toLowerCase() === 'default';
 
@@ -149,7 +150,7 @@ const WELCOME_PROMPT_HINTS = [
   'Tip: /usage · Check quota before a long run.',
   'Tip: /agents · See who can help.',
   'Tip: /theme · Change the terminal mood.',
-  'Tip: /search · Set web search routing.',
+  'Tip: /websearch · Set web search routing.',
   'Paste an error. I’ll trace it.',
   'Tell me the goal. I’ll handle the steps.',
   'Start with a task, a bug, or a wild idea.',
@@ -166,7 +167,7 @@ export const CONDITIONAL_WELCOME_PROMPT_HINTS = {
   noProvider: 'Tip: /providers · Connect a provider before your first turn.',
   noModel: 'Tip: /model · Choose a model before your first turn.',
   soloWorkflow: 'Tip: /workflow · Switch from Solo when you want agents.',
-  searchDefaultUnsupported: 'Tip: /search · Choose a native search model for this main model.',
+  webSearchDefaultUnsupported: 'Tip: /websearch · Choose a native web-search model for this main model.',
   error: 'Tip: /doctor · Check setup health. (coming soon)',
 };
 

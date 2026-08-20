@@ -44,6 +44,7 @@ import { consumeCompatChatCompletionStream } from '../src/runtime/agent/orchestr
 import { consumeCompatResponsesStream } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { AnthropicProvider } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { AnthropicOAuthProvider } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import { ProviderAdmissionScheduler } from '../src/runtime/agent/orchestrator/providers/admission-scheduler.mjs';
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import { sendWithRecovery } from '../src/runtime/agent/orchestrator/session/send-with-recovery.mjs';
 
@@ -325,6 +326,7 @@ test('withRetry: never replays a request whose outcome is not replay-safe', asyn
 
 test('withRetry: a clean transient continuation still retries', async () => {
     let calls = 0;
+    const retries = [];
     const out = await withRetry(async () => {
         calls += 1;
         if (calls < 2) {
@@ -333,9 +335,15 @@ test('withRetry: a clean transient continuation still retries', async () => {
             throw e;
         }
         return 'ok';
-    }, { maxAttempts: 3, backoffMs: [0, 0, 0] });
+    }, {
+        maxAttempts: 3,
+        backoffMs: [0, 0, 0],
+        onRetry: (info) => retries.push(info),
+    });
     assert.equal(out, 'ok');
     assert.equal(calls, 2);
+    assert.equal(retries[0].attempt, 1);
+    assert.equal(retries[0].maxAttempts, 3);
 });
 
 test('withRetry: a typed transient failure retries; an untyped one does not', async () => {
@@ -1607,6 +1615,26 @@ test('retryAfterMsFromError: anthropic-ratelimit-unified-reset is honored and ca
     const far = Math.floor(Date.now() / 1000) + 3600;
     const farHeaders = { get: (name) => String(name).toLowerCase() === 'anthropic-ratelimit-unified-reset' ? String(far) : null };
     assert.equal(retryAfterMsFromError(err('rate limited', { httpStatus: 429, headers: farHeaders })), 300_000);
+});
+
+test('provider admission does not cache long subscription quota windows', async () => {
+    const scheduler = new ProviderAdmissionScheduler();
+    const key = 'anthropic-oauth:test-account';
+    let calls = 0;
+    await assert.rejects(
+        scheduler.run(key, async () => {
+            calls += 1;
+            throw err('Fable quota exhausted', { httpStatus: 429, retryAfterMs: 214_641_000 });
+        }),
+        /Fable quota exhausted/,
+    );
+    const result = await scheduler.run(key, async () => {
+        calls += 1;
+        return 'opus-ok';
+    });
+    assert.equal(result, 'opus-ok');
+    assert.equal(calls, 2);
+    assert.equal(scheduler.applyExternalCooldown(key, Date.now() + 214_641_000), false);
 });
 
 test('previous_response_not_found: typed 400 is transient and midstream-retryable', () => {

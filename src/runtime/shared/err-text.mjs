@@ -72,6 +72,22 @@ function parseDurationTokenToMs(token) {
   return NaN;
 }
 
+function humanizeRetryAfterToken(token) {
+  const ms = parseDurationTokenToMs(token);
+  if (!Number.isFinite(ms) || ms < 60_000) return String(token || '');
+  const totalSeconds = Math.floor(ms / 1_000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (!days && !hours && seconds) parts.push(`${seconds}s`);
+  return parts.join(' ') || String(token || '');
+}
+
 function watchdogMsFromRawError(raw) {
   const value = String(raw || '');
   const timeout = /first response stale\s*\((\d+)ms\)/i.exec(value);
@@ -151,6 +167,7 @@ export function presentErrorText(error, options = {}) {
   let text = errText(error);
   const name = error && typeof error === 'object' ? String(error.name || '') : '';
   const code = error && typeof error === 'object' ? String(error.code || '') : '';
+  const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
   const jsonError = extractJsonError(text);
   if (jsonError) text = jsonError;
   const embeddedError = extractEmbeddedError(text);
@@ -158,6 +175,19 @@ export function presentErrorText(error, options = {}) {
   text = oneLine(stripErrorPrefix(text));
   if (!text) return 'Unknown error';
 
+  if (code === 'PROVIDER_PREFIX_MUTATION' || name === 'ProviderPrefixMutationError') {
+    return 'Session state changed unexpectedly.';
+  }
+  if (/currently at capacity|at capacity due to high demand|provider overloaded|server overloaded/i.test(text)) {
+    return 'Provider is busy at capacity.';
+  }
+  if (status === 401 || status === 403 || /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b/i.test(text)) {
+    return 'Provider authentication failed.';
+  }
+  if (/^(?:ECONNRESET|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT)\b/i.test(code)
+    || /\b(?:socket hang up|connection reset|network unreachable|connection refused)\b/i.test(text)) {
+    return 'Connection to the provider was lost.';
+  }
   if (/\bAGENT_CONTEXT_OVERFLOW\b|agent context overflow|latest turn cannot fit|context budget|context window/i.test(text)) {
     return 'Context too large.';
   }
@@ -172,7 +202,7 @@ export function presentErrorText(error, options = {}) {
     // Cooldown refusals are recoverable right now by switching accounts —
     // surface that path instead of leaving only the wait option.
     const hint = /cooldown/i.test(text) ? ' Re-login or switch the provider account to continue now.' : '';
-    return `${provider} quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${quotaRetry[1]}` : ''}.${hint}`;
+    return `${provider} quota/rate limit hit${quotaRetry?.[1] ? `; retry after ${humanizeRetryAfterToken(quotaRetry[1])}` : ''}.${hint}`;
   }
 
   if (isCancelLikeError(error) || name === 'SessionClosedError') {
@@ -232,6 +262,17 @@ export function presentErrorText(error, options = {}) {
     .trim();
 
   return capText(text || 'Unknown error', max);
+}
+
+export function providerRetryStatusText(error, options = {}) {
+  const reason = presentErrorText(error, {
+    surface: options.surface || 'request',
+    max: options.max ?? 120,
+  }).replace(/\.$/, '');
+  const attempt = Math.max(1, Number(options.attempt) || 1);
+  const maxAttempts = Math.max(attempt, Number(options.maxAttempts) || attempt);
+  const delayMs = Math.max(0, Number(options.delayMs) || 0);
+  return `${reason} · retry ${attempt}/${maxAttempts}${delayMs > 0 ? ` in ${formatDurationMs(delayMs)}` : ''}`;
 }
 
 /**

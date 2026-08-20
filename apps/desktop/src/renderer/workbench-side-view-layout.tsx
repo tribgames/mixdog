@@ -554,6 +554,7 @@ export function nextRetainedWorkbenchSideRoots(
 export function WorkbenchSidePanel({
   side,
   open,
+  motion = "animated",
   groups,
   activeRoot,
   descriptors,
@@ -564,6 +565,8 @@ export function WorkbenchSidePanel({
 }: {
   side: WorkbenchSide;
   open: boolean;
+  /** Narrow-band sheets slide; a responsive fold applies its state instantly. */
+  motion?: "animated" | "instant";
   groups: readonly WorkbenchSideViewGroup[];
   activeRoot: WorkbenchSideViewId | null;
   descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
@@ -679,6 +682,7 @@ export function WorkbenchSidePanel({
   const sectioned = selectedGroup.length > 1;
   return <aside className="workbench-side-panel"
     data-side={side}
+    data-motion={motion}
     hidden={!open}
     aria-hidden={open ? undefined : true}
     inert={open ? undefined : true}

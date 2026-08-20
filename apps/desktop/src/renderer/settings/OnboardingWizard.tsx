@@ -62,7 +62,7 @@ const STEPS = [
     id: 'profile',
     label: () => t('Profile'),
     title: () => t('Make it yours'),
-    subtitle: () => t('Tell Mixdog what to call you and which language to answer in.'),
+    subtitle: () => t('Tell Mixdog what to call you, your development experience, and which language to answer in.'),
   },
   {
     id: 'providers',
@@ -74,7 +74,7 @@ const STEPS = [
     id: 'models',
     label: () => t('Models'),
     title: () => t('Assign your models'),
-    subtitle: () => t('Pick the Main model. Search and every agent follow Main unless you set an explicit override.'),
+    subtitle: () => t('Pick the Main model. Web Search and every agent follow Main unless you set an explicit override.'),
   },
   {
     id: 'workflow',
@@ -185,7 +185,7 @@ export function OnboardingWizard({ api, onDone }: {
   const [error, setError] = useState('');
   const [providerSetup, setProviderSetup] = useState<RecordValue>({});
   const [models, setModels] = useState<DesktopModelOption[]>([]);
-  const [searchModels, setSearchModels] = useState<RecordValue[]>([]);
+  const [webSearchModels, setWebSearchModels] = useState<RecordValue[]>([]);
   const [agents, setAgents] = useState<RecordValue[]>([]);
   const [styles, setStyles] = useState<RecordValue[]>([]);
   const [profile, setProfile] = useState<RecordValue>({});
@@ -196,10 +196,10 @@ export function OnboardingWizard({ api, onDone }: {
     () => getDesktopThemePreference() || 'system');
   const [style, setStyle] = useState('');
   const [mainRoute, setMainRoute] = useState<DesktopModelSelection | null>(null);
-  const [searchRoute, setSearchRoute] = useState<DesktopModelSelection | null>({ provider: 'default', model: 'default' });
+  const [webSearchRoute, setWebSearchRoute] = useState<DesktopModelSelection | null>({ provider: 'default', model: 'default' });
   const [agentRoutes, setAgentRoutes] = useState<Record<string, DesktopModelSelection>>({});
   const [mainRouteTouched, setMainRouteTouched] = useState(false);
-  const [searchRouteTouched, setSearchRouteTouched] = useState(false);
+  const [webSearchRouteTouched, setWebSearchRouteTouched] = useState(false);
   const [confirmSkip, setConfirmSkip] = useState(false);
   const layerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -242,7 +242,7 @@ export function OnboardingWizard({ api, onDone }: {
     try {
       const result = (await api.invokeCapability<T>({ capability, args })).value;
       // Onboarding is the other provider/route mutation owner (completeOnboarding
-      // writes the search route, agent routes and default provider); invalidate
+      // writes the web-search route, agent routes and default provider); invalidate
       // only after the capability resolved.
       invalidateSidebarReferenceForMutation(capability);
       return result;
@@ -263,10 +263,10 @@ export function OnboardingWizard({ api, onDone }: {
     try {
       const readRequests: DesktopCapabilityReadRequest[] = [
         { capability: 'getProviderSetup' },
-        { capability: 'listSearchModels', args: [{ quick: false, ...(force ? { force: true } : {}) }] },
+        { capability: 'listWebSearchModels', args: [{ quick: false, ...(force ? { force: true } : {}) }] },
         { capability: 'listAgents' },
         { capability: 'listOutputStyles' },
-        { capability: 'getSearchRoute' },
+        { capability: 'getWebSearchRoute' },
         { capability: 'getProfile' },
         { capability: 'listWorkflows' },
         { capability: 'getAutoClear' },
@@ -286,7 +286,7 @@ export function OnboardingWizard({ api, onDone }: {
       const readErrors = readResults.flatMap((result) => result.ok ? [] : [result.error]);
       if (readErrors.length) setError(readErrors.join(' · '));
       setProviderSetup(record(values[0]));
-      setSearchModels(rows(values[1]));
+      setWebSearchModels(rows(values[1]));
       setAgents(rows(values[2]));
       const output = record(values[3]);
       setStyles(rows(output.styles));
@@ -304,13 +304,13 @@ export function OnboardingWizard({ api, onDone }: {
           ...(typeof snapshot.fast === 'boolean' ? { fast: snapshot.fast } : {}),
         });
       }
-      const currentSearch = record(values[4]);
-      if (currentSearch.provider && currentSearch.model) {
-        setSearchRoute({
-          provider: String(currentSearch.provider),
-          model: String(currentSearch.model),
-          ...(currentSearch.effort ? { effort: String(currentSearch.effort) } : {}),
-          ...(typeof currentSearch.fast === 'boolean' ? { fast: currentSearch.fast } : {}),
+      const currentWebSearch = record(values[4]);
+      if (currentWebSearch.provider && currentWebSearch.model) {
+        setWebSearchRoute({
+          provider: String(currentWebSearch.provider),
+          model: String(currentWebSearch.model),
+          ...(currentWebSearch.effort ? { effort: String(currentWebSearch.effort) } : {}),
+          ...(typeof currentWebSearch.fast === 'boolean' ? { fast: currentWebSearch.fast } : {}),
         });
       }
     } catch (reason) {
@@ -323,7 +323,7 @@ export function OnboardingWizard({ api, onDone }: {
 
   useEffect(() => { void load(); }, [load]);
 
-  const searchOptions = useMemo(() => searchModels.flatMap((entry): DesktopModelOption[] => {
+  const webSearchOptions = useMemo(() => webSearchModels.flatMap((entry): DesktopModelOption[] => {
     const provider = String(entry.provider || '');
     const model = String(entry.id || entry.model || '');
     if (!provider || !model) return [];
@@ -339,7 +339,7 @@ export function OnboardingWizard({ api, onDone }: {
       fastPreferred: entry.fastPreferred === true || entry.savedFast === true,
       ...(entry.savedEffort ? { savedEffort: String(entry.savedEffort) } : {}),
     }];
-  }), [searchModels]);
+  }), [webSearchModels]);
 
   const saveApiKey = async (event: FormEvent<HTMLFormElement>, provider: string) => {
     event.preventDefault();
@@ -354,12 +354,12 @@ export function OnboardingWizard({ api, onDone }: {
 
   const finish = async () => {
     const defaultRoute = mainRouteTouched ? mainRoute : null;
-    const explicitSearchRoute = searchRouteTouched ? searchRoute : null;
+    const explicitWebSearchRoute = webSearchRouteTouched ? webSearchRoute : null;
     const hasAgentRoutes = Object.keys(agentRoutes).length > 0;
-    const result = defaultRoute || explicitSearchRoute || hasAgentRoutes
+    const result = defaultRoute || explicitWebSearchRoute || hasAgentRoutes
       ? await run('completeOnboarding', [{
         ...(defaultRoute ? { defaultRoute } : {}),
-        ...(explicitSearchRoute ? { searchRoute: explicitSearchRoute } : {}),
+        ...(explicitWebSearchRoute ? { webSearchRoute: explicitWebSearchRoute } : {}),
         ...(hasAgentRoutes ? { agentRoutes } : {}),
       }], 'finish-onboarding')
       : await run('skipOnboarding', [], 'finish-onboarding');
@@ -512,10 +512,10 @@ export function OnboardingWizard({ api, onDone }: {
           {meta.id === 'providers' && <ProviderStep setup={providerSetup} pending={pending} run={run}
             onSaveApiKey={(event, provider) => void saveApiKey(event, provider)}
             onReload={() => void load(true)} />}
-          {meta.id === 'models' && <ModelStep models={models} searchModels={searchOptions} agents={agents}
-            mainRoute={mainRoute} searchRoute={searchRoute} agentRoutes={agentRoutes}
+          {meta.id === 'models' && <ModelStep models={models} webSearchModels={webSearchOptions} agents={agents}
+            mainRoute={mainRoute} webSearchRoute={webSearchRoute} agentRoutes={agentRoutes}
             onMain={(route) => { setMainRouteTouched(true); setMainRoute(route); }}
-            onSearch={(route) => { setSearchRouteTouched(true); setSearchRoute(route); }}
+            onWebSearch={(route) => { setWebSearchRouteTouched(true); setWebSearchRoute(route); }}
             onAgents={setAgentRoutes} />}
           {meta.id === 'workflow' && <WorkflowStep workflows={workflows} pending={pending} run={run}
             onChange={(id) => setWorkflows((list) => list.map((workflow) =>
@@ -661,15 +661,15 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
   </>;
 }
 
-function ModelStep({ models, searchModels, agents, mainRoute, searchRoute, agentRoutes, onMain, onSearch, onAgents }: {
+function ModelStep({ models, webSearchModels, agents, mainRoute, webSearchRoute, agentRoutes, onMain, onWebSearch, onAgents }: {
   models: DesktopModelOption[];
-  searchModels: DesktopModelOption[];
+  webSearchModels: DesktopModelOption[];
   agents: RecordValue[];
   mainRoute: DesktopModelSelection | null;
-  searchRoute: DesktopModelSelection | null;
+  webSearchRoute: DesktopModelSelection | null;
   agentRoutes: Record<string, DesktopModelSelection>;
   onMain(route: DesktopModelSelection | null): void;
-  onSearch(route: DesktopModelSelection | null): void;
+  onWebSearch(route: DesktopModelSelection | null): void;
   onAgents(routes: Record<string, DesktopModelSelection>): void;
 }) {
   const selectModel = (value: string, options: DesktopModelOption[]) => {
@@ -683,7 +683,9 @@ function ModelStep({ models, searchModels, agents, mainRoute, searchRoute, agent
       const selected = selectModel(value, models);
       if (selected) next[String(agent.id)] = selected; else delete next[String(agent.id)];
       onAgents(next);
-    }} options={[{ value: '', label: t('Default · follows Main') }, ...modelOptions(models)]} /></label>;
+      // Agents have no "follows Main" state — leaving this unset simply starts
+      // them on the Main model, and Settings shows that model from then on.
+    }} options={[{ value: '', label: t('Same as Main') }, ...modelOptions(models)]} /></label>;
   // Three sections (user decision): Main → required defaults (web search +
   // the slot-backed Explore/Maintainer) → the remaining custom roles.
   const defaultAgents = agents.filter((agent) => Boolean(agent.workflowSlot));
@@ -700,12 +702,12 @@ function ModelStep({ models, searchModels, agents, mainRoute, searchRoute, agent
     <div className="onboarding-model-section">
       <h3>{t('Default models')}</h3>
       <div className="onboarding-model-grid">
-        <label><span><b>{t('Search')}</b><small>{t('Native web-search model')}</small></span><OpenSelect ariaLabel={t('Search model')}
-          value={searchRoute?.provider === 'default' && searchRoute?.model === 'default' ? '__default__' : routeKey(searchRoute)} onChange={(value) => {
-          onSearch(value === '__default__'
+        <label><span><b>{t('Web Search')}</b><small>{t('Native web-search model')}</small></span><OpenSelect ariaLabel={t('Web search model')}
+          value={webSearchRoute?.provider === 'default' && webSearchRoute?.model === 'default' ? '__default__' : routeKey(webSearchRoute)} onChange={(value) => {
+          onWebSearch(value === '__default__'
             ? { provider: 'default', model: 'default' }
-            : selectModel(value, searchModels));
-        }} options={[{ value: '__default__', label: t('Default · follows Main') }, ...modelOptions(searchModels)]} /></label>
+            : selectModel(value, webSearchModels));
+        }} options={[{ value: '__default__', label: t('Default · follows Main') }, ...modelOptions(webSearchModels)]} /></label>
         {defaultAgents.map(agentRow)}
       </div>
     </div>
@@ -1066,6 +1068,10 @@ function ProfileStep({ profile, pending, run, onProfile }: {
     value: String(entry.id || entry.value || 'system'),
     label: title(entry),
   }));
+  const experienceLevels = rows(profile.experienceLevels).map((entry) => ({
+    value: String(entry.id || entry.value || ''),
+    label: title(entry),
+  }));
   const commitTitle = () => {
     if (trimmed === String(profile.title || '')) return;
     onProfile({ ...profile, title: trimmed });
@@ -1088,6 +1094,24 @@ function ProfileStep({ profile, pending, run, onProfile }: {
           onBlur={commitTitle}
           onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
         <small>{t('How Mixdog addresses you.')}</small>
+      </label>
+      <label>
+        <span>{t('Experience level')}</span>
+        <OpenSelect ariaLabel={t('Experience level')} value={String(profile.experienceLevel || '')}
+          options={[
+            { value: '', label: t('Select…'), disabled: true },
+            ...(experienceLevels.length ? experienceLevels : [
+              { value: 'beginner', label: t('Beginner') },
+              { value: 'vibe-coder', label: t('Vibe coder') },
+              { value: 'junior', label: t('Junior') },
+              { value: 'expert', label: t('Expert') },
+            ]),
+          ]}
+          onChange={(experienceLevel) => {
+            onProfile({ ...profile, experienceLevel });
+            void run('setProfile', [{ experienceLevel }], 'onboarding-profile-experience');
+          }} />
+        <small>{t('How much development experience do you have? This only adjusts terminology and assumed background, not response length.')}</small>
       </label>
       <label>
         <span>{t('Language')}</span>

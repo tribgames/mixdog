@@ -135,13 +135,13 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   });
   const workerCount = taggedRunningKeys.size + untaggedRunningCount;
   const tools = snapshot.activeTools || {};
-  const searchCount = Math.max(0, Number(tools.search?.count) || 0);
+  const webSearchCount = Math.max(0, Number(tools.web_search?.count) || 0);
   const agentCount = Math.max(workerCount, Math.max(0, Number(tools.agent?.count) || 0));
   const shellCount = Math.max(
     Math.max(0, Number(snapshot.shellJobs?.count) || 0),
     Math.max(0, Number(tools.shell?.count) || 0),
   );
-  const active = agentCount > 0 || searchCount > 0 || shellCount > 0;
+  const active = agentCount > 0 || webSearchCount > 0 || shellCount > 0;
   useEffect(() => {
     if (fixedNow !== undefined || !active) return undefined;
     setClock(Date.now());
@@ -151,10 +151,12 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   if (!active) return null;
   // Aggregate chip (user decision): ONE quiet spinner+count left of the
   // context gauge; the per-activity breakdown lives in a hover popover.
-  const total = agentCount + searchCount + shellCount;
+  const total = agentCount + webSearchCount + shellCount;
+  // Both cells always render: the card's label/value columns are ONE grid, so
+  // a dropped value cell would pull the next row's label out of column one.
   const row = (key: string, label: string, elapsed: string) => <div className="live-work-row" key={key}>
     <span>{label}</span>
-    {elapsed && <small>{elapsed}</small>}
+    <small>{elapsed}</small>
   </div>;
   return <div className="live-work-status" role="status" tabIndex={0}
     aria-label={t("Background activity: {{count}} running", { count: total })}>
@@ -167,8 +169,8 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
         Number.isFinite(oldestAgentStart)
           ? formatWorkElapsed(clock - oldestAgentStart)
           : tools.agent?.startedAt ? formatWorkElapsed(clock - Number(tools.agent.startedAt)) : "")}
-      {searchCount > 0 && row("search", t("Web search"),
-        tools.search?.startedAt ? formatWorkElapsed(clock - Number(tools.search.startedAt)) : "")}
+      {webSearchCount > 0 && row("web_search", t("Web search"),
+        tools.web_search?.startedAt ? formatWorkElapsed(clock - Number(tools.web_search.startedAt)) : "")}
       {shellCount > 0 && row("shells", `${t("Shell")} ${shellCount}`,
         String(snapshot.shellJobs?.elapsedLabel || "")
           || (tools.shell?.startedAt ? formatWorkElapsed(clock - Number(tools.shell.startedAt)) : ""))}
@@ -226,8 +228,15 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
     };
   }, []);
   const descriptionId = `context-usage-${String(snapshot.sessionId || "session")}`;
+  // Quota grammar (user: 한도처럼 %따라서 색): the ring adopts the SAME 70/90
+  // thresholds the subscription usage meters use, so a filling context window
+  // warns in the one language the app already speaks.
+  const tone = !context ? ""
+    : context.percent >= 90 ? "danger"
+      : context.percent >= 70 ? "warning" : "";
   return <div className="session-context-indicator"
     data-active={context ? "true" : "false"}
+    {...(tone ? { "data-tone": tone } : {})}
     data-open={popoverOpen ? "true" : "false"}
     onMouseEnter={() => setPopoverOpen(true)} onMouseLeave={() => setPopoverOpen(false)}>
     <button type="button" onClick={() => {
@@ -244,8 +253,8 @@ export function ContextUsageIndicator({ snapshot, onOpen }: {
       aria-describedby={context ? descriptionId : undefined}
       disabled={!context}>
       <svg viewBox="0 0 20 20" aria-hidden="true">
-        <circle className="context-usage-track" cx="10" cy="10" r="7" />
-        <circle className="context-usage-value" cx="10" cy="10" r="7"
+        <circle className="context-usage-track" cx="10" cy="10" r="8" />
+        <circle className="context-usage-value" cx="10" cy="10" r="8"
           pathLength="100" strokeDasharray={`${context?.percent ?? 0} 100`} />
       </svg>
     </button>
