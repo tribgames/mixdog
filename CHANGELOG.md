@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.140 - 2026-08-20
+
 - Studio deletes take effect on the first click: a finished run releases its
   grid slot as soon as its asset is indexed, so deleting that asset no longer
   revives the slot as a phantom "generating" tile. The gallery is no longer
