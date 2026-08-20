@@ -5,6 +5,23 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Antigravity OAuth arrives as a provider: one Google login exposes Gemini 3.x
+  and Claude through the Cloud Code Assist gateway, with login, token refresh,
+  and endpoint failover following the existing OAuth provider shape.
+- Agents now have exactly two states, a pinned model or off, and Web Search
+  resolves the Main Model when its route is left unset.
+- Paired browsers reach the desktop operation surface — project instructions,
+  folder browsing and places, and the git contract — through one shared
+  argument-validation module, while relay session state travels as
+  client-scoped compact deltas inside binary E2EE frames.
+- The web app now ships precompressed brotli and gzip assets, holds back
+  background warmups and fonts on metered or slow links, resizes image
+  attachments and dictation audio before upload, drops the pinned status
+  island's live blur on phones, and paints the brand accent in Google blue.
+- Windows runtime staging and asar packing survive repo lifecycle scripts and
+  transient antivirus file locks, and the TUI status line computes its running
+  shell count directly on the instant path.
+
 ## v0.9.138 - 2026-08-19
 
 - Remote web sessions now use client-scoped subscriptions, binary E2EE frames,
