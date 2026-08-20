@@ -82,6 +82,8 @@ const targetInputs = {
     join(desktopDir, 'electron-builder.yml'),
     join(desktopDir, 'build'),
     join(desktopDir, 'scripts', 'generate-brand-icons.mjs'),
+    join(desktopDir, 'scripts', 'dev-fast-direct.mjs'),
+    join(desktopDir, 'scripts', 'dev-update-windows.ps1'),
     join(repoRoot, 'native', 'mixdog-token'),
     join(repoRoot, 'scripts', 'build-token-addon.mjs'),
   ],
@@ -183,7 +185,31 @@ async function fingerprint(inputs) {
   return { hash: hash.digest('hex'), newestMtimeMs, fileCount: files.length };
 }
 
-export function decidePlan({ previous, groups, installedMatches, bootstrapFresh }) {
+export function decidePlan({
+  previous,
+  groups,
+  installedMatches,
+  bootstrapFresh,
+  forceFull = false,
+}) {
+  if (forceFull) {
+    const changed = Object.fromEntries(
+      Object.keys(targetInputs).map((name) => [
+        name,
+        previous?.schemaVersion !== schemaVersion
+          || previous.groups?.[name]?.hash !== groups[name].hash,
+      ]),
+    );
+    changed.package = true;
+    return {
+      full: true,
+      bootstrap: false,
+      targets: [],
+      daemon: false,
+      runtime: false,
+      changed,
+    };
+  }
   if (previous?.schemaVersion === schemaVersion && installedMatches) {
     const changed = Object.fromEntries(
       Object.keys(targetInputs).map((name) => [
@@ -334,7 +360,7 @@ async function bootstrapFreshness(installDir) {
   };
 }
 
-async function createPlan({ installDir, statePath, planPath }) {
+async function createPlan({ installDir, statePath, planPath, forceFull = false }) {
   const groups = await currentGroups();
   const prebuilt = await currentPrebuilt(groups);
   const previous = await readState(statePath);
@@ -351,6 +377,7 @@ async function createPlan({ installDir, statePath, planPath }) {
     groups,
     installedMatches,
     bootstrapFresh: bootstrap,
+    forceFull,
   });
   const plan = {
     schemaVersion,
@@ -507,7 +534,12 @@ async function main() {
   const planPath = resolve(args.plan || join(desktopDir, '.cache', 'dev-fast-direct-plan.json'));
   if (!action || !installDir) throw new Error('--action and --install-dir are required');
   if (action === 'plan') {
-    const plan = await createPlan({ installDir, statePath, planPath });
+    const plan = await createPlan({
+      installDir,
+      statePath,
+      planPath,
+      forceFull: String(args['force-full']).toLowerCase() === 'true',
+    });
     process.stdout.write(`${JSON.stringify(plan)}\n`);
     return;
   }

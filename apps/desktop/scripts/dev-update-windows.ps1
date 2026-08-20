@@ -83,6 +83,14 @@ if ([string]::IsNullOrWhiteSpace($FastArtifactDir)) {
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
 
+function Assert-DesktopDaemonArtifact {
+  param([string]$ArtifactRoot)
+  $daemonArtifact = Join-Path $ArtifactRoot 'resources\app.asar.unpacked\out\main\daemon.cjs'
+  if (-not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)) {
+    throw "Desktop artifact is missing the unpacked daemon: $daemonArtifact"
+  }
+}
+
 function Write-FastDirectReceipt {
   param(
     [string]$Status,
@@ -371,6 +379,7 @@ function Invoke-Build {
       if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
       & npx.cmd electron-builder --dir --win --x64 --publish never "-c.extraMetadata.version=$OverrideVersion"
       if ($LASTEXITCODE -ne 0) { throw "electron-builder --dir exited with $LASTEXITCODE" }
+      Assert-DesktopDaemonArtifact $unpackedDir
       return
     }
     if ([string]::IsNullOrWhiteSpace($OverrideVersion)) {
@@ -395,8 +404,9 @@ function Invoke-Build {
 }
 
 function Get-FastDirectPlan {
+  param([switch]$ForceFull)
   $output = & node $fastDirectHelper --action=plan "--install-dir=$InstallDir" `
-    "--state=$FastStatePath" "--plan=$FastPlanPath"
+    "--state=$FastStatePath" "--plan=$FastPlanPath" "--force-full=$([bool]$ForceFull)"
   if ($LASTEXITCODE -ne 0) { throw "FastDirect planning exited with $LASTEXITCODE" }
   return ($output | Out-String | ConvertFrom-Json)
 }
@@ -543,8 +553,11 @@ function Invoke-FastDirectChangedOutputs {
     Invoke-SelectedElectronBuild $buildTargets
   }
 
-  $daemonChanged = if ($Plan.full) { [bool]$Plan.changed.daemon } else { [bool]$Plan.daemon }
-  $reuseDaemon = $daemonChanged -and ($ReuseBuild -or [bool]$Plan.prebuilt.daemon)
+  # A full Electron build clears out/main before recreating its own targets, so
+  # daemon.cjs must be emitted again even when daemon sources did not change.
+  $daemonChanged = [bool]$Plan.full -or [bool]$Plan.daemon
+  $reuseDaemon = $daemonChanged -and -not $Plan.full `
+    -and ($ReuseBuild -or [bool]$Plan.prebuilt.daemon)
   if ($reuseDaemon) {
     Write-Step 'reusing fresh desktop daemon'
   } elseif ($daemonChanged) {
@@ -592,6 +605,7 @@ function Install-UnpackedBuild {
   if (-not (Test-Path -LiteralPath (Join-Path $unpackedDir 'Mixdog.exe') -PathType Leaf)) {
     throw "Unpacked desktop artifact missing: $unpackedDir"
   }
+  Assert-DesktopDaemonArtifact $unpackedDir
   $installParent = Split-Path -Parent $InstallDir
   $installLeaf = Split-Path -Leaf $InstallDir
   $backupDir = Join-Path $installParent ".$installLeaf.fast-backup-$PID"
@@ -904,7 +918,8 @@ if ($FastDirect -and $SkipBuild) {
 if (-not $SkipBuild) {
   if ($FastDirect) {
     Write-Step 'fingerprinting FastDirect inputs'
-    $fastPlan = Get-FastDirectPlan
+    $forceFull = [bool]$targetVersion -and ((Get-InstalledSemVer) -ne $targetVersion)
+    $fastPlan = Get-FastDirectPlan -ForceFull:$forceFull
     if ($fastPlan.full) {
       Stop-FastRendererWatch
       Write-Step 'native/package inputs changed; building complete win-unpacked fallback'

@@ -27,6 +27,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 function Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
 $desktopDir = Join-Path $repo 'apps\desktop'
 $relayDir = Join-Path $repo 'apps\relay'
+$desktopVersion = [string]((Get-Content (Join-Path $desktopDir 'package.json') -Raw | ConvertFrom-Json).version)
 $deployPlanner = Join-Path $relayDir 'scripts\deploy-plan.mjs'
 $deployPlanPath = Join-Path $relayDir '.cache\deploy-plan.json'
 $deployStatePath = Join-Path $relayDir '.cache\deploy-state.json'
@@ -112,6 +113,7 @@ if ($deployPlan.deploy) {
       Start-Sleep -Seconds 2
     }
     "[health] https://$Domain/healthz -> $health"
+    if ($code -ne '200') { throw "public VPS health check failed: $health" }
   } -ArgumentList $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged)
 } else {
   Step 'VPS inputs unchanged; skipping renderer build, stage, and upload'
@@ -121,13 +123,19 @@ $devUpdate = Join-Path $desktopDir 'scripts\dev-update-windows.ps1'
 $fastBuildFailed = $false
 if ($FastDirect) {
   Step 'FastDirect staging while the VPS upload runs'
-  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -BuildOnly
+  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -BuildOnly `
+    -Version $desktopVersion
   if ($LASTEXITCODE -ne 0) { $fastBuildFailed = $true }
 }
 
 if ($uploadJob) {
   try {
-    Receive-Job -Job $uploadJob -Wait -ErrorAction Stop
+    Receive-Job -Job $uploadJob -Wait -ErrorAction Continue
+    if ($uploadJob.State -ne 'Completed') {
+      $reason = $uploadJob.ChildJobs[0].JobStateInfo.Reason
+      if ($reason) { throw "VPS deploy job failed: $($reason.Message)" }
+      throw "VPS deploy job failed with state $($uploadJob.State)"
+    }
     & node $deployPlanner --action=commit "--state=$deployStatePath" "--plan=$deployPlanPath"
     if ($LASTEXITCODE -ne 0) { throw "live deploy state commit exited with $LASTEXITCODE" }
   } finally {
@@ -139,6 +147,7 @@ if ($fastBuildFailed) { exit 1 }
 
 if ($FastDirect) {
   Step 'FastDirect installed-app swap (app restarts once)'
-  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -SkipBuild
+  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -SkipBuild `
+    -Version $desktopVersion
   exit $LASTEXITCODE
 }
