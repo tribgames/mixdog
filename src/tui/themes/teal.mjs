@@ -38,7 +38,7 @@ export const tealPalette = {
   promptBorder: 'rgb(80,80,80)', // borderMuted/darkGray #505050
   success: 'rgb(181,189,104)', // green #b5bd68
   error: 'rgb(204,102,102)', // red #cc6666
-  warning: 'rgb(255,255,0)', // yellow #ffff00 (pi uses pure yellow)
+  warning: 'rgb(255,255,0)', // yellow #ffff00 (pure yellow by design)
   suggestion: 'rgb(129,162,190)', // mdLink #81a2be
   panelTitle: 'rgb(138,190,183)', // accent
   permission: 'rgb(204,102,102)', // red

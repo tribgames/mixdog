@@ -623,18 +623,21 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 }
 /* Plain-text stand-in while the lazy markdown chunk streams in. */
 .markdown-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
-/* Inline code is the ONE colored span in prose (reference rule: the terminal
-   agent colors `codespan` with its accent and leaves headings, strong and
-   links neutral). A single accent has nothing to compete with, so the chip —
+/* Inline code is the ONE colored span in prose: headings, strong and links
+   stay neutral, so a single accent has nothing to compete with. The chip —
    tint, padding, radius, ring — is gone: color and a box are two marks for one
    meaning, and the box was the half that squashed against the glyphs. */
 .markdown :not(pre) > code {
   color: var(--mx-md-code);
-  /* RELATIVE, so one rule covers every tier: mono has a larger optical body
-     than Pretendard, and .88em keeps it a step under its host text whether the
-     host is 15px prose, an 18px h1, or a 15px table cell. The old absolute 13px
-     needed a second rule inside headings and still read oversized in prose. */
-  font-size: .88em;
+  /* Inline code runs INSIDE a sentence, so it keeps the host's face and size
+     and lets COLOUR alone carry the distinction (user: 인라인 코드만 본문
+     폰트로). Mono belongs to the code CARD, where the text is read as code
+     rather than prose; carried into a sentence it set a second, wider optical
+     body mid-line, and the .88em correction that needed still read oversized
+     beside Pretendard. Inheriting also covers every tier at once — 15px prose,
+     an 18px h1, a table cell — with no per-tier override. Fenced blocks keep
+     var(--mx-font-mono) from base layer 02. */
+  font-family: inherit;
   overflow-wrap: anywhere;
 }
 

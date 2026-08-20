@@ -116,7 +116,7 @@ export function classifyError(err) {
   const status = Number(err.httpStatus || err.status || err.response?.status || 0) || 0
   if (AUTH_STATUSES.has(status)) return 'auth'
   // Stale previous_response_id is recoverable by dropping the chain and
-  // re-issuing a full frame (codex maps it to ApiError::Retryable). A typed
+  // re-issuing a full frame, which is the retryable path. A typed
   // 400 here is not a deterministic payload refusal.
   if (shouldDropPreviousResponseId(err)) return 'transient'
   if (typedErrorCode(err) === WEBSOCKET_CONNECTION_LIMIT) return 'transient'
@@ -137,7 +137,7 @@ export function classifyError(err) {
   // ever attempted (observed live: pooled WS retired by the server between
   // turns → close 1000 before response.created → the whole turn failed).
   // Reference behavior retries the same disconnect (codex `CodexErr::Stream`
-  // is_retryable, cc falls back/retries the stream); the exposure deny above
+  // is_retryable, and a stream fallback/retry applies); the exposure deny above
   // still fails closed for anything already relayed or dispatched.
   if (isNonTerminalStreamClose(err)) return 'transient'
 
@@ -162,10 +162,10 @@ export function classifyError(err) {
   ))) return 'transient'
 
   // Provider wire error event (`response.failed` / terminal `error` frame):
-  // default-retry, codex parity. codex maps every response.failed whose typed
-  // code is not a deterministic refusal to ApiError::Retryable (fatal codes
-  // are an explicit allow-list); cc retries all 5xx/overloaded 10×; opencode
-  // marks server_error/server_is_overloaded isRetryable. Evidence stays
+  // default-retry. Every response.failed whose typed code is not a
+  // deterministic refusal is retryable (fatal codes are an explicit
+  // allow-list), and server_error / server_is_overloaded count as retryable
+  // too. Evidence stays
   // structural — the event's own typed code/type field — message text is
   // never parsed. Exposure precedence is preserved: the replayUnsafe gate at
   // the top of this function already returned 'permanent' for any stream
@@ -379,8 +379,8 @@ function isPermanentQuotaError(err) {
 
 // ── Wire error events: default-retry with a fatal-code deny-list ────────────
 // Deterministic refusal codes a `response.failed` / `error` wire event may
-// carry: retrying the identical request can never succeed. Mirrors codex's
-// fatal set (context/quota/policy) plus the auth/billing refusals the
+// carry: retrying the identical request can never succeed. The fatal set is
+// context/quota/policy plus the auth/billing refusals the
 // Responses and Anthropic wire formats use. Everything OUTSIDE this set —
 // server_error, server_is_overloaded, slow_down, or an event with no code at
 // all — is a server-side fault and is retried under the bounded budgets
@@ -753,7 +753,7 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
     // A typed non-transient 4xx on the failure payload is a deterministic
     // refusal even without a recognized code string.
     if (failedStatus >= 400 && failedStatus < 500 && !TRANSIENT_STATUSES.has(failedStatus)) return null
-    // Default-retry (codex parity): a wire failure that is neither a fatal
+    // Default-retry: a wire failure that is neither a fatal
     // refusal nor a typed 4xx is a server-side fault — re-issue it under the
     // bounded mid-stream budget instead of failing the turn.
     return _allowMidstream('response_failed_retryable', attemptIndex, policy)

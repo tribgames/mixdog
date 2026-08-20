@@ -1288,7 +1288,7 @@ export function SourceControlDock({
               ?.focus();
           }}>
           {/* One `with-indicator` span per tab, the
-              label then the changed-file counter (files-changed-badge.tsx). */}
+              label then the changed-file counter. */}
           <span className="dock-scm-tab-content">
             <span className="dock-scm-tab-label">{option.label}</span>
             {option.id === "changes" && files.length > 0 &&
@@ -1642,7 +1642,7 @@ export function SourceControlDock({
               {file.deletions > 0 && <em>-{file.deletions}</em>}
             </small>
             {/* ONE trailing control per row: the status icon, same grammar as
-                the working-directory rows (changed-file.tsx:30-43). */}
+                the working-directory rows. */}
             <ScmStatusIcon kind={scmStatusKind(file.status)} size={12} />
           </button>
           {open && <div className="dock-scm-commit-diff">

@@ -170,7 +170,7 @@ export async function extractIpynbText(fullPath, { maxOutputBytes = DEFAULT_READ
                         const rawTxt = data['text/plain']
                             ? (Array.isArray(data['text/plain']) ? data['text/plain'].join('') : data['text/plain'])
                             : (Array.isArray(out.text) ? out.text.join('') : out.text);
-                        // Port CC behaviour: a single huge output is replaced
+                        // A single huge output is replaced
                         // with a jq hint rather than dumped inline.
                         if (typeof rawTxt === 'string' && rawTxt.length > IPYNB_OUTPUT_MAX_CHARS) {
                             block += `\n# Output: [large output omitted — ${rawTxt.length} chars; inspect with: cat "${fullPath}" | jq '.cells[${cellIndex}].outputs']`;

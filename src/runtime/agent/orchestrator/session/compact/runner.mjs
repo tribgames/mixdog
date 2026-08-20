@@ -59,7 +59,7 @@ import {
     stripWorkingFileSections,
 } from './handoff.mjs';
 
-// Post-compact file re-attachment (claude-code parity): re-inject fresh reads
+// Post-compact file re-attachment: re-inject fresh reads
 // of files the summarized-away head was working with, when they still fit the
 // budget. Semantic compact still uses this; recall-fasttrack lists paths
 // instead of file bodies.

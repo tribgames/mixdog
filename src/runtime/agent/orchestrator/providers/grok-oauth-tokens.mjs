@@ -130,7 +130,7 @@ export const LOGIN_TIMEOUT_MS = 5 * 60_000;
 // SSRF guard for any endpoint pulled from the discovery document or saved
 // tokens. xAI OAuth endpoints must be https on x.ai / *.x.ai — reject
 // anything else outright so a hostile discovery response can't redirect the
-// token / refresh request. Mirrors openclaw's isTrustedXaiOAuthEndpoint.
+// token / refresh request.
 function assertTrustedXaiEndpoint(endpoint, label) {
     let url;
     try {

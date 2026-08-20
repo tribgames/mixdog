@@ -133,8 +133,8 @@ function normalizeFmt(fmt) {
     return f === 'jpg' ? 'jpeg' : f;
 }
 
-// Build the metadata text block prepended to a resized image. Mirrors CC
-// createImageMetadataText: "[Image: WxH, displayed at ...]" plus a coordinate
+// Build the metadata text block prepended to a resized image:
+// "[Image: WxH, displayed at ...]" plus a coordinate
 // scale note when the image was downsampled.
 export function imageMetadataText(dims, sourcePath) {
     if (!dims) return sourcePath ? `[Image source: ${sourcePath}]` : null;
@@ -158,7 +158,7 @@ export function imageMetadataText(dims, sourcePath) {
 
 // Resize / downsample an image buffer with sharp.
 //
-// Pipeline (mirrors CC maybeResizeAndDownsampleImageBuffer + token budget):
+// Pipeline (resize / downsample under a token budget):
 //   1. metadata() — read format + dimensions.
 //   2. resize fit:inside withoutEnlargement to <= 2000x2000 (only when over
 //      dimension caps OR over the 3.75MB raw target).

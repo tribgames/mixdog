@@ -137,7 +137,8 @@ export const PUBLIC_APP_ASSETS = new Set([
 // per-browser credential. Pending claims are short-lived and bounded: they are
 // unauthenticated state.
 export const MAX_PENDING_CLAIMS = 64;
-export const CLAIM_TTL_MS = 180_000;
+// Long enough to walk to the desktop and answer the prompt there.
+export const CLAIM_TTL_MS = 300_000;
 
 /** `/d/<deviceId>/...` — the install/approval entry for one desktop. The id
  *  is a routing label, never a credential: it opens the shell that asks for
@@ -955,6 +956,19 @@ async function handleClaimRequest(context, request, response) {
     json(503, { status: 'offline' });
     return;
   }
+  // Idempotent: a phone that reloads mid-approval (a backgrounded web app is
+  // discarded freely) resumes the request the user is already looking at
+  // instead of raising a second prompt on the desktop. A different key is a
+  // different container and does get its own request.
+  for (const [id, pending] of claims) {
+    if (pending.status === 'pending'
+      && pending.deviceId === deviceId
+      && pending.clientId === clientId
+      && pending.publicKey === publicKey) {
+      json(202, { claimId: id });
+      return;
+    }
+  }
   if (claims.size >= MAX_PENDING_CLAIMS) {
     json(503, { status: 'busy' });
     return;
@@ -965,18 +979,27 @@ async function handleClaimRequest(context, request, response) {
     browser: String(body?.browser || '').slice(0, 80),
   };
   const id = randomUUID();
+  const expiresAt = Date.now() + CLAIM_TTL_MS;
   claims.set(id, {
     id,
     deviceId,
     clientId,
+    publicKey,
     profile,
     status: 'pending',
     token: '',
     sealed: null,
-    expiresAt: Date.now() + CLAIM_TTL_MS,
+    expiresAt,
   });
   try {
-    entry.socket.send(JSON.stringify({ type: 'client-claim', claimId: id, publicKey, ...profile }));
+    entry.socket.send(JSON.stringify({
+      type: 'client-claim',
+      claimId: id,
+      clientId,
+      publicKey,
+      expiresAt,
+      ...profile,
+    }));
   } catch {
     claims.delete(id);
     json(503, { status: 'offline' });

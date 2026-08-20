@@ -536,18 +536,6 @@ export interface RelayClaimKeyPair {
 
 const E2EE_CLAIM_CONTEXT = `${E2EE_CONTEXT}\0claim`;
 
-/** Two digits shown on BOTH screens so the user approves the phone in hand.
- *  Derived from the key being sealed to, so a substituted key cannot keep the
- *  number the desktop displays. */
-export async function relayClaimConfirmationCode(clientPublicKey: string): Promise<string> {
-  const digest = await cryptoApi().subtle.digest(
-    'SHA-256',
-    arrayBuffer(base64UrlDecode(clientPublicKey)),
-  );
-  const bytes = new Uint8Array(digest);
-  return String((((bytes[0] << 8) | bytes[1]) >>> 0) % 100).padStart(2, '0');
-}
-
 export function isRelayClaimPublicKey(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9_-]{86,88}$/u.test(value);
 }
@@ -598,6 +586,45 @@ export async function generateRelayClaimKeyPair(): Promise<RelayClaimKeyPair> {
     )),
     privateKey: pair.privateKey,
   };
+}
+
+/** A pending approval has to survive the asking app being reloaded: a phone
+ *  OS discards a backgrounded web app freely, and losing the key would mean
+ *  asking the user to approve all over again. The private key is exported for
+ *  that container's own storage and never leaves it. */
+export interface StoredRelayClaimKeyPair {
+  publicKey: string;
+  privateKeyJwk: JsonWebKey;
+}
+
+export async function exportRelayClaimKeyPair(
+  keyPair: RelayClaimKeyPair,
+): Promise<StoredRelayClaimKeyPair> {
+  return {
+    publicKey: keyPair.publicKey,
+    privateKeyJwk: await cryptoApi().subtle.exportKey('jwk', keyPair.privateKey),
+  };
+}
+
+export async function importRelayClaimKeyPair(
+  stored: unknown,
+): Promise<RelayClaimKeyPair | null> {
+  try {
+    const value = stored as Partial<StoredRelayClaimKeyPair> | null;
+    if (!value || !isRelayClaimPublicKey(value.publicKey) || !value.privateKeyJwk) return null;
+    return {
+      publicKey: value.publicKey,
+      privateKey: await cryptoApi().subtle.importKey(
+        'jwk',
+        value.privateKeyJwk,
+        { name: 'ECDH', namedCurve: 'P-256' },
+        true,
+        ['deriveBits'],
+      ),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function sealRelayE2EEPairingMaterial(

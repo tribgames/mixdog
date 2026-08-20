@@ -337,7 +337,7 @@ export class TaskOutput {
   }
 
   // Direct mode has no JS write path, so byte counters must come from the
-  // filesystem (CC "poll the file tail" analogue).
+  // filesystem (a "poll the file tail" approach).
   _refreshDirectSizes() {
     if (!this.direct) return;
     try { this.stdoutFileSize = statSync(this.stdoutPath).size; } catch {}
@@ -531,7 +531,7 @@ export class ExecResult {
     // renderer in builtin/bash-tool.mjs turns this into a model-visible marker.
     this.failurePhase = opts.failurePhase || null;
     this.failureReason = opts.failureReason || null;
-    // Auto-background transition (CC startBackgrounding analogue). When a
+    // Auto-background transition. When a
     // foreground command outlives autoBackgroundMs the call settles with
     // backgrounded:true + the jobId for manual task control. The
     // child stays owned by the CLI process; stdout/stderr keep flowing to

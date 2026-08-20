@@ -1,5 +1,5 @@
-// Post-compact file re-attachment (claude-code createPostCompactFileAttachments
-// parity). Files the summarized-away head had `read` are re-read FRESH from
+// Post-compact file re-attachment. Files the summarized-away head had `read`
+// are re-read FRESH from
 // disk and re-injected right after the summary message, so the model does not
 // burn a turn (and tokens) re-reading files it was actively working with.
 //  - newest-first, capped at MAX_REATTACH_FILES and per-file/total token caps

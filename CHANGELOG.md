@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Installed web apps resume one pending desktop approval across reloads, while
+  the desktop replaces stale prompts, expires them with the relay request, and
+  accepts each decision only after the service confirms it.
+- FastDirect reuses fresh build targets, a persistent production renderer
+  cache, prepared runtime output, and an extracted ASAR shell template. Live
+  relay deploys independently fingerprint renderer/server changes and upload
+  only verified renderer deltas before the atomic VPS swap.
+- Inline code follows the surrounding prose font and size, leaving color as
+  its only inline distinction while fenced code remains monospace.
+
 ## v0.9.141 - 2026-08-20
 
 - Desktop task creation works under Electron 41 and Node 24: the agent shard
@@ -250,8 +260,8 @@ the Unreleased section is empty, and stamps it with the released version.
 ## v0.9.120 - 2026-08-11
 
 - Background shell tasks now retain their owner session and daemon after every
-  view detaches, matching CC notification lifetime semantics so idle eviction
-  cannot cancel the task before its completion is delivered.
+  view detaches, so idle eviction cannot cancel the task before its completion
+  is delivered.
 
 ## v0.9.119 - 2026-08-11
 
@@ -535,9 +545,9 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## v0.9.94 - 2026-08-05
 
-- Desktop tab strip follows Chromium's `tab_strip_layout`: tabs shrink
-  together toward the active/inactive floors with every tab visible instead
-  of scrolling, and touch shells collapse to a title + count switcher list.
+- Desktop tab strip shrinks tabs together toward the active/inactive floors
+  with every tab visible instead of scrolling, and touch shells collapse to a
+  title + count switcher list.
 - Streaming markdown heals the live tail (unclosed `**`, `` ` ``, `~~`) and
   scopes the fenced-code geometry lock to its own chunk, so headings, lists,
   and bold format while the model is still typing.

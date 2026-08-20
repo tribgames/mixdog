@@ -1384,7 +1384,7 @@ for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent
     throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
   }
 }
-// timeout_ms is DECLARED in the model-facing schema (CC/Codex parity: the
+// timeout_ms is DECLARED in the model-facing schema (the
 // schema states the contract) while the default stays "no deadline" — the
 // description and rules both steer models to omit it.
 if (shellProps.timeout_ms?.type !== 'number'
@@ -2707,7 +2707,7 @@ if (readProps.offset?.type !== 'integer'
   || readProps.limit?.type !== 'integer'
   || readProps.limit?.minimum !== 1
   || readProps.limit?.description !== 'Maximum line count as a bare integer; default 1000.') {
-  throw new Error('read range args must use the CC scalar integer contract with Mixdog descriptions');
+  throw new Error('read range args must use the scalar integer contract with Mixdog descriptions');
 }
 if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
   || readSchema.additionalProperties !== false) {

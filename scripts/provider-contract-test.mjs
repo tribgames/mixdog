@@ -1127,7 +1127,7 @@ for (const label of ['xai:responses', 'other-compat']) {
         ]) {
             const err = await consume(untyped);
             assert.equal(err.httpStatus, undefined, `${untyped.type}: no status may be synthesized`);
-            assert.equal(classifyError(err), 'transient', 'an uncoded wire failure default-retries (codex parity)');
+            assert.equal(classifyError(err), 'transient', 'an uncoded wire failure default-retries');
         }
 
         // Deterministic refusal codes on the wire event stay terminal.

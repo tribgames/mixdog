@@ -35,11 +35,11 @@ import { buildTableRender } from '../markdown/table-layout.mjs';
 const DEFAULT_MARKDOWN_WIDTH = 80;
 
 // Hard ceilings so a pathological tool result can never lock the render loop.
-// CC uses ~MAX_LINES*width*4 for the collapsed fold; for the EXPANDED body we
+// The collapsed fold budgets roughly MAX_LINES*width*4; for the EXPANDED body we
 // cap total characters processed and total lines kept, with an explicit marker.
 const MAX_EXPANDED_CHARS = 256 * 1024; // 256 KB of text gets per-line processing
 const MAX_EXPANDED_LINES = 4000; // logical-line safety ceiling; physical mount cap is separate
-const MAX_JSON_FORMAT_LENGTH = 10_000; // mirror CC's tryJsonFormatContent cap
+const MAX_JSON_FORMAT_LENGTH = 10_000; // JSON pretty-format cap
 const MAX_HIGHLIGHT_LINE_CHARS = 2000; // skip token-scan on absurdly long lines
 // Lockstep with ToolExecution collapsed fit budget (MIN_RESULT_LINE_CHARS).
 const MIN_EXPANDED_BODY_COLS = 24;

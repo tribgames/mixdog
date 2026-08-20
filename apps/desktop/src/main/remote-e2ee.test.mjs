@@ -8,10 +8,11 @@ import {
   acceptRelayE2EEClientHello,
   createRelayE2EEChallenge,
   createRelayE2EEClientHandshake,
+  exportRelayClaimKeyPair,
   generateRelayClaimKeyPair,
+  importRelayClaimKeyPair,
   isRelayE2EEHello,
   openSealedRelayE2EEPairingMaterial,
-  relayClaimConfirmationCode,
   relayE2EEPairingMaterial,
   sealRelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
@@ -202,12 +203,16 @@ test('an approval seals the pairing to one container and to nobody else', async 
   );
   assert.equal(await openSealedRelayE2EEPairingMaterial(null, asking), null);
 
-  // The confirmation number is derived from the key being sealed to, so a
-  // swapped key cannot keep the digits the desktop is showing.
-  const code = await relayClaimConfirmationCode(asking.publicKey);
-  assert.match(code, /^[0-9]{2}$/);
-  assert.equal(await relayClaimConfirmationCode(asking.publicKey), code);
-  assert.notEqual(await relayClaimConfirmationCode(other.publicKey), code);
+  // A phone OS discards a backgrounded web app freely, so the key outlives the
+  // page: the restored pair opens the box the desktop already sealed, which is
+  // what stops one connection from asking for approval over and over.
+  const stored = JSON.parse(JSON.stringify(await exportRelayClaimKeyPair(asking)));
+  const restored = await importRelayClaimKeyPair(stored);
+  assert.ok(restored);
+  assert.equal(restored.publicKey, asking.publicKey);
+  assert.deepEqual(await openSealedRelayE2EEPairingMaterial(sealed, restored), pairing);
+  assert.equal(await importRelayClaimKeyPair({ publicKey: asking.publicKey }), null);
+  assert.equal(await importRelayClaimKeyPair(null), null);
 });
 
 test('persists and rotates the relay routing token', async () => {

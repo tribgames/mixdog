@@ -164,7 +164,7 @@ export class GeminiProvider {
     /**
      * Stream-death recovery: re-issue a dead stream ONCE as a
      * non-streaming generateContent call instead of failing the turn.
-     * Narrower than cc by design — canFallbackNonStreaming() clears only a
+     * Deliberately narrow — canFallbackNonStreaming() clears only a
      * stream that exposed nothing, so rendered text is never duplicated and a
      * dispatched tool can never run twice. Returns the aggregated response, or
      * null when the failure is ineligible or the fallback itself fails.

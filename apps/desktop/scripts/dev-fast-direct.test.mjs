@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { decidePlan } from './dev-fast-direct.mjs';
+import {
+  decidePlan,
+  packagingManifestForFingerprint,
+} from './dev-fast-direct.mjs';
 
 const groups = Object.fromEntries(
   ['renderer', 'main', 'preload', 'daemon', 'runtime', 'package'].map((name) => [
@@ -10,7 +13,7 @@ const groups = Object.fromEntries(
   ]),
 );
 const previous = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   groups: Object.fromEntries(
     Object.entries(groups).map(([name, value]) => [name, { hash: value.hash }]),
   ),
@@ -100,4 +103,29 @@ test('trusted bootstrap uses artifact times and always checks runtime', () => {
   assert.equal(plan.bootstrap, true);
   assert.deepEqual(plan.targets, ['renderer']);
   assert.equal(plan.runtime, true);
+});
+
+test('developer scripts do not invalidate the packaged application', () => {
+  const first = packagingManifestForFingerprint({
+    name: '@mixdog/desktop',
+    main: './out/main/index.js',
+    scripts: { test: 'node --test one.test.mjs' },
+    dependencies: { ws: '^8.21.1' },
+  });
+  const second = packagingManifestForFingerprint({
+    name: '@mixdog/desktop',
+    main: './out/main/index.js',
+    scripts: { test: 'node --test one.test.mjs two.test.mjs' },
+    dependencies: { ws: '^8.21.1' },
+  });
+  assert.deepEqual(first, second);
+  assert.equal('scripts' in first, false);
+});
+
+test('runtime package metadata still invalidates the packaged application', () => {
+  const normalized = packagingManifestForFingerprint({
+    scripts: { test: 'node --test' },
+    dependencies: { ws: '^9.0.0' },
+  });
+  assert.deepEqual(normalized, { dependencies: { ws: '^9.0.0' } });
 });

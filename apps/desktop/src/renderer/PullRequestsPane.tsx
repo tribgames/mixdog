@@ -908,7 +908,7 @@ export function PullRequestEditor({
               <button type="button" className="dock-scm-commit-file-row" aria-expanded={open}
                 onClick={() => setOpenFile(open ? "" : file.path)}>
                 {/* Same one-sentence path grammar as the dock's other two
-                    file lists (path-text.tsx:318,345). */}
+                    file lists. */}
                 <ScmPathText path={file.path} title={file.path} />
                 {/* Fixed right-aligned count column, same as the dock's
                     commit-detail rows: the path keeps the rest of the width. */}

@@ -33,7 +33,12 @@ import {
   initialTitleBarWindowOverrides,
   setDesktopTitleBarZoom,
 } from './window-options';
-import { DESKTOP_IPC, type DesktopRemoteAccessInfo, type DesktopSettings } from '../shared/contract';
+import {
+  DESKTOP_IPC,
+  type DesktopRemoteAccessInfo,
+  type DesktopRemoteClientClaim,
+  type DesktopSettings,
+} from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
 import {
   normalizeRendererComposerActionDiagnostic,
@@ -352,37 +357,26 @@ let unsubscribeServiceSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
 };
-interface RemoteClientClaimEvent {
-  claimId: string;
-  name: string;
-  platform: string;
-  browser: string;
-  code: string;
-}
-
 // An installed web app runs in its own storage container: it can inherit no
-// pairing and must ask for one. This prompt IS the grant — the relay only
-// routed the request. The number is derived from the key being sealed to, so a
-// swapped key shows a different one on the two screens.
-async function approveRemoteClient(claim: RemoteClientClaimEvent): Promise<void> {
+// pairing and must ask for one, and this answer IS the grant. The prompt the
+// user normally sees is the themed one in the renderer (registerDesktopIpc
+// forwards the same event); this native box only covers the case where no
+// window exists to show it, so one request never raises two prompts.
+async function approveRemoteClientWithoutWindow(claim: DesktopRemoteClientClaim): Promise<void> {
   const claimId = String(claim.claimId || '');
-  if (!claimId) return;
+  if (!claimId || (mainWindow && !mainWindow.isDestroyed())) return;
   let approved = false;
   try {
-    const options = {
+    const { response } = await dialog.showMessageBox({
       type: 'question' as const,
       title: 'Mixdog',
       message: `Connect ${claim.name || 'this device'}?`,
-      detail: `Approve only if this number is showing on the device: ${claim.code}`,
+      detail: 'Approve only if you just opened Mixdog on that device.',
       buttons: ['Approve', 'Deny'],
       defaultId: 0,
       cancelId: 1,
       noLink: true,
-    };
-    const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-    const { response } = parent
-      ? await dialog.showMessageBox(parent, options)
-      : await dialog.showMessageBox(options);
+    });
     approved = response === 0;
   } catch {
     approved = false;
@@ -400,7 +394,7 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
     return;
   }
   if (name === 'remote-client-claim' && value && typeof value === 'object') {
-    void approveRemoteClient(value as RemoteClientClaimEvent);
+    void approveRemoteClientWithoutWindow(value as DesktopRemoteClientClaim);
   }
 });
 let quitAfterDispose = false;

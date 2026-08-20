@@ -20,7 +20,6 @@ import {
   createRelayE2EEChallenge,
   isRelayClaimPublicKey,
   isRelayE2EEHello,
-  relayClaimConfirmationCode,
   relayE2EECompressionSupported,
   relayE2EEPairingMaterial,
   sealRelayE2EEPairingMaterial,
@@ -106,11 +105,11 @@ export interface RemoteRelayOptions extends RemoteMethodDependencies {
  *  credential: the answer here is the credential. */
 export interface RemoteClientClaim {
   claimId: string;
+  clientId: string;
   name: string;
   platform: string;
   browser: string;
-  /** Two digits shown on both screens so the approval names the phone in hand. */
-  code: string;
+  expiresAt: number;
 }
 
 export interface RemoteRelayHandle {
@@ -875,15 +874,21 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           const claimId = String(envelope.claimId || '');
           const publicKey = envelope.publicKey;
           if (!claimId || !isRelayClaimPublicKey(publicKey)) return;
+          const clientId = String(envelope.clientId || claimId).slice(0, 80);
+          const rawExpiresAt = Number(envelope.expiresAt);
+          const expiresAt = Number.isFinite(rawExpiresAt) && rawExpiresAt > Date.now()
+            ? rawExpiresAt
+            : Date.now() + 300_000;
           void (async () => {
             let sealed: unknown = null;
             try {
               const approved = await options.onClientClaim?.({
                 claimId,
+                clientId,
                 name: String(envelope.name || 'Web app').slice(0, 80),
                 platform: String(envelope.platform || '').slice(0, 80),
                 browser: String(envelope.browser || '').slice(0, 80),
-                code: await relayClaimConfirmationCode(publicKey),
+                expiresAt,
               });
               if (approved) sealed = await sealRelayE2EEPairingMaterial(pairing, publicKey);
             } catch {

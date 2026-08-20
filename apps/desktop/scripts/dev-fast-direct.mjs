@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   writeFile,
@@ -30,7 +31,8 @@ const {
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(desktopDir, '../..');
-const schemaVersion = 1;
+const schemaVersion = 2;
+const desktopPackageManifest = join(desktopDir, 'package.json');
 // electron-builder keeps this package unpacked (asarUnpack). The daemon runs
 // from app.asar.unpacked and resolves it through the real file system, and a
 // native binding cannot be dlopen'd from inside the archive, so an incremental
@@ -69,6 +71,7 @@ const targetInputs = {
     join(repoRoot, 'src'),
     join(repoRoot, 'package.json'),
     join(repoRoot, 'package-lock.json'),
+    join(desktopDir, 'package-lock.json'),
     join(repoRoot, 'scripts', 'prune-embedding-runtime.mjs'),
     join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs'),
     join(desktopDir, 'scripts', 'prepare-runtime.mjs'),
@@ -136,6 +139,23 @@ async function contentsForFile(path) {
   return pending;
 }
 
+/** Commands and test-list edits do not change the packaged application.
+ * Keep runtime/package metadata while excluding the scripts object that made
+ * harmless developer workflow edits trigger a complete win-unpacked build. */
+export function packagingManifestForFingerprint(manifest) {
+  const normalized = structuredClone(manifest);
+  delete normalized.scripts;
+  return normalized;
+}
+
+async function contentsForFingerprint(path) {
+  const contents = await contentsForFile(path);
+  if (resolve(path) !== desktopPackageManifest) return contents;
+  return Buffer.from(JSON.stringify(
+    packagingManifestForFingerprint(JSON.parse(contents.toString('utf8'))),
+  ));
+}
+
 async function hashFile(path) {
   const hash = createHash('sha256');
   const contents = await contentsForFile(path);
@@ -151,12 +171,13 @@ async function fingerprint(inputs) {
   let newestMtimeMs = 0;
   for (const file of files) {
     const metadata = await stat(file);
+    const contents = await contentsForFingerprint(file);
     newestMtimeMs = Math.max(newestMtimeMs, metadata.mtimeMs);
     hash.update(relative(repoRoot, file).replaceAll(sep, '/'));
     hash.update('\0');
-    hash.update(String(metadata.size));
+    hash.update(String(contents.length));
     hash.update('\0');
-    hash.update(await contentsForFile(file));
+    hash.update(contents);
     hash.update('\0');
   }
   return { hash: hash.digest('hex'), newestMtimeMs, fileCount: files.length };
@@ -226,6 +247,37 @@ async function currentGroups() {
   );
 }
 
+async function artifactFresh(path, newestInputMtimeMs) {
+  try {
+    return (await stat(path)).mtimeMs >= newestInputMtimeMs;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function currentPrebuilt(groups) {
+  const packageMtimeMs = groups.package.newestMtimeMs;
+  return {
+    renderer: await artifactFresh(
+      join(desktopDir, 'out', 'renderer', 'index.html'),
+      Math.max(groups.renderer.newestMtimeMs, packageMtimeMs),
+    ),
+    main: await artifactFresh(
+      join(desktopDir, 'out', 'main', 'index.js'),
+      Math.max(groups.main.newestMtimeMs, packageMtimeMs),
+    ),
+    preload: await artifactFresh(
+      join(desktopDir, 'out', 'preload', 'index.js'),
+      Math.max(groups.preload.newestMtimeMs, packageMtimeMs),
+    ),
+    daemon: await artifactFresh(
+      join(desktopDir, 'out', 'main', 'daemon.cjs'),
+      Math.max(groups.daemon.newestMtimeMs, packageMtimeMs),
+    ),
+  };
+}
+
 async function installedHashes(installDir) {
   const resources = join(installDir, 'resources');
   const appAsar = join(resources, 'app.asar');
@@ -284,6 +336,7 @@ async function bootstrapFreshness(installDir) {
 
 async function createPlan({ installDir, statePath, planPath }) {
   const groups = await currentGroups();
+  const prebuilt = await currentPrebuilt(groups);
   const previous = await readState(statePath);
   const hashes = await installedHashes(installDir);
   const installedMatches = Boolean(
@@ -304,6 +357,7 @@ async function createPlan({ installDir, statePath, planPath }) {
     installDir: resolve(installDir),
     statePath: resolve(statePath),
     groups,
+    prebuilt,
     ...decision,
   };
   await mkdir(dirname(planPath), { recursive: true });
@@ -347,23 +401,51 @@ async function replaceWinAsarIntegrity(executablePath, integrity) {
 }
 
 async function stageShell({ installDir, artifactDir, plan }) {
+  const startedAt = performance.now();
   const installedResources = join(installDir, 'resources');
   const installedArchive = join(installedResources, 'app.asar');
-  const stagingRoot = join(artifactDir, 'staging');
   const artifactResources = join(artifactDir, 'resources');
   const artifactArchive = join(artifactResources, 'app.asar');
+  const installedIntegrity = await hashAsarHeader(installedArchive);
+  const cacheParent = join(desktopDir, '.cache', 'dev-fast-direct-shell');
+  const stagingRoot = join(cacheParent, installedIntegrity.hash);
+  const cacheMarker = `${stagingRoot}.ready`;
+  let cacheHit = await pathExists(cacheMarker) && await pathExists(stagingRoot);
+
+  await mkdir(cacheParent, { recursive: true });
+  if (!cacheHit) {
+    const temporary = `${stagingRoot}.${process.pid}.tmp`;
+    await rm(temporary, { recursive: true, force: true });
+    extractAll(installedArchive, temporary);
+    await rm(join(temporary, 'out'), { recursive: true, force: true });
+    await rm(join(temporary, ...ptyPackageSegments), { recursive: true, force: true });
+    await rm(stagingRoot, { recursive: true, force: true });
+    await rename(temporary, stagingRoot);
+    await writeFile(cacheMarker, `${installedIntegrity.hash}\n`);
+    cacheHit = false;
+  }
+
+  for (const entry of await readdir(cacheParent, { withFileTypes: true })) {
+    const path = join(cacheParent, entry.name);
+    if (path === stagingRoot || path === cacheMarker) continue;
+    await rm(path, { recursive: entry.isDirectory(), force: true });
+  }
+
   await rm(artifactDir, { recursive: true, force: true });
   await mkdir(artifactResources, { recursive: true });
-  extractAll(installedArchive, stagingRoot);
   await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
   await cp(join(desktopDir, 'out'), join(stagingRoot, 'out'), { recursive: true });
   await rm(join(stagingRoot, 'out', 'main', 'capture-window.js'), { force: true });
-  // Never let the PTY package become an ordinary archive entry; it ships
-  // beside the archive instead, exactly as electron-builder installs it.
   await rm(join(stagingRoot, ...ptyPackageSegments), { recursive: true, force: true });
-  await createPackageWithOptions(stagingRoot, artifactArchive, {
-    unpackDir: 'out',
-  });
+  try {
+    await createPackageWithOptions(stagingRoot, artifactArchive, {
+      unpackDir: 'out',
+    });
+  } finally {
+    // The cache keeps only the immutable installed shell. Current build output
+    // is short-lived so a failed stage cannot be mistaken for a clean template.
+    await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
+  }
   for (const file of [
     'out/main/daemon.cjs',
     'out/main/index.js',
@@ -396,7 +478,10 @@ async function stageShell({ installDir, artifactDir, plan }) {
     'resources/app.asar': await hashAsarHeader(artifactArchive),
     'resources/runtime.asar': await hashAsarHeader(runtimeArchive),
   });
-  await rm(stagingRoot, { recursive: true, force: true });
+  process.stdout.write(
+    `[fastdirect] staged app shell in ${((performance.now() - startedAt) / 1000).toFixed(2)}s`
+    + ` (template cache ${cacheHit ? 'hit' : 'miss'})\n`,
+  );
 }
 
 async function commitState({ installDir, statePath, plan }) {
@@ -424,6 +509,11 @@ async function main() {
   if (action === 'plan') {
     const plan = await createPlan({ installDir, statePath, planPath });
     process.stdout.write(`${JSON.stringify(plan)}\n`);
+    return;
+  }
+  if (action === 'prebuilt') {
+    const groups = await currentGroups();
+    process.stdout.write(`${JSON.stringify(await currentPrebuilt(groups))}\n`);
     return;
   }
   const plan = JSON.parse(await readFile(planPath, 'utf8'));

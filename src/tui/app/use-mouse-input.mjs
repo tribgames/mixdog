@@ -660,7 +660,7 @@ export function useMouseInput({
             // words/lines from this span (see buildSpanRect). Leave the drag
             // ARMED (active:true): a release without motion keeps this highlight
             // (buildSpanRect returns the span for an in-span target), while
-            // any motion extends it. Mirrors selectWordAt/selectLineAt setting
+            // any motion extends it. The word/line select sets
             // isDragging=true + anchorSpan; the mouse-up finalizes.
             const kind = clickCount === 2 ? 'word' : 'line';
             const wr = kind === 'word' ? store.getWordRectAt?.(x, y) : store.getLineRectAt?.(y);

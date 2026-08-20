@@ -1,16 +1,14 @@
 <#
   One-command web deploy (user: CI/CD 단축).
 
-    pwsh scripts/deploy-remote.ps1              # build:fast -> stage -> VPS swap
+    pwsh scripts/deploy-remote.ps1              # changed renderer/relay -> VPS swap
     pwsh scripts/deploy-remote.ps1 -FastDirect  # ...then installed-app update
 
-  Cuts against the old ad-hoc chain:
-    - skips typecheck (the dev loop already ran it; `npm run build` keeps it)
-    - SWC renderer transform (electron.vite.config.ts)
-    - ONE tar.gz upload instead of hundreds of per-file scp round trips
-    - the VPS reuses node_modules when package-lock.json is unchanged
-    - -FastDirect reuses the build:fast output (no second electron-vite or
-      daemon build) and stages app.asar while the upload runs in a job
+  Renderer and relay fingerprints are independent:
+    - unchanged inputs skip build, stage, and upload
+    - relay-only changes reuse the installed VPS renderer
+    - fresh local renderer output is reused
+    - FastDirect builds only stale local targets while upload runs
   The FastDirect swap stays LAST: its detached worker restarts the daemon
   after this script exits, so nothing tracked dies mid-chain.
 #>
@@ -21,58 +19,120 @@ param(
   [switch]$FastDirect
 )
 $ErrorActionPreference = 'Stop'
+trap {
+  [Console]::Error.WriteLine(($_ | Out-String))
+  exit 1
+}
 $repo = Split-Path -Parent $PSScriptRoot
 function Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
+$desktopDir = Join-Path $repo 'apps\desktop'
+$relayDir = Join-Path $repo 'apps\relay'
+$deployPlanner = Join-Path $relayDir 'scripts\deploy-plan.mjs'
+$deployPlanPath = Join-Path $relayDir '.cache\deploy-plan.json'
+$deployStatePath = Join-Path $relayDir '.cache\deploy-state.json'
 
-Step 'building desktop renderer (build:fast, no typecheck)'
-npm run build:fast --prefix (Join-Path $repo 'apps/desktop')
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$planOutput = & node $deployPlanner --action=plan "--state=$deployStatePath" "--plan=$deployPlanPath"
+if ($LASTEXITCODE -ne 0) { throw "live deploy planning exited with $LASTEXITCODE" }
+$deployPlan = $planOutput | Out-String | ConvertFrom-Json
 
-Step 'staging web renderer beside the relay'
-npm run stage:web --prefix (Join-Path $repo 'apps/relay')
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-Step 'pack + upload + atomic VPS swap (background job)'
-$version = (Get-Content (Join-Path $repo 'apps/relay/package.json') -Raw | ConvertFrom-Json).version
-$uploadJob = Start-Job -ScriptBlock {
-  param($relayDir, $SshHost, $Domain, $version)
-  $ErrorActionPreference = 'Stop'
-  $tgz = Join-Path $env:TEMP 'mixdog-relay-upload.tgz'
-  Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
-  tar -czf $tgz -C $relayDir server.mjs package.json package-lock.json lib renderer deploy
-  if ($LASTEXITCODE -ne 0) { throw "tar exited with $LASTEXITCODE" }
-  scp -o BatchMode=yes -q $tgz "${SshHost}:/root/relay-upload.tgz"
-  if ($LASTEXITCODE -ne 0) { throw "scp exited with $LASTEXITCODE" }
-  ssh -o BatchMode=yes $SshHost ("rm -rf /root/relay-upload && mkdir -p /root/relay-upload" `
-    + " && tar -xzf /root/relay-upload.tgz -C /root/relay-upload" `
-    + " && bash /root/relay-upload/deploy/deploy-release.sh $Domain v$version")
-  if ($LASTEXITCODE -ne 0) { throw "VPS swap exited with $LASTEXITCODE" }
-  # deploy-release.sh already gated activation on systemd health and the
-  # renderer hash, so this outside probe is informational: a refusal during the
-  # service swap must not fail a deploy that the VPS itself verified.
-  $ErrorActionPreference = 'Continue'
-  $health = 'no response'
-  foreach ($attempt in 1..10) {
-    $code = & curl.exe -s -o NUL -w '%{http_code}' --max-time 5 "https://$Domain/healthz" 2>$null
-    if ($code) { $health = "HTTP $code" }
-    if ($code -eq '200') { break }
-    Start-Sleep -Seconds 2
+if ($deployPlan.rendererBuild) {
+  Step 'building changed desktop renderer only'
+  Push-Location $desktopDir
+  try {
+    $previousTargets = $env:MIXDOG_ELECTRON_BUILD_TARGETS
+    $env:MIXDOG_ELECTRON_BUILD_TARGETS = 'renderer'
+    & npx.cmd electron-vite build
+    if ($LASTEXITCODE -ne 0) { throw "renderer build exited with $LASTEXITCODE" }
+  } finally {
+    if ($null -eq $previousTargets) {
+      Remove-Item Env:MIXDOG_ELECTRON_BUILD_TARGETS -ErrorAction SilentlyContinue
+    } else {
+      $env:MIXDOG_ELECTRON_BUILD_TARGETS = $previousTargets
+    }
+    Pop-Location
   }
-  "[health] https://$Domain/healthz -> $health"
-} -ArgumentList (Join-Path $repo 'apps/relay'), $SshHost, $Domain, $version
+} elseif ($deployPlan.rendererChanged) {
+  Step 'reusing fresh desktop renderer build'
+}
 
-$devUpdate = Join-Path $repo 'apps\desktop\scripts\dev-update-windows.ps1'
+if ($deployPlan.stageRenderer) {
+  Step 'staging changed web renderer beside the relay'
+  npm run stage:web --prefix $relayDir
+  if ($LASTEXITCODE -ne 0) { throw "stage:web exited with $LASTEXITCODE" }
+}
+
+$uploadJob = $null
+if ($deployPlan.deploy) {
+  Step 'pack + upload + atomic VPS swap (background job)'
+  $version = (Get-Content (Join-Path $relayDir 'package.json') -Raw | ConvertFrom-Json).version
+  $uploadJob = Start-Job -ScriptBlock {
+    param($relayDir, $SshHost, $Domain, $version, $includeRenderer)
+    $ErrorActionPreference = 'Stop'
+    $tgz = Join-Path $env:TEMP 'mixdog-relay-upload.tgz'
+    Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
+    $entries = @('server.mjs', 'package.json', 'package-lock.json', 'lib', 'deploy')
+    if ($includeRenderer) {
+      $deltaTool = Join-Path $relayDir 'deploy\renderer-delta.mjs'
+      $cacheDir = Join-Path $relayDir '.cache'
+      $baseManifest = Join-Path $cacheDir 'renderer-base-manifest.json'
+      $targetManifest = Join-Path $cacheDir 'renderer-manifest.json'
+      $deltaDir = Join-Path $cacheDir 'renderer-delta'
+      New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+      scp -o BatchMode=yes -q $deltaTool "${SshHost}:/root/mixdog-renderer-delta.mjs"
+      if ($LASTEXITCODE -ne 0) { throw "renderer manifest tool upload exited with $LASTEXITCODE" }
+      $remoteManifest = & ssh -o BatchMode=yes $SshHost `
+        'node /root/mixdog-renderer-delta.mjs --action=manifest --root=/opt/mixdog-relay/renderer'
+      if ($LASTEXITCODE -ne 0) { throw "remote renderer manifest exited with $LASTEXITCODE" }
+      [IO.File]::WriteAllText(
+        $baseManifest,
+        (($remoteManifest -join "`n") + "`n"),
+        [Text.UTF8Encoding]::new($false)
+      )
+      $deltaResult = & node $deltaTool --action=create `
+        "--root=$(Join-Path $relayDir 'renderer')" "--base=$baseManifest" `
+        "--delta=$deltaDir" "--manifest=$targetManifest"
+      if ($LASTEXITCODE -ne 0) { throw "renderer delta creation exited with $LASTEXITCODE" }
+      Write-Host "renderer delta: $($deltaResult -join '')"
+      $entries += @('.cache/renderer-delta', '.cache/renderer-manifest.json')
+    }
+    & tar -czf $tgz -C $relayDir @entries
+    if ($LASTEXITCODE -ne 0) { throw "tar exited with $LASTEXITCODE" }
+    scp -o BatchMode=yes -q $tgz "${SshHost}:/root/relay-upload.tgz"
+    if ($LASTEXITCODE -ne 0) { throw "scp exited with $LASTEXITCODE" }
+    ssh -o BatchMode=yes $SshHost ("rm -rf /root/relay-upload && mkdir -p /root/relay-upload" `
+      + " && tar -xzf /root/relay-upload.tgz -C /root/relay-upload" `
+      + " && bash /root/relay-upload/deploy/deploy-release.sh $Domain v$version")
+    if ($LASTEXITCODE -ne 0) { throw "VPS swap exited with $LASTEXITCODE" }
+    $ErrorActionPreference = 'Continue'
+    $health = 'no response'
+    foreach ($attempt in 1..10) {
+      $code = & curl.exe -s -o NUL -w '%{http_code}' --max-time 5 "https://$Domain/healthz" 2>$null
+      if ($code) { $health = "HTTP $code" }
+      if ($code -eq '200') { break }
+      Start-Sleep -Seconds 2
+    }
+    "[health] https://$Domain/healthz -> $health"
+  } -ArgumentList $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged)
+} else {
+  Step 'VPS inputs unchanged; skipping renderer build, stage, and upload'
+}
+
+$devUpdate = Join-Path $desktopDir 'scripts\dev-update-windows.ps1'
 $fastBuildFailed = $false
 if ($FastDirect) {
-  Step 'FastDirect staging (reuses build:fast output) while the upload runs'
-  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -ReuseBuild -BuildOnly
+  Step 'FastDirect staging while the VPS upload runs'
+  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -BuildOnly
   if ($LASTEXITCODE -ne 0) { $fastBuildFailed = $true }
 }
 
-try {
-  Receive-Job -Job $uploadJob -Wait -ErrorAction Stop
-} finally {
-  Remove-Job -Job $uploadJob -Force -ErrorAction SilentlyContinue
+if ($uploadJob) {
+  try {
+    Receive-Job -Job $uploadJob -Wait -ErrorAction Stop
+    & node $deployPlanner --action=commit "--state=$deployStatePath" "--plan=$deployPlanPath"
+    if ($LASTEXITCODE -ne 0) { throw "live deploy state commit exited with $LASTEXITCODE" }
+  } finally {
+    Remove-Job -Job $uploadJob -Force -ErrorAction SilentlyContinue
+  }
 }
 Write-Host ''
 if ($fastBuildFailed) { exit 1 }

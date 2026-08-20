@@ -89,6 +89,8 @@ export const DESKTOP_IPC = {
   sessionsChanged: 'mixdog:sessions-changed',
   agentPoolChanged: 'mixdog:agent-pool-changed',
   remoteProjectionChanged: 'mixdog:remote-projection-changed',
+  remoteClientClaim: 'mixdog:remote-client-claim',
+  resolveRemoteClientClaim: 'mixdog:resolve-remote-client-claim',
   getRemoteProjection: 'mixdog:get-remote-projection',
   setRemoteProjection: 'mixdog:set-remote-projection',
   stateResync: 'mixdog:state-resync',
@@ -798,6 +800,17 @@ export interface DesktopRemoteAccessInfo {
   relayBrowserUrl: string;
   relayBrowserQrSvg: string;
   clients: DesktopRemoteClientInfo[];
+}
+
+/** An installed web app asking this desktop for access. It arrives with no
+ *  credential — approving it here is what creates one. */
+export interface DesktopRemoteClientClaim {
+  claimId: string;
+  clientId: string;
+  name: string;
+  platform: string;
+  browser: string;
+  expiresAt: number;
 }
 
 export interface DesktopSessionSummary {
@@ -1526,6 +1539,12 @@ export interface DesktopApi {
   /** Settings → Connection: revoke one browser while preserving every other
    *  browser's individual credential. */
   revokeRemoteAccessClient?(clientId: string): Promise<DesktopRemoteAccessInfo | null>;
+  /** A web app with no credential is asking to connect. Only the in-process
+   *  desktop implements these: the approval has to happen where the user is. */
+  subscribeRemoteClientClaim?(
+    listener: (claim: DesktopRemoteClientClaim) => void,
+  ): () => void;
+  resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
   prefetchSession?(sessionId: string): Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;

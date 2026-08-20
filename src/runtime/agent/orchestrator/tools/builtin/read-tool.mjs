@@ -116,7 +116,7 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         _recordReadSnapshot,
         READ_MAX_OUTPUT_BYTES,
     } = helpers;
-    // CC `file_path` alias — official SDK schema uses `file_path`;
+    // `file_path` alias — the official SDK schema uses `file_path`;
     // mixdog has historically used `path`. Honor `file_path` so a
     // CC-trained agent's call shape works without translation.
     const usedFilePathAlias = typeof args.file_path === 'string' && !args.path;
@@ -232,8 +232,8 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         // result is sliced back into the original per-entry windows
         // for response assembly. Non-same-path entries are untouched.
         const rawEntries = args.path.map((r) => {
-            // CC `file_path` alias on a per-entry batch: file_path is
-            // 1-based (CC schema), so decrement a positive offset to
+            // `file_path` alias on a per-entry batch: file_path is
+            // 1-based (SDK schema), so decrement a positive offset to
             // match the 0-based `path` form. Mirrors the scalar
             // alias adjustment at line 57.
             const entryUsesFilePathAlias = typeof r?.file_path === 'string' && !r?.path;

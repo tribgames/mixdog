@@ -141,6 +141,11 @@ test('production desktop uses only the packaged daemon service adapter', async (
     /from:\s*\.runtime\/desktop-node-pty\s+to:\s*app\.asar\.unpacked\/node_modules\/@homebridge\/node-pty-prebuilt-multiarch/,
   );
   assert.match(runtimePreparation, /desktop-node-pty/);
+  assert.match(
+    runtimePreparation,
+    /join\(builderDesktopPtyDir, 'build', 'Release'\)/,
+    'multiarch fallback payloads must not be judged as the active PTY binary',
+  );
   assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
   assert.match(main, /MIXDOG_GRAPH_BIN:\s*graphPath/);
   assert.match(main, /MIXDOG_SPAWN_SERVER_BIN:/);
@@ -447,7 +452,10 @@ test('runtime preparation reuses prepared output and persistent validated depend
   // package. A foreign binary otherwise publishes cleanly and fails only when
   // the user launches the app.
   assert.match(preparation, /assertTargetArchitecture\(destination,\s*`Native tool \$\{kind\}`\)/);
-  assert.match(preparation, /assertTreeTargetArchitecture\(builderDesktopPtyDir/);
+  assert.match(
+    preparation,
+    /assertTreeTargetArchitecture\(\s*join\(builderDesktopPtyDir,\s*'build',\s*'Release'\)/,
+  );
   assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{entry\}`\)/);
   assert.match(preparation, /timed\('asar-create'/);
   assert.match(preparation, /finally\s*\{[\s\S]*rm\(stagingDir/);
