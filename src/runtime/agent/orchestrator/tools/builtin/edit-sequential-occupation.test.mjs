@@ -12,6 +12,7 @@ import { executeBuiltinTool } from '../builtin.mjs';
 import { recordReadSnapshot } from './read-snapshot-runtime.mjs';
 import { executePatchTool } from '../patch.mjs';
 import { closeNativePatchServerForTests } from '../patch/native-server.mjs';
+import { classifyToolFailure } from '../../agent-trace-format.mjs';
 
 const ANCHOR = '#if 0\n"""\n#endif';
 
@@ -116,4 +117,58 @@ test('stale read snapshot does not block a still-unique current old_string', asy
 
     assert.match(String(result), /^Updated /);
     assert.equal(readFileSync(file, 'utf8'), 'external\nomega\nkeep\n');
+});
+
+test('edit failure excerpt centres on a distinctive token from any old_string line', async (t) => {
+    const { dir, file } = makeTempFile('const alpha = 1;\nconst beta = 2;\nconst DISTINCTIVE_TOKEN = 3;\ntail\n');
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    // The first old_string line carries no usable keyword. Scanning only that
+    // line returned no excerpt at all, and a bare "not found" was the edit
+    // failure that reliably produced identical retries.
+    const result = String(await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: '}\nconst DISTINCTIVE_TOKEN = 3;\nmissing_tail();',
+        new_string: 'irrelevant',
+    }, dir, {}));
+    assert.match(result, /old_string not found/);
+    assert.match(result, /current file excerpt lines/);
+    assert.match(result, /DISTINCTIVE_TOKEN/);
+});
+
+test('edit failure states plainly when nothing in the file resembles old_string', async (t) => {
+    const { dir, file } = makeTempFile('\n\n\n');
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const result = String(await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: 'zzz',
+        new_string: 'yyy',
+    }, dir, {}));
+    assert.match(result, /contains nothing resembling old_string/);
+});
+
+test('a swallowed V4A envelope marker reports patch structure, not a context miss', async (t) => {
+    const { dir } = makeTempFile('alpha\nkeep\ntail\n');
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const result = String(await executePatchTool('apply_patch', {
+        base_path: dir,
+        patch: `*** Begin Patch
+*** Update File: poly.c
+@@
+ alpha
+ keep
+ tail
+ *** End Patch ***
+-gone
++kept
+*** End Patch
+`,
+    }, dir, {}));
+    assert.match(result, /structure error \(malformed patch envelope\)/);
+    assert.match(result, /appears as a content line at old\[4\]/);
+    assert.doesNotMatch(result, /context not found/);
+    // A patch-text defect must not be filed as stale edit evidence.
+    assert.equal(classifyToolFailure(result, 'apply_patch'), 'patch/parse');
 });

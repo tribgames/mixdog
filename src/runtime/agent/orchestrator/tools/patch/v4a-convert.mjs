@@ -40,6 +40,8 @@ import {
   formatV4AHunkLocator,
   formatV4AAnchorMissHint,
   formatV4AContextMissHint,
+  formatV4AEnvelopeMarkerError,
+  v4aEnvelopeMarkerInHunk,
 } from './v4a-anchors.mjs';
 // Facade re-export: pre-split importers reach the notice drain through this
 // module.
@@ -350,6 +352,10 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
     }
   }
   if (oldStartIdx < 0) {
+    // Envelope damage is a patch-text defect, not a context miss: name it
+    // instead of pointing at an unrelated region of the file.
+    const marker = v4aEnvelopeMarkerInHunk(sourceLines, stats.oldLines);
+    if (marker) return { error: formatV4AEnvelopeMarkerError(marker) };
     const msg = `V4A hunk context not found: ${formatV4AHunkLocator(hunk)};${formatV4AContextMissHint(sourceLines, stats, anchorLine)}`;
     return { error: msg };
   }

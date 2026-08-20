@@ -1,9 +1,9 @@
 /**
- * src/tui/themes/light.mjs — GitHub Light / VS Code 2026 Light (terminal TUI).
+ * src/tui/themes/light.mjs — light terminal TUI theme.
  *
  * High-contrast light palette for Windows Terminal and picker rows: white
  * surface, near-black ink, solid blue selection (#0069CC), visible chrome
- * borders, and GitHub/VS Code light syntax (no pastel wash). Spreads
+ * borders, and a light syntax palette (no pastel wash). Spreads
  * `basePalette` first so the full key set is always present.
  */
 import { basePalette } from './base.mjs';
@@ -12,7 +12,7 @@ import { basePalette } from './base.mjs';
 export const lightPalette = {
   ...basePalette,
   background: 'rgb(255,255,255)', // lightBg #ffffff
-  text: 'rgb(32,32,32)', // VS Code 2026 Light fg #202020
+  text: 'rgb(32,32,32)', // light fg #202020
   inverseText: 'rgb(255,255,255)',
   selectionText: 'rgb(255,255,255)', // quickInputList.focusForeground
   selectionBackground: 'rgb(0,105,204)', // #0069CC focus / active list
@@ -55,7 +55,7 @@ export const lightPalette = {
   mdQuoteBorder: 'rgb(175,184,193)',
   mdHr: 'rgb(175,184,193)',
   mdListBullet: 'rgb(9,105,218)',
-  mdCodeBlockBorder: 'rgb(216,216,216)', // VS Code panel border #D8D8D8
+  mdCodeBlockBorder: 'rgb(216,216,216)', // panel border #D8D8D8
   mdCodeBlockBg: 'rgb(246,248,250)', // #f6f8fa
   mdCodeSpanBg: 'rgb(240,243,246)', // #f0f3f6
   mdLink: 'rgb(9,105,218)',

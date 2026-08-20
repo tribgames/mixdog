@@ -1,7 +1,7 @@
-// Split-pane workspace model (VS Code editor groups). The workspace is a
+// Split-pane workspace model (editor groups). The workspace is a
 // binary split tree whose leaves are TAB GROUPS: an ordered list of
 // NavigationSelections plus the active tab's navigationKey — the 1:1
-// counterpart of VS Code's editorGroupModel (editor list + active index).
+// counterpart of an editor-group model (editor list + active index).
 // All operations are immutable — callers keep the returned root — and the
 // tree is JSON-safe for persistence.
 import type { WorkspaceSelection } from "./nav-types";
@@ -57,7 +57,7 @@ export function createPaneLeaf(selection: WorkspaceSelection, id?: string): Pane
   };
 }
 
-/** The empty workspace (VS Code/Orca): no tabs, no surface — the shell shows
+/** The empty workspace: no tabs, no surface — the shell shows
  *  the centered guidance screen until a task pane is created. */
 export function createEmptyPaneLeaf(id?: string): PaneLeaf {
   paneLeafCounter += 1;
@@ -297,7 +297,7 @@ function mapPaneLeaf(
  *  one. `replaceKey` promotes in place (draft → its materialized session) at
  *  the replaced tab's exact strip position, dropping any older copy of the
  *  destination elsewhere in the group. `index` places the tab at that strip
- *  position (VS Code tabs-container drop index). */
+ *  position (tabs-container drop index). */
 export function openTabInPaneLeaf(
   root: PaneNode,
   leafId: string,
@@ -419,8 +419,8 @@ export function reorderTabInPaneLeaf(
   return mapPaneLeaf(root, leafId, (leaf) => {
     const keys = leaf.tabs.map((tab) => navigationKey(tab));
     const from = keys.indexOf(sourceKey);
-    // A numeric target is the VS Code drop index (multiEditorTabsControl
-    // onDrop): resolved against the CURRENT list with the source still in
+    // A numeric target is the strip drop index (resolved
+    // against the CURRENT list with the source still in
     // place — tab half rule, container drop = count — so an index past the
     // source shifts down by one after removal.
     const to = typeof target === "number"
@@ -669,6 +669,29 @@ export function paneLeavesInVisualOrder(root: PaneNode): PaneLeaf[] {
   return paneLeavesInCoordinateOrder(root, "top", "left");
 }
 
+/** The edge tab reached when horizontal traversal crosses into another pane.
+ *  A forward move enters at the first tab; a backward move enters at the last,
+ *  regardless of which tab that pane previously had active. */
+export function paneTabAcrossVisualBoundary(
+  root: PaneNode,
+  leafId: string,
+  offset: number,
+): { leafId: string; selection: WorkspaceSelection } | null {
+  if (!offset) return null;
+  const ordered = paneLeavesInVisualOrder(root);
+  const currentIndex = ordered.findIndex((leaf) => leaf.id === leafId);
+  if (currentIndex < 0 || ordered.length < 2) return null;
+  const direction = offset < 0 ? -1 : 1;
+  for (let step = 1; step < ordered.length; step += 1) {
+    const leaf = ordered[
+      (currentIndex + direction * step + ordered.length) % ordered.length
+    ];
+    const selection = direction < 0 ? leaf.tabs.at(-1) : leaf.tabs[0];
+    if (selection) return { leafId: leaf.id, selection };
+  }
+  return null;
+}
+
 /** Visual column-major order: traverse each vertical lane from top to bottom,
  *  then continue in the next lane to the right. */
 export function paneLeavesInColumnOrder(root: PaneNode): PaneLeaf[] {
@@ -840,7 +863,7 @@ export function movePaneTabToRootEdge(
 
 /** Update one split's ratio. The split is addressed by its path from the
  *  root — '' for the root split, then 'first'/'second' segments joined with
- *  dots (orca-style), which stays stable while the user drags one handle. */
+ *  dots, which stays stable while the user drags one handle. */
 export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): PaneNode {
   const target = paneNodeAtPath(root, path);
   if (!target || target.type !== "split") return root;
@@ -892,7 +915,7 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
   return next;
 }
 
-/** Even distribution (VS Code arrange): after a structural change every
+/** Even distribution: after a structural change every
  *  split's ratio is recomputed from the leaf weights along its axis, so
  *  adding or removing panes always lands on equal columns/rows. Manual sash
  *  drags persist until the next structural change. */

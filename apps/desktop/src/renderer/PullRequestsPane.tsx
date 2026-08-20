@@ -1,5 +1,5 @@
 // Pull Requests dock surface with a compact filtered list
-// for the dock, with the Orca-derived metadata and tab hierarchy in the editor.
+// for the dock, with the metadata and tab hierarchy in the editor.
 // Data and actions are backed by the gh CLI IPC chain.
 import {
   ArrowRight,

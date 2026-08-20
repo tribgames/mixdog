@@ -120,6 +120,9 @@ export declare class Virtualizer<TScrollElement extends Element | Window, TItemE
      *  instance accumulates resize adjustments (end-anchor deltas included)
      *  and flushes them in one write once scrolling is idle. */
     shouldDeferScrollAdjustment: undefined | (() => boolean);
+    /** Host override: a corrective write lands in the same frame as the size
+     *  change while this returns true, instead of accumulating for idle. */
+    allowScrollAdjustmentDuringScroll: undefined | (() => boolean);
     elementsCache: Map<Key, TItemElement>;
     private now;
     private observer;

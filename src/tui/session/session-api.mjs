@@ -144,7 +144,7 @@ export function createSessionApiA(bag) {
     },
     restoreQueued,
     prioritizeQueued,
-    // Claude Code's message selector ("jump back to a previous message"):
+    // Message selector ("jump back to a previous message"):
     // rewind the conversation to just before a user prompt and hand its text
     // back for editing. Idle-only — a live turn must be interrupted first.
     rewindToItem: async (itemId) => {

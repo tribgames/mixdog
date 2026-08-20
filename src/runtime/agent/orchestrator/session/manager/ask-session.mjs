@@ -686,6 +686,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         _scheduleTurnCheckpoint(true);
                         try { askOpts?.onCompactEvent?.(event); } catch {}
                     },
+                    // Pre-send gauge sync. Defined only when a host listens so
+                    // the loop never computes a display number nobody reads.
+                    onContextPressure: typeof askOpts?.onContextPressure === 'function'
+                        ? askOpts.onContextPressure
+                        : undefined,
                     // Mid-chain queued prompt/notification
                     // drain is owned by agentLoop at provider-continuation
                     // boundaries (after a tool batch, before the next send).

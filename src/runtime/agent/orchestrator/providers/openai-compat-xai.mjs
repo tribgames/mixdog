@@ -61,7 +61,7 @@ export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
         .trim()
         .toLowerCase();
     // 'none' omits prompt_cache_key entirely, matching xAI's own reference
-    // sampler (grok-build sends prompt_cache_key: None) and zed's xAI provider
+    // sampler (prompt_cache_key: None) and other xAI clients
     // (supports_prompt_cache_key() == false): the service falls back to
     // automatic prompt-prefix caching with no client-supplied lane. Callers
     // must treat a null key as "do not send the field".

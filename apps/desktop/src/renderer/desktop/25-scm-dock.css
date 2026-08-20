@@ -1,8 +1,8 @@
 /* Desktop layer 25 — File tree, source control dock, pull requests.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Files tab: opencode-style lazy tree */
-/* Rows bleed edge-to-edge (VS Code full-width selection); the former pane
+/* Files tab: lazy tree */
+/* Rows bleed edge-to-edge (full-width selection); the former pane
    padding lives on as --mx-explorer-inset consumed by each row's own
    paddings, so the chevron keeps landing on the search icon's x. */
 .dock-files { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; --mx-explorer-inset: 12px; padding: 0; }
@@ -50,7 +50,7 @@
    same baseline. */
 /* Clear (×) matches the app's quiet icon-button grammar — the UA default
    button chrome read as a stray gray square (user). */
-/* VS Code explorer row: fixed 22px (ExplorerDelegate.ITEM_HEIGHT), full-width
+/* Explorer row: fixed 22px item height, full-width
    square highlight, a 16px twistie column reserved on EVERY row so file and
    folder labels share one x per depth (tree.css .monaco-tl-twistie). */
 .dock-file-row { display: flex; align-items: center; width: 100%; height: 22px; flex: none; border: 0; background: none; padding: 0 var(--mx-explorer-inset, 12px) 0 0; color: var(--mx-text); font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-emphasis); letter-spacing: 0; cursor: pointer; text-align: left; border-radius: 0; }
@@ -129,7 +129,7 @@
 .dock-language-row b { overflow: hidden; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
 .dock-language-row small { overflow: hidden; color: var(--mx-text-muted); font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-meta); text-overflow: ellipsis; white-space: nowrap; }
 .dock-language-row > em { flex: 0 0 auto; color: var(--mx-text-faint); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-regular); line-height: 1.4; font-style: normal; }
-/* Source Control: compact Orca/VS Code-style staged workflow over the
+/* Source Control: compact staged workflow over the
    existing desktop Git IPCs. */
 .dock-source-control { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; height: auto; min-height: 0; color: var(--mx-text); }
 /* Right-dock hierarchy = left-sidebar ramp (user: 위계 통일): shell inset 8px,
@@ -145,7 +145,7 @@
    icon's own centring belongs here. No "…" overflow menu returns with it. */
 .dock-scm-header-fetch { flex: 0 0 auto; }
 .dock-scm-header-fetch > svg { display: block; }
-/* GitHub Desktop's top toolbar: repository | current branch | ONE push/pull
+/* Top toolbar: repository | current branch | ONE push/pull
    button, sitting above the Changes | History tab row. The product keeps a
    roomier 6px vertical inset so these labels do not crowd the rows around it. */
 .dock-scm-toolbar { position: relative; z-index: 6; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
@@ -281,7 +281,7 @@
   font-size: var(--mx-font-meta);
   text-align: center;
 }
-/* VS Code quick-pick separators: small muted label over a hairline. */
+/* Quick-pick separators: small muted label over a hairline. */
 .dock-scm-branch-list h3 {
   height: 22px;
   display: flex;
@@ -367,7 +367,7 @@
 }
 .dock-scm-scroll, .dock-scm-history { min-height: 0; flex: 1; overflow: auto; padding-bottom: 12px; }
 /* One scrollbar grammar panel-wide: the dock's scroll regions render the same
-   8px padded thumb as .session-sidebar-scroll (VS Code keeps scrollbars
+   8px padded thumb as .session-sidebar-scroll (scrollbars stay
    uniform across the workbench). */
 .dock-scm-scroll, .dock-scm-history, .dock-files, .dock-task-list {
   overscroll-behavior: contain;
@@ -384,8 +384,8 @@
   background: var(--mx-scrollbar-thumb);
   background-clip: padding-box;
 }
-/* Commit form = GitHub Desktop's .commit-message-component
-   (app/styles/ui/changes/_commit-message.scss:4-13): NOT a floating card. It is
+/* Commit form = the commit-message component:
+   NOT a floating card. It is
    the bottom REGION of the view stage, cut off from the file list by a top
    hairline and painted one tone DARKER than the panel sheet, with the two
    fields and the full-width commit button stacked inside it. */
@@ -545,8 +545,8 @@
    button spans the form's full width — the split chevron beside it is gone,
    so nothing shares the row any more. */
 .dock-scm-commit-split { position: relative; height: 28px; margin-top: 8px; display: flex; align-items: center; gap: 2px; padding: 0; }
-/* GitHub Desktop's commit button is FULL WIDTH under the message fields
-   (styles/ui/changes/_commit-message.scss): ONE action, no chevron. */
+/* The commit button is FULL WIDTH under the message fields:
+   ONE action, no chevron. */
 .dock-scm-commit-split > button:first-child { min-width: 0; max-width: 100%; flex: 1 1 auto; margin-left: 0; }
 /* Label truncates like .model-trigger > span instead of clipping the button. */
 .dock-scm-commit-split > button:first-child > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -607,8 +607,8 @@
 .dock-review-count { flex: 0 0 auto; margin-left: 4px; padding: 2px 5px; border-radius: 20px; color: var(--mx-text); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
 .dock-scm-file:hover, .dock-scm-file:focus-within { background: var(--mx-hover); }
 .dock-scm-file[data-selected="true"] { background: var(--mx-pressed); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
-/* GitHub Desktop's status OCTICONS (ui/octicons/status.ts:16-37) painted with
-   _octicon-status.scss:1-24's colour map on our own semantic tokens:
+/* Changed-file status glyphs, painted with
+   the conventional status colour map on our own semantic tokens:
    --color-new / --color-copied → --mx-success, --color-modified →
    --mx-warning, --color-deleted → --mx-danger, --color-renamed → --mx-accent
    (the reference's $blue) and --color-conflicted → --mx-danger (the
@@ -628,8 +628,8 @@
 .dock-scm-group > header:hover .dock-scm-group-actions,
 .dock-scm-group > header:focus-within .dock-scm-group-actions { opacity: 1; }
 .dock-scm-file-main { min-width: 0; min-height: 29px; flex: 1; display: flex; align-items: center; gap: 6px; padding: 0 2px; overflow: hidden; border: 0; color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
-/* ONE continuous path sentence — GitHub Desktop separates meaning by COLOUR
-   alone (path-text.tsx:318,345 + _path-text.scss:3-8): the directory prefix,
+/* ONE continuous path sentence — meaning is separated by COLOUR
+   alone: the directory prefix,
    its separators included, is dim and the file name is bright, on ONE line at
    ONE size and ONE baseline. No name/path column pair, no second line: the
    children inherit the container's type so the row reads as a sentence. The
@@ -644,7 +644,7 @@
 .dock-scm-dir:hover, .dock-scm-dir:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
 .dock-scm-dir > svg { flex: 0 0 auto; }
 .dock-scm-dir > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* VS Code tree indent guides: one 12px cell per depth with a 1px rail. */
+/* Tree indent guides: one 12px cell per depth with a 1px rail. */
 .dock-scm-indent { position: relative; width: 12px; flex: 0 0 12px; align-self: stretch; }
 .dock-scm-indent::before { content: ""; position: absolute; top: 0; bottom: 0; left: 5px; border-left: 1px solid var(--mx-border-muted); }
 /* In-flow action slot that costs NOTHING at rest: zero width + clipped, so
@@ -747,7 +747,7 @@
 /* Instructions editor (Projects): borrows the WORKFLOW.md editor grammar
    wholesale, INCLUDING the 800px card width and the shared
    .workflows-md-field textarea skin (user: 워크플로우 편집 레이아웃에 맞춰). */
-/* Empty DRAFT pane: the same VS Code watermark as the empty workspace (user)
+/* Empty DRAFT pane: the same watermark as the empty workspace (user)
    — faded brand mark + keycap rows, centered over the (empty) thread as a
    non-interactive overlay. */
 .thread:has(> .thread-welcome-task) { position: relative; min-height: 100%; }
@@ -787,7 +787,7 @@
 }
 .titlebar-brand svg { width: var(--mx-icon-xl); height: var(--mx-icon-xl); }
 .dock-scm-commit-file-row > small em { color: var(--mx-danger); font-style: normal; }
-/* Pull Requests tab: current VS Code GitHub Pull Requests view/title actions
+/* Pull Requests tab: the view/title actions
    live in the dock header; this compact toolbar is only the headerless
    fallback used when the surface is embedded elsewhere. */
 .dock-pr-toolbar { min-height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 3px 8px; border-bottom: 1px solid var(--mx-border-muted); }
@@ -880,7 +880,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 .dock-pr-error-state span { overflow-wrap: anywhere; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
 .dock-pr-error-state > button { grid-column: 2; justify-self: start; min-height: 22px; padding: 0 7px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); cursor: pointer; }
 .dock-pr-error-state > button:hover { background: var(--mx-hover); }
-/* PR detail: Orca's title/meta hierarchy and three stable content tabs,
+/* PR detail: a title/meta hierarchy and three stable content tabs,
    hosted inside Mixdog editor groups. */
 .workspace-pr-editor { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; color: var(--mx-text); background: var(--mx-workspace-sheet); container-type: inline-size; }
 .workspace-pr-editor-header { flex: 0 0 auto; display: grid; gap: 10px; padding: 14px 18px 12px; border-bottom: 1px solid var(--mx-border-muted); }
@@ -1027,7 +1027,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 .workspace-git-diff-hunk > header button:hover { color: var(--mx-text); background: var(--mx-hover); }
 .workspace-git-diff-hunk > header button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .workspace-git-diff-state { height: 100%; margin: 0; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
-/* Ctrl+Tab MRU switcher (VS Code grammar): most recent first; releasing
+/* Ctrl+Tab MRU switcher: most recent first; releasing
    Ctrl commits the highlighted row. */
 .workspace-tab-switcher { position: fixed; left: 50%; top: 96px; transform: translateX(-50%); z-index: 240; min-width: 300px; max-width: 440px; max-height: 50vh; overflow: auto; padding: 4px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-md); background: var(--mx-bg-base); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
 .workspace-tab-switcher > div { padding: 6px 10px; border-radius: var(--mx-radius-md); color: var(--mx-text-muted); font-size: var(--mx-font-code); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1039,7 +1039,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 .workspace-git-diff-editor-bar { min-height: 30px; flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 9px; border-bottom: 1px solid var(--mx-border-muted); background: var(--mx-bg-base); color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
 .workspace-git-diff-editor-bar button { min-height: 24px; padding: 0 7px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-meta); cursor: pointer; }
 .workspace-git-diff-editor-bar button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-/* VS Code Quick Diff defaults to `all`: gutter + minimap gutter + overview
+/* Quick Diff defaults to `all`: gutter + minimap gutter + overview
    ruler. These tokens keep all three surfaces on the same dark/light palette. */
 :root {
   --mx-editor-diff-add: #487e02;

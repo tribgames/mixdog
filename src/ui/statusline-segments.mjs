@@ -136,9 +136,22 @@ async function refreshShellJobsStatus(ownerPid) {
     const ids = names
       .filter((n) => n.endsWith('.json'))
       .map((n) => n.slice(0, -5))
-      .filter((id) => !done.has(id) && ownerByJob.get(id) === ownerPid)
+      // Session buckets are NOT pid-scoped. A desktop pane's background shell
+      // is published by the session SHARD that ran it, so the record's
+      // `.owner-<pid>` marker carries the shard pid while the desktop poller
+      // asks with its own host pid. The two never intersect, so every desktop
+      // background shell was missing from the agent+shell chip even though its
+      // record was on disk and correctly stamped with ownerSessionId. Session
+      // ids are globally unique (sess_daemon_<ts>_<uuid>), so bucketing by
+      // session needs no pid axis at all. The owner-wide aggregate below still
+      // honours the pid, keeping the CLI statusline and keep-awake counting
+      // only their own process.
+      .filter((id) => !done.has(id))
       .sort((a, b) => jobStampMs(b) - jobStampMs(a))
-      .slice(0, 30);
+      // Scanning both scopes from one list doubles the worst-case window, so
+      // the per-refresh cap doubles with it; a live (non-.done) record set is
+      // a handful in practice and terminal ones age out on their own.
+      .slice(0, 60);
     let count = 0;
     let oldestMs = Infinity;
     const jobs = [];
@@ -151,12 +164,15 @@ async function refreshShellJobsStatus(ownerPid) {
       let detail;
       try { detail = JSON.parse(await readFile(p, 'utf-8')); } catch { continue; }
       if (!(await isShellJobAlive(detail, p, dir, id))) continue;
-      count++;
+      // Owner-wide totals stay this process's own; session buckets take every
+      // live job regardless of which host published it.
+      const ownedByThisHost = ownerByJob.get(id) === ownerPid;
+      if (ownedByThisHost) count++;
       let jobMs = Infinity;
       try {
         const st = await stat(p);
         jobMs = st.mtimeMs;
-        if (st.mtimeMs < oldestMs) oldestMs = st.mtimeMs;
+        if (ownedByThisHost && st.mtimeMs < oldestMs) oldestMs = st.mtimeMs;
       } catch {}
       const owner = String(detail?.ownerSessionId ?? '').trim();
       const job = {
@@ -165,7 +181,7 @@ async function refreshShellJobsStatus(ownerPid) {
         cwd: String(detail?.cwd || '').trim(),
         startedAt: detail?.startedAt || (Number.isFinite(jobMs) ? jobMs : null),
       };
-      jobs.push(job);
+      if (ownedByThisHost) jobs.push(job);
       if (!owner) continue;
       const bucket = bySession.get(owner) || { count: 0, oldestMs: Infinity, jobs: [] };
       bucket.count += 1;
@@ -173,7 +189,10 @@ async function refreshShellJobsStatus(ownerPid) {
       bucket.jobs.push(job);
       bySession.set(owner, bucket);
     }
-    if (count) {
+    // A desktop pane's job lands in a session bucket while the owner-wide
+    // count stays 0 (its publisher is a shard, not this host), so an empty
+    // aggregate must NOT discard the session buckets.
+    if (count || bySession.size) {
       const now = Date.now();
       const elapsedLabel = Number.isFinite(oldestMs) ? formatElapsed(now - oldestMs) : '';
       const sessions = {};

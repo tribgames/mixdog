@@ -411,12 +411,34 @@ export function AgentActivityPane({
   useEffect(() => {
     startAgentPool(poolStore);
     if (!active) return undefined;
-    void refreshAgentPool(poolStore);
-    const reconcileTimer = window.setInterval(
-      () => { void refreshAgentPool(poolStore); },
-      AGENT_POOL_RECONCILE_MS,
-    );
-    return () => window.clearInterval(reconcileTimer);
+    // A hidden surface (phone screen off, app in the background, another tab)
+    // reconciles rows nobody can see while still paying for the request every
+    // two seconds over a metered link. Pause there and resume with ONE
+    // immediate refresh, so the first visible frame is already current.
+    let reconcileTimer = 0;
+    const stop = (): void => {
+      if (!reconcileTimer) return;
+      window.clearInterval(reconcileTimer);
+      reconcileTimer = 0;
+    };
+    const start = (): void => {
+      if (reconcileTimer) return;
+      void refreshAgentPool(poolStore);
+      reconcileTimer = window.setInterval(
+        () => { void refreshAgentPool(poolStore); },
+        AGENT_POOL_RECONCILE_MS,
+      );
+    };
+    const syncCadence = (): void => {
+      if (document.visibilityState === 'visible') start();
+      else stop();
+    };
+    syncCadence();
+    document.addEventListener('visibilitychange', syncCadence);
+    return () => {
+      document.removeEventListener('visibilitychange', syncCadence);
+      stop();
+    };
   }, [active, poolStore]);
   const groups = useMemo(() => {
     const byOwner = new Map<string, {

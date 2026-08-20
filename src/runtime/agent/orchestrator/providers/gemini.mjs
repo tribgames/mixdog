@@ -162,7 +162,7 @@ export class GeminiProvider {
     }
 
     /**
-     * cc parity (claude.ts:2504): re-issue a dead stream ONCE as a
+     * Stream-death recovery: re-issue a dead stream ONCE as a
      * non-streaming generateContent call instead of failing the turn.
      * Narrower than cc by design — canFallbackNonStreaming() clears only a
      * stream that exposed nothing, so rendered text is never duplicated and a

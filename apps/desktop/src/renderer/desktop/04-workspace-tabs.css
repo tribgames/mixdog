@@ -16,7 +16,7 @@
 /* Chrome-mobile compact strip (user: 이름 + 숫자 → 목록 선택): when the
    shell cannot give every tab a readable cell, the run collapses to
    [active title][count pill][+] and the count opens the switcher list.
-   Wide panes keep the VS Code scroll strip above. */
+   Wide panes keep the scroll strip above. */
 .workspace-tabs-shell[data-compact="true"] {
   display: flex;
   align-items: center;
@@ -122,8 +122,8 @@
   --workspace-tab-surface: var(--mx-window-band);
   position: relative;
   height: 35px;
-  /* Chromium tab_strip_layout parity (refs/chromium-tabs, user: 크롬 OSS
-     확인): tabs shrink TOGETHER from the 160px preferred width; below the
+  /* Browser-style tab-strip layout: tabs shrink TOGETHER from the 160px
+     preferred width; below the
      crossover the ACTIVE tab pins at its close-button floor while inactive
      tabs keep shrinking to a favicon sliver — no mode switch, no scroll.
      The frozen width variable still pins cells during pointer closes. */
@@ -134,11 +134,11 @@
   gap: 2px;
   padding: 0 6px 0 10px;
   border: 0;
-  /* VS Code tab grammar (user request): square, gapless cells. */
+  /* Tab grammar (user request): square, gapless cells. */
   border-radius: 0;
-  /* Inactive tabs read clearly dimmer than the active one (VS Code). */
+  /* Inactive tabs read clearly dimmer than the active one. */
   color: var(--mx-text-faint);
-  /* Three surface steps (VS Code): empty run < inactive tab < active tab —
+  /* Three surface steps: empty run < inactive tab < active tab —
      the cells read as tabs against the deep band, and the leftover run
      clearly reads as the drag zone. */
   background: var(--mx-window-band);
@@ -146,18 +146,18 @@
   cursor: grab;
   -webkit-app-region: no-drag;
 }
-/* Chromium crossover floor: the ACTIVE tab stops at the width that still
-   fits favicon+close (Tab::UpdateIconVisibility shows close on active at
+/* Crossover floor: the ACTIVE tab stops at the width that still
+   fits favicon+close (the close button stays on the active tab at
    EVERY size); inactive cells keep giving width down to the sliver. */
 .workspace-tab.active { min-width: var(--workspace-tab-current-width, 56px); }
-/* Chromium visibility ladder (Tab::UpdateIconVisibility, refs/chromium-tabs):
+/* Visibility ladder:
    1) inactive tabs drop the close button once contents fall under
-      kMinimumContentsWidthForCloseButtons (68 + our 16px insets = 84);
+      the minimum contents width for close buttons (68 + 16px insets = 84);
    2) labels go icon-only below the favicon+title floor;
    3) a sliver that fits NOTHING keeps its lone glyph and centers it across
-      the whole cell (center_icon_);
-   4) the ACTIVE tab keeps favicon + close to its floor (real-Chrome look,
-      user: 선택탭 넓이 — icon+close fit at 56px); only its label yields. */
+      the whole cell;
+   4) the ACTIVE tab keeps favicon + close to its floor
+      (user: 선택탭 넓이 — icon+close fit at 56px); only its label yields. */
 @container (max-width: 84px) {
   .workspace-tab:not(.active) .workspace-tab-close { display: none; }
 }
@@ -179,7 +179,7 @@
 }
 /* Short dividers define background cells without boxing the active tab into
    the strip. The neighbor immediately before selection also stays open. */
-/* VS Code tab DnD (multieditortabscontrol.css): the source tab stays in
+/* Tab DnD: the source tab stays in
    place; a text-only ghost label rides the cursor and a 2px accent border
    marks the insertion index between tabs (drop-target-left/right). */
 .workspace-tab.dragging { cursor: grabbing; }
@@ -195,7 +195,7 @@
   z-index: 11;
 }
 .workspace-tab.drop-target-right::before { left: 0; }
-/* -2px joins the neighbor's drop-target-right line (VS Code). */
+/* -2px joins the neighbor's drop-target-right line. */
 .workspace-tab.drop-target-left::after { right: -2px; }
 .workspace-tab:last-child.drop-target-left::after { right: 0; }
 .workspace-tab-ghost {
@@ -261,10 +261,10 @@
   content: "";
   position: absolute;
   top: 0;
-  /* VS Code activeBorderTop: a band across the WHOLE tab, anchored at the top
+  /* Active border-top: a band across the WHOLE tab, anchored at the top
      edge and growing DOWNWARD. The old complaint (탭 선택 띠가 너무 두껍다)
      was about a 2px inset PILL — a rounded floating bar — not this flush
-     full-width line, which is exactly what VS Code marks the active tab with
+     full-width line, which is exactly what marks the active tab
      and what the user asked to lean on (파란 띠가 위에 그대로, 두께만 아래로).
      Moving it to the bottom edge and painting it without focus was tried and
      reverted (user: 완전 이상한데 — 기존으로 롤백); only the height changed. */
@@ -421,7 +421,7 @@
   width: 14px;
   height: 14px;
 }
-/* Codicon close at its native 16px (VS Code tab grammar) — pixel-aligned. */
+/* Codicon close at its native 16px (tab grammar) — pixel-aligned. */
 .workspace-tab-close .codicon { font-size: 16px; }
 .workspace-tab-close:hover {
   color: var(--mx-text);

@@ -19,7 +19,7 @@ const _shellSyntaxCheat =
 const _shellToolRouting = process.platform === 'win32'
     ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/heredocs/echo/Set-Content.'
     : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/heredocs/echo.';
-// CC parity: when background tasks are disabled for this process, drop the
+// When background tasks are disabled for this process, drop the
 // run_in_background field from the schema entirely so the model cannot burn a
 // failure turn attempting it. Mirrors bash-tool's runtime guard, which stays
 // as defense in depth. Process-stable env, evaluated once at module load.

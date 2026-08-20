@@ -498,7 +498,7 @@ function movePersistentPaneHost(
 
 /**
  * A fixed DOM host whose React subtree survives moving between pane slots.
- * Moving the host node mirrors Orca's terminal portal and avoids remounting
+ * Moving the host node keeps the terminal portal live and avoids remounting
  * Studio/xterm/diff state when the binary pane layout is reshaped.
  */
 export function PersistentPanePortal({

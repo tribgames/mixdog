@@ -18,3 +18,5 @@
 - Treat failure as new evidence and repeat steps 1–4 only for affected facets.
   Report a blocker when no deterministic next action remains.
 - Use only named tools present in the current tool surface.
+- Deferred tools auto-load on a direct call; when their exact arguments are
+  not visible, call `load_tool` first and read the surfaced schema.

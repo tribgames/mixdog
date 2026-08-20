@@ -6,7 +6,7 @@ import { withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mj
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
 import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
-import { gitActionOf as actionOf, gitPlanIsReadOnly as isReadOnly } from './git-command-policy.mjs';
+import { commandHasShellSyntax, gitActionOf as actionOf, gitPlanIsReadOnly as isReadOnly } from './git-command-policy.mjs';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
@@ -83,25 +83,26 @@ function fail(message, detail = null) {
     return `Error: ${message}${detail ? `\n${JSON.stringify({ ok: false, ...detail })}` : ''}`;
 }
 
-function commandHasShellSyntax(command) {
-    const text = String(command || '');
-    let quote = null;
-    for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        if (quote === "'") {
-            if (ch === "'") quote = null;
-            continue;
-        }
-        if (quote === '"') {
-            if (ch === '\\' && text[i + 1] === '"') { i++; continue; }
-            if (ch === '"') { quote = null; continue; }
-            if (ch === '$' || ch === '`') return true;
-            continue;
-        }
-        if (ch === "'" || ch === '"') { quote = ch; continue; }
-        if ('|&;<>()\n\r'.includes(ch) || ch === '$' || ch === '`') return true;
-    }
-    return quote !== null;
+// git redraws progress ("Updating files: 7% (3441/49152)") by overwriting one
+// line with bare CR. Keeping every frame let a failed clone/worktree bury its
+// fatal line under thousands of intermediate frames — the stored failure row
+// held 1.2 KB of progress and no reason at all. Keep the final frame per line.
+function foldProgressFrames(value) {
+    return String(value || '')
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .map((line) => (line.includes('\r')
+            ? [...line.split('\r')].reverse().find((frame) => frame !== '') ?? ''
+            : line))
+        .join('\n');
+}
+
+// Failure detail is tail-biased on purpose: git prints its fatal/error line
+// last, so a head-capped preview would drop the only line that explains why.
+function failureText(value, max) {
+    const rows = foldProgressFrames(value).split('\n').map((line) => line.trimEnd()).filter(Boolean);
+    const kept = rows.slice(-max).map((line) => truncateLine(line));
+    return rows.length > max ? `…[${rows.length - max} earlier lines omitted]\n${kept.join('\n')}` : kept.join('\n');
 }
 
 function parseCommand(command, workDir) {
@@ -205,19 +206,45 @@ function succeeded(result) {
     return result?.exitCode === 0 && !result.error && !result.timedOut && !result.aborted && !result.overflow;
 }
 
-function commandFailure(plan, result) {
+function commandFailure(plan, result, limit = 50) {
     const reason = result.error
         ? `git process failed (${result.error.code || result.error.message || result.error})`
         : result.aborted ? 'git command aborted'
             : result.timedOut ? 'git command timed out'
                 : result.overflow ? 'git output exceeded 128 MiB'
                     : `git ${plan.operation} exited ${result.exitCode}`;
+    // Bounded like every success path: an unbounded failure dump from a large
+    // repository cost far more context than the diagnosis it carried.
+    const max = Math.min(Math.max(limit, 20), 40);
     return fail(reason, {
         exit: result.exitCode,
         signal: result.signal,
-        stderr: cleanText(result.stderr),
-        stdout: cleanText(result.stdout),
+        stderr: failureText(result.stderr, max),
+        stdout: failureText(result.stdout, max),
     });
+}
+
+// Non-zero exits that ARE the answer rather than a failure: git reports
+// "no match" / "differences exist" / "problems found" through the exit code
+// while the command itself ran correctly. Reporting them as errors made the
+// caller re-run the same probe another way.
+function semanticExit(plan, result) {
+    if (result.error || result.timedOut || result.aborted || result.overflow) return null;
+    const { operation, args } = plan;
+    if (operation === 'grep') {
+        if (result.exitCode === 0) return { matched: true };
+        return result.exitCode === 1 ? { matched: false } : null;
+    }
+    if (!['diff', 'diff-files', 'diff-index', 'diff-tree'].includes(operation)) return null;
+    if (args.includes('--check')) {
+        if (result.exitCode === 0) return { problems: false };
+        return result.exitCode === 1 || result.exitCode === 2 ? { problems: true } : null;
+    }
+    if (args.some((value) => value === '--exit-code' || value === '--quiet')) {
+        if (result.exitCode === 0) return { changed: false };
+        return result.exitCode === 1 ? { changed: true } : null;
+    }
+    return null;
 }
 
 function runGit(plan, argv, options = {}) {
@@ -267,7 +294,10 @@ function prepare(plan, limit) {
         return { argv: ['status', '--porcelain=v1', '-b', '--untracked-files=normal'], format: 'status', action: 'list' };
     }
     if (['diff', 'diff-files', 'diff-index', 'diff-tree'].includes(operation)) {
-        return { argv: [operation, '--no-ext-diff', '--no-color', ...args], format: 'diff', action: 'list' };
+        // `--check` prints whitespace diagnostics, not a patch: compacting it as
+        // a diff would drop the very lines that are the answer.
+        const format = args.includes('--check') ? 'text' : 'diff';
+        return { argv: [operation, '--no-ext-diff', '--no-color', ...args], format, action: 'list' };
     }
     if (operation === 'log' && !hasOutputFormat(args)) {
         const limitArgs = hasLogLimit(args) ? [] : [`-n${limit}`];
@@ -504,7 +534,7 @@ function mutationData(plan, stdout, stderr, limit) {
             : plan.operation === 'init'
                 ? (line) => line.trimStart().startsWith('hint:')
                 : () => false;
-    const rows = cappedLines(source, Math.min(limit, 20), skip);
+    const rows = cappedLines(foldProgressFrames(source), Math.min(limit, 20), skip);
     return { summary, ...(rows.lines.length ? { output: rows.lines } : {}), ...(rows.omitted ? { omittedOutputLines: rows.omitted } : {}) };
 }
 
@@ -558,7 +588,7 @@ function creationTarget(plan) {
 async function executeCreation(plan, target, limit, signal) {
     return withBuiltinPathLocks([target], () => withAdvisoryLocks([target], async () => {
         const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
-        if (!succeeded(result)) return commandFailure(plan, result);
+        if (!succeeded(result)) return commandFailure(plan, result, limit);
         invalidateBuiltinResultCache();
         drainCodeGraphCache();
         return ok(mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit));
@@ -585,14 +615,15 @@ export async function executeGitTool(input, workDir, options = {}) {
     const repo = await resolveRepo(plan, signal);
     if (!repo) {
         const probe = await runGit(plan, ['rev-parse', '--show-toplevel'], { signal });
-        return commandFailure({ ...plan, operation: 'rev-parse' }, probe);
+        return commandFailure({ ...plan, operation: 'rev-parse' }, probe, limit);
     }
     const prepared = prepare(plan, limit);
     if (isReadOnly(plan)) {
         return withGitRepoReadLock(repo, async () => {
             const result = await runGit(plan, prepared.argv, { signal });
-            if (!succeeded(result)) return commandFailure(plan, result);
-            return ok(formatRead(prepared, cleanText(result.stdout), cleanText(result.stderr), limit));
+            const semantic = semanticExit(plan, result);
+            if (!succeeded(result) && !semantic) return commandFailure(plan, result, limit);
+            return ok({ ...formatRead(prepared, cleanText(result.stdout), cleanText(result.stderr), limit), ...semantic });
         }, { signal });
     }
     return withGitRepoWriteLock(repo, () => withBuiltinPathLocks([repo], () => withAdvisoryLocks([repo], async () => {
@@ -601,9 +632,9 @@ export async function executeGitTool(input, workDir, options = {}) {
         const after = await statusSnapshot(repo, signal);
         invalidateBuiltinResultCache();
         drainCodeGraphCache();
-        if (!succeeded(result)) return `${commandFailure(plan, result)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
+        if (!succeeded(result)) return `${commandFailure(plan, result, limit)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
         return ok({ ...mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit), status: statusDelta(before, after, limit) });
     })), { signal });
 }
 
-export const _gitCommandInternals = { creationTarget, localizeConfigPlan, parseCommand };
+export const _gitCommandInternals = { creationTarget, failureText, foldProgressFrames, localizeConfigPlan, parseCommand };

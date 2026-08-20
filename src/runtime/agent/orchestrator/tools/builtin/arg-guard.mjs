@@ -908,6 +908,42 @@ function dropUndefinedArgs(args) {
     }
 }
 
+// Models/providers can materialize an omitted optional base path as "" or
+// whitespace. These tools already define an absent path as the current
+// Project, so canonicalize that unambiguous shape instead of failing the call.
+// Leave non-string values intact for the per-tool guards to reject.
+function normalizeOptionalEmptyPathArgs(toolName, args) {
+    const keys = toolName === 'glob' || toolName === 'grep'
+        ? ['path', 'root']
+        : toolName === 'find' || toolName === 'list'
+            ? ['path']
+            : [];
+    for (const key of keys) {
+        if (typeof args[key] === 'string' && args[key].trim().length === 0) {
+            delete args[key];
+        }
+    }
+}
+
+// `task` uses one compact schema for four action-specific shapes. Providers
+// sometimes fill optional fields that belong to a different action; once the
+// explicit action is known, discard those irrelevant defaults before the
+// strict per-action guard runs.
+function normalizeTaskActionArgs(toolName, args) {
+    if (toolName !== 'task') return;
+    const action = typeof args.action === 'string'
+        ? args.action.trim().toLowerCase()
+        : '';
+    if (['list', 'read', 'cancel'].includes(action)) {
+        delete args.monitor_interval_ms;
+    }
+    if (action === 'list'
+        && typeof args.task_id === 'string'
+        && args.task_id.trim().length === 0) {
+        delete args.task_id;
+    }
+}
+
 // Provider-facing built-ins use short keys/enum values to reduce repeated
 // tool-call output. Canonicalize them before validation so executors, traces,
 // saved calls, and legacy long-form callers keep one stable internal contract.
@@ -978,6 +1014,8 @@ export function validateBuiltinArgs(toolName, args) {
         return `Error: ${toolName} arguments must be an object (got ${describeType(args)})`;
     }
     dropUndefinedArgs(args);
+    normalizeOptionalEmptyPathArgs(toolName, args);
+    normalizeTaskActionArgs(toolName, args);
     normalizeCompactSurfaceArgs(toolName, args);
     normalizeStringListArgs(args, toolName);
     if (toolName === 'grep') applyGrepContextLeadPolicy(args);

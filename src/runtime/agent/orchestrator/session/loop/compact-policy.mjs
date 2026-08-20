@@ -343,6 +343,22 @@ export function resolveCurrentContextTokens(messageTokensEst, policy, { messages
     return preferAlignedBaseline(baseline, currentContextEstimateTokens(messageTokensEst, policy));
 }
 
+/**
+ * The number the user-facing context gauge must show. shouldCompactForSession
+ * fires on the MAX of the baseline-aligned pressure and the raw transcript
+ * estimate, so a gauge reading only the baseline-aligned value could sit well
+ * below the trigger at the exact moment auto-compact ran (user: 좀 남아
+ * 보였는데 바로 컴팩트). Mirror that decision here so 100% and "compaction
+ * fires" are the same instant. The operator-only configured reserve stays out:
+ * it is local headroom, not context the provider ever sees.
+ */
+export function resolveGaugeContextTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
+    return Math.max(
+        Number(resolveCurrentContextTokens(messageTokensEst, policy, { messages, sessionRef })) || 0,
+        currentContextEstimateTokens(messageTokensEst, policy),
+    );
+}
+
 export function resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
     const baseline = providerBaselinePressureTokens(messages, sessionRef, policy);
     const estimate = compactPressureTokens(messageTokensEst, policy);

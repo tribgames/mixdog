@@ -1,5 +1,5 @@
-// GitHub Desktop renders a changed path as ONE continuous sentence and lets
-// COLOUR carry the structure (path-text.tsx:318,345 + _path-text.scss:3-8):
+// A changed path renders as ONE continuous sentence and lets
+// COLOUR carry the structure:
 // the directory prefix — its separators included — is dim, the file name is
 // bright. There is no name/path column pair and no second line.
 //

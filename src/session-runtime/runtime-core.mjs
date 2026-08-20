@@ -920,7 +920,7 @@ export async function createMixdogSessionRuntime({
   internalTools.setInternalToolsProvider({
     tools: [...standaloneTools, ...webSearchRuntimeTools.filter((tool) => tool?.public === false)],
     executor: async (name, args, callerCtx = {}) => {
-      const callerCwd = callerCtx?.callerCwd || rt.currentCwd;
+      const callerCwd = clean(callerCtx?.callerCwd) || rt.currentCwd;
       if (callerCtx?.invocationSource === 'model-tool') {
         if ((name === 'web_search' || name === 'web_fetch') && !webSearchEnabled()) {
           throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
@@ -957,12 +957,23 @@ export async function createMixdogSessionRuntime({
       }
       if (name === 'cwd') {
         const action = clean(args?.action || (args?.path ? 'set' : 'get')).toLowerCase();
+        let currentCwd = callerCwd;
         if (action === 'set') {
-          applyResolvedCwd(resolveCwdPath(args?.path));
+          const rawPath = clean(args?.path);
+          if (!rawPath) throw new Error('cwd: path is required for action=set');
+          const nextCwd = resolve(callerCwd || process.cwd(), rawPath);
+          const stat = statSync(nextCwd);
+          if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${nextCwd}`);
+          currentCwd = typeof callerCtx?.setCallerCwd === 'function'
+            ? clean(await callerCtx.setCallerCwd(nextCwd)) || nextCwd
+            : applyResolvedCwd(nextCwd);
         } else if (action !== 'get') {
           throw new Error(`cwd: unknown action "${action}"`);
         }
-        return JSON.stringify({ cwd: rt.currentCwd, sessionId: rt.session?.id || null }, null, 2);
+        return JSON.stringify({
+          cwd: currentCwd,
+          sessionId: callerCtx?.callerSessionId || rt.session?.id || null,
+        }, null, 2);
       }
       if (name === 'Skill') {
         return skillToolContent(args?.name);

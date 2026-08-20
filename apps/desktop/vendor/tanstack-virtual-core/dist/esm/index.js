@@ -188,6 +188,7 @@ class Virtualizer {
     this._iosTouchEndTimerId = null;
     this._deferredFlushTimerId = null;
     this.shouldDeferScrollAdjustment = void 0;
+    this.allowScrollAdjustmentDuringScroll = void 0;
     this._intendedScrollOffset = null;
     this.elementsCache = /* @__PURE__ */ new Map();
     this.now = () => {
@@ -1128,7 +1129,9 @@ class Virtualizer {
     // and land ONE write once motion is idle. The host predicate
     // (shouldDeferScrollAdjustment) covers the gesture window before the
     // first scroll event of a ramp arrives.
-    if (this.isScrolling || this._iosTouching || this._iosJustTouchEnded
+    const adjustNow = this.allowScrollAdjustmentDuringScroll?.() === true;
+    if ((!adjustNow
+      && (this.isScrolling || this._iosTouching || this._iosJustTouchEnded))
       || this.shouldDeferScrollAdjustment?.() === true) {
       // An index-anchored programmatic scroll (scrollToIndex/scrollToEnd)
       // re-derives its absolute target from LIVE measurements on every

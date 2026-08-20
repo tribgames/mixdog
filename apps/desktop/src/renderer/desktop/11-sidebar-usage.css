@@ -2,7 +2,7 @@
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
 /* Rail usage popup: the subscription meters float from the rail foot as a
-   VS Code account-style flyout. It mirrors the usage-detail chrome and sits
+   account-style flyout. It mirrors the usage-detail chrome and sits
    just under the per-provider detail popover (z 1100), which anchors beside
    the selected row inside this panel. */
 .rail-usage-popup {
@@ -68,7 +68,7 @@
   background: var(--mx-hover);
   outline: 0;
 }
-/* Diagonal pushpin (user: 대각핀): VS Code's tilted pin reading. */
+/* Diagonal pushpin (user: 대각핀): a tilted pin reading. */
 .sidebar-usage-heading > .sidebar-usage-pin svg { transform: rotate(45deg); }
 .sidebar-usage-heading > .sidebar-usage-pin.is-active { color: var(--mx-text-accent); }
 .sidebar-usage-list {
@@ -144,7 +144,7 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-micro);
 }
-/* Orca detail-style quota block: each window is one row — label, progress
+/* Detail-style quota block: each window is one row — label, progress
    track, percentage. The reset schedule lives on the provider line above
    (user: 아이콘과 같은 선상). Fixed side columns keep every bar the same
    length across rows. */

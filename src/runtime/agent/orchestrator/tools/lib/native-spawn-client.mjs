@@ -19,12 +19,39 @@ const _tasks = new Map();
 const _pidToRequest = new Map();
 const _taskEvents = new EventEmitter();
 
+// Warm-standby correction. The spawn server stamps a task with the moment its
+// PROCESS was created, which for a pre-spawned standby shell is up to the
+// standby TTL (2 min) before the command was ever fed to it — every consumer
+// then measured the idle wait as command runtime. The runner registers the
+// real feed moment here, and it wins over the server value for the task's
+// whole life so job records, completion elapsed and status readouts agree.
+const STARTED_AT_OVERRIDE_LIMIT = 512;
+const _startedAtOverrides = new Map();
+
+export function setNativeTaskStartedAt(jobId, startedAtMs) {
+  const key = String(jobId || '').trim();
+  const ms = Math.floor(Number(startedAtMs));
+  if (!key || !Number.isFinite(ms) || ms <= 0) return;
+  // Insertion-ordered eviction: a long-lived host must not accumulate one
+  // entry per command forever. Overrides outlive their task on purpose (a
+  // post-completion status refresh would otherwise restore the raw value).
+  if (_startedAtOverrides.size >= STARTED_AT_OVERRIDE_LIMIT) {
+    const oldest = _startedAtOverrides.keys().next();
+    if (!oldest.done) _startedAtOverrides.delete(oldest.value);
+  }
+  _startedAtOverrides.set(key, ms);
+  const known = _tasks.get(key);
+  if (known) known.startedAt = new Date(ms).toISOString();
+}
+
 function normalizeTask(task) {
   if (!task || typeof task !== 'object' || !task.jobId) return null;
-  const startedAtMs = Number(task.startedAtMs) || Date.now();
+  const jobId = String(task.jobId);
+  const override = _startedAtOverrides.get(jobId);
+  const startedAtMs = override || Number(task.startedAtMs) || Date.now();
   const finishedAtMs = Number(task.finishedAtMs) || 0;
   return {
-    jobId: String(task.jobId),
+    jobId,
     requestId: Number(task.requestId) || 0,
     pid: Number(task.pid) || null,
     kind: 'native',

@@ -381,7 +381,7 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
   return session;
 }
 
-// FIRST-TURN deferred-surface refresh (claude-code turn-time deferred manifest).
+// FIRST-TURN deferred-surface refresh (turn-time deferred manifest).
 // An MCP server may finish its handshake BETWEEN session-create and the first
 // user send. Fold those LIVE MCP tools into the boot deferred catalog + the
 // provider-visible first-turn surface. Native providers rebuild the initial BP2
@@ -768,7 +768,7 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
   const blocked = toolSelection.blocked || [];
   // Native discovery is history-driven: an explicit re-selection must emit
   // the tool reference/spec again even when the callable registry already has
-  // the name. Claude Code and Codex both treat repeated selection as a
+  // the name. Other agent runtimes treat repeated selection as a
   // harmless reference refresh; suppressing it leaves declaration-gated
   // harnesses with "already active" text but no callable schema.
   const nativeToolSearchBase = toolSelection.native

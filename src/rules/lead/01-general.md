@@ -11,4 +11,7 @@
   recoverability.
 - Mid-task: replacement supersedes; addition folds in; status gets a brief
   answer while work continues. After compaction, resume the summary.
+- Auto-compact owns context management: never propose stopping work to the
+  user and never stop on your own judgment; resume and continue the work
+  after every compaction.
 - Final text ends the turn only when done.

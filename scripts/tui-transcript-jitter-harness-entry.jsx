@@ -781,7 +781,7 @@ if (!compactedFrames.length
   })}`);
 }
 
-// Opencode parity (createAutoScroll: a viewport that cannot scroll clears
+// Auto-scroll rule (a viewport that cannot scroll clears
 // userScrolled): once a trim leaves the transcript SHORTER than the viewport
 // there is no reading position left to protect, so follow re-arms.
 const NO_OVERFLOW_STREAM_ID = 'no-overflow-tail';

@@ -13,7 +13,7 @@ function edgeReach(size: number): number {
   return Math.min(112, Math.max(72, size * 0.12));
 }
 
-/** Inner drop zone inside one pane — VS Code DropOverlay.positionOverlay
+/** Inner drop zone inside one pane — the drop-overlay positioning
  *  grammar (preferSplitVertically, the default openSideBySideDirection=
  *  "right"): an edge band offers a split — tab drags use 15% (user: the
  *  stock 10% felt too tight; the ONE sanctioned deviation from the refs

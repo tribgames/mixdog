@@ -1,6 +1,7 @@
 import { ChevronDown, FileDiff } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
+import { useMobileBack } from "./mobile-back";
 import { DiffBoundary } from "./TranscriptView";
 import { REVIEW_DIFF_STYLE_KEY } from "./desktop-types";
 import { DiffView } from "./lazy-widgets";
@@ -93,6 +94,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       window.removeEventListener("keydown", onKey);
     };
   }, [menu]);
+  // ABB: hardware back closes the menu instead of leaving the PWA.
+  useMobileBack(Boolean(menu), () => setMenu(null));
   const [forced, setForced] = useState<string[]>([]);
   const [diffs, setDiffs] = useState<Record<string, string | null>>({});
   // No manual refresh control: the 4s poll owns freshness, so cached diffs

@@ -5,6 +5,7 @@ import {
   initialPaneWorkspaceState,
   mobilePaneWorkspaceState,
 } from "./pane-workspace-state.ts";
+import { paneTabAcrossVisualBoundary } from "./pane-layout.ts";
 
 const mobileStored = {
   layout: {
@@ -114,4 +115,26 @@ test("session validation keeps the persisted pane geometry on first paint", () =
     focusedLeafId: "right",
   };
   assert.strictEqual(initialPaneWorkspaceState(stored, null), stored);
+});
+
+test("forward pane traversal enters at the first tab instead of the last active tab", () => {
+  const target = paneTabAcrossVisualBoundary(mobileStored.layout, "left", 1);
+  assert.equal(target?.leafId, "right");
+  assert.deepEqual(target?.selection, { kind: "file", project: "p", rel: "a.ts" });
+});
+
+test("backward pane traversal enters at the last tab instead of the last active tab", () => {
+  const target = paneTabAcrossVisualBoundary({
+    ...mobileStored.layout,
+    first: {
+      ...mobileStored.layout.first,
+      activeKey: "session:session-a",
+      tabs: [
+        { kind: "session", id: "session-a" },
+        { kind: "session", id: "session-c" },
+      ],
+    },
+  }, "right", -1);
+  assert.equal(target?.leafId, "left");
+  assert.deepEqual(target?.selection, { kind: "session", id: "session-c" });
 });

@@ -403,10 +403,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // continuation runaway (see PROVIDER_CONTINUATION_NO_TOOL_LIMIT).
     let _continuationsSinceToolBatch = 0;
     // Loop-level transport replays consumed since the last SUCCESSFUL send
-    // (see send-with-recovery TRANSPORT_RETRY_MAX). Reference parity: codex
-    // starts each sampling request at retries=0 (and resets on transport
-    // fallback), cc's withRetry budget is per request, opencode schedules
-    // retries per stream call. A per-ask budget instead let one early blip in
+    // (see send-with-recovery TRANSPORT_RETRY_MAX). The budget is per
+    // sampling request, starting at retries=0 and resetting on transport
+    // fallback.
+    // A per-ask budget instead let one early blip in
     // a long turn leave every later iteration with zero replays.
     let _transportRetriesUsed = 0;
     let _imageStripUsed = false;

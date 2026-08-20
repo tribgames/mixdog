@@ -60,7 +60,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
 .topbar .toolbar-sidebar:focus-visible { color: var(--mx-text); }
 /* Beside the OS caption glyphs (~10px, Windows-drawn, untouchable) the 18px
    frame read a full tier heavier (user: 최소·최대·닫기와 이질감). One step
-   down — VS Code parity — narrows the gap; pane-header clusters keep 18px. */
+   down narrows the gap; pane-header clusters keep 18px. */
 .topbar .toolbar-sidebar .sidebar-toggle-icon,
 .topbar .toolbar-panel .sidebar-toggle-icon,
 .topbar .toolbar-dock .sidebar-toggle-icon {
@@ -155,7 +155,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
    16px EXACTLY keeps every line on device pixels — never resize these. The
    selector doubles up to outrank codicon.css's own font shorthand. */
 .sidebar-toggle-icon.codicon { font-size: 16px; }
-/* Rail destinations draw codicons at VS Code's activity-bar 24px. */
+/* Rail destinations draw codicons at the activity-bar 24px. */
 .activity-rail .codicon { font-size: 24px; }
 /* One rail icon voice: the toggle, dock glyphs and the utility-dock tab row
    share the 18px frame (user: 사이드탭 아이콘이 더 작은 게 이해가 안 된다 —
@@ -185,7 +185,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
 @media (prefers-reduced-motion: reduce) {
   .remote-toggle-spinner { animation: none; }
 }
-/* Brand mark in the old sidebar-toggle slot (VS Code grammar): a quiet,
+/* Brand mark in the old sidebar-toggle slot: a quiet,
    non-interactive glyph that stays part of the drag band. */
 .titlebar-brand {
   display: grid;

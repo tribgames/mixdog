@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { StudioRouteMenu, type StudioModelEntry } from './StudioRouteMenu';
 import { BrandTile } from './WorkspaceEmptyState';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
@@ -238,6 +239,8 @@ export function StudioPane({
     [assets, kind],
   );
   const [selected, setSelected] = useState<MediaAsset | null>(null);
+  // ABB: the media detail viewer closes on hardware back.
+  useMobileBack(Boolean(selected), () => setSelected(null));
   const [previewUrl, setPreviewUrl] = useState('');
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   // A cold local rendition may take longer than the tile's stall threshold.
@@ -577,6 +580,10 @@ export function StudioPane({
     if (!active || !runningKey) return undefined;
     const ids = runningKey.split(',');
     let stopped = false;
+    // Consecutive polls that found NO snapshot for an id. The runtime keeps
+    // its jobs in memory, so a restart erases them mid-run; one miss can also
+    // be a reconnect, which is why a slot is only retired on the second.
+    const misses = new Map<string, number>();
     const poll = () => {
       void (async () => {
         try {
@@ -584,7 +591,16 @@ export function StudioPane({
             callCapability(api, 'getMediaJob', [id]) as Promise<MediaJob | null>));
           if (stopped) return;
           const landed = polled.filter(Boolean) as MediaJob[];
-          if (!landed.length) return;
+          for (const entry of landed) misses.delete(entry.id);
+          // Without this the tile spun forever and reported nothing at all
+          // (user: 오류도 안 뜬다).
+          const lost = ids.filter((id, index) => {
+            if (polled[index]) return false;
+            const count = (misses.get(id) || 0) + 1;
+            misses.set(id, count);
+            return count >= 2;
+          });
+          if (!landed.length && !lost.length) return;
           if (landed.some((entry) => entry.status === 'done')) {
             // Fetch first, then commit both snapshots together. The pending
             // frame stays mounted until its indexed asset can replace it with
@@ -600,7 +616,13 @@ export function StudioPane({
             // Runtime snapshots do not echo reference bytes or their local
             // preview URLs. Merge them into the queue slot instead of replacing
             // its captured request with the latest polled snapshot.
-            return next ? { ...entry, ...next } : entry;
+            if (next) return { ...entry, ...next };
+            if (entry.status !== 'running' || !lost.includes(entry.id)) return entry;
+            return {
+              ...entry,
+              status: 'failed' as const,
+              error: t('Lost track of this run — the runtime restarted.'),
+            };
           }));
         } catch (reason) {
           if (!stopped) setError(errorText(reason));
@@ -614,6 +636,19 @@ export function StudioPane({
       clearInterval(timer);
     };
   }, [active, api, refreshAssetKind, runningKey]);
+
+  // A finished run owns its slot only until the indexed asset can take the
+  // place over. Keeping the job past that point made the slot re-openable:
+  // deleting the asset satisfied "asset not in the gallery" again, so a done
+  // job came back as a phantom "generating" tile in the same spot and the
+  // delete looked like it had been ignored (user: 두 번 눌러야 삭제된다).
+  useEffect(() => {
+    setJobs((current) => {
+      const next = current.filter((entry) => entry.status !== 'done'
+        || Boolean(entry.assetId && !assets.some((asset) => asset.id === entry.assetId)));
+      return next.length === current.length ? current : next;
+    });
+  }, [assets]);
 
   // Selected asset preview. With a byte-lane URL the DOM loads it directly;
   // this RPC payload is only the fallback for a host without that lane.
@@ -812,6 +847,10 @@ export function StudioPane({
         setJobs((current) => [{ ...started, request }, ...current]);
         return true;
       }
+      // An empty answer used to return silently, so Generate looked like a
+      // dead button with nothing to read anywhere (user: 생성이 안 되는데
+      // 오류도 안 뜬다).
+      setError(t('Generation did not start — the runtime returned no job.'));
     } catch (reason) {
       setError(errorText(reason));
     }
@@ -851,6 +890,9 @@ export function StudioPane({
       await callCapability(api, 'deleteMediaAsset', [asset.id]);
       if (selected?.id === asset.id) setSelected(null);
       setAssets((current) => current.filter((entry) => entry.id !== asset.id));
+      // The run that produced this asset goes with it. A job left behind would
+      // re-open its queue slot the moment the asset left the gallery.
+      setJobs((current) => current.filter((entry) => entry.assetId !== asset.id));
       const paging = assetPagingRef.current[asset.kind];
       assetPagingRef.current = {
         ...assetPagingRef.current,
@@ -1342,12 +1384,19 @@ export function StudioPane({
               aria-label={`Open ${asset.kind}: ${asset.prompt}`}
               // Hover preview mounts ONE video at a time; a grid of live
               // decoders is what crashed the window earlier.
-              onMouseEnter={!narrowPane && asset.kind === 'video'
-                && (localTransport || Boolean(assetUrl(asset.id, 'original')))
+              //
+              // LOCAL ONLY. On a relay surface the same gesture streamed the
+              // ORIGINAL clip — autoplaying and looping — for every tile the
+              // pointer crossed, which turned a glance across the gallery into
+              // gigabytes. A phone has no hover at all, and a remote browser
+              // keeps the poster, so nothing is lost where it cannot be paid
+              // for.
+              onMouseEnter={!narrowPane && asset.kind === 'video' && localTransport
                 ? () => void hoverPreview(asset) : undefined}
-              onMouseLeave={!narrowPane && asset.kind === 'video'
+              onMouseLeave={!narrowPane && asset.kind === 'video' && localTransport
                 ? () => setHoverId('') : undefined}>
-              {mediaForeground && !narrowPane && asset.kind === 'video' && hoverId === asset.id
+              {mediaForeground && !narrowPane && localTransport && asset.kind === 'video'
+                && hoverId === asset.id
                 && (assetUrl(asset.id, 'original') || fullUrls[asset.id])
                 ? <video src={assetUrl(asset.id, 'original') || fullUrls[asset.id]}
                   muted loop autoPlay playsInline preload="metadata" />
@@ -1516,11 +1565,16 @@ export function StudioPane({
         <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
         <div className="studio-detail-stage">
           {selected.kind === 'video'
+            // Opening the detail view autoplays only where the bytes are free.
+            // Over the relay the clip arrives from the desktop and goes out
+            // again, so it starts on the poster and downloads when the viewer
+            // actually presses play.
             ? <video key={mediaForeground ? 'foreground' : 'suspended'}
               src={mediaForeground ? assetUrl(selected.id, 'original') || previewUrl : undefined}
               poster={assetUrl(selected.id, 'thumb') || thumbs[selected.id] || undefined}
-              controls={mediaForeground} autoPlay={mediaForeground} playsInline
-              preload={mediaForeground ? 'metadata' : 'none'}
+              controls={mediaForeground}
+              autoPlay={mediaForeground && localTransport} playsInline
+              preload={mediaForeground && localTransport ? 'metadata' : 'none'}
               onError={() => markUrlBroken(selected.id, 'original')} />
             : <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
               alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />}

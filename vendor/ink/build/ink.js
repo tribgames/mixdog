@@ -456,7 +456,7 @@ export default class Ink {
     // or out of range. Reuses the cached cell-value rows from the last render so it
     // works without retaining the Output instance.
     //
-    // Ported from claude-code's selection.ts charClass/wordBoundsAt (3-class word
+    // Selection word model (3-class word
     // model) onto mixdog's rect(linear) infra. Instead of a naive "non-space run",
     // expansion stops at a CHARACTER-CLASS change:
     //   class 1 = WORD_CHAR — letters (any script), digits, and the punctuation
@@ -464,7 +464,7 @@ export default class Ink {
     //             `/usr/bin/bash` or `~/.claude/config.json` selects whole.
     //   class 2 = other punctuation — so `->` selects just `->`, not the words
     //             on either side.
-    //   class 0 = space/empty. claude-code treats a space run as selectable
+    //   class 0 = space/empty. A space run could be treated as selectable
     //             (class 0), but mixdog intentionally returns null on empty/space
     //             so a double-click on blank does nothing (safer for our transcript
     //             where most alt-screen cells are padding).
@@ -537,7 +537,7 @@ export default class Ink {
         return { x1, y1: y, x2, y2: y };
     };
     // [mixdog fork] Given a 0-based row y, return the inclusive rect of the whole
-    // logical line at that row (mirrors claude-code's selectLineAt intent on
+    // logical line at that row (select-line intent on
     // mixdog's rect infra). x1 is always 0; x2 is the last non-space content cell
     // so trailing padding isn't selected. Returns null for an empty/blank row.
     // Exposed symmetrically to getWordRectAt (index.jsx wires it into the store).

@@ -2,7 +2,7 @@
  * input-parser.js — thin adapter over the termio state-machine pipeline.
  *
  * The naive per-chunk escape scanner that used to live here was replaced by the
- * claude-code termio tokenizer + keypress parser (termio-tokenize.js /
+ * termio tokenizer + keypress parser (termio-tokenize.js /
  * termio-keypress.js). This adapter keeps the createInputParser() shape App.js
  * expects, but push() now returns typed ParsedInput events (kind: 'key' |
  * 'mouse' | 'response') instead of raw strings / { paste } objects. App.js's

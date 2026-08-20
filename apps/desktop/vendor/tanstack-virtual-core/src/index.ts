@@ -459,6 +459,12 @@ export class Virtualizer<
    *  instance accumulates resize adjustments (end-anchor deltas included)
    *  and flushes them in one write once scrolling is idle. */
   shouldDeferScrollAdjustment: undefined | (() => boolean)
+  /** Host override for surfaces whose native scroll is NOT cancelled by a
+   *  programmatic write (a phone finger still on the glass): the corrective
+   *  write lands in the same frame as the size change instead of being
+   *  accumulated for idle, so above-viewport measurements never displace
+   *  the reader mid-drag. */
+  allowScrollAdjustmentDuringScroll: undefined | (() => boolean)
   elementsCache = new Map<Key, TItemElement>()
   private now = () => this.targetWindow?.performance?.now?.() ?? Date.now()
   private observer = (() => {
@@ -699,10 +705,17 @@ export class Virtualizer<
     // Accumulate instead and land ONE write once motion is idle. The host
     // predicate (shouldDeferScrollAdjustment) covers the gesture window
     // before the first scroll event of a ramp arrives.
+    // A surface whose native scroll SURVIVES a programmatic write (a phone
+    // drag, where the browser keeps tracking the finger from the new offset)
+    // compensates in place instead: deferring there let every above-viewport
+    // measurement displace the reader for the whole gesture and land its
+    // correction as one visible jump afterwards.
+    const adjustNow = this.allowScrollAdjustmentDuringScroll?.() === true
     if (
-      this.isScrolling ||
-      this._iosTouching ||
-      this._iosJustTouchEnded ||
+      (!adjustNow &&
+        (this.isScrolling ||
+          this._iosTouching ||
+          this._iosJustTouchEnded)) ||
       this.shouldDeferScrollAdjustment?.() === true
     ) {
       // An index-anchored programmatic scroll (scrollToIndex/scrollToEnd)

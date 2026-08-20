@@ -800,7 +800,7 @@ export async function createSession(options = {}) {
   let revision = Number(created?.revision) || 0;
   // A revision belongs to one session projection on one daemon attachment. It
   // detects a missing patch on that stream; it is not session history and
-  // never crosses a session rebind or daemon restart. This mirrors Codex
+  // never crosses a session rebind or daemon restart. The pattern is
   // thread/resume: seed a full thread snapshot, then consume notifications
   // from the newly attached listener.
   let revisionAttachment = attachment;

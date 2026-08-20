@@ -2,7 +2,7 @@
 // (user: 있는 거 다 선택하게, 간단하게) and hand the renderer a plain list.
 // The renderer only ever names a profile ID; resolveShellProfileSpawn maps it
 // back to a spawnable path/args/env, so an arbitrary executable can never be
-// requested over IPC. Detection follows VS Code's terminalProfiles.ts rules
+// requested over IPC. Detection follows the conventional profile rules
 // in miniature: existence-checked well-known paths, git.exe-derived Git Bash,
 // and `wsl.exe -l -q` for distributions.
 import { exec } from 'node:child_process';
@@ -84,7 +84,7 @@ async function detectWindowsProfiles(): Promise<DetectedShellProfile[]> {
   const cmd = existingFile(path.join(system32, 'cmd.exe'));
   if (cmd) profiles.push({ id: 'cmd', label: 'Command Prompt', path: cmd });
   // Git Bash: `<install>/cmd/git.exe` implies `<install>/bin/bash.exe`
-  // (VS Code's rule), plus the conventional install roots as fallbacks.
+  // plus the conventional install roots as fallbacks.
   const gitDirs = new Set<string>();
   const gitExe = findOnPath('git.exe');
   if (gitExe) gitDirs.add(path.resolve(path.dirname(gitExe), '..', '..'));

@@ -1,4 +1,4 @@
-// Taskbar attention (orca-inspired): when the active turn finishes while the
+// Taskbar attention: when the active turn finishes while the
 // window is unfocused, flash the taskbar button (Windows/Linux urgency hint)
 // or bounce the dock (macOS). Focusing the window clears the signal.
 import type { SessionSnapshot } from '../shared/contract';

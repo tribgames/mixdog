@@ -520,6 +520,22 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   const sessionFilterSql = onlySessionId ? 'AND session_id = $4' : ''
   const queryParams = [sessionCap, Date.now() - CYCLE1_OMITTED_COOLDOWN_MS, rowsPerSession]
   if (onlySessionId) queryParams.push(onlySessionId)
+  // Starvation backfill. Session selection below is recency-first, which on a
+  // busy daemon means the newest sessions refill every slot on every run: a row
+  // that is omitted or fails once lands behind CYCLE1_OMITTED_COOLDOWN_MS, and
+  // by the time that cooldown lapses newer sessions own the whole cap again, so
+  // the session is never selected a second time. Observed effect: the unchunked
+  // backlog sat flat at ~550 rows across 28 starved sessions for hours while
+  // each run cheerfully drained only the freshest ones. Reserve a slice of the
+  // cap for the OLDEST eligible sessions so the tail always drains. Recency
+  // still owns the majority of slots and the per-run session count is unchanged,
+  // so classifier cost per run is not affected.
+  const backfillCap = Math.min(
+    Math.max(1, Math.floor(sessionCap / 3)),
+    Math.max(1, sessionCap - 1),
+  )
+  queryParams.push(backfillCap)
+  const backfillParam = `$${queryParams.length}`
   const preset = options.preset || resolveMaintenancePreset('memory')
   // Inner LLM timeout aligns to caller deadline -1s so the channel side can ack gracefully.
   const callerDeadlineMs = Number(options.callerDeadlineMs ?? 0)
@@ -531,7 +547,7 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   // selected session. Memory fill is recency-first; session isolation below
   // keeps unrelated episodes out of the same classifier prompt.
   const fetchResult = await db.query(
-    `WITH selected_sessions AS (
+    `WITH eligible_sessions AS (
        SELECT session_id, MAX(ts) AS latest_ts, MAX(id) AS latest_id
        FROM entries
        WHERE chunk_root IS NULL
@@ -539,8 +555,18 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
          AND (reviewed_at IS NULL OR reviewed_at < $2)
          ${sessionFilterSql}
        GROUP BY session_id
+     ), recent_sessions AS (
+       SELECT session_id, latest_ts, latest_id FROM eligible_sessions
        ORDER BY latest_ts DESC, latest_id DESC
-       LIMIT $1
+       LIMIT GREATEST($1::int - ${backfillParam}::int, 1)
+     ), starved_sessions AS (
+       SELECT session_id, latest_ts, latest_id FROM eligible_sessions
+       ORDER BY latest_ts ASC, latest_id ASC
+       LIMIT ${backfillParam}::int
+     ), selected_sessions AS (
+       SELECT session_id, latest_ts, latest_id FROM recent_sessions
+       UNION
+       SELECT session_id, latest_ts, latest_id FROM starved_sessions
      ), ranked AS (
        SELECT e.id, e.ts, e.role, e.content, e.session_id, e.source_ref, e.project_id,
               s.latest_ts, s.latest_id,

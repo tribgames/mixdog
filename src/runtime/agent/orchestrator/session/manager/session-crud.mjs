@@ -312,7 +312,7 @@ export async function updateSessionStatus(id, status) {
 }
 
 // --- Rewind to a previous user message (message selector) ---
-// Claude Code's "restore conversation": the selected prompt and everything
+// "Restore conversation": the selected prompt and everything
 // after it leave the model history so the user can edit and resubmit it.
 // Earlier turns — including any compaction rewrite that precedes them — stay
 // exactly as they are. Idle-only; the caller interrupts a live turn first.

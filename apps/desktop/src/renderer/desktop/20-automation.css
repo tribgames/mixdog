@@ -397,7 +397,7 @@
   gap: 6px;
 }
 .row-overflow-menu button.menu-separator { margin-top: 4px; box-shadow: inset 0 1px var(--mx-border-muted); }
-/* VS Code parity (menu.ts:1223-1311 — 2em check gutter, 1em solid glyph):
+/* Menu metrics (2em check gutter, 1em solid glyph):
    the old 14px box with a 13px hairline check was HALF that scale and the
    state disappeared (user: 선택·미선택이 잘 안 보인다). A 20px gutter with a
    16px/1.75px check, plus ink + weight on the row, reads at a glance. */

@@ -302,6 +302,7 @@ export function Conversation({
     following,
     showJump,
     hasScrollGesture: hasTranscriptScrollGesture,
+    isTouchActive: hasTranscriptTouchContact,
     handleScroll: handleTranscriptScroll,
     handleWheel: handleTranscriptWheel,
     handlePointerDown: handleTranscriptPointerDown,
@@ -736,7 +737,7 @@ export function Conversation({
     armFollow();
     scrollToEndRef.current();
   }, [armFollow, settledItems, transcriptSessionKey]);
-  // Opencode parity (createAutoScroll's content observer, without a second
+  // Content growth is watched on the rows commit (without a second
   // observer): a transcript that no longer OVERFLOWS holds no reading
   // position, so a shrink that fits inside the viewport re-arms follow instead
   // of leaving auto-scroll released with nothing left to scroll. Driven by the
@@ -1006,6 +1007,7 @@ export function Conversation({
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
             markProgrammaticScroll={markTranscriptProgrammaticScroll}
             hasScrollGesture={hasTranscriptScrollGesture}
+            isTouchActive={hasTranscriptTouchContact}
             setAnchorBottomRef={setTranscriptAnchorBottomRef}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
         </div>

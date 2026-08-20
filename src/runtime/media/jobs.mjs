@@ -154,6 +154,15 @@ export function startMediaJob({ lane: laneId, kind, model, prompt, options = {},
       job.status = canceled ? 'canceled' : 'failed';
       job.error = canceled ? 'canceled' : String(err?.message || err).slice(0, 500);
       job.errorCode = err?.code || null;
+      // The job snapshot is the ONLY record of a failure, and it is swept
+      // once its TTL passes. Print the reason so a run that died upstream
+      // stays diagnosable after its tile is gone.
+      if (!canceled) {
+        try {
+          console.error(`[media] job failed lane=${job.lane} model=${job.model} `
+            + `kind=${job.kind} code=${job.errorCode || 'none'}: ${job.error}`);
+        } catch { /* logging must never mask the job failure */ }
+      }
     } finally {
       job.endedAt = Date.now();
     }

@@ -25,6 +25,11 @@ export const MIME_TYPES = {
 };
 
 export const PAIRING_COOKIE_NAME = 'mixdog_token';
+// Device route cookie: the installed web app launches at /d/<deviceId>/, and
+// the assets it pulls afterwards are plain root URLs. The cookie carries the
+// route across those requests so the shell keeps its gate without rewriting
+// every asset path per device.
+export const DEVICE_COOKIE_NAME = 'mixdog_device';
 
 // Text assets ship uncompressed otherwise: the renderer bundle alone is ~1.3MB
 // over a phone link. Fonts and images are already compressed, so they stay raw
@@ -58,16 +63,26 @@ export const BROWSER_SECURITY_HEADERS = Object.freeze({
   'X-Frame-Options': 'DENY',
 });
 
-/** Entry navigation carries ?token=; the cookie then authorizes asset
- *  requests that follow with no query string. */
-export function parseCookieToken(header) {
+function parseCookieValue(header, name) {
   for (const part of String(header || '').split(';')) {
     const eq = part.indexOf('=');
-    if (eq > 0 && part.slice(0, eq).trim() === PAIRING_COOKIE_NAME) {
+    if (eq > 0 && part.slice(0, eq).trim() === name) {
       try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch { return ''; }
     }
   }
   return '';
+}
+
+/** Per-browser credentials ride Authorization/localStorage; the cookie is the
+ *  fallback for asset requests a browser sends with no header of its own. */
+export function parseCookieToken(header) {
+  return parseCookieValue(header, PAIRING_COOKIE_NAME);
+}
+
+/** Which desktop this container was launched for: set by the /d/<id>/ entry
+ *  navigation, read by every root asset request that follows. */
+export function parseCookieDevice(header) {
+  return parseCookieValue(header, DEVICE_COOKIE_NAME);
 }
 
 /** Headers that persist the entry token; empty when the request had none. */
@@ -80,19 +95,42 @@ export function pairingCookieHeaders(queryToken, request) {
   };
 }
 
-/** Home Screen install handoff (iOS): an installed web app runs in its own
- *  storage container, so the pairing Safari holds never reaches it and the app
- *  opened on the scanner. A manifest WITHOUT start_url makes the install
- *  capture the LAUNCHING document URL instead, so an already-paired page can
- *  carry its pairing link into the install. Chromium keeps the canonical
- *  manifest — start_url is part of its installability criteria — so only this
- *  explicitly requested variant drops it. False when the manifest cannot be
- *  read, leaving the answer to the caller. */
-export function sendInheritStartUrlManifest(request, response, target) {
+/** Not HttpOnly on purpose: it names no secret, and the app shell reads it to
+ *  recover its device route when a navigation lands outside /d/<id>/. */
+export function deviceCookieHeaders(deviceId, request) {
+  if (!deviceId) return {};
+  const secure = request?.socket?.encrypted ? '; Secure' : '';
+  return {
+    'Set-Cookie': `${DEVICE_COOKIE_NAME}=${encodeURIComponent(deviceId)}; Path=/; `
+      + `Max-Age=31536000; SameSite=Lax${secure}`,
+  };
+}
+
+/** One response may set both cookies; a plain object spread would drop one. */
+export function mergeCookieHeaders(...headerSets) {
+  const cookies = [];
+  for (const set of headerSets) {
+    const value = set?.['Set-Cookie'];
+    if (Array.isArray(value)) cookies.push(...value);
+    else if (value) cookies.push(value);
+  }
+  return cookies.length > 0 ? { 'Set-Cookie': cookies } : {};
+}
+
+/** Device-scoped manifest for /d/<deviceId>/. start_url is what an install
+ *  captures, so pointing it at the device route is what lets the installed web
+ *  app say WHICH desktop it wants — the one thing an empty storage container
+ *  cannot otherwise know. The route names a desktop and carries no secret; the
+ *  approval on that desktop is what grants access. False when the manifest
+ *  cannot be read, leaving the answer to the caller. */
+export function sendDeviceManifest(request, response, target, deviceId) {
   let body;
   try {
     const manifest = JSON.parse(readFileSync(target, 'utf8'));
-    delete manifest.start_url;
+    const base = `/d/${deviceId}/`;
+    manifest.id = base;
+    manifest.start_url = base;
+    manifest.scope = base;
     body = JSON.stringify(manifest);
   } catch {
     return false;
@@ -102,6 +140,7 @@ export function sendInheritStartUrlManifest(request, response, target) {
     'Content-Type': MIME_TYPES['.webmanifest'],
     'Cache-Control': 'no-cache',
     'Content-Length': Buffer.byteLength(body),
+    ...deviceCookieHeaders(deviceId, request),
   });
   response.end(request.method === 'HEAD' ? undefined : body);
   return true;

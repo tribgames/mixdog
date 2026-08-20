@@ -93,10 +93,19 @@ export function useAppShellPanels() {
   const [commandSurface, setCommandSurface] = useState<CommandSurfaceName | null>(null);
   const [commandSurfaceSessionId, setCommandSurfaceSessionId] = useState("");
   const commandSurfaceLane = useSessionLane(commandSurfaceSessionId, defaultSessionLaneStore);
-  const openConversationCommandSurface = useCallback((surface: CommandSurfaceName) => {
+  // The session travels WITH the open request. The clear used to live here
+  // unconditionally, so a caller that had just named its pane session saw it
+  // wiped inside the same batch and /context read the blank control session
+  // instead (user: /context가 0으로 나온다). A surface that owns no
+  // conversation simply passes nothing.
+  const openConversationCommandSurface = useCallback((
+    surface: CommandSurfaceName,
+    sessionId = "",
+  ) => {
     if (surface === "usage" && !desktopFeatureEnabled("usage")) return;
     setSettingsOpen(false);
-    setCommandSurfaceSessionId("");
+    setCommandSurfaceSessionId(
+      surface === "context" || surface === "inherit" ? sessionId : "");
     setCommandSurface(surface);
   }, []);
   // The utility dock persists its tab and width; the side-panel policy owns

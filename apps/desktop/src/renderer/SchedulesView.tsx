@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
@@ -268,6 +269,9 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
   // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
   useEffect(() => acquireTitleBarDim(), []);
+  // ABB: the editor is only mounted while it is open, so it owns back for its
+  // whole life.
+  useMobileBack(true, onCancel);
   // The editor portals to document.body: the list lives in the session
   // panel, so the dialog must escape the sidebar's clipped/transformed box.
   return createPortal(<div className="schedules-dialog-layer"

@@ -226,7 +226,7 @@ export function getBackgroundTask(taskId, options = {}) {
   return task;
 }
 
-/** CC-parity lifetime signal: a session-owned background task remains live
+/** Lifetime signal: a session-owned background task remains live
  * work even while the interactive turn is idle and every view is detached. */
 export function hasActiveBackgroundTasks(options = {}) {
   pruneTasks(options);

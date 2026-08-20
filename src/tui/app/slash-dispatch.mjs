@@ -341,6 +341,24 @@ export function createSlashDispatch({
       case 'context':
         openContextPicker();
         return true;
+      case 'inherit':
+        if (state.busy) {
+          store.pushNotice('wait for the current turn to finish before /inherit', 'warn');
+          return false;
+        }
+        void Promise.resolve(store.inheritSession?.())
+          .then((result) => {
+            if (!result) {
+              store.pushNotice('nothing to inherit', 'warn');
+              return;
+            }
+            store.pushNotice(
+              `inherited ${result.messages} messages into ${result.sessionId}`,
+              'info',
+            );
+          })
+          .catch((e) => store.pushNotice(`inherit failed: ${e?.message || e}`, 'error'));
+        return true;
       case 'settings':
       case 'config':
         openSettingsPicker();

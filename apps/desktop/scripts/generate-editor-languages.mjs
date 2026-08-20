@@ -1,5 +1,5 @@
 // Generate the file-path language resolver used by both the Monaco PANE and
-// scoped editor settings. VS Code language contributions are the authority;
+// scoped editor settings. The editor language contributions are the authority;
 // Monaco-native ids are retained, compatible ids are translated, and every
 // remaining language is explicitly classified instead of silently falling
 // through to plaintext.
@@ -8,7 +8,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const vscodeExtensionsRoot = resolve(process.argv[2] || 'C:/Project/refs/vscode/extensions');
+const languageSourceRoot = process.argv[2] || process.env.MIXDOG_EDITOR_LANGUAGE_SOURCE || '';
+if (!languageSourceRoot) {
+  throw new Error('Pass the editor language-contribution root as argv[2] (or set MIXDOG_EDITOR_LANGUAGE_SOURCE).');
+}
+const extensionsRoot = resolve(languageSourceRoot);
 const monacoRoot = resolve(process.argv[3]
   || join(here, '../node_modules/monaco-editor/esm/vs'));
 const outputPath = join(here, '../src/shared/editor-languages.ts');
@@ -60,11 +64,11 @@ const sourceLanguages = new Map();
 const pushUnique = (rows, value) => {
   if (!rows.includes(value)) rows.push(value);
 };
-const extensionEntries = readdirSync(vscodeExtensionsRoot, { withFileTypes: true })
+const extensionEntries = readdirSync(extensionsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .sort((left, right) => left.name.localeCompare(right.name));
 for (const entry of extensionEntries) {
-  const packagePath = join(vscodeExtensionsRoot, entry.name, 'package.json');
+  const packagePath = join(extensionsRoot, entry.name, 'package.json');
   if (!existsSync(packagePath)) continue;
   const extension = JSON.parse(readFileSync(packagePath, 'utf8'));
   for (const language of extension?.contributes?.languages || []) {
@@ -171,7 +175,7 @@ const classificationCounts = Object.values(decisions).reduce((counts, decision) 
 }, {});
 
 const output = `// GENERATED FILE — do not edit by hand: run scripts/generate-editor-languages.mjs.
-// VS Code built-in language contributions resolved onto Monaco PANE languages.
+// Editor language contributions resolved onto Monaco PANE languages.
 
 export type EditorLanguageClassification = "native" | "compatible" | "custom" | "plaintext";
 export interface EditorLanguageDecision {

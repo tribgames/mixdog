@@ -18,6 +18,7 @@ import type {
 } from '../shared/contract';
 import { agentIcon } from './agent-icons';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
@@ -106,12 +107,14 @@ function AgentUsageField({ enabled, busy, onChange }: {
   return <div className="schedules-field">
     <span>{t('Use this agent')}</span>
     <small>{t('Turning this off hides the agent from the Lead entirely.')}</small>
-    <OpenSelect ariaLabel={t('Use this agent')} value={enabled ? 'on' : 'off'} disabled={busy}
-      options={[
-        { value: 'on', label: t('Use with the model below') },
-        { value: 'off', label: t('Not used') },
-      ]}
-      onChange={(value) => onChange(value === 'on')} />
+    <div className="workflows-agent-mode-field">
+      <OpenSelect ariaLabel={t('Use this agent')} value={enabled ? 'on' : 'off'} disabled={busy}
+        options={[
+          { value: 'on', label: t('Use with the model below') },
+          { value: 'off', label: t('Not used') },
+        ]}
+        onChange={(value) => onChange(value === 'on')} />
+    </div>
   </div>;
 }
 
@@ -175,6 +178,9 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
   const [delegates, setDelegates] = useState(() => !editing || pack?.delegatesAgents !== false);
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // ABB: the dialog is only mounted while it is open, so it owns back for its
+  // whole life.
+  useMobileBack(true, onCancel);
   // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
   // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
   useEffect(() => acquireTitleBarDim(), []);
@@ -275,6 +281,9 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
   const editing = Boolean(agent);
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
   const [enabled, setEnabled] = useState(() => record(agent).disabled !== true);
+  // ABB: the dialog is only mounted while it is open, so it owns back for its
+  // whole life.
+  useMobileBack(true, onCancel);
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => acquireTitleBarDim(), []);
@@ -365,6 +374,9 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
 }) {
   const [route, setRoute] = useState<RecordValue>(() => target.route);
   const [enabled, setEnabled] = useState(() => target.disabled !== true);
+  // ABB: the dialog is only mounted while it is open, so it owns back for its
+  // whole life.
+  useMobileBack(true, onCancel);
   const usageEditable = target.modelKind === 'agent';
   useEffect(() => acquireTitleBarDim(), []);
   return createPortal(<div className="schedules-dialog-layer"

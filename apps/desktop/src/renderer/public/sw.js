@@ -1,4 +1,9 @@
-const ASSET_CACHE = "mixdog-assets-v1";
+// v2 retires every v1 entry: those were stored with the relay's
+// Content-Encoding header still attached to an ALREADY DECODED body, so
+// replaying one made the browser try to brotli-decode plain JavaScript and the
+// app failed to boot on its next visit (user: Importing a module script
+// failed).
+const ASSET_CACHE = "mixdog-assets-v2";
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
 
@@ -30,6 +35,21 @@ async function trimCache(cache) {
   }
 }
 
+// A fetched Response hands over a DECODED body while keeping the transfer
+// headers that described the encoded one. Storing that pair makes the next
+// replay decode already-plain bytes, so the transfer description is dropped
+// before the copy is retained.
+async function storableCopy(response) {
+  const headers = new Headers(response.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  return new Response(await response.clone().arrayBuffer(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 async function cacheFirst(request) {
   const cache = await caches.open(ASSET_CACHE);
   // ignoreVary: the relay varies on Accept-Encoding, which the page cannot
@@ -41,8 +61,10 @@ async function cacheFirst(request) {
   // gate or an opaque response would otherwise pin itself for the lifetime of
   // the installed app.
   if (response.ok && response.type === "basic") {
-    await cache.put(request, response.clone());
-    void trimCache(cache);
+    try {
+      await cache.put(request, await storableCopy(response));
+      void trimCache(cache);
+    } catch { /* a cache that cannot accept the copy still serves the network */ }
   }
   return response;
 }

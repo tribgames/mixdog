@@ -22,7 +22,7 @@ interface DesktopTitlebarProps {
 }
 
 function SidebarToggleIcon({ open }: { open: boolean }) {
-  // VS Code's own codicon glyph (user: B안 — codicon 도입): font-rendered on
+  // Codicon glyph (user: B안 — codicon 도입): font-rendered on
   // the 16px grid so its lines land on device pixels, unlike lucide's 24-grid
   // SVGs whose strokes go fractional when scaled to 16/18px boxes.
   return <span className="sidebar-toggle-icon codicon codicon-layout-sidebar-left"
@@ -57,7 +57,7 @@ export function DesktopTitlebar({
     <header className="topbar" aria-label={t("Window bar")}>
       {/* No brand mark (user: 로고는 날려버리고) — the bar opens straight on
           the navigation cluster and stays the drag band. */}
-      {/* LEFT cluster: the brand mark only (VS Code grammar — user: 왼쪽
+      {/* LEFT cluster: the brand mark only (user: 왼쪽
           사이드탭 열기는 오른쪽으로, 그 자리에 로고). The sidebar toggle
           moved into the right layout cluster below. */}
       <div className="titlebar-leading titlebar-nav" aria-label={t("Navigation")}>
@@ -70,7 +70,7 @@ export function DesktopTitlebar({
           updater badge + bottom-panel + right-dock toggles, ahead of the
           native caption reserve. */}
       <div className="titlebar-leading titlebar-controls" aria-label={t("Layout controls")}>
-        {/* The updater is the leftmost control; VS Code layout controls follow
+        {/* The updater is the leftmost control; the layout controls follow
             in primary-sidebar, panel, secondary-sidebar order. */}
         {updateVisible && (
           <button

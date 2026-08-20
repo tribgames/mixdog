@@ -1,7 +1,7 @@
 /**
  * termio-keypress.js — chunked keypress pipeline built on the termio tokenizer.
  *
- * Ported from claude-code src/ink/parse-keypress.ts (parseMultipleKeypresses +
+ * Keypress parsing (parseMultipleKeypresses +
  * paste IN_PASTE buffering + orphaned mouse-tail resynthesis + terminal-response
  * / SGR-mouse recognition) to plain ESM JS.
  *

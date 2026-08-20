@@ -47,7 +47,7 @@ button { color: inherit; }
   flex-direction: column;
   overflow: hidden;
 }
-/* Collapse/expand commits final geometry in one frame (VS Code grammar,
+/* Collapse/expand commits final geometry in one frame (per the
    user decision) — width easing rewrapped workspace text on every frame. */
 .sidebar-collapsed .sidebar {
   width: 0;
@@ -99,7 +99,7 @@ button { color: inherit; }
   display: flex;
   flex-direction: column;
   /* Pane minimums win over the viewport: past the aggregate floor the
-     workspace scrolls (VS Code refuses instead; scroll keeps every pane
+     workspace scrolls (refusing would be worse; scroll keeps every pane
      usable). */
   overflow: auto;
 }

@@ -34,10 +34,13 @@ import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 
 import {
+  deviceCookieHeaders,
+  mergeCookieHeaders,
   pairingCookieHeaders,
+  parseCookieDevice,
   parseCookieToken,
   resolveStaticTarget,
-  sendInheritStartUrlManifest,
+  sendDeviceManifest,
   sendStaticFile,
 } from './lib/static-http.mjs';
 import { parseMediaRequest } from './lib/media-http.mjs';
@@ -126,6 +129,31 @@ export const PUBLIC_APP_ASSETS = new Set([
   '/mixdog-192.png',
   '/mixdog-512.png',
 ]);
+
+// Approval handoff. A freshly installed web app has an EMPTY storage
+// container — no token, and on iOS no way to inherit one from the browser that
+// installed it. The device route it launches at names the desktop to ask, this
+// relay forwards the request, and the desktop's approval is what mints the
+// per-browser credential. Pending claims are short-lived and bounded: they are
+// unauthenticated state.
+export const MAX_PENDING_CLAIMS = 64;
+export const CLAIM_TTL_MS = 180_000;
+
+/** `/d/<deviceId>/...` — the install/approval entry for one desktop. The id
+ *  is a routing label, never a credential: it opens the shell that asks for
+ *  approval and nothing else. */
+export function parseDeviceRoute(pathname) {
+  const match = /^\/d\/([0-9a-f-]{8,64})(\/.*)?$/.exec(String(pathname || ''));
+  if (!match) return null;
+  const rest = match[2] || '';
+  return {
+    deviceId: match[1],
+    // Relative asset/manifest hrefs in index.html only resolve inside the
+    // route when it ends in a slash.
+    redirect: rest === '',
+    rest: rest === '' || rest === '/' ? '/index.html' : rest,
+  };
+}
 
 export function phoneClientCapacityAvailable(clientCount) {
   return Number(clientCount) < MAX_PHONE_CLIENTS_PER_DEVICE;
@@ -847,6 +875,116 @@ async function handleClientRegistration(store, unauthorizedLimiter, request, res
   }).end(JSON.stringify({ clientId, token: registered.token }));
 }
 
+/**
+ * `POST /claim` + `GET /claim/<claimId>` — approval handoff for a container
+ * that holds no credential yet.
+ *
+ * The relay routes and stores, it never authorizes: the desktop decides, and
+ * the pairing material it returns is sealed to the browser's throwaway public
+ * key, so this hop forwards a box it cannot open.
+ */
+async function handleClaimRequest(context, request, response) {
+  const { store, liveDesktops, claims, unauthorizedLimiter } = context;
+  const json = (status, body) => {
+    response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      .end(JSON.stringify(body));
+  };
+  let url;
+  let pathname;
+  try {
+    url = new URL(request.url || '/', 'http://localhost');
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+  for (const [id, pending] of claims) {
+    if (pending.expiresAt <= Date.now()) claims.delete(id);
+  }
+  if (request.method === 'GET' && pathname.startsWith('/claim/')) {
+    const claim = claims.get(pathname.slice('/claim/'.length));
+    if (!claim) {
+      json(200, { status: 'expired' });
+      return;
+    }
+    if (claim.status !== 'approved') {
+      json(200, { status: claim.status });
+      return;
+    }
+    // One-shot: the credential leaves this relay exactly once.
+    claims.delete(claim.id);
+    json(200, {
+      status: 'approved',
+      clientId: claim.clientId,
+      token: claim.token,
+      sealed: claim.sealed,
+    });
+    return;
+  }
+  if (request.method !== 'POST' || pathname !== '/claim') {
+    response.writeHead(405).end();
+    return;
+  }
+  if (!browserSocketOriginAllowed(request)) {
+    response.writeHead(403).end();
+    return;
+  }
+  let body;
+  try {
+    body = await readBoundedJson(request);
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+  const deviceId = String(body?.deviceId || '');
+  const clientId = String(body?.clientId || '');
+  const publicKey = String(body?.publicKey || '');
+  if (!/^[0-9a-f-]{8,64}$/.test(deviceId)
+    || !/^[0-9a-f-]{8,64}$/.test(clientId)
+    || !/^[A-Za-z0-9_-]{86,88}$/.test(publicKey)
+    || !store.isKnown(deviceId)) {
+    if (!unauthorizedLimiter.allow(clientIp(request))) {
+      response.writeHead(429, { 'Retry-After': '60' }).end();
+      return;
+    }
+    response.writeHead(404).end();
+    return;
+  }
+  const entry = liveDesktops.get(deviceId);
+  if (!entry || entry.socket.readyState !== entry.socket.OPEN) {
+    json(503, { status: 'offline' });
+    return;
+  }
+  if (claims.size >= MAX_PENDING_CLAIMS) {
+    json(503, { status: 'busy' });
+    return;
+  }
+  const profile = {
+    name: String(body?.name || 'Web app').slice(0, 80),
+    platform: String(body?.platform || '').slice(0, 80),
+    browser: String(body?.browser || '').slice(0, 80),
+  };
+  const id = randomUUID();
+  claims.set(id, {
+    id,
+    deviceId,
+    clientId,
+    profile,
+    status: 'pending',
+    token: '',
+    sealed: null,
+    expiresAt: Date.now() + CLAIM_TTL_MS,
+  });
+  try {
+    entry.socket.send(JSON.stringify({ type: 'client-claim', claimId: id, publicKey, ...profile }));
+  } catch {
+    claims.delete(id);
+    json(503, { status: 'offline' });
+    return;
+  }
+  json(202, { claimId: id });
+}
+
 function serveStatic(rendererDir, store, unauthorizedLimiter, request, response) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405).end();
@@ -865,15 +1003,23 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
     response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"status":"ok"}');
     return;
   }
-  // Token gate: the web app is for paired browsers only. The pairing QR
-  // carries ?token= on the entry URL; a cookie forwards it to asset requests.
-  // Bots probing GET / see 401, never the app shell.
+  // Gate: an approved browser presents its per-browser token (Authorization,
+  // or this cookie for plain asset requests). A container with no credential
+  // yet may still reach the shell through its device route — that shell can
+  // only show the install guide and ask the desktop for approval, and the
+  // bundle behind it holds no user data. Bots probing GET / see 401.
   // Installability metadata is exempt: browsers fetch the manifest and its
   // icons WITHOUT credentials, and a 401 there silently downgrades "install
   // app" to an icon-less shortcut. These assets carry no user data.
+  const route = parseDeviceRoute(pathname);
   const queryToken = url.searchParams.get('token') || '';
   const token = queryToken || parseCookieToken(request.headers.cookie);
-  if (!PUBLIC_APP_ASSETS.has(pathname) && (!token || !store.deviceIdForClientToken(token))) {
+  const cookieDevice = parseCookieDevice(request.headers.cookie);
+  const routeDevice = route?.deviceId || cookieDevice;
+  const routeAllowed = Boolean(routeDevice) && store.isKnown(routeDevice);
+  if (!PUBLIC_APP_ASSETS.has(pathname)
+    && !routeAllowed
+    && (!token || !store.deviceIdForClientToken(token))) {
     // Bounded probing: a scanner hammering the gate gets throttled instead of
     // buying unlimited token guesses and log noise.
     if (!unauthorizedLimiter.allow(clientIp(request))) {
@@ -889,13 +1035,26 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
       .end('Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.');
     return;
   }
-  // Home Screen install handoff (sendInheritStartUrlManifest): opt-in per
-  // request, so a Chromium install still reads the canonical manifest.
-  if (pathname === '/manifest.webmanifest' && url.searchParams.get('inherit') === '1') {
-    const manifest = resolveStaticTarget(rendererDir, pathname);
-    if (manifest.status === 200
-      && sendInheritStartUrlManifest(request, response, manifest.target)) return;
-    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
+  if (route) {
+    if (route.redirect) {
+      response.writeHead(301, { Location: `/d/${route.deviceId}/` }).end();
+      return;
+    }
+    // The install captures start_url, so the manifest under a device route
+    // must point back at that same route.
+    if (route.rest === '/manifest.webmanifest') {
+      const manifest = resolveStaticTarget(rendererDir, route.rest);
+      if (manifest.status === 200
+        && sendDeviceManifest(request, response, manifest.target, route.deviceId)) return;
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
+      return;
+    }
+    const scoped = resolveStaticTarget(rendererDir, route.rest);
+    if (scoped.status !== 200) {
+      response.writeHead(scoped.status === 403 ? 403 : 404).end();
+      return;
+    }
+    sendStaticFile(request, response, scoped.target, deviceCookieHeaders(route.deviceId, request));
     return;
   }
   const resolved = resolveStaticTarget(rendererDir, pathname);
@@ -907,7 +1066,12 @@ function serveStatic(rendererDir, store, unauthorizedLimiter, request, response)
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
     return;
   }
-  sendStaticFile(request, response, resolved.target, pairingCookieHeaders(queryToken, request));
+  sendStaticFile(request, response, resolved.target, mergeCookieHeaders(
+    pairingCookieHeaders(queryToken, request),
+    // A root asset request proves the container still belongs to this route;
+    // refreshing the cookie keeps a long-lived install from aging out of it.
+    routeAllowed && !route ? deviceCookieHeaders(routeDevice, request) : {},
+  ));
 }
 
 export async function startRelay({
@@ -924,6 +1088,8 @@ export async function startRelay({
   const liveDesktops = new Map();
   // hook deviceId -> { socket, pending: Map<requestId, {response, timer}> }
   const liveHooks = new Map();
+  // claimId -> pending approval for a container that has no credential yet.
+  const claims = new Map();
   // Abuse guards for the unauthenticated surfaces: public webhook ingress,
   // trust-on-first-use device registration, and pairing-token probing.
   const hookLimiter = new RateLimiter(HOOK_RATE_LIMIT, HOOK_RATE_WINDOW_MS);
@@ -943,6 +1109,16 @@ export async function startRelay({
     }
     if ((request.url || '').startsWith('/client/register')) {
       void handleClientRegistration(store, unauthorizedLimiter, request, response);
+      return;
+    }
+    // Approval handoff: the only surface a credential-less container may use,
+    // and it grants nothing without the desktop's answer.
+    if ((request.url || '').startsWith('/claim')) {
+      void handleClaimRequest(
+        { store, liveDesktops, claims, unauthorizedLimiter },
+        request,
+        response,
+      );
       return;
     }
     // Media is a byte lane: it answers before the app shell so a gallery tile
@@ -1027,7 +1203,7 @@ export async function startRelay({
         return;
       }
       wss.handleUpgrade(request, rawSocket, head, (socket) =>
-        runDesktopLeg({ store, sendJson, attachDesktop, liveDesktops }, deviceId, socket));
+        runDesktopLeg({ store, sendJson, attachDesktop, liveDesktops, claims }, deviceId, socket));
       return;
     }
     if (url.pathname === '/ws') {
@@ -1158,7 +1334,7 @@ if (invokedDirectly) {
 }
 
 function runDesktopLeg(context, deviceId, socket) {
-  const { store, sendJson, attachDesktop, liveDesktops } = context;
+  const { store, sendJson, attachDesktop, liveDesktops, claims } = context;
   const entry = attachDesktop(deviceId, socket);
   let revoked = false;
   socket.isAlive = true;
@@ -1201,6 +1377,30 @@ function runDesktopLeg(context, deviceId, socket) {
     }
     if (message.type === 'set-client-token' && typeof message.token === 'string' && message.token.length >= 16) {
       store.setClientToken(deviceId, message.token);
+      return;
+    }
+    // The approval itself. Only the desktop the claim named may answer it, and
+    // only then does a credential exist for that container.
+    if (message.type === 'claim-approve' && typeof message.claimId === 'string') {
+      const claim = claims?.get(message.claimId);
+      if (!claim || claim.deviceId !== deviceId || claim.status !== 'pending') return;
+      if (claim.expiresAt <= Date.now()) {
+        claims.delete(claim.id);
+        return;
+      }
+      const registered = store.registerClient(deviceId, claim.clientId, claim.profile);
+      if (!registered) {
+        claim.status = 'denied';
+        return;
+      }
+      claim.token = registered.token;
+      claim.sealed = message.sealed ?? null;
+      claim.status = 'approved';
+      return;
+    }
+    if (message.type === 'claim-deny' && typeof message.claimId === 'string') {
+      const claim = claims?.get(message.claimId);
+      if (claim && claim.deviceId === deviceId) claim.status = 'denied';
       return;
     }
     if (message.type === 'list-clients' && typeof message.requestId === 'string') {

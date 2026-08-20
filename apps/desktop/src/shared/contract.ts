@@ -55,6 +55,7 @@ export const DESKTOP_IPC = {
   renameSession: 'mixdog:rename-session',
   setSessionArchived: 'mixdog:set-session-archived',
   deleteSession: 'mixdog:delete-session',
+  inheritSession: 'mixdog:inherit-session',
   remoteAccessInfo: 'mixdog:remote-access-info',
   rotateRemoteAccess: 'mixdog:rotate-remote-access',
   revokeRemoteAccessClient: 'mixdog:revoke-remote-access-client',
@@ -531,6 +532,7 @@ export const DESKTOP_CAPABILITIES = [
   'getVoiceStatus',
   'toggleVoice',
   'agentControl',
+  'taskControl',
   'toolsStatus',
   'selectTools',
   'getSystemShell',
@@ -740,7 +742,7 @@ export interface DesktopGithubCliLoginFlow {
 
 /** The signed-in GitHub account (gh api user); the identity source of truth
  *  for git's user.name/user.email. `email` falls back to the account's
- *  noreply address when no public email is set (GitHub Desktop's default). */
+ *  noreply address when no public email is set (the default). */
 export interface DesktopGithubCliAccount {
   login: string;
   name: string;
@@ -1507,6 +1509,13 @@ export interface DesktopApi {
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   deleteSession(sessionId: string): Promise<SessionSnapshot>;
+  /** /inherit — copy this conversation into a NEW session id that runs on the
+   *  supplied (currently selected) model. The source session is left as it is,
+   *  so both transcripts continue from the same point. */
+  inheritSession(
+    sourceSessionId: string,
+    route?: DesktopModelSelection | null,
+  ): Promise<{ sessionId: string; snapshot: SessionSnapshot | null }>;
   /** Settings → Connection: pairing QRs + URLs for the phone remote. Only
    *  the in-process desktop implements it (null while the bridge is off);
    *  the remote shim omits it — a phone never needs its own pairing card. */
@@ -1607,7 +1616,7 @@ export interface DesktopApi {
   /** Diff tab editor mode: file content at `HEAD`/`:0`/commit (null if absent). */
   gitShowFile?(cwd: string, rev: string, path: string): Promise<string | null>;
   /**
-   * History context menu, gated the way GitHub Desktop gates it: only
+   * History context menu, gated narrowly: only
    * cherry-pick refuses on top of a live operation or a dirty worktree
    * (naming the files), checkout/branch carry safe local changes across, and
    * revert is left to git. A conflicted cherry-pick/revert stays resolvable
@@ -1628,7 +1637,7 @@ export interface DesktopApi {
   gitCherryPickCommit?(cwd: string, hash: string): Promise<string>;
   gitCreateTag?(cwd: string, tag: string, hash: string): Promise<string>;
   gitDeleteTag?(cwd: string, tag: string): Promise<string>;
-  /** Check out `hash` itself: a detached HEAD, as GitHub Desktop does. */
+  /** Check out `hash` itself: a detached HEAD. */
   gitCheckoutCommit?(cwd: string, hash: string): Promise<string>;
   gitCreateBranchAtCommit?(cwd: string, branch: string, hash: string): Promise<string>;
   /** Review pane: cumulative diff of the working tree vs merge-base(origin default branch, HEAD). */

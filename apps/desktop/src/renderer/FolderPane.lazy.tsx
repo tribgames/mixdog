@@ -49,6 +49,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DesktopFolderEntry, DesktopFolderPlace } from "../shared/contract";
 import { isLocalTextFilePath } from "../shared/local-files";
 import { validateExplorerName, wellFormedExplorerName } from "./explorer-logic";
+import { useMobileBack } from "./mobile-back";
 import {
   MIXDOG_ABSOLUTE_PATHS_MIME,
   MIXDOG_PROJECT_PATHS_MIME,
@@ -228,6 +229,13 @@ export default function FolderPane({
   const [conflictAsk, setConflictAsk] = useState<{
     paths: string[]; targetDir: string; conflicts: string[]; onSuccess?: () => void;
   } | null>(null);
+  // ABB: every transient layer this pane portals to the body closes on
+  // hardware back instead of letting the phone leave the PWA.
+  useMobileBack(Boolean(menu), () => setMenu(null));
+  useMobileBack(Boolean(toolMenu), () => setToolMenu(null));
+  useMobileBack(Boolean(crumbMenu), () => setCrumbMenu(null));
+  useMobileBack(Boolean(propsEntry), () => setPropsEntry(null));
+  useMobileBack(Boolean(conflictAsk), () => setConflictAsk(null));
   /** Explorer nav-pane rule: exactly ONE sidebar row highlights — the row
    *  the user last clicked ("place:…" or "tree:…"); plain navigation from
    *  the main area moves the highlight to the tree node. */
@@ -960,7 +968,7 @@ export default function FolderPane({
   }, [currentPath, transferInto]);
 
   /** Folders retain Explorer's immediate unique-name creation. Files follow
-   *  VS Code: show an empty inline input and touch disk only after Enter. */
+   *  suit: show an empty inline input and touch disk only after Enter. */
   const createNew = useCallback((dir: boolean) => {
     if (!dir) {
       newFileDraftRef.current = true;

@@ -11,10 +11,7 @@ import type {
   DesktopLspStatusEvent,
   DesktopRemoteProjectionState,
   DesktopSessionSummary,
-  DesktopStateFieldsPatch,
-  DesktopStateStreamingTailPatch,
   DesktopSessionStateUpdate,
-  DesktopTranscriptItem,
   DesktopUpdaterState,
   SessionSnapshot,
 } from '../shared/contract';
@@ -145,6 +142,32 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // frames on a PER CLIENT set, and a reconnect starts a fresh client record
   // with an empty one, so the shim replays this on every reopen.
   let lastVisibleSessionIds: string[] = [];
+  // Push lanes this browser actually reads. Terminal output, diagnostics and
+  // folder events are produced by DESKTOP activity — a build, a save — and
+  // used to reach every paired phone regardless of what it had open, so a
+  // phone left connected received entire build logs it never displayed.
+  // Registering the lanes stops them at the source. A reconnect replays this
+  // exactly like the visible-session set.
+  const activeLanes = new Set<string>();
+  const publishLanes = (): void => {
+    void call<boolean>('setRemoteLanes', [[...activeLanes]]).catch(() => {
+      // A missed registration is repaired by the reconnect replay.
+    });
+  };
+  const laneSubscription = <T>(lane: string, listeners: Set<T>, listener: T): (() => void) => {
+    listeners.add(listener);
+    if (listeners.size === 1) {
+      activeLanes.add(lane);
+      publishLanes();
+    }
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        activeLanes.delete(lane);
+        publishLanes();
+      }
+    };
+  };
   let everConnected = false;
   let everPaired = false;
   try { everPaired = localStorage.getItem(PAIRED_STORAGE_KEY) === '1'; } catch { /* no storage */ }
@@ -574,40 +597,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // uses (state-delta.ts): reassemble full snapshots here, and ask the
   // desktop for a resync when a patch does not match our base revision
   // (mid-stream join through the relay, missed frame).
-  let deltaItems: unknown[] = [];
-  let deltaStreamingTail: DesktopTranscriptItem | null = null;
-  let deltaStateFields: Record<string, unknown> = {};
-  let deltaRevision = -1;
+  const stateDecoder = createSnapshotDeltaDecoder();
   const sessionStateDecoders = new Map<
     string,
     ReturnType<typeof createSnapshotDeltaDecoder>
   >();
   const resetDeltaState = (): void => {
-    deltaRevision = -1;
-    deltaItems = [];
-    deltaStreamingTail = null;
-    deltaStateFields = {};
+    stateDecoder.reset();
     for (const decoder of sessionStateDecoders.values()) decoder.reset();
     sessionStateDecoders.clear();
     sessionsDecoder.reset();
     agentPoolDecoder.reset();
-  };
-  const stateFieldsFrom = (record: Record<string, unknown>): Record<string, unknown> => {
-    const fields: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(record)) {
-      if (
-        key !== 'items'
-        && key !== 'streamingTail'
-        && key !== '__itemsRevision'
-        && key !== '__itemsPatch'
-        && key !== '__streamingTailPatch'
-        && key !== '__streamingTailTextEpoch'
-        && key !== '__statePatch'
-      ) {
-        fields[key] = value;
-      }
-    }
-    return fields;
   };
   // stateResync only restores the bound-session state lane. The sessions/
   // agentPool/projection pushes and per-session sessionState lanes are
@@ -672,97 +672,18 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     fire('stateResync', []);
     refreshBroadcastLanes();
   };
+  // Reassembly is the shared snapshot decoder's job — it already handles both
+  // wire shapes (the original one and the compact frames a current desktop
+  // sends), including the legacy full snapshot whose missing revision leaves
+  // the next patch unverifiable. The shim only has to turn a rejected patch
+  // into a resync request.
   const applyStatePayload = (payload: unknown): SessionSnapshot | null => {
-    if (!payload || typeof payload !== 'object') return payload as SessionSnapshot;
-    const record = payload as Record<string, unknown>;
-    const patch = record.__itemsPatch as
-      { base?: unknown; revision?: unknown; prefix?: unknown; append?: unknown } | undefined;
-    if (patch && typeof patch === 'object') {
-      const statePatch = record.__statePatch as DesktopStateFieldsPatch | undefined;
-      if (
-        patch.base !== deltaRevision
-        || !Number.isSafeInteger(patch.revision)
-        || !Number.isSafeInteger(patch.prefix)
-        || (patch.prefix as number) < 0
-        || (patch.prefix as number) > deltaItems.length
-        || !Array.isArray(patch.append)
-        || (statePatch && (
-          statePatch.base !== deltaRevision
-          || statePatch.revision !== patch.revision
-          || !statePatch.changed
-          || typeof statePatch.changed !== 'object'
-          || !Array.isArray(statePatch.removed)
-        ))
-      ) {
-        requestResync();
-        return null;
-      }
-      const prefix = patch.prefix as number;
-      const append = patch.append as unknown[];
-      const nextItems = prefix !== deltaItems.length || append.length > 0
-        ? deltaItems.slice(0, prefix).concat(append)
-        : deltaItems;
-      let nextStateFields: Record<string, unknown>;
-      if (statePatch) {
-        nextStateFields = { ...deltaStateFields };
-        for (const key of statePatch.removed) delete nextStateFields[key];
-        Object.assign(nextStateFields, statePatch.changed);
-      } else {
-        nextStateFields = stateFieldsFrom(record);
-      }
-      const tailPatch = record.__streamingTailPatch as DesktopStateStreamingTailPatch | undefined;
-      let nextStreamingTail = deltaStreamingTail;
-      if (tailPatch) {
-        const priorText = typeof deltaStreamingTail?.text === 'string'
-          ? deltaStreamingTail.text
-          : '';
-        if (
-          !deltaStreamingTail
-          || deltaStreamingTail.id == null
-          || deltaStreamingTail.id !== tailPatch.tail?.id
-          || !Number.isSafeInteger(tailPatch.prefix)
-          || tailPatch.prefix < 0
-          || tailPatch.prefix > priorText.length
-          || typeof tailPatch.append !== 'string'
-        ) {
-          requestResync();
-          return null;
-        }
-        nextStreamingTail = {
-          ...tailPatch.tail,
-          text: priorText.slice(0, tailPatch.prefix) + tailPatch.append,
-        };
-      } else if (Object.hasOwn(record, 'streamingTail')) {
-        nextStreamingTail = record.streamingTail && typeof record.streamingTail === 'object'
-          ? record.streamingTail as DesktopTranscriptItem
-          : null;
-      }
-      deltaItems = nextItems;
-      deltaStateFields = nextStateFields;
-      deltaStreamingTail = nextStreamingTail;
-      deltaRevision = patch.revision as number;
-      return {
-        ...deltaStateFields,
-        items: deltaItems,
-        streamingTail: deltaStreamingTail,
-      } as SessionSnapshot;
+    const decoded = stateDecoder.decode(payload);
+    if (!decoded.ok) {
+      requestResync();
+      return null;
     }
-    if (typeof record.__itemsRevision === 'number') {
-      deltaRevision = record.__itemsRevision;
-      deltaItems = Array.isArray(record.items) ? record.items as unknown[] : [];
-      deltaStreamingTail = record.streamingTail && typeof record.streamingTail === 'object'
-        ? record.streamingTail as DesktopTranscriptItem
-        : null;
-      deltaStateFields = stateFieldsFrom(record);
-      const clean: Record<string, unknown> = { ...record };
-      delete clean.__itemsRevision;
-      delete clean.__streamingTailTextEpoch;
-      return clean as unknown as SessionSnapshot;
-    }
-    // Legacy full snapshot without revision: future patches cannot verify
-    // their base against it, so force the next patch through a resync.
-    resetDeltaState();
-    return payload as SessionSnapshot;
+    return decoded.snapshot as SessionSnapshot;
   };
 
   // Compact transcript envelope. The desktop addresses a session by handle
@@ -806,7 +727,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     clearWakePongTimer();
     if ('pong' in frame) return;
     let message = frame;
-    if (frame.e === 'T') {
+    if (frame.e === 'S') {
+      // Compact app-state push: same payload, envelope reduced to two keys.
+      const wire = frame.w;
+      if (wire && typeof wire === 'object' && !Object.hasOwn(wire, '__itemsRevision')) {
+        markCompactWire(wire as Record<string, unknown>);
+      }
+      message = { event: 'state', payload: wire };
+    } else if (frame.e === 'T') {
       const expanded = expandCompactFrame(frame);
       if (!expanded) {
         // This browser's handle map disagrees with the desktop's. Only a fresh
@@ -1134,6 +1062,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
                 // The reconnect loop or the next pane registration retries it.
               }
             }
+            // Always announced, even when empty: that is what tells the fresh
+            // client record this browser speaks the lane protocol and wants
+            // nothing but what it asks for.
+            publishLanes();
             refreshBroadcastLanes();
           })();
         }
@@ -1371,14 +1303,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     lspRequest: (input) => call('lspRequest', [input]),
     lspApplyWorkspaceEdit: (projectPath, writes) =>
       call('lspApplyWorkspaceEdit', [projectPath, writes]),
-    subscribeLspDiagnostics: (listener) => {
-      lspDiagnosticsListeners.add(listener);
-      return () => { lspDiagnosticsListeners.delete(listener); };
-    },
-    subscribeLspStatus: (listener) => {
-      lspStatusListeners.add(listener);
-      return () => { lspStatusListeners.delete(listener); };
-    },
+    subscribeLspDiagnostics: (listener) =>
+      laneSubscription('editor', lspDiagnosticsListeners, listener),
+    subscribeLspStatus: (listener) =>
+      laneSubscription('editor', lspStatusListeners, listener),
     // ── Explorer pane (absolute-path local browsing) ───────────────────────
     // Native pickers belong to the desktop window; every caller already reads
     // null as "nothing was chosen".
@@ -1403,10 +1331,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     folderPathForFile: () => '',
     folderWatch: (dir) => call('folderWatch', [dir]),
     folderUnwatch: (dir) => call('folderUnwatch', [dir]),
-    subscribeFolderChanges: (listener) => {
-      folderChangeListeners.add(listener);
-      return () => { folderChangeListeners.delete(listener); };
-    },
+    subscribeFolderChanges: (listener) =>
+      laneSubscription('files', folderChangeListeners, listener),
     resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
     readLocalFile: (path) => call('readLocalFile', [path]),
     listSessions: () => call('listSessions'),
@@ -1451,10 +1377,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     termWrite: (id, data) => fire('termWrite', [id, data]),
     termResize: (id, cols, rows) => fire('termResize', [id, cols, rows]),
     termDispose: (id) => call('termDispose', [id]),
-    subscribeTermData: (listener) => {
-      termListeners.add(listener);
-      return () => { termListeners.delete(listener); };
-    },
+    subscribeTermData: (listener) => laneSubscription('terminal', termListeners, listener),
     gitStatus: (cwd) => call('gitStatus', [cwd]),
     gitBranches: (cwd) => call('gitBranches', [cwd]),
     gitCheckoutBranch: (cwd, branch, remote) =>
@@ -1537,6 +1460,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       sessionStateListeners.add(listener);
       return () => { sessionStateListeners.delete(listener); };
     },
+    inheritSession: (sourceSessionId, selection) =>
+      call('inheritSession', [sourceSessionId, selection ?? null]),
     listProviderModels: (options) => call('listProviderModels', [options]),
     setModelRoute: (selection, sessionId) => call('setModelRoute', [selection, sessionId]),
     setFast: (enabled, sessionId) => call('setFast', [enabled, sessionId]),

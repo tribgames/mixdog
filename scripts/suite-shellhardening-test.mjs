@@ -16,6 +16,7 @@ import {
   executeBashTool,
 } from '../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import {
+  buildPowerShellFilterTeePlan,
   planLongInlineScriptFileTransport,
   planLongShellScriptFileTransport,
   preflightPowerShellHygiene,
@@ -252,17 +253,30 @@ test('auto-background partial output shares one strict UTF-8 byte budget', () =>
 test('shell execution policy matches sync-first background-task parity', () => {
     assert.equal(DEFAULT_SHELL_AUTO_BACKGROUND_MS, 15_000);
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-    assert.deepEqual(Object.keys(shellTool.inputSchema.properties), ['command', 'run_in_background']);
-    assert.equal(shellTool.inputSchema.properties.timeout_ms, undefined);
-    assert.match(shellTool.description, /after 15s.*continues.*task_id.*notification/i);
+    assert.deepEqual(
+      Object.keys(shellTool.inputSchema.properties),
+      ['command', 'timeout_ms', 'run_in_background', 'monitor_interval_ms'],
+    );
+    assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
+    assert.equal(shellTool.inputSchema.properties.monitor_interval_ms.default, 0);
+    assert.match(shellTool.description, /15s foreground window.*continues.*task_id.*notification/i);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');
-    assert.match(taskTool.description, /List shell tasks.*snapshot.*cancel.*notification/i);
-    assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'cancel']);
+    assert.match(taskTool.description, /List shell tasks.*snapshot.*monitoring.*cancel.*notification/i);
+    assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'monitor', 'cancel']);
     assert.deepEqual(taskTool.inputSchema.required, ['action']);
     assert.equal(taskTool.inputSchema.properties.timeout_ms, undefined);
-    assert.equal(taskTool.inputSchema.properties.action.description, 'list all; read snapshot; cancel task.');
-    assert.equal(taskTool.inputSchema.properties.task_id.description, 'Shell task_id; required for read/cancel.');
+    assert.equal(taskTool.inputSchema.properties.action.description, 'list all; read snapshot; monitor changes periodic progress; cancel task.');
+    assert.equal(taskTool.inputSchema.properties.task_id.description, 'Shell task_id; required for read/monitor/cancel.');
+});
+
+test('PowerShell filter plan preserves the producer native exit code', () => {
+    const plan = buildPowerShellFilterTeePlan('node -e "process.exit(7)" 2>&1 | Select-String impossible');
+    assert.ok(plan);
+    assert.match(plan.command, /= \[ref\]0;/);
+    assert.match(plan.command, /\$global:LASTEXITCODE = 0;/);
+    assert.match(plan.command, /\.Value = \$global:LASTEXITCODE/);
+    assert.match(plan.command, /; exit \$__mixdogProducerExit[0-9a-f]+\.Value$/);
 });
 
 test('resident native search consumes asynchronous stdin EPIPE', () => {
@@ -826,6 +840,18 @@ test('integration: live pwsh no-match search head (findstr) exits 1', (t) => {
         "'aaa' | findstr zzz; exit $LASTEXITCODE",
     ], { encoding: 'utf8' });
     assert.equal(r.status, 1, 'findstr with no match must exit 1');
+});
+
+test('integration: shell keeps a failed PowerShell pipeline producer exit', {
+    skip: process.platform !== 'win32',
+}, async () => {
+    const result = normalizeToolEnvelope(await executeBashTool({
+        command: `node -e 'process.stdout.write("producer-failed"); process.exit(7)' 2>&1 | Select-String impossible`,
+        timeout_ms: 10_000,
+    }, process.cwd()));
+    assert.match(result.result, /^\[exit code: 7\]/);
+    assert.match(result.result, /filter-swallowed output rescue/);
+    assert.match(result.result, /producer-failed/);
 });
 
 test('integration: live git diff --quiet on a dirty repo exits 1', (t) => {

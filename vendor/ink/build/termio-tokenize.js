@@ -1,251 +1,186 @@
 /**
- * Input Tokenizer - Escape sequence boundary detection
+ * termio-tokenize.js — terminal input split into text runs and raw escape
+ * sequences, per the ECMA-48 control-function shapes.
  *
- * Ported from claude-code src/ink/termio/tokenize.ts (+ ansi.ts / csi.ts
- * byte-range helpers) to plain ESM JS. Splits terminal input into tokens:
- * text chunks and raw escape sequences. Unlike a semantic parser this just
- * identifies boundaries for keyboard input parsing.
+ * This is a BOUNDARY scanner, not a semantic parser: it answers only "where
+ * does this escape sequence end", leaving interpretation to the keypress
+ * layer. Each ESC found in the stream is handed to a family scanner that
+ * either reports the end offset, reports that the stream ran out mid-sequence
+ * (so the tail is carried into the next feed), or rejects the sequence — in
+ * which case the ESC and everything scanned after it degrade to plain text,
+ * exactly as a terminal would display them.
  *
  * Token shape: { type: 'text' | 'sequence', value: string }
  */
 
-// C0 control chars we care about.
-const C0 = { BEL: 0x07, ESC: 0x1b };
+const ESC = 0x1b;
+const BEL = 0x07;
 
-// Byte after ESC selecting the sequence type.
-const ESC_TYPE = {
-  CSI: 0x5b, // [
-  OSC: 0x5d, // ]
-  DCS: 0x50, // P
-  APC: 0x5f, // _
-  ST: 0x5c, // \
-};
+// Byte directly after ESC that opens a multi-byte family.
+const OPEN_CSI = 0x5b; // [
+const OPEN_OSC = 0x5d; // ]
+const OPEN_DCS = 0x50; // P
+const OPEN_APC = 0x5f; // _
+const OPEN_SS3 = 0x4f; // O
+const STRING_TERMINATOR = 0x5c; // \  (as ESC \)
+const X10_MOUSE_FINAL = 0x4d; // M
 
-// ESC sequences have a wider final-byte range than CSI (0-9,:,;,<,=,>,?,@..~)
-const isEscFinal = (byte) => byte >= 0x30 && byte <= 0x7e;
-const isCSIParam = (byte) => byte >= 0x30 && byte <= 0x3f;
-const isCSIIntermediate = (byte) => byte >= 0x20 && byte <= 0x2f;
-const isCSIFinal = (byte) => byte >= 0x40 && byte <= 0x7e;
+const within = (code, low, high) => code >= low && code <= high;
+// ECMA-48 byte classes. An ESC-introduced sequence accepts a wider final range
+// than a CSI body does, which is why the two predicates differ.
+const isParameter = (code) => within(code, 0x30, 0x3f);
+const isIntermediate = (code) => within(code, 0x20, 0x2f);
+const isControlFinal = (code) => within(code, 0x40, 0x7e);
+const isEscapeFinal = (code) => within(code, 0x30, 0x7e);
+
+const COMPLETE = (end) => ({ kind: 'complete', end });
+const PENDING = { kind: 'pending' };
+const LITERAL = (resume) => ({ kind: 'literal', resume });
 
 /**
- * Create a streaming tokenizer for terminal input.
- *
- * options.x10Mouse: treat `CSI M` as an X10 mouse event prefix and consume 3
- * payload bytes. Only enable for stdin — `\x1b[M` is also CSI DL (Delete
- * Lines) in output streams. Default false.
+ * X10 mouse payload plausibility. The legacy encoding puts three bytes after
+ * `CSI M`, each biased by 32, so every present slot must be >= 0x20. A control
+ * byte in any slot means this `M` really is CSI DL (Delete Lines) or the head
+ * of an adjacent sequence, and consuming three bytes would corrupt the stream.
+ * Absent slots pass: the decision is revisited once more input arrives.
  */
-export function createTokenizer(options) {
-  let currentState = 'ground';
-  let currentBuffer = '';
-  const x10Mouse = options?.x10Mouse ?? false;
-
-  return {
-    feed(input) {
-      const result = tokenize(input, currentState, currentBuffer, false, x10Mouse);
-      currentState = result.state.state;
-      currentBuffer = result.state.buffer;
-      return result.tokens;
-    },
-    flush() {
-      const result = tokenize('', currentState, currentBuffer, true, x10Mouse);
-      currentState = result.state.state;
-      currentBuffer = result.state.buffer;
-      return result.tokens;
-    },
-    reset() {
-      currentState = 'ground';
-      currentBuffer = '';
-    },
-    buffer() {
-      return currentBuffer;
-    },
-  };
+function x10PayloadPlausible(data, at) {
+  for (let slot = 1; slot <= 3; slot += 1) {
+    const index = at + slot;
+    if (index < data.length && data.charCodeAt(index) < 0x20) return false;
+  }
+  return true;
 }
 
-function tokenize(input, initialState, initialBuffer, flush, x10Mouse) {
+/** OSC / DCS / APC: opaque payload closed by BEL or ESC \. */
+function scanStringFamily(data, from) {
+  for (let at = from; at < data.length; at += 1) {
+    const code = data.charCodeAt(at);
+    if (code === BEL) return COMPLETE(at + 1);
+    const terminated = code === ESC
+      && at + 1 < data.length
+      && data.charCodeAt(at + 1) === STRING_TERMINATOR;
+    if (terminated) return COMPLETE(at + 2);
+  }
+  return PENDING;
+}
+
+/** CSI: parameter and intermediate bytes, closed by one final byte. */
+function scanControlSequence(data, start, x10Mouse) {
+  const body = start + 2;
+  for (let at = body; at < data.length; at += 1) {
+    const code = data.charCodeAt(at);
+    // `CSI M` with nothing in between is the X10 mouse prefix; SGR mouse
+    // (`CSI < … M`) carries parameters and so reaches its M further along.
+    if (x10Mouse && code === X10_MOUSE_FINAL && at === body && x10PayloadPlausible(data, at)) {
+      return at + 4 <= data.length ? COMPLETE(at + 4) : PENDING;
+    }
+    if (isControlFinal(code)) return COMPLETE(at + 1);
+    if (isParameter(code) || isIntermediate(code)) continue;
+    return LITERAL(at);
+  }
+  return PENDING;
+}
+
+/** ESC + intermediates (charset designators and friends) + one final byte. */
+function scanIntermediateEscape(data, from) {
+  for (let at = from; at < data.length; at += 1) {
+    const code = data.charCodeAt(at);
+    if (isIntermediate(code)) continue;
+    if (isEscapeFinal(code)) return COMPLETE(at + 1);
+    return LITERAL(at);
+  }
+  return PENDING;
+}
+
+/** Dispatch on the byte following ESC at `start`. */
+function scanEscape(data, start, x10Mouse) {
+  const head = start + 1;
+  if (head >= data.length) return PENDING;
+  const code = data.charCodeAt(head);
+  if (code === OPEN_CSI) return scanControlSequence(data, start, x10Mouse);
+  if (code === OPEN_OSC || code === OPEN_DCS || code === OPEN_APC) {
+    return scanStringFamily(data, head + 1);
+  }
+  if (code === OPEN_SS3) {
+    if (head + 1 >= data.length) return PENDING;
+    return isControlFinal(data.charCodeAt(head + 1)) ? COMPLETE(head + 2) : LITERAL(head + 1);
+  }
+  if (isIntermediate(code)) return scanIntermediateEscape(data, head + 1);
+  if (isEscapeFinal(code)) return COMPLETE(head + 1);
+  // ESC ESC: the first one stands alone so the second can open a fresh scan.
+  if (code === ESC) return COMPLETE(head);
+  return LITERAL(head);
+}
+
+function tokenize(input, carry, flush, x10Mouse) {
+  const data = carry + input;
   const tokens = [];
-  const result = { state: initialState, buffer: '' };
-
-  const data = initialBuffer + input;
-  let i = 0;
   let textStart = 0;
-  let seqStart = 0;
+  let cursor = 0;
+  let pendingAt = -1;
 
-  const flushText = () => {
-    if (i > textStart) {
-      const text = data.slice(textStart, i);
-      if (text) tokens.push({ type: 'text', value: text });
-    }
-    textStart = i;
+  const emitText = (to) => {
+    if (to <= textStart) return;
+    const value = data.slice(textStart, to);
+    if (value) tokens.push({ type: 'text', value });
   };
 
-  const emitSequence = (seq) => {
-    if (seq) tokens.push({ type: 'sequence', value: seq });
-    result.state = 'ground';
-    textStart = i;
-  };
-
-  while (i < data.length) {
-    const code = data.charCodeAt(i);
-
-    switch (result.state) {
-      case 'ground':
-        if (code === C0.ESC) {
-          flushText();
-          seqStart = i;
-          result.state = 'escape';
-          i++;
-        } else {
-          i++;
-        }
-        break;
-
-      case 'escape':
-        if (code === ESC_TYPE.CSI) {
-          result.state = 'csi';
-          i++;
-        } else if (code === ESC_TYPE.OSC) {
-          result.state = 'osc';
-          i++;
-        } else if (code === ESC_TYPE.DCS) {
-          result.state = 'dcs';
-          i++;
-        } else if (code === ESC_TYPE.APC) {
-          result.state = 'apc';
-          i++;
-        } else if (code === 0x4f) {
-          // 'O' - SS3
-          result.state = 'ss3';
-          i++;
-        } else if (isCSIIntermediate(code)) {
-          // Intermediate byte (e.g., ESC ( for charset) - continue buffering
-          result.state = 'escapeIntermediate';
-          i++;
-        } else if (isEscFinal(code)) {
-          // Two-character escape sequence
-          i++;
-          emitSequence(data.slice(seqStart, i));
-        } else if (code === C0.ESC) {
-          // Double escape - emit first, start new
-          emitSequence(data.slice(seqStart, i));
-          seqStart = i;
-          result.state = 'escape';
-          i++;
-        } else {
-          // Invalid - treat ESC as text
-          result.state = 'ground';
-          textStart = seqStart;
-        }
-        break;
-
-      case 'escapeIntermediate':
-        if (isCSIIntermediate(code)) {
-          i++;
-        } else if (isEscFinal(code)) {
-          i++;
-          emitSequence(data.slice(seqStart, i));
-        } else {
-          result.state = 'ground';
-          textStart = seqStart;
-        }
-        break;
-
-      case 'csi':
-        // X10 mouse: CSI M + 3 raw payload bytes (Cb+32, Cx+32, Cy+32).
-        // M immediately after [ (offset 2) means no params — SGR mouse
-        // (CSI < … M) has a `<` param byte first and reaches M at offset > 2.
-        // Terminals that ignore DECSET 1006 but honor 1000/1002 emit this
-        // legacy encoding; without this branch the 3 payload bytes leak
-        // through as text. Gated on x10Mouse — `\x1b[M` is also CSI DL and
-        // blindly consuming 3 chars corrupts output. The >=0x20 check on each
-        // payload slot is belt-and-suspenders: X10 guarantees Cb>=32, so a
-        // control byte (ESC) in any slot means this is CSI DL / adjacent
-        // PASTE_END, not a mouse event.
-        if (
-          x10Mouse &&
-          code === 0x4d /* M */ &&
-          i - seqStart === 2 &&
-          (i + 1 >= data.length || data.charCodeAt(i + 1) >= 0x20) &&
-          (i + 2 >= data.length || data.charCodeAt(i + 2) >= 0x20) &&
-          (i + 3 >= data.length || data.charCodeAt(i + 3) >= 0x20)
-        ) {
-          if (i + 4 <= data.length) {
-            i += 4;
-            emitSequence(data.slice(seqStart, i));
-          } else {
-            // Incomplete — exit loop; end-of-input buffers from seqStart.
-            i = data.length;
-          }
-          break;
-        }
-        if (isCSIFinal(code)) {
-          i++;
-          emitSequence(data.slice(seqStart, i));
-        } else if (isCSIParam(code) || isCSIIntermediate(code)) {
-          i++;
-        } else {
-          // Invalid CSI - abort, treat as text
-          result.state = 'ground';
-          textStart = seqStart;
-        }
-        break;
-
-      case 'ss3':
-        if (code >= 0x40 && code <= 0x7e) {
-          i++;
-          emitSequence(data.slice(seqStart, i));
-        } else {
-          result.state = 'ground';
-          textStart = seqStart;
-        }
-        break;
-
-      case 'osc':
-        if (code === C0.BEL) {
-          i++;
-          emitSequence(data.slice(seqStart, i));
-        } else if (
-          code === C0.ESC &&
-          i + 1 < data.length &&
-          data.charCodeAt(i + 1) === ESC_TYPE.ST
-        ) {
-          i += 2;
-          emitSequence(data.slice(seqStart, i));
-        } else {
-          i++;
-        }
-        break;
-
-      case 'dcs':
-      case 'apc':
-        if (code === C0.BEL) {
-          i++;
-          emitSequence(data.slice(seqStart, i));
-        } else if (
-          code === C0.ESC &&
-          i + 1 < data.length &&
-          data.charCodeAt(i + 1) === ESC_TYPE.ST
-        ) {
-          i += 2;
-          emitSequence(data.slice(seqStart, i));
-        } else {
-          i++;
-        }
-        break;
+  while (cursor < data.length) {
+    if (data.charCodeAt(cursor) !== ESC) {
+      cursor += 1;
+      continue;
     }
+    // Text accumulated so far closes here whether or not the sequence pans out;
+    // a rejected sequence simply opens the NEXT text run at this same ESC.
+    emitText(cursor);
+    const scan = scanEscape(data, cursor, x10Mouse);
+    if (scan.kind === 'complete') {
+      tokens.push({ type: 'sequence', value: data.slice(cursor, scan.end) });
+      cursor = scan.end;
+      textStart = cursor;
+      continue;
+    }
+    if (scan.kind === 'pending') {
+      pendingAt = cursor;
+      break;
+    }
+    textStart = cursor;
+    cursor = scan.resume;
   }
 
-  if (result.state === 'ground') {
-    flushText();
-  } else if (flush) {
-    const remaining = data.slice(seqStart);
-    if (remaining) tokens.push({ type: 'sequence', value: remaining });
-    result.state = 'ground';
-  } else {
-    result.buffer = data.slice(seqStart);
+  if (pendingAt < 0) {
+    emitText(data.length);
+    return { tokens, buffer: '' };
   }
+  if (!flush) return { tokens, buffer: data.slice(pendingAt) };
+  const tail = data.slice(pendingAt);
+  if (tail) tokens.push({ type: 'sequence', value: tail });
+  return { tokens, buffer: '' };
+}
 
-  return { tokens, state: result };
+/**
+ * Streaming tokenizer. The only state carried between calls is the unfinished
+ * sequence text; a scan always restarts from its leading ESC, so re-reading the
+ * carry reproduces the position the previous call stopped at.
+ *
+ * options.x10Mouse: treat `CSI M` as an X10 mouse prefix and consume 3 payload
+ * bytes. Enable for stdin only — `\x1b[M` is CSI DL in an output stream.
+ */
+export function createTokenizer(options) {
+  const x10Mouse = options?.x10Mouse ?? false;
+  let carry = '';
+  const run = (input, flush) => {
+    const result = tokenize(input, carry, flush, x10Mouse);
+    carry = result.buffer;
+    return result.tokens;
+  };
+  return {
+    feed: (input) => run(input, false),
+    flush: () => run('', true),
+    reset: () => { carry = ''; },
+    buffer: () => carry,
+  };
 }
 
 // Bracketed paste markers (DEC mode 2004).

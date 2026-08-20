@@ -59,7 +59,7 @@ jobs:
       matrix:     ${{ steps.check.outputs.matrix }}
       has_builds: ${{ steps.check.outputs.has_builds }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Check content-hash markers
         id: check
@@ -124,13 +124,13 @@ jobs:
         include: ${{ fromJSON(needs.gate.outputs.matrix) }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       # Cache the PG + pgvector build directory so unchanged versions skip
       # the 5-8 min source compile on every run. Hash key includes the build
       # script — script changes invalidate the cache and force a fresh build.
       - name: Cache build artifacts
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: build
           key: build-${{ matrix.os }}-${{ matrix.arch }}-pg16.4-pgvector0.8.2-${{ hashFiles(matrix.script) }}
@@ -141,7 +141,7 @@ jobs:
       # installed (or restored from this cache) every run.
       - name: Cache Windows PG 16 system install
         if: matrix.os == 'win32'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: 'C:\Program Files\PostgreSQL\16'
           key: pg16-system-win32-x64-16.4.0
@@ -167,7 +167,7 @@ jobs:
           Get-ChildItem dist/
 
       - name: Upload tarballs to release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
@@ -224,7 +224,7 @@ jobs:
           Set-Content -Path "dist\$Name" -Value $Json -Encoding UTF8
 
       - name: Upload build-success marker to release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist/build-success-*.marker
@@ -240,14 +240,14 @@ jobs:
       group: runtime-manifest-sync
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           # Generate and commit against the branch that bundles the manifest,
           # even when this workflow was started from a runtime-v* tag.
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
 
@@ -258,13 +258,13 @@ jobs:
         run: node scripts/generate-runtime-manifest.mjs
 
       - name: Upload manifest to release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: dist/runtime-manifest.json
 
       - name: Publish manifest as workflow artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: runtime-manifest
           path: dist/runtime-manifest.json

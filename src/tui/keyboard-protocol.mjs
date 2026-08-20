@@ -22,7 +22,7 @@ export const POP_KITTY = '\x1b[<u';
 export const DISABLE_MODIFY_OTHER_KEYS = '\x1b[>4;0m';
 
 // Allowlist of terminals known to honor kitty and/or xterm modifyOtherKeys.
-// VS Code's xterm.js
+// The xterm.js-based
 // integrated terminal mishandles these sequences, so it is excluded first.
 // Honors the MIXDOG_TUI_EXTENDED_KEYS opt-out (=0) / override (=1).
 export function supportsExtendedKeys() {

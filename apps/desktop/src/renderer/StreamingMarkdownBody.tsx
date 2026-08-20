@@ -99,7 +99,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // `parse` gates only whether NEW parses are requested. A tail past the cap
   // keeps its last completed parse on screen — falling back to source there
   // un-styled markdown that was already rendered, which is the one thing the
-  // reader must never see (opencode's projection never shows source either).
+  // reader must never see (the projection never shows source either).
   if (usable) {
     return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
   }

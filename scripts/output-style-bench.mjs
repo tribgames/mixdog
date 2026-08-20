@@ -115,19 +115,28 @@ function runInjectionScaffold() {
     ? JSON.parse(readFileSync(templatePath, 'utf8'))
     : { outputStyle: 'simple' };
   const sharedMarker = 'Lead with the answer or action';
+  const anchorMarker = 'does not apply to code or tool calls';
+  // One phrase per shared-format rule, each expected exactly once — a rule that
+  // gets restated in a second bullet fails the scaffold instead of shipping.
   const sharedFormatMarkers = [
-    'Choose the presentation from the content',
-    'no response shape is the default',
+    'Choose the shape from the content and the reader',
+    'no response shape is a default',
     'Never produce an essay-shaped wall of text',
     'Use tables only for short enumerable',
+    'Give each paragraph or list item one idea',
     'Do not restate the request',
   ];
+  // Every built-in depth variant uses the same Retain/Omit skeleton.
+  const depthMarkers = ['- Retain:', '- Omit:'];
   const markers = {
     detailed: 'concrete explanation',
     simple: 'concise summary',
     minimal: 'conclusion and core cause',
     'extreme-minimal': 'final decision or answer',
   };
+  // Marker checks run on whitespace-flattened text so rewrapping a rule at a
+  // different column never reads as a missing rule.
+  const flatten = (text) => String(text || '').replace(/\s+/g, ' ');
   const snippets = {};
   const aliasChecks = [];
   try {
@@ -136,13 +145,19 @@ function runInjectionScaffold() {
       mkdirSync(dataDir, { recursive: true });
       writeFileSync(join(dataDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle: styleId }, null, 2));
       snippets[styleId] = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: dataDir }));
+      const flat = flatten(snippets[styleId]);
       if (!snippets[styleId].startsWith(`# Output Style: `)) throw new Error(`${styleId} injection missing output-style header`);
-      if (!snippets[styleId].includes(markers[styleId])) throw new Error(`${styleId} injection marker missing`);
-      if (!snippets[styleId].includes(sharedMarker)) throw new Error(`${styleId} shared philosophy missing`);
-      for (const marker of sharedFormatMarkers) {
-        if (!snippets[styleId].includes(marker)) throw new Error(`${styleId} shared format marker missing: ${marker}`);
+      if (!flat.includes(anchorMarker)) throw new Error(`${styleId} injection missing the user-facing-text anchor`);
+      if (!flat.includes(markers[styleId])) throw new Error(`${styleId} injection marker missing`);
+      if (!flat.includes(sharedMarker)) throw new Error(`${styleId} shared philosophy missing`);
+      for (const marker of depthMarkers) {
+        if (!snippets[styleId].includes(marker)) throw new Error(`${styleId} depth variation missing "${marker}" line`);
       }
-      if (snippets[styleId].split(sharedMarker).length !== 2) throw new Error(`${styleId} shared philosophy duplicated`);
+      for (const marker of sharedFormatMarkers) {
+        if (!flat.includes(marker)) throw new Error(`${styleId} shared format marker missing: ${marker}`);
+        if (flat.split(marker).length !== 2) throw new Error(`${styleId} shared format rule duplicated: ${marker}`);
+      }
+      if (flat.split(sharedMarker).length !== 2) throw new Error(`${styleId} shared philosophy duplicated`);
     }
     if (new Set(STYLES.map((id) => snippets[id])).size !== STYLES.length) throw new Error('injection bodies not distinct');
     const sharedBlocks = STYLES.map((id) => snippets[id].slice(
@@ -156,11 +171,16 @@ function runInjectionScaffold() {
     if (builtinCatalog.some((style) => style.id === 'common')) {
       throw new Error('common partial leaked into selectable output styles');
     }
+    // Aliases now live only in frontmatter; `one_line` and `mono` prove the
+    // separator-insensitive match still resolves without a hardcoded map.
     for (const [alias, canonical] of [
       ['default', 'simple'],
       ['concise', 'simple'],
       ['verbose', 'detailed'],
+      ['brief', 'minimal'],
       ['extreme', 'extreme-minimal'],
+      ['one_line', 'extreme-minimal'],
+      ['mono', 'extreme-minimal'],
     ]) {
       const dataDir = join(baseDir, `alias-${alias}`);
       mkdirSync(dataDir, { recursive: true });
@@ -223,13 +243,18 @@ Standalone note — shared-format opt-out sentinel.`);
     if (standalone.includes(sharedMarker)) {
       throw new Error('keep-shared-format: false still inherited the shared format partial');
     }
+    // The anchor frames every style, including a full replacement.
+    if (!standalone.includes(anchorMarker)) {
+      throw new Error('opt-out style injection missing the user-facing-text anchor');
+    }
     return {
       snippets,
       aliasChecks,
       compositionChecks: [
-        'output-style header + shared format + selected depth variant',
+        'output-style header + user-facing-text anchor + shared format + depth variant',
         'custom styles inherit the shared format unless keep-shared-format: false',
-        'adaptive structure without a forced response shape',
+        'every shared format rule stated exactly once',
+        'built-in depth variants share one Retain/Omit skeleton',
       ],
     };
   } finally {

@@ -21,7 +21,7 @@
 .pane-leaf {
   display: flex;
   flex: 1 1 0%;
-  /* Chat-appropriate floor (the composer needs more than VS Code's 220x70).
+  /* Chat-appropriate floor (the composer needs more than a 220x70 floor).
      Height floor is 1.5x the width floor (user: 200px panes were too short
      to read a conversation). */
   min-width: min(var(--pane-min-width, 320px), 100%);
@@ -108,7 +108,7 @@
   background: var(--mx-focus);
 }
 
-/* VS Code-style bottom panel shell (BottomPanel.tsx). */
+/* Bottom panel shell (BottomPanel.tsx). */
 .bottom-panel {
   display: flex;
   flex-direction: column;
@@ -650,7 +650,7 @@
   background: color-mix(in srgb, var(--mx-focus) 22%, transparent);
   border-radius: 0;
   opacity: 1;
-  /* VS Code editordroptarget grammar: borderless wash (outline is a
+  /* Editor drop-target grammar: borderless wash (outline is a
      high-contrast-only affordance), 150ms fade-in per fresh overlay and a
      70ms glide between zones. The element remounts per pane, so the
      highlight never slides across panes. */
@@ -660,13 +660,13 @@
 @starting-style {
   .pane-drop-overlay { opacity: 0; }
 }
-/* Foreign-strip insertion caret (VS Code tabs-drop index feedback). */
+/* Foreign-strip insertion caret (tabs-drop index feedback). */
 .pane-drop-overlay.pane-drop-insert {
   background: var(--mx-focus);
   border-radius: 1px;
 }
 
-/* Per-pane tab strips (VS Code editor groups): each pane cell stacks its own
+/* Per-pane tab strips (editor groups): each pane cell stacks its own
    strip above its chat or file-editor surface. Full-page sidebar destinations
    hide pane strips entirely. The titlebar is a bare drag band again. */
 .main-panel > .pane-cell {
@@ -690,11 +690,11 @@
   /* The shell's titlebar-era flex would grow it along the cell column. */
   flex: 0 0 auto;
   align-self: stretch;
-  /* VS Code strip: tabs sit flush in a square band — no inset. */
+  /* Strip: tabs sit flush in a square band — no inset. */
   padding: 0;
   /* The tab band sits one step darker than the sheet and closes with a
      hairline, so the ACTIVE (sheet-colored) tab visibly connects to its
-     surface below — the VS Code editor-group look. */
+     surface below — the editor-group look. */
   background: var(--mx-window-band);
   border-bottom: 1px solid var(--mx-border);
 }

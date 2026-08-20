@@ -144,48 +144,70 @@
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
 /* Push-to-talk dictation states on the mic tool. */
 .composer-mic { margin-left: auto; margin-right: 8px; }
-/* Inline recording chip (no overlay): it takes over the trailing auto margin
-   so the mic stays glued to its right edge. */
-.composer-dictation-timer {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  margin-left: auto;
-  padding: 0 8px;
-  color: var(--mx-text);
-  font-size: var(--mx-font-minor);
-  font-variant-numeric: tabular-nums;
-}
-.composer-dictation-timer + .composer-mic { margin-left: 0; }
-.composer-dictation-dot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-radius: var(--mx-radius-pill);
-  background: var(--mx-accent-bg);
-  animation: composer-mic-pulse 1.6s ease-out infinite;
-}
-/* Still no red (user, both themes), but the old contrast-grey disc + opacity
-   breath was indistinguishable from send: an accent disc with an expanding
-   ring carries the live signal. Hover/focus must not repaint it. */
+/* The live signal moved into the overlay below, so the mic stays a plain
+   disc: the old expanding ring painted OUTSIDE the border box and read as a
+   circle larger than the send disc beside it (user-flagged, desktop + phone).
+   Hover/focus must not repaint the recording fill. */
 .composer-mic.is-recording,
 .composer-mic.is-recording:hover,
 .composer-mic.is-recording:focus-visible {
   color: var(--mx-grey-100);
   background: var(--mx-accent-bg);
-  animation: composer-mic-pulse 1.6s ease-out infinite;
 }
 .composer-mic.is-transcribing { color: var(--mx-text-muted); }
 .composer-mic-spinner { animation: composer-mic-spin 900ms linear infinite; }
-@keyframes composer-mic-pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--mx-accent-bg) 55%, transparent); }
-  70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--mx-accent-bg) 0%, transparent); }
-  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--mx-accent-bg) 0%, transparent); }
-}
 @keyframes composer-mic-spin {
   to { transform: rotate(360deg); }
 }
+/* Recording overlay (user: 오버레이로 채팅창 중앙에 입력받는 것, 옆에 x).
+   It covers the typing surface ONLY — the 44px footer band below stays live so
+   stop/send remain reachable, and the draft underneath is never disturbed. */
+.composer-dictation-overlay {
+  position: absolute;
+  z-index: 3;
+  inset: 0 0 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 16px;
+  border-radius: var(--mx-radius-xl) var(--mx-radius-xl) 0 0;
+  background: var(--mx-bg-base);
+}
+.composer-dictation-meter {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+}
+/* One shared level drives every bar; the per-bar gain shapes the envelope so
+   the row reads as a voice instead of five identical blocks. */
+.composer-dictation-meter > span {
+  width: 3px;
+  height: 24px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-accent-bg);
+  transform: scaleY(calc(.14 + var(--mx-dictation-level, 0) * var(--mx-dictation-gain, 1) * .86));
+  transition: transform 70ms linear;
+}
+.composer-dictation-elapsed {
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
+.composer-dictation-cancel {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: transparent;
+}
+.composer-dictation-cancel:hover,
+.composer-dictation-cancel:focus-visible { color: var(--mx-text); background: var(--mx-hover); }
 .composer-tool, .send-button, .fast-mode-toggle, .effort-control select {
   width: 28px;
   height: 28px;
@@ -787,6 +809,36 @@
 /* The row is a grouping element only; its label and value join the card's grid
    so both columns align across every row. */
 .live-work-row { display: contents; }
+/* Shell rows report work IN FLIGHT, so their label carries the same left→right
+   pass the live-activity band uses instead of sitting static beside a spinning
+   icon (user: 좌에서 우로 띵킹 스피너처럼 타고 흐르는 게 루프되면 좋겠다).
+   Geometry is the one-sided comet from live-activity-sweep — the head is
+   brightest, the cells behind it decay back to base, and nothing runs ahead of
+   it — so the popover and the status band read as one motion language.
+   Span/duration are fixed rather than cell-derived: these labels are commands
+   and counts, not the measured streaming phrase TextShimmer reports cells for.
+   18 cells at the TUI's 120ms-per-cell cadence gives one unhurried pass. */
+.live-work-popover {
+  --live-work-flow-span: 18ch;
+  --live-work-flow-duration: 2160ms;
+}
+.live-work-popover .live-work-row[data-flow="true"] > span {
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    var(--mx-text-muted) 0,
+    var(--mx-text-muted) 3ch,
+    var(--mx-text) 6ch,
+    var(--mx-text-muted) calc(6ch + 1px),
+    var(--mx-text-muted) 100%
+  );
+  background-size: var(--live-work-flow-span) 100%;
+  background-repeat: repeat;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: live-work-flow var(--live-work-flow-duration) linear infinite;
+}
+@keyframes live-work-flow { to { background-position: var(--live-work-flow-span) 0; } }
 /* A long shell command stays ONE line: the card is a summary, not a
    transcript. */
 .live-work-popover span {

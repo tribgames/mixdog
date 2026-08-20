@@ -205,6 +205,33 @@ export function formatV4AContextMissHint(sourceLines, stats, anchorLine) {
   return `${head}${formatPatchSourceExcerpt(sourceLines, centerIdx, (stats.oldLines || []).length)}`;
 }
 
+// A V4A envelope marker sitting inside a hunk's old lines means the patch
+// TEXT is broken — a section body ended early, or its `*** Update File:`
+// header is missing, so the marker was swallowed as content. Reporting that
+// as a context miss sent the model hunting through the file for a line that
+// was never in it (observed: four identical retries in 38 seconds). A file
+// that genuinely contains the line (documentation about the patch format) is
+// ordinary content and keeps the normal context path.
+const V4A_ENVELOPE_MARKER_RE = /^\*\*\* (?:Begin Patch|End Patch|Update File:|Add File:|Delete File:|Move to:)/i;
+
+export function v4aEnvelopeMarkerInHunk(sourceLines, oldLines) {
+  const lines = oldLines || [];
+  for (let index = 0; index < lines.length; index++) {
+    const text = String(lines[index] ?? '');
+    if (!V4A_ENVELOPE_MARKER_RE.test(text.trim())) continue;
+    if ((sourceLines || []).includes(text)) continue;
+    return { index, line: text };
+  }
+  return null;
+}
+
+export function formatV4AEnvelopeMarkerError(marker) {
+  return 'V4A hunk structure error (malformed patch envelope): '
+    + `${JSON.stringify(compactPatchPreviewLine(marker.line))} appears as a content line at old[${marker.index + 1}]. `
+    + 'The section body ended early or is missing its `*** Update File: <path>` header. '
+    + 'Rebuild the envelope and resend; the file was never searched, so no context excerpt applies.';
+}
+
 // When the FIRST old line does exist verbatim in the source, the real
 // mismatch is some later line of the block — name it, with both sides
 // JSON-escaped so invisible differences (real char vs literal \uXXXX

@@ -21,6 +21,7 @@ import {
     cancelNativeTask,
     getNativeTask,
     listNativeTasks,
+    setNativeTaskStartedAt,
     startNativeTask,
     subscribeNativeTask,
     waitNativeTask,
@@ -35,6 +36,7 @@ import {
     listShellJobRecords,
     pidAlive,
     publishShellJobRecord,
+    retireShellJobRecord,
 } from './lib/shell-job-records.mjs';
 import {
     renderShellCompletionEnvelope,
@@ -376,6 +378,7 @@ export async function adoptForegroundShellJob({
     timeoutMs,
     clientHostPid,
     ownerSessionId,
+    startedAtMs = 0,
 }) {
     const native = await adoptNativeTaskByPid({
         pid,
@@ -387,8 +390,47 @@ export async function adoptForegroundShellJob({
     });
     if (!native) return null;
     demoteBackgroundShellPriority(pid);
-    trackShellJobRecord(native, { ownerSessionId, clientHostPid });
+    // Adoption stamps the task at adoption time, and a promoted standby shell
+    // carries its process-creation time. Neither is when this command started,
+    // so the runner's own start moment is registered before anything reads the
+    // task — the record, the completion elapsed and the live readouts then all
+    // measure the command itself.
+    const started = Math.floor(Number(startedAtMs)) || 0;
+    if (started > 0) {
+        setNativeTaskStartedAt(native.jobId, started);
+        native.startedAt = new Date(started).toISOString();
+    }
+    trackShellJobRecord(native, { ownerSessionId, clientHostPid, startedAtMs: started });
     return native;
+}
+
+/** Live record for a command still running in the FOREGROUND. Background jobs
+ *  publish through trackShellJobRecord and settle into a terminal record; a
+ *  foreground command has no task id and no completion notice, so its record
+ *  is purely the "running right now" marker every out-of-process shell readout
+ *  scans. Retired by retireForegroundShellRecord the moment it settles. */
+export function publishForegroundShellRecord({
+    jobId,
+    command,
+    cwd,
+    pid,
+    shellType = null,
+    startedAtMs = 0,
+    ownerSessionId = null,
+    clientHostPid = null,
+}) {
+    if (!jobId || !Number.isFinite(Number(pid)) || Number(pid) <= 0) return;
+    publishShellJobRecord({ jobId, command, cwd, pid: Number(pid), shellType }, {
+        ownerSessionId,
+        clientHostPid,
+        startedAtMs,
+        foreground: true,
+    });
+}
+
+export function retireForegroundShellRecord(jobId) {
+    if (!jobId) return;
+    retireShellJobRecord(jobId);
 }
 
 // Daemon-restart recovery: records left 'running' by a dead daemon can never
@@ -405,6 +447,9 @@ export async function reconcileRecoveredShellJobCompletions() {
     let notified = 0;
     for (const record of records) {
         if (!record || record.terminal) continue;
+        // A foreground record is a liveness marker, not a task: it has no
+        // task id a caller could query and no waiter expecting a completion.
+        if (record.foreground) continue;
         if (getNativeTask(record.jobId)) continue; // live in this daemon
         if (pidAlive(Number(record.pid) || 0)) continue; // survived the restart
         const detail = {

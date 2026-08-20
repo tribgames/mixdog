@@ -16,6 +16,7 @@ import {
   listSessionHeartbeatMtimes,
 } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
+import { saveSession } from '../runtime/agent/orchestrator/session/store.mjs';
 
 function resolveResumeCwd(session, currentCwd) {
   const desktop = session?.desktopSession;
@@ -571,6 +572,52 @@ export function createLifecycleApi(deps) {
         cwd: getCurrentCwd(),
         provider: resumed.provider,
         model: resumed.model,
+      };
+    },
+    /**
+     * Session inheritance (/inherit): carry another session's conversation
+     * into THIS freshly created session, so the transcript continues under a
+     * new id on the currently selected model.
+     *
+     * The source file is never touched — the two histories share a prefix and
+     * then diverge, which is the whole point of inheriting instead of
+     * switching the live session's route.
+     *
+     * The target must still be empty: interleaving two transcripts would
+     * produce a conversation neither model ever had.
+     */
+    async inheritFrom(sourceSessionId) {
+      const id = clean(sourceSessionId);
+      if (!id) throw new TypeError('inheritFrom: source session id is required');
+      const target = getSession();
+      if (!target?.id) throw new Error('inheritFrom: no session is open');
+      if (target.id === id) throw new Error('inheritFrom: a session cannot inherit from itself');
+      if (hasUserConversationMessage(target.messages)
+        || hasUserConversationMessage(target.liveTurnMessages)) {
+        throw new Error('inheritFrom: this session already holds a conversation');
+      }
+      const source = mgr.getSession(id);
+      if (!source) throw new Error(`inheritFrom: session ${id} was not found`);
+      // System blocks belong to the session that BUILT them: the target's own
+      // prompt was composed for the current model, tool surface, and workflow.
+      // Only the conversation itself travels.
+      const carried = (Array.isArray(source.messages) ? source.messages : [])
+        .filter((message) => message?.role !== 'system');
+      if (!hasUserConversationMessage(carried)) {
+        throw new Error('inheritFrom: the source session has no conversation to carry');
+      }
+      target.messages.push(...structuredClone(carried));
+      target.inheritedFromSessionId = source.id;
+      target.updatedAt = Date.now();
+      if (!clean(target.title) && clean(source.title)) target.title = source.title;
+      saveSession(target, { immediate: true });
+      invalidateContextStatusCache();
+      return {
+        sessionId: target.id,
+        sourceSessionId: source.id,
+        messages: carried.length,
+        provider: target.provider,
+        model: target.model,
       };
     },
   };

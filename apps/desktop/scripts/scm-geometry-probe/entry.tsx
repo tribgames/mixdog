@@ -116,7 +116,7 @@ let branchMode: "few" | "many" = "few";
     {
       hash: "aaaaaaaaaaaabbbbbbbbbbbbccccccccccccdddd",
       shortHash: "aaaaaaa",
-      subject: "Port the History surface of the Source Control dock to GitHub Desktop's grammar",
+      subject: "Port the History surface of the Source Control dock to the new grammar",
       author: "Ada Lovelace",
       when: "2 minutes ago",
       authoredAt: "2026-07-31T09:12:00.000Z",
@@ -151,7 +151,7 @@ let branchMode: "few" | "many" = "few";
   gitShow: async (_cwd: string, hash: string) => ({
     hash,
     shortHash: hash.slice(0, 7),
-    subject: "Port the History surface of the Source Control dock to GitHub Desktop's grammar",
+    subject: "Port the History surface of the Source Control dock to the new grammar",
     author: "Ada Lovelace",
     email: "ada@example.com",
     authoredAt: "2026-07-31T09:12:00.000Z",

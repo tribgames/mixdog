@@ -607,8 +607,8 @@ export class OpenAICompatProvider {
         };
     }
     /**
-     * cc parity (claude.ts:2504): when a stream dies, re-issue the SAME request
-     * with `stream:false` rather than failing the turn. Narrower than cc on
+     * Stream-death recovery: when a stream dies, re-issue the SAME request
+     * with `stream:false` rather than failing the turn. Narrower on
      * purpose — canFallbackNonStreaming() clears only a stream that exposed
      * NOTHING, so an eagerly dispatched tool can never run twice and rendered
      * text is never duplicated (that case belongs to the loop's retraction

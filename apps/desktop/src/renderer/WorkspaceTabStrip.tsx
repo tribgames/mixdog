@@ -23,16 +23,12 @@ import {
   Terminal,
 } from "lucide-react";
 
+import type { DesktopSessionSummary } from "../shared/contract";
 import type { WorkspaceTab } from "./nav-types";
 import { t } from "./i18n";
-import {
-  prefetchDiffView,
-  prefetchEditorPane,
-  prefetchFolderPane,
-  prefetchTerminalPane,
-} from "./lazy-widgets";
+import { prefetchSurfaceForSelection } from "./lazy-widgets";
 import { isMobileRemoteSurface, MobileTabOverview } from "./MobileTabOverview";
-import { registerMobileBack } from "./mobile-back";
+import { registerMobileBack, useMobileBack } from "./mobile-back";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
   cancelLayoutFrame,
@@ -45,6 +41,9 @@ export interface WorkspaceTabStripProps {
   tabs: WorkspaceTab[];
   activeKey: string;
   activeBusy?: boolean;
+  /** Session catalog: the phone tab overview prints each conversation's own
+   *  preview line on its card. */
+  sessions?: readonly DesktopSessionSummary[];
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
   /** Only the focused group's strip consumes global close events (Ctrl+W). */
@@ -78,16 +77,9 @@ function tabIsWorking(
 }
 
 function prefetchTabSurface(tab: WorkspaceTab): void {
-  const promise = tab.selection.kind === "file"
-    ? prefetchEditorPane()
-    : tab.selection.kind === "diff"
-      ? prefetchDiffView()
-      : tab.selection.kind === "terminal"
-        ? prefetchTerminalPane()
-        : tab.selection.kind === "folder"
-          ? prefetchFolderPane()
-          : null;
-  void promise?.catch(() => undefined);
+  // Shared with the phone tab overview, which warms the same chunks from
+  // touch-down because it has no hover to warm them on.
+  prefetchSurfaceForSelection(tab.selection);
 }
 
 /** Tab-kind glyph shared by the compact current-tab button and the switcher
@@ -105,12 +97,12 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
   }
 }
 
-/* Chromium tab_strip_layout port (refs/chromium-tabs/tab_strip_layout.cc,
- * user: 구글 OSS쪽에 맞춰): CalculateSpaceFractionAvailable's two layout
+/* Browser-style tab-strip layout —
+ * two proportional layout
  * domains with our flat-design constants (overlap = 0). Above the crossover
  * every tab shares one interpolated width; below it the ACTIVE tab pins at
  * its favicon+close floor while inactive tabs interpolate down to the
- * sliver. AllocateExtraSpace re-grants the rounded-down remainder +1px
+ * sliver. The rounded-down remainder is re-granted +1px
  * left-to-right. */
 const TAB_STANDARD_WIDTH = 160;
 const TAB_MIN_ACTIVE_WIDTH = 56;
@@ -158,6 +150,7 @@ export function WorkspaceTabStrip({
   tabs,
   activeKey,
   activeBusy = false,
+  sessions,
   workingSessionIds,
   unreadSessionIds,
   focused = false,
@@ -222,7 +215,7 @@ export function WorkspaceTabStrip({
   const [draggingGroup, setDraggingGroup] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ key: string; left: number; top: number } | null>(null);
   const tabMenuNode = useRef<HTMLDivElement>(null);
-  // Chrome parity: every renderer follows Chromium's tab_strip_layout —
+  // Every renderer follows ONE tab-strip layout —
   // tabs shrink to sliver floors and never switch to a device-specific mode.
   const shellNode = useRef<HTMLDivElement>(null);
   const [, setShellWidth] = useState(0);
@@ -232,7 +225,7 @@ export function WorkspaceTabStrip({
   const switcherTriggers = useRef(new Set<HTMLElement>());
   // Chrome-mobile compact header (label + count) engages ONLY where the
   // workspace holds a single pane — the phone remote surface. Wide surfaces
-  // keep the full Chromium strip untouched; the count opens the grid
+  // keep the full tab strip untouched; the count opens the grid
   // overview instead of the old dropdown list.
   const compact = isMobileRemoteSurface();
   // Chromium layout INPUT: the width the tab run may spend — the shell minus
@@ -275,6 +268,8 @@ export function WorkspaceTabStrip({
       window.removeEventListener("scroll", closeMenu, true);
     };
   }, [tabMenu]);
+  // ABB: the context menu closes on hardware back like every other layer.
+  useMobileBack(Boolean(tabMenu), () => setTabMenu(null));
   // Compact-mode plumbing: shell width drives the collapse; the switcher
   // follows the same dismissal grammar as the other strip menus.
   useLayoutEffect(() => {
@@ -311,6 +306,8 @@ export function WorkspaceTabStrip({
       window.removeEventListener("scroll", closeMenu, true);
     };
   }, [tabSwitcher]);
+  // ABB: the switcher list closes on hardware back like the overview above.
+  useMobileBack(Boolean(tabSwitcher), () => setTabSwitcher(null));
   useLayoutEffect(() => { clampOverlayIntoView(switcherNode.current); }, [tabSwitcher]);
   // Menus can anchor hard against the window's right edge; the measured box
   // is what keeps them on screen.
@@ -353,15 +350,15 @@ export function WorkspaceTabStrip({
     // tab and the attached add-tab control are revealed before paint.
     if (tabStrip.current) tabStrip.current.scrollLeft = tabStrip.current.scrollWidth;
   }, [tabs]);
-  // VS Code revealActiveTab: switching tabs scrolls the strip MINIMALLY so
+  // Reveal-active-tab: switching tabs scrolls the strip MINIMALLY so
   // the active tab is always fully visible — overflow scrolls, it never
   // hides tabs. Right overflow aligns the tab's right edge; left overflow
-  // aligns its left edge (multiEditorTabsControl reveal synopsis).
+  // aligns its left edge.
   useLayoutEffect(() => {
     revealActiveTab();
   }, [activeKey, revealActiveTab, tabs]);
-  // Parent layout calls are implicit in React/CSS, unlike VS Code's explicit
-  // title-control layout(dimensions). Observe this strip's OWN width so sash,
+  // Parent layout calls are implicit in React/CSS, with no explicit
+  // title-control layout pass. Observe this strip's OWN width so sash,
   // dock, sidebar and window changes all release mouse-close sizing and reveal
   // the active label without coupling pane labels to viewport breakpoints.
   useLayoutEffect(() => {
@@ -457,13 +454,13 @@ export function WorkspaceTabStrip({
       }
       return;
     }
-    // VS Code commits the reorder ON DROP (multiEditorTabsControl.onDrop →
-    // openEditor with the half-rule index); nothing moved during hover, and
+    // The reorder commits ON DROP (drop →
+    // open at the half-rule index); nothing moved during hover, and
     // a cancelled drag moves nothing at all.
     if (drag.kind === "tab" && drag.started && !cancelled && drag.dropIndex !== null) {
       onReorderTab(drag.sourceKey, drag.dropIndex);
     }
-    // Chrome parity, moved OFF drag-start: selecting mid-gesture kicked the
+    // Moved OFF drag-start: selecting mid-gesture kicked the
     // heavy session/file-tab switch machinery while the pointer was captured
     // (file tabs with busy log reloads intermittently killed the drag). The
     // dragged tab activates once, on drop.
@@ -501,13 +498,13 @@ export function WorkspaceTabStrip({
     drag.deltaY = event.clientY - drag.lastY;
     drag.lastX = event.clientX;
     drag.lastY = event.clientY;
-    // VS Code drag image: the ghost label's top-left corner rides at the
+    // Drag image: the ghost label's top-left corner rides at the
     // cursor (setDragImage(tab, 0, 0); text-only label as in shrink sizing).
     if (drag.kind === "tab" && ghostNode.current) {
       ghostNode.current.style.transform =
         `translate(${event.clientX}px, ${event.clientY}px)`;
     }
-    // VS Code/orca drag-to-split: once the pointer leaves this strip's band
+    // Drag-to-split: once the pointer leaves this strip's band
     // the gesture stops reordering and becomes a workspace drop preview.
     // With per-pane strips the band is the OWN shell box (side-by-side
     // groups sit at the same height), and hovering a foreign strip is
@@ -523,7 +520,7 @@ export function WorkspaceTabStrip({
     // the strip (both live on the panel's top edge), and letting it win there
     // made every in-strip drag jump straight to the split preview (user:
     // 라벨 순서 바꾸기가 안 되고 분할이 바로 나온다).
-    // The band is the EXACT shell rect — VS Code has no slack: the moment
+    // The band is the EXACT shell rect — there is no slack: the moment
     // the pointer leaves the tabs container the editor-area overlay owns
     // the gesture (dragleave → DropOverlay).
     const outsideStrip = drag.kind === "group"
@@ -535,7 +532,7 @@ export function WorkspaceTabStrip({
     if (outsideStrip !== drag.outside) {
       drag.outside = outsideStrip;
       // Leaving the band hands the gesture to the workspace drop preview;
-      // the in-strip insertion feedback clears (VS Code onDragLeave).
+      // the in-strip insertion feedback clears on drag-leave.
       if (outsideStrip && drag.kind === "tab") {
         drag.dropIndex = null;
         setDropIndex(null);
@@ -572,7 +569,7 @@ export function WorkspaceTabStrip({
       strip.scrollBy?.({ left: scrollDistance, behavior: "auto" });
     }
 
-    // VS Code drop feedback (multiEditorTabsControl computeDropTarget):
+    // Drop feedback:
     // nothing moves during hover — the tab under the pointer resolves the
     // insertion index by its HALF (left half → before it, right half →
     // after it) and the empty container run targets the ends.
@@ -600,7 +597,7 @@ export function WorkspaceTabStrip({
         index = at + (event.clientX - rect.left > rect.width / 2 ? 1 : 0);
       }
     } else if (index < 0) {
-      // Container run (VS Code tabsContainer drop): the left gutter aims
+      // Container run (drop on the empty strip run): the left gutter aims
       // before the first tab, everywhere else after the last.
       index = event.clientX < firstLeft ? 0 : tabs.length;
     }
@@ -720,14 +717,14 @@ export function WorkspaceTabStrip({
             </button>
           </>;
         })() : <>
-        {/* VS Code drop-border feedback: the pending insertion index paints
+        {/* Drop-border feedback: the pending insertion index paints
             a 2px line between its two neighboring tabs. */}
         <nav ref={tabStrip} className="workspace-tabs"
           data-slot="workspace-tabs-scroll"
           data-group-dragging={draggingGroup ? "true" : undefined}
           aria-label={t("Open tabs")} onKeyDown={onTabKeyDown}
           onWheel={(event) => {
-            // VS Code tabsScrollbar scrollYToX: the vertical wheel drives the
+            // Scroll mapping: the vertical wheel drives the
             // horizontal tab run.
             const strip = tabStrip.current;
             const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
@@ -816,7 +813,7 @@ export function WorkspaceTabStrip({
                   onContextMenu={(event) => {
                     event.preventDefault();
                     // Clamp inside the window so bottom/right-edge tabs keep
-                    // the whole menu visible (VS Code behavior).
+                    // the whole menu visible.
                     setTabMenu({
                       key: tab.key,
                       left: Math.max(8, Math.min(event.clientX, window.innerWidth - 208)),
@@ -889,8 +886,8 @@ export function WorkspaceTabStrip({
           onClick={onNewTask}>
           <span className="codicon codicon-add" aria-hidden="true" />
         </button>
-        {/* VS Code drag image: a text-only ghost label whose top-left corner
-            rides at the cursor (setDragImage(tab, 0, 0) / applyDragImage). */}
+        {/* Drag image: a text-only ghost label whose top-left corner
+            rides at the cursor (setDragImage(tab, 0, 0)). */}
         {draggingKey ? createPortal(
           <div className="workspace-tab-ghost" aria-hidden="true"
             ref={(node) => {
@@ -1017,6 +1014,7 @@ export function WorkspaceTabStrip({
         {mobileOverviewOpen && <MobileTabOverview
           tabs={tabs}
           activeKey={activeKey}
+          sessions={sessions}
           workingSessionIds={workingSessionIds}
           unreadSessionIds={unreadSessionIds}
           onSelectTab={selectTab}

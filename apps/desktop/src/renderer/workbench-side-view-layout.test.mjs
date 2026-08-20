@@ -134,7 +134,7 @@ test("pane drop targets expose N plus one slots and hide no-op positions", () =>
   );
 });
 
-test("activity bar drop zones use VS Code's 40/60 hysteresis", () => {
+test("activity bar drop zones use the 40/60 hysteresis", () => {
   assert.equal(workbenchSideBarDropPlacement(.4, "after"), "before");
   assert.equal(workbenchSideBarDropPlacement(.6, "before"), "before");
   assert.equal(workbenchSideBarDropPlacement(.61, "before"), "after");

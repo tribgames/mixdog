@@ -307,6 +307,14 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
         return executeInternalTool(name, args, {
             callerSessionId,
             callerCwd: cwd,
+            setCallerCwd: async (nextCwd) => {
+                const applyForCaller = sessionRef?._applyResolvedCwdForCaller;
+                if (typeof applyForCaller === 'function') {
+                    return await applyForCaller(nextCwd);
+                }
+                if (sessionRef && typeof nextCwd === 'string') sessionRef.cwd = nextCwd;
+                return nextCwd;
+            },
             clientHostPid: sessionRef?.clientHostPid,
             signal: executeOpts.signal,
             routingSessionId: callerSessionId,

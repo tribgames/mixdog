@@ -396,11 +396,9 @@ if (typeof window !== "undefined") {
  *  reads its own lane through a single subscription — the gauge and the chips
  *  share the same header-scoped comparator, so one lane read now feeds both.
  *  Focus never changes data ownership. */
-export function PaneStatusIsland({ sessionId, hidden, onOpenContext, onOpenAgents }: {
+export function PaneStatusIsland({ sessionId, hidden }: {
   sessionId: string;
   hidden: boolean;
-  onOpenContext(): void;
-  onOpenAgents?(): void;
 }) {
   const lane = useSessionLane(
     sessionId,
@@ -411,8 +409,7 @@ export function PaneStatusIsland({ sessionId, hidden, onOpenContext, onOpenAgent
   const visibleSnapshot = hidden || !sessionId
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
-  return <SessionStatusIsland snapshot={visibleSnapshot}
-    onOpenContext={onOpenContext} onOpenAgents={onOpenAgents} />;
+  return <SessionStatusIsland snapshot={visibleSnapshot} />;
 }
 
 

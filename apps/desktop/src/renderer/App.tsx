@@ -50,8 +50,8 @@ import {
   canSplitPaneSize,
   paneActiveSelection,
   paneLeafIdInVerticalDirection,
-  paneLeavesInVisualOrder,
   paneSessionTabIds,
+  paneTabAcrossVisualBoundary,
 } from "./pane-layout";
 import { usePaneWorkspace } from "./pane-workspace-state";
 import { PaneWorkspace } from "./PaneWorkspace";
@@ -95,12 +95,15 @@ import {
   getEditorCommandCapabilities,
   subscribeEditorLanguageStore,
 } from "./editor-language-store";
+import { loadCommandSurfaceModule } from "./command-surface-loader";
 import {
   prefetchDiffView,
   prefetchEditorPane,
   prefetchFolderPane,
+  prefetchSurfaceForSelection,
   prefetchTerminalPane,
 } from "./lazy-widgets";
+import { connectionQuality } from "./network-conditions";
 import {
   DesktopBootGate,
 } from "./PaneSurfaceGate";
@@ -196,7 +199,7 @@ const SettingsView = lazy(() => loadSettingsViewModule()
 const loadOnboardingWizardModule = () => import("./settings/OnboardingWizard");
 const OnboardingWizard = lazy(() => loadOnboardingWizardModule()
   .then((module) => ({ default: module.OnboardingWizard })));
-const CommandSurface = lazy(() => import("./CommandSurface")
+const CommandSurface = lazy(() => loadCommandSurfaceModule()
   .then((module) => ({ default: module.CommandSurface })));
 // Startup chunk warm-up (markdown now, diff on idle) lives in
 // app-idle-warmup.ts; importing it arms the schedule.
@@ -1635,21 +1638,21 @@ export function App() {
     pinPaneTab,
     lastSessionStorageKey: LAST_SESSION_KEY,
   });
-  // Ctrl+Left/Right crosses pane boundaries in visual row-major order:
-  // a 2x2 layout walks top-left, top-right, bottom-left, bottom-right.
+  // Ctrl+Left/Right crosses pane boundaries in visual row-major order and
+  // enters at the adjacent edge tab, never the pane's stale active tab.
   const focusSiblingPane = (offset: number) => {
-    const leaves = paneLeavesInVisualOrder(paneWorkspace.layout);
-    if (leaves.length < 2) return;
-    const index = leaves.findIndex((leaf) => leaf.id === paneWorkspace.focusedLeafId);
-    if (index < 0) return;
-    const next = leaves[(index + offset + leaves.length) % leaves.length];
-    if (!next) return;
-    paneWorkspace.focusLeaf(next.id);
+    const target = paneTabAcrossVisualBoundary(
+      paneWorkspace.layout,
+      paneWorkspace.focusedLeafId,
+      offset,
+    );
+    if (!target) return;
+    paneWorkspace.focusLeaf(target.leafId);
+    paneWorkspace.activateTab(target.leafId, navigationKey(target.selection));
     // Mirror the pane-click path: route the engine surface AND land the
     // caret in that pane's typing area.
-    const nextActive = paneActiveSelection(next);
-    if (nextActive) activatePaneSurface(nextActive);
-    focusPaneTypingSurface(next.id, nextActive);
+    activatePaneSurface(target.selection);
+    focusPaneTypingSurface(target.leafId, target.selection);
   };
   const focusVerticalPane = (direction: "up" | "down") => {
     const nextId = paneLeafIdInVerticalDirection(
@@ -1818,6 +1821,21 @@ export function App() {
     if (!quickAccessMode) return undefined;
     return registerMobileBack(() => setQuickAccessMode(null));
   }, [quickAccessMode]);
+  // /inherit: the heir carries this conversation onto the currently selected
+  // model under a new id, opens in its own tab, and leaves the source session
+  // untouched behind it.
+  const inheritSessionToNewTab = useCallback(async (sourceSessionId: string) => {
+    const api = window.mixdogDesktop;
+    if (typeof api?.inheritSession !== "function") {
+      throw new Error("Session inheritance is unavailable on this surface.");
+    }
+    const result = await api.inheritSession(sourceSessionId, null);
+    const inherited = String(result?.sessionId || "").trim();
+    if (!inherited) throw new Error("The inherited session was not created.");
+    setCommandSurface(null);
+    setCommandSurfaceSessionId("");
+    await openSession(inherited);
+  }, [openSession, setCommandSurface, setCommandSurfaceSessionId]);
   const cancelPendingTabCloseRef = useRef(cancelPendingTabClose);
   cancelPendingTabCloseRef.current = cancelPendingTabClose;
   useEffect(() => {
@@ -2114,19 +2132,12 @@ export function App() {
         activeProjectPath: paneProjectPath,
         activeProjectLabel: paneProjectLabel,
         onSelectProject: conversationSelectProject,
-        onOpenCommandSurface: (surface) => {
-          setCommandSurfaceSessionId(surface === "context" ? paneSessionId : "");
-          openConversationCommandSurface(surface);
-        },
-        statusIsland: <PaneStatusIsland sessionId={paneSessionId}
-          hidden={false}
-          onOpenContext={() => {
-            setCommandSurfaceSessionId(paneSessionId);
-            setCommandSurface("context");
-          }}
-          onOpenAgents={desktopFeatureEnabled("agents")
-            ? () => openDockTab("agents")
-            : undefined} />,
+        onOpenCommandSurface: (surface) =>
+          openConversationCommandSurface(surface, paneSessionId),
+        // Read-only island (user: 클릭 시 나오는 팝업/화면전환은 필요없음): the
+        // gauge and the work slot answer with their own cards. The context
+        // surface stays on /context, the Agents dock on its own tab.
+        statusIsland: <PaneStatusIsland sessionId={paneSessionId} hidden={false} />,
       }} />;
   };
   const {
@@ -2246,6 +2257,45 @@ export function App() {
       window.clearTimeout(stepTimer);
     };
   }, [desktopBootReady, paneWorkspace.focusedLeafId, paneWorkspace.leaves]);
+  // Restored file/terminal/diff/folder tabs are surfaces the user already
+  // chose to keep open, and they own the heaviest chunks in the app — the
+  // first switch to one otherwise paid that entire fetch at open time (user:
+  // 창 들어갈 때 지연). Unlike the transcript prewarm above this is CODE: it
+  // lands in the immutable asset cache once and costs nothing on later visits,
+  // which is why a phone may warm it as well. A metered or slow link still
+  // opts out and pays only for the tabs actually opened.
+  useEffect(() => {
+    if (!desktopBootReady) return undefined;
+    const nativeSurface = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+    if (!nativeSurface && connectionQuality() !== "normal") return undefined;
+    const queue = paneWorkspace.leaves.flatMap((leaf) => [...leaf.tabs]);
+    if (queue.length === 0) return undefined;
+    const host = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    let cancelled = false;
+    let stepTimer = 0;
+    const step = () => {
+      stepTimer = 0;
+      if (cancelled) return;
+      const next = queue.shift();
+      if (!next) return;
+      // Session and draft tabs resolve to no chunk at all; the rest join
+      // whatever load their own surface may already have started.
+      prefetchSurfaceForSelection(next);
+      // One at a time, spread wide: these must never compete with the first
+      // interaction or with the session reads scheduled above.
+      stepTimer = window.setTimeout(step, 400);
+    };
+    const idle = host.requestIdleCallback?.(step, { timeout: 4_000 });
+    if (idle === undefined) stepTimer = window.setTimeout(step, 1_500);
+    return () => {
+      cancelled = true;
+      if (idle !== undefined) host.cancelIdleCallback?.(idle);
+      window.clearTimeout(stepTimer);
+    };
+  }, [desktopBootReady, paneWorkspace.leaves]);
   useEffect(() => {
     if (!desktopBootReady) return undefined;
     const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
@@ -2704,13 +2754,14 @@ export function App() {
             window.dispatchEvent(new CustomEvent('mixdog:composer-draft', { detail: text }));
           }}
           onClose={() => setSettingsOpen(false)} />}
-        {(["context", "usage", "doctor"] as const).map((surface) =>
+        {(["context", "usage", "doctor", "inherit"] as const).map((surface) =>
           commandSurface === surface || mountedCommandSurfaces.current.has(surface)
             ? <CommandSurface key={surface} surface={surface}
                 open={commandSurface === surface}
-                snapshot={surface === "context"
+                snapshot={surface === "context" || surface === "inherit"
                   ? commandSurfaceLane ?? EMPTY_SNAPSHOT
                   : snapshot}
+                onInherit={surface === "inherit" ? inheritSessionToNewTab : undefined}
                 onClose={() => {
                   setCommandSurface(null);
                   setCommandSurfaceSessionId("");

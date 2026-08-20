@@ -224,7 +224,7 @@
   overscroll-behavior-inline: contain;
 }
 
-/* highlight.js ink over the shared code card, VS Code Dark+/Light+ class.
+/* highlight.js ink over the shared code card, Dark+/Light+ class.
    Explicit-language fences only; token hues live as theme tokens so the
    light sheet swaps the whole ramp in one place. */
 :root {
@@ -270,7 +270,7 @@
    700 — the code card has no third weight tier. */
 .markdown-code .hljs-strong { font-weight: var(--mx-weight-strong); }
 
-/* -- VS Code Explorer port (ExplorerTree) -------------------------------- */
+/* -- Explorer tree (ExplorerTree) ---------------------------------------- */
 /* Selection follows list.activeSelectionBackground vs
    list.inactiveSelectionBackground: the stronger tint and the focus outline
    need the tree's keyboard focus; a blurred tree keeps a quieter selection. */
@@ -297,8 +297,8 @@
 .explorer-twistie { flex: 0 0 16px; width: 16px; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--mx-text-muted); }
 .explorer-twistie svg { transition: transform 0.1s linear; }
 .explorer-twistie.collapsed svg { transform: rotate(-90deg); }
-/* Indent guides only while the tree is hovered/focused — VS Code's
-   workbench.tree.renderIndentGuides default "onHover". One 1px hairline per
+/* Indent guides only while the tree is hovered/focused — the
+   tree's "onHover" default. One 1px hairline per
    ancestor level, landing on that ancestor's twistie center. */
 .dock-files-tree:is(:hover, :focus-within) .dock-file-row[data-guides] {
   background-image: repeating-linear-gradient(to right, var(--mx-border-muted) 0 1px, transparent 1px 8px);
@@ -307,12 +307,12 @@
   background-repeat: no-repeat;
 }
 .dock-file-menu button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-/* VS Code context-menu grammar: separator-grouped items with right-aligned
+/* Context-menu grammar: separator-grouped items with right-aligned
    keybinding hints. */
 .dock-file-menu button { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .dock-file-menu-key { color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
 .dock-file-menu-sep { margin: 4px 2px; border: 0; border-top: 1px solid var(--mx-border-muted); }
-/* Inline create/rename editor (VS Code renderInputBox grammar). */
+/* Inline create/rename editor (input-box grammar). */
 .explorer-edit-row { position: relative; overflow: visible; }
 .explorer-edit-box {
   position: relative;
@@ -349,8 +349,8 @@
   white-space: normal;
 }
 .explorer-edit-message.warning { background: var(--mx-warning); color: var(--mx-bg-deep); }
-/* Seti icon font — the VS Code built-in file icon theme (theme-seti packages
-   Seti UI, (c) 2014 Jesse Weed, MIT; see THIRD-PARTY-NOTICES.txt). */
+/* Seti icon font — bundled file icon theme; attribution and license in
+   LICENSES/editor-assets-NOTICE.txt and THIRD-PARTY-NOTICES.txt. */
 @font-face {
   font-family: "seti";
   src: url("../seti.woff") format("woff");
@@ -362,7 +362,7 @@
   font-family: "seti";
   font-style: normal;
   font-weight: var(--mx-weight-regular);
-  /* VS Code renders seti at 150% of the row font. */
+  /* Seti renders at 150% of the row font. */
   font-size: var(--mx-icon-md);
   line-height: 1;
   width: var(--mx-icon-sm);

@@ -37,9 +37,14 @@ import {
   resolveRelayUrl,
   rotateRemoteDevice,
   startRemoteRelay,
+  type RemoteClientClaim,
   type RemoteRelayHandle,
 } from './remote-relay';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
+
+// Slightly under the relay's own claim TTL: a dialog left open must never
+// outlive the request it answers.
+const REMOTE_CLAIM_TIMEOUT_MS = 170_000;
 
 interface DesktopServiceFactoryInput {
   options: SerializableDesktopServiceOptions;
@@ -162,6 +167,9 @@ export async function createDesktopService(
   }) as unknown as DesktopService;
   let remoteRelay: RemoteRelayHandle | null = null;
   let remoteServicesPromise: Promise<void> | null = null;
+  // claimId -> settle(approved). One entry lives only as long as the approval
+  // dialog it belongs to.
+  const pendingClaims = new Map<string, (approved: boolean) => void>();
   const remoteDescriptor = async () => {
     if (!remoteRelay) return null;
     let clients: DesktopRemoteClientInfo[] = [];
@@ -185,6 +193,20 @@ export async function createDesktopService(
     subscribeTerminalData: operations.subscribeTerminalData,
     userDataPath: options.userDataPath,
     onClientCountChanged,
+    // The window process owns the approval dialog, so the decision travels
+    // out as an event and comes back as remoteAccessResolveClaim. An
+    // unanswered request expires on its own — the relay drops it at 180s.
+    onClientClaim: (claim: RemoteClientClaim) => new Promise<boolean>((resolveClaim) => {
+      const settle = (approved: boolean): void => {
+        if (!pendingClaims.delete(claim.claimId)) return;
+        clearTimeout(timer);
+        resolveClaim(approved);
+      };
+      const timer = setTimeout(() => settle(false), REMOTE_CLAIM_TIMEOUT_MS);
+      timer.unref?.();
+      pendingClaims.set(claim.claimId, settle);
+      publishDesktopEvent('remote-client-claim', claim);
+    }),
   };
   const startRemoteServices = async (): Promise<void> => {
     if (remoteServicesPromise) return remoteServicesPromise;
@@ -302,6 +324,12 @@ export async function createDesktopService(
           return remoteDescriptor();
         }
         if (operation === 'remoteAccessRotate') return rotateRemoteAccess();
+        if (operation === 'remoteAccessResolveClaim') {
+          const settle = pendingClaims.get(String(operationArgs[0] || ''));
+          if (!settle) return false;
+          settle(operationArgs[1] === true);
+          return true;
+        }
         if (operation === 'remoteAccessRevokeClient') {
           await startRemoteServices();
           const clientId = String(operationArgs[0] || '');

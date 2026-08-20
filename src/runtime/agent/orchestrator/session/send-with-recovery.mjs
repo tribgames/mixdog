@@ -62,8 +62,8 @@ function normalizedIncompleteUsage(raw) {
 // provider envelope this covers ~50s outages before failing honestly.
 // Env-overridable (comma-separated ms) so tests can drive the ladder without
 // real waits and an operator can widen the window for a flaky uplink; the
-// LENGTH of the list is the retry budget, exactly like codex's
-// stream_max_retries + backoff table.
+// LENGTH of the list is the retry budget, like a conventional
+// stream-max-retries + backoff table.
 const TRANSPORT_RETRY_BACKOFF_MS = Object.freeze((() => {
     const raw = process.env.MIXDOG_TRANSPORT_RETRY_BACKOFF_MS;
     if (typeof raw === 'string' && raw.trim()) {
@@ -74,12 +74,12 @@ const TRANSPORT_RETRY_BACKOFF_MS = Object.freeze((() => {
     }
     // Three steps (~50s of outage) instead of two: the provider envelope
     // already covers short blips, so this ladder exists for the long ones.
-    // codex allows 5 stream reconnects and cc 10 request retries.
+    // Comparable runtimes allow 5-10 retries for this outage class.
     return [5_000, 15_000, 30_000];
 })());
 export const TRANSPORT_RETRY_MAX = TRANSPORT_RETRY_BACKOFF_MS.length;
 
-// codex jitters every backoff by 0.9–1.1 so parallel workers that lose the
+// Jittering every backoff by 0.9–1.1 keeps parallel workers that lose the
 // same uplink do not resume in lockstep; our provider layers already jitter
 // (10% WS / 20% shared), this brings the loop ladder in line.
 const TRANSPORT_RETRY_JITTER_RATIO = 0.1;
@@ -137,9 +137,9 @@ export async function sendWithRecovery(ctx) {
     const relayWitness = { textEmitted: false, toolCallsDispatched: 0 };
     // Caller-visible reconnect progress for LOOP-level replays, mirroring the
     // transports' own emitReconnectProgress (openai-oauth-ws). Without it the
-    // 5s/15s wait rendered as a frozen turn with no explanation, while codex
-    // surfaces "Reconnecting... n/max" through notify_stream_error and cc
-    // yields a SystemAPIErrorMessage for the same situation.
+    // 5s/15s wait rendered as a frozen turn with no explanation, so the
+    // stage change surfaces "Reconnecting... n/max" instead of leaving
+    // the user staring at a stalled stream.
     const emitLoopReconnectProgress = (attempt, waitMs, classifier, error) => {
         try {
             opts?.onStageChange?.('reconnecting', {

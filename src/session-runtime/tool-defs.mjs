@@ -13,7 +13,7 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Load named deferred tools and report activation status. Direct calls auto-load, so no pre-call is needed.',
+  description: 'Load named deferred tools and report activation status. Direct calls auto-load, so a pre-call is only needed when the exact arguments are unknown.',
   inputSchema: {
     type: 'object',
     properties: {

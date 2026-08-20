@@ -7,6 +7,7 @@
 import {
     resolveWorkerCompactPolicy,
     compactionTelemetryPressureTokens,
+    resolveGaugeContextTokens,
     compactTargetBudget,
     shouldCompactForSession,
     countPrunedToolOutputs,
@@ -80,6 +81,26 @@ export async function runPreSendCompactPass(state) {
                 sessionRef,
                 pressureTokens,
             });
+            // Gauge sync (user: 컴팩트될 때 컨텍스트 표기량이 달랐다). The host
+            // refreshes its context readout on provider usage deltas and turn
+            // end, so a tool batch that pushed the transcript over the trigger
+            // fired compaction while the screen still showed headroom. Publish
+            // the decision's OWN numerator here — before compaction mutates the
+            // transcript — so the readout and the trigger describe one moment.
+            if (typeof opts?.onContextPressure === 'function') {
+                try {
+                    opts.onContextPressure({
+                        sessionId,
+                        usedTokens: resolveGaugeContextTokens(messageTokensEst, compactPolicy, {
+                            messages,
+                            sessionRef,
+                        }),
+                        triggerTokens: compactPolicy.triggerTokens || compactPolicy.boundaryTokens || 0,
+                        boundaryTokens: compactPolicy.boundaryTokens || 0,
+                        willCompact: shouldCompact === true,
+                    });
+                } catch { /* best-effort display hook */ }
+            }
             // A pending reactive-overflow retry makes THIS compact pass the
             // recovery from a provider overflow refusal, not the proactive
             // pressure trigger. Tag the emitted events so telemetry can tell

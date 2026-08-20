@@ -19,7 +19,7 @@ const WARN_TTL_MS = 5 * 60_000;
 const CODEX_RESET_CREDITS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits';
 const CODEX_RESET_CONSUME_URL = `${CODEX_RESET_CREDITS_URL}/consume`;
 // Redeeming a reset credit is an explicit user action, not a poll: it gets the
-// generous budget the orca client uses (REDEEM_BACKEND_TIMEOUT_MS) so a slow
+// generous budget a redeem needs (REDEEM_BACKEND_TIMEOUT_MS) so a slow
 // backend cannot abort a request the server is already applying.
 const CODEX_REDEEM_TIMEOUT_MS = 30_000;
 
@@ -367,7 +367,7 @@ export async function consumeOpenAICodexResetCredit(providerObj, options = {}) {
   }
   const auth = await resolveOpenAICodexAuth(providerObj);
   if (!auth) throw new Error('Codex is not signed in');
-  // The SERVER decides the outcome (orca parity): redeem_request_id makes the
+  // The SERVER decides the outcome: redeem_request_id makes the
   // call idempotent and `already_redeemed`/`no_credit` are real answers. The
   // old client-side offer gate ran before every attempt, so retrying an
   // unconfirmed redeem — whose credit was already spent, hence a changed
@@ -673,7 +673,7 @@ async function fetchOpenAICodexUsage(providerObj) {
   if (!res.ok) throw new Error(`openai-oauth usage ${res.status}`);
   const data = await res.json();
   const usage = normalizeOpenAIWhamUsage(data);
-  // Orca parity: Codex may include the authoritative available count directly
+  // Codex may include the authoritative available count directly
   // in /wham/usage while the detail endpoint is unavailable. Keep that count
   // usable (including a scoped offer revision), then let the dedicated endpoint
   // replace it when richer expiry details arrive.

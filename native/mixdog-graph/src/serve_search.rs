@@ -15,7 +15,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -4856,9 +4856,12 @@ impl ResponseQueue {
         self.changed.notify_one();
     }
 
-    fn run(&self) {
-        let stdout = std::io::stdout();
-        let mut out = stdout.lock();
+    // Generic over the sink so one queue type serves both transports: the
+    // stdio server writes to stdout, and a shared pipe server gives every
+    // accepted connection its own queue + writer thread. Responses must never
+    // cross connections, so ownership of the writer belongs to the queue.
+    fn run<W: Write>(&self, writer: W) {
+        let mut out = BufWriter::new(writer);
         loop {
             let line = {
                 let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -4913,13 +4916,70 @@ fn response_queue() -> &'static Arc<ResponseQueue> {
         let writer_queue = Arc::clone(&queue);
         std::thread::Builder::new()
             .name("mixdog-search-response-writer".to_string())
-            .spawn(move || writer_queue.run())
+            .spawn(move || writer_queue.run(std::io::stdout()))
             .expect("mixdog response writer");
         queue
     })
 }
 
+// ── Idle self-exit watchdog ─────────────────────────────────────────────────
+// The resident server normally dies with its owner: when the host's stdin write
+// handle closes, the request loop reads EOF and returns. That signal never
+// arrives if the owner is force-killed while another process still holds the
+// pipe's write end, and Windows reaps nothing on parent exit — so orphaned
+// servers piled up across restarts, each pinning its warm file inventory and
+// signature cache. A side thread ends the process once neither a request nor a
+// response has moved within the idle window; the JS client respawns
+// transparently on the next call. Mirrors the mixdog-patch server watchdog.
+// Tunable via MIXDOG_SEARCH_SERVER_IDLE_MS (default 300000ms); 0 disables it.
+const DEFAULT_SERVE_SEARCH_IDLE_MS: u64 = 300_000;
+
+static SERVE_SEARCH_STARTED: OnceLock<Instant> = OnceLock::new();
+static SERVE_SEARCH_LAST_ACTIVITY_MS: AtomicU64 = AtomicU64::new(0);
+
+fn serve_search_uptime_ms() -> u64 {
+    SERVE_SEARCH_STARTED
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_millis() as u64
+}
+
+fn note_serve_search_activity() {
+    SERVE_SEARCH_LAST_ACTIVITY_MS.store(serve_search_uptime_ms(), Ordering::Relaxed);
+}
+
+fn start_serve_search_idle_watchdog(file_lists: Arc<FileListStore>) {
+    let idle_ms = std::env::var("MIXDOG_SEARCH_SERVER_IDLE_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or(DEFAULT_SERVE_SEARCH_IDLE_MS);
+    if idle_ms == 0 {
+        return;
+    }
+    note_serve_search_activity();
+    // A long scan is not idleness: the request that started it stamps the clock
+    // on the way in and its response stamps it again on the way out, so
+    // in-flight work can never age past the window.
+    let step = Duration::from_millis(idle_ms.clamp(250, 5_000));
+    let _ = std::thread::Builder::new()
+        .name("mixdog-search-idle-watchdog".to_string())
+        .spawn(move || loop {
+            std::thread::sleep(step);
+            let idle_for = serve_search_uptime_ms()
+                .saturating_sub(SERVE_SEARCH_LAST_ACTIVITY_MS.load(Ordering::Relaxed));
+            if idle_for < idle_ms {
+                continue;
+            }
+            // Exit the same way the normal loop-exit path does, so the next
+            // server starts warm instead of re-walking the whole tree.
+            persist_file_list_snapshot(&file_lists.ready);
+            flush_responses();
+            std::process::exit(0);
+        });
+}
+
 fn enqueue_response(response: &serde_json::Value, control: bool) {
+    note_serve_search_activity();
     response_queue().push(response.to_string(), control);
 }
 
@@ -4938,6 +4998,51 @@ fn flush_responses() {
 fn write_cancelled(id: u64) {
     write_control_response(&serde_json::json!({ "id": id, "event": "cancelled" }));
 }
+
+/// One connected client's outbound channel.
+///
+/// The stdio server has exactly one of these (wrapping the process-wide stdout
+/// queue); a shared server hands every accepted connection its own queue and
+/// writer thread. Request ids are only unique WITHIN a client — each JS client
+/// starts its sequence at 1 — so a response must travel back through the sink
+/// that carried its request, never through a global.
+#[derive(Clone)]
+struct ClientSink {
+    queue: Arc<ResponseQueue>,
+}
+
+impl ClientSink {
+    fn enqueue(&self, response: &serde_json::Value, control: bool) {
+        note_serve_search_activity();
+        self.queue.push(response.to_string(), control);
+    }
+
+    fn write(&self, response: &serde_json::Value) {
+        self.enqueue(response, false);
+    }
+
+    fn write_control(&self, response: &serde_json::Value) {
+        self.enqueue(response, true);
+    }
+
+    fn write_cancelled(&self, id: u64) {
+        self.write_control(&serde_json::json!({ "id": id, "event": "cancelled" }));
+    }
+}
+
+fn stdio_sink() -> ClientSink {
+    ClientSink {
+        queue: Arc::clone(response_queue()),
+    }
+}
+
+/// Scopes a request id to the client that issued it. Cancellation and
+/// completion both look up through this key, so two clients using the same id
+/// can never cancel or answer each other's search.
+type RequestKey = (u64, u64);
+
+/// Reserved for the single client of the stdio transport.
+const STDIO_CLIENT_ID: u64 = 0;
 
 fn search_pool(threads: usize) -> ThreadPool {
     ThreadPoolBuilder::new()
@@ -4976,6 +5081,8 @@ struct ScheduledSearch {
     req: ServeRequest,
     cancelled: Arc<AtomicBool>,
     queued_at: Instant,
+    client_id: u64,
+    sink: ClientSink,
 }
 
 struct SchedulerState {
@@ -5074,7 +5181,7 @@ struct SchedulerInner {
     queue_capacity: usize,
     priority_queue_reserve: usize,
     file_lists: Arc<FileListStore>,
-    cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
+    cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>>,
 }
 
 struct SearchScheduler {
@@ -5085,7 +5192,7 @@ struct SearchScheduler {
 impl SearchScheduler {
     fn new(
         file_lists: Arc<FileListStore>,
-        cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
+        cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>>,
     ) -> Self {
         let total_limit = server_parallelism();
         let interactive_reserve = interactive_reserve(total_limit);
@@ -5149,12 +5256,15 @@ impl SearchScheduler {
         Ok(())
     }
 
-    fn cancel_queued(&self, id: u64) -> bool {
+    fn cancel_queued(&self, client_id: u64, id: u64) -> bool {
         let mut state = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         let before = state.interactive.len() + state.fuzzy.len() + state.bulk.len();
-        state.interactive.retain(|search| search.req.id != id);
-        state.fuzzy.retain(|search| search.req.id != id);
-        state.bulk.retain(|search| search.req.id != id);
+        // Ids repeat across clients, so a queued search only matches when BOTH
+        // the issuing client and the id line up.
+        let mine = |search: &ScheduledSearch| search.client_id == client_id && search.req.id == id;
+        state.interactive.retain(|search| !mine(search));
+        state.fuzzy.retain(|search| !mine(search));
+        state.bulk.retain(|search| !mine(search));
         let removed = before != state.interactive.len() + state.fuzzy.len() + state.bulk.len();
         if removed {
             self.inner.changed.notify_all();
@@ -5345,6 +5455,8 @@ fn execute_scheduled_search(
         req,
         cancelled,
         queued_at,
+        client_id,
+        sink,
     } = search;
     let id = req.id;
     let queue_elapsed = queued_at.elapsed();
@@ -5395,13 +5507,13 @@ fn execute_scheduled_search(
         value.insert("scheduler".to_string(), telemetry_json(telemetry));
     }
     if let Ok(mut map) = inner.cancellations.lock() {
-        map.remove(&id);
+        map.remove(&(client_id, id));
     }
     if cancelled.load(Ordering::Relaxed) {
-        write_cancelled(id);
+        sink.write_cancelled(id);
     } else {
         if let Some(response) = response {
-            write_response(&response);
+            sink.write(&response);
         }
     }
 }
@@ -5519,12 +5631,19 @@ pub fn run() {
     write_control_response(&serde_json::json!({ "ready": true }));
     let file_lists = Arc::new(FileListStore::new_persistent());
     file_lists.schedule_noise_prewarm();
-    let cancellations: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>> =
+    let cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let scheduler = SearchScheduler::new(Arc::clone(&file_lists), Arc::clone(&cancellations));
+    start_serve_search_idle_watchdog(Arc::clone(&file_lists));
+    // The stdio server serves exactly one client, so it owns the reserved id 0
+    // and the stdout-backed sink. A shared server assigns a fresh id and sink
+    // per accepted connection instead.
+    let client_id = STDIO_CLIENT_ID;
+    let sink = stdio_sink();
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let Ok(line) = line else { break };
+        note_serve_search_activity();
         if line.trim().is_empty() {
             continue;
         }
@@ -5542,15 +5661,15 @@ pub fn run() {
                 let running = cancellations
                     .lock()
                     .ok()
-                    .and_then(|map| map.get(&cancel).cloned())
+                    .and_then(|map| map.get(&(client_id, cancel)).cloned())
                     .is_some_and(|flag| {
                         flag.store(true, Ordering::Relaxed);
                         true
                     });
-                let removed = scheduler.cancel_queued(cancel);
+                let removed = scheduler.cancel_queued(client_id, cancel);
                 if removed || !running {
                     if let Ok(mut map) = cancellations.lock() {
-                        map.remove(&cancel);
+                        map.remove(&(client_id, cancel));
                     }
                     write_cancelled(cancel);
                 }
@@ -5566,16 +5685,18 @@ pub fn run() {
                 let id = req.id;
                 let cancelled = Arc::new(AtomicBool::new(false));
                 if let Ok(mut map) = cancellations.lock() {
-                    map.insert(id, Arc::clone(&cancelled));
+                    map.insert((client_id, id), Arc::clone(&cancelled));
                 }
                 let scheduled = ScheduledSearch {
                     req,
                     cancelled,
                     queued_at: Instant::now(),
+                    client_id,
+                    sink: sink.clone(),
                 };
                 if let Err(search) = scheduler.enqueue(scheduled) {
                     if let Ok(mut map) = cancellations.lock() {
-                        map.remove(&id);
+                        map.remove(&(client_id, id));
                     }
                     let telemetry = scheduler.telemetry();
                     write_response(&serde_json::json!({

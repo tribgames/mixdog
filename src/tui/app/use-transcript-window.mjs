@@ -859,7 +859,7 @@ export function useTranscriptWindow({
   }, [themeEpoch, withSelectionClip, paintSelectionRect]);
   useEffect(() => {
     const maxRows = Math.max(0, Number(transcriptWindow.maxScrollRows) || 0);
-    // Opencode parity (createAutoScroll: `if (!canScroll(el)) userScrolled =
+    // Auto-scroll rule (`if (!canScroll(el)) userScrolled =
     // false`, applied both on scroll and on the content resize; our desktop
     // hook mirrors it in handleScroll/handleAutoScroll): a transcript that no
     // longer OVERFLOWS holds no reading position, so a compaction or clear

@@ -89,7 +89,7 @@ test("queued follow-up rows expose independent edit, steer-now, and remove actio
   }
 });
 
-test("queued follow-up Escape behavior matches Claude Code priority and handoff", () => {
+test("queued follow-up Escape behavior keeps queue priority and handoff", () => {
   assert.equal(classifyPromptEscape({
     interruptActive: true,
     hasSelection: true,

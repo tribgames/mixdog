@@ -84,6 +84,19 @@ async function sweepOrphanRecords(dir) {
         const index = name.lastIndexOf('.owner-');
         if (index > 0) ownerByJob.set(name.slice(0, index), Number(name.slice(index + 7)) || 0);
     }
+    // Owner markers whose detail JSON is already gone (a terminal record aged
+    // out past its TTL) are unreachable garbage: this sweep walks .json files,
+    // so nothing would ever revisit them. Clear the strays before the walk.
+    const jsonJobIds = new Set(names
+        .filter((name) => name.endsWith('.json'))
+        .map((name) => name.slice(0, -5)));
+    const strayMarkers = names.filter((name) => {
+        const index = name.lastIndexOf('.owner-');
+        return index > 0 && !jsonJobIds.has(name.slice(0, index));
+    });
+    if (strayMarkers.length) {
+        await removePaths(strayMarkers.map((name) => join(dir, name)));
+    }
     const cutoff = Date.now() - ORPHAN_GRACE_MS;
     const terminalCutoff = Date.now() - COMPLETED_SHELL_JOB_TTL_MS;
     const done = new Set(names.filter((name) => name.endsWith('.done')).map((name) => name.slice(0, -5)));
@@ -110,7 +123,12 @@ async function sweepOrphanRecords(dir) {
 }
 
 /** Publish the record for a job that has just started or been adopted. */
-export function publishShellJobRecord(task, { ownerSessionId = null, clientHostPid = null } = {}) {
+export function publishShellJobRecord(task, {
+    ownerSessionId = null,
+    clientHostPid = null,
+    startedAtMs = 0,
+    foreground = false,
+} = {}) {
     const jobId = String(task?.jobId || '').trim();
     if (!jobId) return;
     const ownerPid = Number(clientHostPid ?? task?.clientHostPid) || process.pid;
@@ -138,7 +156,16 @@ export function publishShellJobRecord(task, { ownerSessionId = null, clientHostP
                 ownerSessionId: ownerSessionId
                     ? String(ownerSessionId)
                     : (task?.ownerSessionId || null),
-                startedAt: task?.startedAt || new Date().toISOString(),
+                // The caller's start moment wins: a warm-standby shell reports
+                // when its process was created, not when this command was fed
+                // to it.
+                startedAt: Number(startedAtMs) > 0
+                    ? new Date(Math.floor(Number(startedAtMs))).toISOString()
+                    : (task?.startedAt || new Date().toISOString()),
+                // Foreground records exist only while the command runs and are
+                // removed on settle. Restart recovery skips them: there is no
+                // task id to report and no waiter to notify.
+                ...(foreground ? { foreground: true } : {}),
             };
             records.set(jobId, record);
             await writeFile(jsonPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');

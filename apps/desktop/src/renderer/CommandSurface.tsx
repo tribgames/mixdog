@@ -31,6 +31,9 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
   context: ['contextStatus'],
   usage: ['getUsageDashboard'],
   doctor: ['runDoctor'],
+  // /inherit decides on the same reading the context gauge uses: a transcript
+  // that no longer fits cannot be carried into a fresh session as it is.
+  inherit: ['contextStatus'],
 };
 
 // The usage dashboard's first service pass probes live provider quotas and
@@ -38,11 +41,20 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 // reopening /usage paints instantly while a silent refresh runs behind it.
 const surfaceDataCache = new Map<string, Record<string, unknown>>();
 
-export function CommandSurface({ surface, open = true, api = window.mixdogDesktop, snapshot, onClose }: {
+export function CommandSurface({
+  surface,
+  open = true,
+  api = window.mixdogDesktop,
+  snapshot,
+  onInherit,
+  onClose,
+}: {
   surface: CommandSurfaceName;
   open?: boolean;
   api?: SurfaceApi;
   snapshot?: unknown;
+  /** /inherit only: hand the source session to the host and open the heir. */
+  onInherit?: (sourceSessionId: string) => Promise<void>;
   onClose(): void;
 }) {
   const dialog = useRef<HTMLElement>(null);
@@ -51,7 +63,9 @@ export function CommandSurface({ surface, open = true, api = window.mixdogDeskto
   onCloseRef.current = onClose;
   const loadSequence = useRef(0);
   const loadingSurface = useRef<CommandSurfaceName | null>(null);
-  const sessionId = surface === 'context' ? String(record(snapshot).sessionId || '').trim() : '';
+  const sessionId = surface === 'context' || surface === 'inherit'
+    ? String(record(snapshot).sessionId || '').trim()
+    : '';
   // Instant repaint on reopen (user: 컨텍스트가 오래 로딩 후 작은 프레임에서
   // 튐): context payloads cache per session exactly like /usage, so the
   // dialog opens full-size with the last data while a silent refresh runs.
@@ -207,7 +221,12 @@ export function CommandSurface({ surface, open = true, api = window.mixdogDeskto
       return undefined;
     } finally { setPending(''); }
   };
-  const title = t(({ context: 'Context', usage: 'Provider usage', doctor: 'Doctor' })[surface]);
+  const title = t(({
+    context: 'Context',
+    usage: 'Provider usage',
+    doctor: 'Doctor',
+    inherit: 'Inherit session',
+  })[surface]);
   return createPortal(<div ref={surfaceLayer}
     className="mixdog-settings-layer stable-surface-preserved"
     data-surface-active={open ? "true" : "false"}
@@ -239,6 +258,7 @@ export function CommandSurface({ surface, open = true, api = window.mixdogDeskto
               ? <UsageSkeleton />
               : <p className="settings-loading" role="status">{t('Loading…')}</p>
             : <SurfaceBody surface={surface} data={data} snapshot={snapshot}
+                sessionId={sessionId} onInherit={onInherit}
                 pending={pending} run={run} />}
           </div>
           </PaneSurfaceGate>
@@ -250,16 +270,22 @@ export function CommandSurface({ surface, open = true, api = window.mixdogDeskto
 
 type SurfaceRun = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 
-function SurfaceBody({ surface, data, snapshot, pending, run }: {
+function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, pending, run }: {
   surface: CommandSurfaceName;
   data: Record<string, unknown>;
   snapshot?: unknown;
+  sessionId?: string;
+  onInherit?: (sourceSessionId: string) => Promise<void>;
   pending: string;
   run: SurfaceRun;
 }) {
   const busy = Boolean(pending);
   if (surface === 'context') return <ContextBody status={data.contextStatus} snapshot={snapshot ?? data.snapshot} />;
   if (surface === 'usage') return <UsageBody data={data} />;
+  if (surface === 'inherit') {
+    return <InheritBody status={data.contextStatus} snapshot={snapshot}
+      sessionId={sessionId ?? ''} onInherit={onInherit} />;
+  }
   if (surface === 'doctor') {
     return <Group title={t('Diagnostic result')}>
       <pre className="tool-detail">{pretty(data.runDoctor) || t('No data available.')}</pre>
@@ -267,6 +293,79 @@ function SurfaceBody({ surface, data, snapshot, pending, run }: {
     </Group>;
   }
   return null;
+}
+
+/** Percent of the model context this transcript already occupies. The reading
+ *  travels under different shapes across surfaces, so every known place is
+ *  tried and an unknown reading simply does not block the decision. */
+function contextPercent(status: unknown): number | null {
+  const root = record(status);
+  const candidates = [root, record(root.context), record(root.status), record(root.gauge)];
+  for (const candidate of candidates) {
+    const value = Number(candidate.percent ?? candidate.usedPercent);
+    if (Number.isFinite(value) && value > 0) return Math.round(value);
+  }
+  return null;
+}
+
+/**
+ * /inherit — one decision surface: what carries over, where it lands, and
+ * whether it can happen at all. The heir is a NEW session on the currently
+ * selected model holding this conversation; the source is left untouched.
+ */
+function InheritBody({ status, snapshot, sessionId, onInherit }: {
+  status: unknown;
+  snapshot?: unknown;
+  sessionId: string;
+  onInherit?: (sourceSessionId: string) => Promise<void>;
+}) {
+  const [running, setRunning] = useState(false);
+  const [failure, setFailure] = useState('');
+  const shell = record(snapshot);
+  const items = Array.isArray(shell.items) ? shell.items : [];
+  const spoken = items.filter((item) => {
+    const kind = String(record(item).kind || '');
+    return kind === 'user' || kind === 'assistant';
+  }).length;
+  const percent = contextPercent(status);
+  const provider = String(shell.provider || '').trim();
+  const model = String(shell.model || '').trim();
+  // ONE reason at a time, in the order the user would hit them.
+  const blocked = !sessionId
+    ? t('This task has not started a session yet.')
+    : shell.busy === true
+      ? t('Wait for the current turn to finish.')
+      : spoken === 0
+        ? t('There is no conversation to carry over yet.')
+        : !onInherit
+          ? t('Inheritance is unavailable on this surface.')
+          : percent !== null && percent >= 95
+            ? t('This conversation no longer fits the model context. Run /compact first.')
+            : '';
+  return <Group title={t('Inherit session')}>
+    <p className="settings-hint">
+      {t('The conversation is copied into a new session that runs on the current model. This session stays exactly as it is.')}
+    </p>
+    <dl className="command-surface-facts">
+      <div><dt>{t('Messages')}</dt><dd>{spoken}</dd></div>
+      <div><dt>{t('Model')}</dt><dd>{model ? `${provider}/${model}` : t('Unknown')}</dd></div>
+      <div><dt>{t('Context')}</dt><dd>{percent === null ? '—' : `${percent}%`}</dd></div>
+    </dl>
+    {(blocked || failure) && <p className="settings-hint" role="status">{failure || blocked}</p>}
+    <button type="button" disabled={Boolean(blocked) || running}
+      onClick={() => {
+        if (blocked || !onInherit || running) return;
+        setFailure('');
+        setRunning(true);
+        void onInherit(sessionId)
+          .catch((reason) => {
+            setFailure(reason instanceof Error ? reason.message : String(reason));
+          })
+          .finally(() => setRunning(false));
+      }}>
+      {running ? t('Inheriting…') : t('Inherit')}
+    </button>
+  </Group>;
 }
 
 function usageNumber(value: unknown): number | null {

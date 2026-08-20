@@ -964,6 +964,26 @@ export function createRunTurn(bag) {
           if (!isCurrentTurn()) return { approved: false, reason: 'turn no longer active' };
           return approval;
         },
+        // Pre-send context readout, emitted by the loop at the exact point the
+        // auto-compact decision is made. It carries the decision's own
+        // numerator, so the gauge stops lagging a tool batch behind and reads
+        // 100% on the same frame compaction starts (user: 좀 남아 보였는데 바로
+        // 컴팩트). No transcript rescan happens here — the loop already
+        // computed this number.
+        onContextPressure: (info) => {
+          if (!markTurnProgress('context-pressure')) return;
+          const used = Math.max(0, Number(info?.usedTokens) || 0);
+          if (!used) return;
+          set({
+            stats: {
+              ...getState().stats,
+              currentEstimatedContextTokens: used,
+              currentContextTokens: 0,
+              currentContextSource: 'estimated',
+              currentContextUpdatedAt: Date.now(),
+            },
+          });
+        },
         onCompactEvent: (event) => {
           if (!markTurnProgress('compact-event')) return;
           flushStreamBatch();

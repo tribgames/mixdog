@@ -5,17 +5,6 @@
 // (i18next-cli extract) keeps every catalog in step with literal t() usage.
 import i18next from "i18next";
 
-import de from "./locales/de.json";
-import es from "./locales/es.json";
-import fr from "./locales/fr.json";
-import it from "./locales/it.json";
-import ja from "./locales/ja.json";
-import ko from "./locales/ko.json";
-import ptBR from "./locales/pt-BR.json";
-import ru from "./locales/ru.json";
-import vi from "./locales/vi.json";
-import zhCN from "./locales/zh-CN.json";
-import zhTW from "./locales/zh-TW.json";
 import { supplementalUiTranslations } from "./auto-i18n";
 
 /** Selectable UI languages with their native display names (settings picker).
@@ -100,22 +89,35 @@ export function resolveUiLanguage(
 // module that imports it — no async gate ahead of React's first render.
 // fallbackLng false + returnEmptyString false make every unknown or
 // still-untranslated key fall back to its English key text.
+// Catalogs load per language: eleven static imports put ~750KB of JSON — a
+// quarter of the first-paint bundle — in front of every visitor, ten
+// languages of which they will never see. English needs no catalog at all,
+// because the keys ARE the English source text.
+const CATALOGS: Record<
+  Exclude<UiLanguage, "en">,
+  () => Promise<{ default: Record<string, string> }>
+> = {
+  de: () => import("./locales/de.json"),
+  es: () => import("./locales/es.json"),
+  fr: () => import("./locales/fr.json"),
+  it: () => import("./locales/it.json"),
+  ja: () => import("./locales/ja.json"),
+  ko: () => import("./locales/ko.json"),
+  "pt-BR": () => import("./locales/pt-BR.json"),
+  ru: () => import("./locales/ru.json"),
+  vi: () => import("./locales/vi.json"),
+  "zh-CN": () => import("./locales/zh-CN.json"),
+  "zh-TW": () => import("./locales/zh-TW.json"),
+};
+
+// Synchronous English init: t() stays usable from the moment this module is
+// evaluated — node tests, and any module that runs before the entry has
+// finished loading a catalog. fallbackLng false + returnEmptyString false
+// make every unknown or still-untranslated key fall back to its English text.
 void i18next.init({
-  lng: resolveUiLanguage(),
+  lng: "en",
   fallbackLng: false,
-  resources: {
-    de: { translation: { ...de, ...supplementalUiTranslations("de") } },
-    es: { translation: { ...es, ...supplementalUiTranslations("es") } },
-    fr: { translation: { ...fr, ...supplementalUiTranslations("fr") } },
-    it: { translation: { ...it, ...supplementalUiTranslations("it") } },
-    ja: { translation: { ...ja, ...supplementalUiTranslations("ja") } },
-    ko: { translation: { ...ko, ...supplementalUiTranslations("ko") } },
-    "pt-BR": { translation: { ...ptBR, ...supplementalUiTranslations("pt-BR") } },
-    ru: { translation: { ...ru, ...supplementalUiTranslations("ru") } },
-    vi: { translation: { ...vi, ...supplementalUiTranslations("vi") } },
-    "zh-CN": { translation: { ...zhCN, ...supplementalUiTranslations("zh-CN") } },
-    "zh-TW": { translation: { ...zhTW, ...supplementalUiTranslations("zh-TW") } },
-  },
+  resources: {},
   nsSeparator: false,
   keySeparator: false,
   interpolation: { escapeValue: false },
@@ -125,6 +127,26 @@ void i18next.init({
 // pushes the call onto the callback overload; the runtime option is real, so
 // the object is pinned to the options overload explicitly.
 } as Parameters<typeof i18next.init>[0]);
+
+/** Fetch the resolved language and switch onto it. The renderer entry awaits
+ *  this BEFORE importing any app module, because module-level strings pass
+ *  through t() at import time. Changing the language reloads the window
+ *  (Settings → Display language), so one catalog per session is enough. */
+export async function initUiLanguage(): Promise<void> {
+  const language = resolveUiLanguage();
+  if (language === "en") return;
+  try {
+    const catalog = await CATALOGS[language]();
+    i18next.addResourceBundle(language, "translation", {
+      ...catalog.default,
+      ...supplementalUiTranslations(language),
+    });
+    await i18next.changeLanguage(language);
+  } catch {
+    // A catalog that fails to load leaves the UI on its English source text,
+    // which is readable; a blank chrome would not be.
+  }
+}
 
 export function t(key: string, options?: Record<string, unknown>): string {
   return String(i18next.t(key, options));

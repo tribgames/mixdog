@@ -302,7 +302,7 @@ export default class Output {
         // text is trailing-space-trimmed and partial first/last rows respect
         // x1/x2. Null when there is no selection (mirrors selectedText).
         let selectionRows = null;
-        // [mixdog fork] noSelect exclusion (claude-code skips gutter / line-number
+        // [mixdog fork] noSelect exclusion (skip gutter / line-number
         // / diff-sigil cells from both highlight and copy via screen.noSelect):
         // mixdog's cell model has NO noSelect marker — the Output grid stores only
         // {value, styles} per cell, with no flag distinguishing gutter cells from
@@ -316,8 +316,8 @@ export default class Output {
             if (!captureSelectedText) {
                 selectedText = undefined;
             }
-            // [mixdog fork] Port applySelectionOverlay's fg-preserving principle
-            // from claude-code's selection.ts: REPLACE only the background and
+            // [mixdog fork] The selection overlay's fg-preserving principle:
+            // REPLACE only the background and
             // PRESERVE each cell's own foreground/attribute styles, so syntax
             // highlighting, OSC-8 links, and dim text stay readable under the
             // selection. The old code forced a black fg + light bg, flattening
@@ -419,7 +419,7 @@ export default class Output {
                     // Always accumulated so the unconditional selRowObjs harvest
                     // has row text even when captureSelectedText is false.
                     rowText += cell?.value ?? '';
-                    // [mixdog fork] Match claude-code: EVERY cell in the selected
+                    // [mixdog fork] EVERY cell in the selected
                     // span gets ONE uniform selection background — no content-span
                     // skipping. Empty/whitespace cells (and gaps in the grid) are
                     // painted as a blank ' ' carrying only the selection bg, so a
@@ -479,7 +479,7 @@ export default class Output {
             }
             selectionRows = selRowObjs;
             if (captureSelectedText) {
-                // [mixdog fork] SOFT-WRAP JOIN (claude-code getSelectedText):
+                // [mixdog fork] SOFT-WRAP JOIN (selected-text harvest):
                 // rejoin word-wrap continuation rows (sw = rowSoftWrap[y], set at
                 // render/output build time from the wrapText call) onto their
                 // logical source line WITHOUT a newline; only source/hard line

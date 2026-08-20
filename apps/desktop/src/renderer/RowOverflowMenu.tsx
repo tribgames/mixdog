@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { t } from './i18n';
+import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
 
 export type RowOverflowMenuItem = {
@@ -42,6 +43,9 @@ export function RowOverflowMenu({
   useEffect(() => {
     if (!surfaceActive && open) setOpen(false);
   }, [open, surfaceActive]);
+  // ABB (user: 백버튼 대응): the open menu owns hardware back, so the phone's
+  // back gesture closes it instead of leaving the PWA.
+  useMobileBack(menuOpen, () => setOpen(false));
   const menuItems = path.reduce<RowOverflowMenuItem[]>((current, index) =>
     current[index]?.children ?? current, items);
 

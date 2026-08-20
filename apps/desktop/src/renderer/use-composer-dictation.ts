@@ -10,6 +10,62 @@ import {
 
 type DictationState = "idle" | "recording" | "transcribing";
 
+type DictationMeter = {
+  context: AudioContext;
+  source: MediaStreamAudioSourceNode;
+  analyser: AnalyserNode;
+  frame: number;
+};
+
+// The recording overlay paints its bars from a ref, never from React state: a
+// per-frame level in state would re-render the whole composer (model pickers
+// included) for as long as the user keeps speaking.
+function startLevelMeter(stream: MediaStream, level: { current: number }): DictationMeter | null {
+  const Context = window.AudioContext
+    ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Context) return null;
+  try {
+    const context = new Context();
+    void Promise.resolve(context.resume()).catch(() => {
+      // Autoplay policy may hold the graph suspended; the bars stay flat.
+    });
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.7;
+    source.connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+    const meter: DictationMeter = { context, source, analyser, frame: 0 };
+    const sample = (): void => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (let index = 0; index < samples.length; index += 1) sum += samples[index] * samples[index];
+      // Speech RMS sits near 0.05–0.2, so the gain lifts it into the bar range.
+      // The ease attacks fast and releases slowly: a symmetric filter reads as
+      // per-frame flicker instead of a voice.
+      const loudness = Math.min(1, Math.sqrt(sum / samples.length) * 7);
+      level.current += (loudness - level.current) * (loudness > level.current ? 0.5 : 0.15);
+      meter.frame = window.requestAnimationFrame(sample);
+    };
+    meter.frame = window.requestAnimationFrame(sample);
+    return meter;
+  } catch {
+    // Metering is decoration: recording itself must still work without it.
+    return null;
+  }
+}
+
+function stopLevelMeter(meter: DictationMeter | null, level: { current: number }): void {
+  level.current = 0;
+  if (!meter) return;
+  window.cancelAnimationFrame(meter.frame);
+  try { meter.source.disconnect(); } catch { /* already disconnected */ }
+  try { meter.analyser.disconnect(); } catch { /* already disconnected */ }
+  void Promise.resolve(meter.context.close()).catch(() => {
+    // Closing the graph is best-effort during teardown.
+  });
+}
+
 export function useComposerDictation({
   transitioningRef,
   textarea,
@@ -24,16 +80,19 @@ export function useComposerDictation({
   showNotice(message: string, durationMs?: number): void;
 }) {
   const [dictationState, setDictationState] = useState<DictationState>("idle");
-  // Elapsed time backs the composer's inline recording chip: the disc alone
+  // Elapsed time backs the composer's recording overlay: the disc alone
   // never told the user how long the mic had been live (user-flagged).
   const [recordingSince, setRecordingSince] = useState(0);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
+  // Smoothed 0..1 input level, read by the overlay's own animation frame.
+  const dictationLevelRef = useRef(0);
   const dictationSession = useRef<{
     recorder: MediaRecorder;
     stream: MediaStream;
     chunks: Blob[];
     cancelled: boolean;
     stopTimer: number;
+    meter: DictationMeter | null;
   } | null>(null);
 
   const toggleDictation = useCallback(async () => {
@@ -76,14 +135,18 @@ export function useComposerDictation({
         chunks: [] as Blob[],
         cancelled: false,
         stopTimer: 0,
+        meter: null as DictationMeter | null,
       };
       dictationSession.current = session;
+      session.meter = startLevelMeter(stream, dictationLevelRef);
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) session.chunks.push(event.data);
       };
       recorder.onstop = () => {
         void (async () => {
           window.clearTimeout(session.stopTimer);
+          stopLevelMeter(session.meter, dictationLevelRef);
+          session.meter = null;
           dictationSession.current = null;
           for (const track of session.stream.getTracks()) track.stop();
           if (session.cancelled || session.chunks.length === 0) {
@@ -146,6 +209,43 @@ export function useComposerDictation({
     }
   }, [dictationState, invokeResult, setDraft, showNotice, textarea, transitioningRef]);
 
+  // Discarding is its own path: `toggleDictation` always transcribes what it
+  // stopped, so a take started by mistake had no way back (overlay ×, Esc).
+  const cancelDictation = useCallback(() => {
+    const active = dictationSession.current;
+    if (!active) return;
+    active.cancelled = true;
+    try {
+      active.recorder.stop();
+    } catch {
+      // The recorder already stopped.
+    }
+  }, []);
+
+  // Enter finishes the take, Esc discards it. Capture phase, because the
+  // composer's own Escape policy would otherwise clear the draft and Enter
+  // would send it while the mic is still live.
+  useEffect(() => {
+    if (dictationState !== "recording") return undefined;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.isComposing) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelDictation();
+        return;
+      }
+      if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void toggleDictation();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [cancelDictation, dictationState, toggleDictation]);
+
   useEffect(() => {
     if (dictationState !== "recording" || !recordingSince) {
       setRecordingElapsedMs(0);
@@ -162,6 +262,8 @@ export function useComposerDictation({
     const session = dictationSession.current;
     if (!session) return;
     session.cancelled = true;
+    stopLevelMeter(session.meter, dictationLevelRef);
+    session.meter = null;
     try {
       session.recorder.stop();
     } catch {
@@ -170,5 +272,5 @@ export function useComposerDictation({
     for (const track of session.stream.getTracks()) track.stop();
   }, []);
 
-  return { dictationState, toggleDictation, recordingElapsedMs };
+  return { dictationState, toggleDictation, cancelDictation, recordingElapsedMs, dictationLevelRef };
 }

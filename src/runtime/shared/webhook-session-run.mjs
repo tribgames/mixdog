@@ -12,6 +12,11 @@ import { parseScheduleModelRef } from './schedule-model-ref.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
 import { automationPromptContent } from './automation-attachments.mjs';
 
+// Webhook payloads are authenticated transport data, not trusted user intent.
+// Keep their sessions on the deterministic read-only bundle even when a
+// preset or workflow would otherwise resolve to full tools.
+export const WEBHOOK_SESSION_TOOLS = Object.freeze(['tools:readonly']);
+
 /** Endpoint model ref wins; the maintenance.webhook route is the fallback. */
 function webhookRoute(modelRef) {
   if (modelRef) {
@@ -49,6 +54,7 @@ export async function runWebhookSession({ name, model = null, prompt, cwd = null
     sourceType: 'webhook',
     sourceName: endpoint,
     sourceDelivery: delivery || null,
+    tools: WEBHOOK_SESSION_TOOLS,
     ...(projectCwd ? { cwd: projectCwd } : {}),
     desktopSession: projectCwd
       ? { classification: 'project', projectPath: projectCwd }

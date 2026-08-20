@@ -18,7 +18,13 @@ import { acquire as acquireChildSpawnSlot } from '../../../shared/child-spawn-ga
 // transition). shell-jobs.mjs imports stripAnsi from this module, so this is
 // a static cycle — safe because neither binding is touched at module-eval
 // time, only when the respective functions actually run.
-import { adoptForegroundShellJob, attachShellJobResourceLease, killShellJob } from './builtin/shell-jobs.mjs';
+import {
+  adoptForegroundShellJob,
+  attachShellJobResourceLease,
+  killShellJob,
+  publishForegroundShellRecord,
+  retireForegroundShellRecord,
+} from './builtin/shell-jobs.mjs';
 import {
   _maybeEncodePowerShellCommand,
   extractPowerShellCommandInner,
@@ -48,6 +54,17 @@ async function _execPolicyBlockMessage(command) {
 // exists, so neither timeoutMs nor background promotion can ever fire and the
 // tool call hangs silently forever. Bound the wait and fail with an
 // actionable saturation diagnostic instead. 0 disables the ceiling.
+// Foreground visibility threshold. Every shell readout (CLI statusline,
+// desktop island) scans the on-disk job records, so a foreground command is
+// invisible without one. Commands that settle inside this window can never
+// survive long enough for a 1 s status refresh to show them, so publishing
+// their record would only cost two file writes per command.
+// MIXDOG_SHELL_FOREGROUND_RECORD_MS overrides; 0 publishes every command.
+const _envForegroundRecord = Math.floor(Number(process.env.MIXDOG_SHELL_FOREGROUND_RECORD_MS));
+const FOREGROUND_RECORD_DELAY_MS = Number.isFinite(_envForegroundRecord) && _envForegroundRecord >= 0
+  ? _envForegroundRecord
+  : 300;
+
 const _envAdmissionWait = Math.floor(Number(process.env.MIXDOG_SHELL_ADMISSION_WAIT_MS));
 const SHELL_ADMISSION_WAIT_MS = Number.isFinite(_envAdmissionWait) && _envAdmissionWait >= 0
   ? _envAdmissionWait
@@ -305,6 +322,26 @@ export function execShellCommand({
 
     let child;
     let _onChildErrorRef = null;
+    // Live foreground record (see FOREGROUND_RECORD_DELAY_MS). Stamped with
+    // the moment the command actually reached a shell — not lease/preflight
+    // entry, and not a warm standby's process-creation time.
+    let _commandStartedAtMs = 0;
+    const _foregroundRecordId = `job_${Date.now()}_${randomUUID().slice(0, 6)}`;
+    let _foregroundRecordTimer = null;
+    let _foregroundRecordPublished = false;
+    const _clearForegroundRecord = () => {
+      if (_foregroundRecordTimer) {
+        clearTimeout(_foregroundRecordTimer);
+        _foregroundRecordTimer = null;
+      }
+      if (!_foregroundRecordPublished) return;
+      _foregroundRecordPublished = false;
+      try { retireForegroundShellRecord(_foregroundRecordId); } catch {}
+    };
+    // Runtime of the COMMAND. _startMs covers admission lease + policy
+    // preflight too, so it overstates how long the command itself has run;
+    // before a shell exists it is the only stamp available.
+    const _elapsedSinceStart = () => Math.max(0, Date.now() - (_commandStartedAtMs || _startMs));
     try {
       resourceLease = await acquireShellLeaseBounded(admission, {
         abortSignal,
@@ -400,6 +437,25 @@ export function execShellCommand({
       // Feed the standby only after the error handler is attached; server
       // messages cannot be processed before this synchronous block yields.
       if (_standby) _standby.feed(_spawnCommand, cwd);
+      // The command has now reached a shell. This is the start moment every
+      // readout measures from, and the point from which a still-running
+      // command deserves to be visible in the shell readouts.
+      _commandStartedAtMs = Date.now();
+      _foregroundRecordTimer = setTimeout(() => {
+        _foregroundRecordTimer = null;
+        if (settled || autoBackgrounded || !child?.pid) return;
+        _foregroundRecordPublished = true;
+        publishForegroundShellRecord({
+          jobId: _foregroundRecordId,
+          command,
+          cwd,
+          pid: child.pid,
+          startedAtMs: _commandStartedAtMs,
+          ownerSessionId,
+          clientHostPid,
+        });
+      }, FOREGROUND_RECORD_DELAY_MS);
+      _foregroundRecordTimer.unref?.();
     } catch (err) {
       const cleanupError = await releaseResourceLease();
       const spawnText = String((err && err.message) || err);
@@ -453,6 +509,9 @@ export function execShellCommand({
     settle = async (exitCode, signal) => {
       if (settled || autoBackgrounded) return;
       settled = true;
+      // Off the readouts the instant the command is over, before any awaited
+      // output capture — a finished command must never linger as "running".
+      _clearForegroundRecord();
       if (timer) {
         clearTimeout(timer);
         timer = null;
@@ -581,7 +640,10 @@ export function execShellCommand({
       const stdoutPath = taskOutput.spilled ? taskOutput.stdoutPath : null;
       const stderrPath = taskOutput.spilled ? taskOutput.stderrPath : null;
       let job = null;
-      const elapsedMs = Math.max(0, Date.now() - _startMs);
+      // The adopted job publishes its own record under the real task id; drop
+      // the foreground marker first so the command is never counted twice.
+      _clearForegroundRecord();
+      const elapsedMs = _elapsedSinceStart();
       const adoptedTimeoutMs = reason === 'timeout'
         ? promotedTimeoutMs
         : (backgroundDeadlineMs > 0
@@ -593,6 +655,9 @@ export function execShellCommand({
           cwd,
           pid: child.pid,
           timeoutMs: adoptedTimeoutMs,
+          // Carry the command's own start moment into the job: adoption time
+          // and a standby's process-creation time are both wrong.
+          startedAtMs: _commandStartedAtMs,
           mergeStderr: false,
           stdoutPath,
           stderrPath,
@@ -705,7 +770,7 @@ export function execShellCommand({
       // the foreground caller's signal listener would keep the completed tool
       // frame alive and could later kill an unrelated, already-returned job.
       detachAbortHandler();
-      const secs = Math.max(0, Math.round((Date.now() - _startMs) / 1000));
+      const secs = Math.max(0, Math.round(_elapsedSinceStart() / 1000));
       const _verb = reason === 'timeout'
         ? `moved to background at timeout after ${secs}s`
         : (reason === 'explicit'
@@ -740,6 +805,9 @@ export function execShellCommand({
         if (resultResolved) return;
         settled = true;
         autoBackgrounded = true;
+        // A promotion that threw before it could clear the marker must still
+        // leave nothing behind: the child is killed right below.
+        _clearForegroundRecord();
         killed = true;
         killCause = 'resource-cleanup-error';
         detachAbortHandler();
@@ -796,7 +864,7 @@ export function execShellCommand({
     if (_hasProgress && !_isBackground) {
       progressTimer = setInterval(() => {
         if (settled || autoBackgrounded) return;
-        const secs = Math.round((Date.now() - _startMs) / 1000);
+        const secs = Math.round(_elapsedSinceStart() / 1000);
         try { onProgress(`running ${secs}s`); } catch {}
       }, 2000);
       if (progressTimer.unref) progressTimer.unref();

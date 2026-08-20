@@ -5,6 +5,35 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Studio deletes take effect on the first click: a finished run releases its
+  grid slot as soon as its asset is indexed, so deleting that asset no longer
+  revives the slot as a phantom "generating" tile. The gallery is no longer
+  capped at 2,000 entries — an asset leaves the store only through an explicit
+  delete — and a run that fails, starts without a job, or loses its runtime
+  snapshot now reports that instead of spinning silently.
+- The mobile tab switcher reads as a card grid and earns a filter field only
+  once the list is long enough to need one, while phone chrome restates the
+  composer discs, the status island, and panel sheets at touch proportions and
+  brings hover-only controls within reach.
+- An installed web app can pair itself: it opens a device-routed entry URL,
+  asks that desktop for approval behind a two-digit code shown on both
+  screens, and receives pairing material sealed to its own throwaway key.
+  Paired browsers now register which push lanes they read, so a connected
+  phone no longer pays for terminal, editor, and file traffic it never shows.
+- The code-graph search server serves shared-pipe clients with per-connection
+  response queues and client-scoped request ids, and exits on its own after an
+  idle window so a force-killed owner stops leaving warm servers behind.
+- Tool calls survive provider argument noise: an omitted optional base path
+  resolves to the current Project instead of failing the call, task arguments
+  are narrowed to the chosen action, and git output keeps its final progress
+  frame and its trailing fatal line instead of burying the reason under redraw
+  frames.
+- The renderer loads one UI language catalog instead of eleven, settles the
+  language before the first app module evaluates, and prefetches a surface
+  chunk on selection; /inherit carries an existing conversation into a new
+  session on the currently selected route.
+- Third-party credit is carried by LICENSES and NOTICE alone.
+
 ## v0.9.139 - 2026-08-20
 
 - Antigravity OAuth arrives as a provider: one Google login exposes Gemini 3.x
@@ -378,7 +407,7 @@ the Unreleased section is empty, and stamps it with the released version.
 ## v0.9.101 - 2026-08-08
 
 - Escape now recalls queued, still-unprocessed messages into the composer
-  before anything else — Claude Code's order — so a mid-turn Esc edits the
+  before anything else — queue order first — so a mid-turn Esc edits the
   waiting follow-up instead of interrupting the turn; a second press still
   cancels.
 - Workflows are pure working-style definitions: packs no longer carry an
@@ -504,8 +533,8 @@ the Unreleased section is empty, and stamps it with the released version.
 - Streaming markdown heals the live tail (unclosed `**`, `` ` ``, `~~`) and
   scopes the fenced-code geometry lock to its own chunk, so headings, lists,
   and bold format while the model is still typing.
-- Turn review moved into the scrolled timeline (OpenCode `session-turn-diffs`
-  parity), ending the composer-stack shift on session entry; warn-tone
+- Turn review moved into the scrolled timeline (turn diffs ride the
+  thread), ending the composer-stack shift on session entry; warn-tone
   notices now use the amber status pair instead of the neutral one.
 - Native caption band is transparent so the DOM titlebar and dialog scrims
   dim it directly; the ◀ ▶ pane-cycle pair is retired (Alt+Left/Right keeps

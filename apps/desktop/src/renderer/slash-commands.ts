@@ -3,7 +3,7 @@ export type SettingsSection =
   | 'theme' | 'workflow' | 'model' | 'websearch' | 'providers' | 'mcp'
   | 'plugins' | 'hooks' | 'skills' | 'memory' | 'update';
 
-export type CommandSurface = 'context' | 'usage' | 'doctor';
+export type CommandSurface = 'context' | 'usage' | 'doctor' | 'inherit';
 
 export interface DesktopSlashCommand {
   name: string;
@@ -28,6 +28,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'autoclear', usage: '/autoclear', params: '[on|off|duration]', description: 'Reduce cache-miss cost after long idle gaps', settingsRow: 'autoclear' },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat', action: 'resume' },
   { name: 'context', usage: '/context', description: 'Show current context surface', surface: 'context' },
+  { name: 'inherit', usage: '/inherit', description: 'Carry this conversation into a new session on the current model', surface: 'inherit' },
   { name: 'usage', usage: '/usage', params: '[refresh]', description: 'Show total provider quota / balance', surface: 'usage' },
   { name: 'model', usage: '/model', params: '[name|refresh]', description: 'Switch model for subsequent turns', settingsRow: 'model' },
   { name: 'websearch', usage: '/websearch', description: 'Set the web search provider/model', settingsRow: 'websearch' },
@@ -44,7 +45,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events', settingsRow: 'hooks' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints', settingsRow: 'providers' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings', action: 'settings' },
-  { name: 'profile', usage: '/profile', description: 'Set your title and response language', settingsRow: 'profile' },
+  { name: 'profile', usage: '/profile', description: 'Set your title, development experience, and response language', settingsRow: 'profile' },
   { name: 'update', usage: '/update', description: 'Check version and update mixdog', settingsRow: 'update' },
   { name: 'doctor', usage: '/doctor', description: 'Diagnose installation health', surface: 'doctor' },
   {

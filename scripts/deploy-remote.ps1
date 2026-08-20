@@ -47,7 +47,18 @@ $uploadJob = Start-Job -ScriptBlock {
     + " && tar -xzf /root/relay-upload.tgz -C /root/relay-upload" `
     + " && bash /root/relay-upload/deploy/deploy-release.sh $Domain v$version")
   if ($LASTEXITCODE -ne 0) { throw "VPS swap exited with $LASTEXITCODE" }
-  curl.exe -s "https://$Domain/healthz"
+  # deploy-release.sh already gated activation on systemd health and the
+  # renderer hash, so this outside probe is informational: a refusal during the
+  # service swap must not fail a deploy that the VPS itself verified.
+  $ErrorActionPreference = 'Continue'
+  $health = 'no response'
+  foreach ($attempt in 1..10) {
+    $code = & curl.exe -s -o NUL -w '%{http_code}' --max-time 5 "https://$Domain/healthz" 2>$null
+    if ($code) { $health = "HTTP $code" }
+    if ($code -eq '200') { break }
+    Start-Sleep -Seconds 2
+  }
+  "[health] https://$Domain/healthz -> $health"
 } -ArgumentList (Join-Path $repo 'apps/relay'), $SshHost, $Domain, $version
 
 $devUpdate = Join-Path $repo 'apps\desktop\scripts\dev-update-windows.ps1'
