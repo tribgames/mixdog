@@ -63,6 +63,54 @@ test('authenticates, encrypts both directions, and rejects replay', async () => 
   ).length);
 });
 
+test('compresses large payloads inside the envelope and stays readable without it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-deflate-'));
+  const identity = await loadOrCreateRelayE2EEIdentity(dir);
+  const pairing = relayE2EEPairingMaterial(identity);
+  // A transcript snapshot: repetitive JSON, which is exactly what the relay
+  // could never compress once it was ciphertext.
+  const snapshot = {
+    event: 'sessionState',
+    payload: {
+      sessionId: 'session',
+      items: Array.from({ length: 120 }, (unused, id) => ({
+        id,
+        kind: id % 2 ? 'assistant' : 'user',
+        text: 'the quick brown fox jumps over the lazy dog. '.repeat(12),
+      })),
+    },
+  };
+
+  const offered = { ...createRelayE2EEChallenge(), deflate: 1 };
+  const compressed = await createRelayE2EEClientHandshake(pairing, offered);
+  assert.equal(compressed.hello.deflate, 1);
+  const compressedServer = await acceptRelayE2EEClientHello(identity, offered, compressed.hello);
+  const compressedFrame = await compressedServer.encryptBinary(snapshot);
+  assert.deepEqual(await compressed.channel.decryptJson(compressedFrame), snapshot);
+
+  // A peer that never advertised compression keeps the original wire format,
+  // and the compressing side still reads it.
+  const plainChallenge = createRelayE2EEChallenge();
+  const plain = await createRelayE2EEClientHandshake(pairing, plainChallenge);
+  assert.equal(plain.hello.deflate, undefined);
+  const plainServer = await acceptRelayE2EEClientHello(identity, plainChallenge, plain.hello);
+  const plainFrame = await plainServer.encryptBinary(snapshot);
+  assert.deepEqual(await plain.channel.decryptJson(plainFrame), snapshot);
+
+  assert.ok(
+    compressedFrame.byteLength * 3 < plainFrame.byteLength,
+    `expected a large saving, got ${compressedFrame.byteLength} vs ${plainFrame.byteLength}`,
+  );
+
+  // Small live frames skip compression entirely: the streaming path must not
+  // pay for a deflate round that saves nothing.
+  const tick = { event: 'sessionState', payload: { sessionId: 'session', append: 'ok' } };
+  const smallCompressed = await compressedServer.encryptBinary(tick);
+  const smallPlain = await plainServer.encryptBinary(tick);
+  assert.equal(smallCompressed.byteLength, smallPlain.byteLength);
+  assert.deepEqual(await compressed.channel.decryptJson(smallCompressed), tick);
+});
+
 test('rejects oversized handshake fields before cryptographic work', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-e2ee-shape-'));
   const identity = await loadOrCreateRelayE2EEIdentity(dir);

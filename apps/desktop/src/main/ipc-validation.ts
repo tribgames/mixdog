@@ -6,19 +6,25 @@ import {
 import {
   DESKTOP_CAPABILITIES,
   DESKTOP_GIT_GLOBAL_CONFIG_KEYS,
+  DESKTOP_LSP_REQUEST_METHODS,
   DESKTOP_READ_CAPABILITIES,
   type DesktopAbortOptions,
   type DesktopCapability,
   type DesktopCapabilityReadRequest,
   type DesktopCapabilityRequest,
   type DesktopGitGlobalConfigKey,
+  type DesktopLspDocumentInput,
+  type DesktopLspRequestInput,
+  type DesktopLspRequestMethod,
   type DesktopModelCatalogOptions,
   type DesktopModelSelection,
   type DesktopNewTaskDraft,
   type DesktopPromptContent,
   type DesktopSettingKey,
   type DesktopSubmitOptions,
+  type DesktopTextFileEncoding,
   type DesktopWorkspaceFolder,
+  type DesktopWorkspaceTextWrite,
   type ToolApprovalDecision,
 } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
@@ -569,6 +575,185 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
   if (value === 'autoClear' || value === 'autoCompact' || value === 'keepAwake'
     || value === 'usagePinned') return value;
   throw new TypeError('setting key is invalid.');
+}
+
+const LSP_REQUEST_METHOD_SET: ReadonlySet<string> = new Set(DESKTOP_LSP_REQUEST_METHODS);
+const LSP_DOCUMENT_KEYS = new Set([
+  'kind', 'projectPath', 'relPath', 'languageId', 'version', 'content',
+]);
+const LSP_REQUEST_KEYS = new Set(['projectPath', 'relPath', 'languageId', 'method', 'params']);
+const WORKSPACE_WRITE_KEYS = new Set(['relPath', 'content', 'expectedContent']);
+const WORKSPACE_SEARCH_KEYS = new Set([
+  'query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults',
+]);
+const GIT_PREFERENCE_KEYS = new Set([
+  'commitTemplate', 'commitExample', 'commitInstructions', 'commitPreset', 'autoCommitMessage',
+]);
+const MAX_TEXT_FILE_LENGTH = 4_194_304;
+
+export interface DesktopWorkspaceSearchOptionsInput {
+  query: string;
+  include?: string;
+  exclude?: string;
+  matchCase: boolean;
+  wholeWord: boolean;
+  regex: boolean;
+  maxResults: number;
+}
+
+export interface DesktopGitPreferencesInput {
+  commitTemplate?: string;
+  commitExample?: string;
+  commitInstructions?: string;
+  commitPreset?: 'none' | 'conventional' | 'custom';
+  autoCommitMessage?: boolean;
+}
+
+/** Editor/LSP payload body: the same 4 MiB ceiling every text lane uses. */
+export function requiredTextFileContent(value: unknown, name: string): string {
+  if (typeof value !== 'string' || value.length > MAX_TEXT_FILE_LENGTH) {
+    throw new TypeError(`${name} is invalid.`);
+  }
+  return value;
+}
+
+export function requiredTextFileEncoding(value: unknown): DesktopTextFileEncoding | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'utf8' || value === 'utf8bom' || value === 'utf16le' || value === 'utf16be') {
+    return value;
+  }
+  throw new TypeError('file encoding is invalid.');
+}
+
+export function requiredInstructionsContent(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 65_536) {
+    throw new TypeError('instructions content is invalid.');
+  }
+  return value;
+}
+
+export function requiredLspDocumentInput(value: unknown): DesktopLspDocumentInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('LSP document input is invalid.');
+  }
+  const input = value as Record<string, unknown>;
+  requireAllowedKeys(input, LSP_DOCUMENT_KEYS, 'LSP document input');
+  if (input.kind !== 'open' && input.kind !== 'change'
+    && input.kind !== 'save' && input.kind !== 'close') {
+    throw new TypeError('LSP document kind is invalid.');
+  }
+  if (!Number.isInteger(input.version) || Number(input.version) < 0) {
+    throw new TypeError('LSP document version is invalid.');
+  }
+  if (input.content !== undefined
+    && (typeof input.content !== 'string' || input.content.length > MAX_TEXT_FILE_LENGTH)) {
+    throw new TypeError('LSP document content is invalid.');
+  }
+  return {
+    kind: input.kind,
+    projectPath: requiredString(input.projectPath, 'projectPath'),
+    relPath: requiredString(input.relPath, 'relPath', 4_096),
+    languageId: requiredString(input.languageId, 'languageId', 64),
+    version: Number(input.version),
+    ...(typeof input.content === 'string' ? { content: input.content } : {}),
+  };
+}
+
+export function requiredLspRequestInput(value: unknown): DesktopLspRequestInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('LSP request input is invalid.');
+  }
+  const input = value as Record<string, unknown>;
+  requireAllowedKeys(input, LSP_REQUEST_KEYS, 'LSP request input');
+  const method = requiredString(input.method, 'LSP method', 128);
+  if (!LSP_REQUEST_METHOD_SET.has(method)) throw new TypeError('LSP method is unavailable.');
+  const params = input.params === undefined ? {} : input.params;
+  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+    throw new TypeError('LSP params are invalid.');
+  }
+  validateStructuredValue(params);
+  return {
+    projectPath: requiredString(input.projectPath, 'projectPath'),
+    relPath: requiredString(input.relPath, 'relPath', 4_096),
+    languageId: requiredString(input.languageId, 'languageId', 64),
+    method: method as DesktopLspRequestMethod,
+    params: params as Record<string, unknown>,
+  };
+}
+
+export function requiredWorkspaceTextWrites(value: unknown): DesktopWorkspaceTextWrite[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
+    throw new TypeError('Workspace edit files are invalid.');
+  }
+  return value.map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      throw new TypeError('Workspace edit file is invalid.');
+    }
+    const record = row as Record<string, unknown>;
+    requireAllowedKeys(record, WORKSPACE_WRITE_KEYS, 'Workspace edit file');
+    if (typeof record.content !== 'string' || record.content.length > MAX_TEXT_FILE_LENGTH
+      || typeof record.expectedContent !== 'string'
+      || record.expectedContent.length > MAX_TEXT_FILE_LENGTH) {
+      throw new TypeError('Workspace edit file content is invalid.');
+    }
+    return {
+      relPath: requiredString(record.relPath, 'relPath', 4_096),
+      content: record.content,
+      expectedContent: record.expectedContent,
+    };
+  });
+}
+
+export function requiredWorkspaceSearchOptions(value: unknown): DesktopWorkspaceSearchOptionsInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Workspace search options are invalid.');
+  }
+  const input = value as Record<string, unknown>;
+  requireAllowedKeys(input, WORKSPACE_SEARCH_KEYS, 'Workspace search options');
+  return {
+    query: requiredString(input.query, 'search query', 4_096),
+    ...(typeof input.include === 'string' ? { include: input.include.slice(0, 4_096) } : {}),
+    ...(typeof input.exclude === 'string' ? { exclude: input.exclude.slice(0, 4_096) } : {}),
+    matchCase: input.matchCase === true,
+    wholeWord: input.wholeWord === true,
+    regex: input.regex === true,
+    maxResults: requiredWorkspaceSearchLimit(input.maxResults),
+  };
+}
+
+export function requiredGitPreferencesInput(value: unknown): DesktopGitPreferencesInput {
+  const source = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  requireAllowedKeys(source, GIT_PREFERENCE_KEYS, 'preferences');
+  const text = (input: unknown, name: string): string | undefined => {
+    if (input === undefined) return undefined;
+    if (typeof input !== 'string' || input.length > 20_000) {
+      throw new TypeError(`${name} must be a string of at most 20,000 characters.`);
+    }
+    return input;
+  };
+  const template = text(source.commitTemplate, 'commitTemplate');
+  const example = text(source.commitExample, 'commitExample');
+  const instructions = text(source.commitInstructions, 'commitInstructions');
+  const preset = source.commitPreset;
+  if (preset !== undefined
+    && (typeof preset !== 'string' || !['none', 'conventional', 'custom'].includes(preset))) {
+    throw new TypeError('commitPreset must be none, conventional, or custom.');
+  }
+  const auto = source.autoCommitMessage;
+  if (auto !== undefined && typeof auto !== 'boolean') {
+    throw new TypeError('autoCommitMessage must be a boolean.');
+  }
+  return {
+    ...(typeof template === 'string' ? { commitTemplate: template } : {}),
+    ...(typeof example === 'string' ? { commitExample: example } : {}),
+    ...(typeof instructions === 'string' ? { commitInstructions: instructions } : {}),
+    ...(typeof preset === 'string'
+      ? { commitPreset: preset as 'none' | 'conventional' | 'custom' }
+      : {}),
+    ...(typeof auto === 'boolean' ? { autoCommitMessage: auto } : {}),
+  };
 }
 
 export function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder[] {

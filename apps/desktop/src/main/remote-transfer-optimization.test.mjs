@@ -5,6 +5,7 @@ import { createLatestStateMailbox } from "./desktop-service-protocol.ts";
 import {
   createSnapshotDeltaDecoder,
   createSnapshotDeltaEncoder,
+  markCompactWire,
 } from "./state-delta.ts";
 import { encodeRelayClientSessionState } from "./remote-relay.ts";
 import { createRemotePaintProbeTracker } from "../shared/remote-performance.ts";
@@ -37,6 +38,74 @@ test("session transcript updates cross the relay as compact deltas", () => {
   assert.equal(decoded.ok, true);
   assert.deepEqual(decoded.snapshot, next);
   assert.ok(JSON.stringify(wire).length < JSON.stringify(next).length / 100);
+});
+
+test("compact frames omit unchanged sections and stay lossless", () => {
+  const TAIL_EPOCH = Symbol.for("mixdog.streaming-tail-text-epoch");
+  const items = Array.from({ length: 30 }, (unused, id) => ({
+    id,
+    kind: "assistant",
+    text: "settled turn ".repeat(8),
+  }));
+  const build = (text, tokens) => {
+    const snapshot = {
+      sessionId: "session",
+      items,
+      status: "running",
+      tokens,
+      streamingTail: { id: "tail", kind: "assistant", text },
+    };
+    Object.defineProperty(snapshot, TAIL_EPOCH, {
+      value: 3,
+      enumerable: false,
+      configurable: true,
+    });
+    return snapshot;
+  };
+  // The compact shape is announced by the transport envelope, so a receiver
+  // marks the payload before decoding it — exactly what remote-shim does.
+  const received = (wire, compact) => {
+    if (compact && wire && typeof wire === "object" && !Object.hasOwn(wire, "__itemsRevision")) {
+      markCompactWire(wire);
+    }
+    return wire;
+  };
+  const stream = (encoder, decoder, compact = false) => {
+    assert.equal(decoder.decode(received(encoder.encode(build("", 10)), compact)).ok, true);
+    let steadyBytes = 0;
+    let snapshot;
+    for (let step = 1; step <= 5; step += 1) {
+      const wire = encoder.encode(build("token ".repeat(step * 4), 10));
+      steadyBytes = JSON.stringify(wire).length;
+      const decoded = decoder.decode(received(wire, compact));
+      assert.equal(decoded.ok, true);
+      snapshot = decoded.snapshot;
+    }
+    return { steadyBytes, snapshot };
+  };
+
+  const compactEncoder = createSnapshotDeltaEncoder({ compact: true });
+  const compactDecoder = createSnapshotDeltaDecoder();
+  const compact = stream(compactEncoder, compactDecoder, true);
+  // Nothing is lost by leaving the unchanged parts out of the frame.
+  assert.equal(compact.snapshot.streamingTail.text, "token ".repeat(20));
+  assert.equal(compact.snapshot.items.length, 30);
+  assert.equal(compact.snapshot.status, "running");
+  assert.equal(compact.snapshot.tokens, 10);
+
+  const legacy = stream(createSnapshotDeltaEncoder(), createSnapshotDeltaDecoder());
+  assert.deepEqual(compact.snapshot, legacy.snapshot);
+  assert.ok(
+    compact.steadyBytes * 2 < legacy.steadyBytes,
+    `expected a much smaller live frame, got ${compact.steadyBytes} vs ${legacy.steadyBytes}`,
+  );
+
+  // A state field that DOES change still travels, and the stream continues.
+  const changed = compactDecoder.decode(
+    received(compactEncoder.encode(build("token ".repeat(20), 42)), true),
+  );
+  assert.equal(changed.ok, true);
+  assert.equal(changed.snapshot.tokens, 42);
 });
 
 test("a newly visible relay client receives a full transcript baseline", () => {

@@ -15,7 +15,6 @@ import {
   readFile as fsReadFile,
   stat as fsStat,
 } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import {
   basename as pathBasename,
   dirname as pathDirname,
@@ -26,16 +25,11 @@ import {
 } from 'node:path';
 import {
   DESKTOP_IPC,
-  DESKTOP_LSP_REQUEST_METHODS,
-  type DesktopLspDocumentInput,
-  type DesktopLspRequestInput,
-  type DesktopLspRequestMethod,
   type DesktopLocalPathEntry,
   type DesktopRemoteAccessInfo,
   type DesktopSettings,
   type DesktopUpdaterState,
   type DesktopWorkspace,
-  type DesktopWorkspaceTextWrite,
   type SessionSnapshot,
 } from '../shared/contract';
 import { localFileMimeTypeForPath } from '../shared/local-files';
@@ -53,11 +47,18 @@ import { registerFilePreview } from './file-preview';
 import {
   browsableFolderPath,
   listFolderPlaces,
+  MAX_LOCAL_FILE_BYTES,
 } from './folder-explorer';
+import {
+  commonInstructionsFile,
+  legacyCommonInstructionsFile,
+  projectInstructionsFile,
+} from './instructions-file';
 import {
   requiredCommitHash,
   requiredGitIgnoreScope,
   requiredGitResetMode,
+  requiredGitRevision,
   requiredRepositoryCwd,
 } from './git-contract.mjs';
 import {
@@ -73,7 +74,6 @@ import {
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import {
   projectDisplayName,
-  requireAllowedKeys,
   requiredAbortOptions,
   requiredCommitMessageFiles,
   requiredDesktopCapabilityReadRequests,
@@ -91,18 +91,24 @@ import {
   requiredGitPatch,
   requiredGitPath,
   requiredGitPaths,
+  requiredGitPreferencesInput,
+  requiredInstructionsContent,
+  requiredLspDocumentInput,
+  requiredLspRequestInput,
   requiredModelCatalogOptions,
   requiredModelSelection,
   requiredNewTaskDraft,
   requiredPromptContent,
   requiredString,
   requiredSubmitOptions,
+  requiredTextFileContent,
+  requiredTextFileEncoding,
   requiredToolApprovalDecision,
   requiredWorkspaceFolders,
-  requiredWorkspaceSearchLimit,
+  requiredWorkspaceSearchOptions,
+  requiredWorkspaceTextWrites,
   requiredZoomFactor,
   sessionDisplayName,
-  validateStructuredValue,
 } from './ipc-validation';
 export {
   projectDisplayName,
@@ -132,8 +138,6 @@ export {
   sessionDisplayName,
 } from './ipc-validation';
 
-const MAX_LOCAL_DROP_FILE_BYTES = 20 * 1024 * 1024;
-
 const SERVICE_OPERATION_NAMES = [
   'githubStarStatus', 'starGithub', 'githubCliStatus', 'installGithubCli',
   'githubCliLoginStart', 'githubCliLoginStatus', 'cancelGithubCliLogin',
@@ -150,10 +154,6 @@ const SERVICE_OPERATION_NAMES = [
   'ghPrCheckout', 'ghPrCreate', 'ghPrDefaultBranch', 'ghPrDiff', 'ghPrList',
   'ghPrMerge', 'ghPrView',
 ] as const;
-const LSP_REQUEST_METHODS: ReadonlySet<string> = new Set(DESKTOP_LSP_REQUEST_METHODS);
-const isDesktopLspRequestMethod = (method: string): method is DesktopLspRequestMethod =>
-  LSP_REQUEST_METHODS.has(method);
-
 interface DesktopIpcDependencies {
   app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath' | 'getFileIcon'>>;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeListener'>;
@@ -531,7 +531,7 @@ export function registerDesktopIpc(
     const file = browsableFolderPath(rawPath);
     const info = await fsStat(file);
     if (!info.isFile()) throw new Error('Only files can be attached.');
-    if (info.size > MAX_LOCAL_DROP_FILE_BYTES) {
+    if (info.size > MAX_LOCAL_FILE_BYTES) {
       throw new Error(`${pathBasename(file)}: files must be 20 MB or smaller.`);
     }
     const data = await fsReadFile(file);
@@ -679,28 +679,22 @@ export function registerDesktopIpc(
   // legacy user-workflow.md is read as a fallback so old installs surface
   // their existing guidance); a project path → `<project>/.mixdog/
   // instructions.md` (injected once per session after the `# Session` block).
-  const commonDataDir = (): string => process.env.MIXDOG_DATA_DIR
-    || resolvePath(process.env.MIXDOG_HOME || resolvePath(homedir(), '.mixdog'), 'data');
   const instructionsFilePath = async (projectPath: unknown): Promise<string> => {
-    if (projectPath == null || projectPath === '') {
-      return resolvePath(commonDataDir(), 'instructions.md');
-    }
+    if (projectPath == null || projectPath === '') return commonInstructionsFile();
     const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
-    return resolvePath(directory, '.mixdog', 'instructions.md');
+    return projectInstructionsFile(directory);
   };
   handle(DESKTOP_IPC.readInstructions, async (_event, projectPath) => {
     const file = await instructionsFilePath(projectPath);
     const legacy = projectPath == null || projectPath === ''
-      ? resolvePath(commonDataDir(), 'user-workflow.md')
+      ? legacyCommonInstructionsFile()
       : '';
     return invokeDesktopOperation('readInstructions', [file, legacy]);
   });
   handle(DESKTOP_IPC.writeInstructions, async (_event, projectPath, content) => {
-    if (typeof content !== 'string' || content.length > 65_536) {
-      throw new TypeError('instructions content is invalid.');
-    }
+    const text = requiredInstructionsContent(content);
     const file = await instructionsFilePath(projectPath);
-    await invokeDesktopOperation('writeInstructions', [file, content]);
+    await invokeDesktopOperation('writeInstructions', [file, text]);
   });
   handle(DESKTOP_IPC.listProjectDir, (_event, projectPath, relDir) =>
     host.listProjectDir(
@@ -753,24 +747,14 @@ export function registerDesktopIpc(
     accessToken,
     encoding,
   ) => {
-    if (typeof content !== 'string' || content.length > 4_194_304) {
-      throw new TypeError('file content is invalid.');
-    }
-    if (typeof expectedContent !== 'string' || expectedContent.length > 4_194_304) {
-      throw new TypeError('expected file content is invalid.');
-    }
-    if (encoding !== undefined
-      && encoding !== 'utf8'
-      && encoding !== 'utf8bom'
-      && encoding !== 'utf16le'
-      && encoding !== 'utf16be') {
-      throw new TypeError('file encoding is invalid.');
-    }
+    const text = requiredTextFileContent(content, 'file content');
+    const expected = requiredTextFileContent(expectedContent, 'expected file content');
+    const fileEncoding = requiredTextFileEncoding(encoding);
     if (typeof accessToken === 'string' && accessToken) {
       const granted = await grantedFile(accessToken, projectPath, relPath);
       return invokeDesktopOperation(
         'writeProjectTextFileIn',
-        [granted.root, granted.rel, content, expectedContent, encoding],
+        [granted.root, granted.rel, text, expected, fileEncoding],
       );
     }
     const cleanProject = requiredString(projectPath, 'projectPath');
@@ -778,9 +762,9 @@ export function registerDesktopIpc(
     return host.writeProjectTextFile(
       cleanProject,
       cleanRel,
-      content,
-      expectedContent,
-      encoding,
+      text,
+      expected,
+      fileEncoding,
     );
   });
   handle(DESKTOP_IPC.readEditorBackup, async (_event, projectPath, relPath, accessToken) => {
@@ -869,89 +853,13 @@ export function registerDesktopIpc(
       requiredString(symbol, 'symbol'),
     );
   });
-  const requiredLspDocument = (value: unknown): DesktopLspDocumentInput => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new TypeError('LSP document input is invalid.');
-    }
-    const input = value as Record<string, unknown>;
-    requireAllowedKeys(input, new Set([
-      'kind', 'projectPath', 'relPath', 'languageId', 'version', 'content',
-    ]), 'LSP document input');
-    if (input.kind !== 'open' && input.kind !== 'change'
-      && input.kind !== 'save' && input.kind !== 'close') {
-      throw new TypeError('LSP document kind is invalid.');
-    }
-    if (!Number.isInteger(input.version) || Number(input.version) < 0) {
-      throw new TypeError('LSP document version is invalid.');
-    }
-    if (input.content !== undefined
-      && (typeof input.content !== 'string' || input.content.length > 4_194_304)) {
-      throw new TypeError('LSP document content is invalid.');
-    }
-    return {
-      kind: input.kind,
-      projectPath: requiredString(input.projectPath, 'projectPath'),
-      relPath: requiredString(input.relPath, 'relPath', 4_096),
-      languageId: requiredString(input.languageId, 'languageId', 64),
-      version: Number(input.version),
-      ...(typeof input.content === 'string' ? { content: input.content } : {}),
-    };
-  };
-  const requiredLspRequest = (value: unknown): DesktopLspRequestInput => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new TypeError('LSP request input is invalid.');
-    }
-    const input = value as Record<string, unknown>;
-    requireAllowedKeys(input, new Set([
-      'projectPath', 'relPath', 'languageId', 'method', 'params',
-    ]), 'LSP request input');
-    const method = requiredString(input.method, 'LSP method', 128);
-    if (!isDesktopLspRequestMethod(method)) throw new TypeError('LSP method is unavailable.');
-    const params = input.params === undefined ? {} : input.params;
-    if (!params || typeof params !== 'object' || Array.isArray(params)) {
-      throw new TypeError('LSP params are invalid.');
-    }
-    validateStructuredValue(params);
-    return {
-      projectPath: requiredString(input.projectPath, 'projectPath'),
-      relPath: requiredString(input.relPath, 'relPath', 4_096),
-      languageId: requiredString(input.languageId, 'languageId', 64),
-      method,
-      params: params as Record<string, unknown>,
-    };
-  };
-  const requiredWorkspaceWrites = (value: unknown): DesktopWorkspaceTextWrite[] => {
-    if (!Array.isArray(value) || value.length < 1 || value.length > 100) {
-      throw new TypeError('Workspace edit files are invalid.');
-    }
-    return value.map((row) => {
-      if (!row || typeof row !== 'object' || Array.isArray(row)) {
-        throw new TypeError('Workspace edit file is invalid.');
-      }
-      const record = row as Record<string, unknown>;
-      requireAllowedKeys(
-        record,
-        new Set(['relPath', 'content', 'expectedContent']),
-        'Workspace edit file',
-      );
-      if (typeof record.content !== 'string' || record.content.length > 4_194_304
-        || typeof record.expectedContent !== 'string' || record.expectedContent.length > 4_194_304) {
-        throw new TypeError('Workspace edit file content is invalid.');
-      }
-      return {
-        relPath: requiredString(record.relPath, 'relPath', 4_096),
-        content: record.content,
-        expectedContent: record.expectedContent,
-      };
-    });
-  };
   handle(DESKTOP_IPC.lspDocument, async (_event, rawInput) => {
-    const input = requiredLspDocument(rawInput);
+    const input = requiredLspDocumentInput(rawInput);
     const root = await host.projectDirectory(input.projectPath);
     return invokeDesktopOperation('lspDocument', [input.projectPath, root, input]);
   });
   handle(DESKTOP_IPC.lspRequest, async (_event, rawInput) => {
-    const input = requiredLspRequest(rawInput);
+    const input = requiredLspRequestInput(rawInput);
     const root = await host.projectDirectory(input.projectPath);
     return invokeDesktopOperation('lspRequest', [
       input.projectPath,
@@ -965,7 +873,7 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.lspApplyWorkspaceEdit, async (_event, projectPath, rawWrites) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);
-    const writes = requiredWorkspaceWrites(rawWrites);
+    const writes = requiredWorkspaceTextWrites(rawWrites);
     return invokeDesktopOperation(
       'writeProjectTextFilesIn',
       [root, writes],
@@ -1020,26 +928,6 @@ export function registerDesktopIpc(
       requiredFileSearchLimit(limit),
     );
   });
-  const requiredWorkspaceSearchOptions = (value: unknown) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new TypeError('Workspace search options are invalid.');
-    }
-    const input = value as Record<string, unknown>;
-    requireAllowedKeys(input, new Set([
-      'query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults',
-    ]), 'Workspace search options');
-    const query = requiredString(input.query, 'search query', 4_096);
-    const maxResults = requiredWorkspaceSearchLimit(input.maxResults);
-    return {
-      query,
-      ...(typeof input.include === 'string' ? { include: input.include.slice(0, 4_096) } : {}),
-      ...(typeof input.exclude === 'string' ? { exclude: input.exclude.slice(0, 4_096) } : {}),
-      matchCase: input.matchCase === true,
-      wholeWord: input.wholeWord === true,
-      regex: input.regex === true,
-      maxResults,
-    };
-  };
   handle(DESKTOP_IPC.searchWorkspaceText, async (_event, projectPath, rawOptions) => {
     const project = requiredString(projectPath, 'projectPath');
     const root = await host.projectDirectory(project);
@@ -1138,51 +1026,7 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.readGitPreferences, () =>
     settingsStore?.readGitPreferences() ?? invokeDesktopOperation('readGitPreferences', []));
   handle(DESKTOP_IPC.updateGitPreferences, (_event, preferences) => {
-    const source = preferences && typeof preferences === 'object' && !Array.isArray(preferences)
-      ? preferences as Record<string, unknown>
-      : {};
-    requireAllowedKeys(
-      source,
-      new Set([
-        'commitTemplate',
-        'commitExample',
-        'commitInstructions',
-        'commitPreset',
-        'autoCommitMessage',
-      ]),
-      'preferences',
-    );
-    const template = source.commitTemplate;
-    if (template !== undefined && (typeof template !== 'string' || template.length > 20_000)) {
-      throw new TypeError('commitTemplate must be a string of at most 20,000 characters.');
-    }
-    const example = source.commitExample;
-    if (example !== undefined && (typeof example !== 'string' || example.length > 20_000)) {
-      throw new TypeError('commitExample must be a string of at most 20,000 characters.');
-    }
-    const instructions = source.commitInstructions;
-    if (instructions !== undefined
-        && (typeof instructions !== 'string' || instructions.length > 20_000)) {
-      throw new TypeError('commitInstructions must be a string of at most 20,000 characters.');
-    }
-    const preset = source.commitPreset;
-    if (preset !== undefined
-      && (typeof preset !== 'string' || !['none', 'conventional', 'custom'].includes(preset))) {
-      throw new TypeError('commitPreset must be none, conventional, or custom.');
-    }
-    const auto = source.autoCommitMessage;
-    if (auto !== undefined && typeof auto !== 'boolean') {
-      throw new TypeError('autoCommitMessage must be a boolean.');
-    }
-    const value = {
-      ...(typeof template === 'string' ? { commitTemplate: template } : {}),
-      ...(typeof example === 'string' ? { commitExample: example } : {}),
-      ...(typeof instructions === 'string' ? { commitInstructions: instructions } : {}),
-      ...(typeof preset === 'string'
-        ? { commitPreset: preset as 'none' | 'conventional' | 'custom' }
-        : {}),
-      ...(typeof auto === 'boolean' ? { autoCommitMessage: auto } : {}),
-    };
+    const value = requiredGitPreferencesInput(preferences);
     return settingsStore
       ? settingsStore.updateGitPreferences(value)
       : invokeDesktopOperation('updateGitPreferences', [value]);
@@ -1638,14 +1482,6 @@ export function registerDesktopIpc(
     gitShow(requiredRepositoryCwd(cwd), requiredCommitHash(hash)));
   handle(DESKTOP_IPC.gitShowDiff, (_event, cwd, hash, path) =>
     gitShowDiff(requiredRepositoryCwd(cwd), requiredCommitHash(hash), requiredGitPath(path)));
-  // Diff tab editor mode: `HEAD`/`:0` (index) or a commit hash, optionally
-  // `^`-suffixed for its first parent.
-  const requiredGitRevision = (value: unknown): string => {
-    const rev = requiredString(value, 'git revision', 128);
-    if (rev === 'HEAD' || rev === ':0') return rev;
-    const parent = rev.endsWith('^');
-    return `${requiredCommitHash(parent ? rev.slice(0, -1) : rev)}${parent ? '^' : ''}`;
-  };
   handle(DESKTOP_IPC.gitShowFile, (_event, cwd, rev, path) =>
     gitShowFile(requiredRepositoryCwd(cwd), requiredGitRevision(rev), requiredGitPath(path)));
   // `confirmedDirty` is a CALLER CONTRACT, not evidence: the main side cannot

@@ -122,11 +122,29 @@ function streamingTailFrom(record: Record<string, unknown> | null): Record<strin
     : null;
 }
 
-export function createSnapshotDeltaEncoder(): SnapshotDeltaEncoder {
+/** Wire marker for the compact frame shape. A live streaming frame is mostly
+ *  bookkeeping — an empty items patch, an empty state patch and a repeated
+ *  tail identity cost ~135 bytes around ~30 bytes of new text — so the compact
+ *  encoder omits every unchanged part and the decoder reads absence as "no
+ *  change". The marker keeps that reading away from v1 frames, where a missing
+ *  state patch means an older peer sent whole fields instead. */
+const COMPACT_WIRE_VERSION = 2;
+
+export interface SnapshotDeltaEncoderOptions {
+  /** Only for a peer that announced it understands the compact shape. */
+  compact?: boolean;
+}
+
+export function createSnapshotDeltaEncoder(
+  options: SnapshotDeltaEncoderOptions = {},
+): SnapshotDeltaEncoder {
+  const compact = options.compact === true;
   let sentItems: readonly unknown[] | null = null;
   let sentStreamingTail: Record<string, unknown> | null = null;
   let sentStreamingTailEpoch: number | null = null;
   let sentStateFields: Record<string, unknown> | null = null;
+  let sentTailIdentity: string | null = null;
+  let sentWireEpoch: number | null = null;
   let revision = 0;
 
   const reset = (): void => {
@@ -134,6 +152,8 @@ export function createSnapshotDeltaEncoder(): SnapshotDeltaEncoder {
     sentStreamingTail = null;
     sentStreamingTailEpoch = null;
     sentStateFields = null;
+    sentTailIdentity = null;
+    sentWireEpoch = null;
   };
 
   return {
@@ -157,12 +177,20 @@ export function createSnapshotDeltaEncoder(): SnapshotDeltaEncoder {
           while (prefix < shared && sentItems[prefix] === items[prefix]) prefix += 1;
         }
         const wire: Record<string, unknown> = {};
-        wire.__itemsPatch = {
-          base,
-          revision,
-          prefix,
-          append: items.slice(prefix),
-        };
+        const append = items.slice(prefix);
+        if (compact) {
+          // `r` alone orders the stream: base is always the previous revision,
+          // so the receiver derives it rather than reading it. Item movement
+          // does not happen while tokens stream into the tail, so `ip` appears
+          // only when the list really moved. The frame version is carried by
+          // the envelope, not repeated in every payload.
+          wire.r = revision;
+          if (append.length > 0 || prefix !== items.length) {
+            wire.ip = { p: prefix, a: append };
+          }
+        } else {
+          wire.__itemsPatch = { base, revision, prefix, append };
+        }
 
         const nextFields = snapshotFieldsFrom(record);
         const previousFields = sentStateFields || {};
@@ -176,7 +204,14 @@ export function createSnapshotDeltaEncoder(): SnapshotDeltaEncoder {
         for (const key of Object.keys(previousFields)) {
           if (!Object.hasOwn(nextFields, key)) removed.push(key);
         }
-        wire.__statePatch = { base, revision, changed, removed };
+        if (!compact) {
+          wire.__statePatch = { base, revision, changed, removed };
+        } else if (Object.keys(changed).length > 0 || removed.length > 0) {
+          // Ordering rides the items patch, so this carries payload only —
+          // and an unchanged state block leaves the frame entirely.
+          if (Object.keys(changed).length > 0) wire.sc = changed;
+          if (removed.length > 0) wire.sd = removed;
+        }
 
         const previousTail = sentStreamingTail;
         if (previousTail !== streamingTail) {
@@ -193,16 +228,39 @@ export function createSnapshotDeltaEncoder(): SnapshotDeltaEncoder {
           ) {
             const tail = { ...streamingTail };
             delete tail.text;
-            wire.__streamingTailPatch = {
-              prefix: previousText.length,
-              append: nextText.slice(previousText.length),
-              tail,
-            };
+            // The identity block (id, kind, streaming flags) is repeated on
+            // every frame of a turn. A compact frame sends it once and then
+            // only when something in it actually changes.
+            const identity = JSON.stringify(tail);
+            const repeatedIdentity = compact && identity === sentTailIdentity;
+            sentTailIdentity = identity;
+            if (compact) {
+              // The splice point is the receiver's own tail length on an
+              // append-only stream, so only the appended text travels.
+              wire.ta = nextText.slice(previousText.length);
+              if (!repeatedIdentity) wire.tt = tail;
+            } else {
+              wire.__streamingTailPatch = {
+                prefix: previousText.length,
+                append: nextText.slice(previousText.length),
+                tail,
+              };
+            }
           } else {
             wire.streamingTail = streamingTail;
+            sentTailIdentity = null;
           }
         }
-        carryStreamingTailEpoch(record, wire);
+        if (compact) {
+          // The epoch repeats unchanged for a whole turn; send it only when
+          // it actually rolls over.
+          if (streamingTailEpoch !== null && streamingTailEpoch !== sentWireEpoch) {
+            wire.x = streamingTailEpoch;
+            sentWireEpoch = streamingTailEpoch;
+          }
+        } else {
+          carryStreamingTailEpoch(record, wire);
+        }
         sentItems = items;
         sentStreamingTail = streamingTail;
         sentStreamingTailEpoch = streamingTailEpoch;
@@ -213,6 +271,10 @@ export function createSnapshotDeltaEncoder(): SnapshotDeltaEncoder {
       sentStreamingTail = streamingTail;
       sentStreamingTailEpoch = streamingTailEpoch;
       sentStateFields = snapshotFieldsFrom(record);
+      // A full snapshot restarts the stream: the next patch has to restate the
+      // tail identity and epoch because the receiver's baseline was replaced.
+      sentTailIdentity = null;
+      sentWireEpoch = streamingTailEpoch;
       const wire: Record<string, unknown> = { ...record, __itemsRevision: revision };
       carryStreamingTailEpoch(record, wire);
       return wire;
@@ -220,17 +282,59 @@ export function createSnapshotDeltaEncoder(): SnapshotDeltaEncoder {
   };
 }
 
+/** Compact frames use one-letter keys; normalizing them back to the internal
+ *  shape keeps ONE decode path for both wire versions. */
+function expandCompactWire(record: Record<string, unknown>): Record<string, unknown> {
+  const itemsPatch = record.ip as Record<string, unknown> | undefined;
+  const expanded: Record<string, unknown> = { __v: COMPACT_WIRE_VERSION };
+  const revision = record.r;
+  expanded.__itemsPatch = {
+    // The sender only ever advances by one, so the base is implied.
+    base: Number.isSafeInteger(revision) ? (revision as number) - 1 : undefined,
+    revision,
+    ...(itemsPatch && typeof itemsPatch === 'object' && !Array.isArray(itemsPatch)
+      ? { prefix: itemsPatch.p, append: itemsPatch.a }
+      : {}),
+  };
+  if (Object.hasOwn(record, 'sc') || Object.hasOwn(record, 'sd')) {
+    expanded.__statePatch = {
+      ...(Object.hasOwn(record, 'sc') ? { changed: record.sc } : {}),
+      ...(Object.hasOwn(record, 'sd') ? { removed: record.sd } : {}),
+    };
+  }
+  if (Object.hasOwn(record, 'ta')) {
+    // No prefix on the wire: the decoder splices at its own retained length.
+    expanded.__streamingTailPatch = {
+      append: record.ta,
+      ...(Object.hasOwn(record, 'tt') ? { tail: record.tt } : {}),
+    };
+  }
+  if (Object.hasOwn(record, 'streamingTail')) expanded.streamingTail = record.streamingTail;
+  if (Object.hasOwn(record, 'x')) expanded[STREAMING_TAIL_WIRE_EPOCH] = record.x;
+  return expanded;
+}
+
+/** The compact shape is announced by the transport envelope, so the receiving
+ *  side marks the payload before decoding it. Keeping the marker off the wire
+ *  saves it from every streaming frame. */
+export function markCompactWire(wire: Record<string, unknown>): void {
+  wire.__v = COMPACT_WIRE_VERSION;
+}
+
 export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
   let items: unknown[] = [];
   let streamingTail: Record<string, unknown> | null = null;
   let stateFields: Record<string, unknown> = {};
   let revision: number | null = null;
+  // Compact frames carry the tail epoch only when it rolls over.
+  let retainedEpoch: number | null = null;
   return {
     reset(): void {
       items = [];
       streamingTail = null;
       stateFields = {};
       revision = null;
+      retainedEpoch = null;
     },
     decode(wire: unknown): SnapshotDeltaDecodeResult {
       if (!wire || typeof wire !== 'object') {
@@ -238,9 +342,20 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         streamingTail = null;
         stateFields = {};
         revision = null;
+        retainedEpoch = null;
         return { ok: true, snapshot: wire };
       }
-      const record = wire as Record<string, unknown>;
+      const raw = wire as Record<string, unknown>;
+      let record = raw;
+      if (raw.__v === COMPACT_WIRE_VERSION) {
+        record = expandCompactWire(raw);
+        if (Object.hasOwn(record, STREAMING_TAIL_WIRE_EPOCH)) {
+          const value = record[STREAMING_TAIL_WIRE_EPOCH];
+          retainedEpoch = Number.isSafeInteger(value) ? value as number : null;
+        } else if (retainedEpoch !== null) {
+          record[STREAMING_TAIL_WIRE_EPOCH] = retainedEpoch;
+        }
+      }
       const patch = record.__itemsPatch as ItemsPatch | undefined;
       if (!patch) {
         const snapshot = { ...record };
@@ -259,39 +374,61 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         }
         streamingTail = streamingTailFrom(snapshot);
         stateFields = snapshotFieldsFrom(snapshot);
+        // A full snapshot re-establishes the epoch that later compact frames
+        // will omit while it stays unchanged.
+        const epoch = record[STREAMING_TAIL_WIRE_EPOCH];
+        retainedEpoch = Number.isSafeInteger(epoch) ? epoch as number : null;
         restoreStreamingTailEpoch(record, snapshot);
         return { ok: true, snapshot };
       }
       const statePatch = record.__statePatch as StateFieldsPatch | undefined;
+      // In a compact frame an absent section means "unchanged"; in a v1 frame
+      // it means an older peer inlined whole fields, so the two readings must
+      // stay apart.
+      const compactFrame = record.__v === COMPACT_WIRE_VERSION;
+      const patchPrefix = Object.hasOwn(patch, 'prefix')
+        ? patch.prefix
+        : (compactFrame ? items.length : undefined);
+      const patchAppend = Object.hasOwn(patch, 'append')
+        ? patch.append
+        : (compactFrame ? [] : undefined);
       if (
         revision === null
         || patch.base !== revision
         || !Number.isSafeInteger(patch.revision)
-        || !Number.isSafeInteger(patch.prefix)
-        || (patch.prefix as number) < 0
-        || (patch.prefix as number) > items.length
-        || !Array.isArray(patch.append)
+        || !Number.isSafeInteger(patchPrefix)
+        || (patchPrefix as number) < 0
+        || (patchPrefix as number) > items.length
+        || !Array.isArray(patchAppend)
         || (statePatch != null && (
-          statePatch.base !== revision
-          || statePatch.revision !== patch.revision
-          || !statePatch.changed
-          || typeof statePatch.changed !== 'object'
-          || Array.isArray(statePatch.changed)
-          || !Array.isArray(statePatch.removed)
+          (!compactFrame && (
+            statePatch.base !== revision
+            || statePatch.revision !== patch.revision
+            || !statePatch.changed
+            || !Array.isArray(statePatch.removed)
+          ))
+          || (statePatch.changed !== undefined && (
+            typeof statePatch.changed !== 'object'
+            || statePatch.changed === null
+            || Array.isArray(statePatch.changed)
+          ))
+          || (statePatch.removed !== undefined && !Array.isArray(statePatch.removed))
         ))
       ) {
         return { ok: false };
       }
-      const nextItems = (patch.prefix as number) !== items.length || patch.append.length > 0
-        ? items.slice(0, patch.prefix as number).concat(patch.append)
+      const nextItems = (patchPrefix as number) !== items.length || patchAppend.length > 0
+        ? items.slice(0, patchPrefix as number).concat(patchAppend)
         : items;
       let nextStateFields: Record<string, unknown>;
       if (statePatch) {
         nextStateFields = { ...stateFields };
-        for (const key of statePatch.removed as string[]) {
+        for (const key of (statePatch.removed as string[] | undefined) ?? []) {
           if (typeof key === 'string') delete nextStateFields[key];
         }
-        Object.assign(nextStateFields, statePatch.changed);
+        if (statePatch.changed) Object.assign(nextStateFields, statePatch.changed);
+      } else if (compactFrame) {
+        nextStateFields = stateFields;
       } else {
         // Backward compatibility for peers that send the old items-only delta.
         nextStateFields = snapshotFieldsFrom(record);
@@ -301,7 +438,19 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
       let nextStreamingTail = streamingTail;
       if (tailPatch) {
         const previousText = typeof streamingTail?.text === 'string' ? streamingTail.text : '';
-        const tail = tailPatch.tail;
+        // A compact frame omits the identity block while it is unchanged, so
+        // the retained tail supplies it.
+        let tail = tailPatch.tail;
+        if (tail === undefined && compactFrame && streamingTail) {
+          const retained = { ...streamingTail };
+          delete retained.text;
+          tail = retained;
+        }
+        // An append-only compact patch leaves the splice point out: it is
+        // exactly the length of the text this decoder already holds.
+        const tailPrefix = Object.hasOwn(tailPatch, 'prefix')
+          ? tailPatch.prefix
+          : (compactFrame ? previousText.length : undefined);
         if (
           !streamingTail
           || !tail
@@ -309,16 +458,16 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
           || Array.isArray(tail)
           || streamingTail.id == null
           || streamingTail.id !== (tail as Record<string, unknown>).id
-          || !Number.isSafeInteger(tailPatch.prefix)
-          || (tailPatch.prefix as number) < 0
-          || (tailPatch.prefix as number) > previousText.length
+          || !Number.isSafeInteger(tailPrefix)
+          || (tailPrefix as number) < 0
+          || (tailPrefix as number) > previousText.length
           || typeof tailPatch.append !== 'string'
         ) {
           return { ok: false };
         }
         nextStreamingTail = {
           ...tail as Record<string, unknown>,
-          text: previousText.slice(0, tailPatch.prefix as number) + tailPatch.append,
+          text: previousText.slice(0, tailPrefix as number) + tailPatch.append,
         };
       } else if (Object.hasOwn(record, 'streamingTail')) {
         nextStreamingTail = streamingTailFrom(record);

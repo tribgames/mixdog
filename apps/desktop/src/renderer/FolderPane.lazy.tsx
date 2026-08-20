@@ -9,6 +9,12 @@
 // view), places+drives rail, virtualized grouped grid/details
 // views, drag-and-drop move (Ctrl copies), and real shell icons/thumbnails
 // from the main process.
+//
+// The pane's stylesheet ships with THIS chunk rather than the first-paint
+// bundle (~21KB every phone downloaded before it could show a message). No
+// other surface uses those rules, and the cascade position is unchanged: the
+// chunk's CSS still lands after every layer in desktop.css.
+import "./desktop/29-folder-pane.css";
 import {
   ArrowDownAZ,
   ArrowLeft,
@@ -788,6 +794,12 @@ export default function FolderPane({
 
   const openInDefaultApp = useCallback((path: string) => {
     void Promise.resolve(window.mixdogDesktop?.openFolderEntry?.(path))
+      .catch((cause) => setError(errorText(cause)));
+  }, []);
+  // Shell reveal is an OS integration: on a relay-served surface it reports
+  // that it is desktop-only, and swallowing that left the menu item mute.
+  const revealInShell = useCallback((path: string) => {
+    void Promise.resolve(window.mixdogDesktop?.revealFolderEntry?.(path))
       .catch((cause) => setError(errorText(cause)));
   }, []);
   const openEntry = useCallback((entry: DesktopFolderEntry) => {
@@ -1874,9 +1886,7 @@ export default function FolderPane({
           }}>Open in default app</button>}
           <button type="button" role="menuitem" onClick={() => {
             setMenu(null);
-            void Promise.resolve(window.mixdogDesktop?.revealFolderEntry?.(
-              joinFolderPath(currentPath, menu.name),
-            )).catch(() => {});
+            revealInShell(joinFolderPath(currentPath, menu.name));
           }}>Show in Explorer</button>
           <i className="folder-menu-divider" aria-hidden="true" />
           <button type="button" role="menuitem" onClick={() => { setMenu(null); cutOrCopy("cut"); }}>Cut</button>
@@ -1927,7 +1937,7 @@ export default function FolderPane({
           }}>Copy path</button>
           <button type="button" role="menuitem" onClick={() => {
             setMenu(null);
-            void Promise.resolve(window.mixdogDesktop?.revealFolderEntry?.(currentPath)).catch(() => {});
+            revealInShell(currentPath);
           }}>Show in Explorer</button>
         </>}
       </div>,
@@ -2035,9 +2045,7 @@ export default function FolderPane({
           </dl>
           <footer>
             <button type="button" onClick={() => {
-              void Promise.resolve(window.mixdogDesktop?.revealFolderEntry?.(
-                joinFolderPath(currentPath, propsEntry.name),
-              )).catch(() => {});
+              revealInShell(joinFolderPath(currentPath, propsEntry.name));
             }}>Show in Explorer</button>
             <button type="button" onClick={() => setPropsEntry(null)}>Close</button>
           </footer>

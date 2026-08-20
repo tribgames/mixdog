@@ -7,6 +7,8 @@ import type {
   DesktopCapabilityRequest,
   DesktopCapabilityResult,
   DesktopAgentPoolRow,
+  DesktopLspDiagnosticEvent,
+  DesktopLspStatusEvent,
   DesktopRemoteProjectionState,
   DesktopSessionSummary,
   DesktopStateFieldsPatch,
@@ -35,9 +37,15 @@ import {
   storeRemotePairingLink,
 } from './remote-pairing-recovery';
 import { isIosInstallPlatform } from './remote-install';
-import { createSnapshotDeltaDecoder } from '../main/state-delta';
+import { createSnapshotDeltaDecoder, markCompactWire } from '../main/state-delta';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
+// OS-shell integrations (recoverable trash, open-with, reveal) are Electron
+// APIs the daemon behind the relay cannot reach. Reporting them keeps a remote
+// action honest instead of silently doing nothing.
+const DESKTOP_ONLY_TRASH = 'Moving items to the trash is available in the desktop app only.';
+const DESKTOP_ONLY_OPEN = 'Opening a file in its default app is available in the desktop app only.';
+const DESKTOP_ONLY_REVEAL = 'Showing an item in the file manager is available in the desktop app only.';
 const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
 const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
 const BROWSER_ID_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.browserId;
@@ -126,6 +134,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const projectionListeners = new Set<(state: DesktopRemoteProjectionState) => void>();
   const sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   const termListeners = new Set<(event: { id: string; data: string }) => void>();
+  const folderChangeListeners = new Set<(dir: string) => void>();
+  const lspDiagnosticsListeners = new Set<(event: DesktopLspDiagnosticEvent) => void>();
+  const lspStatusListeners = new Set<(event: DesktopLspStatusEvent) => void>();
   let socket: WebSocket | null = null;
   let openPromise: Promise<WebSocket> | null = null;
   let openingSocket: WebSocket | null = null;
@@ -754,12 +765,57 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return payload as SessionSnapshot;
   };
 
-  const handleMessage = (message: Record<string, unknown>): void => {
+  // Compact transcript envelope. The desktop addresses a session by handle
+  // and sends its name once, so a live frame no longer repeats the nested
+  // event/payload/sessionId trio around ~30 bytes of new text. Expanding it
+  // here keeps ONE downstream code path for both shapes.
+  const compactSessionNames = new Map<number, string>();
+  const expandCompactFrame = (
+    frame: Record<string, unknown>,
+  ): Record<string, unknown> | null => {
+    const handle = Number(frame.s);
+    if (!Number.isSafeInteger(handle)) return null;
+    const name = typeof frame.n === 'string' && frame.n
+      ? frame.n
+      : compactSessionNames.get(handle);
+    if (!name) return null;
+    compactSessionNames.set(handle, name);
+    const wire = frame.w;
+    // The compact payload shape is announced by this envelope rather than
+    // repeated inside every frame; a full snapshot keeps its own marker and
+    // must not be re-read as a patch.
+    if (wire && typeof wire === 'object' && !Object.hasOwn(wire, '__itemsRevision')) {
+      markCompactWire(wire as Record<string, unknown>);
+    }
+    return {
+      event: 'sessionState',
+      payload: {
+        sessionId: name,
+        wire,
+        frameSource: frame.f ?? 'live',
+        ...(frame.pp !== undefined ? { perfProbe: frame.pp } : {}),
+        ...(typeof frame.cr === 'number' ? { contentRevision: frame.cr } : {}),
+      },
+    };
+  };
+
+  const handleMessage = (frame: Record<string, unknown>): void => {
     // Any inbound frame proves the socket is alive; pong frames carry
     // nothing else.
     awaitingPong = false;
     clearWakePongTimer();
-    if ('pong' in message) return;
+    if ('pong' in frame) return;
+    let message = frame;
+    if (frame.e === 'T') {
+      const expanded = expandCompactFrame(frame);
+      if (!expanded) {
+        // This browser's handle map disagrees with the desktop's. Only a fresh
+        // handshake rebuilds both sides, and the reconnect loop performs one.
+        try { socket?.close(); } catch { /* reconnect loop takes over */ }
+        return;
+      }
+      message = expanded;
+    }
     // Relay hint: a state push was dropped for this leg (background tab, slow
     // link). The next patch would expose the gap, but a finished turn sends
     // no next patch — ask for a full snapshot now.
@@ -868,6 +924,24 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const event = { id: String(payload.id || ''), data: String(payload.data ?? '') };
       for (const listener of [...termListeners]) {
         try { listener(event); } catch { /* renderer listener fault */ }
+      }
+    } else if (message.event === 'folderChanged') {
+      const dir = String(message.payload || '');
+      if (!dir) return;
+      for (const listener of [...folderChangeListeners]) {
+        try { listener(dir); } catch { /* renderer listener fault */ }
+      }
+    } else if (message.event === 'lspDiagnostics') {
+      const payload = message.payload as DesktopLspDiagnosticEvent;
+      if (!payload || typeof payload !== 'object') return;
+      for (const listener of [...lspDiagnosticsListeners]) {
+        try { listener(payload); } catch { /* renderer listener fault */ }
+      }
+    } else if (message.event === 'lspStatus') {
+      const payload = message.payload as DesktopLspStatusEvent;
+      if (!payload || typeof payload !== 'object') return;
+      for (const listener of [...lspStatusListeners]) {
+        try { listener(payload); } catch { /* renderer listener fault */ }
       }
     }
   };
@@ -1131,6 +1205,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             }
             secureChannel = null;
             relayBinaryFrames = clear.binaryFrames === 1;
+            // Handles are per desktop leg; a new challenge starts a new map.
+            compactSessionNames.clear();
             if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
             handshakeTimer = window.setTimeout(() => {
               try { ws.close(); } catch { /* reconnect loop handles it */ }
@@ -1255,8 +1331,84 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
     removeProject: (projectPath) => call('removeProject', [projectPath]),
     listProjectDir: (projectPath, relDir) => call('listProjectDir', [projectPath, relDir]),
-    readProjectFile: (projectPath, relPath) => call('readProjectFile', [projectPath, relPath]),
-    statProjectFile: (projectPath, relPath) => call('statProjectFile', [projectPath, relPath]),
+    readProjectFile: (projectPath, relPath, accessToken) =>
+      call('readProjectFile', [projectPath, relPath, accessToken ?? null]),
+    statProjectFile: (projectPath, relPath, accessToken) =>
+      call('statProjectFile', [projectPath, relPath, accessToken ?? null]),
+    writeProjectFile: (projectPath, relPath, content, expectedContent, accessToken, encoding) =>
+      call('writeProjectFile', [
+        projectPath, relPath, content, expectedContent, accessToken ?? null, encoding ?? null,
+      ]),
+    createProjectEntry: (projectPath, relDir, name, dir) =>
+      call('createProjectEntry', [projectPath, relDir, name, dir === true]),
+    renameProjectEntry: (projectPath, relPath, newName) =>
+      call('renameProjectEntry', [projectPath, relPath, newName]),
+    moveProjectEntry: (projectPath, relPath, targetDirRel) =>
+      call('moveProjectEntry', [projectPath, relPath, targetDirRel]),
+    copyProjectEntry: (projectPath, relPath, targetDirRel) =>
+      call('copyProjectEntry', [projectPath, relPath, targetDirRel]),
+    trashProjectEntry: () => Promise.reject(new Error(DESKTOP_ONLY_TRASH)),
+    readEditorSettings: (projectPath, relPath, workspaceFile) =>
+      call('readEditorSettings', [projectPath, relPath, workspaceFile ?? null]),
+    readEditorBackup: (projectPath, relPath, accessToken) =>
+      call('readEditorBackup', [projectPath, relPath, accessToken ?? null]),
+    writeEditorBackup: (projectPath, relPath, content, expectedContent, accessToken) =>
+      call('writeEditorBackup', [
+        projectPath, relPath, content, expectedContent, accessToken ?? null,
+      ]),
+    deleteEditorBackup: (projectPath, relPath, accessToken) =>
+      call('deleteEditorBackup', [projectPath, relPath, accessToken ?? null]),
+    readInstructions: (projectPath) => call('readInstructions', [projectPath ?? null]),
+    writeInstructions: (projectPath, content) =>
+      call('writeInstructions', [projectPath ?? null, content]),
+    codeGraphQuery: (projectPath, mode, query) =>
+      call('codeGraphQuery', [projectPath, mode, query]),
+    searchWorkspaceText: (projectPath, options) =>
+      call('searchWorkspaceText', [projectPath, options]),
+    replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>
+      call('replaceWorkspaceText', [projectPath, options, replacement, relPaths ?? null]),
+    lspDocument: (input) => call('lspDocument', [input]),
+    lspRequest: (input) => call('lspRequest', [input]),
+    lspApplyWorkspaceEdit: (projectPath, writes) =>
+      call('lspApplyWorkspaceEdit', [projectPath, writes]),
+    subscribeLspDiagnostics: (listener) => {
+      lspDiagnosticsListeners.add(listener);
+      return () => { lspDiagnosticsListeners.delete(listener); };
+    },
+    subscribeLspStatus: (listener) => {
+      lspStatusListeners.add(listener);
+      return () => { lspStatusListeners.delete(listener); };
+    },
+    // ── Explorer pane (absolute-path local browsing) ───────────────────────
+    // Native pickers belong to the desktop window; every caller already reads
+    // null as "nothing was chosen".
+    chooseFolder: () => Promise.resolve(null),
+    chooseWorkspace: () => Promise.resolve(null),
+    saveWorkspace: (workspaceFile, folders) =>
+      call('saveWorkspace', [workspaceFile ?? null, folders]),
+    listFolderDir: (dir) => call('listFolderDir', [dir]),
+    folderPlaces: () => call('folderPlaces'),
+    createFolderEntry: (dir, name, isDir) => call('createFolderEntry', [dir, name, isDir === true]),
+    renameFolderEntry: (path, newName) => call('renameFolderEntry', [path, newName]),
+    moveFolderEntry: (paths, targetDir, strategy) =>
+      call('moveFolderEntry', [paths, targetDir, strategy ?? 'ask']),
+    copyFolderEntry: (paths, targetDir) => call('copyFolderEntry', [paths, targetDir]),
+    trashFolderEntry: () => Promise.reject(new Error(DESKTOP_ONLY_TRASH)),
+    openFolderEntry: () => Promise.reject(new Error(DESKTOP_ONLY_OPEN)),
+    revealFolderEntry: () => Promise.reject(new Error(DESKTOP_ONLY_REVEAL)),
+    // Shell-rendered icons cannot cross the wire; the pane's own glyphs stand in.
+    folderEntryIcon: () => Promise.resolve(''),
+    // Only Electron's webUtils can name an OS-dropped file. A browser drop
+    // carries the File itself, which the composer reads without a path.
+    folderPathForFile: () => '',
+    folderWatch: (dir) => call('folderWatch', [dir]),
+    folderUnwatch: (dir) => call('folderUnwatch', [dir]),
+    subscribeFolderChanges: (listener) => {
+      folderChangeListeners.add(listener);
+      return () => { folderChangeListeners.delete(listener); };
+    },
+    resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
+    readLocalFile: (path) => call('readLocalFile', [path]),
     listSessions: () => call('listSessions'),
     subscribeSessions: (listener) => {
       sessionListeners.add(listener);
@@ -1349,6 +1501,26 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       call('gitCreateBranchAtCommit', [cwd, branch, hash]),
     gitReview: (cwd) => call('gitReview', [cwd]),
     gitReviewDiff: (cwd, path, untracked) => call('gitReviewDiff', [cwd, path, untracked === true]),
+    gitStashList: (cwd) => call('gitStashList', [cwd]),
+    gitStashApply: (cwd, ref) => call('gitStashApply', [cwd, ref]),
+    gitStashDrop: (cwd, ref) => call('gitStashDrop', [cwd, ref]),
+    gitShowFile: (cwd, rev, path) => call('gitShowFile', [cwd, rev, path]),
+    gitGenerateCommitMessage: (cwd, files) => call('gitGenerateCommitMessage', [cwd, files]),
+    gitGlobalConfig: () => call('gitGlobalConfig'),
+    setGitGlobalConfig: (key, value) => call('setGitGlobalConfig', [key, value]),
+    readGitPreferences: () => call('readGitPreferences'),
+    updateGitPreferences: (preferences) => call('updateGitPreferences', [preferences]),
+    // gh runs on the desktop machine and its login is a DEVICE flow, so the
+    // phone shows the same code and finishes it in its own browser.
+    githubStarStatus: () => call('githubStarStatus'),
+    starGithub: () => call('starGithub'),
+    githubCliStatus: () => call('githubCliStatus'),
+    installGithubCli: () => call('installGithubCli'),
+    githubCliLoginStart: () => call('githubCliLoginStart'),
+    githubCliLoginStatus: (flowId) => call('githubCliLoginStatus', [flowId]),
+    githubCliLoginCancel: (flowId) => call('githubCliLoginCancel', [flowId]),
+    githubCliLogout: () => call('githubCliLogout'),
+    githubCliAccount: () => call('githubCliAccount'),
     revealFile: () => Promise.resolve(),
     openFilePath: () => Promise.resolve(),
     getUpdaterState: () => Promise.resolve(DISABLED_UPDATER),

@@ -3,9 +3,18 @@
 // integrations (dialogs, shell reveal/open, zoom, updater, quit). Validation
 // reuses the ipc.ts validators so the remote surface can never accept a shape
 // the in-process IPC surface would reject.
+import { randomUUID } from 'node:crypto';
+import {
+  basename as pathBasename,
+  dirname as pathDirname,
+  relative as pathRelative,
+  resolve as resolvePath,
+  sep as pathSep,
+} from 'node:path';
+
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
-import type { DesktopSettings } from '../shared/contract';
+import type { DesktopLocalPathEntry, DesktopSettings } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import {
@@ -34,9 +43,30 @@ import {
   sessionDisplayName,
 } from './ipc';
 import {
+  requiredCommitMessageFiles,
+  requiredGitGlobalConfigKey,
+  requiredGitPreferencesInput,
+  requiredInstructionsContent,
+  requiredLspDocumentInput,
+  requiredLspRequestInput,
+  requiredTextFileContent,
+  requiredTextFileEncoding,
+  requiredWorkspaceFolders,
+  requiredWorkspaceSearchOptions,
+  requiredWorkspaceTextWrites,
+} from './ipc-validation';
+import { browsableFolderPath } from './folder-explorer';
+import {
+  commonInstructionsFile,
+  legacyCommonInstructionsFile,
+  projectInstructionsFile,
+} from './instructions-file';
+import { MAX_SELECTED_FILE_GRANTS, selectedFileGrantKey } from './selected-file-grants';
+import {
   requiredCommitHash,
   requiredGitIgnoreScope,
   requiredGitResetMode,
+  requiredGitRevision,
   requiredRepositoryCwd,
 } from './git-contract.mjs';
 
@@ -66,6 +96,9 @@ export function assertRemoteCapability(capability: string): void {
 
 export interface RemoteMethodDependencies {
   host: DesktopService;
+  /** Editor backups and scoped editor settings live under the app's userData;
+   *  without it those two lanes stay unavailable instead of guessing a path. */
+  userDataPath?: string;
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
@@ -80,11 +113,77 @@ export interface RemoteMethodDependencies {
 export type RemoteMethod = (params: unknown[]) => unknown;
 
 export function createRemoteMethods(
-  { host, settingsStore, onDesktopSettingsChanged, terminals }: RemoteMethodDependencies,
+  {
+    host,
+    userDataPath,
+    settingsStore,
+    onDesktopSettingsChanged,
+    terminals,
+  }: RemoteMethodDependencies,
 ): Record<string, RemoteMethod> {
   const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
     host.invokeDesktopOperation(name, args);
   const operation = (name: string) => (...args: unknown[]) => invokeDesktopOperation(name, args);
+  // Selected-file permissions for paths OUTSIDE any registered project. The
+  // desktop persists them under userData; a paired browser holds them for the
+  // life of this bridge, so a daemon restart simply asks the surface to
+  // resolve the path again.
+  const fileGrants = new Map<string, string>();
+  const rememberFileGrant = (absolutePath: string): string => {
+    const token = randomUUID();
+    fileGrants.set(selectedFileGrantKey(token), absolutePath);
+    while (fileGrants.size > MAX_SELECTED_FILE_GRANTS) {
+      const oldest = fileGrants.keys().next().value;
+      if (!oldest) break;
+      fileGrants.delete(oldest);
+    }
+    return token;
+  };
+  const grantedFile = (
+    accessToken: unknown,
+    projectPath: unknown,
+    relPath: unknown,
+  ): { root: string; rel: string; absolute: string } => {
+    const token = requiredString(accessToken, 'file access token', 128);
+    const granted = fileGrants.get(selectedFileGrantKey(token));
+    if (!granted) throw new Error('The selected-file permission is unavailable.');
+    const requested = resolvePath(
+      requiredString(projectPath, 'projectPath'),
+      requiredString(relPath, 'relPath'),
+    );
+    const same = process.platform === 'win32'
+      ? requested.toLocaleLowerCase() === granted.toLocaleLowerCase()
+      : requested === granted;
+    if (!same) throw new Error('The selected-file permission does not match this path.');
+    return { root: pathDirname(granted), rel: pathBasename(granted), absolute: granted };
+  };
+  const grantedIf = (accessToken: unknown): boolean =>
+    typeof accessToken === 'string' && accessToken.length > 0;
+  /** Absolute file for the editor-backup lane (granted path or project file). */
+  const editorFilePath = async (
+    projectPath: unknown,
+    relPath: unknown,
+    accessToken: unknown,
+  ): Promise<string> => {
+    if (grantedIf(accessToken)) return grantedFile(accessToken, projectPath, relPath).absolute;
+    const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+    return resolvePath(root, requiredString(relPath, 'relPath', 4_096));
+  };
+  const requiredEditorBackupRoot = (): string => {
+    if (!userDataPath) throw new Error('Editor backup storage is unavailable.');
+    return userDataPath;
+  };
+  const instructionsFilePath = async (projectPath: unknown): Promise<string> => {
+    if (projectPath == null || projectPath === '') return commonInstructionsFile();
+    const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+    return projectInstructionsFile(directory);
+  };
+  const requiredFolderPaths = (value: unknown): string[] => {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
+      throw new TypeError('paths are invalid.');
+    }
+    return value.map((path) => browsableFolderPath(path));
+  };
   // Remote access is a transport client, not another service. Keep its
   // existing validation grammar while every Git mutation executes in the same
   // daemon operation service as Electron IPC.
@@ -151,14 +250,26 @@ export function createRemoteMethods(
       requiredString(projectPath, 'projectPath'),
       typeof relDir === 'string' ? relDir : '',
     ),
-    readProjectFile: ([projectPath, relPath]) => host.readProjectTextFile(
-      requiredString(projectPath, 'projectPath'),
-      requiredString(relPath, 'relPath'),
-    ),
-    statProjectFile: ([projectPath, relPath]) => host.statProjectFile(
-      requiredString(projectPath, 'projectPath'),
-      requiredString(relPath, 'relPath'),
-    ),
+    readProjectFile: ([projectPath, relPath, accessToken]) => {
+      if (grantedIf(accessToken)) {
+        const granted = grantedFile(accessToken, projectPath, relPath);
+        return invokeDesktopOperation('readProjectTextFileIn', [granted.root, granted.rel]);
+      }
+      return host.readProjectTextFile(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+      );
+    },
+    statProjectFile: ([projectPath, relPath, accessToken]) => {
+      if (grantedIf(accessToken)) {
+        const granted = grantedFile(accessToken, projectPath, relPath);
+        return invokeDesktopOperation('statProjectFileIn', [granted.root, granted.rel]);
+      }
+      return host.statProjectFile(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+      );
+    },
     listSessions: () => host.listSessions(),
     listAgentPool: () => host.listAgentPool(),
     getRemoteProjection: () => invokeDesktopOperation('getRemoteProjection', []),
@@ -335,6 +446,297 @@ export function createRemoteMethods(
       requiredGitPath(path),
       untracked === true,
     ),
+    gitStashList: ([cwd]) => invokeDesktopOperation('gitStashList', [requiredRepositoryCwd(cwd)]),
+    gitStashApply: ([cwd, ref]) => invokeDesktopOperation(
+      'gitStashApply',
+      [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)],
+    ),
+    gitStashDrop: ([cwd, ref]) => invokeDesktopOperation(
+      'gitStashDrop',
+      [requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)],
+    ),
+    gitShowFile: ([cwd, rev, path]) => invokeDesktopOperation(
+      'gitShowFile',
+      [requiredRepositoryCwd(cwd), requiredGitRevision(rev), requiredGitPath(path)],
+    ),
+    gitGenerateCommitMessage: async ([cwd, files]) => {
+      const repository = requiredRepositoryCwd(cwd);
+      const entries = requiredCommitMessageFiles(files);
+      const preferences = await invokeDesktopOperation('readGitPreferences', [])
+        .catch(() => null);
+      const message = await invokeDesktopOperation(
+        'gitGenerateCommitMessage',
+        [repository, entries, preferences],
+      );
+      return { message };
+    },
+    gitGlobalConfig: () => invokeDesktopOperation('gitGlobalConfig', []),
+    setGitGlobalConfig: ([key, value]) => {
+      // Empty is a real value here: it UNSETS the key.
+      if (typeof value !== 'string' || value.length > 500) {
+        throw new TypeError('value must be a string of at most 500 characters.');
+      }
+      return invokeDesktopOperation('setGitGlobalConfig', [
+        requiredGitGlobalConfigKey(key),
+        value,
+      ]);
+    },
+    readGitPreferences: () => invokeDesktopOperation('readGitPreferences', []),
+    updateGitPreferences: ([preferences]) => invokeDesktopOperation(
+      'updateGitPreferences',
+      [requiredGitPreferencesInput(preferences)],
+    ),
+    // Settings → Git/About: gh runs in the daemon, and its login is a DEVICE
+    // flow (code + github.com/login/device), so a phone completes it in its
+    // own browser exactly like the desktop does.
+    githubStarStatus: () => invokeDesktopOperation('githubStarStatus', []),
+    starGithub: () => invokeDesktopOperation('starGithub', []),
+    githubCliStatus: () => invokeDesktopOperation('githubCliStatus', []),
+    installGithubCli: () => invokeDesktopOperation('installGithubCli', []),
+    githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', []),
+    githubCliLoginStatus: ([flowId]) => invokeDesktopOperation(
+      'githubCliLoginStatus',
+      [requiredString(flowId, 'flowId', 200)],
+    ),
+    githubCliLoginCancel: ([flowId]) => invokeDesktopOperation(
+      'cancelGithubCliLogin',
+      [requiredString(flowId, 'flowId', 200)],
+    ),
+    githubCliLogout: () => invokeDesktopOperation('githubCliLogout', []),
+    githubCliAccount: () => invokeDesktopOperation('githubCliAccount', []),
+    // ── Explorer pane: absolute-path local browsing ────────────────────────
+    // The daemon owns every filesystem operation here. OS-shell integrations
+    // (trash, open-with, reveal, native icons) belong to Electron and stay
+    // desktop-only; the remote shim reports them instead of failing silently.
+    listFolderDir: ([dir]) => invokeDesktopOperation(
+      'listFolderDirAbs',
+      [browsableFolderPath(dir)],
+    ),
+    folderPlaces: () => invokeDesktopOperation('listFolderPlaces', []),
+    createFolderEntry: ([dir, name, isDir]) => invokeDesktopOperation(
+      'createFolderEntryAbs',
+      [browsableFolderPath(dir), requiredString(name, 'name', 255), isDir === true],
+    ),
+    renameFolderEntry: ([path, newName]) => invokeDesktopOperation(
+      'renameFolderEntryAbs',
+      [browsableFolderPath(path), requiredString(newName, 'newName', 255)],
+    ),
+    moveFolderEntry: ([paths, targetDir, strategy]) => {
+      const sources = requiredFolderPaths(paths);
+      const target = browsableFolderPath(targetDir);
+      if (strategy === 'replace') {
+        // 'replace' trashes the existing entry first, and the recoverable OS
+        // trash is an Electron integration the daemon cannot reach.
+        throw new Error('Replacing existing entries is available in the desktop app only.');
+      }
+      const mode = strategy === 'keepBoth' || strategy === 'skip' ? strategy : 'ask';
+      return invokeDesktopOperation('moveFolderEntriesAbs', [sources, target, mode]);
+    },
+    copyFolderEntry: ([paths, targetDir]) => invokeDesktopOperation(
+      'copyFolderEntriesAbs',
+      [requiredFolderPaths(paths), browsableFolderPath(targetDir)],
+    ),
+    folderWatch: ([dir]) => invokeDesktopOperation('folderWatch', [browsableFolderPath(dir)]),
+    folderUnwatch: ([dir]) => invokeDesktopOperation('folderUnwatch', [browsableFolderPath(dir)]),
+    // File tabs and attachments for paths outside any project: the same
+    // describe-then-grant grammar the desktop uses for a chosen file.
+    resolveLocalPaths: async ([paths]) => {
+      if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
+        throw new TypeError('paths are invalid.');
+      }
+      const projects = await host.listProjects().catch(() => []);
+      const rows: DesktopLocalPathEntry[] = [];
+      for (const raw of paths) {
+        const entry = await invokeDesktopOperation(
+          'statLocalEntryAbs',
+          [browsableFolderPath(raw)],
+        ) as { absolutePath: string; name: string; dir: boolean; size: number };
+        const row: DesktopLocalPathEntry = {
+          absolutePath: entry.absolutePath,
+          name: entry.name,
+          dir: entry.dir,
+          size: entry.size,
+        };
+        if (!row.dir) {
+          const normalizedFile = process.platform === 'win32'
+            ? entry.absolutePath.toLocaleLowerCase()
+            : entry.absolutePath;
+          const owner = projects
+            .map((project) => ({ project, root: resolvePath(project.path) }))
+            .filter(({ root }) => {
+              const normalizedRoot = process.platform === 'win32'
+                ? root.toLocaleLowerCase()
+                : root;
+              return normalizedFile.startsWith(normalizedRoot + pathSep)
+                || normalizedFile === normalizedRoot;
+            })
+            .sort((left, right) => right.root.length - left.root.length)[0];
+          if (owner) {
+            row.projectPath = owner.project.path;
+            row.relPath = pathRelative(owner.root, entry.absolutePath).replace(/\\/g, '/');
+          } else {
+            row.projectPath = pathDirname(entry.absolutePath);
+            row.relPath = pathBasename(entry.absolutePath);
+            row.accessToken = rememberFileGrant(entry.absolutePath);
+          }
+        }
+        rows.push(row);
+      }
+      return rows;
+    },
+    readLocalFile: ([path]) => invokeDesktopOperation(
+      'readLocalFileAbs',
+      [browsableFolderPath(path)],
+    ),
+    // ── Project entries and the editor ─────────────────────────────────────
+    createProjectEntry: ([projectPath, relDir, name, dir]) => host.createProjectEntry(
+      requiredString(projectPath, 'projectPath'),
+      typeof relDir === 'string' ? relDir : '',
+      requiredString(name, 'name'),
+      dir === true,
+    ),
+    renameProjectEntry: ([projectPath, relPath, newName]) => host.renameProjectEntry(
+      requiredString(projectPath, 'projectPath'),
+      requiredString(relPath, 'relPath'),
+      requiredString(newName, 'newName'),
+    ),
+    moveProjectEntry: ([projectPath, relPath, targetDirRel]) => host.moveProjectEntry(
+      requiredString(projectPath, 'projectPath'),
+      requiredString(relPath, 'relPath'),
+      typeof targetDirRel === 'string' ? targetDirRel : '',
+    ),
+    copyProjectEntry: ([projectPath, relPath, targetDirRel]) => host.copyProjectEntry(
+      requiredString(projectPath, 'projectPath'),
+      requiredString(relPath, 'relPath'),
+      typeof targetDirRel === 'string' ? targetDirRel : '',
+    ),
+    writeProjectFile: ([projectPath, relPath, content, expectedContent, accessToken, encoding]) => {
+      const text = requiredTextFileContent(content, 'file content');
+      const expected = requiredTextFileContent(expectedContent, 'expected file content');
+      const fileEncoding = requiredTextFileEncoding(encoding);
+      if (grantedIf(accessToken)) {
+        const granted = grantedFile(accessToken, projectPath, relPath);
+        return invokeDesktopOperation(
+          'writeProjectTextFileIn',
+          [granted.root, granted.rel, text, expected, fileEncoding],
+        );
+      }
+      return host.writeProjectTextFile(
+        requiredString(projectPath, 'projectPath'),
+        requiredString(relPath, 'relPath'),
+        text,
+        expected,
+        fileEncoding,
+      );
+    },
+    readEditorSettings: async ([projectPath, relPath, workspaceFile]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      const workspace = typeof workspaceFile === 'string' && workspaceFile.trim()
+        ? resolvePath(workspaceFile)
+        : undefined;
+      return invokeDesktopOperation('readScopedEditorSettings', [
+        userDataPath || '',
+        root,
+        requiredString(relPath, 'relPath', 4_096),
+        workspace,
+      ]);
+    },
+    readEditorBackup: async ([projectPath, relPath, accessToken]) => {
+      if (!userDataPath) return null;
+      const file = await editorFilePath(projectPath, relPath, accessToken);
+      return invokeDesktopOperation('readEditorBackup', [userDataPath, file]);
+    },
+    writeEditorBackup: async ([projectPath, relPath, content, expectedContent, accessToken]) => {
+      const root = requiredEditorBackupRoot();
+      const file = await editorFilePath(projectPath, relPath, accessToken);
+      return invokeDesktopOperation('writeEditorBackup', [
+        root,
+        file,
+        requiredTextFileContent(content, 'file content'),
+        requiredTextFileContent(expectedContent, 'expected file content'),
+      ]);
+    },
+    deleteEditorBackup: async ([projectPath, relPath, accessToken]) => {
+      if (!userDataPath) return null;
+      const file = await editorFilePath(projectPath, relPath, accessToken);
+      await invokeDesktopOperation('deleteEditorBackup', [userDataPath, file]);
+      return null;
+    },
+    readInstructions: async ([projectPath]) => {
+      const file = await instructionsFilePath(projectPath);
+      const legacy = projectPath == null || projectPath === ''
+        ? legacyCommonInstructionsFile()
+        : '';
+      return invokeDesktopOperation('readInstructions', [file, legacy]);
+    },
+    writeInstructions: async ([projectPath, content]) => {
+      const text = requiredInstructionsContent(content);
+      const file = await instructionsFilePath(projectPath);
+      await invokeDesktopOperation('writeInstructions', [file, text]);
+      return null;
+    },
+    saveWorkspace: ([workspaceFile, rawFolders]) => {
+      const folders = requiredWorkspaceFolders(rawFolders);
+      // The Save-As dialog is desktop-only; a remote surface must name the file.
+      const file = typeof workspaceFile === 'string' && workspaceFile.trim()
+        ? resolvePath(workspaceFile)
+        : '';
+      if (!file) throw new Error('Choosing a workspace file is available in the desktop app only.');
+      return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
+    },
+    codeGraphQuery: ([projectPath, mode, symbol]) => {
+      if (mode !== 'find_symbol' && mode !== 'references' && mode !== 'symbols') {
+        throw new TypeError('mode is invalid.');
+      }
+      return host.codeGraphQuery(
+        requiredString(projectPath, 'projectPath'),
+        mode,
+        requiredString(symbol, 'symbol'),
+      );
+    },
+    searchWorkspaceText: async ([projectPath, rawOptions]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      return invokeDesktopOperation('searchWorkspaceTextIn', [
+        root,
+        requiredWorkspaceSearchOptions(rawOptions),
+      ]);
+    },
+    replaceWorkspaceText: async ([projectPath, rawOptions, replacement, relPaths]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      if (typeof replacement !== 'string' || replacement.length > 1_000_000) {
+        throw new TypeError('Replacement text is invalid.');
+      }
+      return invokeDesktopOperation('replaceWorkspaceTextIn', [
+        root,
+        requiredWorkspaceSearchOptions(rawOptions),
+        replacement,
+        relPaths === undefined ? undefined : requiredGitPaths(relPaths),
+      ]);
+    },
+    lspDocument: async ([rawInput]) => {
+      const input = requiredLspDocumentInput(rawInput);
+      const root = await host.projectDirectory(input.projectPath);
+      return invokeDesktopOperation('lspDocument', [input.projectPath, root, input]);
+    },
+    lspRequest: async ([rawInput]) => {
+      const input = requiredLspRequestInput(rawInput);
+      const root = await host.projectDirectory(input.projectPath);
+      return invokeDesktopOperation('lspRequest', [
+        input.projectPath,
+        root,
+        input.relPath,
+        input.languageId,
+        input.method,
+        input.params ?? {},
+      ]);
+    },
+    lspApplyWorkspaceEdit: async ([projectPath, rawWrites]) => {
+      const root = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
+      return invokeDesktopOperation('writeProjectTextFilesIn', [
+        root,
+        requiredWorkspaceTextWrites(rawWrites),
+      ]);
+    },
   };
   if (settingsStore) {
     methods.readSettings = () => settingsStore.read();
@@ -359,6 +761,10 @@ export function createRemoteMethods(
     methods.termResize = ([id, cols, rows]) => {
       terminals.resize(String(id || ''), Number(cols), Number(rows));
     };
+    // Closing a remote terminal pane must release its PTY; without this the
+    // browser's dispose call answered "unknown method" and the shell lingered.
+    methods.termDispose = ([id]) =>
+      invokeDesktopOperation('termDispose', [requiredString(id, 'terminal id', 128)]);
   }
   return methods;
 }

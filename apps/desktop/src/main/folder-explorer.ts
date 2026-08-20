@@ -4,9 +4,11 @@
 // so paths are validated for SHAPE (absolute, bounded, no NUL) instead of
 // being sandboxed to a root; mutations still refuse self-nesting/overwrites.
 import { execFile } from 'node:child_process';
-import { cp, mkdir, readdir, rename, stat, statfs, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rename, stat, statfs, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+
+import { localFileMimeTypeForPath } from '../shared/local-files';
 
 export interface FolderDirEntry {
   name: string;
@@ -311,6 +313,50 @@ export async function listFolderPlaces(
     places.push(await drivePlace('/', '/'));
   }
   return places;
+}
+
+/** Attachment/drag lane cap shared by every host that reads a local file. */
+export const MAX_LOCAL_FILE_BYTES = 20 * 1024 * 1024;
+
+/** One absolute path described for the file-tab / attachment lanes. The
+ *  caller decides project ownership; this reports only what the disk says. */
+export async function statLocalEntryAbs(path: string): Promise<{
+  absolutePath: string;
+  name: string;
+  dir: boolean;
+  size: number;
+}> {
+  const absolutePath = browsableFolderPath(path);
+  const info = await stat(absolutePath);
+  return {
+    absolutePath,
+    name: basename(absolutePath) || absolutePath,
+    dir: info.isDirectory(),
+    size: Number(info.size) || 0,
+  };
+}
+
+/** Read one local file as base64 for an attachment; capped like the desktop
+ *  drop lane so a remote surface cannot pull an unbounded payload. */
+export async function readLocalFileAbs(path: string): Promise<{
+  name: string;
+  size: number;
+  mimeType: string;
+  data: string;
+}> {
+  const file = browsableFolderPath(path);
+  const info = await stat(file);
+  if (!info.isFile()) throw new Error('Only files can be attached.');
+  if (info.size > MAX_LOCAL_FILE_BYTES) {
+    throw new Error(`${basename(file)}: files must be 20 MB or smaller.`);
+  }
+  const data = await readFile(file);
+  return {
+    name: basename(file),
+    size: info.size,
+    mimeType: localFileMimeTypeForPath(file),
+    data: data.toString('base64'),
+  };
 }
 
 /** Drive entry with capacity for the Explorer-style usage bar. */
