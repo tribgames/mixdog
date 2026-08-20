@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.143 - 2026-08-20
+
 - Session execution now shares one supervised runtime worker instead of a
   process-shard pool. Background agents stay in-process, provider waits yield
   their local CPU admission slot, and machine-wide spawn limits and runtime
