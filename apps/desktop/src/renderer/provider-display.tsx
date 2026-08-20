@@ -14,6 +14,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   gemini: "Gemini API",
   "gemini-api": "Gemini API",
   "grok-oauth": "Grok OAuth",
+  "antigravity-oauth": "Antigravity OAuth",
   "cursor-oauth": "Cursor OAuth",
   lmstudio: "LM Studio",
   ollama: "Ollama",
@@ -30,6 +31,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   "openai-oauth": 10,
   "anthropic-oauth": 20,
   "grok-oauth": 30,
+  "antigravity-oauth": 31,
   "cursor-oauth": 32,
   "opencode-go": 35,
   openai: 40,
@@ -395,6 +397,7 @@ type ProviderIconKind = "openai" | "anthropic" | "xai" | "google" | "cursor" | "
 function providerIconKind(provider: string): ProviderIconKind {
   const normalized = provider.toLowerCase();
   if (normalized === "cursor-oauth") return "cursor";
+  if (normalized === "antigravity-oauth") return "google";
   if (normalized === "opencode-go") return "opencode";
   if (normalized.includes("openai") || normalized.includes("codex")) return "openai";
   if (normalized.includes("anthropic") || normalized.includes("claude")) return "anthropic";
