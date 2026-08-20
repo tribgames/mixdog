@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.142 - 2026-08-20
+
 - Installed web apps resume one pending desktop approval across reloads, while
   the desktop replaces stale prompts, expires them with the relay request, and
   accepts each decision only after the service confirms it.
