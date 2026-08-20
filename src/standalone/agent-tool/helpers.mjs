@@ -54,7 +54,7 @@ export function callerSessionForContext(context = {}) {
 }
 
 // Agents are session-owned: when the caller context carries a session id, the
-// scope is that OWNER SESSION, strictly — a shard/host process can run many
+// scope is that OWNER SESSION, strictly — a runtime host process can run many
 // Lead sessions on one clientHostPid, so pid matching alone leaks siblings.
 // Without a caller session id (legacy/terminal contexts), pid scoping remains.
 export function sessionMatchesContext(session, context = {}) {

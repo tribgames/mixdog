@@ -36,7 +36,6 @@ import {
 import {
   DESKTOP_IPC,
   type DesktopRemoteAccessInfo,
-  type DesktopRemoteClientClaim,
   type DesktopSettings,
 } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
@@ -357,44 +356,9 @@ let unsubscribeServiceSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
 };
-// An installed web app runs in its own storage container: it can inherit no
-// pairing and must ask for one, and this answer IS the grant. The prompt the
-// user normally sees is the themed one in the renderer (registerDesktopIpc
-// forwards the same event); this native box only covers the case where no
-// window exists to show it, so one request never raises two prompts.
-async function approveRemoteClientWithoutWindow(claim: DesktopRemoteClientClaim): Promise<void> {
-  const claimId = String(claim.claimId || '');
-  if (!claimId || (mainWindow && !mainWindow.isDestroyed())) return;
-  let approved = false;
-  try {
-    const { response } = await dialog.showMessageBox({
-      type: 'question' as const,
-      title: 'Mixdog',
-      message: `Connect ${claim.name || 'this device'}?`,
-      detail: 'Approve only if you just opened Mixdog on that device.',
-      buttons: ['Approve', 'Deny'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    });
-    approved = response === 0;
-  } catch {
-    approved = false;
-  }
-  try {
-    await serviceClient.invokeDesktopOperation('remoteAccessResolveClaim', [claimId, approved]);
-  } catch {
-    // The request expires on the relay; the device retries or gives up.
-  }
-}
-
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
-    return;
-  }
-  if (name === 'remote-client-claim' && value && typeof value === 'object') {
-    void approveRemoteClientWithoutWindow(value as DesktopRemoteClientClaim);
   }
 });
 let quitAfterDispose = false;

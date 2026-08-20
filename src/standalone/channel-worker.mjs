@@ -124,9 +124,9 @@ export function createStandaloneChannelWorker({
     };
   }
 
-  // Daemon-hosted session shards inherit the PID of the process that first
-  // spawned the machine daemon. That process may be gone after daemon recovery,
-  // so callers that own a live runtime can override the inherited identity.
+  // A session runtime may outlive the process that first spawned the machine
+  // daemon. That process may be gone after daemon recovery, so callers that
+  // own a live runtime can override the inherited identity.
   const daemonLeadPid = Number(leadPid)
     || Number(process.env.MIXDOG_SUPERVISOR_PID)
     || process.pid;

@@ -17,9 +17,7 @@ const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-turn-trace-'));
 process.env.MIXDOG_RUNTIME_ROOT = ROOT;
 process.env.MIXDOG_DAEMON_SKIP_MEMORY = '1';
 process.env.MIXDOG_BOOT_CORE_MEMORY = '0';
-process.env.MIXDOG_AGENT_SHARD_SPREAD = '1';
-// The probe's whole point is the trace: explicit path (shared by daemon and
-// shard children via env inheritance) + timing rows.
+// The probe's whole point is the trace: explicit path plus timing rows.
 const TRACE_PATH = join(ROOT, 'agent-trace.jsonl');
 delete process.env.MIXDOG_AGENT_TRACE_DISABLE;
 process.env.MIXDOG_AGENT_TRACE_PATH = TRACE_PATH;
@@ -75,7 +73,7 @@ try {
       '2) read README.md (first 40 lines)',
       '3) run the shell command: node -v',
       '4) read apps/desktop/package.json',
-      '5) grep the string "createSessionRuntimePool" under src/standalone (files list only)',
+      '5) grep the string "createSessionRuntimeHost" under src/standalone (files list only)',
       'Then reply with one line: DONE <package name> <node version>. Do not edit anything.',
     ].join('\n'),
   }, { invocationSource: 'model-tool', cwd: REPO });
@@ -90,7 +88,7 @@ try {
   process.stdout.write(`wall=${((Date.now() - t0) / 1000).toFixed(1)}s\n--- result ---\n${last.slice(0, 400)}\n`);
   try { agent.closeAll('turn-trace probe end'); } catch { /* teardown */ }
 
-  // Shard children flush their local trace buffers on a short timer.
+  // The runtime worker flushes its local trace buffer on a short timer.
   await sleep(9_000);
   const rows = existsSync(TRACE_PATH)
     ? readFileSync(TRACE_PATH, 'utf8').split('\n').filter(Boolean).flatMap((line) => {

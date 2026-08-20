@@ -38,7 +38,6 @@ const {
 const { createProjectPicker } = await import('../src/tui/app/project-picker.mjs');
 const { createSessionApiA } = await import('../src/tui/session/session-api.mjs');
 const { createSessionApiB } = await import('../src/tui/session/session-api-ext.mjs');
-const { chooseShardIndex } = await import('../src/standalone/session-runtime-pool.mjs');
 const {
   appendTuiSteeringPersist,
   drainTuiSteeringPersist,
@@ -1099,26 +1098,6 @@ test('session submit ACK does not wait for auto-clear and remains reclaimable', 
 
   clearGate.resolve();
   assert.equal(queued.length, 0, 'targeted abort reclaims the acknowledged queue entry');
-});
-
-test('shard placement spills a live hash shard at its resident cap', () => {
-  const shards = [
-    { alive: true, resident: 4, busy: 0 },
-    { alive: true, resident: 1, busy: 1 },
-    { alive: true, resident: 2, busy: 0 },
-  ];
-  assert.equal(chooseShardIndex({
-    hashIndex: 0,
-    shards,
-    residentCap: 4,
-    busyCap: 2,
-  }), 2, 'a capped hash shard must spill to the least-busy live peer');
-  assert.equal(chooseShardIndex({
-    hashIndex: 0,
-    shards: shards.map((shard) => ({ ...shard, resident: 4 })),
-    residentCap: 4,
-    busyCap: 2,
-  }), 0, 'the hash shard remains the overflow fallback when every peer is capped');
 });
 
 test('persisted steering keeps the desktop submission identity across recovery', async () => {

@@ -8,6 +8,10 @@ import {
   normalizeRemoteClientClaim,
   pruneRemoteClientClaims,
 } from "./remote-claim-queue";
+import {
+  isRemoteClaimPromptActive,
+  subscribeRemoteClaimPromptActive,
+} from "./remote-claim-prompt-state";
 
 // An installed web app runs in its own storage container: it reaches this
 // desktop with no credential and asks for one, and the answer here IS the
@@ -16,10 +20,11 @@ import {
 export function RemoteClaimPrompt() {
   const [queue, setQueue] = useState<DesktopRemoteClientClaim[]>([]);
   const [answering, setAnswering] = useState(false);
+  const [active, setActive] = useState(isRemoteClaimPromptActive);
   const answeringRef = useRef(false);
+  const api = window.mixdogDesktop;
 
   useEffect(() => {
-    const api = window.mixdogDesktop;
     if (typeof api?.subscribeRemoteClientClaim !== "function") return undefined;
     return api.subscribeRemoteClientClaim((claim) => {
       const normalized = normalizeRemoteClientClaim(claim);
@@ -28,7 +33,24 @@ export function RemoteClaimPrompt() {
       // of stacking another approval behind it.
       setQueue((current) => enqueueRemoteClientClaim(current, normalized));
     });
-  }, []);
+  }, [api]);
+
+  useEffect(() => subscribeRemoteClaimPromptActive(setActive), []);
+
+  useEffect(() => {
+    if (!active || typeof api?.listRemoteClientClaims !== "function") return undefined;
+    let live = true;
+    void api.listRemoteClientClaims()
+      .then((claims) => {
+        if (!live) return;
+        setQueue((current) => claims.reduce((next, value) => {
+          const normalized = normalizeRemoteClientClaim(value);
+          return normalized ? enqueueRemoteClientClaim(next, normalized) : next;
+        }, current));
+      })
+      .catch(() => { /* the live event path remains available */ });
+    return () => { live = false; };
+  }, [active, api]);
 
   const claim = queue[0];
 
@@ -59,7 +81,7 @@ export function RemoteClaimPrompt() {
     return () => document.removeEventListener("keydown", onKeyDown, true);
   });
 
-  if (!claim) return null;
+  if (!claim || !active) return null;
 
   async function answer(approved: boolean): Promise<void> {
     const claimId = claim?.claimId ?? "";

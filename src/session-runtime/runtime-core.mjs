@@ -318,7 +318,6 @@ export async function createMixdogSessionRuntime({
   initialConfig = null,
   remote = false,
   desktopSession: initialDesktopSession = null,
-  agentSession = null,
 } = {}) {
   // Shared mutable runtime state, promoted from closure `let`s so extracted
   // modules can read/write live values through one reference.
@@ -327,10 +326,6 @@ export async function createMixdogSessionRuntime({
   rt.disallowDelegation = disallowDelegation === true;
   rt.mcpScopeId = randomUUID();
   rt.desktopSession = initialDesktopSession;
-  // Agent shard spread: a daemon-hosted worker runtime carries the resolved
-  // agent session spec; session creation routes through prepareAgentSession
-  // (session-lifecycle) instead of the Lead session shape.
-  rt.agentSessionSpec = agentSession && typeof agentSession === 'object' ? agentSession : null;
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   // Last assistant text handed to the transcript writer (via onAssistantText),
   // so the post-turn final-content append can skip an exact duplicate.
@@ -666,9 +661,7 @@ export async function createMixdogSessionRuntime({
   const autoUpdateEnabled = () => selfUpdate.autoUpdateEnabled();
   const checkForUpdateInternal = (...a) => selfUpdate.checkForUpdate(...a);
   const runUpdateNowInternal = (...a) => selfUpdate.runUpdateNow();
-  // Agent-hosted runtimes (shard spread) never own the install: skip the
-  // network-bound update boot check per worker spawn.
-  if (!rt.agentSessionSpec) selfUpdate.startBootCheck();
+  selfUpdate.startBootCheck();
 
   // Notification fan-out (listener broadcast + pending-queue mirroring of
   // terminal completions) lives in notification-bus.mjs.
@@ -834,7 +827,7 @@ export async function createMixdogSessionRuntime({
     rootDir: STANDALONE_ROOT,
     dataDir: cfgMod.getPluginData(),
     cwd,
-    // A daemon session shard can outlive the process that originally spawned
+    // A session runtime can outlive the process that originally spawned
     // the daemon. Bind channel liveness to this runtime host, never that stale
     // inherited supervisor PID.
     leadPid: process.pid,
@@ -1313,36 +1306,26 @@ export async function createMixdogSessionRuntime({
   // Heavy session/tool/code-graph work is demand-driven. Startup restores the
   // visible pane tree only; the first real turn arms these warmups.
   bootProfile('runtime:prewarm-deferred', { reason: 'first-turn' });
-  // Agent-hosted runtimes (shard spread) keep only the warmups that shorten
-  // their FIRST ask (route provider + model metadata); provider-setup caches,
-  // full model catalogs, statusline usage, and channel automation are
-  // Lead-surface work that would otherwise run once per worker spawn.
   scheduleProviderWarmup();
   scheduleProviderModelWarmup();
-  if (!rt.agentSessionSpec) {
-    scheduleProviderSetupWarmup();
-    scheduleModelCatalogWarmup();
-    scheduleStatuslineUsageWarmup();
-  }
-  if (rt.agentSessionSpec) {
-    // Worker sessions never run channels or schedule automation probes.
-  } else {
-    // Automation decoupling (user decision): enabled schedules/webhooks boot
-    // the worker on their own — no messaging provider. The worker runs
-    // headless (scheduler/webhooks/voice only).
-    prewarmTimers.channelStartTimer = setTimeout(() => {
-      prewarmTimers.channelStartTimer = null;
-      if (rt.closeRequested) return;
-      void hasActiveAutomation()
-        .then((active) => {
-          if (!active || rt.closeRequested) return;
-          bootProfile('channels:automation-autostart');
-          void invokeChannelStart();
-        })
-        .catch(() => { /* automation probe is best-effort */ });
-    }, remoteAutoStartDelayMs);
-    prewarmTimers.channelStartTimer.unref?.();
-  }
+  scheduleProviderSetupWarmup();
+  scheduleModelCatalogWarmup();
+  scheduleStatuslineUsageWarmup();
+  // Automation decoupling (user decision): enabled schedules/webhooks boot
+  // the worker on their own — no messaging provider. The worker runs
+  // headless (scheduler/webhooks/voice only).
+  prewarmTimers.channelStartTimer = setTimeout(() => {
+    prewarmTimers.channelStartTimer = null;
+    if (rt.closeRequested) return;
+    void hasActiveAutomation()
+      .then((active) => {
+        if (!active || rt.closeRequested) return;
+        bootProfile('channels:automation-autostart');
+        void invokeChannelStart();
+      })
+      .catch(() => { /* automation probe is best-effort */ });
+  }, remoteAutoStartDelayMs);
+  prewarmTimers.channelStartTimer.unref?.();
 
   // Pure settings-delegate methods (onboarding status/skip, autoClear, profile,
   // compaction, recap/memory, channels, systemShell, update settings).
@@ -1619,10 +1602,7 @@ export async function createMixdogSessionRuntime({
     awaitRoutePreparation: () => routePreparation.wait(),
     getReservedSessionId: () => rt.reservedSessionId,
     registerActiveTurnController,
-    // Agent-hosted runtimes (shard spread) are ephemeral worker sessions: an
-    // LLM title per spawn would be pure cost, and in-process agent
-    // sessions never titled either.
-    sessionTitles: rt.agentSessionSpec ? null : sessionTitles,
+    sessionTitles,
   });
 
   return {

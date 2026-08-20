@@ -48,9 +48,9 @@ import {
 import { assertPathReachable } from './fs-reachability.mjs';
 import { listGuardPath, normalizeListHeadLimit, readFamilyPathEnoentOrError } from './lib/list-helpers.mjs';
 import {
-    recordShardDirectoryReadSuccess,
-    reportShardDirectoryReadFailure,
-} from '../../../../shared/session-shard-health.mjs';
+    recordRuntimeDirectoryReadSuccess,
+    reportRuntimeDirectoryReadFailure,
+} from '../../../../shared/session-runtime-health.mjs';
 
 const FIND_WALK_TIMEOUT_MS = 20_000;
 const LIST_WALK_TIMEOUT_MS = 20_000;
@@ -358,12 +358,12 @@ export async function executeListTool(args, workDir, options = {}) {
     throwIfDirectoryWalkAborted(options.signal, walkResult, 'list walk');
     const rootFailure = walkWarnings.find((warning) => warning.root);
     if (rootFailure) {
-        reportShardDirectoryReadFailure(fullPath, rootFailure.error);
+        reportRuntimeDirectoryReadFailure(fullPath, rootFailure.error);
         recordDirectoryWalkTelemetry(options, 'failed', walkResult, walkWarnings.length);
         if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
         return directoryReadFailureLine(rootFailure);
     }
-    recordShardDirectoryReadSuccess();
+    recordRuntimeDirectoryReadSuccess();
 
     if (!nativeDeep && needsGlobalStat && rows.length > 0) {
         // lstat: symlinks should report own metadata, not the target's.
@@ -523,12 +523,12 @@ export async function executeTreeTool(args, workDir, options = {}) {
     throwIfDirectoryWalkAborted(options.signal, walkResult, 'tree walk');
     const rootFailure = walkWarnings.find((warning) => warning.root);
     if (rootFailure) {
-        reportShardDirectoryReadFailure(fullPath, rootFailure.error);
+        reportRuntimeDirectoryReadFailure(fullPath, rootFailure.error);
         recordDirectoryWalkTelemetry(options, 'failed', walkResult, walkWarnings.length);
         if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
         return directoryReadFailureLine(rootFailure);
     }
-    recordShardDirectoryReadSuccess();
+    recordRuntimeDirectoryReadSuccess();
     const root = lines[0];
     const body = lines.slice(1);
     const windowed = offset > 0 ? body.slice(offset) : body;

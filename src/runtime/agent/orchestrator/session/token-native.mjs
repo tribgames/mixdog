@@ -1,6 +1,6 @@
 // Native mixdog-token client: a Node Worker owns the in-process Node-API addon
-// so CPU-heavy counting never blocks the daemon event loop. Session shards
-// relay to this single owner over their existing IPC channel.
+// so CPU-heavy counting never blocks the daemon event loop. The session
+// runtime worker relays to this single owner over its existing IPC channel.
 //
 // Unavailable addon / dead worker / timeout all resolve `null`, and callers
 // fall back to the WASM worker path. Kill switch:
@@ -23,16 +23,16 @@ const LOCAL_ADDON = pathJoin(
 );
 const READY_TIMEOUT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 30_000;
-const SHARD_PREWARM_MESSAGE = 'token-native-prewarm';
-const SHARD_COUNT_MESSAGE = 'token-native-count';
-const SHARD_RESULT_MESSAGE = 'token-native-result';
+const RUNTIME_PREWARM_MESSAGE = 'token-native-prewarm';
+const RUNTIME_COUNT_MESSAGE = 'token-native-count';
+const RUNTIME_RESULT_MESSAGE = 'token-native-result';
 
-function isSessionShardProcess() {
-    return process.env.MIXDOG_SESSION_SHARD_PID === String(process.pid);
+function isSessionRuntimeWorkerProcess() {
+    return process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID === String(process.pid);
 }
 
-function sessionShardClientEnabled() {
-    return isSessionShardProcess()
+function sessionRuntimeClientEnabled() {
+    return isSessionRuntimeWorkerProcess()
         && typeof process.send === 'function'
         && process.connected === true;
 }
@@ -66,61 +66,61 @@ function _resolveAddon() {
 
 let _workerOwner = null; // { worker, pending, seq, ready, resolveReady, readyTimer }
 let _workerFailed = false;
-let _shardSequence = 0;
-let _shardListenerInstalled = false;
-const _shardPending = new Map();
+let _runtimeSequence = 0;
+let _runtimeListenerInstalled = false;
+const _runtimePending = new Map();
 
-function _dropShardRequests() {
-    for (const entry of _shardPending.values()) {
+function _dropRuntimeRequests() {
+    for (const entry of _runtimePending.values()) {
         clearTimeout(entry.timer);
         entry.resolve(null);
     }
-    _shardPending.clear();
+    _runtimePending.clear();
 }
 
-function _ensureShardResponseListener() {
-    if (_shardListenerInstalled) return;
-    _shardListenerInstalled = true;
+function _ensureRuntimeResponseListener() {
+    if (_runtimeListenerInstalled) return;
+    _runtimeListenerInstalled = true;
     process.on('message', (message) => {
-        if (!message || message.type !== SHARD_RESULT_MESSAGE) return;
+        if (!message || message.type !== RUNTIME_RESULT_MESSAGE) return;
         const tokenRequestId = String(message.tokenRequestId || '');
-        const entry = _shardPending.get(tokenRequestId);
+        const entry = _runtimePending.get(tokenRequestId);
         if (!entry) return;
-        _shardPending.delete(tokenRequestId);
+        _runtimePending.delete(tokenRequestId);
         clearTimeout(entry.timer);
         const count = Number(message.count);
         entry.resolve(Number.isFinite(count) && count >= 0 ? count : null);
     });
-    process.once('disconnect', _dropShardRequests);
+    process.once('disconnect', _dropRuntimeRequests);
 }
 
-function _requestShardTokenCount(text, timeoutMs = REQUEST_TIMEOUT_MS) {
-    if (!sessionShardClientEnabled()) return Promise.resolve(null);
-    _ensureShardResponseListener();
-    const tokenRequestId = `token-${process.pid}-${++_shardSequence}`;
+function _requestRuntimeTokenCount(text, timeoutMs = REQUEST_TIMEOUT_MS) {
+    if (!sessionRuntimeClientEnabled()) return Promise.resolve(null);
+    _ensureRuntimeResponseListener();
+    const tokenRequestId = `token-${process.pid}-${++_runtimeSequence}`;
     return new Promise((resolve) => {
         const timer = setTimeout(() => {
-            if (!_shardPending.delete(tokenRequestId)) return;
+            if (!_runtimePending.delete(tokenRequestId)) return;
             resolve(null);
         }, timeoutMs);
         timer.unref?.();
-        _shardPending.set(tokenRequestId, { resolve, timer });
+        _runtimePending.set(tokenRequestId, { resolve, timer });
         if (!safeIpcSend(process, {
-            type: SHARD_COUNT_MESSAGE,
+            type: RUNTIME_COUNT_MESSAGE,
             tokenRequestId,
             text: String(text ?? ''),
         }, {
             onError: () => {
-                const entry = _shardPending.get(tokenRequestId);
+                const entry = _runtimePending.get(tokenRequestId);
                 if (!entry) return;
-                _shardPending.delete(tokenRequestId);
+                _runtimePending.delete(tokenRequestId);
                 clearTimeout(entry.timer);
                 entry.resolve(null);
             },
         })) {
-            const entry = _shardPending.get(tokenRequestId);
+            const entry = _runtimePending.get(tokenRequestId);
             if (entry) {
-                _shardPending.delete(tokenRequestId);
+                _runtimePending.delete(tokenRequestId);
                 clearTimeout(entry.timer);
                 entry.resolve(null);
             }
@@ -241,17 +241,17 @@ function _requestWorker(owner, text, timeoutMs = REQUEST_TIMEOUT_MS) {
 
 /** True when the native counter can be attempted (mode on + addon present). */
 export function nativeTokenCounterEnabled() {
-    if (isSessionShardProcess()) {
-        return nativeTokenModeEnabled() && sessionShardClientEnabled();
+    if (isSessionRuntimeWorkerProcess()) {
+        return nativeTokenModeEnabled() && sessionRuntimeClientEnabled();
     }
     return nativeTokenModeEnabled() && !_workerFailed && Boolean(_resolveAddon());
 }
 
 /** Precise o200k count via the daemon-owned addon worker. */
 export async function countTokensNative(text) {
-    if (isSessionShardProcess()) {
+    if (isSessionRuntimeWorkerProcess()) {
         if (!nativeTokenModeEnabled()) return null;
-        return _requestShardTokenCount(text);
+        return _requestRuntimeTokenCount(text);
     }
     const owner = _ensureWorker();
     if (!owner) return null;
@@ -267,9 +267,9 @@ let _fetchAttempted = false;
  *  With no local/env/cached addon, kick ONE background manifest fetch; on
  *  success the resolution cache resets so the next estimate adopts it. */
 export function prewarmNativeTokenCounter() {
-    if (isSessionShardProcess()) {
-        if (!nativeTokenModeEnabled() || !sessionShardClientEnabled()) return false;
-        return safeIpcSend(process, { type: SHARD_PREWARM_MESSAGE }, { onError: () => {} });
+    if (isSessionRuntimeWorkerProcess()) {
+        if (!nativeTokenModeEnabled() || !sessionRuntimeClientEnabled()) return false;
+        return safeIpcSend(process, { type: RUNTIME_PREWARM_MESSAGE }, { onError: () => {} });
     }
     const owner = _ensureWorker();
     if (!owner) {

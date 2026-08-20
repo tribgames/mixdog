@@ -52,7 +52,6 @@ import { createNotify } from './agent-tool/notify.mjs';
 import { createTagRegistry } from './agent-tool/tag-registry.mjs';
 import { createJobViews } from './agent-tool/job-views.mjs';
 import { createSpawnFlow } from './agent-tool/spawn-flow.mjs';
-import { createAgentShardSpread } from './agent-tool/shard-spread.mjs';
 import { resolveAgentSpawnPreset } from './agent-tool/spawn-preset.mjs';
 import {
   TAG_TOMBSTONE_TTL_MS,
@@ -96,11 +95,7 @@ export function createStandaloneAgent({
   awaitKeychainPrewarm = async () => {},
   isKeychainPrewarmReady = () => true,
 }) {
-  // Agent shard spread (MIXDOG_AGENT_SHARD_SPREAD): remote worker sessions
-  // hide behind one mgr wrapper so every existing call site keeps addressing
-  // a single session manager. Disabled -> pure delegation to the base mgr.
-  const shardSpread = createAgentShardSpread({ mgr: baseMgr });
-  const mgr = shardSpread.mgr;
+  const mgr = baseMgr;
   const statusListeners = new Set();
   const notifyStatusChange = () => {
     for (const listener of [...statusListeners]) {
@@ -213,7 +208,6 @@ export function createStandaloneAgent({
       runSpawn,
     } = createSpawnFlow({
       mgr,
-      shardSpread,
       forgetTerminalSession,
       pendingSpawnMeta,
       DEFAULT_SPAWN_PREP_TIMEOUT_MS,

@@ -150,7 +150,7 @@ export function preloadAgentLoopRuntime() {
 }
 
 // Provider init (SDK graph + stored credentials) used to start inside the
-// FIRST session create, so a cold shard paid keychain + provider init serially
+// FIRST session create, so a cold runtime worker paid keychain + provider init serially
 // right in front of provider.send (measured: a 13.5s first turn whose title
 // sibling call timed out at 10s). Hosts warm the same registry the create and
 // title paths use; initProviders dedupes repeat calls, so the authoritative
@@ -242,7 +242,6 @@ export async function createLocalSessionRuntime({
   remote = false,
   cwd,
   desktopSession,
-  agentSession = null,
 } = {}) {
   const startedAt = performance.now();
   bootProfile('session:create:start', { provider: providerName, model, toolMode, remote });
@@ -264,7 +263,6 @@ export async function createLocalSessionRuntime({
     remote,
     ...(cwd ? { cwd } : {}),
     ...(desktopSession ? { desktopSession } : {}),
-    ...(agentSession && typeof agentSession === 'object' ? { agentSession } : {}),
   });
   bootProfile('session:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const runtimeCwd = runtime.cwd || process.cwd();

@@ -90,6 +90,7 @@ export const DESKTOP_IPC = {
   agentPoolChanged: 'mixdog:agent-pool-changed',
   remoteProjectionChanged: 'mixdog:remote-projection-changed',
   remoteClientClaim: 'mixdog:remote-client-claim',
+  listRemoteClientClaims: 'mixdog:list-remote-client-claims',
   resolveRemoteClientClaim: 'mixdog:resolve-remote-client-claim',
   getRemoteProjection: 'mixdog:get-remote-projection',
   setRemoteProjection: 'mixdog:set-remote-projection',
@@ -1544,6 +1545,7 @@ export interface DesktopApi {
   subscribeRemoteClientClaim?(
     listener: (claim: DesktopRemoteClientClaim) => void,
   ): () => void;
+  listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
   prefetchSession?(sessionId: string): Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */

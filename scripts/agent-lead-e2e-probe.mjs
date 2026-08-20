@@ -15,12 +15,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const ROOT = mkdtempSync(join(tmpdir(), 'mixdog-lead-e2e-'));
-// MIXDOG_LEAD_E2E_LIVE_DAEMON=1: keep the inherited runtime root (live daemon
-// discovery) and opt into agent shard spread, so the spawned worker runs on
-// the INSTALLED daemon's shard pool — the deployed remote-completion path.
-const LIVE_DAEMON = process.env.MIXDOG_LEAD_E2E_LIVE_DAEMON === '1';
-if (LIVE_DAEMON) process.env.MIXDOG_AGENT_SHARD_SPREAD = '1';
-else process.env.MIXDOG_RUNTIME_ROOT = ROOT;
+process.env.MIXDOG_RUNTIME_ROOT = ROOT;
 process.env.MIXDOG_BOOT_CORE_MEMORY = '0';
 process.env.MIXDOG_DAEMON_SKIP_MEMORY = '1';
 process.env.MIXDOG_FEATURE_MEMORY = '0';

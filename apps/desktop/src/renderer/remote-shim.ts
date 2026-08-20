@@ -50,11 +50,9 @@ const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
 const BROWSER_ID_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.browserId;
 const DEVICE_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.device;
 const CLAIM_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.claim;
-const APPROVED_AT_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.approvedAt;
-// A credential refused this soon after an approval is a real failure. Asking
-// again automatically would just raise prompt after prompt on the desktop, so
-// the screen states the reason and waits for a deliberate retry instead.
-const APPROVAL_RETRY_GUARD_MS = 120_000;
+const REMOTE_CREDENTIAL_READY_EVENT = 'mixdog:remote-credential-ready';
+const REMOTE_CONNECTION_READY_EVENT = 'mixdog:remote-connection-ready';
+const REMOTE_PAIRING_INVALID_EVENT = 'mixdog:remote-pairing-invalid';
 // Sticky proof that this pairing has worked at least once. Without it a browser
 // reopened while the desktop sleeps counts three quick retries and throws the
 // pairing screen over a perfectly valid pairing.
@@ -170,6 +168,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let nextId = 1;
   let secureChannel: RelayE2EEChannel | null = null;
   let connectionReady = false;
+  let approvalVerificationInFlight = false;
   let relayBinaryFrames = false;
   const sessionsDecoder = createKeyedListDeltaDecoder<DesktopSessionSummary>();
   const agentPoolDecoder = createKeyedListDeltaDecoder<DesktopAgentPoolRow>();
@@ -182,6 +181,21 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       if (stored && /^[0-9a-f]{32,128}$/u.test(stored)) token = stored;
     } catch { /* keep the in-memory token */ }
     return token;
+  };
+
+  // React mounts behind the pairing layer and immediately asks for snapshots.
+  // Those calls must wait for the approval handoff instead of registering with
+  // an empty token and turning a healthy in-progress claim into a 401 reset.
+  const waitForCredential = (): Promise<void> => {
+    if (currentToken() && e2eePairing) return Promise.resolve();
+    return new Promise((resolve) => {
+      const ready = () => {
+        if (!currentToken() || !e2eePairing) return;
+        window.removeEventListener(REMOTE_CREDENTIAL_READY_EVENT, ready);
+        resolve();
+      };
+      window.addEventListener(REMOTE_CREDENTIAL_READY_EVENT, ready);
+    });
   };
 
   const wsUrl = (): string => {
@@ -311,8 +325,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       localStorage.setItem(E2EE_PUBLIC_KEY_STORAGE_KEY, material.serverPublicKey);
       localStorage.setItem(E2EE_SECRET_STORAGE_KEY, material.pairingSecret);
       localStorage.setItem(BROWSER_ID_STORAGE_KEY, browserId);
-      localStorage.setItem(APPROVED_AT_STORAGE_KEY, String(Date.now()));
-      localStorage.removeItem(CLAIM_STORAGE_KEY);
       if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
       return true;
     } catch { return false; }
@@ -351,11 +363,27 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     try { localStorage.removeItem(CLAIM_STORAGE_KEY); } catch { /* private storage */ }
   };
 
-  const approvedRecently = (): boolean => {
-    try {
-      const at = Number(localStorage.getItem(APPROVED_AT_STORAGE_KEY) || 0);
-      return Number.isFinite(at) && at > 0 && Date.now() - at < APPROVAL_RETRY_GUARD_MS;
-    } catch { return false; }
+  const waitForApprovedConnection = (): Promise<void> => {
+    if (connectionReady) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, ready);
+        window.removeEventListener(REMOTE_PAIRING_INVALID_EVENT, invalid);
+      };
+      const ready = () => {
+        cleanup();
+        resolve();
+      };
+      const invalid = (event: Event) => {
+        cleanup();
+        const message = event instanceof CustomEvent && typeof event.detail === 'string'
+          ? event.detail
+          : 'This device could not complete secure pairing.';
+        reject(new Error(message));
+      };
+      window.addEventListener(REMOTE_CONNECTION_READY_EVENT, ready, { once: true });
+      window.addEventListener(REMOTE_PAIRING_INVALID_EVENT, invalid, { once: true });
+    });
   };
 
   // Approval instead of a scan. This container holds no credential and cannot
@@ -376,7 +404,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     const resumed = await loadPendingClaim();
     const keyPair = resumed?.keyPair ?? await generateRelayClaimKeyPair();
     let claimId = resumed?.claimId ?? '';
-    let resuming = Boolean(claimId);
     const profile = await browserProfile();
     const wait = (ms: number): Promise<void> =>
       new Promise((done) => { window.setTimeout(done, ms); });
@@ -444,20 +471,35 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           onStatus('That approval could not be verified.', true);
           return;
         }
+        token = credential;
+        e2eePairing = material;
+        clientRegistered = false;
+        window.dispatchEvent(new Event(REMOTE_CREDENTIAL_READY_EVENT));
+        approvalVerificationInFlight = true;
+        onStatus('Approval received. Verifying the secure connection…');
+        const verified = waitForApprovedConnection();
+        void connect().catch(() => {
+          // Transient failures stay on the reconnect loop. Permanent pairing
+          // failures raise REMOTE_PAIRING_INVALID_EVENT and end this attempt.
+        });
+        try {
+          await verified;
+        } catch (error) {
+          onStatus(error instanceof Error ? error.message : String(error), true);
+          return;
+        } finally {
+          approvalVerificationInFlight = false;
+        }
+        clearPendingClaim();
         layer.classList.add('mrp-ok');
-        onStatus('Approved. Opening Mixdog…');
+        const waitTitle = layer.querySelector<HTMLElement>('[data-role="wait-title"]');
+        if (waitTitle) waitTitle.textContent = 'Success';
+        onStatus('Securely connected. Opening Mixdog…');
         try { navigator.vibrate?.([30, 60, 30]); } catch { /* no haptics */ }
-        window.setTimeout(() => location.reload(), 900);
+        window.setTimeout(() => layer.remove(), 900);
         return;
       }
       clearPendingClaim();
-      // A resumed request the relay has already forgotten is not an answer:
-      // the user just opened this app and is waiting for a prompt.
-      if (resuming && outcome !== 'denied') {
-        resuming = false;
-        claimId = '';
-        continue;
-      }
       onStatus(outcome === 'denied'
         ? 'The request was declined on your desktop.'
         : 'The request expired.', true);
@@ -516,7 +558,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + '<p data-role="note"></p>'
         + (standalone
           ? '<div class="mrp-wait"><i aria-hidden="true"></i>'
-            + '<b>Waiting for approval</b></div>'
+            + '<b data-role="wait-title">Waiting for approval</b></div>'
             + '<p class="mrp-status" data-role="status"></p>'
             + '<button type="button" data-role="ask" hidden>Ask again</button>'
           : (ios
@@ -561,7 +603,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       };
       ask?.addEventListener('click', start);
       if (autoAsk) start();
-      else setStatus('Ask again when you are at your desktop.', true);
+      else setStatus(message || 'Open Settings → Connection, then ask again.', true);
     };
     if (document.body) mount();
     else window.addEventListener('DOMContentLoaded', mount, { once: true });
@@ -938,10 +980,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // entry screen, which asks the desktop for a new approval; the device route
   // survives because it is a routing label, not a credential.
   const resetApprovalAndAsk = (message: string): void => {
-    // A credential refused moments after an approval is a real failure, so the
-    // screen states it and waits for a deliberate retry. Asking again on its
-    // own would raise a fresh prompt on the desktop for every attempt.
-    const guarded = approvedRecently();
     try {
       clearStoredRemotePairing(localStorage);
       if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
@@ -952,7 +990,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     everPaired = false;
     browserId = newBrowserId();
     clientRegistered = false;
-    showPairingScreen(message, !guarded);
+    showPairingScreen(message, false);
+    window.dispatchEvent(new CustomEvent(REMOTE_PAIRING_INVALID_EVENT, { detail: message }));
   };
 
   let reconnectTimer: number | null = null;
@@ -969,6 +1008,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   };
 
   const connect = async (): Promise<WebSocket> => {
+    await waitForCredential();
     if (socket && socket.readyState === WebSocket.OPEN && connectionReady) {
       return Promise.resolve(socket);
     }
@@ -1017,11 +1057,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           handshakeTimer = null;
         }
         retryMs = 500;
-        document.getElementById('mixdog-remote-pairing')?.remove();
+        if (!approvalVerificationInFlight) {
+          document.getElementById('mixdog-remote-pairing')?.remove();
+        }
         if (!everPaired) {
           everPaired = true;
           try { localStorage.setItem(PAIRED_STORAGE_KEY, '1'); } catch { /* no storage */ }
         }
+        window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
         if (everConnected) {
           // E2EE relay handshakes already trigger an authoritative full state
           // push from the desktop. Only legacy direct sockets need the RPC.
@@ -1493,6 +1536,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // this desktop for approval. Neither dials the relay.
   if (!installedStandalone() || !token) {
     showPairingScreen('');
+    return;
+  }
+  if (!e2eePairing) {
+    resetApprovalAndAsk('This device has incomplete approval data. Ask for approval again.');
     return;
   }
   void connect().catch(() => { /* the retry loop keeps running */ });

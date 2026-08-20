@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { createSessionRuntimePool } from './session-runtime-pool.mjs';
+import { createSessionRuntimeHost } from './session-runtime-host.mjs';
 
 async function waitFor(predicate, label, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
@@ -54,34 +54,35 @@ process.on('message', (message) => {
 });
 `;
 
-test('an unhealthy shard is replaced and its runtime is recovered', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-shard-health-'));
+test('an unhealthy runtime worker is replaced and every runtime is recovered', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mixdog-runtime-health-'));
   const workerEntry = join(dir, 'worker.mjs');
   const logs = [];
   await writeFile(workerEntry, WORKER_STUB, 'utf8');
 
-  const pool = createSessionRuntimePool({
-    shardCount: 1,
+  const host = createSessionRuntimeHost({
     workerEntry,
     cwd: dir,
     env: { ...process.env },
     log: (line) => logs.push(line),
-    coldDownMs: 0,
   });
   try {
-    const runtime = await pool.create({ sessionId: 'session-health' });
-    const originalPid = pool.status.shards[0].pid;
-    assert.equal((await runtime.submitAsync('trigger')).pid, originalPid);
+    const first = await host.create({ sessionId: 'session-health-a' });
+    const second = await host.create({ sessionId: 'session-health-b' });
+    const originalPid = host.status.worker.pid;
+    assert.equal((await first.submitAsync('trigger')).pid, originalPid);
     await waitFor(
-      () => pool.status.shards[0].pid && pool.status.shards[0].pid !== originalPid,
-      'replacement shard',
+      () => host.status.worker.pid && host.status.worker.pid !== originalPid,
+      'replacement runtime worker',
     );
-    const healthy = await runtime.submitAsync('healthy');
-    assert.notEqual(healthy.pid, originalPid);
+    const healthyFirst = await first.submitAsync('healthy');
+    const healthySecond = await second.submitAsync('healthy');
+    assert.notEqual(healthyFirst.pid, originalPid);
+    assert.equal(healthySecond.pid, healthyFirst.pid);
     assert.ok(logs.some((line) => /unhealthy; recycling/.test(line)));
-    assert.ok(logs.some((line) => /recovered 1 runtime/.test(line)));
+    assert.ok(logs.some((line) => /recovered 2 runtime/.test(line)));
   } finally {
-    await pool.close('test complete');
+    await host.close('test complete');
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -89,31 +90,29 @@ test('an unhealthy shard is replaced and its runtime is recovered', async () => 
 // Wire contract regression: fork IPC serializes call frames as JSON, which
 // cannot represent `undefined` and would fabricate `null` in its place. An
 // omitted optional argument (e.g. `resume(id)`) must stay omitted on the wire
-// so shard-side default parameters apply — it must never arrive as `null`
+// so worker-side default parameters apply — it must never arrive as `null`
 // (the daemon-boot remote-restore crash: `resume(id, null)` threw on
 // `options.quiet`).
-test('omitted trailing arguments stay omitted across the shard wire', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'mixdog-shard-wire-args-'));
+test('omitted trailing arguments stay omitted across the runtime wire', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mixdog-runtime-wire-args-'));
   const workerEntry = join(dir, 'worker.mjs');
   await writeFile(workerEntry, WORKER_STUB, 'utf8');
 
-  const pool = createSessionRuntimePool({
-    shardCount: 1,
+  const host = createSessionRuntimeHost({
     workerEntry,
     cwd: dir,
     env: { ...process.env },
     log: () => {},
-    coldDownMs: 0,
   });
   try {
-    const runtime = await pool.create({ sessionId: 'session-wire-args' });
+    const runtime = await host.create({ sessionId: 'session-wire-args' });
     const echoed = await runtime.submitAsync('echo', undefined, undefined);
     assert.deepEqual(echoed.args, ['echo']);
     // Interior holes cannot be omitted positionally; only the tail is trimmed.
     const interior = await runtime.submitAsync('echo', undefined, 'keep');
     assert.deepEqual(interior.args, ['echo', null, 'keep']);
   } finally {
-    await pool.close('test complete');
+    await host.close('test complete');
     await rm(dir, { recursive: true, force: true });
   }
 });

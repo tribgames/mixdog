@@ -62,7 +62,7 @@ import { createChannelSessionRouter } from './channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
 import { createSessionProtocolClient } from './session-protocol.mjs';
-import { createSessionRuntimePool } from './session-runtime-pool.mjs';
+import { createSessionRuntimeHost } from './session-runtime-host.mjs';
 import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 import {
   compareRuntimeVersions,
@@ -235,7 +235,7 @@ let channels = null;
 let transport = null;
 let sessionTransport = null;
 let sessionService = null;
-let sessionRuntimePool = null;
+let sessionRuntimeHost = null;
 let localSessionBridge = null;
 let memoryRuntime = null;
 let agentDispatchBroker = null;
@@ -287,7 +287,7 @@ async function shutdown(reason, code = 0) {
   log(`shutting down (${reason})`);
   try { setChannelNotifySink(null); } catch {}
   try { await sessionService?.stop?.(reason); } catch (e) { log(`session service stop failed: ${e?.message || e}`); }
-  try { await sessionRuntimePool?.close?.(reason); } catch (e) { log(`session shard pool stop failed: ${e?.message || e}`); }
+  try { await sessionRuntimeHost?.close?.(reason); } catch (e) { log(`session runtime host stop failed: ${e?.message || e}`); }
   try { await localSessionBridge?.close?.(reason); } catch (e) { log(`local session bridge.close failed: ${e?.message || e}`); }
   try { await sessionTransport?.stop?.(); } catch (e) { log(`session transport stop failed: ${e?.message || e}`); }
   try { await channels?.stop?.(); } catch (e) { log(`channels.stop failed: ${e?.message || e}`); }
@@ -506,9 +506,8 @@ async function main() {
   // memory cycle requested it.
 
   // ── Session front door ──────────────────────────────────────────────────────
-  // Session runtimes live in child-process shards. The daemon owns routing and
-  // fan-out only, so one provider/parser turn cannot stall health or input for
-  // every other session.
+  // All session runtimes share one supervised child process. The daemon keeps
+  // health, transport, and restart control isolated from session execution.
   const localSessionClients = new Map();
   let nextLocalSessionClient = 0;
   localSessionBridge = {
@@ -567,16 +566,16 @@ async function main() {
   };
   let sessionRuntimePrewarmStarted = false;
   let sessionRuntimePrewarmPromise = null;
-  sessionRuntimePool = createSessionRuntimePool({ cwd: CWD, log });
+  sessionRuntimeHost = createSessionRuntimeHost({ cwd: CWD, log });
   function prewarmSessionRuntime() {
     if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;
     sessionRuntimePrewarmStarted = true;
     void import('../runtime/agent/orchestrator/tools/builtin/read-image-resize.mjs')
       .then((module) => module.prewarmImageResizer?.())
       .catch((error) => log(`image pipeline prewarm failed (non-fatal): ${error?.message || error}`));
-    sessionRuntimePrewarmPromise = sessionRuntimePool.prewarm()
+    sessionRuntimePrewarmPromise = sessionRuntimeHost.prewarm()
       .then(() => {
-        log('session shard runtime/agent-loop/keychain/provider prewarm ready');
+        log('session runtime worker/agent-loop/keychain/provider prewarm ready');
         return true;
       })
       .catch((error) => {
@@ -588,13 +587,13 @@ async function main() {
     return sessionRuntimePrewarmPromise;
   }
   sessionService = createSessionService({
-    createSessionRuntime: (options) => sessionRuntimePool.create(options),
+    createSessionRuntime: (options) => sessionRuntimeHost.create(options),
     sessionExists: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();
       return store.storedSessionExists?.(sessionId) === true;
     },
     // View seam: session.read/subscribe on a cold session serve this disk
-    // projection instead of materializing a shard runtime (see
+    // projection instead of materializing a runtime (see
     // session-service.mjs stored-session views).
     readStoredSession: async (sessionId, options = {}) => {
       const store = await desktopRuntime.loadSessionStore();
@@ -617,7 +616,7 @@ async function main() {
     log,
   });
   sessionTransport = createSessionTransport({
-    // ctx carries the CLIENT token: the session pool refcounts views across
+    // ctx carries the CLIENT token: the session service refcounts views across
     // processes with it, so a terminal exiting cannot destroy the session a
     // desktop window is still streaming.
     handleCall: (name, args, ctx) => sessionService.handleCall(name, args, ctx),
@@ -627,12 +626,9 @@ async function main() {
     getStatus: () => ({
       sessions: sessionService.size,
       busy: sessionService.busyCount,
-      sessionPool: sessionService.status,
-      sessionShards: sessionRuntimePool.status,
-      // Machine-wide spawn budget + per-shard gate snapshots (cached, lazy
-      // refresh): tool execution lives in shard processes, so the daemon's
-      // own workload block below only covers daemon-hosted work.
-      sessionShardWorkloads: sessionRuntimePool.workloads,
+      sessionService: sessionService.status,
+      sessionRuntime: sessionRuntimeHost.status,
+      sessionRuntimeWorkload: sessionRuntimeHost.workloads,
       workload: {
         resources: resourceAdmission.snapshot(),
         childSpawns: childSpawnSnapshot(),

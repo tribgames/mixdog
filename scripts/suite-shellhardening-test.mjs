@@ -1630,10 +1630,10 @@ test('child guardians re-exec Electron as Node without forwarding secrets', () =
   });
 });
 
-test('daemon-owned token addon uses a Worker thread while shards relay over IPC', () => {
+test('daemon-owned token addon uses a Worker thread while the session runtime relays over IPC', () => {
   const tokenNative = source('src/runtime/agent/orchestrator/session/token-native.mjs');
   const tokenWorker = source('src/runtime/agent/orchestrator/session/token-native-worker.mjs');
-  const runtimePool = source('src/standalone/session-runtime-pool.mjs');
+  const runtimeHost = source('src/standalone/session-runtime-host.mjs');
   const runtimeWorker = source('src/standalone/session-runtime-worker.mjs');
   assert.doesNotMatch(tokenNative, /startChildGuardian/);
   assert.doesNotMatch(tokenNative, /node:child_process/);
@@ -1643,10 +1643,10 @@ test('daemon-owned token addon uses a Worker thread while shards relay over IPC'
   assert.match(tokenNative, /worker\.once\('exit'[\s\S]*_workerFailed = false/);
   assert.match(tokenWorker, /createRequire\(import\.meta\.url\)/);
   assert.match(tokenWorker, /addon\.countTokens/);
-  assert.match(tokenNative, /isSessionShardProcess\(\)/);
-  assert.match(runtimePool, /message\.type === 'token-native-count'/);
-  assert.match(runtimePool, /countTokensNative\(String\(message\.text \?\? ''\)\)/);
-  assert.match(runtimePool, /try \{ prewarmNativeTokenCounter\(\); \}/);
+  assert.match(tokenNative, /isSessionRuntimeWorkerProcess\(\)/);
+  assert.match(runtimeHost, /message\.type === 'token-native-count'/);
+  assert.match(runtimeHost, /countTokensNative\(String\(message\.text \?\? ''\)\)/);
+  assert.match(runtimeHost, /try \{ prewarmNativeTokenCounter\(\); \}/);
   assert.match(runtimeWorker, /message\.type === 'token-native-result'/);
 });
 
@@ -1679,14 +1679,14 @@ test('token addon cache accepts only canonical versioned .node assets', async ()
   }
 });
 
-test('session shard token client reuses its daemon owner', { timeout: 10_000 }, async () => {
+test('session runtime token client reuses its daemon owner', { timeout: 10_000 }, async () => {
   const moduleUrl = pathToFileURL(join(
     root,
     'src/runtime/agent/orchestrator/session/token-native.mjs',
   )).href;
   const child = spawn(process.execPath, ['--input-type=module', '--eval', `
-    process.env.MIXDOG_SESSION_SHARD = '1';
-    process.env.MIXDOG_SESSION_SHARD_PID = String(process.pid);
+    process.env.MIXDOG_SESSION_RUNTIME_WORKER = '1';
+    process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID = String(process.pid);
     const token = await import(${JSON.stringify(moduleUrl)});
     const warmed = token.prewarmNativeTokenCounter();
     const count = await token.countTokensNative('daemon-owned-token-counter');

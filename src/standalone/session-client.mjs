@@ -44,7 +44,7 @@ function daemonOwnerPath() {
 }
 
 function daemonEntry() {
-  // ONE daemon: the channels/memory host also owns the session pool, so both
+  // ONE daemon: the channels/memory host also owns the session service, so both
   // spawn paths converge on the same singleton process.
   return fileURLToPath(new URL('./daemon.mjs', import.meta.url));
 }

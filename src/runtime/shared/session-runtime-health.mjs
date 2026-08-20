@@ -1,6 +1,6 @@
 import { normalize } from 'node:path';
 
-export const SESSION_SHARD_UNHEALTHY_EVENT = 'mixdog:session-shard-unhealthy';
+export const SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT = 'mixdog:session-runtime-worker-unhealthy';
 
 const ROOT_FAILURE_WINDOW_MS = 30_000;
 const ROOT_FAILURE_THRESHOLD = 3;
@@ -13,8 +13,8 @@ let unhealthyEmitted = false;
 const failedRoots = new Map();
 const abortPressureAt = [];
 
-function isCurrentSessionShard() {
-  return String(process.env.MIXDOG_SESSION_SHARD_PID || '') === String(process.pid);
+function isCurrentSessionRuntimeWorker() {
+  return String(process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID || '') === String(process.pid);
 }
 
 function canonicalRoot(path) {
@@ -28,22 +28,22 @@ function resetFailures() {
   failedRoots.clear();
 }
 
-export function reportShardUnhealthy(detail = {}) {
-  if (!isCurrentSessionShard() || unhealthyEmitted) return false;
+export function reportRuntimeWorkerUnhealthy(detail = {}) {
+  if (!isCurrentSessionRuntimeWorker() || unhealthyEmitted) return false;
   unhealthyEmitted = true;
-  process.emit(SESSION_SHARD_UNHEALTHY_EVENT, {
-    reason: String(detail.reason || 'session shard unhealthy'),
+  process.emit(SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT, {
+    reason: String(detail.reason || 'session runtime worker unhealthy'),
     ...detail,
   });
   return true;
 }
 
-export function recordShardDirectoryReadSuccess() {
+export function recordRuntimeDirectoryReadSuccess() {
   resetFailures();
 }
 
-export function reportShardDirectoryReadFailure(path, error, now = Date.now()) {
-  if (!isCurrentSessionShard()) return false;
+export function reportRuntimeDirectoryReadFailure(path, error, now = Date.now()) {
+  if (!isCurrentSessionRuntimeWorker()) return false;
   const code = String(error?.code || 'UNKNOWN').toUpperCase();
   if (EXPECTED_PATH_ERRORS.has(code)) {
     resetFailures();
@@ -58,7 +58,7 @@ export function reportShardDirectoryReadFailure(path, error, now = Date.now()) {
   });
   if (failedRoots.size < ROOT_FAILURE_THRESHOLD) return false;
   const failures = [...failedRoots.values()];
-  return reportShardUnhealthy({
+  return reportRuntimeWorkerUnhealthy({
     reason: `readdir failed across ${failures.length} distinct roots`,
     code,
     path: String(path || ''),
@@ -67,8 +67,8 @@ export function reportShardDirectoryReadFailure(path, error, now = Date.now()) {
   });
 }
 
-export function reportShardAbortListenerPressure(warning, now = Date.now(), retainedListeners = 0) {
-  if (!isCurrentSessionShard()) return false;
+export function reportRuntimeAbortListenerPressure(warning, now = Date.now(), retainedListeners = 0) {
+  if (!isCurrentSessionRuntimeWorker()) return false;
   if (!Number.isFinite(Number(retainedListeners)) || Number(retainedListeners) <= 50) {
     return false;
   }
@@ -79,7 +79,7 @@ export function reportShardAbortListenerPressure(warning, now = Date.now(), reta
   if (abortPressureAt.length < ABORT_PRESSURE_THRESHOLD) return false;
   const count = abortPressureAt.length;
   abortPressureAt.length = 0;
-  return reportShardUnhealthy({
+  return reportRuntimeWorkerUnhealthy({
     reason: `abort listener pressure repeated ${count} times`,
     code: 'ABORT_LISTENER_PRESSURE',
     count,
