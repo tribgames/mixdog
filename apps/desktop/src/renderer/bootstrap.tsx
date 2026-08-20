@@ -40,6 +40,7 @@ import "./desktop.css";
 import "./pane-layout.css";
 import "./webview-zoom";
 import { installShellViewport } from "./shell-viewport";
+import { installFocusModality } from "./focus-modality";
 import { installMobileSurfaceMarker } from "./mobile-surface";
 import { installScrollbarMetrics } from "./scrollbar-metrics";
 import { markBootStage } from "./boot-metrics";
@@ -70,6 +71,11 @@ const removeAutoDomI18n = installAutoDomI18n();
 window.addEventListener("beforeunload", removeAutoDomI18n, { once: true });
 const removeShellViewport = installShellViewport();
 window.addEventListener("beforeunload", removeShellViewport, { once: true });
+// Focus rings are keyboard chrome: the root records whether the last
+// interaction came from a pointer, and 02-base.css hides button focus frames
+// while it did (user: 동작 끝났는데 선택 프레임이 남는다).
+const removeFocusModality = installFocusModality();
+window.addEventListener("beforeunload", removeFocusModality, { once: true });
 // Measured scrollbar reserve BEFORE the first paint: every gutter-paying
 // layout (session rail, transcript column, settings/studio padding, SCM dock)
 // reads --mx-scrollbar-gutter, which is 0 where scrollbars are overlays.

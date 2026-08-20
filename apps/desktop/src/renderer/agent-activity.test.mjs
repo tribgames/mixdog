@@ -5,10 +5,11 @@ import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 
 import { AGENT_POOL_RECONCILE_MS, AgentActivityPane } from "./AgentActivityPane.tsx";
-import { LiveWorkIndicator } from "./SessionStatusIsland.tsx";
+import { LiveWorkIndicator, SessionStatusIsland } from "./SessionStatusIsland.tsx";
 import { PaneStatusIsland } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
+import { shellJobsStatusEqual } from "../shared/shell-jobs-status.ts";
 
 function installDom() {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
@@ -141,6 +142,53 @@ test("a background shell row reads as its command subject, not raw argv", async 
     assert.match(document.body.textContent, /npm run update:dev:fast/);
     assert.doesNotMatch(document.body.textContent, /--prefix/);
     assert.doesNotMatch(document.body.textContent, /NoProfile/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("shell status equality includes detail fields that arrive after the task id", () => {
+  const before = {
+    count: 1,
+    elapsedLabel: "1s",
+    jobs: [{ taskId: "job-1", command: "", cwd: "", startedAt: null }],
+  };
+  assert.equal(shellJobsStatusEqual(before, {
+    ...before,
+    jobs: [{ taskId: "job-1", command: "npm test", cwd: "C:\\Project\\mixdog", startedAt: 123 }],
+  }), false);
+  assert.equal(shellJobsStatusEqual(before, {
+    ...before,
+    jobs: [{ ...before.jobs[0] }],
+  }), true);
+});
+
+test("the status island keeps only one detail card open across hover and click controls", async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(SessionStatusIsland, {
+        snapshot: {
+          sessionId: "lead-a",
+          stats: { currentContextTokens: 50 },
+          displayContextWindow: 100,
+          shellJobs: {
+            count: 1,
+            jobs: [{ taskId: "job-1", command: "npm test", cwd: "C:\\Project\\mixdog" }],
+          },
+        },
+      }));
+    });
+    const workButton = document.querySelector(".session-work-indicator > button");
+    const contextButton = document.querySelector(".session-context-indicator > button");
+    await act(async () => workButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+    assert.equal(document.querySelector(".session-work-indicator")?.dataset.open, "true");
+    assert.equal(document.querySelector(".session-context-indicator")?.dataset.open, "false");
+
+    await act(async () => contextButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
+    assert.equal(document.querySelector(".session-work-indicator")?.dataset.open, "false");
+    assert.equal(document.querySelector(".session-context-indicator")?.dataset.open, "true");
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

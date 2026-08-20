@@ -203,7 +203,13 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     };
     const sessionRef = opts.session || null;
     let _providerPrefixGuardState = sessionRef?._providerPrefixGuardState || null;
-    let _fixedProviderToolSurface = sessionRef?._providerToolSurfaceSnapshot || null;
+    // Provider tool snapshots are request-loop state, never durable session
+    // state. Older builds persisted this field, which let a resumed session
+    // keep advertising a retired schema even after session.tools was rebuilt.
+    if (sessionRef && Object.prototype.hasOwnProperty.call(sessionRef, '_providerToolSurfaceSnapshot')) {
+        delete sessionRef._providerToolSurfaceSnapshot;
+    }
+    let _fixedProviderToolSurface = null;
     const loopUsageMetricsEpoch = () => Number(sessionRef?.usageMetricsEpoch) || 0;
     const loopUsageMetricsTurnId = () => Number(sessionRef?.usageMetricsTurnId) || 0;
     // Sub-agent (worker/heavy-worker/reviewer/…) sessions
@@ -496,7 +502,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             });
             if (!_fixedProviderToolSurface) {
                 _fixedProviderToolSurface = _candidateSendTools;
-                if (sessionRef) sessionRef._providerToolSurfaceSnapshot = _fixedProviderToolSurface;
             }
             sendTools = _fixedProviderToolSurface;
             requestToolScope = {

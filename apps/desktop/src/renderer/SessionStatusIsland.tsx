@@ -1,5 +1,5 @@
 import { Activity } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { liveAgentRows, liveShellCount, liveShellRows } from './AgentActivityPane';
 import type { Snapshot } from './desktop-types';
@@ -31,22 +31,33 @@ function useActivityClock(active: boolean): number {
 // keeps the full command.
 const SHELL_WRAPPER = /^(?:pwsh|powershell|cmd|bash|sh|zsh|env|npx)(?:\.exe)?$/i;
 const SHELL_SUBJECT_WORDS = 4;
+const SHELL_EXECUTION_MARKER = /^(?:-c|--command|-command|-file|\/c)$/i;
 
 function shellCommandLabel(command: string): string {
   const source = command.replace(/\s+/g, ' ').trim();
   if (!source) return '';
-  let tokens = source.split(' ');
+  let tokens: string[] = source.match(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g) || [];
+  const clean = (token: string) => token.replace(/^["']+|["']+$/g, '');
   // A wrapper shell hides the real command behind its own switches.
-  while (tokens.length > 1 && SHELL_WRAPPER.test(tokens[0].replace(/^.*[\\/]/, ''))) {
+  while (tokens.length > 1 && SHELL_WRAPPER.test(clean(tokens[0] || '').replace(/^.*[\\/]/, ''))) {
     const rest = tokens.slice(1);
-    const subject = rest.findIndex((token) => !/^[-/]/.test(token));
+    const marker = rest.findIndex((token) => SHELL_EXECUTION_MARKER.test(clean(token)));
+    if (marker >= 0 && marker + 1 < rest.length) {
+      tokens = rest.slice(marker + 1);
+      if (tokens.length === 1 && clean(tokens[0]) !== tokens[0]) {
+        return shellCommandLabel(clean(tokens[0]));
+      }
+      continue;
+    }
+    const subject = rest.findIndex((token) => !/^[-/]/.test(clean(token)));
     if (subject < 0) break;
     tokens = rest.slice(subject);
   }
   const words: string[] = [];
   for (const token of tokens) {
-    const word = token.replace(/^["']+|["']+$/g, '');
+    const word = clean(token);
     if (!word) continue;
+    if (/^(?:&&|\|\||[|;])$/.test(word)) break;
     if (word.startsWith('-')) break;
     words.push(word.replace(/^.*[\\/]/, '') || word);
     if (words.length >= SHELL_SUBJECT_WORDS) break;
@@ -58,8 +69,10 @@ function shellCommandLabel(command: string): string {
 // agents and background shells share a single slot left of the context gauge,
 // and the hover popover keeps the per-task breakdown. Separate Agent and
 // Shell chips grew the island to three slots for one turn's work.
-export function LiveWorkIndicator({ snapshot }: {
+export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange }: {
   snapshot: Snapshot;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const agents = liveAgentRows(snapshot);
   // A tool call publishes its count before the worker row lands; the larger
@@ -81,8 +94,11 @@ export function LiveWorkIndicator({ snapshot }: {
   // slide the next row's label into the value column.
   const rows: {
     key: string;
+    kind: 'agent' | 'shell';
     label: string;
     detail: string;
+    meta?: string;
+    title?: string;
     /** What a Stop press ends: an agent's running turn, or one background
      *  shell task. An aggregate count row addresses nothing and gets no
      *  button — there is no single job behind it to cancel. */
@@ -91,6 +107,7 @@ export function LiveWorkIndicator({ snapshot }: {
   for (const agent of agents) {
     rows.push({
       key: agent.key,
+      kind: 'agent',
       label: agent.role,
       detail: agent.queued
         ? t('Queued')
@@ -101,6 +118,7 @@ export function LiveWorkIndicator({ snapshot }: {
   if (agentCount > agents.length) {
     rows.push({
       key: 'agent-tools',
+      kind: 'agent',
       label: `${t('Agent')} ${agentCount - agents.length}`,
       detail: elapsed(Number(snapshot.activeTools?.agent?.startedAt) || 0),
     });
@@ -108,8 +126,11 @@ export function LiveWorkIndicator({ snapshot }: {
   for (const shell of shells) {
     rows.push({
       key: shell.key,
+      kind: 'shell',
       label: shellCommandLabel(shell.command) || t('Shell'),
       detail: elapsed(shell.startedAt),
+      meta: shell.cwd,
+      title: shell.command,
       // The row already carries the job's own task id, so Stop ends THAT
       // background command and leaves the turn itself running.
       stop: { kind: 'shell', id: shell.key },
@@ -118,6 +139,7 @@ export function LiveWorkIndicator({ snapshot }: {
   if (shellCount > shells.length) {
     rows.push({
       key: 'shell-jobs',
+      kind: 'shell',
       label: `${t('Shell')} ${shellCount - shells.length}`,
       detail: String(snapshot.shellJobs?.elapsedLabel || ''),
     });
@@ -126,17 +148,27 @@ export function LiveWorkIndicator({ snapshot }: {
   // the same card the desktop shows on hover, and the next pointer landing
   // outside it — or Escape — puts it away again.
   const touch = touchPrimaryPointer();
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = useCallback((next: boolean) => {
+    if (controlledOpen === undefined) setLocalOpen(next);
+    onOpenChange?.(next);
+  }, [controlledOpen, onOpenChange]);
+  const [pinned, setPinned] = useState(false);
   const host = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return undefined;
     const dismiss = (event: PointerEvent) => {
       const target = event.target instanceof Node ? event.target : null;
       if (target && host.current?.contains(target)) return;
+      setPinned(false);
       setOpen(false);
     };
     const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') {
+        setPinned(false);
+        setOpen(false);
+      }
     };
     document.addEventListener('pointerdown', dismiss, true);
     document.addEventListener('keydown', keydown, true);
@@ -144,9 +176,15 @@ export function LiveWorkIndicator({ snapshot }: {
       document.removeEventListener('pointerdown', dismiss, true);
       document.removeEventListener('keydown', keydown, true);
     };
-  }, [open]);
+  }, [open, setOpen]);
+  useEffect(() => {
+    if (controlledOpen === false) setPinned(false);
+  }, [controlledOpen]);
   // ABB: the tapped-open activity card closes on hardware back.
-  useMobileBack(open, () => setOpen(false));
+  useMobileBack(open, () => {
+    setPinned(false);
+    setOpen(false);
+  });
   // Stop rides the OWNER session: this card paints one Lead's lane, so an
   // agent cancel and a background-shell cancel both resolve inside that
   // session's own scope rather than whichever pane holds focus.
@@ -174,49 +212,51 @@ export function LiveWorkIndicator({ snapshot }: {
       });
     }
   };
-  const actionable = rows.some((row) => row.stop);
   return <div className="session-work-indicator" ref={host}
     data-active={total > 0 ? 'true' : 'false'}
-    data-open={open ? 'true' : 'false'}>
-    {/* No count badge (user: 카운트로 바뀌지 말고 애니만): the slot keeps ONE
-        fixed-width icon and live work reads as a quiet pulse on the glyph, so
-        nothing in the capsule resizes mid-turn. The exact tally stays in the
-        popover and in the accessible label. */}
-    {/* The button carries no action any more (user: 클릭 시 나오는 팝업/화면
-        전환은 필요없음): it stays a button so keyboard focus can still summon
-        the card and a touch tap has something to hit. */}
+    data-open={open ? 'true' : 'false'}
+    onMouseEnter={() => { if (!touch) setOpen(true); }}
+    onMouseLeave={() => { if (!touch && !pinned) setOpen(false); }}>
+    {/* One fixed-width glyph keeps the capsule stable; the card carries detail. */}
     <button type="button"
-      onClick={() => { if (touch) setOpen((value) => !value); }}
+      onClick={() => {
+        const next = !pinned;
+        setPinned(next);
+        setOpen(next || (!touch && host.current?.matches(':hover') === true));
+      }}
+      onFocus={() => setOpen(true)}
+      onBlur={(event) => {
+        if (!pinned && !host.current?.contains(event.relatedTarget)) setOpen(false);
+      }}
+      aria-expanded={open}
       aria-label={t('Background activity: {{count}} running', { count: total })}>
-      <Activity className="session-work-icon" size={18} aria-hidden="true" />
+      <span className="session-work-icon-stack" aria-hidden="true">
+        <Activity className="session-work-icon session-work-icon-base" size={18} />
+        <Activity className="session-work-icon session-work-icon-glow" size={18} />
+      </span>
     </button>
     {/* The card is ALWAYS mounted (user: 그냥 아예 안 나왔거든): an idle hover
         used to answer with nothing at all, so the slot read as dead chrome. */}
-    <div className="live-work-popover" role="tooltip"
-      data-actions={actionable ? 'true' : undefined}>
+    <div className="live-work-popover" role="tooltip">
       {rows.length
         ? rows.map((row) => <div className="live-work-row" key={row.key}
-          /* Shell work animates; agents keep the static label. Both the
-             per-job rows (which carry a shell stop target) and the aggregate
-             count row qualify. */
-          data-flow={row.stop?.kind === 'shell' || row.key === 'shell-jobs' ? 'true' : undefined}>
-          <span>{row.label}</span>
-          <small>{row.detail}</small>
-          {actionable && (row.stop
-            ? <button type="button" className="live-work-stop"
-                disabled={stopping.has(`${row.stop.kind}:${row.stop.id}`)}
-                aria-label={t('Stop')} title={t('Stop')}
-                onClick={() => { void stop(row.stop as { kind: 'agent' | 'shell'; id: string }); }}>
-              {/* Same stop square the composer uses to end a turn (user: X
-                  보단 우리 채팅 중단 버튼처럼), so one glyph means "end this"
-                  everywhere in the app. */}
-              <MxIcon name="stop" size={10} />
-            </button>
-            : <i aria-hidden="true" />)}
+          data-kind={row.kind}>
+          <div className="live-work-copy">
+            <span title={row.title}>{row.label}</span>
+            {row.meta && <small title={row.meta}>{row.meta}</small>}
+          </div>
+          <time>{row.detail}</time>
+          {row.stop && <button type="button" className="live-work-stop"
+              disabled={stopping.has(`${row.stop.kind}:${row.stop.id}`)}
+              aria-label={t('Stop')} title={t('Stop')}
+              onClick={() => { void stop(row.stop as { kind: 'agent' | 'shell'; id: string }); }}>
+            <MxIcon name="stop" size={10} />
+          </button>}
         </div>)
         : <div className="live-work-row" key="idle">
-          <span>{t('No background work')}</span>
-          <small />
+          <div className="live-work-copy">
+            <span>{t('No background work')}</span>
+          </div>
         </div>}
     </div>
   </div>;
@@ -231,8 +271,19 @@ export function LiveWorkIndicator({ snapshot }: {
 export function SessionStatusIsland({ snapshot }: {
   snapshot: Snapshot;
 }) {
+  const [openPanel, setOpenPanel] = useState<'work' | 'context' | null>(null);
+  const sessionId = String(snapshot.sessionId || '');
+  useEffect(() => setOpenPanel(null), [sessionId]);
+  const setWorkOpen = useCallback((open: boolean) => {
+    setOpenPanel((current) => open ? 'work' : current === 'work' ? null : current);
+  }, []);
+  const setContextOpen = useCallback((open: boolean) => {
+    setOpenPanel((current) => open ? 'context' : current === 'context' ? null : current);
+  }, []);
   return <div className="session-status-island">
-    <LiveWorkIndicator snapshot={snapshot} />
-    <ContextUsageIndicator snapshot={snapshot} />
+    <LiveWorkIndicator snapshot={snapshot}
+      open={openPanel === 'work'} onOpenChange={setWorkOpen} />
+    <ContextUsageIndicator snapshot={snapshot}
+      open={openPanel === 'context'} onOpenChange={setContextOpen} />
   </div>;
 }

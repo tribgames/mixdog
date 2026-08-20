@@ -679,13 +679,6 @@
   opacity: .45;
 }
 .session-context-indicator > button:disabled { cursor: default; }
-/* The gauge stopped opening the context surface (user: 클릭 시 나오는
-   팝업/화면전환은 필요없음), so a hover surface must not advertise a click —
-   its hover card is the whole answer. Touch keeps the pointer cursor because
-   there a tap is what opens that same card. */
-@media (hover: hover) {
-  .session-context-indicator > button { cursor: default; }
-}
 .session-context-indicator {
   position: relative;
   width: 28px;
@@ -733,21 +726,18 @@
      DOWNWARD against the right edge — the same geometry .live-work-popover
      already uses, and nothing above the composer can be covered by it. */
   top: calc(100% + 6px);
-  right: 0;
+  right: calc(var(--session-status-slot) + var(--session-status-gap));
   /* ONE column pair shared by every row (user: 정렬 좀 맞춰주고): each row used
      to split its own 184px with space-between, so the labels and the values
      landed at different x per row and "Tokens (est.)" / "150,717 / 1,000,000"
      both wrapped mid-word. The box now grows to its widest row and stays
      inside a phone screen. */
-  width: max-content;
-  min-width: 184px;
-  max-width: min(280px, calc(100vw - 24px));
+  width: var(--session-status-card-width);
+  max-width: calc(100vw - 24px);
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  column-gap: 16px;
-  row-gap: 7px;
-  padding: 10px 12px;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  padding: 8px;
   border: .5px solid var(--mx-border-strong);
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
@@ -772,13 +762,22 @@
   content: "";
   position: absolute;
   top: -6px;
-  right: 0;
+  right: calc(-1 * (var(--session-status-slot) + var(--session-status-gap)));
   left: 0;
   height: 6px;
 }
 /* The row is a grouping element only; its label/value join the popover grid so
    both columns align across rows. */
-.session-context-popover > div { display: contents; }
+.session-context-popover > div {
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 0 6px;
+  border-radius: var(--mx-radius-md);
+}
+.session-context-popover > div:hover { background: var(--mx-hover); }
 .session-context-popover span {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);

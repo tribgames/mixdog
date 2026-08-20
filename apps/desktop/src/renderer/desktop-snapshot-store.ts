@@ -2,6 +2,7 @@ import {
   EMPTY_SNAPSHOT,
   type Snapshot,
 } from "./desktop-types";
+import { shellJobsStatusEqual } from "../shared/shell-jobs-status";
 
 export interface DesktopSnapshotStore {
   getSnapshot(): Snapshot;
@@ -128,13 +129,7 @@ function preservesInitialBoundary(left: Snapshot, right: Snapshot): boolean {
 // publication clones the bucket, so identity comparison would repaint the
 // header and dock on each tick. Compare the two values instead.
 function shellJobsEqual(left: Snapshot, right: Snapshot): boolean {
-  const previous = left.shellJobs;
-  const next = right.shellJobs;
-  if (previous === next) return true;
-  return Number(previous?.count || 0) === Number(next?.count || 0)
-    && String(previous?.elapsedLabel || "") === String(next?.elapsedLabel || "")
-    && (previous?.jobs || []).map((job) => String(job.taskId || job.task_id || "")).join("\0")
-      === (next?.jobs || []).map((job) => String(job.taskId || job.task_id || "")).join("\0");
+  return shellJobsStatusEqual(left.shellJobs, right.shellJobs);
 }
 
 // App-owned navigation/chrome excludes transcript text and live counters. A

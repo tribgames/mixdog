@@ -1,10 +1,11 @@
 import { ChevronRight, Code2, FileDiff, FoldVertical, Layers3, X } from "lucide-react";
-import React, { Component, Suspense, lazy, memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
 import { t } from "./i18n";
 import { DiffView } from "./lazy-widgets";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
+import { useMobileBack } from "./mobile-back";
 import { MxIcon } from "./MxIcon";
 import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
@@ -209,24 +210,34 @@ function contextMetrics(snapshot: Snapshot) {
   return rememberedContextUsage.get(sessionId) ?? usage;
 }
 
-export function ContextUsageIndicator({ snapshot }: {
+export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenChange }: {
   snapshot: Snapshot;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const keyboardFocusIntent = useRef(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const popoverOpen = controlledOpen ?? localOpen;
+  const setPopoverOpen = useCallback((next: boolean) => {
+    if (controlledOpen === undefined) setLocalOpen(next);
+    onOpenChange?.(next);
+  }, [controlledOpen, onOpenChange]);
+  const [pinned, setPinned] = useState(false);
   const host = useRef<HTMLDivElement | null>(null);
   const context = contextMetrics(snapshot);
+  const touch = touchPrimaryPointer();
   useEffect(() => {
     const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Tab") keyboardFocusIntent.current = true;
-      if (event.key === "Escape") setPopoverOpen(false);
+      if (event.key === "Escape") {
+        setPinned(false);
+        setPopoverOpen(false);
+      }
     };
     // A touch surface taps this card open because it has no hover to read it
     // with, so a pointer landing anywhere else has to close it again.
     const pointerdown = (event: globalThis.PointerEvent) => {
-      keyboardFocusIntent.current = false;
       const target = event.target instanceof Node ? event.target : null;
       if (target && host.current?.contains(target)) return;
+      setPinned(false);
       setPopoverOpen(false);
     };
     document.addEventListener("keydown", keydown, true);
@@ -235,7 +246,14 @@ export function ContextUsageIndicator({ snapshot }: {
       document.removeEventListener("keydown", keydown, true);
       document.removeEventListener("pointerdown", pointerdown, true);
     };
-  }, []);
+  }, [setPopoverOpen]);
+  useEffect(() => {
+    if (controlledOpen === false) setPinned(false);
+  }, [controlledOpen]);
+  useMobileBack(popoverOpen, () => {
+    setPinned(false);
+    setPopoverOpen(false);
+  });
   const descriptionId = `context-usage-${String(snapshot.sessionId || "session")}`;
   // Quota grammar (user: 한도처럼 %따라서 색): the ring adopts the SAME 70/90
   // thresholds the subscription usage meters use, so a filling context window
@@ -248,7 +266,6 @@ export function ContextUsageIndicator({ snapshot }: {
   // which stays on /context. A coarse pointer has no hover, so there a tap
   // toggles the same card instead — and the mouse handlers stand down, because
   // a tap also fires a synthetic mouseenter that would fight that toggle.
-  const touch = touchPrimaryPointer();
   const [compacting, setCompacting] = useState(false);
   const state = asRecord(snapshot);
   const sessionId = String(state?.sessionId || "").trim();
@@ -269,17 +286,18 @@ export function ContextUsageIndicator({ snapshot }: {
     {...(tone ? { "data-tone": tone } : {})}
     data-open={popoverOpen ? "true" : "false"}
     onMouseEnter={() => { if (!touch) setPopoverOpen(true); }}
-    onMouseLeave={() => { if (!touch) setPopoverOpen(false); }}>
+    onMouseLeave={() => { if (!touch && !pinned) setPopoverOpen(false); }}>
     <button type="button" onClick={() => {
-      if (!context || !touch) return;
-      keyboardFocusIntent.current = false;
-      setPopoverOpen((open) => !open);
+      if (!context) return;
+      const next = !pinned;
+      setPinned(next);
+      setPopoverOpen(next || (!touch && host.current?.matches(":hover") === true));
     }} onFocus={() => {
-      if (keyboardFocusIntent.current) {
-        keyboardFocusIntent.current = false;
-        setPopoverOpen(true);
-      }
+      setPopoverOpen(true);
+    }} onBlur={(event) => {
+      if (!pinned && !host.current?.contains(event.relatedTarget)) setPopoverOpen(false);
     }} aria-label={context ? t("Context usage") : t("Context unavailable")}
+      aria-expanded={popoverOpen}
       aria-describedby={context ? descriptionId : undefined}
       disabled={!context}>
       <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -931,17 +949,11 @@ export const TranscriptRow = memo(function TranscriptRow({
           && <span className="message-pending-status" role="status">
           Queued
         </span>}
-        {user && !item.pending && !item.streaming && text && <footer className="message-meta-line"
-          aria-label={t("Message details")}>
-          {/* Hover meta stays minimal (user): the send time only — the
-              workflow/model labels the bubble used to repeat live in the
-              composer already. */}
-          {metadata.shortTime && <span className="message-meta">
-            {metadata.shortTime}
-          </span>}
-          <CopyControl value={text} label={t("Copy message")}
-            className="message-actions user-copy" />
-        </footer>}
+        {/* No user footer. The send time + copy row rode under every prompt,
+            and the phone surface forced hover-revealed chrome permanently
+            visible, so it sat there on every bubble (user: 호버도 안 했는데
+            항상 떠서 이상하다). The prompt carries its text alone; the
+            response footer below still owns the clock and the copy control. */}
         {/* The footer belongs to a SETTLED turn only. A mid-turn preamble part
             carried a hover-only copy overlay that sat on top of the following
             tool row and hid it (user: 프리엠블에서는 복사 버튼 빼자). */}

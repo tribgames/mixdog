@@ -29,6 +29,7 @@
      so the reading line and the typing line share one edge at EVERY pane
      width, including the 12/20/24px inset steps. */
   --composer-text-inset: 16px;
+  --transcript-text-inset: var(--composer-text-inset);
 }
 @container chat-pane (max-width: 419px) {
   .workspace > .session-header,
@@ -117,6 +118,9 @@ html[data-mixdog-mobile-tabs] .conversation {
   --pane-column: 100%;
   --pane-scroll-column: 100%;
   --pane-card: 100%;
+  /* A phone already contributes physical bezel: reclaim 4px per side for
+     transcript prose without moving the composer card or its typed text. */
+  --transcript-text-inset: 12px;
 }
 /* Conversation title is important info: one step up from tab chrome. */
 .session-header h1 { color: var(--mx-text); font-size: var(--mx-font-panel-title); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-emphasis); letter-spacing: 0; }
@@ -239,8 +243,8 @@ html[data-mixdog-mobile-tabs] .conversation {
   margin-inline: auto;
   /* Every surface uses the pane gutter plus the composer's text inset, so the
      transcript and typed text share one reading column. */
-  padding-left: calc(var(--pane-inset) + var(--composer-text-inset));
-  padding-right: calc(var(--pane-inset) + var(--composer-text-inset) - var(--mx-scrollbar-gutter));
+  padding-left: calc(var(--pane-inset) + var(--transcript-text-inset));
+  padding-right: calc(var(--pane-inset) + var(--transcript-text-inset) - var(--mx-scrollbar-gutter));
 }
 .transcript-virtual-row-content[data-tag="UserMessage"],
 .transcript-virtual-row-content[data-tag="AssistantPart"],
@@ -409,11 +413,6 @@ html[data-mixdog-mobile-tabs] .conversation {
   cursor: pointer;
   transition: opacity 85ms ease-out, color 85ms ease-out, background 85ms ease-out;
 }
-.message.user .message-actions {
-  top: 50%;
-  right: calc(100% + 6px);
-  transform: translateY(-50%);
-}
 .message:hover .message-actions,
 .message:focus-within .message-actions,
 .message-actions:focus-visible {
@@ -432,43 +431,8 @@ html[data-mixdog-mobile-tabs] .conversation {
   outline-offset: 2px;
 }
 .message-actions[data-copied="true"], .message-actions.copied { color: var(--mx-text); }
-.message-meta-line {
-  min-height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 4px;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-minor);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 85ms ease-out, visibility 0s linear 85ms;
-}
-.message.user:hover .message-meta-line,
-.message.user:focus-within .message-meta-line {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transition-delay: 0s;
-}
-.message-meta { flex: 0 0 auto; white-space: nowrap; }
-.message.user .message-meta-line .message-actions {
-  position: static;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  color: var(--mx-icon-muted);
-  background: transparent;
-  box-shadow: none;
-  opacity: var(--mx-op-secondary);
-  pointer-events: auto;
-  transform: none;
-}
-.message.user .message-meta-line .message-actions:hover,
-.message.user .message-meta-line .message-actions:focus-visible { opacity: 1; }
+/* A user prompt carries NO footer (see TranscriptView): the clock + copy row
+   below the bubble is gone, so no .message-meta-line grammar lives here. */
 .response-footer {
   min-height: 24px;
   display: flex;
@@ -567,23 +531,6 @@ html[data-mixdog-mobile-tabs] .conversation {
   pointer-events: none;
 }
 .message.user .message-body p { margin: 0; }
-.message.user .message-meta-line {
-  /* Overlay below the bubble: the hidden hover row must not reserve layout
-     space, or user→assistant spacing runs 28px against the 20px grid. Its
-     right edge stays on the bubble while short prompts let the full clock and
-     copy control grow leftward instead of truncating the clock. */
-  position: absolute;
-  top: 100%;
-  right: 0;
-  left: auto;
-  width: max-content;
-  min-width: 100%;
-  min-height: 24px;
-  margin-top: 0;
-  padding-inline: 0;
-  border-radius: 0;
-  background: transparent;
-}
 .markdown pre, .detail-block pre {
   padding: 12px;
   border: 0;

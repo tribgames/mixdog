@@ -217,7 +217,6 @@ export function execShellCommand({
   timeoutMs,
   abortSignal,
   autoBackgroundMs,
-  startInBackground = false,
   onProgress,
   onOutputTail,
   clientHostPid,
@@ -603,8 +602,8 @@ export function execShellCommand({
     // resolve the call immediately with a 'backgrounded' result while the
     // child keeps running, adopted into the shell-jobs registry but still
     // owned by this CLI process:
-    //   1. the optional autoBackgroundMs soft threshold (MIXDOG_SHELL_AUTO_
-    //      BACKGROUND_MS opt-in) — an EARLIER promotion before the timeout, and
+    //   1. the autoBackgroundMs soft foreground threshold — an EARLIER
+    //      promotion before the timeout, and
     //   2. the foreground timeout deadline (backgroundOnTimeout) — the default
     //      promote-on-timeout that replaces the old tree-kill.
     // A capped explicit foreground timeout supplies its remaining deadline to
@@ -773,9 +772,7 @@ export function execShellCommand({
       const secs = Math.max(0, Math.round(_elapsedSinceStart() / 1000));
       const _verb = reason === 'timeout'
         ? `moved to background at timeout after ${secs}s`
-        : (reason === 'explicit'
-          ? 'started in background'
-          : `auto-backgrounded after ${secs}s`);
+        : `auto-backgrounded after ${secs}s`;
       resolveResult(
         new ExecResult({
           stdout,
@@ -889,9 +886,7 @@ export function execShellCommand({
     // Arm the auto-background timer only for the genuine foreground one-shot
     // path: a positive threshold strictly below the hard timeout, and not a
     // trailing-`&` background command (those already detach + settle on exit).
-    if (startInBackground && !_isBackground) {
-      setImmediate(() => { fireAutoBackground({ reason: 'explicit' }); });
-    } else if (
+    if (
       typeof autoBackgroundMs === 'number' &&
       autoBackgroundMs > 0 &&
       !_isBackground &&

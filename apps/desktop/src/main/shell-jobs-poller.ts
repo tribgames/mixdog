@@ -1,6 +1,7 @@
 // Background shell-job strip for the status bar. The runtime has no push event
 // for job counts, so the service polls with an adaptive delay.
 import type { DesktopShellJobRow } from '../shared/contract';
+import { shellJobsStatusEqual } from '../shared/shell-jobs-status';
 import type { StatuslineSegmentsModule } from './desktop-support';
 import { shellJobsPollDelay } from './desktop-support';
 
@@ -83,12 +84,7 @@ function movedSessionIds(
   const moved: string[] = [];
   for (const [sessionId, status] of next) {
     const before = previous.get(sessionId);
-    const beforeJobs = before?.jobs.map((job) => job.taskId).join('\0') || '';
-    const nextJobs = status.jobs.map((job) => job.taskId).join('\0');
-    if (!before || before.count !== status.count || before.elapsedLabel !== status.elapsedLabel
-      || beforeJobs !== nextJobs) {
-      moved.push(sessionId);
-    }
+    if (!shellJobsStatusEqual(before, status)) moved.push(sessionId);
   }
   // A session whose last job finished must repaint too (its pane still shows
   // the spinner until the empty bucket lands).
@@ -142,7 +138,7 @@ export function createShellJobsPoller({
       const next = normalizedStatus(value);
       const nextSessions = normalizedSessions(value?.sessions);
       const moved = movedSessionIds(sessions, nextSessions);
-      if (next.count !== status.count || next.elapsedLabel !== status.elapsedLabel || moved.length > 0) {
+      if (!shellJobsStatusEqual(status, next) || moved.length > 0) {
         status = next;
         sessions = nextSessions;
         onChange(moved);

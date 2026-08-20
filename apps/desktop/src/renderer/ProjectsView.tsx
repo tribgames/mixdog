@@ -423,13 +423,15 @@ export function ProjectsPane({
         return <div key={project.path} className={`schedules-row projects-row${selected ? ' selected' : ''}`}
           {...projectOrder.getReorderProps(project.path)}>
           <span className="projects-row-icon" aria-hidden="true"><Folder size={16} /></span>
-          {/* The row is a read-only entry (user: 클릭 없애 그냥) — clicking a
-              project no longer mints a NEW TASK draft; only the pencil acts. */}
-          <div className="schedules-row-copy projects-row-label"
-            aria-current={selected ? 'page' : undefined}>
+          {/* Project rows open their existing editor like Common Instructions;
+              they never mint a NEW TASK draft. */}
+          <button type="button" className="schedules-row-copy projects-row-label projects-row-open"
+            aria-current={selected ? 'page' : undefined}
+            aria-label={t('Edit {{name}}', { name: title })}
+            onClick={() => openEdit(project.path, title)}>
             <b>{title}</b>
             <small>{project.path}</small>
-          </div>
+          </button>
           {/* Same pencil grammar as the Common Instructions row (user: 공통
               지침과 동일하게) — every mutation lives in the edit dialog. */}
           <button type="button" className="session-panel-action projects-instructions-edit"

@@ -1352,8 +1352,8 @@ const shellDescription = shellTool?.description || '';
 // below — the tool description no longer duplicates it.
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
-    || !/15s foreground window.*not a timeout.*continues.*task_id/i.test(shellDescription)
-    || !/monitoring is off by default.*300000.*task monitor.*task read.*never poll in a loop/i.test(shellDescription)) {
+    || !/10s foreground window.*not a timeout.*continues.*task_id/i.test(shellDescription)
+    || !/task monitor only after promotion.*task read.*never poll in a loop/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
@@ -1369,18 +1369,13 @@ if (!editTool
   throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
 }
 const shellProps = shellTool?.inputSchema?.properties || {};
-if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms', 'run_in_background', 'monitor_interval_ms'])
-  || shellProps.command?.minLength !== undefined
-  || shellProps.run_in_background?.default !== false
-  || shellProps.monitor_interval_ms?.type !== 'integer'
-  || shellProps.monitor_interval_ms?.minimum !== 0
-  || shellProps.monitor_interval_ms?.maximum !== 2_147_483_647
-  || shellProps.monitor_interval_ms?.default !== 0) {
-  throw new Error(`shell schema must default monitoring off and expose guarded five-minute-or-longer intervals: ${JSON.stringify(shellProps)}`);
+if (JSON.stringify(Object.keys(shellProps)) !== JSON.stringify(['command', 'timeout_ms'])
+  || shellProps.command?.minLength !== undefined) {
+  throw new Error(`shell schema must expose only command and optional timeout_ms: ${JSON.stringify(shellProps)}`);
 }
-for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr']) {
+for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent', 'session_id', 'merge_stderr', 'run_in_background', 'monitor_interval_ms']) {
   const err = validateBuiltinArgs('shell', { command: 'node --version', [retired]: retired === 'mode' ? 'async' : true });
-  if (!/unsupported.*command, timeout_ms, run_in_background, and monitor_interval_ms/i.test(err || '')) {
+  if (!/unsupported.*command and timeout_ms/i.test(err || '')) {
     throw new Error(`shell retired arg must be rejected (${retired}): ${err}`);
   }
 }
@@ -1396,30 +1391,6 @@ const shellZeroTimeoutErr = validateBuiltinArgs('shell', { command: 'node --vers
 const shellNegativeTimeoutErr = validateBuiltinArgs('shell', { command: 'node --version', timeout_ms: -1 });
 if (shellZeroTimeoutErr || !/non-negative number/.test(String(shellNegativeTimeoutErr))) {
   throw new Error(`shell timeout_ms must absorb 0 and reject negatives: zero=${shellZeroTimeoutErr} negative=${shellNegativeTimeoutErr}`);
-}
-const shellBackgroundTypeErr = validateBuiltinArgs('shell', {
-  command: 'node --version',
-  run_in_background: 'yes',
-});
-if (!/run_in_background.*boolean/.test(String(shellBackgroundTypeErr))) {
-  throw new Error(`shell run_in_background must reject non-booleans: ${shellBackgroundTypeErr}`);
-}
-const shellShortMonitorErr = validateBuiltinArgs('shell', {
-  command: 'node --version',
-  monitor_interval_ms: 299_999,
-});
-const shellOverflowMonitorErr = validateBuiltinArgs('shell', {
-  command: 'node --version',
-  monitor_interval_ms: 2_147_483_648,
-});
-const shellDisabledMonitorErr = validateBuiltinArgs('shell', {
-  command: 'node --version',
-  monitor_interval_ms: 0,
-});
-if (shellDisabledMonitorErr
-  || !/monitor_interval_ms.*300000.*2147483647/.test(String(shellShortMonitorErr))
-  || !/monitor_interval_ms.*300000.*2147483647/.test(String(shellOverflowMonitorErr))) {
-  throw new Error(`shell monitor interval must accept off and reject short/overflow loops: off=${shellDisabledMonitorErr} short=${shellShortMonitorErr} overflow=${shellOverflowMonitorErr}`);
 }
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
@@ -1582,21 +1553,6 @@ if (shellShortNotifyEvents.length !== 0) {
   throw new Error(`short inline shell command must not notify asynchronously: ${JSON.stringify(shellShortNotifyEvents)}`);
 }
 
-// Explicit background mode returns immediately with the same tracked task and
-// completion-notification contract as automatic promotion.
-const shellExplicitNotifyEvents = [];
-const shellExplicitNotifyOptions = shellNotifyOptions(shellExplicitNotifyEvents, 'explicit');
-const shellExplicitOut = await executeBuiltinTool('shell', {
-  command: 'node -e "setTimeout(() => console.log(\'tool-smoke-explicit-background-done\'), 600)"',
-  timeout_ms: 5000,
-  run_in_background: true,
-}, root, shellExplicitNotifyOptions);
-const shellExplicitTaskId = assertBackgroundStart('shell explicit background', shellExplicitOut);
-if (!/started in background/i.test(String(shellExplicitOut))) {
-  throw new Error(`shell explicit background must identify its start mode:\n${shellExplicitOut}`);
-}
-await assertSingleShellCompletion(shellExplicitNotifyEvents, shellExplicitTaskId, 'shell explicit background');
-
 // A single read returns the current snapshot without scheduling model wakeups.
 const shellCheckEvents = [];
 const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'snapshot_read');
@@ -1640,7 +1596,7 @@ if (!/status:\s*running/i.test(String(shellSnapshotRead))
 await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell snapshot read');
 
 // Auto-promotion: a sync foreground command still running past the soft budget
-// returns the same notification contract as explicit async.
+// returns a tracked task and completion notification.
 const _priorAutoBgBudget = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
 process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '50';
 const shellAutoNotifyEvents = [];
