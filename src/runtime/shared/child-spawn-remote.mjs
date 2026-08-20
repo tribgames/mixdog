@@ -1,14 +1,13 @@
 'use strict';
 
-// Shard-side client for the MACHINE-WIDE child-spawn budget.
+// Runtime-worker client for the MACHINE-WIDE child-spawn budget.
 //
 // child-spawn-gate's semaphore was written for the single-process daemon; the
-// session-shard split copied it into every shard process, multiplying the
-// "global" spawn cap by the shard count (8 shards × search cap 4 = 32
-// concurrent scanners — exactly the Defender/disk amplification the cap was
-// built to prevent). In shard processes the gate therefore forwards each
-// acquire as a lease request over the existing pool IPC channel; the
-// daemon-side pool grants leases from its OWN child-spawn-gate instance,
+// session-runtime split creates another process-local copy, which would
+// multiply the intended machine-wide cap. In the runtime worker the gate
+// therefore forwards each
+// acquire as a lease request over the existing runtime IPC channel; the
+// daemon-side host grants leases from its OWN child-spawn-gate instance,
 // which becomes the single machine-wide authority (daemon-hosted maintenance
 // agents already use that instance locally). Transport loss degrades to the
 // local per-process lane — bounded, never unbounded.
@@ -53,7 +52,7 @@ function _ensureListener() {
 
 export function remoteSpawnLeasesEnabled(env = process.env) {
   return !_broken
-    && env.MIXDOG_SESSION_SHARD === '1'
+    && env.MIXDOG_SESSION_RUNTIME_WORKER === '1'
     && env.MIXDOG_DISABLE_MACHINE_SPAWN_BUDGET !== '1'
     && typeof process.send === 'function'
     && process.connected === true;

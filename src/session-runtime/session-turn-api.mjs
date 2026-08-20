@@ -135,7 +135,7 @@ export function createSessionTurnApi(deps) {
       let turnTimingStatus = 'error';
       let turnTimingEmitted = false;
       // Heavy runtime warmup is one-shot and demand-driven: idle desktop panes
-      // never spawn shell/token/shard helpers or a code-graph worker. More
+      // never spawn shell/token/search helpers or a code-graph worker. More
       // importantly, do not start them until the provider has produced visible
       // text/reasoning/tool progress: transport headers and response-created
       // acknowledgements arrive earlier and would make PowerShell + graph

@@ -1,13 +1,12 @@
-// Child-process host for a shard of session runtimes.
+// Supervised child-process host for all session runtimes.
 //
 // Provider parsing, transcript projection, tool execution, and runtime timers
 // stay on this event loop. The machine daemon receives only identity-preserving
 // state deltas and remains free to serve health, input, and abort dispatch.
-process.env.MIXDOG_SESSION_SHARD = '1';
-// Pid-scoped shard marker: agent shard spread defaults ON only when this
-// exact process is a shard child. A plain MIXDOG_SESSION_SHARD flag leaks to
-// every grandchild (shell tools, test runners) through env inheritance.
-process.env.MIXDOG_SESSION_SHARD_PID = String(process.pid);
+process.env.MIXDOG_SESSION_RUNTIME_WORKER = '1';
+// Pid-scoped marker: child tools inherit the plain flag, so callers that need
+// the actual runtime worker must also verify this exact pid.
+process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID = String(process.pid);
 process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
 
 import { getEventListeners } from 'node:events';
@@ -16,9 +15,9 @@ import { sanitizeForWire } from './session-service.mjs';
 import { disposeSessionRuntimeRecord } from './session-runtime-record.mjs';
 import { diffSessionState } from './session-state-patch.mjs';
 import {
-  reportShardAbortListenerPressure,
-  SESSION_SHARD_UNHEALTHY_EVENT,
-} from '../runtime/shared/session-shard-health.mjs';
+  reportRuntimeAbortListenerPressure,
+  SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT,
+} from '../runtime/shared/session-runtime-health.mjs';
 
 const records = new Map();
 let sessionModulePromise = null;
@@ -28,10 +27,10 @@ let unhealthyReported = false;
 const pendingAbortPressureChecks = new WeakSet();
 const ABORT_PRESSURE_RETENTION_CHECK_MS = 30_000;
 
-process.on(SESSION_SHARD_UNHEALTHY_EVENT, (detail) => {
+process.on(SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT, (detail) => {
   if (stopping || unhealthyDetail) return;
-  unhealthyDetail = sanitizeForWire(detail) || { reason: 'session shard unhealthy' };
-  process.stderr.write(`[session-shard-health] ${unhealthyDetail.reason || 'unhealthy'}\n`);
+  unhealthyDetail = sanitizeForWire(detail) || { reason: 'session runtime worker unhealthy' };
+  process.stderr.write(`[session-runtime-health] ${unhealthyDetail.reason || 'unhealthy'}\n`);
 });
 
 process.on('warning', (warning) => {
@@ -45,7 +44,7 @@ process.on('warning', (warning) => {
     pendingAbortPressureChecks.delete(target);
     let retained = 0;
     try { retained = getEventListeners(target, 'abort').length; } catch {}
-    reportShardAbortListenerPressure(warning, Date.now(), retained);
+    reportRuntimeAbortListenerPressure(warning, Date.now(), retained);
   }, ABORT_PRESSURE_RETENTION_CHECK_MS);
   timer.unref?.();
 });
@@ -69,7 +68,7 @@ process.on('mixdog:turn-timing', (row = {}) => {
 function errorBody(error) {
   return {
     name: String(error?.name || 'Error'),
-    message: String(error?.message || error || 'session shard call failed'),
+    message: String(error?.message || error || 'session runtime call failed'),
     stack: typeof error?.stack === 'string' ? error.stack : null,
     statusCode: Number(error?.statusCode) || null,
   };
@@ -152,7 +151,7 @@ async function createRuntime(message) {
 
 async function callRuntime(message) {
   const record = records.get(message.runtimeId);
-  if (!record || record.disposed) throw new Error(`session shard runtime ${message.runtimeId} is unavailable`);
+  if (!record || record.disposed) throw new Error(`session runtime ${message.runtimeId} is unavailable`);
   const method = String(message.method || '');
   const target = record.runtime?.[method];
   if (typeof target !== 'function') throw new TypeError(`session action ${method} is unavailable`);
@@ -177,7 +176,7 @@ async function prewarm() {
   return { ready: true };
 }
 
-/** Shard-local workload telemetry for the daemon status panel. Gate modules
+/** Runtime-worker workload telemetry for the daemon status panel. Gate modules
  *  are already resident once any tool has run; loading them here otherwise is
  *  cheap and side-effect-free. */
 async function workloadSnapshot() {
@@ -194,7 +193,7 @@ async function workloadSnapshot() {
   };
 }
 
-async function stopAll(reason = 'session shard shutdown') {
+async function stopAll(reason = 'session runtime worker shutdown') {
   if (stopping) return;
   stopping = true;
   for (const record of [...records.values()]) {
@@ -219,7 +218,7 @@ process.on('message', (message) => {
     if (message.type === 'call') return callRuntime(message);
     if (message.type === 'snapshot') {
       const record = records.get(message.runtimeId);
-      if (!record) throw new Error(`session shard runtime ${message.runtimeId} is unavailable`);
+      if (!record) throw new Error(`session runtime ${message.runtimeId} is unavailable`);
       publish(record, true);
       return { published: true };
     }
@@ -229,7 +228,7 @@ process.on('message', (message) => {
       await stopAll(message.reason);
       return { stopped: true };
     }
-    throw new Error(`unknown session shard message ${message.type}`);
+    throw new Error(`unknown session runtime message ${message.type}`);
   })().then((value) => {
     if (requestId) send({ type: 'response', requestId, ok: true, value: value ?? null });
     if (message.type === 'call' && unhealthyDetail && !unhealthyReported) {
@@ -243,9 +242,9 @@ process.on('message', (message) => {
 });
 
 process.on('disconnect', () => {
-  void stopAll('session shard parent disconnected').finally(() => process.exit(0));
+  void stopAll('session runtime parent disconnected').finally(() => process.exit(0));
 });
 
 process.on('SIGTERM', () => {
-  void stopAll('session shard SIGTERM').finally(() => process.exit(0));
+  void stopAll('session runtime SIGTERM').finally(() => process.exit(0));
 });

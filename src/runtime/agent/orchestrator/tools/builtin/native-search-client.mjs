@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
-import { reportShardUnhealthy } from '../../../../shared/session-shard-health.mjs';
+import { reportRuntimeWorkerUnhealthy } from '../../../../shared/session-runtime-health.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary } from '../graph-binary-fetcher.mjs';
@@ -103,8 +103,8 @@ function noteSearchTimeout(server, now = Date.now()) {
   if (sincePrevious <= SEARCH_TIMEOUT_BURST_MS) return 'none';
   // The server is no longer recycled on a first timeout, so a recurrence
   // within the window — on this server or its replacement — is what marks the
-  // shard unhealthy.
-  return sincePrevious <= SEARCH_TIMEOUT_RECYCLE_WINDOW_MS ? 'shard' : 'server';
+  // runtime worker unhealthy.
+  return sincePrevious <= SEARCH_TIMEOUT_RECYCLE_WINDOW_MS ? 'runtime' : 'server';
 }
 
 function subscribeAbortSignal(signal, callback) {
@@ -226,7 +226,7 @@ export function _bindNativeSearchServerLifecycle(child, { onError, onExit } = {}
   child.on('exit', onExit);
   // ChildProcess stdin emits write failures asynchronously. A sync try/catch
   // around stdin.write cannot catch EPIPE; without this listener the session
-  // shard itself terminates and every active/queued turn is crash-recovered.
+  // runtime worker itself terminates and every active/queued turn is recovered.
   child.stdin?.on?.('error', onError);
 }
 
@@ -480,8 +480,8 @@ async function requestNative(server, request, execOptions, deadlineMs) {
       // already told it to stop, and the cancellation watchdog tears it down
       // if it does not comply. Killing it here also destroyed every warm
       // inventory, so the next call re-walked from cold and timed out again.
-      if (action !== 'shard') return;
-      reportShardUnhealthy({
+      if (action !== 'runtime') return;
+      reportRuntimeWorkerUnhealthy({
         reason: 'native search timed out again after server recycle',
         code: 'NATIVE_SEARCH_TIMEOUT_STREAK',
         subsystem: 'native-search',

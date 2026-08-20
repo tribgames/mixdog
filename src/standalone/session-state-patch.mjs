@@ -1,4 +1,4 @@
-// Compact immutable session-state deltas shared by the shard IPC hop and the
+// Compact immutable session-state deltas shared by the runtime IPC hop and the
 // daemon-to-view hop. `itemsAppend` is the protocol's historical field name;
 // `from` may identify any first-changed index, so the payload is a suffix
 // replacement rather than append-only.

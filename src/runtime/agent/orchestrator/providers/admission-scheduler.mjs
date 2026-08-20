@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 
 // Normal provider traffic is not concurrency-gated. Independent sessions and
 // accounts start immediately; a finite limit exists only when an operator
@@ -577,28 +578,33 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
         const opts = sendOpts || {};
         const signal = opts.signal || null;
         const key = providerAdmissionKey(providerName, this);
-        return scheduler.run(key, (admissionSignal) => {
-            // Admission is the common request-clock boundary for WS/SSE/HTTP.
-            // Queue wait therefore cannot consume first-byte or agent-watchdog
-            // time. Provider-local retry remains the sole retry owner.
-            try { opts.onStageChange?.('requesting'); } catch {}
-            return originalSend.call(this, messages, model, tools, {
-                ...opts,
-                signal: admissionSignal,
-            });
-        }, {
-            signal,
-            ownerKey: opts.admissionOwner || opts.sessionId || null,
-            priority: opts.admissionPriority || 'user-visible',
-            onCooldownWait: (waitMs) => {
-                // Display-only: the TUI/desktop 'reconnecting' stage already
-                // renders a custom verb, so no new stage vocabulary is needed.
-                const secs = Math.max(1, Math.ceil(waitMs / 1000));
-                try {
-                    opts.onStageChange?.('reconnecting', { message: `Rate-limited — waiting ~${secs}s for the provider window` });
-                } catch { /* display-only */ }
-            },
-        });
+        // Provider queueing and network wait consume no local CPU slot. The
+        // resource controller reacquires the agent lease before model output
+        // continues through local context/tool processing.
+        return resourceAdmission.runYielded(() =>
+            scheduler.run(key, (admissionSignal) => {
+                // Admission is the common request-clock boundary for WS/SSE/HTTP.
+                // Queue wait therefore cannot consume first-byte or agent-watchdog
+                // time. Provider-local retry remains the sole retry owner.
+                try { opts.onStageChange?.('requesting'); } catch {}
+                return originalSend.call(this, messages, model, tools, {
+                    ...opts,
+                    signal: admissionSignal,
+                });
+            }, {
+                signal,
+                ownerKey: opts.admissionOwner || opts.sessionId || null,
+                priority: opts.admissionPriority || 'user-visible',
+                onCooldownWait: (waitMs) => {
+                    // Display-only: the TUI/desktop 'reconnecting' stage already
+                    // renders a custom verb, so no new stage vocabulary is needed.
+                    const secs = Math.max(1, Math.ceil(waitMs / 1000));
+                    try {
+                        opts.onStageChange?.('reconnecting', { message: `Rate-limited — waiting ~${secs}s for the provider window` });
+                    } catch { /* display-only */ }
+                },
+            })
+        );
     };
     return provider;
 }

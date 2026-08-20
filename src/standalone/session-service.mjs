@@ -106,7 +106,6 @@ export function createSessionService({
   onExternalClientsChanged = () => {},
   idleEvictMs = null,
   evictSweepMs = null,
-  agentIdleEvictMs = null,
 } = {}) {
   const createRuntime = createSessionRuntime;
   if (typeof createRuntime !== 'function') throw new Error('createSessionRuntime is required');
@@ -141,16 +140,6 @@ export function createSessionService({
     ? Number(idleEvictMs)
     : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 2 * 60_000);
   const EVICT_SWEEP_MS = Number(evictSweepMs) > 0 ? Number(evictSweepMs) : 30_000;
-  // Agent-hosted sessions (shard spread) are worker sessions: their transcript
-  // is durable on disk and a same-tag follow-up re-materializes the runtime on
-  // demand, so an idle+unwatched worker runtime returns its shard memory much
-  // sooner than an interactive session a user may re-open any moment.
-  const AGENT_IDLE_EVICT_MS = Math.min(
-    IDLE_EVICT_MS,
-    Number(agentIdleEvictMs) > 0
-      ? Number(agentIdleEvictMs)
-      : Math.max(5_000, Number(process.env.MIXDOG_AGENT_SESSION_IDLE_EVICT_MS) || 45_000),
-  );
   let evictTimer = null;
 
   // ── Cross-client subscriptions ──────────────────────────────────────────────
@@ -281,7 +270,7 @@ export function createSessionService({
         // A client came back to it: watched session runtimes are never reclaimed.
         if (entry.subscribers?.size > 0) { entry.retainedAt = null; continue; }
         if (sessionBusy(entry)) { entry.retainedAt = now; continue; }
-        if (now - entry.retainedAt < (entry.agentSession ? AGENT_IDLE_EVICT_MS : IDLE_EVICT_MS)) continue;
+        if (now - entry.retainedAt < IDLE_EVICT_MS) continue;
         // Eviction is a MEMORY reclaim, never a user teardown: the runtime's
         // agent workers and background jobs are daemon-owned work that must
         // survive the owner's idle eviction (observed: switching desktop tabs
@@ -533,15 +522,6 @@ export function createSessionService({
       toolMode: params.toolMode || 'full',
       remote: params.remote === true,
       desktopSession: params.desktopSession ?? null,
-      // Agent shard spread: a Lead spawning workers passes the resolved agent
-      // session spec (built Lead-side) plus its own shard index so the pool
-      // places the worker runtime on a DIFFERENT event loop.
-      ...(params.agentSession && typeof params.agentSession === 'object'
-        ? { agentSession: params.agentSession }
-        : {}),
-      ...(Number.isInteger(params.avoidShardIndex)
-        ? { avoidShardIndex: params.avoidShardIndex }
-        : {}),
     });
     const entry = {
       runtime, cwd: params.cwd || process.cwd(), timer: null, disposed: false,
@@ -549,7 +529,6 @@ export function createSessionService({
       indexedSessionId: '', addressedSessionId: '', busy: null,
       headless: !subscriberToken(ctx), retainedAt: null,
       revision: revisionEpoch,
-      agentSession: Boolean(params.agentSession && typeof params.agentSession === 'object'),
     };
     sessions.add(entry);
     try {
@@ -584,10 +563,6 @@ export function createSessionService({
       model: hints.model,
       toolMode: hints.toolMode,
       desktopSession: hints.desktopSession ?? null,
-      agentSession: hints.agentSession ?? null,
-      ...(Number.isInteger(hints.avoidShardIndex)
-        ? { avoidShardIndex: hints.avoidShardIndex }
-        : {}),
     });
     // Nothing is watching this session runtime yet: it is the daemon's own load, so the
     // idle sweep must be able to reclaim it if no view ever attaches.
@@ -645,7 +620,7 @@ export function createSessionService({
 
   /** Entry that is live NOW. Views never start a load themselves, and they
    *  never wait for one either: an in-flight load (daemon-boot remote restore,
-   *  a competing submit) can take shard-boot seconds, and awaiting it blanked
+   *  a competing submit) can take runtime-boot time, and awaiting it blanked
    *  the pane for exactly that session while every other session rendered
    *  instantly from its disk projection (user report). The caller falls
    *  through to the projection path, which registers a pending viewer /
@@ -691,7 +666,7 @@ export function createSessionService({
   async function requestedMessageSlice(params, sessionId) {
     if (!Number.isInteger(params?.messageStart)) return {};
     const start = Math.max(0, params.messageStart);
-    // Live sessions answer from the runtime (read-your-writes): the shard's
+    // Live sessions answer from the runtime (read-your-writes): the worker's
     // debounced disk save can lag a just-finished turn, and a disk read here
     // returned a transcript WITHOUT the final assistant message — remote
     // agent waiters then handed off an empty result for completed work.

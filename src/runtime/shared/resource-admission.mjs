@@ -255,6 +255,26 @@ export class ResourceAdmissionController {
     return this.context.run(lease, task);
   }
 
+  /**
+   * Yield the current agent lease while waiting on remote I/O, then reacquire
+   * it before the caller continues local processing. Non-agent callers are a
+   * no-op. Nested yields share the same dependency depth and restore once.
+   */
+  async runYielded(task) {
+    if (typeof task !== 'function') return Promise.resolve().then(task);
+    const lease = this.context.getStore();
+    if (!lease || lease.controller !== this || lease.kind !== 'agent' || lease.released) {
+      return Promise.resolve().then(task);
+    }
+    const suspended = this._suspendParent(lease);
+    this._drain();
+    try {
+      return await task();
+    } finally {
+      await this._resumeParent(suspended);
+    }
+  }
+
   acquire(kind, {
     signal = null, label = null, dependency = 'scoped', ownerKey = null,
     priority = 'user-visible',

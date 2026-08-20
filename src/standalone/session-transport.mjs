@@ -9,7 +9,7 @@
 // path that must never target a single client.
 //
 // This module owns ONLY the transport (sockets, client registry, frame fan-out,
-// lifecycle). The session pool is injected via `handleCall`, so
+// lifecycle). The session service is injected via `handleCall`, so
 // the same transport is exercised by the real daemon entry AND by the smoke
 // harness with a stub session runtime (no provider, no model download).
 import http from 'node:http';

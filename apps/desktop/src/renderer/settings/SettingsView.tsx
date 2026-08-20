@@ -21,6 +21,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
+import { setRemoteClaimPromptActive } from '../remote-claim-prompt-state';
 import { acquireTitleBarDim, refreshTitleBarDim } from '../titlebar-dim';
 import { CapabilitySettings, getCachedCapabilitySettings, preloadCapabilitySettings } from './CapabilitySettings';
 import { preloadConnectionInfo } from './connection-info';
@@ -140,6 +141,13 @@ export function SettingsView({
     void preloadGitPanelInfo(api);
     void preloadConnectionInfo(api);
   }, [open, api]);
+  useEffect(() => {
+    const active = open && !remoteSettings && category === 'connection';
+    setRemoteClaimPromptActive(active);
+    return () => {
+      if (active) setRemoteClaimPromptActive(false);
+    };
+  }, [open, remoteSettings, category]);
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [category]);

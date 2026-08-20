@@ -221,6 +221,7 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.remoteClientClaim, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.remoteClientClaim, receive);
   },
+  listRemoteClientClaims: () => ipcRenderer.invoke(DESKTOP_IPC.listRemoteClientClaims),
   resolveRemoteClientClaim: (claimId, approved) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveRemoteClientClaim, claimId, approved),
   prefetchSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId),

@@ -5,6 +5,14 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Session execution now shares one supervised runtime worker instead of a
+  process-shard pool. Background agents stay in-process, provider waits yield
+  their local CPU admission slot, and machine-wide spawn limits and runtime
+  health recovery remain enforced.
+- Remote device approvals appear only while Settings → Connection is open,
+  recover pending requests when that panel opens, and finish only after the
+  browser proves its authenticated E2EE connection.
+
 ## v0.9.142
 
 - Linux desktop packaging validates the target architecture in the ABI

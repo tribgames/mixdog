@@ -64,27 +64,12 @@ export function projectTurnCheckpointMessages(session, checkpoint) {
         || !Array.isArray(checkpoint?.turnMessages)) return source;
     const sessionGeneration = Number(session.generation) || 0;
     const checkpointGeneration = Number(checkpoint.generation) || 0;
-    const owner = String(session.owner || '').trim().toLowerCase();
-    const agent = String(session.agent || '').trim().toLowerCase();
-    const detachedLiveAgent = session.closed === true
-        && (owner === 'agent' || (agent && agent !== 'lead'))
-        && Boolean(String(session.ownerSessionId || session.parentSessionId || '').trim());
     const markerToken = typeof session.activeTurnCheckpoint?.turnToken === 'string'
         ? session.activeTurnCheckpoint.turnToken
         : null;
     const markerMatches = markerToken === checkpoint.turnToken;
     const checkpointIsNewer = Number(checkpoint.updatedAt) > Number(session.updatedAt || 0);
-    // External workers deliberately detach the durable session before their
-    // shard-owned turn finishes. closeSession writes the lifecycle fence by
-    // advancing the session generation once, while that already-running turn
-    // keeps publishing under its original generation. Accept exactly that
-    // one-generation handoff only when the durable marker token still proves
-    // identity and the checkpoint was written after the detach.
-    const detachedGenerationHandoff = detachedLiveAgent
-        && sessionGeneration === checkpointGeneration + 1
-        && markerMatches
-        && checkpointIsNewer;
-    if ((checkpointGeneration !== sessionGeneration && !detachedGenerationHandoff)
+    if (checkpointGeneration !== sessionGeneration
         || (markerToken && !markerMatches)
         || (!markerToken && !checkpointIsNewer)) return source;
     let start = -1;

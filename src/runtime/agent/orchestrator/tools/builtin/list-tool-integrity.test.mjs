@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { recordShardDirectoryReadSuccess } from '../../../../shared/session-shard-health.mjs';
+import { recordRuntimeDirectoryReadSuccess } from '../../../../shared/session-runtime-health.mjs';
 import { executeListTool, executeTreeTool } from './list-tool.mjs';
 
 function readdirError(code, message = 'injected readdir failure') {
@@ -32,14 +32,14 @@ test('aborted list work cannot poison the result cache', async () => {
     }
 });
 
-test('root readdir failures are errors, stay uncached, and mark a repeatedly failing shard unhealthy', async () => {
-    const originalShardPid = process.env.MIXDOG_SESSION_SHARD_PID;
+test('root readdir failures are errors, stay uncached, and mark a repeatedly failing runtime worker unhealthy', async () => {
+    const originalRuntimeWorkerPid = process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID;
     const roots = [];
     let unhealthy = null;
     const onUnhealthy = (detail) => { unhealthy = detail; };
-    process.env.MIXDOG_SESSION_SHARD_PID = String(process.pid);
-    process.on('mixdog:session-shard-unhealthy', onUnhealthy);
-    recordShardDirectoryReadSuccess();
+    process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID = String(process.pid);
+    process.on('mixdog:session-runtime-worker-unhealthy', onUnhealthy);
+    recordRuntimeDirectoryReadSuccess();
     try {
         for (let index = 0; index < 3; index += 1) {
             const root = await mkdtemp(join(tmpdir(), `mixdog-list-root-fail-${index}-`));
@@ -58,10 +58,10 @@ test('root readdir failures are errors, stay uncached, and mark a repeatedly fai
             /entry-0\.txt\tfile/,
         );
     } finally {
-        recordShardDirectoryReadSuccess();
-        process.off('mixdog:session-shard-unhealthy', onUnhealthy);
-        if (originalShardPid === undefined) delete process.env.MIXDOG_SESSION_SHARD_PID;
-        else process.env.MIXDOG_SESSION_SHARD_PID = originalShardPid;
+        recordRuntimeDirectoryReadSuccess();
+        process.off('mixdog:session-runtime-worker-unhealthy', onUnhealthy);
+        if (originalRuntimeWorkerPid === undefined) delete process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID;
+        else process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID = originalRuntimeWorkerPid;
         await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
     }
 });

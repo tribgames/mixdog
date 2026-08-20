@@ -18,7 +18,6 @@ import { AGENT_OWNER } from '../../runtime/agent/orchestrator/agent-owner.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
 export function createSpawnFlow({
   mgr,
-  shardSpread = null,
   forgetTerminalSession,
   pendingSpawnMeta,
   DEFAULT_SPAWN_PREP_TIMEOUT_MS,
@@ -192,12 +191,6 @@ export function createSpawnFlow({
 
   async function prepareSpawn(args, callerCwd = null, context = {}, prepState = null) {
     refreshTagsFromSessions({ context });
-    // ONE path per mode: a shard child spreads its workers to peer shards; a
-    // plain/embedded process hosts them in-process. A remote failure fails the
-    // spawn outright — there is no silent in-process fallback.
-    if (shardSpread?.enabled?.()) {
-      return prepareSpawnRemote(args, callerCwd, context, prepState);
-    }
     return prepareSpawnInProcess(args, callerCwd, context, prepState);
   }
 
@@ -234,8 +227,7 @@ export function createSpawnFlow({
     return { config, agent, agentPerm, presetName, preset, tag, workerCwd, prompt };
   }
 
-  /** ONE agent session spec for BOTH hosts: in-process prepareAgentSession and
-   *  the remote shard runtime (serialized verbatim over session.create). */
+  /** Build the normalized in-process agent session spec. */
   function spawnSessionSpec(plan, args, context) {
     const { agent, agentPerm, presetName, preset, tag, workerCwd } = plan;
     return {
@@ -293,27 +285,6 @@ export function createSpawnFlow({
       watchdogPolicy: resolveAgentWatchdogPolicy(plan.agent),
       ...extra,
     };
-  }
-
-  /** Agent shard spread: the worker session lives on ANOTHER shard through the
-   *  daemon session protocol. This is the ONLY spawn path inside a shard
-   *  child; a create/transport failure fails the spawn, and an incompatible
-   *  daemon is refused by the adapter — never silently downgraded. */
-  async function prepareSpawnRemote(args, callerCwd = null, context = {}, prepState = null) {
-    const plan = await resolveSpawnPlan(args, callerCwd, context, prepState);
-    const spec = spawnSessionSpec(plan, args, context);
-    const handle = await shardSpread.createRemoteSession({
-      spec,
-      provider: plan.preset.provider,
-      model: plan.preset.model,
-      cwd: plan.workerCwd,
-    });
-    if (prepState?.timedOut) {
-      try { handle.close('agent-spawn-prep-timeout'); } catch {}
-      throw new Error('agent spawn prep timed out before session bind');
-    }
-    bindSpawnedSession(handle.facade, plan);
-    return preparedSpawnResult(plan, args, handle.facade, spec, { remoteShard: true });
   }
 
   async function prepareSpawnInProcess(args, callerCwd = null, context = {}, prepState = null) {

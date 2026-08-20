@@ -171,6 +171,7 @@ export async function createDesktopService(
   // dialog it belongs to.
   const pendingClaims = new Map<string, {
     clientId: string;
+    claim: RemoteClientClaim;
     promise: Promise<boolean>;
     settle(approved: boolean): void;
   }>();
@@ -226,7 +227,12 @@ export async function createDesktopService(
       };
       timer = setTimeout(() => settle(false), Math.max(0, expiresAt - now));
       timer.unref?.();
-      pendingClaims.set(claim.claimId, { clientId: claim.clientId, promise, settle });
+      pendingClaims.set(claim.claimId, {
+        clientId: claim.clientId,
+        claim: { ...claim, expiresAt },
+        promise,
+        settle,
+      });
       publishDesktopEvent('remote-client-claim', { ...claim, expiresAt });
       return promise;
     },
@@ -347,6 +353,12 @@ export async function createDesktopService(
           return remoteDescriptor();
         }
         if (operation === 'remoteAccessRotate') return rotateRemoteAccess();
+        if (operation === 'remoteAccessListClaims') {
+          const now = Date.now();
+          return [...pendingClaims.values()]
+            .map((pending) => pending.claim)
+            .filter((claim) => claim.expiresAt > now);
+        }
         if (operation === 'remoteAccessResolveClaim') {
           const pending = pendingClaims.get(String(operationArgs[0] || ''));
           if (!pending) return false;

@@ -886,6 +886,8 @@ export function registerDesktopIpc(
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
   handle(DESKTOP_IPC.revokeRemoteAccessClient, (_event, clientId) =>
     revokeRemoteAccessClient?.(requiredString(clientId, 'clientId')) ?? null);
+  handle(DESKTOP_IPC.listRemoteClientClaims, () =>
+    invokeDesktopOperation('remoteAccessListClaims', []));
   // The approval itself: this answer is what mints the asking app's credential.
   handle(DESKTOP_IPC.resolveRemoteClientClaim, async (_event, claimId, approved) => {
     if (typeof approved !== 'boolean') throw new TypeError('approved must be a boolean.');
@@ -1339,11 +1341,9 @@ export function registerDesktopIpc(
     else if (name === 'remote-projection-state') {
       window.webContents.send(DESKTOP_IPC.remoteProjectionChanged, value);
     } else if (name === 'remote-client-claim') {
-      // The user is standing at this PC waiting for this prompt, so the window
-      // that shows it has to be on screen — a hidden window would strand the
-      // phone on "waiting for approval" until the request expired.
-      if (!window.isVisible()) window.show();
-      if (window.isMinimized()) window.restore();
+      // Keep delivery global so a live renderer can queue the request, but do
+      // not reveal or restore the window: only Settings → Connection is armed
+      // to render it. A later panel open re-reads pending claims from service.
       window.webContents.send(DESKTOP_IPC.remoteClientClaim, value);
     }
   }) ?? (() => {});
