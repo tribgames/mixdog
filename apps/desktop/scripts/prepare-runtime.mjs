@@ -129,6 +129,24 @@ async function assertTreeTargetArchitecture(root, label) {
   }
 }
 
+async function desktopPtyNativeRoot() {
+  // Linux loads the ABI-specific prebuild directly. Windows and macOS install
+  // their active binding under build/Release instead. Validate only the root
+  // the package loader can select for this target: the package intentionally
+  // carries foreign Linux and Windows fallback payloads beside it.
+  const prebuildRoot = join(
+    builderDesktopPtyDir,
+    'prebuilds',
+    `${embeddingTarget.platform}-${embeddingTarget.arch}`,
+  );
+  try {
+    if ((await stat(prebuildRoot)).isDirectory()) return prebuildRoot;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  return join(builderDesktopPtyDir, 'build', 'Release');
+}
+
 function runtimePackageSource(entryPath) {
   const relativePath = String(entryPath).replaceAll('/', sep);
   const source = resolve(rootDir, relativePath);
@@ -320,11 +338,10 @@ async function prepareRuntime(manifest, fingerprint) {
     await timed('desktop-node-pty', async () => {
       await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
       // The package intentionally carries third_party/prebuild variants for
-      // several platforms. Only build/Release is loaded by this packaged
-      // desktop; validating the whole multiarch tree rejected its legitimate
-      // win10-arm64 fallback while preparing a win32-x64 app.
+      // several platforms. Validating the whole multiarch tree rejects those
+      // legitimate fallbacks instead of checking the target's active binding.
       await assertTreeTargetArchitecture(
-        join(builderDesktopPtyDir, 'build', 'Release'),
+        await desktopPtyNativeRoot(),
         'Desktop node-pty',
       );
     });

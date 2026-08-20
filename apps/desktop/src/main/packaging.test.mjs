@@ -143,8 +143,13 @@ test('production desktop uses only the packaged daemon service adapter', async (
   assert.match(runtimePreparation, /desktop-node-pty/);
   assert.match(
     runtimePreparation,
+    /join\(\s*builderDesktopPtyDir,\s*'prebuilds',\s*`\$\{embeddingTarget\.platform\}-\$\{embeddingTarget\.arch\}`/,
+    'Linux PTY validation must follow the package loader into its target prebuild directory',
+  );
+  assert.match(
+    runtimePreparation,
     /join\(builderDesktopPtyDir, 'build', 'Release'\)/,
-    'multiarch fallback payloads must not be judged as the active PTY binary',
+    'compiled PTY targets must retain their active build/Release fallback',
   );
   assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
   assert.match(main, /MIXDOG_GRAPH_BIN:\s*graphPath/);
@@ -454,7 +459,7 @@ test('runtime preparation reuses prepared output and persistent validated depend
   assert.match(preparation, /assertTargetArchitecture\(destination,\s*`Native tool \$\{kind\}`\)/);
   assert.match(
     preparation,
-    /assertTreeTargetArchitecture\(\s*join\(builderDesktopPtyDir,\s*'build',\s*'Release'\)/,
+    /assertTreeTargetArchitecture\(\s*await desktopPtyNativeRoot\(\)/,
   );
   assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{entry\}`\)/);
   assert.match(preparation, /timed\('asar-create'/);
