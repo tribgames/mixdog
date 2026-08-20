@@ -397,13 +397,14 @@ test('provider setup refresh waits for keychain readiness and bypasses stale set
     assert.deepEqual(calls, ['prewarm', 'reload', ['setup', { force: true }]]);
 });
 
-test('provider setup exposes Cursor OAuth fourth and OpenCode Go fifth without a separate Cursor API row', async () => {
+test('provider setup lists every OAuth row in order and leads the API rows with OpenCode Go, without a separate Cursor API row', async () => {
     const setup = await providerSetup({}, { detectLocal: false, checkSecrets: false });
     assert.deepEqual(setup.oauth.map((provider) => provider.id), [
         'openai-oauth',
         'anthropic-oauth',
         'grok-oauth',
         'cursor-oauth',
+        'antigravity-oauth',
     ]);
     assert.equal(setup.api[0].id, 'opencode-go');
     assert.equal([...setup.oauth, ...setup.api].some((provider) => provider.id === 'cursor-api'), false);
