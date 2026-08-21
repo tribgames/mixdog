@@ -1,4 +1,4 @@
-import { ChevronRight, Code2, FileDiff, FoldVertical, Layers3, X } from "lucide-react";
+import { ChevronRight, Code2, FileDiff, FoldVertical, Layers3, ListTree, X } from "lucide-react";
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
@@ -22,7 +22,7 @@ import { asRecord, copyTextToClipboard, formatElapsed, oneLine, publicThinkingSu
 import { requestTranscriptRowMeasure } from "./transcript-measure";
 import { imagePreviewCache, imagePreviewKey } from "./transcript-metrics";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { classifyToolCategory, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
+import { aggregateToolCategoryEntries, classifyToolCategory, formatAggregateHeader, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from "../../../../src/runtime/shared/tool-card-model.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -181,7 +181,7 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   </div>;
 }
 
-const CONTEXT_USAGE_MEMORY_LIMIT = 32;
+const CONTEXT_USAGE_MEMORY_LIMIT = 64;
 const rememberedContextUsage = new Map<string, ReturnType<typeof resolveContextDisplayUsage>>();
 
 function contextMetrics(snapshot: Snapshot) {
@@ -196,8 +196,13 @@ function contextMetrics(snapshot: Snapshot) {
   // disk-peek lane frames carry NO stats/window fields at all, which is
   // "unknown", not "empty". A frame WITH a stats record is authoritative —
   // including genuine zeros after /clear — and refreshes the memory.
-  const hasStats = snapshot.stats !== null && typeof snapshot.stats === "object";
-  if (hasStats) {
+  const stats = asRecord(snapshot.stats) ?? {};
+  const hasContextReading = Object.hasOwn(stats, "currentContextTokens")
+    || Object.hasOwn(stats, "currentEstimatedContextTokens");
+  // Cost-only and transport-bootstrap stats objects are incomplete, not a
+  // context reset. Only an explicit reading with a resolved limit may replace
+  // the remembered value; explicit zero still clears correctly after /clear.
+  if (hasContextReading && usage.limit > 0) {
     rememberedContextUsage.delete(sessionId);
     rememberedContextUsage.set(sessionId, usage);
     while (rememberedContextUsage.size > CONTEXT_USAGE_MEMORY_LIMIT) {
@@ -981,6 +986,130 @@ export const TranscriptRow = memo(function TranscriptRow({
   && previous.disclosureScope === next.disclosureScope
 ));
 
+function toolItemDone(item: TranscriptItem): boolean {
+  return item.completedAt != null || (item.completedCount === undefined
+    ? item.result != null || item.rawResult != null
+    : item.completedCount >= (item.count || 1));
+}
+
+function toolActivityItemTone(item: TranscriptItem): "error" | "warning" | "neutral" {
+  const count = Math.max(1, Math.round(Number(item.count || 1)));
+  const callFailedCount = Math.max(0, Number(item.callErrorCount || 0));
+  const exitFailedCount = Math.max(0, Number(item.exitErrorCount || 0));
+  const partialMutation = callFailedCount > 0
+    && typeof item.uiDiff === "string"
+    && Boolean(item.uiDiff.trim());
+  const tone = deriveToolOutcomeTone({
+    pending: !toolItemDone(item),
+    groupCount: count,
+    callFailedCount,
+    exitFailedCount,
+    terminalStatus: isHookApprovalDenialToolItem(item) ? "denied" : "",
+    partialMutation,
+  });
+  return tone === "error" ? "error" : tone === "warning" ? "warning" : "neutral";
+}
+
+function mergedToolActivityCategories(items: readonly TranscriptItem[]) {
+  const categories = new Map<string, Record<string, unknown>>();
+  const order: string[] = [];
+  const add = (key: string, value: unknown) => {
+    if (!key) return;
+    const record = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+    const count = Math.max(0, Number(record.count ?? value) || 0);
+    if (count <= 0) return;
+    if (!categories.has(key)) order.push(key);
+    const previous = categories.get(key);
+    categories.set(key, {
+      ...record,
+      count: Number(previous?.count || 0) + count,
+    });
+  };
+
+  for (const item of items) {
+    const stored = item.categories && typeof item.categories === "object" && !Array.isArray(item.categories)
+      ? item.categories as Record<string, unknown>
+      : null;
+    if (stored && Object.keys(stored).length > 0) {
+      for (const [key, value] of Object.entries(stored)) add(key, value);
+      continue;
+    }
+    const surface = formatToolSurface(item.name, item.args);
+    const category = classifyToolCategory(item.name, surface.args);
+    for (const entry of aggregateToolCategoryEntries(item.name, surface.args, category)) {
+      add(String(entry.key || ""), entry);
+    }
+  }
+
+  return { categories: Object.fromEntries(categories), order };
+}
+
+function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: string): string {
+  const id = String(items[0]?.id ?? "").trim();
+  return id ? `${scope}:tool-activity:${id}` : "";
+}
+
+export function ToolActivityGroup({
+  items,
+  disclosureScope = "",
+}: {
+  items: readonly TranscriptItem[];
+  disclosureScope?: string;
+}) {
+  const disclosureKey = toolActivityDisclosureKey(items, disclosureScope);
+  const [open, setOpen] = useState(() =>
+    disclosureKey ? toolDisclosureStates.get(disclosureKey) ?? false : false);
+  useLayoutEffect(() => {
+    setOpen(disclosureKey ? toolDisclosureStates.get(disclosureKey) ?? false : false);
+  }, [disclosureKey]);
+  const groupRef = useRef<HTMLElement>(null);
+  const measuredOpen = useRef(open);
+  useLayoutEffect(() => {
+    if (measuredOpen.current === open) return;
+    measuredOpen.current = open;
+    requestTranscriptRowMeasure(groupRef.current);
+  }, [open]);
+  const contentId = useId();
+  const pending = items.some((item) => !toolItemDone(item));
+  const { categories, order } = useMemo(() => mergedToolActivityCategories(items), [items]);
+  const label = formatAggregateHeader(categories, { pending, order });
+  const tones = items.map(toolActivityItemTone);
+  const failure = tones.includes("error");
+  const warning = !failure && tones.includes("warning");
+
+  return (
+    <article ref={groupRef}
+      className={`tool-activity ${failure ? "failed" : ""} ${warning ? "warning" : ""}`}
+      data-open={open ? "true" : "false"}>
+      <button className="tool-header tool-activity-header"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={() => setOpen((value) => {
+          const next = !value;
+          rememberToolDisclosure(disclosureKey, next);
+          return next;
+        })}
+        aria-expanded={open} aria-controls={contentId}>
+        <span className="tool-icon"><ListTree size={16} /></span>
+        <span className="tool-title tool-activity-title" title={label}>
+          <b>{label}</b>
+        </span>
+        {pending && <span className="sr-only" role="status">{t("Running")}</span>}
+        <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>
+      </button>
+      {open && (
+        <div className="tool-activity-content" id={contentId}>
+          {items.map((item, index) => (
+            <ToolCard key={String(item.id ?? index)} item={item}
+              disclosureScope={disclosureScope} />
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
 export function ToolCard({
   item,
   disclosureScope = "",
@@ -1004,9 +1133,7 @@ export function ToolCard({
     requestTranscriptRowMeasure(cardRef.current);
   }, [open]);
   const contentId = useId();
-  const done = item.completedAt != null || (item.completedCount === undefined
-    ? item.result != null || item.rawResult != null
-    : item.completedCount >= (item.count || 1));
+  const done = toolItemDone(item);
   // Ticking clock for the running card's optional expanded `Running · 12s`
   // summary. Collapsed cards stay one row throughout their lifecycle.
   const startedAt = Number(item.startedAt || 0);

@@ -216,12 +216,7 @@ export function ReadyGitDiffPane(props: React.ComponentProps<typeof GitDiffPane>
   const metricKey = navigationKey(props.selection);
   beginBootSurface("diff", metricKey);
   reportBootSurfaceStage("diff", metricKey, "boundary");
-  const [readyKey, setReadyKey] = useState("");
-  return <PaneSurfaceGate ready={readyKey === metricKey}
-    transitionKey={metricKey} label="Loading diff…">
-    <GitDiffPane {...props} onReady={() => {
-      setReadyKey(metricKey);
-      reportBootSurfaceStage("diff", metricKey, "dom", "shell");
-    }} />
-  </PaneSurfaceGate>;
+  return <GitDiffPane {...props} onReady={() => {
+    reportBootSurfaceStage("diff", metricKey, "dom", "shell");
+  }} />;
 }

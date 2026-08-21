@@ -116,7 +116,6 @@ const UNAUTHORIZED_RATE_LIMIT = 60;
 const UNAUTHORIZED_RATE_WINDOW_MS = 60_000;
 export const MAX_PHONE_CONNECTIONS_PER_MINUTE = 120;
 const PHONE_CONNECT_RATE_WINDOW_MS = 60_000;
-const MAX_REGISTERED_DEVICES = 5000;
 export const MAX_PHONE_CLIENTS_PER_DEVICE = 32;
 const MAX_PAIRED_CLIENTS_PER_DEVICE = 256;
 export const MAX_RATE_KEYS = 10_000;
@@ -675,12 +674,12 @@ export class DeviceStore {
   }
 
   // Trust-on-first-use registration is what makes setup zero-config, but an
-  // unauthenticated caller could otherwise mint device rows forever. The
-  // caller rate-limits new ids per IP; the fleet cap is the hard backstop.
+  // unauthenticated caller must not be able to mint rows at network speed.
+  // The caller applies the per-IP registration limiter; legitimate fleet
+  // growth itself is unbounded here and can move to sharded storage later.
   authenticate(deviceId, secret) {
     const known = this.devices.get(deviceId);
     if (!known) {
-      if (this.devices.size >= MAX_REGISTERED_DEVICES) return false;
       this.devices.set(deviceId, { secretHash: sha256(secret), clientTokenHash: '', clients: {} });
       this.scheduleSave();
       return true;

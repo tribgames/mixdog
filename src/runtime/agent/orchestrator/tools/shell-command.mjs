@@ -792,7 +792,7 @@ export function execShellCommand({
           jobId,
           backgroundTimeoutMs: adoptedTimeoutMs,
           backgroundMessage: jobId
-            ? `${_verb}; still running.`
+            ? `${_verb}; still running. Completion is automatic; do not poll with task read/monitor unless the user explicitly requests polling or periodic progress.`
             : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
         }),
       );

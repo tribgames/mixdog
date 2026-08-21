@@ -21,7 +21,9 @@ import type { WorkspaceSelection } from "./nav-types";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { GitFileDiff } from "./ReviewPane";
 import { createSingleFlightRefresh } from "./git-diff-refresh";
+import { createGitRefreshScheduler } from "./git-refresh-scheduler";
 import { prefetchDiffView } from "./lazy-widgets";
+import { subscribeProjectFileChanges } from "./project-file-changes";
 import { navigationKey } from "./text-format";
 
 type GitDiffSelection = Extract<WorkspaceSelection, { kind: "diff" }>;
@@ -117,14 +119,32 @@ export function GitDiffPane({
   }, [metricKey]);
   useEffect(() => {
     if (!active) return undefined;
-    void load();
-    if (selection.source === "commit") return undefined;
-    const timer = window.setInterval(() => void load(), 3_000);
-    const onFocus = () => void load();
-    window.addEventListener("focus", onFocus);
+    if (selection.source === "commit") {
+      void load();
+      return undefined;
+    }
+    const scheduler = createGitRefreshScheduler(() => load(), {
+      safetyIntervalMs: 30_000,
+      activityDebounceMs: 125,
+      activityMinGapMs: 1_000,
+    });
+    const signal = () => scheduler.signal();
+    const refreshNow = () => scheduler.refreshNow();
+    const visibilityChanged = () => {
+      if (document.visibilityState === "hidden") scheduler.pause();
+      else scheduler.resume();
+    };
+    const unsubscribeProject = subscribeProjectFileChanges(selection.project, signal);
+    window.addEventListener("focus", refreshNow);
+    window.addEventListener("mixdog:git-changed", signal);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    if (document.visibilityState !== "hidden") scheduler.resume();
     return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
+      scheduler.dispose();
+      unsubscribeProject();
+      window.removeEventListener("focus", refreshNow);
+      window.removeEventListener("mixdog:git-changed", signal);
+      document.removeEventListener("visibilitychange", visibilityChanged);
     };
   }, [active, load, metricKey, selection.source]);
   const hunks = useMemo(

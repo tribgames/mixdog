@@ -679,6 +679,12 @@
   opacity: .45;
 }
 .session-context-indicator > button:disabled { cursor: default; }
+.session-status-island > .session-work-indicator,
+.session-status-island > .session-context-indicator {
+  /* Both cards anchor to the island itself, not to either 28px slot, so their
+     right edges stay flush with the capsule's right edge. */
+  position: static;
+}
 .session-context-indicator {
   position: relative;
   width: 28px;
@@ -726,7 +732,7 @@
      DOWNWARD against the right edge — the same geometry .live-work-popover
      already uses, and nothing above the composer can be covered by it. */
   top: calc(100% + 6px);
-  right: calc(var(--session-status-slot) + var(--session-status-gap));
+  right: 0;
   /* ONE column pair shared by every row (user: 정렬 좀 맞춰주고): each row used
      to split its own 184px with space-between, so the labels and the values
      landed at different x per row and "Tokens (est.)" / "150,717 / 1,000,000"
@@ -762,7 +768,7 @@
   content: "";
   position: absolute;
   top: -6px;
-  right: calc(-1 * (var(--session-status-slot) + var(--session-status-gap)));
+  right: 0;
   left: 0;
   height: 6px;
 }

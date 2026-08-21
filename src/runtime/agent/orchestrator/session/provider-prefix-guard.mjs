@@ -39,12 +39,6 @@ export function prepareProviderPrefixGuard(previous, messages, requestPrefix, op
     const next = snapshot(Array.isArray(messages) ? messages : [], requestPrefix);
     if (!previous || isCompactionPrefixReset(options.cacheBreakIntent)) return next;
 
-    if (previous.requestPrefixHash !== next.requestPrefixHash) {
-        throw new ProviderPrefixMutationError('provider request prefix changed outside compaction', {
-            provider: options.provider || null,
-            kind: 'request_prefix',
-        });
-    }
     if (next.messageHashes.length < previous.messageHashes.length) {
         throw new ProviderPrefixMutationError('provider message history shrank outside compaction', {
             provider: options.provider || null,
@@ -58,6 +52,12 @@ export function prepareProviderPrefixGuard(previous, messages, requestPrefix, op
             kind: 'message_prefix',
             index,
         });
+    }
+    if (previous.requestPrefixHash !== next.requestPrefixHash) {
+        // Tool schemas are request metadata, not durable conversation state.
+        // App updates may change them between turns, so rebaseline the provider
+        // cache prefix after the transcript itself has passed integrity checks.
+        return next;
     }
     return next;
 }

@@ -9,7 +9,7 @@ type SurfaceId = string | number;
 const SURFACE_FONT_WAIT_MAX_MS = 300;
 const STARTUP_SURFACE_FALLBACK_MS = 1_200;
 const DESKTOP_BOOT_COVER_MAX_MS = 4_000;
-const DESKTOP_BOOT_BRAND_FADE_MS = 160;
+const DESKTOP_BOOT_BRAND_FADE_MS = 100;
 
 function useStartupSurfaceReady(startupDelayMs: number | undefined): boolean {
   const host = window as typeof window & { __mixdogWindowShown?: boolean };
@@ -25,13 +25,20 @@ function useStartupSurfaceReady(startupDelayMs: number | undefined): boolean {
       window.removeEventListener("mixdog:window-shown", activate);
       window.clearTimeout(fallbackTimer);
       window.clearTimeout(delayTimer);
+      // Electron emits mixdog:window-shown only after two visible composed
+      // frames. A zero-delay gate is therefore already safe to reveal; adding
+      // another RAF here only held the cold-start cover for a redundant frame.
+      if ((startupDelayMs ?? 0) <= 0) {
+        setReady(true);
+        return;
+      }
       delayTimer = window.setTimeout(() => {
         delayTimer = 0;
         frame = window.requestAnimationFrame(() => {
           frame = 0;
           setReady(true);
         });
-      }, Math.max(0, startupDelayMs));
+      }, startupDelayMs);
     };
     if (host.__mixdogWindowShown) activate();
     else {
@@ -180,12 +187,21 @@ export function DesktopBootGate({
   const [handoffComplete, setHandoffComplete] = useState(!enabled);
   const [coverLeaving, setCoverLeaving] = useState(false);
   const revealRequested = !enabled || timedOut
-    || (armed && windowShown && ready && surfaces.pending === 0);
-  const revealed = useStableSurfaceReveal(revealRequested, "desktop-cold-boot");
+    // Surface barriers resolve after their first real paint. The opaque cover
+    // can begin fading immediately; main's later two-visible-frame signal still
+    // owns deferred prewarms, but no longer serializes the visual handoff.
+    || (armed && ready && surfaces.pending === 0);
+  // Generic surface switches wait for fonts plus three composed frames. Every
+  // boot surface has already crossed the paint barrier above, and the cover
+  // itself still fades out, so repeating that sequence only extends the splash.
+  const [revealed, setRevealed] = useState(!enabled);
 
   useLayoutEffect(() => {
     if (enabled && !armed) setArmed(true);
   }, [armed, enabled]);
+  useEffect(() => {
+    if (revealRequested && !revealed) setRevealed(true);
+  }, [revealRequested, revealed]);
   useEffect(() => {
     if (!enabled || !windowShown || revealed) return undefined;
     const timer = window.setTimeout(() => setTimedOut(true), DESKTOP_BOOT_COVER_MAX_MS);

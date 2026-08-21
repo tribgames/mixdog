@@ -228,6 +228,17 @@ test('device store persists owner-only and refuses corrupt authentication state'
   assert.throws(() => new DeviceStore(dir), /failed to load device store/);
 });
 
+test('device registration has no fixed fleet-size product cap', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-unbounded-store-'));
+  const store = new DeviceStore(dir);
+  for (let index = 0; index <= 5_000; index += 1) {
+    const deviceId = index.toString(16).padStart(8, '0');
+    assert.equal(store.authenticate(deviceId, '0123456789abcdef'), true);
+  }
+  assert.equal(store.devices.size, 5_001);
+  store.save();
+});
+
 test('browser credentials are isolated per desktop and individually revocable', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-browser-store-'));
   const store = new DeviceStore(dir);

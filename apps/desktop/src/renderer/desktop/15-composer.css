@@ -208,6 +208,52 @@
 }
 .composer-dictation-cancel:hover,
 .composer-dictation-cancel:focus-visible { color: var(--mx-text); background: var(--mx-hover); }
+.composer-dictation-status {
+  min-height: calc(36px * var(--mx-device-scale, 1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(10px * var(--mx-device-scale, 1));
+  padding: calc(5px * var(--mx-device-scale, 1)) calc(6px * var(--mx-device-scale, 1))
+    calc(5px * var(--mx-device-scale, 1)) calc(10px * var(--mx-device-scale, 1));
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16);
+  animation: composer-dictation-status-enter 160ms cubic-bezier(.2, .8, .2, 1);
+}
+.composer-dictation-status[data-state="transcribing"] {
+  padding-right: calc(12px * var(--mx-device-scale, 1));
+}
+.composer-dictation-status[data-state="recording"] .composer-dictation-cancel {
+  margin-left: calc(2px * var(--mx-device-scale, 1));
+}
+.composer-dictation-progress {
+  width: calc(24px * var(--mx-device-scale, 1));
+  height: calc(18px * var(--mx-device-scale, 1));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(2px * var(--mx-device-scale, 1));
+}
+.composer-dictation-progress > span {
+  width: calc(2px * var(--mx-device-scale, 1));
+  height: calc(16px * var(--mx-device-scale, 1));
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-text-muted);
+  transform-origin: center;
+  animation: composer-dictation-progress 900ms cubic-bezier(.4, 0, .2, 1) infinite;
+}
+.composer-dictation-progress > span:nth-child(2),
+.composer-dictation-progress > span:nth-child(4) { animation-delay: -720ms; }
+.composer-dictation-progress > span:nth-child(3) { animation-delay: -540ms; }
+@keyframes composer-dictation-status-enter {
+  from { opacity: 0; transform: translateY(2px) scale(.985); }
+}
+@keyframes composer-dictation-progress {
+  0%, 100% { opacity: .38; transform: scaleY(.28); }
+  50% { opacity: 1; transform: scaleY(1); }
+}
 .composer-tool, .send-button, .fast-mode-toggle, .effort-control select {
   width: 28px;
   height: 28px;
@@ -228,6 +274,11 @@
 /* Cursor-weight glyphs inside the circles: the default row stroke reads
    wispy at 16px on a filled disc. */
 .composer-mic svg.lucide, .send-button svg.lucide { stroke-width: 1.75px; }
+.composer-mic.is-recording > svg.lucide {
+  width: var(--mx-icon-xs);
+  height: var(--mx-icon-xs);
+  stroke: none;
+}
 .send-button {
   color: var(--mx-grey-100);
   background: var(--mx-bg-contrast);
@@ -238,6 +289,16 @@
 }
 .send-button:focus-visible { outline: 0; box-shadow: 0 0 0 1px var(--mx-border-strong); }
 .send-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+@media (prefers-reduced-motion: reduce) {
+  .composer-dictation-status { animation: none; }
+  .composer-dictation-progress > span {
+    animation: none;
+    opacity: .65;
+    transform: scaleY(.45);
+  }
+  .composer-dictation-meter > span { transition: none; }
+  .composer-mic-spinner { animation: none; }
+}
 .route-controls { gap: 2px; }
 .model-trigger, .effort-control select {
   height: 28px;

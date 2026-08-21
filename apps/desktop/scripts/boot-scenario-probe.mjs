@@ -112,7 +112,11 @@ const diffSelection = {
 const allScenarios = [
   { name: 'fresh-new', selection: newSelection, fresh: true },
   { name: 'project', selection: projectSelection },
-  { name: 'session', selection: { kind: 'session', id: '__FIRST_SESSION__' } },
+  {
+    name: 'session',
+    selection: { kind: 'session', id: '__FIRST_SESSION__' },
+    expectedSurface: 'conversation',
+  },
   { name: 'editor', selection: editorSelection, expectedSurface: 'editor' },
   { name: 'studio', selection: studioSelection, expectedSurface: 'studio' },
   { name: 'terminal', selection: terminalSelection, expectedSurface: 'terminal' },
@@ -207,14 +211,16 @@ async function stopApp(client, child) {
 }
 
 async function launch(profilePath, scenarioName, port) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('MIXDOG_') || key.startsWith('ELECTRON_')) delete env[key];
+  }
+  env.MIXDOG_DESKTOP_USER_DATA = profilePath;
+  env.MIXDOG_DESKTOP_PERF = '1';
+  env.MIXDOG_BOOT_SCENARIO = scenarioName;
   const child = spawn(electron, [desktopDir, `--remote-debugging-port=${port}`], {
     cwd: desktopDir,
-    env: {
-      ...process.env,
-      MIXDOG_DESKTOP_USER_DATA: profilePath,
-      MIXDOG_DESKTOP_PERF: '1',
-      MIXDOG_BOOT_SCENARIO: scenarioName,
-    },
+    env,
     stdio: 'ignore',
     windowsHide: false,
   });
@@ -227,7 +233,7 @@ async function seedScenario(profilePath, scenario, port) {
   const { child, client } = await launch(profilePath, `seed-${scenario.name}`, port);
   try {
     const seed = JSON.stringify(scenario);
-    await evaluateStable(client, `(async () => {
+    const seeded = await evaluateStable(client, `(async () => {
       const scenario = ${seed};
       const startupDeadline = performance.now() + 10_000;
       while (!window.__mixdogStartupSettled && performance.now() < startupDeadline) {
@@ -262,24 +268,41 @@ async function seedScenario(profilePath, scenario, port) {
         layout,
         focusedLeafId: scenario.focusedLeafId || "boot-pane",
       });
-      localStorage.setItem("mixdog.desktop.pane-layout.v1", paneState);
-      localStorage.setItem("mixdog.desktop-sidebar-open.v1", String(scenario.sidebarOpen !== false));
-      localStorage.setItem("mixdog.desktop-utility-dock.v1", JSON.stringify(
-        scenario.dock || { open: false, tab: "tasks", width: 380 }
-      ));
-      localStorage.setItem("mixdog.desktop.bottom-panel.v1", JSON.stringify(
-        scenario.bottom || { open: false, tab: "terminal", height: 240 }
-      ));
-      if (selection.kind === "session") {
-        localStorage.setItem("mixdog.desktop-last-session.v1", selection.id);
-      } else {
-        localStorage.removeItem("mixdog.desktop-last-session.v1");
-      }
+      const persistSeed = () => {
+        localStorage.setItem("mixdog.desktop.pane-layout.v1", paneState);
+        localStorage.setItem("mixdog.desktop-sidebar-open.v1", String(scenario.sidebarOpen !== false));
+        localStorage.setItem("mixdog.desktop-utility-dock.v1", JSON.stringify(
+          scenario.dock || { open: false, tab: "tasks", width: 380 }
+        ));
+        localStorage.setItem("mixdog.desktop.bottom-panel.v1", JSON.stringify(
+          scenario.bottom || { open: false, tab: "terminal", height: 240 }
+        ));
+        if (selection.kind === "session") {
+          localStorage.setItem("mixdog.desktop-last-session.v1", selection.id);
+        } else {
+          localStorage.removeItem("mixdog.desktop-last-session.v1");
+        }
+      };
+      persistSeed();
+      window.addEventListener("pagehide", persistSeed, { once: true });
       if (localStorage.getItem("mixdog.desktop.pane-layout.v1") !== paneState) {
         throw new Error("Seed pane layout did not persist.");
       }
-      return { selection, layout };
+      return { selection, layout, timeOrigin: performance.timeOrigin };
     })()`);
+    try { await client.evaluate('window.location.reload(); true'); } catch { /* context swaps below */ }
+    await evaluateStable(client, `(async () => {
+      const previousTimeOrigin = ${JSON.stringify(seeded?.timeOrigin || 0)};
+      const startupDeadline = performance.now() + 20_000;
+      while ((performance.timeOrigin === previousTimeOrigin || !window.__mixdogStartupSettled)
+        && performance.now() < startupDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (performance.timeOrigin === previousTimeOrigin || !window.__mixdogStartupSettled) {
+        throw new Error("Seeded boot scenario did not restore after reload.");
+      }
+      return true;
+    })()`, 30_000);
   } finally {
     await stopApp(client, child);
   }

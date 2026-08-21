@@ -1,6 +1,4 @@
 import type {
-  DesktopRemoteProjectionInput,
-  DesktopRemoteProjectionState,
   DesktopRemoteClientInfo,
   DesktopSessionStateUpdate,
   SessionSnapshot,
@@ -90,6 +88,13 @@ export async function createDesktopService(
     throw new TypeError('Mixdog service session bridge is unavailable.');
   }
   const host = await SessionHost.create(options, runtime);
+  const desktopEventListeners = new Set<
+    (event: { name: string; value: unknown }) => void
+  >();
+  const publishDesktopEvent = (name: string, value: unknown): void => {
+    emit({ kind: 'desktop-event', name, value });
+    for (const listener of desktopEventListeners) listener({ name, value });
+  };
   const operations = createDesktopOperations({
     userDataPath: options.userDataPath,
     packaged: options.packaged,
@@ -97,63 +102,13 @@ export async function createDesktopService(
     appPath: options.appPath,
     loadConfig: runtime.loadConfig,
     loadCommitCompletion: runtime.loadCommitCompletion,
-    emit: (event) => emit({ kind: 'desktop-event', ...event }),
+    emit: (event) => publishDesktopEvent(event.name, event.value),
   });
   const settingsStore = operations.settingsStore;
-  const desktopEventListeners = new Set<
-    (event: { name: string; value: unknown }) => void
-  >();
-  let remoteProjection: DesktopRemoteProjectionState | null = null;
-  const publishDesktopEvent = (name: string, value: unknown): void => {
-    emit({ kind: 'desktop-event', name, value });
-    for (const listener of desktopEventListeners) listener({ name, value });
-  };
-  const setRemoteProjection = (value: unknown): DesktopRemoteProjectionState => {
-    if (!value || typeof value !== 'object') {
-      throw new TypeError('remote projection is invalid.');
-    }
-    const input = value as Partial<DesktopRemoteProjectionInput>;
-    const sourceId = String(input.sourceId || '');
-    const sidebarPanels = new Set([
-      'utilities', 'schedules', 'webhooks', 'projects', 'workflows',
-    ]);
-    const dockTabs = new Set(['agents', 'search', 'source-control', 'pull-requests']);
-    const encoded = JSON.stringify(input.selection ?? null);
-    if (!/^[A-Za-z0-9:_-]{8,128}$/u.test(sourceId)
-      || encoded.length > 32_768
-      || (input.sidebarPanel !== null && !sidebarPanels.has(String(input.sidebarPanel)))
-      || !dockTabs.has(String(input.dockTab))
-      || typeof input.sidebarOpen !== 'boolean'
-      || typeof input.dockOpen !== 'boolean'
-      || typeof input.bottomPanelOpen !== 'boolean'
-      || typeof input.bottomPanelTab !== 'string'
-      || input.bottomPanelTab.length > 64) {
-      throw new TypeError('remote projection is invalid.');
-    }
-    remoteProjection = {
-      sourceId,
-      selection: JSON.parse(encoded) as unknown,
-      sidebarOpen: input.sidebarOpen,
-      sidebarPanel: input.sidebarPanel === null ? null : String(input.sidebarPanel),
-      dockOpen: input.dockOpen,
-      dockTab: String(input.dockTab),
-      bottomPanelOpen: input.bottomPanelOpen,
-      bottomPanelTab: input.bottomPanelTab,
-      revision: (remoteProjection?.revision ?? 0) + 1,
-      updatedAt: Date.now(),
-    };
-    publishDesktopEvent('remote-projection-state', remoteProjection);
-    return remoteProjection;
-  };
-  const invokeProjectedOperation = (name: string, args: unknown[] = []): unknown => {
-    if (name === 'getRemoteProjection') return remoteProjection;
-    if (name === 'setRemoteProjection') return setRemoteProjection(args[0]);
-    return operations.invoke(name, args);
-  };
   const remoteHost = new Proxy(host, {
     get(target, property) {
       if (property === 'invokeDesktopOperation') {
-        return invokeProjectedOperation;
+        return (name: string, args: unknown[] = []) => operations.invoke(name, args);
       }
       if (property === 'subscribeDesktopEvents') {
         return (listener: (event: { name: string; value: unknown }) => void) => {
@@ -377,7 +332,7 @@ export async function createDesktopService(
           else await startRemoteServices();
           return null;
         }
-        return invokeProjectedOperation(operation, operationArgs);
+        return operations.invoke(operation, operationArgs);
       }
       if (method === 'setVisibleSessions') {
         visibleSessionIds.clear();

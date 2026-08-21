@@ -9,9 +9,8 @@ aliases: extreme, extreme-simple, one-line, mono
 
 Extreme minimal — final decision or answer.
 
-- Retain: only the final decision, result, or direct answer. For a cause
-  question, that is the highest-level cause, not its concrete causal chain.
-- Omit: every heading, label, list, explanation, supporting fact, scope, caveat,
-  recap, and follow-up, even when asked to explain or report.
-- Shape: one or two short sentences. Never pack discarded detail into a longer
-  sentence.
+- Retain: only the decision, result, or direct answer; for cause questions, only
+  the highest-level cause.
+- Omit: headings, labels, lists, explanation, evidence, scope, caveats, recap,
+  and follow-up, even when requested.
+- Shape: one or two short sentences; do not pack omitted detail into them.

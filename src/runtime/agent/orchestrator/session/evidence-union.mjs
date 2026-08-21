@@ -167,6 +167,7 @@ function mutationBatch(toolCalls) {
         return name === 'apply_patch'
             || name === 'shell'
             || name === 'bash_session'
+            || name === 'git_stage'
             || (name === 'git' && gitCallMutates(call));
     });
 }

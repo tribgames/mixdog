@@ -590,6 +590,9 @@ export function buildShellOutputTelemetryPayload({
         reduction_pct: commandOutputBytes > 0
             ? Math.round((1 - visibleBytes / commandOutputBytes) * 100)
             : null,
+        exit_code: Number.isInteger(telemetry?.exitCode) ? telemetry.exitCode : null,
+        signal: telemetry?.signal || null,
+        timed_out: telemetry?.timedOut === true,
         spilled: telemetry?.spilled === true,
         offloaded: offloaded === true,
     };

@@ -272,9 +272,6 @@ export function createRemoteMethods(
     },
     listSessions: () => host.listSessions(),
     listAgentPool: () => host.listAgentPool(),
-    getRemoteProjection: () => invokeDesktopOperation('getRemoteProjection', []),
-    setRemoteProjection: ([projection]) =>
-      invokeDesktopOperation('setRemoteProjection', [projection]),
     renameSession: ([sessionId, title]) =>
       host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)),
     setSessionArchived: ([sessionId, archived]) => {
@@ -341,7 +338,14 @@ export function createRemoteMethods(
       for (const request of requests) assertRemoteCapability(request.capability);
       return host.readCapabilities(requests);
     },
-    gitStatus: ([cwd]) => gitStatus(requiredRepositoryCwd(cwd)),
+    gitStatus: ([cwd, options]) => {
+      const record = options && typeof options === 'object'
+        ? options as { reuseLineStats?: unknown }
+        : {};
+      return gitStatus(requiredRepositoryCwd(cwd), {
+        reuseLineStats: record.reuseLineStats === true,
+      });
+    },
     gitBranches: ([cwd]) => gitBranches(requiredRepositoryCwd(cwd)),
     gitCheckoutBranch: ([cwd, branch, remote]) => gitCheckoutBranch(
       requiredRepositoryCwd(cwd),
@@ -543,8 +547,14 @@ export function createRemoteMethods(
       'copyFolderEntriesAbs',
       [requiredFolderPaths(paths), browsableFolderPath(targetDir)],
     ),
-    folderWatch: ([dir]) => invokeDesktopOperation('folderWatch', [browsableFolderPath(dir)]),
-    folderUnwatch: ([dir]) => invokeDesktopOperation('folderUnwatch', [browsableFolderPath(dir)]),
+    folderWatch: ([dir, recursive]) => invokeDesktopOperation(
+      'folderWatch',
+      [browsableFolderPath(dir), recursive === true],
+    ),
+    folderUnwatch: ([dir, recursive]) => invokeDesktopOperation(
+      'folderUnwatch',
+      [browsableFolderPath(dir), recursive === true],
+    ),
     // File tabs and attachments for paths outside any project: the same
     // describe-then-grant grammar the desktop uses for a chosen file.
     resolveLocalPaths: async ([paths]) => {

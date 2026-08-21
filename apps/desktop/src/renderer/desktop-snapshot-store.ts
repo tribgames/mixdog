@@ -63,7 +63,6 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "thinking",
   "spinner",
   "commandStatus",
-  "stats",
   "contextWindow",
   "displayContextWindow",
   "autoCompactTokenLimit",
@@ -101,6 +100,19 @@ function snapshotFieldsEqual(
     if (!Object.is(left[field], right[field])) return false;
   }
   return true;
+}
+
+const HEADER_STATS_FIELDS = [
+  "currentContextTokens",
+  "currentEstimatedContextTokens",
+  "costUsd",
+] as const;
+
+function headerStatsEqual(left: Snapshot, right: Snapshot): boolean {
+  if (left.stats === right.stats) return true;
+  const previous = left.stats && typeof left.stats === "object" ? left.stats : {};
+  const next = right.stats && typeof right.stats === "object" ? right.stats : {};
+  return HEADER_STATS_FIELDS.every((field) => Object.is(previous[field], next[field]));
 }
 
 function dockToolSignalsEqual(left: Snapshot, right: Snapshot): boolean {
@@ -230,7 +242,9 @@ export function desktopStreamingTailSnapshotsEqual(left: Snapshot, right: Snapsh
 export function desktopHeaderSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
   if (left === right) return true;
   if (!preservesInitialBoundary(left, right)) return false;
-  return snapshotFieldsEqual(left, right, HEADER_SNAPSHOT_FIELDS) && shellJobsEqual(left, right);
+  return snapshotFieldsEqual(left, right, HEADER_SNAPSHOT_FIELDS)
+    && headerStatsEqual(left, right)
+    && shellJobsEqual(left, right);
 }
 
 export function desktopDockSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {

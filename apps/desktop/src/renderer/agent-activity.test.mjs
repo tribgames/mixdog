@@ -9,6 +9,7 @@ import { LiveWorkIndicator, SessionStatusIsland } from "./SessionStatusIsland.ts
 import { PaneStatusIsland } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
+import { desktopHeaderSnapshotsEqual } from "./desktop-snapshot-store.ts";
 import { shellJobsStatusEqual } from "../shared/shell-jobs-status.ts";
 
 function installDom() {
@@ -60,6 +61,10 @@ test("Agent and shell chips follow only their supplied session lane activity", a
     assert.equal(document.querySelector(".session-work-indicator")?.dataset.active, "true");
     assert.match(document.body.textContent, /Researcher/);
     assert.match(document.body.textContent, /Shell 1/);
+    assert.deepEqual(
+      [...document.querySelectorAll(".live-work-group")].map((group) => group.dataset.kind),
+      ["agent", "shell"],
+    );
 
     await act(async () => {
       dom.root.render(React.createElement(TaskIndicators, {
@@ -193,6 +198,60 @@ test("the status island keeps only one detail card open across hover and click c
     await act(async () => dom.root.unmount());
     dom.close();
   }
+});
+
+test("the context island retains its authoritative reading across incomplete stats frames", async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(SessionStatusIsland, {
+        snapshot: {
+          sessionId: "context-sticky",
+          stats: { currentEstimatedContextTokens: 50 },
+          displayContextWindow: 100,
+        },
+      }));
+    });
+    assert.match(document.body.textContent, /50%/);
+
+    await act(async () => {
+      dom.root.render(React.createElement(SessionStatusIsland, {
+        snapshot: {
+          sessionId: "context-sticky",
+          stats: { costUsd: 1 },
+          displayContextWindow: 100,
+        },
+      }));
+    });
+    assert.match(document.body.textContent, /50%/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("header snapshot equality ignores unrelated stats but tracks visible context values", () => {
+  const base = {
+    sessionId: "header-session",
+    stats: {
+      currentContextTokens: 50,
+      currentEstimatedContextTokens: 60,
+      costUsd: 0.25,
+      inputTokens: 100,
+    },
+  };
+  assert.equal(desktopHeaderSnapshotsEqual(base, {
+    ...base,
+    stats: { ...base.stats, inputTokens: 200 },
+  }), true);
+  assert.equal(desktopHeaderSnapshotsEqual(base, {
+    ...base,
+    stats: { ...base.stats, currentEstimatedContextTokens: 61 },
+  }), false);
+  assert.equal(desktopHeaderSnapshotsEqual(base, {
+    ...base,
+    stats: { ...base.stats, costUsd: 0.5 },
+  }), false);
 });
 
 test("running background agent jobs drive the header icon until terminal", async () => {

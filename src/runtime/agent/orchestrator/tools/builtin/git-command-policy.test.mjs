@@ -23,5 +23,8 @@ test('git mutation policy is shared by orchestration and evidence projection', (
         assert.equal(_isGitMutationTool('git', { command }), true, command);
     }
     assert.equal(gitCommandMutates({ command: 'git status && git clean -fd' }), true);
+    const stage = { diff_id: 'diff_test', change_ids: ['chg_test'] };
+    assert.equal(_isMutationTool('git_stage', stage), true);
+    assert.equal(_isGitMutationTool('git_stage', stage), true);
     assert.equal(_isMutationTool('apply_patch', {}), true);
 });

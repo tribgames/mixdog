@@ -9,7 +9,7 @@ import { PATCH_TOOL_DEFS } from '../runtime/agent/orchestrator/tools/patch-tool-
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 
 const require = createRequire(import.meta.url);
-const { omitToolRoutes, buildSharedToolContent } = require('../lib/rules-builder.cjs');
+const { omitToolRoutes, buildSharedToolContent, buildAgentRoleContent } = require('../lib/rules-builder.cjs');
 
 // Tool dependency is declared by `<!-- tools: … -->` markers, so this fixture
 // carries the markers rather than prose the builder would have to match.
@@ -154,6 +154,14 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   const headings = ['# General', '# Tool Workflow', '# Research', '# Exploration', '# Editing', '# Execution', '# Verification', '# Delivery', '# Memory'];
   assert.deepEqual(headings.map((heading) => full.indexOf(heading)), headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b));
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));
+  assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git_stage'), false);
+});
+
+test('agent git policy allows repository evidence but keeps mutations Lead-only', () => {
+  const rules = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
+  assert.match(rules, /Use `git` only for read-only repository evidence/i);
+  assert.match(rules, /Refuse Git mutations\s+including `add`\/`commit`\/`push`\/`stash`/i);
+  assert.doesNotMatch(rules, /Never touch git/i);
 });
 
 test('apply_patch keeps grammar and mutation behavior on the freeform surface', () => {

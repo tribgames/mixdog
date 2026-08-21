@@ -54,7 +54,9 @@ import {
   flushLayoutFrame,
   scheduleLayoutFrame,
 } from "./interaction-frame-scheduler";
+import { createGitRefreshScheduler } from "./git-refresh-scheduler";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
+import { subscribeProjectFileChanges } from "./project-file-changes";
 import {
   DEFAULT_UTILITY_DOCK_VIEW_ORDER,
   UTILITY_DOCK_GROUP_MIME,
@@ -104,7 +106,10 @@ type DockGitState = {
  * separate component instances, so a module cache lets the idle Agents/Search
  * preload become Source Control's first paint instead of another blank wait. */
 const dockGitCache = new Map<string, DockGitState>();
-const dockGitRequests = new Map<string, Promise<DockGitState>>();
+const dockGitRequests = new Map<string, {
+  reuseLineStats: boolean;
+  promise: Promise<DockGitState>;
+}>();
 
 function readCachedDockGitState(projectPath: string): DockGitState {
   if (!projectPath) {
@@ -119,9 +124,18 @@ function readCachedDockGitState(projectPath: string): DockGitState {
   };
 }
 
-function requestDockGitState(projectPath: string): Promise<DockGitState> {
+function requestDockGitState(
+  projectPath: string,
+  options: { reuseLineStats?: boolean } = {},
+): Promise<DockGitState> {
+  const reuseLineStats = options.reuseLineStats === true;
   const pending = dockGitRequests.get(projectPath);
-  if (pending) return pending;
+  if (pending) {
+    if (!reuseLineStats && pending.reuseLineStats) {
+      return pending.promise.then(() => requestDockGitState(projectPath));
+    }
+    return pending.promise;
+  }
   const gitStatus = window.mixdogDesktop?.gitStatus;
   const request = (typeof gitStatus !== "function"
     ? Promise.resolve({
@@ -131,7 +145,7 @@ function requestDockGitState(projectPath: string): Promise<DockGitState> {
       ready: true,
       error: "",
     } satisfies DockGitState)
-    : gitStatus(projectPath).then((status) => ({
+    : gitStatus(projectPath, reuseLineStats ? { reuseLineStats: true } : undefined).then((status) => ({
       projectPath,
       status: status ?? null,
       loading: false,
@@ -148,9 +162,10 @@ function requestDockGitState(projectPath: string): Promise<DockGitState> {
       dockGitCache.set(projectPath, state);
       return state;
     });
-  dockGitRequests.set(projectPath, request);
+  const entry = { reuseLineStats, promise: request };
+  dockGitRequests.set(projectPath, entry);
   void request.finally(() => {
-    if (dockGitRequests.get(projectPath) === request) dockGitRequests.delete(projectPath);
+    if (dockGitRequests.get(projectPath) === entry) dockGitRequests.delete(projectPath);
   });
   return request;
 }
@@ -606,7 +621,10 @@ export const UtilityDock = memo(function UtilityDock({
   const [dockGitState, setDockGitState] = useState<DockGitState>(
     () => readCachedDockGitState(dockProjectPath),
   );
-  const refreshDockGitStatus = useCallback(async (showLoading = false) => {
+  const refreshDockGitStatus = useCallback(async (
+    showLoading = false,
+    options: { reuseLineStats?: boolean } = {},
+  ) => {
     const currentProject = dockProjectPath;
     const epoch = ++gitRequestEpoch.current;
     if (!currentProject) {
@@ -625,28 +643,47 @@ export const UtilityDock = memo(function UtilityDock({
         // Source Control cover on every tab re-entry.
       }));
     }
-    const next = await requestDockGitState(currentProject);
+    const next = await requestDockGitState(currentProject, options);
     if (epoch !== gitRequestEpoch.current) return;
     setDockGitState(next);
   }, [dockProjectPath]);
-  // Git I/O follows INTENT, not mere dock presence: while Agents is selected
-  // (or a Git surface was never opened) the dock issues no gitStatus at all.
-  // The first Git tab selection loads it, and the silent 2s poll runs only
-  // while a Git surface is the presented one. The cached snapshot survives in
-  // dockGitState, so re-entry stays instant without background traffic.
+  // Git I/O follows intent and evidence. A recursive project watcher plus
+  // explicit Git actions drive refreshes; the slow safety lane only protects
+  // platforms where native watch delivery is unavailable or overflowed.
   const gitSurfaceSelected = presentedGroup.includes("source-control")
     || presentedGroup.includes("pull-requests");
   useEffect(() => {
     if (!open || !contentReady || !dockProjectPath || !gitSurfaceSelected) return undefined;
-    void refreshDockGitStatus(true);
-    const refresh = () => void refreshDockGitStatus();
-    const timer = window.setInterval(refresh, 2_000);
-    window.addEventListener("focus", refresh);
-    window.addEventListener("mixdog:git-changed", refresh);
+    let first = true;
+    const scheduler = createGitRefreshScheduler(async (reason) => {
+      const showLoading = first;
+      first = false;
+      await refreshDockGitStatus(showLoading, {
+        reuseLineStats: reason === "safety",
+      });
+    }, {
+      safetyIntervalMs: 30_000,
+      activityDebounceMs: 125,
+      activityMinGapMs: 3_000,
+      slowTaskMultiplier: 5,
+    });
+    const signal = () => scheduler.signal();
+    const refreshNow = () => scheduler.refreshNow();
+    const visibilityChanged = () => {
+      if (document.visibilityState === "hidden") scheduler.pause();
+      else scheduler.resume();
+    };
+    const unsubscribeProject = subscribeProjectFileChanges(dockProjectPath, signal);
+    window.addEventListener("focus", refreshNow);
+    window.addEventListener("mixdog:git-changed", signal);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    if (document.visibilityState !== "hidden") scheduler.resume();
     return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener("mixdog:git-changed", refresh);
+      scheduler.dispose();
+      unsubscribeProject();
+      window.removeEventListener("focus", refreshNow);
+      window.removeEventListener("mixdog:git-changed", signal);
+      document.removeEventListener("visibilitychange", visibilityChanged);
     };
   }, [contentReady, dockProjectPath, gitSurfaceSelected, open, refreshDockGitStatus]);
   // Boot preload (user: 호버 말고 부트 프리로드는 백그라운드에서): the intent
@@ -1057,9 +1094,8 @@ export const UtilityDock = memo(function UtilityDock({
         <span className="utility-dock-header-actions utility-dock-scm-actions"
           ref={setHeaderActionsSlot} />
       </header>}
-      {/* The project picker is the Source Control toolbar's repository
-          section now (repository | branch | push-pull), so it
-          is handed to the dock instead of sitting in its own row. */}
+      {/* The dock keeps project selection in its own row and reserves the Git
+          toolbar for the fixed branch | Push | Fetch actions. */}
       <MemoSourceControlDock
         projectPath={dockProjectPath}
         projectSelect={showTabs ? projectSelectControl : null}

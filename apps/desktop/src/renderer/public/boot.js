@@ -12,7 +12,7 @@ if (!/Electron/i.test(navigator.userAgent)) {
     if (mixdogViewport) {
       mixdogViewport.setAttribute(
         'content',
-        'width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content',
+        'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content',
       );
     }
     document.documentElement.dataset.mixdogMobileTabs = '';
@@ -21,7 +21,7 @@ if (!/Electron/i.test(navigator.userAgent)) {
   } else if (mixdogViewport) {
     mixdogViewport.setAttribute(
       'content',
-      'width=1040, viewport-fit=cover, interactive-widget=resizes-content',
+      'width=1040, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content',
     );
     document.documentElement.dataset.mixdogProjection = 'desktop';
   }

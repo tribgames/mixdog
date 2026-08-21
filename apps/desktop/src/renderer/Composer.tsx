@@ -116,6 +116,14 @@ function DictationMeter({ levelRef }: { levelRef: MutableRefObject<number> }) {
   );
 }
 
+function DictationProgress() {
+  return (
+    <span className="composer-dictation-progress" aria-hidden="true">
+      {DICTATION_BAR_GAINS.map((_, index) => <span key={index} />)}
+    </span>
+  );
+}
+
 function reportComposerAction(diagnostic: DesktopRendererComposerActionDiagnostic): void {
   try { window.mixdogDesktop?.rendererDiagnostic?.(diagnostic); } catch { /* diagnostics only */ }
 }
@@ -1908,22 +1916,24 @@ export const Composer = memo(function Composer({
       {/* Recording takes over the typing surface, never the footer: the stop
           and send discs below stay reachable, and the draft underneath is
           untouched until the transcript is appended to it. */}
-      {dictationState !== 'idle' && <div className="composer-dictation-overlay">
-        {dictationState === 'recording' ? <>
-          <DictationMeter levelRef={dictationLevelRef} />
-          {/* No live region on the timer: a polite announcement twice a second
-              would talk over everything else. The mic button's label carries
-              the state instead. */}
-          <span className="composer-dictation-elapsed">{formatDictationElapsed(recordingElapsedMs)}</span>
-          <button type="button" className="composer-dictation-cancel"
-            aria-label={t("Discard recording")} data-tooltip={t("Discard · Esc")} data-tooltip-side="top"
-            onClick={() => cancelDictation()}>
-            <X size={16} aria-hidden="true" />
-          </button>
-        </> : <>
-          <ProgressSpinner className="composer-mic-spinner" size={16} />
-          <span className="composer-dictation-elapsed" role="status">{t("Transcribing…")}</span>
-        </>}
+      {dictationState !== 'idle' && <div className="composer-dictation-overlay" data-state={dictationState}>
+        <div className="composer-dictation-status" data-state={dictationState}>
+          {dictationState === 'recording' ? <>
+            <DictationMeter levelRef={dictationLevelRef} />
+            {/* No live region on the timer: a polite announcement twice a second
+                would talk over everything else. The mic button's label carries
+                the state instead. */}
+            <span className="composer-dictation-elapsed">{formatDictationElapsed(recordingElapsedMs)}</span>
+            <button type="button" className="composer-dictation-cancel"
+              aria-label={t("Discard recording")} data-tooltip={t("Discard · Esc")} data-tooltip-side="top"
+              onClick={() => cancelDictation()}>
+              <X size={14} aria-hidden="true" />
+            </button>
+          </> : <>
+            <DictationProgress />
+            <span className="composer-dictation-elapsed" role="status">{t("Transcribing…")}</span>
+          </>}
+        </div>
       </div>}
       <textarea ref={textarea} value={draft} onChange={(event) => {
         // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,

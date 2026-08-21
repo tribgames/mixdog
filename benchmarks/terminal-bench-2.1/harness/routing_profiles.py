@@ -166,7 +166,9 @@ def build_benchmark_config(
         for provider in sorted(providers)
     }
     return {
+        "outputStyle": "simple",
         "agent": {
+            "profile": {"language": "en"},
             "providers": provider_config,
             "presets": [
                 {

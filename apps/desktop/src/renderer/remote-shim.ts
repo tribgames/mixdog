@@ -9,7 +9,6 @@ import type {
   DesktopAgentPoolRow,
   DesktopLspDiagnosticEvent,
   DesktopLspStatusEvent,
-  DesktopRemoteProjectionState,
   DesktopSessionSummary,
   DesktopSessionStateUpdate,
   DesktopUpdaterState,
@@ -30,6 +29,7 @@ import { isRemotePaintProbe } from '../shared/remote-performance';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import {
   REMOTE_PAIRING_STORAGE_KEYS,
+  canReuseStoredRemoteClientRegistration,
   clearStoredRemotePairing,
   isInvalidRemotePairingClose,
   normalizeRemoteExternalUrl,
@@ -37,6 +37,10 @@ import {
   readRemoteDeviceId,
 } from './remote-pairing-recovery';
 import { createSnapshotDeltaDecoder, markCompactWire } from '../main/state-delta';
+import {
+  isInstalledMobileWebAppSurface,
+  isMobileRemoteSurface,
+} from './mobile-surface';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 // OS-shell integrations (recoverable trash, open-with, reveal) are Electron
@@ -121,7 +125,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const stateListeners = new Set<(snapshot: SessionSnapshot) => void>();
   const sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   const agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
-  const projectionListeners = new Set<(state: DesktopRemoteProjectionState) => void>();
   const sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   const termListeners = new Set<(event: { id: string; data: string }) => void>();
   const folderChangeListeners = new Set<(dir: string) => void>();
@@ -164,6 +167,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let everConnected = false;
   let everPaired = false;
   try { everPaired = localStorage.getItem(PAIRED_STORAGE_KEY) === '1'; } catch { /* no storage */ }
+  clientRegistered = canReuseStoredRemoteClientRegistration({
+    everPaired,
+    token,
+    hasE2eePairing: Boolean(e2eePairing),
+  });
   let retryMs = 500;
   let nextId = 1;
   let secureChannel: RelayE2EEChannel | null = null;
@@ -296,13 +304,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // from Settings → Connection. Manual entry hides behind a toggle so the
   // default screen is just the viewfinder. Vanilla DOM keeps recovery working
   // before React mounts and even when the socket cannot open.
-  const installedStandalone = (): boolean => {
-    try {
-      return window.matchMedia('(display-mode: standalone)').matches
-        || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    } catch { return false; }
-  };
-
   // Chromium's install offer fires once and early — possibly before the entry
   // screen exists — so it is captured here and replayed when that screen mounts.
   let installPrompt: (Event & { prompt(): Promise<void> }) | null = null;
@@ -473,7 +474,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }
         token = credential;
         e2eePairing = material;
-        clientRegistered = false;
+        // Claim approval already minted this browser's credential server-side.
+        clientRegistered = true;
         window.dispatchEvent(new Event(REMOTE_CREDENTIAL_READY_EVENT));
         approvalVerificationInFlight = true;
         onStatus('Approval received. Verifying the secure connection…');
@@ -513,7 +515,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // browser), and an installed app asks this desktop for approval.
   const showPairingScreen = (message: string, autoAsk = true): void => {
     if (document.getElementById('mixdog-remote-pairing')) return;
-    const standalone = installedStandalone();
+    const mobile = isMobileRemoteSurface();
+    const standalone = isInstalledMobileWebAppSurface();
     const ios = /iPad|iPhone|iPod/iu.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const mount = () => {
@@ -554,26 +557,34 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + '</style>'
         + '<main class="mrp-card">'
         + '<img src="/mixdog.svg" alt="" draggable="false"/>'
-        + `<b>${standalone ? 'Approve this device' : 'Install Mixdog'}</b>`
+        + `<b>${standalone
+          ? 'Approve this device'
+          : (mobile ? 'Install Mixdog' : 'Install Mixdog on your phone')}</b>`
         + '<p data-role="note"></p>'
         + (standalone
           ? '<div class="mrp-wait"><i aria-hidden="true"></i>'
             + '<b data-role="wait-title">Waiting for approval</b></div>'
             + '<p class="mrp-status" data-role="status"></p>'
             + '<button type="button" data-role="ask" hidden>Ask again</button>'
-          : (ios
-            ? '<ol><li><i>1</i>Tap the Share button</li>'
-              + '<li><i>2</i>Choose Add to Home Screen</li>'
-              + '<li><i>3</i>Open Mixdog and approve it on your desktop</li></ol>'
-            : '<ol><li><i>1</i>Install Mixdog from your browser menu</li>'
-              + '<li><i>2</i>Open it and approve it on your desktop</li></ol>')
-            + '<button type="button" data-role="install" hidden>Install</button>')
+          : (!mobile
+            ? '<ol><li><i>1</i>Open this page on your phone or tablet</li>'
+              + '<li><i>2</i>Install Mixdog from the mobile browser</li>'
+              + '<li><i>3</i>Open the installed app and approve it on your desktop</li></ol>'
+            : (ios
+              ? '<ol><li><i>1</i>Tap the Share button</li>'
+                + '<li><i>2</i>Choose Add to Home Screen</li>'
+                + '<li><i>3</i>Open Mixdog and approve it on your desktop</li></ol>'
+              : '<ol><li><i>1</i>Install Mixdog from your browser menu</li>'
+                + '<li><i>2</i>Open it and approve it on your desktop</li></ol>')
+              + '<button type="button" data-role="install" hidden>Install</button>'))
         + '</main>';
       const note = layer.querySelector<HTMLElement>('[data-role="note"]');
       if (note) {
         note.textContent = standalone
           ? (message || 'Mixdog needs a one-time approval from the desktop it belongs to.')
-          : 'Mixdog runs as an installed app. Install it, then approve it once on your desktop.';
+          : (mobile
+            ? 'Mixdog runs as an installed mobile app. Install it, then approve it once on your desktop.'
+            : 'The Mixdog web app works only when installed on a mobile device.');
       }
       const install = layer.querySelector<HTMLButtonElement>('[data-role="install"]');
       if (install && installPrompt) install.removeAttribute('hidden');
@@ -650,14 +661,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         const list = Array.isArray(agents) ? agents : [];
         for (const listener of [...agentPoolListeners]) {
           try { listener(list); } catch { /* renderer listener fault */ }
-        }
-      })
-      .catch(() => {});
-    void call<DesktopRemoteProjectionState>('getRemoteProjection')
-      .then((projection) => {
-        if (!projection || typeof projection !== 'object') return;
-        for (const listener of [...projectionListeners]) {
-          try { listener(projection); } catch { /* renderer listener fault */ }
         }
       })
       .catch(() => {});
@@ -819,12 +822,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       const agents = decoded.items ?? [];
       for (const listener of [...agentPoolListeners]) {
         try { listener(agents); } catch { /* renderer listener fault */ }
-      }
-    } else if (message.event === 'remoteProjection') {
-      const projection = message.payload as DesktopRemoteProjectionState;
-      if (!projection || typeof projection !== 'object') return;
-      for (const listener of [...projectionListeners]) {
-        try { listener(projection); } catch { /* renderer listener fault */ }
       }
     } else if (message.event === 'sessionState') {
       const payload = message.payload as DesktopSessionStateUpdate & {
@@ -1353,8 +1350,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // Only Electron's webUtils can name an OS-dropped file. A browser drop
     // carries the File itself, which the composer reads without a path.
     folderPathForFile: () => '',
-    folderWatch: (dir) => call('folderWatch', [dir]),
-    folderUnwatch: (dir) => call('folderUnwatch', [dir]),
+    folderWatch: (dir, recursive) => call('folderWatch', [dir, recursive === true]),
+    folderUnwatch: (dir, recursive) => call('folderUnwatch', [dir, recursive === true]),
     subscribeFolderChanges: (listener) =>
       laneSubscription('files', folderChangeListeners, listener),
     resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
@@ -1368,12 +1365,6 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     subscribeAgentPool: (listener) => {
       agentPoolListeners.add(listener);
       return () => { agentPoolListeners.delete(listener); };
-    },
-    getRemoteProjection: () => call('getRemoteProjection'),
-    setRemoteProjection: (projection) => call('setRemoteProjection', [projection]),
-    subscribeRemoteProjection: (listener) => {
-      projectionListeners.add(listener);
-      return () => { projectionListeners.delete(listener); };
     },
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
     setSessionArchived: (sessionId: string, archived: boolean) =>
@@ -1402,7 +1393,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     termResize: (id, cols, rows) => fire('termResize', [id, cols, rows]),
     termDispose: (id) => call('termDispose', [id]),
     subscribeTermData: (listener) => laneSubscription('terminal', termListeners, listener),
-    gitStatus: (cwd) => call('gitStatus', [cwd]),
+    gitStatus: (cwd, options) => call('gitStatus', [cwd, options]),
     gitBranches: (cwd) => call('gitBranches', [cwd]),
     gitCheckoutBranch: (cwd, branch, remote) =>
       call('gitCheckoutBranch', [cwd, branch, remote === true]),
@@ -1491,20 +1482,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     setFast: (enabled, sessionId) => call('setFast', [enabled, sessionId]),
     readSettings: () => call('readSettings'),
     updateSetting: (key, enabled) => call('updateSetting', [key, enabled]),
-    getZoomFactor: () => {
-      try {
-        const stored = Number(window.localStorage.getItem('mixdog.web-zoom') || '1');
-        return Promise.resolve(Number.isFinite(stored) && stored > 0 ? stored : 1);
-      } catch {
-        return Promise.resolve(1);
-      }
-    },
-    setZoomFactor: (factor) => {
-      const next = Math.min(10, Math.max(0.2, Math.round(Number(factor) * 100) / 100)) || 1;
-      if (next === 1) document.documentElement.style.removeProperty('zoom');
-      else document.documentElement.style.zoom = String(next);
-      try { window.localStorage.setItem('mixdog.web-zoom', String(next)); } catch { /* session only */ }
-      return Promise.resolve(next);
+    getZoomFactor: () => Promise.resolve(1),
+    setZoomFactor: () => {
+      document.documentElement.style.removeProperty('zoom');
+      try { window.localStorage.removeItem('mixdog.web-zoom'); } catch { /* private storage */ }
+      return Promise.resolve(1);
     },
     onZoomFactorChanged: () => () => {},
     applyTitleBarTheme: () => Promise.resolve(),
@@ -1530,11 +1512,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // connected so the panel shows live status instead of desktop-only pairing.
   (w as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer =
     serverBase || location.origin;
-  // What this container IS decides the surface. A browser only ever gets the
-  // install guide: the installed app is what holds a credential, and on iOS a
-  // browser cannot hand one to it. An installed app without a credential asks
-  // this desktop for approval. Neither dials the relay.
-  if (!installedStandalone() || !token) {
+  // A browser tab always gets the install guide. A desktop-installed PWA is
+  // also guide-only: only an installed phone/tablet app may hold a credential
+  // and dial the relay.
+  if (!isInstalledMobileWebAppSurface() || !token) {
     showPairingScreen('');
     return;
   }

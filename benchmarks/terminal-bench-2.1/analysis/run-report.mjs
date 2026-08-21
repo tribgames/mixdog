@@ -689,7 +689,11 @@ export function formatRunReport(report) {
   const contract = report.preset.contract;
   if (contract) {
     const short = (hash) => String(hash || '').replace(/^sha256:/, '').slice(0, 12) || 'n/a';
-    lines.push(`- Contract: rules ${short(contract.rulesHash)} (${contract.rulesFiles} files), tools ${short(contract.toolCatalogHash)} (${contract.toolCount} tools, ${contract.toolSchemaBytes} B)`);
+    const toolHash = contract.toolContractHash || contract.toolCatalogHash;
+    const activeCount = contract.activeToolCount ?? contract.toolCount;
+    const providerCount = contract.providerToolCount ?? activeCount;
+    const routeCount = Object.keys(contract.routeContracts || {}).length || 1;
+    lines.push(`- Contract: rules ${short(contract.rulesHash)} (${contract.rulesFiles} files), tools ${short(toolHash)} (${contract.toolCount} catalog, ${activeCount} active, ${providerCount} provider, ${routeCount} route${routeCount === 1 ? '' : 's'})`);
   }
   if (previous) {
     lines.push(`- Previous delta: agent ${number(previous.deltas.agentTotalSeconds)}s, wall ${number(previous.deltas.wallSeconds)}s, input ${previous.deltas.inputTokens}, output ${previous.deltas.outputTokens}`);

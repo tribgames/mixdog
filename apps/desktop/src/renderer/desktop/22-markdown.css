@@ -256,8 +256,47 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   max-width: calc(100vw - 24px);
   display: grid;
   grid-template-columns: 1fr;
-  gap: 2px;
+  gap: 6px;
   padding: 8px;
+}
+.session-work-indicator[data-active="false"] .live-work-popover {
+  width: max-content;
+  min-width: 220px;
+}
+.live-work-group {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.live-work-group + .live-work-group {
+  padding-top: 6px;
+  border-top: .5px solid var(--mx-border);
+}
+.live-work-group-header {
+  min-width: 0;
+  height: 28px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  color: var(--mx-text-muted);
+}
+.live-work-group-header > svg { color: var(--mx-icon-muted); }
+.live-work-group-header > span {
+  overflow: hidden;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.live-work-group-header > b {
+  min-width: 18px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .session-work-indicator .live-work-row {
   min-width: 0;
@@ -273,6 +312,10 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 .session-work-indicator .live-work-row:only-child:not([data-kind]) {
   grid-template-columns: 1fr;
   color: var(--mx-text-muted);
+}
+.session-work-indicator[data-active="false"] .live-work-row {
+  min-height: 36px;
+  padding-block: 6px;
 }
 .live-work-copy {
   min-width: 0;
@@ -296,8 +339,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   text-overflow: ellipsis;
 }
 .session-work-indicator .live-work-row > time {
-  align-self: start;
-  padding-top: 1px;
+  align-self: center;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
   font-variant-numeric: tabular-nums;
@@ -313,8 +355,8 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   border: 0;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-icon-muted);
-  background: var(--mx-bg-layer-2);
-  box-shadow: var(--mx-button);
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
 }
 .live-work-stop:hover:not(:disabled) { color: var(--mx-danger); background: var(--mx-danger-bg); }
@@ -917,16 +959,10 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 .tool-state.warning { color: var(--mx-warning); }
 .tool-card.failed.failure-arrived .tool-icon svg { animation: tool-failed-blink 700ms ease-in-out 2; }
 @keyframes tool-failed-blink { 50% { opacity: var(--mx-op-ghost); } }
-/* TUI toolStatusColor parity, and the user's stated palette: positive green,
-   negative red, neutral amber, running muted. Draining the green was the
-   wrong call — the row's outcome IS the signal people scan for. Order
-   matters: the state rules below override this. */
-/* Saturation follows FREQUENCY: success is the common case (a turn prints six
-   or eight settled rows in a row, which at full chroma reads as a green
-   field), so it keeps the hue but sits back at 70%. Failure and exit are rare
-   and stay at full chroma below, so a problem row now pops out of the stack
-   instead of competing with it. */
-.tool-card.settled .tool-icon { color: color-mix(in srgb, var(--mx-success) 70%, transparent); }
+/* Successful tool work is the transcript baseline, not an alert. Keep settled
+   child rows neutral under the ListTree activity group; rare failures and
+   warnings retain their semantic colors below. */
+.tool-card.settled .tool-icon { color: var(--mx-icon-muted); }
 .tool-card:not(.settled) .tool-icon {
   color: var(--mx-text-muted);
 }

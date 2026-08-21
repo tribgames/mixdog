@@ -500,7 +500,7 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
         options={experienceLevelOptions} onChange={(experienceLevel) => void run('setProfile', [{ experienceLevel }])} />
     </Group>
     <Group title="Features">
-      <ToggleRow title="Web search" description="Expose web search and web fetch tools to new sessions."
+      <ToggleRow title="Web search" description={t("Expose web search and web fetch tools to new sessions.")}
         checked={webSearchModule.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setWebSearchEnabled', [enabled])} />
       <ToggleRow title="Memory" description={t("Memory and recall tools, core-memory injection, and background memory upkeep.")}

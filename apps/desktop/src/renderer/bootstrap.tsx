@@ -10,14 +10,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { RemoteClaimPrompt } from "./RemoteClaimPrompt";
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from "./RendererRecovery";
-import "@fontsource-variable/inter";
-// Grok-web feel: Geist leads the Latin stack (Universal Sans's closest open
-// stand-in); Inter stays as fallback and Pretendard owns Hangul.
-import "@fontsource-variable/geist";
 import "@fontsource-variable/jetbrains-mono";
-// Hangul coverage: Inter has no Korean glyphs, so without a bundled Korean
-// face the UI fell back to Malgun Gothic. Pretendard Variable is the modern
-// Inter-metric-compatible Korean companion face.
+// Pretendard owns both Latin and Hangul across the shell. Geist/Inter used to
+// be bundled as fallbacks even though no rendered stack selected them, adding
+// font-face CSS and making the launch gate fetch an unused Geist face.
 // Dynamic subset (not the single 2MB variable file): the face ships as ~93
 // unicode-range slices, so a browser/phone downloads only the Hangul blocks it
 // actually paints instead of the whole family on every cold load.
@@ -38,6 +34,9 @@ import "./styles.css";
 import "./desktop.css";
 // Split-pane workspace + bottom panel chrome (components import no css).
 import "./pane-layout.css";
+// Mobile PWA runtime invariants load last: they own the visual-viewport frame,
+// page scroll lock, and iOS input scale floor over every desktop layer.
+import "./mobile-web-runtime.css";
 import "./webview-zoom";
 import { installShellViewport } from "./shell-viewport";
 import { installFocusModality } from "./focus-modality";
@@ -48,20 +47,6 @@ import { scheduleFontWarmup } from "./font-warmup";
 import { preloadMarkdownBody } from "./TranscriptView";
 import { defaultSessionLaneStore } from "./session-lane-store";
 import { installAutoDomI18n } from "./auto-dom-i18n";
-
-// VPS/LAN browser surfaces are installable PWAs. Electron never registers this
-// worker; it is deliberately network-only so a newly deployed renderer cannot
-// be stranded behind an application-shell cache.
-const remoteWebSurface = Boolean(
-  (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer,
-);
-if (remoteWebSurface && window.isSecureContext && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
-      // Installation is optional; a failed worker must never block web access.
-    });
-  }, { once: true });
-}
 
 markBootStage("renderer-entry");
 if (import.meta.env?.DEV) performance.mark("mixdog:startup:renderer-entry");
@@ -111,7 +96,6 @@ try {
     // Pretendard's dynamic subset splits Hangul away from its Latin face.
     // Supplying Korean text starts a Hangul range before React's first layout.
     document.fonts.load('400 15px "Pretendard Variable"', "한글"),
-    document.fonts.load('500 13px "Geist Variable"'),
     // Restored editor/terminal panes render code at boot: without the mono
     // face in the reveal gate, Monaco painted fallback glyphs and visibly
     // re-flowed when JetBrains Mono landed (user: 부트 시 스크립트가 크게 튐).

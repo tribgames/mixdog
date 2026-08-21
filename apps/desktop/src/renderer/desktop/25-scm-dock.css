@@ -136,35 +136,20 @@
    BOX LINE 12px; headings 15/600 full ink; item 13/400; meta 12. Every
    left-edge below rides the same 12px line. The dock's own
    `.dock-scm-header` band stays gone: the Utility Dock title row is the only
-   header the panel has, and the panel's ONE header action is portaled into
-   that row's action slot. */
-/* The always-available Fetch. The toolbar's morphing rung only offers Fetch
-   while the branch is level, so this compact icon button is pinned at the
-   RIGHT END of the title row, inside `.utility-dock-header-actions` — the slot
-   already owns the 28x28 box, the hover wash and the disabled ink, so only the
-   icon's own centring belongs here. No "…" overflow menu returns with it. */
-.dock-scm-header-fetch { flex: 0 0 auto; }
-.dock-scm-header-fetch > svg { display: block; }
-/* Top toolbar: repository | current branch | ONE push/pull
-   button, sitting above the Changes | History tab row. The product keeps a
-   roomier 6px vertical inset so these labels do not crowd the rows around it. */
+   header the panel has. */
+/* Top toolbar: current branch | Push | Fetch, sitting above the
+   Changes | History tab row. */
 .dock-scm-toolbar { position: relative; z-index: 6; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
-/* The three sections are EQUAL THIRDS (user: 1:1:1): same `flex: 1 1 0`, same
-   floor, so the push/pull section is a full segment with a readable verb
-   instead of the intrinsic-width icon stub it used to collapse into. */
+/* The three fixed sections are equal thirds. */
 .dock-scm-toolbar-section { min-width: 0; flex: 1 1 0; display: flex; align-items: center; }
-/* Degradation order at narrow dock widths (floor = DESKTOP_UTILITY_DOCK_MIN_WIDTH,
-   shared/window-layout.ts): the push/pull button drops its remote NAME first
-   and keeps its verb down to the last resort; the icon and the ahead/behind
-   badge always survive, and no label is ever truncated into a 1-2 character
-   stub. */
+/* Project selection uses this grammar in the Pull Requests context row. */
 .dock-scm-toolbar-project { flex: 1 1 0; min-width: 76px; }
 .dock-scm-toolbar-project .dock-project-select { width: 100%; }
 .dock-scm-toolbar-project .mx-select-value { min-width: 5.5ch; }
 .dock-scm-toolbar-project .dock-project-select .mx-select-trigger { width: 100% !important; height: 28px; padding: 0 7px; border: 0 !important; border-radius: var(--mx-radius-md); outline: 0; background: transparent !important; box-shadow: none !important; }
 .dock-scm-toolbar-project .dock-project-select .mx-select-trigger:hover { background: var(--mx-hover) !important; }
 .dock-scm-toolbar-branch { position: relative; flex: 1 1 0; min-width: 76px; }
-.dock-scm-toolbar-remote { position: relative; flex: 1 1 0; min-width: 76px; }
+.dock-scm-toolbar-push, .dock-scm-toolbar-fetch { position: relative; flex: 1 1 0; min-width: 76px; }
 .dock-scm-branch-button, .dock-scm-remote-button {
   min-width: 0;
   width: 100%;
@@ -210,14 +195,11 @@
 @container (max-width: 280px) {
   .dock-scm-toolbar-project { min-width: 56px; }
   .dock-scm-toolbar-branch { min-width: 56px; }
-  .dock-scm-toolbar-remote { min-width: 56px; }
+  .dock-scm-toolbar-push, .dock-scm-toolbar-fetch { min-width: 56px; }
 }
 .dock-scm-ahead-behind { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 5px; border-radius: var(--mx-radius-pill); color: var(--mx-text-muted); background: var(--mx-hover); font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
 .dock-scm-ahead-behind > span { display: inline-flex; align-items: center; gap: 1px; }
-/* The push/pull button carries no dropdown any more, and no separate Fetch
-   exists to style: the section IS Fetch whenever the branch is level, and the
-   push rung the ladder loses to Pull stays reachable on the unpushed history
-   rows — so the dropdown trigger and its portaled menu have no markup left. */
+/* Push and Fetch are independent fixed actions; neither owns a dropdown. */
 .dock-scm-branch-new { height: 24px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-minor); cursor: pointer; }
 .dock-scm-branch-new:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .dock-scm-merge-row { width: 100%; min-height: 30px; flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 0; border-top: 1px solid var(--mx-border-muted); color: var(--mx-text); background: transparent; font-size: var(--mx-font-minor); text-align: left; cursor: pointer; }

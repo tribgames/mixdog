@@ -117,6 +117,21 @@ export function readerScrollShouldReleaseFollow({
   return upwardMove > RELEASE_MOVE_PX;
 }
 
+/** A touch drag toward older history releases follow only when the gesture
+ *  reaches the transcript itself. A nested code/tool scroller keeps ownership
+ *  until its own leading boundary is reached. */
+export function touchMoveShouldReleaseFollow({
+  delta,
+  transcriptReached,
+}: {
+  /** Native scroll delta: negative moves the transcript toward older rows. */
+  delta: number;
+  transcriptReached: boolean;
+}): boolean {
+  if (!Number.isFinite(delta) || !transcriptReached) return false;
+  return -delta > RELEASE_MOVE_PX;
+}
+
 function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
   try {
     window.mixdogDesktop?.perfLog?.(
@@ -515,10 +530,19 @@ export function useTranscriptFollow({
     const delta = previous - next;
     if (!delta) return;
     const target = boundaryTarget(event.currentTarget, event.target);
-    if (target === event.currentTarget || shouldMarkBoundaryGesture(target, delta)) {
+    const transcriptReached = target === event.currentTarget
+      || shouldMarkBoundaryGesture(target, delta);
+    if (transcriptReached) {
       markGesture();
+      // Wheel intent releases synchronously before Chromium's first scroll
+      // frame; touch must do the same. Keeping the end anchor alive until the
+      // later scroll event lets row measurement and followOnAppend reverse the
+      // finger's movement, producing the mobile up/down scrollbar shake.
+      if (touchMoveShouldReleaseFollow({ delta, transcriptReached })) {
+        stop("touch", lastTop.current);
+      }
     }
-  }, [markGesture]);
+  }, [markGesture, stop]);
 
   const handleTouchEnd = useCallback(() => {
     touchGesture.current = undefined;

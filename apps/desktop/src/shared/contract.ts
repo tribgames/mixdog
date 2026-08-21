@@ -88,12 +88,9 @@ export const DESKTOP_IPC = {
   sessionStateResync: 'mixdog:session-state-resync',
   sessionsChanged: 'mixdog:sessions-changed',
   agentPoolChanged: 'mixdog:agent-pool-changed',
-  remoteProjectionChanged: 'mixdog:remote-projection-changed',
   remoteClientClaim: 'mixdog:remote-client-claim',
   listRemoteClientClaims: 'mixdog:list-remote-client-claims',
   resolveRemoteClientClaim: 'mixdog:resolve-remote-client-claim',
-  getRemoteProjection: 'mixdog:get-remote-projection',
-  setRemoteProjection: 'mixdog:set-remote-projection',
   stateResync: 'mixdog:state-resync',
   perfLog: 'mixdog:perf-log',
   rendererDiagnostic: 'mixdog:renderer-diagnostic',
@@ -1153,6 +1150,11 @@ export interface DesktopGitStatus {
   files: DesktopGitFile[];
 }
 
+export interface DesktopGitStatusOptions {
+  /** Reuse the last accepted line totals when the status shape is unchanged. */
+  reuseLineStats?: boolean;
+}
+
 export interface DesktopGitBranch {
   name: string;
   current: boolean;
@@ -1341,22 +1343,6 @@ export interface DesktopLocalFileData {
 
 /** Small, last-writer-wins UI projection shared by Electron and paired web
  * clients. Pane geometry remains local; `selection` is the first visual pane. */
-export interface DesktopRemoteProjectionInput {
-  sourceId: string;
-  selection: unknown;
-  sidebarOpen: boolean;
-  sidebarPanel: string | null;
-  dockOpen: boolean;
-  dockTab: string;
-  bottomPanelOpen: boolean;
-  bottomPanelTab: string;
-}
-
-export interface DesktopRemoteProjectionState extends DesktopRemoteProjectionInput {
-  revision: number;
-  updatedAt: number;
-}
-
 export interface DesktopApi {
   /** Immutable process timeline identity injected before renderer modules run. */
   readonly bootContext?: DesktopBootContext;
@@ -1490,8 +1476,8 @@ export interface DesktopApi {
   /** Read one local file for an existing attachment flow; capped in main. */
   readLocalFile?(path: string): Promise<DesktopLocalFileData>;
   /** Live refresh: watch a directory (refcounted) and stream change pings. */
-  folderWatch?(dir: string): Promise<void>;
-  folderUnwatch?(dir: string): Promise<void>;
+  folderWatch?(dir: string, recursive?: boolean): Promise<void>;
+  folderUnwatch?(dir: string, recursive?: boolean): Promise<void>;
   subscribeFolderChanges?(listener: (dir: string) => void): () => void;
   /** Monaco definition/reference/document-symbol providers via code_graph. */
   codeGraphQuery?(projectPath: string, mode: 'find_symbol' | 'references' | 'symbols', query: string): Promise<string>;
@@ -1513,13 +1499,6 @@ export interface DesktopApi {
   /** Event-driven process-global agent lifecycle pool. */
   listAgentPool?(): Promise<DesktopAgentPoolRow[]>;
   subscribeAgentPool?(listener: (agents: DesktopAgentPoolRow[]) => void): () => void;
-  getRemoteProjection?(): Promise<DesktopRemoteProjectionState | null>;
-  setRemoteProjection?(
-    projection: DesktopRemoteProjectionInput,
-  ): Promise<DesktopRemoteProjectionState>;
-  subscribeRemoteProjection?(
-    listener: (projection: DesktopRemoteProjectionState) => void,
-  ): () => void;
   renameSession(sessionId: string, title: string): Promise<void>;
   setSessionArchived?(sessionId: string, archived: boolean): Promise<void>;
   deleteSession(sessionId: string): Promise<SessionSnapshot>;
@@ -1580,7 +1559,7 @@ export interface DesktopApi {
   /** Shells detected on this machine for the terminal strip's picker. */
   termProfiles?(): Promise<Array<{ id: string; label: string; path: string; default?: boolean }>>;
   /** Dock Git panel: plain git CLI over the active project directory. */
-  gitStatus?(cwd: string): Promise<DesktopGitStatus>;
+  gitStatus?(cwd: string, options?: DesktopGitStatusOptions): Promise<DesktopGitStatus>;
   gitBranches?(cwd: string): Promise<DesktopGitBranch[]>;
   gitCheckoutBranch?(cwd: string, branch: string, remote?: boolean): Promise<string>;
   gitCreateBranch?(cwd: string, branch: string): Promise<string>;

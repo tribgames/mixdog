@@ -64,8 +64,10 @@ const literalProperties = new Set([
 const visibleLiterals = new Set();
 const addLiteral = (value) => {
   const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text || !/[A-Za-z]/.test(text) || text.length < 2 || /^https?:\/\//.test(text)) return;
+  if (!text || text.length < 2 || /^https?:\/\//.test(text)) return;
   if (/^[-\w.]+\.(?:md|tsx?|jsx?|json|css)$/.test(text)) return;
+  const stripped = text.replace(/\{\{value\d+\}\}/g, "");
+  if (!/[A-Za-z]/.test(stripped)) return;
   visibleLiterals.add(text);
 };
 const addExpression = (expression) => {

@@ -6,6 +6,10 @@
 const ASSET_CACHE = "mixdog-assets-v2";
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
+// One page boot requests several hashed chunks together. Trimming after every
+// cache.put repeated the full cache.keys() scan for the same burst.
+const CACHE_TRIM_DEBOUNCE_MS = 50;
+let cacheTrimMaintenance = null;
 
 // Build output under /assets/ carries a content hash, so a given URL can never
 // change meaning. Those are the only responses served from the cache: the
@@ -35,15 +39,27 @@ async function trimCache(cache) {
   }
 }
 
+function scheduleAssetCacheTrim(cache) {
+  if (cacheTrimMaintenance) return cacheTrimMaintenance;
+  cacheTrimMaintenance = new Promise((resolve) => {
+    setTimeout(resolve, CACHE_TRIM_DEBOUNCE_MS);
+  }).then(() => trimCache(cache)).finally(() => {
+    cacheTrimMaintenance = null;
+  });
+  return cacheTrimMaintenance;
+}
+
 // A fetched Response hands over a DECODED body while keeping the transfer
 // headers that described the encoded one. Storing that pair makes the next
 // replay decode already-plain bytes, so the transfer description is dropped
-// before the copy is retained.
-async function storableCopy(response) {
+// before the copy is retained. Preserve the clone's stream: arrayBuffer()
+// buffered an entire Monaco-sized chunk before the browser could consume the
+// original response.
+function storableCopy(response) {
   const headers = new Headers(response.headers);
   headers.delete("content-encoding");
   headers.delete("content-length");
-  return new Response(await response.clone().arrayBuffer(), {
+  return new Response(response.clone().body, {
     status: response.status,
     statusText: response.statusText,
     headers,
@@ -55,18 +71,20 @@ async function cacheFirst(request) {
   // ignoreVary: the relay varies on Accept-Encoding, which the page cannot
   // observe or reproduce; the decoded body it stores is the same either way.
   const hit = await cache.match(request, { ignoreVary: true });
-  if (hit) return hit;
+  if (hit) return { response: hit, maintenance: null };
   const response = await fetch(request);
+  let maintenance = null;
   // Only a real same-origin success may be retained. A 401 from the pairing
   // gate or an opaque response would otherwise pin itself for the lifetime of
   // the installed app.
   if (response.ok && response.type === "basic") {
-    try {
-      await cache.put(request, await storableCopy(response));
-      void trimCache(cache);
-    } catch { /* a cache that cannot accept the copy still serves the network */ }
+    // Return the original response immediately. The extending fetch event owns
+    // the streamed clone until cache.put and one coalesced trim complete.
+    maintenance = cache.put(request, storableCopy(response))
+      .then(() => scheduleAssetCacheTrim(cache))
+      .catch(() => undefined);
   }
-  return response;
+  return { response, maintenance };
 }
 
 self.addEventListener("fetch", (event) => {
@@ -78,5 +96,11 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(request));
     return;
   }
-  event.respondWith(cacheFirst(request).catch(() => fetch(request)));
+  const operation = cacheFirst(request);
+  event.respondWith(operation
+    .then((result) => result.response)
+    .catch(() => fetch(request)));
+  event.waitUntil(operation
+    .then((result) => result.maintenance)
+    .catch(() => undefined));
 });

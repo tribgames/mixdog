@@ -34,6 +34,12 @@ export type TranscriptRowModel =
       live?: boolean;
     }
   | {
+      _tag: "ToolActivity";
+      key: string;
+      turnKey: string;
+      items: readonly TranscriptItem[];
+    }
+  | {
       _tag: "Thinking";
       key: string;
       turnKey: string;
@@ -113,12 +119,35 @@ function pushBuilderItem(
   builder.previousRowWasUser = false;
 }
 
+interface PendingToolActivityItem {
+  item: TranscriptItem;
+  index: number;
+  turnKey: string;
+}
+
+function pushToolActivity(
+  builder: TranscriptRowBuilder,
+  sessionKey: string,
+  pending: readonly PendingToolActivityItem[],
+): void {
+  const first = pending[0];
+  if (!first) return;
+  beginBuilderTurn(builder, sessionKey, first.turnKey);
+  builder.rows.push({
+    _tag: "ToolActivity",
+    key: `${transcriptRowKey(sessionKey, first.item, first.index)}:tool-activity`,
+    turnKey: first.turnKey,
+    items: pending.map(({ item }) => item),
+  });
+  builder.previousRowWasUser = false;
+}
+
 export interface SettledTranscriptProjection {
   rows: readonly TranscriptRowModel[];
   currentTurnKey: string;
   previousRowWasUser: boolean;
   itemCount: number;
-  settledItemIds: ReadonlySet<unknown>;
+  hasSettledItem(id: unknown): boolean;
 }
 
 /**
@@ -143,11 +172,19 @@ export function projectSettledTranscriptRows({
   const lastItemByTurn = new Map<string, number>();
   const lastCompletionByTurn = new Map<string, number>();
   const lastAssistantByTurn = new Map<string, number>();
-  const settledItemIds = new Set<unknown>();
+  let settledItemIds: Set<unknown> | null = null;
+  const hasSettledItem = (id: unknown): boolean => {
+    if (id === undefined || id === null) return false;
+    if (!settledItemIds) {
+      settledItemIds = new Set(items
+        .map((item) => item?.id)
+        .filter((itemId) => itemId !== undefined && itemId !== null));
+    }
+    return settledItemIds.has(id);
+  };
   items.forEach((item, index) => {
     const turnKey = turnKeys[index] || "";
     lastItemByTurn.set(turnKey, index);
-    if (item?.id != null) settledItemIds.add(item.id);
     if (item?.kind === "assistant") lastAssistantByTurn.set(turnKey, index);
     if (isCompletionTranscriptItem(item)) lastCompletionByTurn.set(turnKey, index);
   });
@@ -169,6 +206,11 @@ export function projectSettledTranscriptRows({
     currentTurnKey: "",
     previousRowWasUser: false,
   };
+  let pendingToolActivity: PendingToolActivityItem[] = [];
+  const flushToolActivity = () => {
+    pushToolActivity(builder, sessionKey, pendingToolActivity);
+    pendingToolActivity = [];
+  };
   const pushFailure = (turnKey: string, item?: TranscriptItem) => {
     beginBuilderTurn(builder, sessionKey, turnKey);
     builder.rows.push({ _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey, item });
@@ -179,11 +221,18 @@ export function projectSettledTranscriptRows({
     const failed = failedTurns.has(turnKey);
     if (failed && isCompletionTranscriptItem(item)) {
       // One status row per failed turn, at its last completion marker.
-      if (index === lastCompletionByTurn.get(turnKey)) pushFailure(turnKey, item);
+      if (index === lastCompletionByTurn.get(turnKey)) {
+        flushToolActivity();
+        pushFailure(turnKey, item);
+      }
       return;
     }
-    if (foldedCompletions.has(index)) return;
+    if (foldedCompletions.has(index)) {
+      flushToolActivity();
+      return;
+    }
     if (item?.kind === "user" && isTranscriptCancelledStatusText(item.text)) {
+      flushToolActivity();
       beginBuilderTurn(builder, sessionKey, turnKey);
       builder.rows.push({
         _tag: "AssistantPart",
@@ -200,6 +249,18 @@ export function projectSettledTranscriptRows({
       return;
     }
     if (!isVisibleTranscriptItem(item)) return;
+    if (item.kind === "tool") {
+      if (pendingToolActivity.length > 0 && pendingToolActivity[0]?.turnKey !== turnKey) {
+        flushToolActivity();
+      }
+      pendingToolActivity.push({ item, index, turnKey });
+      if (failed && !lastCompletionByTurn.has(turnKey) && index === lastItemByTurn.get(turnKey)) {
+        flushToolActivity();
+        pushFailure(turnKey, item);
+      }
+      return;
+    }
+    flushToolActivity();
     pushBuilderItem(builder, sessionKey, item, index, turnKey, completionByIndex.get(index));
     // A turn that failed without ever emitting a completion marker still owes
     // the reader one status row after its last content row.
@@ -207,12 +268,13 @@ export function projectSettledTranscriptRows({
       pushFailure(turnKey, item);
     }
   });
+  flushToolActivity();
   return {
     rows: builder.rows,
     currentTurnKey: builder.currentTurnKey,
     previousRowWasUser: builder.previousRowWasUser,
     itemCount: items.length,
-    settledItemIds,
+    hasSettledItem,
   };
 }
 
@@ -247,7 +309,7 @@ export function appendLiveTranscriptRows({
   // A delayed lane can briefly publish a tail whose id has already settled.
   // Never create a second stable-key row for that stale publication.
   const liveItemAlreadySettled = liveItem?.id != null
-    && settled.settledItemIds.has(liveItem.id);
+    && settled.hasSettledItem(liveItem.id);
   if (liveItem && !liveItemAlreadySettled) {
     beginBuilderTurn(builder, sessionKey, activeTurnKey);
     builder.rows.push({

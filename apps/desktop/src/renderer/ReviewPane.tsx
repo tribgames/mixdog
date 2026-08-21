@@ -8,6 +8,11 @@ import { DiffView } from "./lazy-widgets";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { parseUnifiedDiff } from "./renderer-logic.mjs";
 import { copyTextToClipboard } from "./text-format";
+import {
+  createGitRefreshScheduler,
+  type GitRefreshReason,
+} from "./git-refresh-scheduler";
+import { subscribeProjectFileChanges } from "./project-file-changes";
 
 // ── Dock Git panel ───────────────────────
 interface GitPanelStatus {
@@ -98,8 +103,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   useMobileBack(Boolean(menu), () => setMenu(null));
   const [forced, setForced] = useState<string[]>([]);
   const [diffs, setDiffs] = useState<Record<string, string | null>>({});
-  // No manual refresh control: the 4s poll owns freshness, so cached diffs
-  // must self-invalidate when a file's stats change under it.
+  // No manual refresh control: file-watch evidence plus the safety lane owns
+  // freshness, so cached diffs self-invalidate when a file's stats change.
   const reviewRef = useRef<GitReviewInfo | null>(null);
   const [diffStyle, setDiffStyle] = useState<"unified" | "split">(() => {
     try { return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === "split" ? "split" : "unified"; }
@@ -108,7 +113,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   useEffect(() => {
     try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
   }, [diffStyle]);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (reason: GitRefreshReason = "activity") => {
     if (!cwd) { setStatus(null); return; }
     if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
       setError(t("Review needs an app restart to finish updating."));
@@ -116,7 +121,9 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
     }
     try {
       const [next, nextReview] = await Promise.all([
-        window.mixdogDesktop.gitStatus(cwd),
+        window.mixdogDesktop.gitStatus(cwd, {
+          reuseLineStats: reason === "safety",
+        }),
         window.mixdogDesktop.gitReview(cwd),
       ]);
       setStatus(next ?? null);
@@ -144,16 +151,36 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
   }, [cwd]);
-  useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
-    const timer = window.setInterval(() => { void refresh(); }, 4_000);
-    const onFocus = () => { void refresh(); };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
+    if (!cwd) return undefined;
+    const scheduler = createGitRefreshScheduler(
+      (reason) => refresh(reason),
+      {
+        safetyIntervalMs: 30_000,
+        activityDebounceMs: 125,
+        activityMinGapMs: 3_000,
+        slowTaskMultiplier: 5,
+      },
+    );
+    const signal = () => scheduler.signal();
+    const refreshNow = () => scheduler.refreshNow();
+    const visibilityChanged = () => {
+      if (document.hidden) scheduler.pause();
+      else scheduler.resume();
     };
-  }, [refresh]);
+    const unsubscribeFiles = subscribeProjectFileChanges(cwd, signal);
+    window.addEventListener("focus", refreshNow);
+    window.addEventListener("mixdog:git-changed", signal);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    visibilityChanged();
+    return () => {
+      scheduler.dispose();
+      unsubscribeFiles();
+      window.removeEventListener("focus", refreshNow);
+      window.removeEventListener("mixdog:git-changed", signal);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+    };
+  }, [cwd, refresh]);
   // Lazy diff loads for open files that are not cached yet.
   useEffect(() => {
     if (!cwd || !review) return;

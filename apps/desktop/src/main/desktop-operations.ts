@@ -313,13 +313,14 @@ export function createDesktopOperations({
     }
     if (name === 'folderWatch') {
       const dir = folderExplorer.browsableFolderPath(args[0]);
-      const key = watchKey(dir);
+      const recursive = args[1] === true;
+      const key = `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
       const existing = folderWatchers.get(key);
       if (existing) {
         existing.count += 1;
         return null;
       }
-      const watcher = watch(dir, { persistent: false }, () => {
+      const watcher = watch(dir, { persistent: false, recursive }, () => {
         const state = folderWatchers.get(key);
         if (!state || state.timer) return;
         state.timer = setTimeout(() => {
@@ -336,7 +337,9 @@ export function createDesktopOperations({
       return null;
     }
     if (name === 'folderUnwatch') {
-      const key = watchKey(folderExplorer.browsableFolderPath(args[0]));
+      const dir = folderExplorer.browsableFolderPath(args[0]);
+      const recursive = args[1] === true;
+      const key = `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
       const state = folderWatchers.get(key);
       if (!state) return null;
       state.count -= 1;

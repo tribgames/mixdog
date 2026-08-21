@@ -111,6 +111,12 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   const [switching, setSwitching] = useState(false);
   const switchGuard = useRef(false);
   beginBootSurface("workflow-controls", "catalog");
+  // The inherited workflow label is a complete shell; fetching the dropdown
+  // choices is optional data and must not keep the whole desktop covered.
+  useEffect(() => {
+    reportBootSurfaceStage("workflow-controls", "catalog", "module");
+    reportBootSurfaceReady("workflow-controls", "catalog", "shell");
+  }, []);
   useEffect(() => {
     if (workflowOptionsCache && Date.now() - workflowOptionsCache.at < 300_000) {
       setOptionsSettled(true);
@@ -146,7 +152,6 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   useEffect(() => {
     if (!optionsSettled) return;
     reportBootSurfaceStage("workflow-controls", "catalog", "data");
-    reportBootSurfaceReady("workflow-controls", "catalog");
   }, [optionsSettled]);
   // A fresh desktop draft intentionally has no workflow override: the engine
   // will use its configured active workflow. Preserve listWorkflows.active so
@@ -240,6 +245,13 @@ export const ModelSelector = memo(function ModelSelector({
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
   const modelBootKey = `${provider || "none"}:${model || "none"}`;
   beginBootSurface("model-controls", modelBootKey);
+  // The selected route can paint from its persisted provider/model ids while
+  // the picker catalog refreshes. Do not hold the whole desktop cover for
+  // optional dropdown rows that are already stale-while-revalidated.
+  useEffect(() => {
+    reportBootSurfaceStage("model-controls", modelBootKey, "module");
+    reportBootSurfaceReady("model-controls", modelBootKey, "shell");
+  }, [modelBootKey]);
   const modelUnavailable = modelDisabled || routing;
   const tuningUnavailable = tuningDisabled || routing;
   const displayedFast = optimisticFast ?? fast;
@@ -358,7 +370,6 @@ export const ModelSelector = memo(function ModelSelector({
   useEffect(() => {
     if (model && !startupCatalogSettled) return;
     reportBootSurfaceStage("model-controls", modelBootKey, "data");
-    reportBootSurfaceReady("model-controls", modelBootKey);
   }, [model, modelBootKey, startupCatalogSettled]);
 
   useEffect(() => {

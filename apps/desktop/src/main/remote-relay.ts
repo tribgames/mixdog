@@ -1185,9 +1185,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     // Electron window receives; a paired browser stays as fresh as the desktop.
     // None of them is droppable: a dropped frame leaves a stale listing or a
     // stale squiggle behind with no later push to correct it.
-    if (name === 'remote-projection-state') {
-      broadcastEncrypted({ event: 'remoteProjection', payload: value }, false);
-    } else if (name === 'folder-changed') {
+    if (name === 'folder-changed') {
       broadcastEncrypted({ event: 'folderChanged', payload: value }, false, readsLane('files'));
     } else if (name === 'lsp-diagnostics') {
       broadcastEncrypted({ event: 'lspDiagnostics', payload: value }, false, readsLane('editor'));

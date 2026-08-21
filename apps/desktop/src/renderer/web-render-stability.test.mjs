@@ -2,58 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { composerDraftAfterScopeChange } from "./composer-draft.ts";
-import {
-  isRemoteBrowserRenderer,
-  normalizeProjectionView,
-  shouldAdoptProjectionSelection,
-} from "./remote-ui-projection.ts";
-
-test("a cold open adopts the paired surface's selection", () => {
-  assert.equal(shouldAdoptProjectionSelection({
-    first: true,
-    elapsedMs: 400,
-    interacted: false,
-  }), true);
-});
-
-test("a touched surface is never overridden by the first projection", () => {
-  assert.equal(shouldAdoptProjectionSelection({
-    first: true,
-    elapsedMs: 200,
-    interacted: true,
-  }), false);
-});
-
-test("a late first projection no longer counts as continuity", () => {
-  assert.equal(shouldAdoptProjectionSelection({
-    first: true,
-    elapsedMs: 5_000,
-    interacted: false,
-  }), false);
-});
-
-test("live changes keep following after the cold window", () => {
-  assert.equal(shouldAdoptProjectionSelection({
-    first: false,
-    elapsedMs: 60_000,
-    interacted: true,
-  }), true);
-});
-
-test("an unknown panel or tab never invalidates the published projection", () => {
-  const view = normalizeProjectionView({
-    selection: { kind: "session", id: "session-a" },
-    sidebarOpen: true,
-    sidebarPanel: "sessions",
-    dockOpen: false,
-    dockTab: "not-a-tab",
-    bottomPanelOpen: false,
-    bottomPanelTab: "problems",
-  });
-  assert.equal(view.sidebarPanel, null);
-  assert.equal(view.dockTab, "agents");
-  assert.deepEqual(view.selection, { kind: "session", id: "session-a" });
-});
+import { isRemoteBrowserRenderer } from "./remote-ui-projection.ts";
 
 test("focused web composer keeps the native value across a scope snapshot", () => {
   assert.equal(composerDraftAfterScopeChange({

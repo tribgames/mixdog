@@ -129,6 +129,7 @@ $definition = [ordered]@{
     tasks = $tasks
     routeProfile = $routeProfile
     routes = $routeProperty.Value.routes
+    leadFallback = $routeProperty.Value.leadFallback
     concurrent = $concurrent
     attempts = $attempts
     maxRetries = $maxRetries
@@ -186,10 +187,23 @@ $manifestPath = Join-Path $resolvedJobsDir "preset-run.json"
 # is taken, so the report identifies the exact contract under measurement.
 $contract = $null
 try {
-    $contractJson = & node $contractPath
+    $contractArgs = @(
+        $contractPath,
+        "--provider", [string]$lead.provider,
+        "--model", [string]$lead.model,
+        "--workflow", "solo"
+    )
+    $leadFallback = $routeProperty.Value.leadFallback
+    if ($null -ne $leadFallback) {
+        $contractArgs += @(
+            "--fallback-provider", [string]$leadFallback.provider,
+            "--fallback-model", [string]$leadFallback.model
+        )
+    }
+    $contractJson = & node @contractArgs
     if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($contractJson)) {
         $contract = $contractJson | ConvertFrom-Json
-        "contract rules=$($contract.rulesHash.Substring(7, 12)) tools=$($contract.toolCatalogHash.Substring(7, 12)) tool-count=$($contract.toolCount) schema-bytes=$($contract.toolSchemaBytes)"
+        "contract rules=$($contract.rulesHash.Substring(7, 12)) tools=$($contract.toolContractHash.Substring(7, 12)) catalog=$($contract.toolCount) active=$($contract.activeToolCount) provider-tools=$($contract.providerToolCount)"
     }
 } catch {
     [Console]::Error.WriteLine("contract digest failed: $($_.Exception.Message)")

@@ -9,7 +9,6 @@ import {
   Copy,
   GitCommit,
   Minus,
-  RefreshCw,
   Search,
   Undo2,
   X
@@ -21,7 +20,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import type {
@@ -120,7 +118,7 @@ export function SourceControlDock({
   onOpenFile?(project: string, rel: string): void;
   onOpenDiff?(project: string, rel: string, request: SourceControlDiffRequest): void;
   onOpenPullRequest?: PullRequestOpenHandler;
-  /** Project picker hosted in the toolbar's repository section. */
+  /** Project picker hosted in its own row above the fixed Git toolbar. */
   projectSelect?: React.ReactNode;
   /** `changes` is the Git panel; `prs` is the separate pull-request panel. */
   surface?: "changes" | "prs";
@@ -1074,32 +1072,19 @@ export function SourceControlDock({
     remoteName,
     aheadCount,
     behindCount,
-    bothDirections,
     fetchEntry,
-    remoteEntry,
+    pushEntry,
     rowPushReason,
     rowPushBlocked,
-    headerFetchReason,
   } = sourceControlRemoteActions({
     status,
     busy,
     canFetch: Boolean(api?.gitFetch),
+    canPush: Boolean(api?.gitPush),
     missingChannel,
     onFetch: () => void run("fetch", () => api?.gitFetch?.(projectPath)),
     onPush: () => void run("push", () => api?.gitPush?.(projectPath)),
-    onPull: () => void run("pull", () => api?.gitPull?.(projectPath)),
   });
-  const headerFetch = headerSlot && !prOnly
-    ? createPortal(<button type="button" className="dock-scm-header-fetch"
-      aria-label={`Fetch from ${remoteName}`}
-      title={headerFetchReason || `Fetch from ${remoteName}`}
-      disabled={Boolean(headerFetchReason)}
-      onClick={fetchEntry.perform}>
-      {busy === "fetch"
-        ? <ProgressSpinner size={14} aria-hidden="true" />
-        : <RefreshCw size={14} aria-hidden="true" />}
-    </button>, headerSlot)
-    : null;
   /** Stash grammar (`Stash all changes`): the
    *  changed-files header owns it, refused with a reason while another action
    *  or an in-progress operation holds the repository. */
@@ -1141,15 +1126,13 @@ export function SourceControlDock({
   }
 
   return <div className="dock-source-control" ref={dockRootRef}>
-    {/* Always-available Fetch, portaled into the panel header's action slot. */}
-    {headerFetch}
     {/* ONE portaled context menu for every row grammar in the dock. */}
     <ScmContextMenu state={visibleContextMenu} onClose={closeContextMenu} />
-    {/* Toolbar: repository selector, branch dropdown, and one push/pull button. */}
-    {status && !prOnly && <div className="dock-scm-toolbar">
-      {projectSelect
-        ? <div className="dock-scm-toolbar-section dock-scm-toolbar-project">{projectSelect}</div>
-        : null}
+    {status && !prOnly && projectSelect &&
+      <div className="utility-dock-project-row">{projectSelect}</div>}
+    {/* Fixed toolbar: current branch, Push, and Fetch. Git action names and
+        their supporting labels intentionally stay in English. */}
+    {status && !prOnly && <div className="dock-scm-toolbar" data-i18n-skip>
       <SourceControlBranchPicker
         status={status}
         busy={busy}
@@ -1186,46 +1169,33 @@ export function SourceControlDock({
         onMerge={mergeIntoCurrent}
         onToggleMergeMode={() => setMergeMode((current) => !current)}
       />
-      {/* ONE morphing action, no dropdown beside it — and the toolbar's THIRD
-          EQUAL SECTION (desktop.css: all three are `flex: 1 1 0`), so it shows
-          its verb instead of degrading to an icon stub. It IS Fetch only while
-          the branch is level, which is why the panel header pins a Fetch of its
-          own; the push rung the ladder loses to Pull stays reachable on the
-          unpushed history rows and comes back here the moment the pull lands. */}
-      {remoteEntry && <div className="dock-scm-toolbar-section dock-scm-toolbar-remote">
-        <button type="button" className="dock-scm-remote-button"
-          data-remote-action={remoteEntry.key}
-          title={remoteEntry.reason || remoteEntry.label}
-          aria-label={remoteEntry.label}
-          disabled={Boolean(busy) || Boolean(status.operation) || remoteEntry.blocked}
-          onClick={remoteEntry.perform}>
-          {busy === remoteEntry.runKey
-            ? <ProgressSpinner size={14} aria-hidden="true" />
-            : remoteEntry.icon}
-          {/* Degradation order: the icon and the ahead/behind badge always
-              survive, the remote NAME drops first, then the verb — the label
-              is never truncated into a one or two character stub. */}
-          <span className="dock-scm-remote-label">
-            <span className="dock-scm-remote-verb">{remoteEntry.verb}</span>
-            {remoteEntry.target
-              ? <span className="dock-scm-remote-target">{` ${remoteEntry.target}`}</span>
-              : null}
-          </span>
-          {/* Badge hides at 0/0 exactly like renderAheadBehind. The direction
-              arrows ride along ONLY when the branch is ahead and behind at the
-              same time: with a single direction the verb beside the badge
-              already says which way it goes, so it reads `Push 3`, never
-              `Push 3↑`. */}
-          {status.upstream && (aheadCount > 0 || behindCount > 0) &&
-            <span className="dock-scm-ahead-behind"
-              data-directions={bothDirections ? "both" : "one"}>
-              {aheadCount > 0 && <span>{aheadCount}
-                {bothDirections && <ArrowUp size={12} aria-hidden="true" />}</span>}
-              {behindCount > 0 && <span>{behindCount}
-                {bothDirections && <ArrowDown size={12} aria-hidden="true" />}</span>}
-            </span>}
-        </button>
-      </div>}
+      {[pushEntry, fetchEntry].map((entry) =>
+        <div key={entry.key}
+          className={`dock-scm-toolbar-section dock-scm-toolbar-${entry.key}`}>
+          <button type="button" className="dock-scm-remote-button"
+            data-remote-action={entry.key}
+            title={entry.reason || entry.label}
+            aria-label={entry.label}
+            disabled={Boolean(busy) || Boolean(status.operation) || entry.blocked}
+            onClick={entry.perform}>
+            {busy === entry.runKey
+              ? <ProgressSpinner size={14} aria-hidden="true" />
+              : entry.icon}
+            <span className="dock-scm-remote-label">
+              <span className="dock-scm-remote-verb">{entry.verb}</span>
+              {entry.target
+                ? <span className="dock-scm-remote-target">{` ${entry.target}`}</span>
+                : null}
+            </span>
+            {entry.key === "push" && status.upstream && (aheadCount > 0 || behindCount > 0) &&
+              <span className="dock-scm-ahead-behind">
+                {aheadCount > 0 && <span>{aheadCount}
+                  <ArrowUp size={12} aria-hidden="true" /></span>}
+                {behindCount > 0 && <span>{behindCount}
+                  <ArrowDown size={12} aria-hidden="true" /></span>}
+              </span>}
+          </button>
+        </div>)}
     </div>}
     <div className="dock-scm-view-stage">
     {/* Search first, then the Changes | History selector, matching the Search
@@ -1462,12 +1432,10 @@ export function SourceControlDock({
           stage (never an overlay over the file list) and follows the chat
           composer grammar: textarea row, then an action row. */}
       {(() => {
-        // The primary button carries the whole action — verb, file count and the
-        // target branch — and it is the form's ONLY control: the split-menu
-        // chevron is gone. Commit & Push / Commit & Sync are the toolbar's
-        // morphing button the moment the commit lands (it becomes Push /
-        // Sync), Amend and Undo commit live on the history rows and the stash
-        // pair on the changed-files header.
+        // The primary button carries the whole action — verb, file count and
+        // target branch — and it is the form's ONLY control. Push and Fetch
+        // remain fixed in the toolbar; Amend and Undo commit live on history
+        // rows, and the stash pair lives on the changed-files header.
         const committing = busy === "commit" || busy === "amend";
         // With auto messages on, an empty summary still commits in one press
         // (silent generation); the tooltip below is the only tell.

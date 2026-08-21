@@ -149,7 +149,7 @@ test("a newly visible relay client receives a full transcript baseline", () => {
   assert.deepEqual(lateResult.snapshot, next);
 });
 
-test("latest-state mailbox drops superseded publications before encoding", () => {
+test("latest-state mailbox keeps current data while an RTT-bound send is in flight", () => {
   const sent = [];
   const mailbox = createLatestStateMailbox((sequence, value) => {
     sent.push({ sequence, value });
@@ -165,6 +165,45 @@ test("latest-state mailbox drops superseded publications before encoding", () =>
     { sequence: 1, value: "first" },
     { sequence: 2, value: "latest" },
   ]);
+});
+
+test("different browsers retain independent transcript lane baselines", () => {
+  const browserA = new Map();
+  const browserB = new Map();
+  const decoderA = createSnapshotDeltaDecoder();
+  const decoderB = createSnapshotDeltaDecoder();
+  const sessionA = {
+    sessionId: "session-a",
+    items: [{ id: "a1", kind: "assistant", text: "alpha" }],
+    streamingTail: null,
+  };
+  const sessionB = {
+    sessionId: "session-b",
+    items: [{ id: "b1", kind: "assistant", text: "bravo" }],
+    streamingTail: null,
+  };
+
+  assert.deepEqual(
+    decoderA.decode(encodeRelayClientSessionState(browserA, "session-a", sessionA)).snapshot,
+    sessionA,
+  );
+  assert.deepEqual(
+    decoderB.decode(encodeRelayClientSessionState(browserB, "session-b", sessionB)).snapshot,
+    sessionB,
+  );
+
+  const nextA = {
+    ...sessionA,
+    items: [...sessionA.items, { id: "a2", kind: "assistant", text: "updated" }],
+  };
+  assert.deepEqual(
+    decoderA.decode(encodeRelayClientSessionState(browserA, "session-a", nextA)).snapshot,
+    nextA,
+  );
+  assert.deepEqual(
+    decoderB.decode(encodeRelayClientSessionState(browserB, "session-b", sessionB)).snapshot,
+    sessionB,
+  );
 });
 
 test("remote paint probes measure publish-to-paint without clock synchronization", () => {

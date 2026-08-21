@@ -33,6 +33,7 @@ import {
   gitMergeBranch,
   gitPull,
   gitRenameBranch,
+  gitReview,
   gitResetToCommit,
   gitRevertCommit,
   gitRevertFile,
@@ -427,6 +428,51 @@ test("display diffs ignore configured external diff and textconv commands", asyn
     await git(cwd, ["commit", "-m", "External diff change"]);
     const hash = (await git(cwd, ["rev-parse", "HEAD"])).trim();
     assert.match(await gitShowDiff(cwd, hash, "external.txt"), /^\+two$/m);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("review collects tracked and untracked line stats from one parallel refresh", async () => {
+  const cwd = await createRepository();
+  try {
+    await commit(cwd, "tracked.txt", "one\n", "Initial");
+    await writeFile(join(cwd, "tracked.txt"), "one\ntwo\n", "utf8");
+    await writeFile(join(cwd, "untracked.txt"), "alpha\nbeta\n", "utf8");
+    const review = await gitReview(cwd);
+    assert.equal(review.base, "HEAD");
+    assert.deepEqual(
+      review.files.map((file) => ({
+        path: file.path,
+        additions: file.additions,
+        untracked: file.untracked,
+        uncommitted: file.uncommitted,
+      })),
+      [
+        { path: "tracked.txt", additions: 1, untracked: false, uncommitted: true },
+        { path: "untracked.txt", additions: 2, untracked: true, uncommitted: true },
+      ],
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("status reuses line stats only while the changed-file shape is stable", async () => {
+  const cwd = await createRepository();
+  try {
+    await commit(cwd, "tracked.txt", "one\n", "Initial");
+    await writeFile(join(cwd, "tracked.txt"), "one\ntwo\n", "utf8");
+    const fresh = await gitStatus(cwd);
+    const cached = await gitStatus(cwd, { reuseLineStats: true });
+    assert.equal(cached.files[0]?.unstagedAdditions, fresh.files[0]?.unstagedAdditions);
+
+    await writeFile(join(cwd, "untracked.txt"), "alpha\nbeta\n", "utf8");
+    const changedShape = await gitStatus(cwd, { reuseLineStats: true });
+    assert.equal(
+      changedShape.files.find((file) => file.path === "untracked.txt")?.unstagedAdditions,
+      2,
+    );
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
