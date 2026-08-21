@@ -14,8 +14,9 @@
   summary, overview, or enumeration is not a prerequisite when that operation's
   complete inputs are already known; if independently required, batch it with
   the detailed operation.
-- Never duplicate a facet, widen retrieval speculatively, or cap fanout; apply
-  one analysis to many targets as one parameterized call when supported.
+- Never duplicate a facet, widen retrieval speculatively, or arbitrarily omit
+  required fanout. Respect tool/schema limits; split only when necessary, and
+  apply one analysis to many targets as one parameterized call when supported.
 1. Determine the required outcome and missing information; requirements are
    not evidence.
 2. If needed, gather only missing information through Research or Exploration;

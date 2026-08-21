@@ -157,7 +157,11 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 pattern: {
-                    type: 'string',                    description: 'Glob.',
+                    anyOf: [
+                        { type: 'string' },
+                        { type: 'array', items: { type: 'string' }, maxItems: 10 },
+                    ],
+                    description: 'Glob or array of globs (max 10).',
                 },
                 path: {
                     type: 'string',                    description: 'Known existing base directory; omit for the current Project; unknown location → find.',
