@@ -25,7 +25,7 @@ import {
 
 // Human-readable transport label for handshake/acquire error messages. Shared
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
-import { _envOn, _codexUuidIdParity, _codexDashedId, _codexTurnStateGate, _codexDashedIdV7, _codexBetaFeatures, _dumpHandshakeHeaders, _dumpFrame, _formatRedactedHeaders, _cfCookieHeader, _cfCookieCapture } from './openai-ws-headers.mjs';
+import { _envOn, _codexDashedId, _codexDashedIdV7, _codexBetaFeatures, _dumpHandshakeHeaders, _dumpFrame, _formatRedactedHeaders, _cfCookieHeader, _cfCookieCapture } from './openai-ws-headers.mjs';
 export function _wsErrLabel(p) {
     if (p === 'xai') return 'xAI WS';
     if (p === 'openai-direct' || p === 'openai') return 'OpenAI WS';
@@ -386,41 +386,24 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
             'x-codex-beta-features': _codexBetaFeatures(),
         };
     const isOpenAiOauth = auth.type !== 'xai' && auth.type !== 'openai-direct';
-    // The reference client sends only the dashed session-id/thread-id pair,
-    // but OUR backend measurements disagree with pure
-    // wire parity here: 2026-04-19 probes showed the OAuth backend dedupes
-    // its in-memory prefix state by the underscore session_id handshake
-    // header, and the only 0.0%-miss full-frame rounds (R7/R8, R15 regressed
-    // to 13% after this header was dropped) all had it present. Send both.
-    // The underscore session_id is the backend prefix-dedupe key (2026-04-19
-    // probes; R15 regressed to 13% miss when it was dropped). Strict wire
-    // parity sends ONLY the dashed pair, but dropping this
-    // header is a KNOWN cache-unsafe change — so the general parity flag no
-    // longer silently drops it. Keep it unless an operator EXPLICITLY opts
-    // into the codex-exact dashed-only wire via
-    // MIXDOG_OAI_CODEX_WIRE_PARITY_SESSION_ID=dashed.
-    // The gate bundle implies the dashed-only wire (drop the underscore
-    // session_id) on top of the standalone opt-in.
-    const gate = _codexTurnStateGate();
-    const dropUnderscoreSessionId = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY_SESSION_ID === 'dashed' || gate;
-    if (sessionToken && !dropUnderscoreSessionId) {
+    // Default mode preserves the measured Mixdog underscore session_id cache
+    // key. Strict wire parity instead follows Codex exactly: dashed
+    // session-id/thread-id only, UUIDv7-shaped ids, and x-client-request-id.
+    const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
+    if (sessionToken && !wireParity) {
         headers['session_id'] = String(sessionToken);
     }
     if (isOpenAiOauth && (sessionToken || _cacheKey)) {
-        // Gate bundle forces Codex-shaped UUIDv7 ids; the standalone parity flag
-        // keeps its v5-derived shape.
-        const uuidIds = _codexUuidIdParity() || gate;
-        const shapeId = gate ? _codexDashedIdV7 : _codexDashedId;
+        const uuidIds = wireParity;
+        const shapeId = wireParity ? _codexDashedIdV7 : _codexDashedId;
         // Underscore `session_id` above is left as-is (backend prefix-dedupe
         // key); only the dashed codex pair is reshaped under the opt-in.
         const threadId = uuidIds ? shapeId(String(_cacheKey || sessionToken)) : String(_cacheKey || sessionToken);
         const sessionId = uuidIds ? shapeId(String(sessionToken || _cacheKey)) : String(sessionToken || _cacheKey);
         headers['session-id'] = sessionId;
         headers['thread-id'] = threadId;
-        // Default/parity wire duplicates the dashed thread-id here. The gate
-        // hypothesis is that a duplicated x-client-request-id suppresses
-        // turn-state issuance, so omit it entirely under the bundle.
-        if (!gate) headers['x-client-request-id'] = threadId;
+        // The reference client sets x-client-request-id to the dashed thread id.
+        headers['x-client-request-id'] = threadId;
         if (codexHeaders && typeof codexHeaders === 'object') {
             for (const [key, value] of Object.entries(codexHeaders)) {
                 if (typeof key === 'string' && typeof value === 'string' && value) {

@@ -180,6 +180,11 @@ function _hasHeaderKey(headers, name) {
 
 export function _captureTurnStateFromEvent(entry, event) {
     if (!entry || entry.turnState || !event || typeof event !== 'object') return;
+    // The token normally arrives on the WebSocket 101 handshake and is held
+    // write-once per entry, which is what keeps sticky routing stable across
+    // previous_response_id calls. This event path is the fallback for
+    // deployments that surface the header on a response event instead; the
+    // write-once guard above means it can never swap a live chain's token.
     const turnState = _headerString(event.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.response?.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.response?.metadata?.headers, X_CODEX_TURN_STATE_HEADER)
@@ -354,6 +359,13 @@ export async function _streamResponse({
             id: item.id || '',
             encrypted_content: item.encrypted_content,
             summary: Array.isArray(item.summary) ? item.summary : [],
+            // Emission order is part of the chain proof. A turn can reason,
+            // speak, then reason again before calling a tool; rebuilding it
+            // with every reasoning item in front of the text yields an order
+            // the previous response never produced, and the incremental check
+            // then fails on the message item and drops the chain to a cold
+            // full frame. Record which side of the text this item arrived on.
+            ...(responseItemsAdded.some((added) => added?.type === 'message') ? { afterText: true } : {}),
         });
     };
     const pushResponseItem = (item) => {

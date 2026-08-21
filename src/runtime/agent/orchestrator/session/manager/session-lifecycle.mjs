@@ -37,7 +37,7 @@ import {
     resolveSessionContextMeta,
 } from './context-meta.mjs';
 import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent-runtime-singleton.mjs';
-import { mintSessionId } from './session-id.mjs';
+import { ensureCodexWireSessionId, mintSessionId, mintUuidV7 } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
 import {
@@ -390,6 +390,7 @@ export function createSession(opts) {
     });
     const session = {
         id,
+        codexWireSessionId: providerName === 'openai-oauth' ? mintUuidV7() : null,
         provider: providerName,
         model: modelName,
         messages,
@@ -500,6 +501,7 @@ export function updateSessionRoute(id, route = {}) {
     if (route.model) session.model = route.model;
     if (Object.prototype.hasOwnProperty.call(route, 'fast')) session.fast = route.fast === true;
     if (Object.prototype.hasOwnProperty.call(route, 'effort')) session.effort = route.effort || null;
+    ensureCodexWireSessionId(session);
     if (Object.prototype.hasOwnProperty.call(route, 'modelParameters')) {
         session.modelParameters = route.modelParameters && typeof route.modelParameters === 'object'
             ? { ...route.modelParameters }
@@ -814,6 +816,7 @@ export async function resumeSession(sessionId, preset, options = {}) {
     // save below would also block the write, but failing fast here is cleaner
     // than silently dropping the tool-refresh side effects.
     if (session.closed === true) return null;
+    ensureCodexWireSessionId(session);
     // Desktop callers pass their selected durable classification as a
     // capability check. Refuse a stale/tampered cross-class resume before any
     // tool refresh or save. CLI/TUI callers omit this option and retain the

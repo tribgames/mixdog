@@ -330,36 +330,34 @@ function _warmupContinuityTrace({
  * The request body may carry retained `reasoning` items
  * (opts.replayEncryptedReasoning; default ON for openai-oauth, kill switch
  * MIXDOG_OAI_DISABLE_REASONING_REPLAY=1).
- * Whether they actually go on the wire is decided PER SOCKET ENTRY, once, at
- * the first frame that entry sends, and stays sticky for its lifetime so the
- * append-only prefix bookkeeping (entry.lastRequestInput) never mixes
- * conventions:
  *
- *  - fresh entry + reasoning items present  → mid-session reconnect/recovery:
- *    KEEP them. This is the codex behavior on a broken delta chain — the full
- *    frame replays retained reasoning so the model does not re-reason the
- *    whole transcript (client.rs full-request path).
- *  - fresh entry + no reasoning items       → virgin session: nothing to
- *    replay; the chain locks to today's wire (subsequent frames strip).
- *  - entry with prior chain state (pooled reuse / completed warmup) → STRIP:
- *    re-sending an rs_* item a live server chain already saw is rejected as a
- *    duplicate.
+ * They stay in the LOGICAL request history, always. The reference client never
+ * removes reasoning from the history it chains on: its incremental-request
+ * check proves the new request extends the exact previous request + response,
+ * and only THEN does the delta builder drop those already-anchored items from
+ * the wire tail. An rs_* item is therefore never sent twice on a live chain,
+ * while a full frame — which carries no previous_response_id — still replays
+ * retained reasoning instead of making the model re-reason the transcript.
  *
- * `suppress` (rejection safety net) forces the strip convention for the rest
- * of the send. Returns the body unchanged when nothing needs stripping.
+ * Removing reasoning HERE, before the delta computation, broke that proof: the
+ * previous response's reasoning could no longer be matched against the request
+ * prefix, so every reasoning-model session fell back to full frames from its
+ * second call onward and lost previous_response_id with it.
+ *
+ * `suppress` is the rejection safety net only. Once the server rejects a
+ * replayed rs_* item as a duplicate, the retry drops reasoning for the rest of
+ * the send and the chain degrades to full frames, exactly as any broken chain
+ * does.
  */
 export function _applyReasoningReplayPolicy(entry, body, { suppress = false } = {}) {
     const input = Array.isArray(body?.input) ? body.input : null;
     if (!entry || !input) return body;
-    const hasReasoning = input.some((item) => item?.type === 'reasoning');
-    if (suppress) {
-        entry.replayReasoning = false;
-    } else if (entry.replayReasoning == null) {
-        entry.replayReasoning = hasReasoning
-            && entry.lastResponseId == null
-            && entry.lastRequestInput == null;
+    if (!suppress) {
+        entry.replayReasoning = true;
+        return body;
     }
-    if (!hasReasoning || entry.replayReasoning === true) return body;
+    entry.replayReasoning = false;
+    if (!input.some((item) => item?.type === 'reasoning')) return body;
     return { ...body, input: input.filter((item) => item?.type !== 'reasoning') };
 }
 
@@ -575,7 +573,16 @@ export async function sendViaWebSocket({
     // this carry-forward would not help and is therefore gated to xAI.
     let carryForwardCache = null;
     const useCodexWsClientMetadata = traceProvider === 'openai-oauth';
-    const codexMetadataContext = { poolKey, cacheKey, sendOpts };
+    // model + serviceTier feed the handshake routing hint. service_tier is on
+    // the body only when fast selected the priority tier, so the hint carries
+    // `model=` alone otherwise — the same shape the reference client sends.
+    const codexMetadataContext = {
+        poolKey,
+        cacheKey,
+        sendOpts,
+        model: useModel,
+        serviceTier: body?.service_tier || '',
+    };
     const codexHandshakeHeaders = useCodexWsClientMetadata
         ? _codexWsCompatibilityHeaders({ ...codexMetadataContext, handshake: true })
         : null;
@@ -853,10 +860,11 @@ export async function sendViaWebSocket({
                 // Codex startup prewarm contains stable instructions/tools but
                 // no live user/transcript input. Enforce that at the transport
                 // boundary as well as in the OAuth caller so a future caller
-                // cannot accidentally duplicate the transcript. WS-only fields
-                // are omitted exactly as in Codex's prewarm request.
+                // cannot accidentally duplicate the transcript. Keep the same
+                // request properties as the real turn; Codex changes only the
+                // input tail and adds generate:false.
                 const parityWarmupBody = { ...warmupBody, input: [], generate: false };
-                const warmupFrame = _buildResponseCreateFrame(parityWarmupBody, { omitTransportFields: true });
+                const warmupFrame = _buildResponseCreateFrame(parityWarmupBody);
                 const warmupMetadataContext = {
                     ...codexMetadataContext,
                     sendOpts: {
@@ -964,9 +972,28 @@ export async function sendViaWebSocket({
             // current call's header is identical and its first N input items
             // equal the previous call's N items (append-only history).
             try {
-                const { client_metadata: _cm, input: frameInput, ...frameHeader } = frame;
+                // previous_response_id is the per-call anchor: it changes on
+                // every delta frame by design, so including it made
+                // prev_match structurally false for the entire delta path and
+                // the probe could never report what it was built to report —
+                // whether OUR request prefix stayed stable across calls.
+                const {
+                    client_metadata: _cm,
+                    input: frameInput,
+                    previous_response_id: _prevAnchor,
+                    ...frameHeader
+                } = frame;
                 const headerHash = _hashText(JSON.stringify(frameHeader), 16);
-                const itemHashes = (Array.isArray(frameInput) ? frameInput : [])
+                // A delta frame carries only the tail, so hashing frame.input
+                // compares [C] against [A,B] and prev_match can never hold on
+                // the delta path. The question the probe exists to answer is
+                // whether the LOGICAL conversation stayed append-only, so hash
+                // the full request body input and fall back to the frame only
+                // when the body is unavailable.
+                const logicalInput = Array.isArray(requestBody?.input)
+                    ? requestBody.input
+                    : (Array.isArray(frameInput) ? frameInput : []);
+                const itemHashes = logicalInput
                     .map((item) => _hashText(JSON.stringify(item), 12));
                 framePrefixHash = headerHash;
                 framePrefixHeadHash = _hashText(itemHashes.join(','), 16);

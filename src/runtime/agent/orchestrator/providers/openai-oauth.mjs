@@ -666,11 +666,18 @@ export class OpenAIOAuthProvider {
             // the hot WS/cache path for temporary blips while still preventing
             // TUI-level hangs. Sticky HTTP fallback is only armed after this
             // bounded reconnect budget is exhausted.
-            // Codex startup-prewarm parity: build from the stable request
-            // properties (instructions/tools/etc.) but never send the live
-            // transcript/user input. The completed generate:false response is
-            // retained by the WS transport and anchors the first real request.
-            warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false)
+            // Startup prewarm, matching the reference client: build from the
+            // stable request properties (instructions/tools/etc.) but never
+            // send the live transcript/user input. The completed
+            // generate:false response is retained by the WS transport and
+            // anchors the first real request.
+            //
+            // ON by default. Without it every session's first call reports
+            // chain reason `no_anchor` — there is nothing to chain from — and
+            // pays a cold prefix; 973 of the recorded no_anchor rows are
+            // exactly that. Every prewarmed call on record (72/72) kept its
+            // chain continuous. MIXDOG_OPENAI_OAUTH_WS_WARMUP=0 disables it.
+            warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', true)
                 ? { ...body, input: [], generate: false }
                 : null,
             _carriedWarmup: carriedWarmup,
@@ -806,7 +813,18 @@ export class OpenAIOAuthProvider {
             // session_id and pool-compatibility key match the first real send.
             const cacheKey = buildStableProviderPromptCacheKey('openai-oauth', opts);
             const [auth] = await Promise.all([this.ensureAuth(), _warmVersion()]);
-            const codexHeaders = _codexWsCompatibilityHeaders({ poolKey, cacheKey, sendOpts: opts, handshake: true });
+            const codexHeaders = _codexWsCompatibilityHeaders({
+                poolKey,
+                cacheKey,
+                sendOpts: opts,
+                model: opts.model,
+                // Same tier the request body will carry, so the prewarm
+                // handshake routes to the node the first real send wants.
+                serviceTier: opts.fast === true && codexModelSupportsServiceTier(opts.model, 'priority')
+                    ? 'priority'
+                    : '',
+                handshake: true,
+            });
             const _t0 = Date.now();
             const acquired = await _acquire({
                 auth,

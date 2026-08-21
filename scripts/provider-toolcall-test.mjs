@@ -2720,8 +2720,8 @@ test('OpenAI OAuth startup prewarm sends no transcript and anchors the first rea
         assert.deepEqual(warmup.input, []);
         assert.equal(warmup.instructions, body.instructions);
         assert.deepEqual(warmup.tools, body.tools);
-        assert.equal(warmup.stream, undefined);
-        assert.equal(warmup.background, undefined);
+        assert.equal(warmup.stream, true);
+        assert.equal(warmup.background, false);
         assert.equal(JSON.stringify(warmup).includes('live-transcript-must-appear-once'), false);
         assert.equal(followUp.type, 'response.create');
         assert.equal(followUp.previous_response_id, 'warm-1');

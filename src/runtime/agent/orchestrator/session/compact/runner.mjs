@@ -37,6 +37,7 @@ import {
     shouldExcludeIngestMessage,
 } from '../../../../memory/lib/session-ingest.mjs';
 import { cleanMemoryText } from '../../../../memory/lib/memory-extraction.mjs';
+import { codexWireSendOpts } from '../manager/session-id.mjs';
 import {
     COMPACTION_SYSTEM_PROMPT,
     fitCompactionPrompt,
@@ -446,6 +447,13 @@ export async function semanticCompactMessages(provider, messages, model, budgetT
     if (opts.providerCacheKey || opts.sendOpts?.providerCacheKey) {
         sendOpts.providerCacheKey = `${opts.providerCacheKey || opts.sendOpts.providerCacheKey}:compact`;
     }
+    // Compaction is a request of the SAME session, not a session of its own:
+    // thread identity and window carry over, only the request kind and the turn
+    // id change. The `:compact` suffixes above stay — they scope the socket
+    // pool bucket so a summary never steals the live turn's socket — while the
+    // wire identity below keeps both on one server-side prefix-cache slot.
+    const codexWire = codexWireSendOpts(sendOpts.session, { requestKind: 'compaction' });
+    if (codexWire) Object.assign(sendOpts, codexWire);
 
     const response = await provider.send([
         { role: 'system', content: COMPACTION_SYSTEM_PROMPT },
