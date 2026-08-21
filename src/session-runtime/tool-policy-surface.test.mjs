@@ -11,20 +11,58 @@ import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 const require = createRequire(import.meta.url);
 const { omitToolRoutes, buildSharedToolContent } = require('../lib/rules-builder.cjs');
 
+// Tool dependency is declared by `<!-- tools: … -->` markers, so this fixture
+// carries the markers rather than prose the builder would have to match.
 const SAMPLE_ROUTES = [
+  '<!-- tools: web_search, web_fetch -->',
   '# Research',
   '',
+  '<!-- tools: web_search, web_fetch -->',
   '- Research routes:',
+  '<!-- tools: web_search -->',
   '  current or external information discovery→`web_search`;',
+  '<!-- tools: web_fetch -->',
   '  page or documentation body retrieval from a known URL→`web_fetch`.',
+  '<!-- tools: recall, memory -->',
   '# Memory',
   '',
+  '<!-- tools: recall -->',
   '- past facts recorded in prior work or sessions→`recall`',
   '  (stored history only, never current local state).',
+  '<!-- tools: memory -->',
   '- Durable memory creation or update→`memory`; store a compact English',
   '  statement.',
+  '<!-- tools: memory -->',
   '- Use judgment to decide whether a durable memory should be stored.',
 ].join('\n');
+
+test('omitToolRoutes strips markers and keeps every clause when nothing is omitted', () => {
+  const kept = omitToolRoutes(SAMPLE_ROUTES, []);
+  assert.equal(kept.includes('<!--'), false);
+  assert.equal(kept.includes('`web_search`'), true);
+  assert.equal(kept.includes('`web_fetch`'), true);
+  assert.equal(kept.includes('`recall`'), true);
+  assert.equal(kept.includes('`memory`'), true);
+  assert.equal(kept.includes('# Research'), true);
+  assert.equal(kept.includes('# Memory'), true);
+  // The continuation line stays attached to the clause it belongs to.
+  assert.match(kept, /→`recall`\n\s+\(stored history only, never current local state\)\./);
+});
+
+test('omitToolRoutes drops a clause only when every tool it declares is omitted', () => {
+  const noSearchOnly = omitToolRoutes(SAMPLE_ROUTES, ['web_search']);
+  assert.equal(noSearchOnly.includes('`web_search`'), false);
+  assert.equal(noSearchOnly.includes('`web_fetch`'), true);
+  // The section and its lead-in survive while one route remains.
+  assert.equal(noSearchOnly.includes('# Research'), true);
+  assert.equal(noSearchOnly.includes('Research routes:'), true);
+
+  const noMemoryOnly = omitToolRoutes(SAMPLE_ROUTES, ['memory']);
+  assert.equal(noMemoryOnly.includes('`recall`'), true);
+  assert.equal(noMemoryOnly.includes('`memory`'), false);
+  // Guidance that only makes sense with the memory tool goes with it.
+  assert.equal(noMemoryOnly.includes('Use judgment'), false);
+});
 
 test('omitToolRoutes drops web search and memory clauses independently', () => {
   const noSearch = omitToolRoutes(SAMPLE_ROUTES, ['web_search', 'web_fetch']);
@@ -72,30 +110,35 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
   assert.match(full, /Minimize tool turns through maximal useful parallelism/i);
-  assert.match(full, /in each turn, issue\s+every necessary non-overlapping call whose inputs are already known/i);
+  assert.match(full, /In each round, issue every necessary non-overlapping call whose inputs are\s+already known/i);
   assert.match(full, /Investigate, build, and verify only what the requested outcome requires, at\s+the level it requires/i);
   assert.match(full, /A check runs at the strictness the task requires; never raise a tool's own\s+severity beyond it/i);
-  assert.match(full, /Cost is counted in rounds, not calls/i);
-  assert.match(full, /Plan the fewest evidence-complete dependent rounds first/i);
-  assert.match(full, /Defer a call only when its inputs depend on an earlier result/i);
-  assert.match(full, /Apply one analysis to many targets as one parameterized call/i);
+  assert.match(full, /Cost is counted in\s+rounds, not calls/i);
+  assert.match(full, /Plan the fewest evidence-complete dependent\s+rounds first/i);
+  assert.match(full, /defer a call only when its target or arguments require an\s+earlier result/i);
+  assert.match(full, /Route each remaining evidence facet once to its primary owner, preferring the\s+operation that directly returns the evidence needed for the next decision/i);
+  assert.match(full, /summary, overview, or enumeration is not a prerequisite when that operation's\s+complete inputs are already known/i);
+  assert.match(full, /apply\s+one analysis to many targets as one parameterized call/i);
   assert.match(full, /use Execution when the information can only be produced by running a program\s+or observing runtime state/i);
-  assert.match(full, /Stop investigation as soon as sufficient evidence\s+determines the answer or change/i);
   assert.match(full, /Evidence or artifacts available only through program execution, calculation,\s+data transformation, generated output, or unsupported-format decoding→`shell`/i);
   assert.match(full, /an already-open shell is never a routing reason/i);
-  assert.match(full, /Before each batch, deduplicate the remaining facets/i);
+  assert.match(full, /Route the missing evidence to its primary owner/i);
+  assert.match(full, /repository state, history, or diff→`git`/i);
+  assert.match(full, /Ownership is exclusive: each evidence type has one owner/i);
+  assert.match(full, /a\s+successful owner result closes that facet/i);
   assert.match(full, /Blocking checks cover only essential integrity, security, compatibility, and\s+buildability invariants/i);
-  assert.match(full, /environment variable or the home directory\s+are resolved locations/i);
+  assert.match(full, /environment variable or the home directory are\s+resolved locations/i);
   assert.match(full, /Use read-only means for inspection; never mutate to clear an obstacle or\s+unexpected state/i);
-  assert.match(full, /file-content search→`grep`;\s+known-file content→`read`/i);
+  assert.match(full, /literal, regex, or text location→`grep`;\s+known-file content, range, or image→`read`/i);
   assert.match(full, /is never re-found, re-derived, or\s+re-verified at any granularity/i);
+  assert.match(full, /Mine each returned result fully before opening the next round/i);
   assert.match(full, /Evidence that determines the answer, edit, or deliverable ends retrieval/i);
   assert.match(full, /Enter Verification only after all planned work is complete/i);
   assert.match(full, /use an umbrella suite only when the user explicitly requests it\s+or a documented project or release process requires it/i);
   assert.match(full, /If verification fails, collect all failures, leave Verification/i);
   assert.match(full, /A successful verification closes the task unless later changes affect it/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
-  assert.match(full, /Repository state, history, and every repository mutation→`git`/i);
+  assert.match(full, /Every repository mutation→`git`/i);
   assert.doesNotMatch(full, /always batch safely in parallel/i);
   assert.match(full, /A required new file is created directly: Add File is itself the atomic\s+absence check/i);
   assert.match(full, /Source: use exact current target text from any visible evidence/i);

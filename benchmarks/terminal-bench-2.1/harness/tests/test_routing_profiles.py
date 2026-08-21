@@ -1022,7 +1022,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         module = self.load_adapter_module()
         agent = module.MixdogAgent()
 
-        self.assertEqual(agent._workflow, "default")
+        self.assertEqual(agent._workflow, "solo")
         self.assertFalse(hasattr(module, "HEADLESS_BENCH_MANDATE"))
 
     def test_version_probe_reads_package_metadata_without_booting_cli(self) -> None:

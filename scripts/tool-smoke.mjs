@@ -2758,7 +2758,11 @@ if (codeGraphSymbolSearchErr) {
 // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
 // enumerate modes, but must not drift into web-search territory.
 if (!/Source-file structure/i.test(codeGraphDescription)
-  || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))) {
+  || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))
+  || !/overview and mode:symbols return file summaries/i.test(codeGraphDescription)
+  || !/Exact identifiers route directly to find_symbol\/references\/callers\/callees/i.test(codeGraphDescription)
+  || !/symbol-name keywords use symbol_search\/search/i.test(codeGraphDescription)
+  || !/Source text, literals, regex, and conceptual keywords use grep/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
 if (!/File modes use files\[\]/i.test(codeGraphDescription) || !/symbol modes use symbols\[\]/i.test(codeGraphDescription)) {
@@ -3321,6 +3325,8 @@ if (!grepStringPatternShape
 }
 if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
     || !/contextual path:line blocks/i.test(grepTool?.description || '')
+    || !/conceptual keywords/i.test(grepTool?.description || '')
+    || !/Known symbol structure or relations use code_graph/i.test(grepTool?.description || '')
     || /read only omitted lines|Batch independent searches/i.test(grepTool?.description || '')) {
   throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
 }
@@ -3361,6 +3367,8 @@ for (const [label, schema] of [
 }
 if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.description || '')
     || !/when those paths are needed/i.test(globTool?.description || '')
+    || !/Glob owns wildcard or recursive file-path enumeration/i.test(globTool?.description || '')
+    || !/list owns immediate directory entries/i.test(globTool?.description || '')
     || !/Omit path for the current Project/i.test(globTool?.description || '')
     || !/base location is unknown, use find first/i.test(globTool?.description || '')
     || !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')) {
@@ -3384,7 +3392,8 @@ if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitD
 }
 if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || !/entry list itself is needed/i.test(listTool?.description || '')
-    || !/not a prerequisite for another tool/i.test(listTool?.description || '')
+    || !/List owns immediate-entry enumeration/i.test(listTool?.description || '')
+    || !/glob owns wildcard or recursive file-path enumeration/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')
     || listTool?.inputSchema?.properties?.path?.type !== 'string'
     || listTool?.inputSchema?.properties?.path?.minLength !== undefined

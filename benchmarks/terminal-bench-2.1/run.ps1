@@ -12,6 +12,7 @@ $presetPath = Join-Path $benchRoot "presets.json"
 $routePath = Join-Path $benchRoot "harness/route_profiles.json"
 $runnerPath = Join-Path $benchRoot "harness/run-tb21.ps1"
 $reportPath = Join-Path $benchRoot "analysis/run-report.mjs"
+$contractPath = Join-Path $benchRoot "analysis/contract-hash.mjs"
 
 function Resolve-JobsPath([string]$Path) {
     if ([IO.Path]::IsPathRooted($Path)) {
@@ -180,10 +181,24 @@ if ((Test-Path -LiteralPath $resolvedJobsDir) -and
 }
 New-Item -ItemType Directory -Path $resolvedJobsDir -Force | Out-Null
 $manifestPath = Join-Path $resolvedJobsDir "preset-run.json"
+# The fingerprint pins dataset and routes only. Capture the prompt surface —
+# rules and tool schemas as the container will see them — before the snapshot
+# is taken, so the report identifies the exact contract under measurement.
+$contract = $null
+try {
+    $contractJson = & node $contractPath
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($contractJson)) {
+        $contract = $contractJson | ConvertFrom-Json
+        "contract rules=$($contract.rulesHash.Substring(7, 12)) tools=$($contract.toolCatalogHash.Substring(7, 12)) tool-count=$($contract.toolCount) schema-bytes=$($contract.toolSchemaBytes)"
+    }
+} catch {
+    [Console]::Error.WriteLine("contract digest failed: $($_.Exception.Message)")
+}
 $manifest = [ordered]@{
     schemaVersion = 1
     preset = $Preset
     fingerprint = $fingerprint
+    contract = $contract
     startedAt = (Get-Date).ToUniversalTime().ToString("o")
     definition = $definition
     comparison = $comparison

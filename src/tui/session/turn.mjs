@@ -972,6 +972,11 @@ export function createRunTurn(bag) {
         // computed this number.
         onContextPressure: (info) => {
           if (!markTurnProgress('context-pressure')) return;
+          // This direct pressure publication exists only to make the gauge hit
+          // 100% on the exact frame auto-compaction starts. Routine pre-send
+          // checks stay on the canonical contextStatus path instead of
+          // competing with its provider-aligned value.
+          if (info?.willCompact !== true) return;
           const used = Math.max(0, Number(info?.usedTokens) || 0);
           if (!used) return;
           set({

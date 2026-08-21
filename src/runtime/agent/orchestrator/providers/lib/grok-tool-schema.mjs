@@ -65,6 +65,26 @@ function firstExclusiveRequired(branches) {
     return [];
 }
 
+const ARRAY_DROP_NOTE = 'This provider accepts a single value here, not an array.';
+
+function describesArray(schema) {
+    if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
+    return schema.type === 'array' || (Array.isArray(schema.type) && schema.type.includes('array'));
+}
+
+// Flattening keeps one branch, so a description that still promises the dropped
+// shape would advertise more than the wire schema accepts. Project the loss
+// into the text the model actually reads.
+function projectDroppedBranches(schema, dropped) {
+    if (describesArray(schema) || !dropped.some(describesArray)) return schema;
+    const description = String(schema.description || '').trim();
+    if (description.includes(ARRAY_DROP_NOTE)) return schema;
+    return {
+        ...schema,
+        description: description ? `${description} ${ARRAY_DROP_NOTE}` : ARRAY_DROP_NOTE,
+    };
+}
+
 function normalizeGrokPropertySchema(schema) {
     if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return schema;
     const branches = [
@@ -75,7 +95,8 @@ function normalizeGrokPropertySchema(schema) {
         const first = branches.find(branch => branch && typeof branch === 'object' && !Array.isArray(branch));
         if (first) {
             const { anyOf: _anyOf, oneOf: _oneOf, ...siblings } = schema;
-            return normalizeGrokPropertySchema({ ...first, ...siblings });
+            const dropped = branches.filter(branch => branch !== first);
+            return normalizeGrokPropertySchema(projectDroppedBranches({ ...first, ...siblings }, dropped));
         }
     }
     if (!schema.properties || typeof schema.properties !== 'object') return schema;
