@@ -51,6 +51,10 @@ export interface GitStatusResult {
   files: GitFileEntry[];
 }
 
+export interface GitStatusOptions {
+  reuseLineStats?: boolean;
+}
+
 import {
   publicGitRemoteUrl,
   run,
@@ -146,6 +150,115 @@ async function readNumstat(
   }
 }
 
+interface CachedRemoteMetadata {
+  expiresAt: number;
+  names: string;
+  url: string;
+}
+
+interface CachedLineStats {
+  signature: string;
+  files: Map<string, Pick<GitFileEntry,
+    'stagedAdditions' | 'stagedDeletions' | 'unstagedAdditions' | 'unstagedDeletions'>>;
+}
+
+const GIT_METADATA_TTL_MS = 60_000;
+const remoteMetadataCache = new Map<string, CachedRemoteMetadata>();
+const gitDirCache = new Map<string, string>();
+const lineStatsCache = new Map<string, CachedLineStats>();
+const reviewBaseCache = new Map<string, { expiresAt: number; base: string }>();
+
+function gitCacheKey(cwd: string): string {
+  const normalized = resolve(cwd);
+  return process.platform === 'win32' ? normalized.toLocaleLowerCase() : normalized;
+}
+
+async function remoteMetadata(cwd: string): Promise<CachedRemoteMetadata> {
+  const key = gitCacheKey(cwd);
+  const cached = remoteMetadataCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached;
+  const raw = await run(cwd, ['--no-optional-locks', 'remote', '-v']).catch(() => '');
+  const names: string[] = [];
+  const urls = new Map<string, string>();
+  for (const line of raw.split(/\r?\n/)) {
+    const match = /^(\S+)\s+(\S+)\s+\((?:fetch|push)\)$/.exec(line.trim());
+    if (!match) continue;
+    if (!names.includes(match[1])) names.push(match[1]);
+    if (!urls.has(match[1]) || line.endsWith('(fetch)')) urls.set(match[1], match[2]);
+  }
+  const primary = names.includes('origin') ? 'origin' : names[0] || '';
+  const value = {
+    expiresAt: Date.now() + GIT_METADATA_TTL_MS,
+    names: names.join('\n'),
+    url: publicGitRemoteUrl(primary ? urls.get(primary) || '' : ''),
+  };
+  remoteMetadataCache.set(key, value);
+  return value;
+}
+
+async function cachedGitDir(cwd: string): Promise<string> {
+  const key = gitCacheKey(cwd);
+  const cached = gitDirCache.get(key);
+  if (cached) return cached;
+  const dotGit = join(cwd, '.git');
+  let gitDir = '';
+  try {
+    const text = await readFile(dotGit, 'utf8');
+    const match = /^gitdir:\s*(.+)\s*$/mi.exec(text);
+    if (match) gitDir = resolve(cwd, match[1]);
+  } catch {
+    try {
+      await access(dotGit);
+      gitDir = dotGit;
+    } catch {
+      gitDir = resolve(cwd, (await run(cwd, [
+        '--no-optional-locks', 'rev-parse', '--absolute-git-dir',
+      ])).trim());
+    }
+  }
+  gitDirCache.set(key, gitDir);
+  return gitDir;
+}
+
+function lineStatsSignature(files: GitFileEntry[]): string {
+  return files.map((file) =>
+    `${file.path}\0${file.oldPath || ''}\0${file.index}\0${file.worktree}\0${file.untracked ? 1 : 0}`)
+    .join('\x01');
+}
+
+function applyCachedLineStats(files: GitFileEntry[], cached: CachedLineStats): void {
+  for (const file of files) {
+    const stats = cached.files.get(file.path);
+    if (!stats) continue;
+    Object.assign(file, stats);
+    file.additions = file.stagedAdditions + file.unstagedAdditions;
+    file.deletions = file.stagedDeletions + file.unstagedDeletions;
+  }
+}
+
+async function applyFreshLineStats(
+  cwd: string,
+  files: GitFileEntry[],
+  stagedStats: Map<string, { additions: number; deletions: number }>,
+  unstagedStats: Map<string, { additions: number; deletions: number }>,
+): Promise<void> {
+  const untracked = new Map(await Promise.all(files
+    .filter((file) => file.untracked)
+    .map(async (file) => [file.path, await untrackedStat(cwd, file.path)] as const)));
+  for (const file of files) {
+    const staged = stagedStats.get(file.path);
+    const unstaged = unstagedStats.get(file.path);
+    file.stagedAdditions = staged?.additions ?? 0;
+    file.stagedDeletions = staged?.deletions ?? 0;
+    file.unstagedAdditions = file.untracked
+      ? untracked.get(file.path) ?? 0
+      : unstaged?.additions ?? 0;
+    file.unstagedDeletions = unstaged?.deletions ?? 0;
+    file.additions = file.stagedAdditions + file.unstagedAdditions;
+    file.deletions = file.stagedDeletions + file.unstagedDeletions;
+  }
+}
+
 async function hasHead(cwd: string): Promise<boolean> {
   try {
     await run(cwd, ['rev-parse', '--verify', 'HEAD']);
@@ -158,7 +271,7 @@ async function hasHead(cwd: string): Promise<boolean> {
 async function currentGitOperation(cwd: string): Promise<GitOperation> {
   let gitDir = '';
   try {
-    gitDir = resolve(cwd, (await run(cwd, ['rev-parse', '--git-dir'])).trim());
+    gitDir = await cachedGitDir(cwd);
   } catch {
     return '';
   }
@@ -170,22 +283,24 @@ async function currentGitOperation(cwd: string): Promise<GitOperation> {
       return false;
     }
   };
-  if (await exists('rebase-merge') || await exists('rebase-apply')) return 'rebase';
-  if (await exists('MERGE_HEAD')) return 'merge';
-  if (await exists('CHERRY_PICK_HEAD')) return 'cherry-pick';
-  if (await exists('REVERT_HEAD')) return 'revert';
+  const [rebaseMerge, rebaseApply, merge, cherryPick, revert] = await Promise.all([
+    exists('rebase-merge'),
+    exists('rebase-apply'),
+    exists('MERGE_HEAD'),
+    exists('CHERRY_PICK_HEAD'),
+    exists('REVERT_HEAD'),
+  ]);
+  if (rebaseMerge || rebaseApply) return 'rebase';
+  if (merge) return 'merge';
+  if (cherryPick) return 'cherry-pick';
+  if (revert) return 'revert';
   return '';
 }
 
-export async function gitStatus(cwd: string): Promise<GitStatusResult> {
-  try {
-    if ((await run(cwd, ['rev-parse', '--is-inside-work-tree'])).trim() !== 'true') {
-      return emptyStatus();
-    }
-  } catch {
-    return emptyStatus();
-  }
-
+export async function gitStatus(
+  cwd: string,
+  options: GitStatusOptions = {},
+): Promise<GitStatusResult> {
   const files: GitFileEntry[] = [];
   let branch = '';
   let oid = '';
@@ -196,7 +311,7 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
   let pendingRename: GitFileEntry | null = null;
   const statusStream = streamNulRecords(
     cwd,
-    ['status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'],
+    ['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'],
     (entry) => {
     if (pendingRename) {
       if (entry) pendingRename.oldPath = entry;
@@ -263,34 +378,45 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
     if (kind === '2') pendingRename = file;
     else files.push(file);
   });
-  const [remotesRaw, operation] = await Promise.all([
-    run(cwd, ['remote']).catch(() => ''),
-    currentGitOperation(cwd),
-    statusStream,
-  ]).then(([remotes, activeOperation]) => [remotes, activeOperation] as const);
+  const eagerStats = options.reuseLineStats !== true;
+  const stagedStatsPromise = eagerStats
+    ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z'])
+    : null;
+  const unstagedStatsPromise = eagerStats
+    ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z'])
+    : null;
+  const metadataPromise = remoteMetadata(cwd);
+  const operationPromise = currentGitOperation(cwd);
+  try {
+    await statusStream;
+  } catch {
+    return emptyStatus();
+  }
   if (pendingRename) files.push(pendingRename);
-  // Hosted-review links prefer origin, else the first remote.
-  const remoteNames = remotesRaw.trim().split(/\r?\n/).filter(Boolean);
-  const primaryRemote = remoteNames.includes('origin') ? 'origin' : remoteNames[0] || '';
-  const remoteUrl = primaryRemote
-    ? publicGitRemoteUrl(await run(cwd, ['remote', 'get-url', primaryRemote]).catch(() => ''))
-    : '';
-
-  const [stagedStats, unstagedStats] = await Promise.all([
-    readNumstat(cwd, ['diff', '--cached', '--numstat', '-z']),
-    readNumstat(cwd, ['diff', '--numstat', '-z']),
-  ]);
-  await Promise.all(files.map(async (file) => {
-    const staged = stagedStats.get(file.path);
-    const unstaged = unstagedStats.get(file.path);
-    file.stagedAdditions = staged?.additions ?? 0;
-    file.stagedDeletions = staged?.deletions ?? 0;
-    file.unstagedAdditions = unstaged?.additions ?? 0;
-    file.unstagedDeletions = unstaged?.deletions ?? 0;
-    if (file.untracked) file.unstagedAdditions = await untrackedStat(cwd, file.path);
-    file.additions = file.stagedAdditions + file.unstagedAdditions;
-    file.deletions = file.stagedDeletions + file.unstagedDeletions;
-  }));
+  const [metadata, operation] = await Promise.all([metadataPromise, operationPromise]);
+  const cacheKey = gitCacheKey(cwd);
+  const signature = lineStatsSignature(files);
+  const cachedStats = lineStatsCache.get(cacheKey);
+  if (options.reuseLineStats === true && cachedStats?.signature === signature) {
+    applyCachedLineStats(files, cachedStats);
+  } else {
+    const [stagedStats, unstagedStats] = await Promise.all([
+      stagedStatsPromise
+        ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z']),
+      unstagedStatsPromise
+        ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']),
+    ]);
+    await applyFreshLineStats(cwd, files, stagedStats, unstagedStats);
+    lineStatsCache.set(cacheKey, {
+      signature,
+      files: new Map(files.map((file) => [file.path, {
+        stagedAdditions: file.stagedAdditions,
+        stagedDeletions: file.stagedDeletions,
+        unstagedAdditions: file.unstagedAdditions,
+        unstagedDeletions: file.unstagedDeletions,
+      }])),
+    });
+  }
 
   const detached = branch === '(detached)';
   if (detached) {
@@ -303,8 +429,8 @@ export async function gitStatus(cwd: string): Promise<GitStatusResult> {
     unborn,
     upstream: Boolean(upstreamName),
     upstreamName,
-    remote: remotesRaw.trim().length > 0,
-    remoteUrl,
+    remote: metadata.names.length > 0,
+    remoteUrl: metadata.url,
     ahead,
     behind,
     operation,
@@ -335,6 +461,7 @@ export function gitDiff(
 ): Promise<string> {
   if (untracked) return untrackedPatch(cwd, path);
   return run(cwd, [
+    '--no-optional-locks',
     'diff',
     ...DISPLAY_DIFF_ARGS,
     ...(staged ? ['--cached'] : worktreeOnly ? [] : ['HEAD']),
@@ -913,29 +1040,34 @@ export interface GitReviewResult {
 }
 
 async function resolveReviewBase(cwd: string): Promise<string> {
+  const key = gitCacheKey(cwd);
+  const cached = reviewBaseCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.base;
+  const remember = (base: string): string => {
+    reviewBaseCache.set(key, { expiresAt: Date.now() + GIT_METADATA_TTL_MS, base });
+    return base;
+  };
   try {
-    const head = (await run(cwd, ['symbolic-ref', 'refs/remotes/origin/HEAD'])).trim();
+    const head = (await run(cwd, [
+      '--no-optional-locks', 'symbolic-ref', 'refs/remotes/origin/HEAD',
+    ])).trim();
     const short = head.replace(/^refs\/remotes\//, '');
-    if (short) return short;
+    if (short) return remember(short);
   } catch { /* no origin/HEAD ref */ }
   for (const candidate of ['origin/main', 'origin/master']) {
     try {
-      await run(cwd, ['rev-parse', '--verify', '--quiet', candidate]);
-      return candidate;
+      await run(cwd, [
+        '--no-optional-locks', 'rev-parse', '--verify', '--quiet', candidate,
+      ]);
+      return remember(candidate);
     } catch { /* try next */ }
   }
-  return 'HEAD';
+  return remember('HEAD');
 }
 
 async function resolveMergeBase(cwd: string): Promise<{ base: string; ref: string }> {
   const base = await resolveReviewBase(cwd);
-  if (base === 'HEAD') return { base, ref: 'HEAD' };
-  try {
-    const ref = (await run(cwd, ['merge-base', base, 'HEAD'])).trim();
-    return { base, ref: ref || 'HEAD' };
-  } catch {
-    return { base, ref: 'HEAD' };
-  }
+  return { base, ref: base === 'HEAD' ? 'HEAD' : `${base}...HEAD` };
 }
 
 async function untrackedStat(cwd: string, path: string): Promise<number> {
@@ -1178,8 +1310,19 @@ export async function gitShowFile(cwd: string, rev: string, path: string): Promi
 export async function gitReview(cwd: string): Promise<GitReviewResult> {
   const { base, ref } = await resolveMergeBase(cwd);
   const files = new Map<string, GitReviewFile>();
+  const [nameStatus, numstat, worktreeStatus] = await Promise.all([
+    run(cwd, [
+      '--no-optional-locks', 'diff', ref, '--name-status', '--no-renames', '-z',
+    ]).catch(() => ''),
+    run(cwd, [
+      '--no-optional-locks', 'diff', ref, '--numstat', '--no-renames', '-z',
+    ]).catch(() => ''),
+    run(cwd, [
+      '--no-optional-locks', 'status', '--porcelain=v1', '-z',
+      '--untracked-files=all', '--no-renames',
+    ]).catch(() => ''),
+  ]);
   try {
-    const nameStatus = await run(cwd, ['diff', ref, '--name-status', '--no-renames', '-z']);
     const fields = nameStatus.split('\0').filter(Boolean);
     for (let i = 0; i + 1 < fields.length; i += 2) {
       const path = fields[i + 1];
@@ -1193,7 +1336,6 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
         uncommitted: false,
       });
     }
-    const numstat = await run(cwd, ['diff', ref, '--numstat', '--no-renames', '-z']);
     for (const field of numstat.split('\0').filter(Boolean)) {
       const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(field);
       const entry = match && match[3] ? files.get(match[3]) : undefined;
@@ -1204,13 +1346,14 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
   } catch { /* empty repository (no HEAD yet) */ }
   // Working-tree overlay: uncommitted rows keep their revert affordance and
   // untracked files join the set as pure additions.
+  const untrackedPaths: string[] = [];
   try {
-    const raw = await run(cwd, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames']);
-    for (const entry of raw.split('\0')) {
+    for (const entry of worktreeStatus.split('\0')) {
       if (entry.length < 4) continue;
       const path = entry.slice(3);
       if (!path) continue;
       const untracked = entry[0] === '?' && entry[1] === '?';
+      if (untracked) untrackedPaths.push(path);
       const existing = files.get(path);
       if (existing) {
         existing.uncommitted = true;
@@ -1220,18 +1363,22 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
       files.set(path, {
         path,
         status: untracked ? 'A' : 'M',
-        additions: untracked ? await untrackedStat(cwd, path) : 0,
+        additions: 0,
         deletions: 0,
         untracked,
         uncommitted: true,
       });
     }
   } catch { /* not a repository */ }
+  await Promise.all(untrackedPaths.map(async (path) => {
+    const entry = files.get(path);
+    if (entry?.untracked) entry.additions = await untrackedStat(cwd, path);
+  }));
   return { base, files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)) };
 }
 
 export async function gitReviewDiff(cwd: string, path: string, untracked: boolean): Promise<string> {
   if (untracked) return untrackedPatch(cwd, path);
   const { ref } = await resolveMergeBase(cwd);
-  return run(cwd, ['diff', ...DISPLAY_DIFF_ARGS, ref, '--', path]);
+  return run(cwd, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ref, '--', path]);
 }

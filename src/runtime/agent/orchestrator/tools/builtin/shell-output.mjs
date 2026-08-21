@@ -95,4 +95,11 @@ export function recordShellCaptureTelemetry(target, result, visibleStdout, visib
         'utf8',
     );
     target.spilled = Boolean(result.stdoutPath || result.stderrPath);
+    // Exit status rides along with the byte counts. The tool row itself stays
+    // `normal` for a non-zero command exit (that is an observed completion, not
+    // a tool failure), so without this a failed command and its retry are
+    // indistinguishable from two deliberate runs in the trace.
+    target.exitCode = Number.isInteger(result.exitCode) ? result.exitCode : null;
+    target.signal = result.signal || (result.killed ? 'SIGKILL' : null);
+    target.timedOut = result.timedOut === true;
 }

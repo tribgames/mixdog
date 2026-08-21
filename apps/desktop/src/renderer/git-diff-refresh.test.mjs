@@ -1,8 +1,22 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { setImmediate as waitForTurn } from "node:timers/promises";
 import { test } from "node:test";
 
 import { createSingleFlightRefresh } from "./git-diff-refresh.ts";
+
+const appShellSource = readFileSync(
+  new URL("./app-shell-components.tsx", import.meta.url),
+  "utf8",
+);
+
+test("diff exposes its own loading shell without a second full-pane gate", () => {
+  const readyDiffPaneSource = appShellSource.slice(
+    appShellSource.indexOf("export function ReadyGitDiffPane"),
+  );
+  assert.match(readyDiffPaneSource, /return <GitDiffPane/u);
+  assert.doesNotMatch(readyDiffPaneSource, /<PaneSurfaceGate/u);
+});
 
 test("diff refreshes stay single-flight and coalesce pressure into one follow-up", async () => {
   const releases = [];

@@ -411,14 +411,13 @@ const measure = async (scenario: {
     panel: rectOf(".dock-source-control"),
     stage: rectOf(".dock-scm-view-stage"),
     toolbar: rectOf(".dock-scm-toolbar"),
-    // The panel header's always-available Fetch: a real hit box, pinned at the
-    // RIGHT END of the title row and never on top of the title itself.
     headerRow: rectOf(".utility-dock-header"),
     headerTitle: rectOf(".utility-dock-header .utility-dock-title"),
-    headerFetch: rectOf(".dock-scm-header-fetch"),
-    // The three toolbar sections must split the width EVENLY (1:1:1) and the
-    // third one must show its TEXT label at the dock's normal widths — jsdom
-    // can measure neither.
+    headerFetchCount: document.querySelectorAll(".dock-scm-header-fetch").length,
+    toolbarI18nSkip: document.querySelector(".dock-scm-toolbar")?.hasAttribute("data-i18n-skip") || false,
+    toolbarActionLabels: [...document.querySelectorAll(".dock-scm-toolbar .dock-scm-remote-verb")]
+      .map((node) => node.textContent || ""),
+    // Branch, Push and Fetch must split the width evenly.
     toolbarSections: [...document.querySelectorAll(".dock-scm-toolbar-section")]
       .map((section) => {
         const rect = section.getBoundingClientRect();

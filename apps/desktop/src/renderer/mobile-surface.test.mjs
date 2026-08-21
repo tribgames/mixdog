@@ -29,6 +29,9 @@ test("iOS boot preserves device-width and marks the phone before CSS paint", () 
 function assertPhoneBoot(dom, { ios = false } = {}) {
   const viewport = dom.window.document.querySelector('meta[name="viewport"]');
   assert.match(viewport.getAttribute("content"), /width=device-width/u);
+  assert.match(viewport.getAttribute("content"), /minimum-scale=1\.0/u);
+  assert.match(viewport.getAttribute("content"), /maximum-scale=1\.0/u);
+  assert.match(viewport.getAttribute("content"), /user-scalable=no/u);
   assert.equal(dom.window.document.documentElement.hasAttribute("data-mixdog-mobile-tabs"), true);
   assert.equal(
     dom.window.document.documentElement.style.getPropertyValue("--mx-device-scale"),
@@ -85,6 +88,8 @@ test("desktop Chrome boot retains the canonical projection", () => {
     dom.window.eval(bootSource);
     const viewport = dom.window.document.querySelector('meta[name="viewport"]');
     assert.match(viewport.getAttribute("content"), /width=1040/u);
+    assert.match(viewport.getAttribute("content"), /maximum-scale=1\.0/u);
+    assert.match(viewport.getAttribute("content"), /user-scalable=no/u);
     assert.equal(dom.window.document.documentElement.dataset.mixdogProjection, "desktop");
     assert.equal(dom.window.document.documentElement.hasAttribute("data-mixdog-mobile-tabs"), false);
   } finally {
@@ -106,6 +111,10 @@ test("iOS web surfaces keep native scale through landscape rotation", async () =
     configurable: true,
     value: 5,
   });
+  Object.defineProperty(dom.window.navigator, "standalone", {
+    configurable: true,
+    value: true,
+  });
   Object.defineProperty(dom.window.document.documentElement, "clientWidth", {
     configurable: true,
     value: 844,
@@ -118,11 +127,15 @@ test("iOS web surfaces keep native scale through landscape rotation", async () =
     const {
       installMobileSurfaceMarker,
       isIOSWebSurface,
+      isInstalledMobileWebAppSurface,
+      isInstalledWebAppSurface,
       isMobileRemoteSurface,
       mobileSurfaceScale,
     } = await import(`./mobile-surface.ts?ios=${Date.now()}`);
     assert.equal(isIOSWebSurface(), true);
     assert.equal(isMobileRemoteSurface(), true);
+    assert.equal(isInstalledWebAppSurface(), true);
+    assert.equal(isInstalledMobileWebAppSurface(), true);
     assert.equal(mobileSurfaceScale(), 1);
 
     const remove = installMobileSurfaceMarker();
@@ -133,6 +146,92 @@ test("iOS web surfaces keep native scale through landscape rotation", async () =
     window.dispatchEvent(new dom.window.Event("orientationchange"));
     assert.equal(document.documentElement.style.getPropertyValue("--mx-device-scale"), "1");
     remove();
+  } finally {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+    dom.window.close();
+  }
+});
+
+test("a desktop-installed PWA never becomes a remote work surface", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "https://mixdog.test/",
+  });
+  const previous = new Map(["window", "document", "navigator"].map((key) =>
+    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(dom.window.navigator, "userAgent", {
+    configurable: true,
+    value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131",
+  });
+  Object.defineProperty(dom.window.navigator, "standalone", {
+    configurable: true,
+    value: true,
+  });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+
+  try {
+    const {
+      isInstalledMobileWebAppSurface,
+      isInstalledWebAppSurface,
+      isMobileRemoteSurface,
+    } = await import(`./mobile-surface.ts?desktop-pwa=${Date.now()}`);
+    assert.equal(isInstalledWebAppSurface(), true);
+    assert.equal(isMobileRemoteSurface(), false);
+    assert.equal(isInstalledMobileWebAppSurface(), false);
+  } finally {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+    dom.window.close();
+  }
+});
+
+test("remote web surfaces clear and block renderer and browser zoom", async () => {
+  const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+    url: "https://mixdog.test/",
+  });
+  const previous = new Map(["window", "document", "navigator"].map((key) =>
+    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(dom.window.navigator, "userAgent", {
+    configurable: true,
+    value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15",
+  });
+  dom.window.localStorage.setItem("mixdog.web-zoom", "1.8");
+  dom.window.document.documentElement.style.zoom = "1.8";
+  Object.defineProperty(globalThis, "window", { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+
+  try {
+    const { zoomIn } = await import(`./webview-zoom.ts?remote-zoom=${Date.now()}`);
+    assert.equal(dom.window.localStorage.getItem("mixdog.web-zoom"), null);
+    assert.equal(dom.window.document.documentElement.style.zoom, "");
+    await zoomIn();
+    assert.equal(dom.window.document.documentElement.style.zoom, "");
+
+    const shortcut = new dom.window.KeyboardEvent("keydown", {
+      key: "+",
+      ctrlKey: true,
+      cancelable: true,
+    });
+    dom.window.dispatchEvent(shortcut);
+    assert.equal(shortcut.defaultPrevented, true);
+
+    const wheel = new dom.window.WheelEvent("wheel", {
+      ctrlKey: true,
+      cancelable: true,
+    });
+    dom.window.dispatchEvent(wheel);
+    assert.equal(wheel.defaultPrevented, true);
+
+    const gesture = new dom.window.Event("gesturestart", { cancelable: true });
+    dom.window.document.dispatchEvent(gesture);
+    assert.equal(gesture.defaultPrevented, true);
   } finally {
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);

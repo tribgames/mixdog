@@ -1,4 +1,6 @@
-import { basename, resolve } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, join, resolve } from 'node:path';
 import { tokenizeDirectArgv } from './shell-direct-exe.mjs';
 import { withBuiltinPathLocks } from './path-locks.mjs';
 import { withAdvisoryLocks } from './advisory-lock.mjs';
@@ -7,6 +9,13 @@ import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
 import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
 import { commandHasShellSyntax, gitActionOf as actionOf, gitPlanIsReadOnly as isReadOnly } from './git-command-policy.mjs';
+import {
+    buildSelectedStagePatch,
+    createDiffSnapshot,
+    deleteDiffSnapshot,
+    diffSnapshotMatches,
+    getDiffSnapshot,
+} from './git-partial-stage.mjs';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
@@ -49,6 +58,36 @@ export const GIT_TOOL_DEF = {
             output_limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
         required: ['command'],
+        additionalProperties: false,
+    },
+};
+
+export const GIT_STAGE_TOOL_DEF = {
+    name: 'git_stage',
+    title: 'Git Stage',
+    annotations: {
+        title: 'Git Stage',
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+        compressible: true,
+    },
+    description: 'Stage selected change_ids from a bare unstaged git diff using its diff_id; rejects stale or cross-Project snapshots.',
+    inputSchema: {
+        type: 'object',
+        properties: {
+            diff_id: { type: 'string', description: 'Exact diff_id returned by a bare unstaged git diff.' },
+            change_ids: {
+                anyOf: [
+                    { type: 'string' },
+                    { type: 'array', items: { type: 'string' }, maxItems: 50 },
+                ],
+                description: 'Exact change ID or IDs to stage.',
+            },
+            output_limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Status line cap; default 50.' },
+        },
+        required: ['diff_id', 'change_ids'],
         additionalProperties: false,
     },
 };
@@ -206,8 +245,13 @@ function succeeded(result) {
 }
 
 function commandFailure(plan, result, limit = 50) {
-    const reason = result.error
-        ? `git process failed (${result.error.code || result.error.message || result.error})`
+    // ENOENT from the spawn itself is a capability fact, not a git error: the
+    // executable is absent. Naming it stops the caller from re-running git a
+    // different way to find out.
+    const reason = result.error?.code === 'ENOENT'
+        ? 'git executable not found in this environment'
+        : result.error
+            ? `git process failed (${result.error.code || result.error.message || result.error})`
         : result.aborted ? 'git command aborted'
             : result.timedOut ? 'git command timed out'
                 : result.overflow ? 'git output exceeded 128 MiB'
@@ -233,6 +277,14 @@ function semanticExit(plan, result) {
     if (operation === 'grep') {
         if (result.exitCode === 0) return { matched: true };
         return result.exitCode === 1 ? { matched: false } : null;
+    }
+    // `cat-file -e` is an existence probe: exit 1 IS the answer ("no such
+    // object"), which is the normal result after a history rewrite removed a
+    // blob. Reporting it as an error sent the caller looking for the same fact
+    // another way.
+    if (operation === 'cat-file' && args.includes('-e')) {
+        if (result.exitCode === 0) return { exists: true };
+        return result.exitCode === 1 || result.exitCode === 128 ? { exists: false } : null;
     }
     if (!['diff', 'diff-files', 'diff-index', 'diff-tree'].includes(operation)) return null;
     if (args.includes('--check')) {
@@ -566,8 +618,95 @@ async function executeCreation(plan, target, limit, signal) {
     }));
 }
 
+function stageRequest(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return { error: 'git stage must be an object' };
+    }
+    const diffId = typeof value.diff_id === 'string' ? value.diff_id.trim() : '';
+    const rawIds = Array.isArray(value.change_ids) ? value.change_ids : [value.change_ids];
+    const changeIds = [...new Set(rawIds.map((item) => String(item || '').trim()).filter(Boolean))];
+    if (!diffId) return { error: 'git stage requires diff_id from a prior git diff' };
+    if (!changeIds.length) return { error: 'git stage requires at least one change_id' };
+    if (changeIds.length > 50) return { error: 'git stage accepts at most 50 change_ids' };
+    return { diffId, changeIds };
+}
+
+async function withStagePatchFile(patch, callback) {
+    const directory = await mkdtemp(join(tmpdir(), 'mixdog-git-stage-'));
+    const patchPath = join(directory, 'selected.patch');
+    try {
+        await writeFile(patchPath, patch, 'utf8');
+        return await callback(patchPath);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+}
+
+export async function executeGitStageTool(input, workDir, options = {}) {
+    const request = stageRequest(input);
+    if (request.error) return fail(request.error);
+    const snapshot = getDiffSnapshot(request.diffId);
+    if (!snapshot) {
+        return ok({
+            staged: false,
+            reason: 'expired_diff',
+            hint: 'Run git diff again and use its new diff_id/change_ids.',
+        });
+    }
+    if (snapshot.scope !== resolve(workDir || process.cwd())) {
+        return ok({
+            staged: false,
+            reason: 'scope_mismatch',
+            hint: 'Run git diff in the current Project and use its diff_id/change_ids.',
+        });
+    }
+    const limit = Math.min(500, Math.max(1, Number(input?.output_limit) || 50));
+    const signal = options?.signal || options?.abortSignal || null;
+    const repo = snapshot.repo;
+    return withGitRepoWriteLock(repo, () => withBuiltinPathLocks([repo], () => withAdvisoryLocks([repo], async () => {
+        const current = await runGit(snapshot.plan, snapshot.argv, { signal });
+        if (!succeeded(current)) return commandFailure(snapshot.plan, current, limit);
+        const raw = cleanText(current.stdout);
+        if (!diffSnapshotMatches(snapshot, raw)) {
+            return ok({
+                staged: false,
+                reason: 'stale_diff',
+                hint: 'The working diff changed. Run git diff again and select current change_ids.',
+            });
+        }
+        const built = buildSelectedStagePatch(raw, request.changeIds);
+        if (built.missing.length || !built.patch) {
+            return fail(`git stage change_ids are not present in the diff: ${built.missing.join(', ') || '(none selected)'}`);
+        }
+        const before = await statusSnapshot(repo, signal);
+        return withStagePatchFile(built.patch, async (patchPath) => {
+            const applyArgs = ['apply', '--cached', '--unidiff-zero', patchPath];
+            const applyPlan = { ...snapshot.plan, operation: 'apply', args: applyArgs.slice(1) };
+            const check = await runGit(applyPlan, ['apply', '--cached', '--check', '--unidiff-zero', patchPath], { signal });
+            if (!succeeded(check)) return commandFailure(applyPlan, check, limit);
+            const applied = await runGit(applyPlan, applyArgs, { signal });
+            const after = await statusSnapshot(repo, signal);
+            if (!succeeded(applied)) {
+                return `${commandFailure(applyPlan, applied, limit)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
+            }
+            deleteDiffSnapshot(request.diffId);
+            invalidateBuiltinResultCache();
+            drainCodeGraphCache();
+            return ok({
+                summary: 'staged selected changes',
+                staged: true,
+                diff_id: request.diffId,
+                change_ids: built.selected,
+                status: statusDelta(before, after, limit),
+            });
+        });
+    })), { signal });
+}
+
 export async function executeGitTool(input, workDir, options = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
+    const hasCommand = typeof input.command === 'string' && Boolean(input.command.trim());
+    if (!hasCommand) return fail('git requires command');
     let plan;
     try { plan = localizeConfigPlan(parseCommand(input.command, workDir)); }
     catch (error) { return fail(error.message); }
@@ -592,7 +731,27 @@ export async function executeGitTool(input, workDir, options = {}) {
             const result = await runGit(plan, prepared.argv, { signal });
             const semantic = semanticExit(plan, result);
             if (!succeeded(result) && !semantic) return commandFailure(plan, result, limit);
-            return ok({ ...formatRead(prepared, cleanText(result.stdout), cleanText(result.stderr), limit), ...semantic });
+            const raw = cleanText(result.stdout);
+            const data = formatRead(prepared, raw, cleanText(result.stderr), limit);
+            if (plan.operation === 'diff') {
+                const stageableRequest = plan.args.length === 0
+                    || (plan.args.length === 1 && plan.args[0] === '--');
+                if (stageableRequest) {
+                    const snapshot = createDiffSnapshot({
+                        repo,
+                        scope: resolve(workDir || process.cwd()),
+                        plan,
+                        argv: prepared.argv,
+                        raw,
+                    });
+                    if (snapshot.diffId) {
+                        data.diff_id = snapshot.diffId;
+                        data.changes = snapshot.changes.slice(0, limit);
+                        data.omitted_changes = Math.max(0, snapshot.changes.length - limit);
+                    }
+                }
+            }
+            return ok({ ...data, ...semantic });
         }, { signal });
     }
     return withGitRepoWriteLock(repo, () => withBuiltinPathLocks([repo], () => withAdvisoryLocks([repo], async () => {

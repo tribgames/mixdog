@@ -29,7 +29,12 @@ export interface SessionLaneStore {
   start(source?: SessionLaneSource | undefined): () => void;
   /** Test/manual injection of one lane frame. */
   apply(update: DesktopSessionStateUpdate): void;
-  stats(): { entries: number; estimatedBytes: number; subscribedSessions: number };
+  stats(): {
+    entries: number;
+    estimatedBytes: number;
+    subscribedSessions: number;
+    notificationKeys: number;
+  };
   /** Session ids at least one mounted pane is currently subscribed to. */
   subscribedSessionIds(): string[];
   /** Drop cached lanes with no subscribers (remote sync-gap recovery: an
@@ -507,6 +512,12 @@ export function createSessionLaneStore({
     }
     prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
+    if ((listeners.get(sessionId)?.size || 0) === 0) {
+      const key = notificationKeys.get(sessionId);
+      if (key) cancelLayoutFrame(key);
+      notificationKeys.delete(sessionId);
+      return;
+    }
     const key = notificationKey(sessionId);
     if (laneUpdateIsUrgent(priorSnapshot, nextSnapshot)) {
       cancelLayoutFrame(key);
@@ -537,6 +548,7 @@ export function createSessionLaneStore({
           listeners.delete(sessionId);
           const key = notificationKeys.get(sessionId);
           if (key) cancelLayoutFrame(key);
+          notificationKeys.delete(sessionId);
           prune();
         }
       };
@@ -573,6 +585,7 @@ export function createSessionLaneStore({
       entries: snapshots.size,
       estimatedBytes: retainedBytes,
       subscribedSessions: listeners.size,
+      notificationKeys: notificationKeys.size,
     }),
     clear() {
       for (const key of notificationKeys.values()) cancelLayoutFrame(key);

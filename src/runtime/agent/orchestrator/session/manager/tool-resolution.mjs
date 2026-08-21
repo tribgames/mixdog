@@ -55,6 +55,7 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'edit',
     'apply_patch',
     'git',
+    'git_stage',
     'shell',
     'task',
     'web_search',
@@ -137,6 +138,7 @@ const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
     'edit',
     'apply_patch',
     'git',
+    'git_stage',
     'shell',
     'task',
     'web_search',
@@ -284,7 +286,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
                     addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task'));
                     break;
                 case 'tools:git':
-                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'git' || t.name === 'shell' || t.name === 'task'));
+                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'git' || t.name === 'git_stage' || t.name === 'shell' || t.name === 'task'));
                     break;
                 case 'tools:mcp':
                     addMany(mcp);

@@ -834,7 +834,7 @@
   display: flex;
   background: var(--mx-window-band);
   opacity: 1;
-  transition: opacity 160ms ease-out;
+  transition: opacity 100ms ease-out;
 }
 .desktop-boot-cover[data-leaving="true"] { opacity: 0; pointer-events: none; }
 .desktop-boot-cover > .desktop-loading-surface {

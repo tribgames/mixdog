@@ -10,6 +10,22 @@
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
 }
+.tool-activity {
+  width: 100%;
+  padding: 4px 0;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+.tool-activity-title b { font-family: inherit; }
+.tool-activity-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 0 20px;
+}
+.tool-activity-content > .tool-card { padding: 2px 0; }
+.tool-activity.failed .tool-icon { color: var(--mx-danger); }
+.tool-activity.warning .tool-icon { color: var(--mx-warning); }
 .tool-card:has(.tool-content) { border: 0; background: transparent; box-shadow: none; }
 .tool-header {
   min-height: 20px;
@@ -98,7 +114,8 @@
   border-radius: var(--mx-radius-sm);
 }
 .tool-chevron svg { transition: transform 150ms ease-out; }
-.tool-card[data-open="true"] .tool-chevron svg { transform: rotate(90deg); }
+.tool-card[data-open="true"] .tool-chevron svg,
+.tool-activity[data-open="true"] .tool-chevron svg { transform: rotate(90deg); }
 .tool-content { gap: 8px; border: 0; padding: 8px 0 0; background: transparent; }
 /* Manual expansion adds exactly one summary row
    (355 lines / Failed · cause / Running · 12s). */

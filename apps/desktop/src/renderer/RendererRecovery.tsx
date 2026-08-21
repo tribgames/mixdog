@@ -208,7 +208,7 @@ export function DesktopLoadingSurface({
     }`}
     role="status" aria-live="polite" aria-label={label}>
     {brand
-      ? <WindowLoadingMark size={24} aria-hidden="true" />
+      ? <WindowLoadingMark size={40} aria-hidden="true" />
       : <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />}
   </div>;
 }

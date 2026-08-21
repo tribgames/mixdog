@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Mobile web sessions now keep native viewport scale, pairing recovery, remote
+  state projection, and transcript scrolling stable across touch gestures,
+  streaming row measurements, app restores, and slow connections.
+- Desktop panes, source-control refreshes, tool activity, command surfaces, and
+  session state recover more consistently while preserving responsive layouts
+  and clearer loading or interruption feedback.
+- Agent tool routing now applies tighter argument guards, Git mutation policy,
+  provider-prefix handling, evidence projection, and shell output recovery
+  across the shared runtime and TUI.
+- Release, benchmark, localization, and diagnostic tooling now validate their
+  contracts with broader regression coverage and more compact runtime reports.
+
 ## v0.9.144 - 2026-08-21
 
 - Desktop interaction now follows keyboard and pointer focus more reliably,

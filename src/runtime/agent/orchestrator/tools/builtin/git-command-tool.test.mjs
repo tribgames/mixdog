@@ -4,7 +4,13 @@ import { mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
-import { executeGitTool, GIT_TOOL_DEF, _gitCommandInternals } from './git-command-tool.mjs';
+import {
+    executeGitStageTool,
+    executeGitTool,
+    GIT_STAGE_TOOL_DEF,
+    GIT_TOOL_DEF,
+    _gitCommandInternals,
+} from './git-command-tool.mjs';
 import { commandHasShellSyntax } from './git-command-policy.mjs';
 
 function parseOk(result) {
@@ -176,13 +182,76 @@ test('git failure detail folds progress frames and keeps the fatal tail', () => 
     assert.match(text, /fatal: boom$/);
 });
 
-test('git schema exposes only the compact shell-compatible contract', () => {
+test('git and deferred git_stage expose separate compact contracts', () => {
     const properties = GIT_TOOL_DEF.inputSchema.properties;
     assert.deepEqual(Object.keys(properties), ['command', 'output_limit']);
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
     assert.equal(properties.command.minLength, undefined);
+    const stageProperties = GIT_STAGE_TOOL_DEF.inputSchema.properties;
+    assert.deepEqual(Object.keys(stageProperties), ['diff_id', 'change_ids', 'output_limit']);
+    assert.deepEqual(GIT_STAGE_TOOL_DEF.inputSchema.required, ['diff_id', 'change_ids']);
+    assert.equal(stageProperties.change_ids.anyOf[1].maxItems, 50);
+    assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
     assert.match(GIT_TOOL_DEF.description, /Use diff directly when changed content for a known target is required/i);
     assert.match(GIT_TOOL_DEF.description, /Run one Git command directly, without a shell/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
+});
+
+test('git stages selected change IDs and rejects stale diff snapshots without touching the index', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-stage-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await git(root, `init ${quote(repo)}`));
+    parseOk(await git(repo, 'config user.email test@example.com'));
+    parseOk(await git(repo, 'config user.name Test'));
+    writeFileSync(join(repo, 'sample.txt'), `${Array.from({ length: 12 }, (_, index) => `line-${index + 1}`).join('\n')}\n`);
+    parseOk(await git(repo, 'add sample.txt'));
+    parseOk(await git(repo, 'commit -m base'));
+
+    const changed = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
+    changed[2] = 'selected-change';
+    changed[8] = 'remaining-change';
+    writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
+
+    const scopedDiff = parseOk(await git(repo, 'diff -- sample.txt', { output_limit: 100 }));
+    assert.equal(scopedDiff.diff_id, undefined);
+    assert.equal(scopedDiff.changes, undefined);
+    const diff = parseOk(await git(repo, 'diff', { output_limit: 100 }));
+    assert.match(diff.diff_id, /^diff_[0-9a-f]{20}$/);
+    assert.equal(diff.changes.length, 2);
+    const selected = diff.changes.find((change) => change.preview.some((line) => line.includes('selected-change')));
+    assert.ok(selected);
+    const wrongScope = parseOk(await executeGitStageTool({
+        diff_id: diff.diff_id,
+        change_ids: [selected.id],
+    }, root));
+    assert.equal(wrongScope.staged, false);
+    assert.equal(wrongScope.reason, 'scope_mismatch');
+    assert.equal(spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout, '');
+    const staged = parseOk(await executeGitStageTool({
+        diff_id: diff.diff_id,
+        change_ids: [selected.id],
+    }, repo));
+    assert.equal(staged.staged, true);
+    assert.deepEqual(staged.change_ids, [selected.id]);
+
+    const cached = spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout;
+    const unstaged = spawnSync('git', ['-C', repo, 'diff'], { encoding: 'utf8' }).stdout;
+    assert.match(cached, /selected-change/);
+    assert.doesNotMatch(cached, /remaining-change/);
+    assert.match(unstaged, /remaining-change/);
+    assert.doesNotMatch(unstaged, /selected-change/);
+
+    const next = parseOk(await git(repo, 'diff', { output_limit: 100 }));
+    changed[8] = 'changed-after-diff';
+    writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
+    const stale = parseOk(await executeGitStageTool({
+        diff_id: next.diff_id,
+        change_ids: next.changes[0].id,
+    }, repo));
+    assert.equal(stale.staged, false);
+    assert.equal(stale.reason, 'stale_diff');
+    const cachedAfterStale = spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout;
+    assert.equal(cachedAfterStale, cached);
 });

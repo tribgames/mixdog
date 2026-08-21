@@ -16,11 +16,11 @@ export function _isReadTool(name) {
 }
 export function _isMutationTool(name, args = null) {
     const n = String(_stripMcpPrefix(name) || '').toLowerCase();
-    return n === 'apply_patch' || n === 'edit' || (n === 'git' && gitCommandMutates(args));
+    return n === 'apply_patch' || n === 'edit' || n === 'git_stage' || (n === 'git' && gitCommandMutates(args));
 }
 export function _isGitMutationTool(name, args = null) {
     const n = String(_stripMcpPrefix(name) || '').toLowerCase();
-    return n === 'git' && gitCommandMutates(args);
+    return n === 'git_stage' || (n === 'git' && gitCommandMutates(args));
 }
 export function _isEditTool(name) {
     return String(_stripMcpPrefix(name) || '').toLowerCase() === 'edit';

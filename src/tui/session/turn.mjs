@@ -144,26 +144,13 @@ export function createRunTurn(bag) {
     let tailAggregate = null; // most recently touched aggregate card; only the tail may absorb the next same-bucket call
     let providerToolBatch = 0;
 
-    // ── Deferred tool-card push (scroll/text sync) ────────────────────────────
-    // A tool card used to enter the transcript the instant onToolCall fired,
-    // reserving its estimated height (margin+header+detail) while ToolExecution
-    // only painted blank placeholder rows for TOOL_PENDING_SHOW_DELAY_MS. With a
-    // bottom-fixed viewport that shoved the body up BEFORE any glyph appeared, so
-    // the scroll ran ahead of the text. We now hold each card off-screen for the
-    // same delay and push it only when its real header/detail will paint (delay
-    // elapsed) OR a result lands first (fast tool → completed card, no pending
-    // flicker). Either way the pushed spec is stamped `deferredDisplayReady` so
-    // ToolExecution renders the real header + 'Running' detail immediately
-    // instead of the blank pre-delay placeholder — this matters for the
-    // result-forced chain push (flushDeferredUpTo), where earlier-seq sibling
-    // cards are pushed alongside the result-bearing one before their own delay
-    // elapses and would otherwise paint an empty reserved band.
-    // Mirrors components/ToolExecution.jsx TOOL_PENDING_SHOW_DELAY_MS.
-    // Keep a fast call off-screen until it either resolves or has genuinely
-    // been pending long enough to communicate work. This avoids a one-frame
-    // Running→Finished flash while preserving the deferred entry's ordered,
-    // result-forced materialization path.
-    const TOOL_CARD_PUSH_DELAY_MS = 1000;
+    // ── Ordered tool-card push ────────────────────────────────────────────────
+    // Register entries first so sibling ordering and batched result handling
+    // stay intact, then flush them synchronously once every header is ready.
+    // The zero-delay timer is only a safety fallback for an interrupted setup.
+    // `deferredDisplayReady` makes the first visible frame real content rather
+    // than ToolExecution's pending placeholder.
+    const TOOL_CARD_PUSH_DELAY_MS = 0;
     let deferredSeqCounter = 0;
     const deferredEntries = []; // creation-order list; each is pushed at most once
     // Push this entry AND every earlier-created still-deferred entry, in order,
@@ -813,16 +800,7 @@ export function createRunTurn(bag) {
           if (batchCalls.length === 0) return;
           const displayCalls = batchCalls;
           const agentBatch = ++providerToolBatch;
-          const committedAssistantSegment = commitAssistantSegment({ sealToolBlock: true });
-          if (committedAssistantSegment) {
-            // Let the pre-tool assistant preamble paint and settle before the
-            // tool card reserves/pushes rows. The first frame emits the sealed
-            // preamble; the second gives measured-height harvest a chance to
-            // publish any Markdown/streaming→final correction. If the settle
-            // frame is unnecessary, yieldToRenderer's fallback releases quickly.
-            await yieldToRenderer({ frames: 2 });
-            if (!isCurrentTurn()) return;
-          }
+          commitAssistantSegment({ sealToolBlock: true });
 
           const touchedAggregates = new Set();
           // [jitter fix] Last standalone (Agent) card in this batch to reserve a
@@ -924,21 +902,12 @@ export function createRunTurn(bag) {
             syncAggregateHeader(aggregateCard);
           }
           // [jitter fix] Now that every touched aggregate has its pendingSpec,
-          // reserve the standalone (Agent) card's row immediately. Its
-          // ensureVisible() flushes earlier-seq entries too, but those aggregates
-          // are now push-ready so none is marked pushed without inserting.
+          // every entry is push-ready. Flush through the standalone and final
+          // aggregate entries so the complete batch becomes visible before this
+          // callback yields, while preserving creation order.
           standaloneReserve?.ensureVisible?.();
-          if (committedAssistantSegment) {
-            // A pre-tool assistant preamble has already had one render frame to
-            // settle. Do not let the first grouped tool card sit off-screen until
-            // the normal 1s deferred timer: when it later inserts its real 3 rows,
-            // the already-wrapped preamble visibly jumps. Surface the first card
-            // now via the existing deferredDisplayReady path, so the post-
-            // preamble frame contains the intended Running tool card immediately
-            // (no blank placeholder, no delayed row insertion).
-            const firstTouchedAggregate = [...touchedAggregates][0] || null;
-            firstTouchedAggregate?.ensureVisible?.();
-          }
+          const lastTouchedAggregate = [...touchedAggregates].at(-1) || null;
+          lastTouchedAggregate?.ensureVisible?.();
           for (const [bufferedCallId, bufferedMessage] of earlyResultBuffer) {
             if (!cardByCallId.has(bufferedCallId)) continue;
             deliverToolResultMessage(bufferedMessage);

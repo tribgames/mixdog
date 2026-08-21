@@ -58,11 +58,24 @@ export async function prepareRequiredNativeAssets({
         return [name, join(target, fileName)];
       }),
     );
-    await rm(target, { recursive: true, force: true });
+    await rm(target, {
+      recursive: true,
+      force: true,
+      maxRetries: 8,
+      retryDelay: 100,
+    });
     await rename(stagedToolsDir, target);
     return Object.fromEntries(entries);
   } finally {
-    await rm(stagingRoot, { recursive: true, force: true });
+    // Antivirus and process scanners can briefly retain freshly copied .exe
+    // handles on Windows. Cleanup must not replace the installer's real error
+    // with a transient EBUSY from the staging directory.
+    await rm(stagingRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 8,
+      retryDelay: 100,
+    });
   }
 }
 

@@ -543,13 +543,13 @@ export function registerDesktopIpc(
     };
   });
   // Explorer pane live refresh is daemon-owned and refcounted there.
-  handle(DESKTOP_IPC.folderWatch, (_event, dirRaw) => {
+  handle(DESKTOP_IPC.folderWatch, (_event, dirRaw, recursive) => {
     const dir = browsableFolderPath(dirRaw);
-    return invokeDesktopOperation('folderWatch', [dir]);
+    return invokeDesktopOperation('folderWatch', [dir, recursive === true]);
   });
-  handle(DESKTOP_IPC.folderUnwatch, (_event, dirRaw) => {
+  handle(DESKTOP_IPC.folderUnwatch, (_event, dirRaw, recursive) => {
     const dir = browsableFolderPath(dirRaw);
-    return invokeDesktopOperation('folderUnwatch', [dir]);
+    return invokeDesktopOperation('folderUnwatch', [dir, recursive === true]);
   });
   handle(DESKTOP_IPC.chooseFile, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
@@ -1026,10 +1026,6 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.readSettings, () =>
     settingsStore?.read() ?? invokeDesktopOperation('readSettings', []));
-  handle(DESKTOP_IPC.getRemoteProjection, () =>
-    invokeDesktopOperation('getRemoteProjection', []));
-  handle(DESKTOP_IPC.setRemoteProjection, (_event, projection) =>
-    invokeDesktopOperation('setRemoteProjection', [projection]));
   handle(DESKTOP_IPC.updateSetting, (_event, key, enabled) => {
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
     const settingKey = requiredDesktopSettingKey(key);
@@ -1338,9 +1334,7 @@ export function registerDesktopIpc(
     if (name === 'folder-changed') window.webContents.send(DESKTOP_IPC.folderChanged, value);
     else if (name === 'lsp-diagnostics') window.webContents.send(DESKTOP_IPC.lspDiagnostics, value);
     else if (name === 'lsp-status') window.webContents.send(DESKTOP_IPC.lspStatus, value);
-    else if (name === 'remote-projection-state') {
-      window.webContents.send(DESKTOP_IPC.remoteProjectionChanged, value);
-    } else if (name === 'remote-client-claim') {
+    else if (name === 'remote-client-claim') {
       // Keep delivery global so a live renderer can queue the request, but do
       // not reveal or restore the window: only Settings → Connection is armed
       // to render it. A later panel open re-reads pending claims from service.
@@ -1385,7 +1379,14 @@ export function registerDesktopIpc(
     });
   }
   // Dock Git panel: plain git CLI scoped to an absolute project directory.
-  handle(DESKTOP_IPC.gitStatus, (_event, cwd) => gitStatus(requiredRepositoryCwd(cwd)));
+  handle(DESKTOP_IPC.gitStatus, (_event, cwd, options) => {
+    const record = options && typeof options === 'object'
+      ? options as { reuseLineStats?: unknown }
+      : {};
+    return gitStatus(requiredRepositoryCwd(cwd), {
+      reuseLineStats: record.reuseLineStats === true,
+    });
+  });
   handle(DESKTOP_IPC.gitBranches, (_event, cwd) => gitBranches(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.gitCheckoutBranch, (_event, cwd, branch, remote) =>
     gitCheckoutBranch(

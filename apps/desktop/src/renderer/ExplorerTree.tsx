@@ -30,6 +30,7 @@ import { COMPOSER_PROJECT_PATHS_MIME } from "./composer-support";
 import { t } from "./i18n";
 import { useMobileBack } from "./mobile-back";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
+import { subscribeProjectFileChanges } from "./project-file-changes";
 import { setiIconFor } from "./seti-icons";
 import { copyTextToClipboard } from "./text-format";
 
@@ -190,12 +191,11 @@ export const FilesRootPane = memo(function FilesRootPane({
       });
     return () => { live = false; };
   }, [active, api, onReadyChange, projectPath, readinessKey]);
-  // Refresh-button replacement: while the tree is visible, silently re-list
-  // every expanded directory on a slow poll so agent/external edits appear
-  // without manual action. Entries are swapped only when they actually differ.
+  // Agent/external edits arrive through the shared recursive project watcher.
+  // A slow safety pass covers watcher overflow or unavailable native delivery.
   useEffect(() => {
     if (!active || !projectPath) return undefined;
-    const timer = window.setInterval(() => {
+    const refreshExpanded = () => {
       setDirs((current) => {
         for (const [rel, state] of current) {
           if (!state.expanded || !state.entries) continue;
@@ -212,8 +212,13 @@ export const FilesRootPane = memo(function FilesRootPane({
         }
         return current;
       });
-    }, 5_000);
-    return () => window.clearInterval(timer);
+    };
+    const unsubscribeProject = subscribeProjectFileChanges(projectPath, refreshExpanded);
+    const timer = window.setInterval(refreshExpanded, 30_000);
+    return () => {
+      unsubscribeProject();
+      window.clearInterval(timer);
+    };
   }, [active, api, projectPath]);
   const [refreshing, setRefreshing] = useState(false);
   const refreshTree = useCallback(async () => {

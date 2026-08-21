@@ -40,7 +40,7 @@ test('accepts append-only provider history for every provider surface', () => {
     }
 });
 
-test('rejects prior-message and tool-prefix rewrites outside compaction', () => {
+test('rejects prior-message rewrites outside compaction', () => {
     const first = prepareProviderPrefixGuard(
         null,
         [{ role: 'user', content: 'one' }],
@@ -54,10 +54,32 @@ test('rejects prior-message and tool-prefix rewrites outside compaction', () => 
         ),
         ProviderPrefixMutationError,
     );
+});
+
+test('rebaselines tool-prefix changes while preserving transcript integrity checks', () => {
+    const first = prepareProviderPrefixGuard(
+        null,
+        [{ role: 'user', content: 'one' }],
+        { tools: [{ name: 'read' }], nativeTools: [] },
+    );
+    const changed = prepareProviderPrefixGuard(
+        first,
+        [{ role: 'user', content: 'one' }],
+        { tools: [{ name: 'read' }, { name: 'shell' }], nativeTools: [] },
+    );
+    assert.notEqual(changed.requestPrefixHash, first.requestPrefixHash);
+    assert.doesNotThrow(() => prepareProviderPrefixGuard(
+        changed,
+        [
+            { role: 'user', content: 'one' },
+            { role: 'assistant', content: 'two' },
+        ],
+        { tools: [{ name: 'read' }, { name: 'shell' }], nativeTools: [] },
+    ));
     assert.throws(
         () => prepareProviderPrefixGuard(
-            first,
-            [{ role: 'user', content: 'one' }],
+            changed,
+            [{ role: 'user', content: 'rewritten' }],
             { tools: [{ name: 'read' }, { name: 'shell' }], nativeTools: [] },
         ),
         ProviderPrefixMutationError,

@@ -162,6 +162,8 @@ export function computeShellLayout({
     liveSpinner,
     liveSpinnerIsCommand,
     latestTranscriptItem,
+    streamingTail: state.streamingTail,
+    transcriptViewActive: Boolean(state.transcriptViewItems),
   });
   const promptMetaRows = promptMetaVisible ? 2 : 0;
   // Toast/error text without a live spinner uses the existing transcript guard

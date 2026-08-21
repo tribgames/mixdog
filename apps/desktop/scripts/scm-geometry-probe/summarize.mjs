@@ -64,8 +64,7 @@ for (const scenario of report) {
     `the commit button no longer spans its row (${scenario.commitButton?.width} in`
     + ` ${scenario.commitRow?.width})`);
 
-  // The toolbar is THREE EQUAL SECTIONS (1:1:1), and the third one shows its
-  // TEXT label — icon-only is the last resort, never the dock's normal state.
+  // The toolbar is THREE EQUAL SECTIONS: branch | Push | Fetch.
   const sections = scenario.toolbarSections || [];
   const widths = sections.map((section) => section.width);
   const spread = widths.length ? round(Math.max(...widths) - Math.min(...widths)) : Infinity;
@@ -80,35 +79,23 @@ for (const scenario of report) {
     + ` icon=${scenario.remoteIcon}`
     + ` ${scenario.remoteLabel?.rendered ? "TEXT" : "ICON-ONLY"}`);
   check(scenario, sections.length === 3,
-    `the toolbar measured ${sections.length} section(s), not project | branch | remote`);
+    `the toolbar measured ${sections.length} section(s), not branch | Push | Fetch`);
   check(scenario, spread <= 1,
     `the toolbar sections are not within 1px of equal width (${widths.join(" / ")})`);
   check(scenario, Boolean(scenario.remoteLabel?.rendered) && labelText.length > 2,
-    `the push/pull section renders icon-only (label "${labelText}",`
+    `the Push section renders icon-only (label "${labelText}",`
     + ` rendered=${Boolean(scenario.remoteLabel?.rendered)})`);
   check(scenario, scenario.remoteLabel?.clipped === false,
-    `the push/pull label is clipped instead of degrading in whole pieces`
+    `the Push label is clipped instead of degrading in whole pieces`
     + ` ("${labelText}" in ${scenario.remoteLabel?.width}px)`);
   check(scenario, scenario.remoteIcon === true,
-    "the push/pull icon is missing — it must survive every degradation step");
-
-  // The panel header's ALWAYS-AVAILABLE Fetch: hit-sized, inside the title
-  // row, pinned at its right end and never overlapping the title.
-  const headerFetch = scenario.headerFetch;
-  const headerTitle = scenario.headerTitle;
-  console.log(`   header fetch ${box(headerFetch)} title ${box(headerTitle)}`);
-  check(scenario, Boolean(headerFetch) && headerFetch.width >= 16 && headerFetch.height >= 16,
-    `the panel header's Fetch is missing or too small to hit (${box(headerFetch)})`);
-  check(scenario, contains(headerFetch, scenario.headerRow),
-    "the header Fetch leaves the panel header row");
-  check(scenario, Boolean(headerFetch) && Boolean(headerTitle)
-    && headerFetch.left >= headerTitle.right - 0.5,
-    `the header Fetch overlaps the Source Control title`
-    + ` (title ${box(headerTitle)} vs fetch ${box(headerFetch)})`);
-  check(scenario, Boolean(headerFetch) && Boolean(scenario.headerRow)
-    && scenario.headerRow.right - headerFetch.right <= 12,
-    `the header Fetch is not pinned at the header row's right end`
-    + ` (${round((scenario.headerRow?.right ?? 0) - (headerFetch?.right ?? 0))}px of slack)`);
+    "the Push icon is missing — it must survive every degradation step");
+  check(scenario, scenario.headerFetchCount === 0,
+    "the duplicate header Fetch action still exists");
+  check(scenario, scenario.toolbarI18nSkip === true,
+    "the fixed Git toolbar is not excluded from automatic localization");
+  check(scenario, JSON.stringify(scenario.toolbarActionLabels) === JSON.stringify(["Push", "Fetch"]),
+    `the fixed Git actions are not Push | Fetch (${scenario.toolbarActionLabels?.join(" | ")})`);
 
   // The branch panel opens INSTANTLY with a loading row and fills one turn
   // later. Its box must not change between those frames: the list owns a

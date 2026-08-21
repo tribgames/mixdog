@@ -1,4 +1,4 @@
-import { Activity } from 'lucide-react';
+import { Activity, Bot } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { liveAgentRows, liveShellCount, liveShellRows } from './AgentActivityPane';
@@ -144,6 +144,20 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       detail: String(snapshot.shellJobs?.elapsedLabel || ''),
     });
   }
+  const groups = ([
+    {
+      kind: 'agent' as const,
+      label: agentCount === 1 ? t('Agent') : t('Agents'),
+      count: agentCount,
+      rows: rows.filter((row) => row.kind === 'agent'),
+    },
+    {
+      kind: 'shell' as const,
+      label: t('Shell'),
+      count: shellCount,
+      rows: rows.filter((row) => row.kind === 'shell'),
+    },
+  ]).filter((group) => group.rows.length > 0);
   // A coarse pointer has no hover to read the card with, so there a tap opens
   // the same card the desktop shows on hover, and the next pointer landing
   // outside it — or Escape — puts it away again.
@@ -239,20 +253,29 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
         used to answer with nothing at all, so the slot read as dead chrome. */}
     <div className="live-work-popover" role="tooltip">
       {rows.length
-        ? rows.map((row) => <div className="live-work-row" key={row.key}
-          data-kind={row.kind}>
-          <div className="live-work-copy">
-            <span title={row.title}>{row.label}</span>
-            {row.meta && <small title={row.meta}>{row.meta}</small>}
-          </div>
-          <time>{row.detail}</time>
-          {row.stop && <button type="button" className="live-work-stop"
-              disabled={stopping.has(`${row.stop.kind}:${row.stop.id}`)}
-              aria-label={t('Stop')} title={t('Stop')}
-              onClick={() => { void stop(row.stop as { kind: 'agent' | 'shell'; id: string }); }}>
-            <MxIcon name="stop" size={10} />
-          </button>}
-        </div>)
+        ? groups.map((group) => <section className="live-work-group"
+          data-kind={group.kind} key={group.kind}>
+          <header className="live-work-group-header">
+            {group.kind === 'agent'
+              ? <Bot size={14} aria-hidden="true" />
+              : <MxIcon name="terminal" size={14} />}
+            <span>{group.label}</span>
+            <b>{group.count}</b>
+          </header>
+          {group.rows.map((row) => <div className="live-work-row" key={row.key}>
+            <div className="live-work-copy">
+              <span title={row.title}>{row.label}</span>
+              {row.meta && <small title={row.meta}>{row.meta}</small>}
+            </div>
+            <time>{row.detail}</time>
+            {row.stop && <button type="button" className="live-work-stop"
+                disabled={stopping.has(`${row.stop.kind}:${row.stop.id}`)}
+                aria-label={t('Stop')} title={t('Stop')}
+                onClick={() => { void stop(row.stop as { kind: 'agent' | 'shell'; id: string }); }}>
+              <MxIcon name="stop" size={10} />
+            </button>}
+          </div>)}
+        </section>)
         : <div className="live-work-row" key="idle">
           <div className="live-work-copy">
             <span>{t('No background work')}</span>

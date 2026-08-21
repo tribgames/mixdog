@@ -18,7 +18,7 @@ import {
     executeTaskTool,
     formatShellToolFailure,
 } from './builtin/bash-tool.mjs';
-import { executeGitTool } from './builtin/git-command-tool.mjs';
+import { executeGitStageTool, executeGitTool } from './builtin/git-command-tool.mjs';
 import {
     executeFindFilesTool,
     executeFuzzyFindTool,
@@ -452,6 +452,8 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             return executeBashTool(args, workDir, options);
         case 'git':
             return executeGitTool(args, workDir, options);
+        case 'git_stage':
+            return executeGitStageTool(args, workDir, options);
         case 'task':
             return executeTaskTool(args, options);
         case 'read':

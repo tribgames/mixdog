@@ -32,6 +32,22 @@ export function isMobileRemoteSurface(): boolean {
   }
 }
 
+export function isInstalledWebAppSurface(): boolean {
+  if (!isRemoteBrowserRenderer()) return false;
+  try {
+    return window.matchMedia?.("(display-mode: standalone)").matches === true
+      || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The relay UI is a phone/tablet installed app, never a browser tab or a
+ * desktop-installed PWA. Every entry gate shares this single predicate. */
+export function isInstalledMobileWebAppSurface(): boolean {
+  return isMobileRemoteSurface() && isInstalledWebAppSurface();
+}
+
 /** Device width in the CURRENT orientation; the projected layout viewport is
  *  a fixed 1040px in both, so the short edge alone would misread landscape. */
 function orientedDeviceWidth(): number {

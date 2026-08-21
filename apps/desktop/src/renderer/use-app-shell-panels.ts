@@ -488,6 +488,7 @@ export function useAppShellPanels() {
     closeSidebarPanels,
     commandSurface,
     commandSurfaceLane,
+    commandSurfaceSessionId,
     dismissSheetsForBottomPanel,
     dockMotion,
     dockOpen,

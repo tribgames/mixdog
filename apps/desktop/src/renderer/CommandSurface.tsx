@@ -3,6 +3,11 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { DesktopApi, DesktopCapability } from '../shared/contract';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
+import {
+  commandSurfaceCacheKey,
+  commandSurfaceDisplaySnapshot,
+  commandSurfaceSessionId,
+} from './command-surface-state';
 import { t } from './i18n';
 import { acquireModalLayer } from './modal-layer';
 import { showDesktopToast } from './notifications';
@@ -37,15 +42,35 @@ const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 };
 
 // The usage dashboard's first service pass probes live provider quotas and
-// can take seconds. Keep the last loaded payload for the window's lifetime so
-// reopening /usage paints instantly while a silent refresh runs behind it.
+// can take seconds. Context payloads are session-scoped, so keep a bounded LRU:
+// reopening paints instantly without retaining every conversation forever.
+const SURFACE_DATA_CACHE_LIMIT = 64;
 const surfaceDataCache = new Map<string, Record<string, unknown>>();
+
+function readSurfaceDataCache(key: string): Record<string, unknown> | undefined {
+  const retained = surfaceDataCache.get(key);
+  if (!retained) return undefined;
+  surfaceDataCache.delete(key);
+  surfaceDataCache.set(key, retained);
+  return retained;
+}
+
+function writeSurfaceDataCache(key: string, value: Record<string, unknown>): void {
+  surfaceDataCache.delete(key);
+  surfaceDataCache.set(key, value);
+  while (surfaceDataCache.size > SURFACE_DATA_CACHE_LIMIT) {
+    const oldest = surfaceDataCache.keys().next().value;
+    if (typeof oldest !== 'string') break;
+    surfaceDataCache.delete(oldest);
+  }
+}
 
 export function CommandSurface({
   surface,
   open = true,
   api = window.mixdogDesktop,
   snapshot,
+  sessionId: explicitSessionId = '',
   onInherit,
   onClose,
 }: {
@@ -53,6 +78,7 @@ export function CommandSurface({
   open?: boolean;
   api?: SurfaceApi;
   snapshot?: unknown;
+  sessionId?: string;
   /** /inherit only: hand the source session to the host and open the heir. */
   onInherit?: (sourceSessionId: string) => Promise<void>;
   onClose(): void;
@@ -63,14 +89,12 @@ export function CommandSurface({
   onCloseRef.current = onClose;
   const loadSequence = useRef(0);
   const loadingSurface = useRef<CommandSurfaceName | null>(null);
-  const sessionId = surface === 'context' || surface === 'inherit'
-    ? String(record(snapshot).sessionId || '').trim()
-    : '';
+  const sessionId = commandSurfaceSessionId(surface, explicitSessionId, snapshot);
   // Instant repaint on reopen (user: 컨텍스트가 오래 로딩 후 작은 프레임에서
   // 튐): context payloads cache per session exactly like /usage, so the
   // dialog opens full-size with the last data while a silent refresh runs.
-  const cacheKey = surface === 'context' ? `context:${sessionId}` : surface;
-  const cachedSurface = surface === 'doctor' ? undefined : surfaceDataCache.get(cacheKey);
+  const cacheKey = commandSurfaceCacheKey(surface, sessionId);
+  const cachedSurface = surface === 'doctor' ? undefined : readSurfaceDataCache(cacheKey);
   const [data, setData] = useState<Record<string, unknown>>(() => cachedSurface ?? {});
   const [loading, setLoading] = useState(() => !cachedSurface);
   const [pending, setPending] = useState('');
@@ -84,7 +108,7 @@ export function CommandSurface({
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
-    const cached = surface === 'doctor' ? undefined : surfaceDataCache.get(cacheKey);
+    const cached = surface === 'doctor' ? undefined : readSurfaceDataCache(cacheKey);
     if (cached) setData(cached);
     setLoading(!cached);
     setError('');
@@ -98,7 +122,7 @@ export function CommandSurface({
           ...Object.fromEntries(capabilities.map((capability, index) => [capability, results[index]?.value])),
           ...(surface === 'context' ? { snapshot: results[0]?.snapshot ?? null } : {}),
         };
-        if (surface !== 'doctor') surfaceDataCache.set(cacheKey, next);
+        if (surface !== 'doctor') writeSurfaceDataCache(cacheKey, next);
         setData(next);
       }
     } catch (reason) {
@@ -142,7 +166,7 @@ export function CommandSurface({
               contextStatus: result.value,
               snapshot: result.snapshot,
             };
-            surfaceDataCache.set(cacheKey, next);
+            writeSurfaceDataCache(cacheKey, next);
             return next;
           });
           setError('');
@@ -280,10 +304,12 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, pending, r
   run: SurfaceRun;
 }) {
   const busy = Boolean(pending);
-  if (surface === 'context') return <ContextBody status={data.contextStatus} snapshot={snapshot ?? data.snapshot} />;
+  if (surface === 'context') return <ContextBody status={data.contextStatus}
+    snapshot={commandSurfaceDisplaySnapshot(data, snapshot)} />;
   if (surface === 'usage') return <UsageBody data={data} />;
   if (surface === 'inherit') {
-    return <InheritBody status={data.contextStatus} snapshot={snapshot}
+    return <InheritBody status={data.contextStatus}
+      snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
       sessionId={sessionId ?? ''} onInherit={onInherit} />;
   }
   if (surface === 'doctor') {

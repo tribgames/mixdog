@@ -16,8 +16,10 @@ import {
   X,
 } from "lucide-react";
 import { useMobileBack } from "./mobile-back";
+import { createGitRefreshScheduler } from "./git-refresh-scheduler";
 import { monaco, resolveThemeColor } from "./monaco-setup";
 import { ProgressSpinner } from "./ProgressSpinner";
+import { subscribeProjectFileChanges } from "./project-file-changes";
 // Monaco caches glyph metrics at mount. If the mono face lands AFTER a cold
 // editor measured against Consolas (boot restore, first open on a cold
 // cache), the paint swaps but the layout keeps stale widths — cursor and
@@ -1216,12 +1218,14 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
       clearActiveEditorDocument(modelUri);
     }
   }, [active, focused, modelUri, projectPath, relPath, updateOutline]);
-  // Quick-diff refresh: on load/save (diffTick) and a slow poll while active.
+  // Quick-diff refresh: file-watch evidence plus a slow safety pass while active.
   useEffect(() => {
-    if (!active || !load || load.binary || load.tooLarge || !api?.gitDiff) return undefined;
+    const gitDiff = api?.gitDiff;
+    if (!active || !load || load.binary || load.tooLarge || !gitDiff) return undefined;
     let live = true;
-    const refresh = () => void api.gitDiff?.(projectPath, relPath, false)
-      .then((text) => {
+    const refresh = async () => {
+      try {
+        const text = await gitDiff(projectPath, relPath, false);
         if (!live) return;
         const editor = editorRef.current;
         if (!editor) return;
@@ -1249,11 +1253,34 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
         });
         diffDecorations.current?.clear();
         diffDecorations.current = editor.createDecorationsCollection(decos);
-      })
-      .catch(() => { diffDecorations.current?.clear(); });
-    refresh();
-    const timer = window.setInterval(refresh, 5_000);
-    return () => { live = false; window.clearInterval(timer); };
+      } catch {
+        diffDecorations.current?.clear();
+      }
+    };
+    const scheduler = createGitRefreshScheduler(refresh, {
+      safetyIntervalMs: 30_000,
+      activityDebounceMs: 125,
+      activityMinGapMs: 1_000,
+    });
+    const signal = () => scheduler.signal();
+    const refreshNow = () => scheduler.refreshNow();
+    const visibilityChanged = () => {
+      if (document.visibilityState === "hidden") scheduler.pause();
+      else scheduler.resume();
+    };
+    const unsubscribeProject = subscribeProjectFileChanges(projectPath, signal);
+    window.addEventListener("focus", refreshNow);
+    window.addEventListener("mixdog:git-changed", signal);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    if (document.visibilityState !== "hidden") scheduler.resume();
+    return () => {
+      live = false;
+      scheduler.dispose();
+      unsubscribeProject();
+      window.removeEventListener("focus", refreshNow);
+      window.removeEventListener("mixdog:git-changed", signal);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+    };
   }, [api, active, load, projectPath, relPath, diffTick, lightTheme]);
   useEffect(() => {
     if (!reveal || !load) return;

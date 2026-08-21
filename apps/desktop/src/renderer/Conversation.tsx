@@ -53,7 +53,7 @@ import {
   readTranscriptVirtualSnapshot,
   transcriptRowNamespace,
 } from "./transcript-virtual-cache";
-import { LiveActivity, resetToolDisclosureScope, TranscriptRow } from "./TranscriptView";
+import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
 import { useTranscriptFollow } from "./use-transcript-follow";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -893,6 +893,9 @@ export function Conversation({
         disclosureScope={disclosureScope}
         attachedUser={row.attachedUser} />;
     }
+    if (row._tag === "ToolActivity") {
+      return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} />;
+    }
     if (row.live) {
       return streamingTailSlot ?? <div className="transcript-live-part"
         data-streaming-tail="true">
@@ -1012,7 +1015,18 @@ export function Conversation({
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
         </div>
       </div>
-      {showJump && itemCount > 0 && <button type="button" className="jump-to-latest" onClick={() => jumpToLatest()}
+      {showJump && itemCount > 0 && <button type="button" className="jump-to-latest"
+        onPointerDown={(event) => {
+          if (!event.isPrimary || event.button !== 0) return;
+          // A live wheel/fling can cancel the later click. Take the tail on the
+          // press itself so the jump also stops the remaining scroll frames.
+          event.preventDefault();
+          jumpToLatest();
+        }}
+        // Native keyboard activation has no pointerdown and reports detail 0.
+        onClick={(event) => {
+          if (event.detail === 0) jumpToLatest();
+        }}
         aria-label={t("Jump to latest message")}>
         <ArrowDown size={14} />{t("Jump to latest")}
       </button>}

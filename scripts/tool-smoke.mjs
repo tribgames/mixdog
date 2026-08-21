@@ -586,12 +586,23 @@ const explicitSrcGlobOut = await executeBuiltinTool('glob', {
 }, root);
 assertOk('glob explicit src', explicitSrcGlobOut, /src[\\/].*runner\.mjs/i);
 
-for (const [key, value] of [['pattern', ['*.mjs']], ['path', ['src']]]) {
-  const args = key === 'pattern' ? { pattern: value } : { pattern: '*.mjs', path: value };
-  const err = validateBuiltinArgs('glob', args);
-  if (!/must be string/.test(String(err))) {
-    throw new Error(`glob ${key} array must be rejected: ${err}`);
-  }
+const globPatternArrayOut = await executeBuiltinTool('glob', {
+  pattern: ['package.json', '**/runner.mjs'],
+  path: '.',
+  sort: 'natural',
+  head_limit: 20,
+}, root);
+assertOk('glob pattern array', globPatternArrayOut, /package\.json/i);
+if (!/src[\\/].*runner\.mjs/i.test(String(globPatternArrayOut))) {
+  throw new Error(`glob pattern array must include every requested pattern:\n${globPatternArrayOut}`);
+}
+const globPathArrayErr = validateBuiltinArgs('glob', { pattern: '*.mjs', path: ['src'] });
+if (!/must be string/.test(String(globPathArrayErr))) {
+  throw new Error(`glob path array must be rejected: ${globPathArrayErr}`);
+}
+const globInvalidPatternArrayErr = validateBuiltinArgs('glob', { pattern: ['*.mjs', {}] });
+if (!/string or string\[\]/.test(String(globInvalidPatternArrayErr))) {
+  throw new Error(`glob non-string pattern array entry must be rejected: ${globInvalidPatternArrayErr}`);
 }
 const globBlankPatternErr = validateBuiltinArgs('glob', { pattern: ' ' });
 if (!/non-empty string/.test(String(globBlankPatternErr))) {
@@ -1353,7 +1364,7 @@ const shellDescription = shellTool?.description || '';
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
     || !/10s foreground window.*not a timeout.*continues.*task_id/i.test(shellDescription)
-    || !/task monitor only after promotion.*task read.*never poll in a loop/i.test(shellDescription)) {
+    || !/Completion is automatic.*do not poll with task read\/monitor unless the user explicitly requests polling or periodic progress.*Otherwise, use task read only for an immediate decision and task monitor only for explicitly requested periodic progress/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
@@ -1611,8 +1622,9 @@ try {
   if (_priorAutoBgBudget === undefined) delete process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
   else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorAutoBgBudget;
 }
-if (!/auto-backgrounded/i.test(String(shellAutoPromoteOut))) {
-  throw new Error(`shell auto-promotion must return a background task envelope (task_id + auto-backgrounded):\n${shellAutoPromoteOut}`);
+if (!/auto-backgrounded/i.test(String(shellAutoPromoteOut))
+    || !/Completion is automatic; do not poll with task read\/monitor unless the user explicitly requests polling or periodic progress/i.test(String(shellAutoPromoteOut))) {
+  throw new Error(`shell auto-promotion must return a tracked task with automatic-completion guidance:\n${shellAutoPromoteOut}`);
 }
 const shellAutoPromoteTaskId = assertBackgroundStart('shell auto-promotion', shellAutoPromoteOut);
 await assertSingleShellCompletion(shellAutoNotifyEvents, shellAutoPromoteTaskId, 'shell auto-promotion');
@@ -1744,7 +1756,7 @@ if (fullDefaults.size !== 10) {
 for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
   assertHas(fullDefaults, name);
 }
-for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'cwd']) {
+for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'cwd', 'git_stage']) {
   assertLacks(fullDefaults, name);
 }
 
@@ -1755,7 +1767,7 @@ if (leadDefaults.size !== 16) {
 for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'git', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'web_search', 'Skill', 'load_tool']) {
   assertHas(leadDefaults, name);
 }
-for (const name of ['web_fetch', 'cwd', 'session_manage']) {
+for (const name of ['web_fetch', 'cwd', 'git_stage', 'session_manage']) {
   assertLacks(leadDefaults, name);
 }
 if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
@@ -1794,7 +1806,7 @@ if (readonlyDefaults.size !== 8) {
 for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'Skill', 'load_tool']) {
   assertHas(readonlyDefaults, name);
 }
-for (const name of ['apply_patch', 'agent', 'shell']) {
+for (const name of ['apply_patch', 'agent', 'shell', 'git_stage']) {
   assertLacks(readonlyDefaults, name);
 }
 
@@ -2380,7 +2392,7 @@ setInternalToolsProvider({
     // No terminal-action tool is registered: a no-tool assistant message ends
     // the turn, so the schema carries capabilities only.
     const expectedReadTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'git_stage', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
     if (JSON.stringify(readTools) !== JSON.stringify(expectedReadTools)) {
       throw new Error(`read agent schema must be fixed allow-list: expected=${expectedReadTools.join(', ')} actual=${readTools.join(', ')}`);
     }
@@ -2398,7 +2410,7 @@ setInternalToolsProvider({
         throw new Error(`read agent schema must carry verification tool ${name}: read=${readTools.join(', ')}`);
       }
     }
-    for (const name of ['edit', 'git', 'shell', 'task']) {
+    for (const name of ['edit', 'git', 'git_stage', 'shell', 'task']) {
       if (!writeTools.includes(name)) {
         throw new Error(`read-write agent schema must preserve ${name}: write=${writeTools.join(', ')}`);
       }
@@ -2408,8 +2420,8 @@ setInternalToolsProvider({
         throw new Error(`read/read-write agent schema must not expose full-runtime internal tool ${name}: read=${readTools.join(', ')} write=${writeTools.join(', ')}`);
       }
     }
-    if (!fullTools.includes('shell') || !fullTools.includes('git')) {
-      throw new Error(`full agent schema must retain shell and git: full=${fullTools.join(', ')}`);
+    if (!fullTools.includes('shell') || !fullTools.includes('git') || !fullTools.includes('git_stage')) {
+      throw new Error(`full agent schema must retain shell, git, and git_stage: full=${fullTools.join(', ')}`);
     }
   } finally {
     closeSession(readAgentSession.id, 'tool-smoke');
@@ -2427,7 +2439,7 @@ setInternalToolsProvider({
   try {
     const resumed = await resumeSession(resumeAgentSession.id, 'full');
     const resumedTools = (resumed?.tools || []).map((tool) => tool?.name).filter(Boolean);
-    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
+    const expectedWriteTools = ['find', 'glob', 'list', 'grep', 'code_graph', 'read', 'edit', 'git', 'git_stage', 'shell', 'task', 'web_search', 'web_fetch', 'Skill'];
     if (JSON.stringify(resumedTools) !== JSON.stringify(expectedWriteTools)) {
       throw new Error(`resumed read-write agent schema must keep fixed allow-list: expected=${expectedWriteTools.join(', ')} actual=${resumedTools.join(', ')}`);
     }
@@ -2652,7 +2664,7 @@ if (/line\+context/i.test(readDescription) || !/Known-file contents or line rang
 if (readProps.file_path?.type !== 'string'
   || readProps.file_path?.minLength !== undefined
   || readProps.file_path?.anyOf
-  || readProps.file_path?.description !== 'Known file path as plain text; not a JSON array or annotated path. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.'
+  || readProps.file_path?.description !== 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.'
   || readProps.path
   || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
   throw new Error('read schema must expose only the canonical scalar file_path');
@@ -2662,7 +2674,7 @@ if (readProps.offset?.type !== 'integer'
   || readProps.offset?.description !== '1-based start line as a bare integer; default 1.'
   || readProps.limit?.type !== 'integer'
   || readProps.limit?.minimum !== 1
-  || readProps.limit?.description !== 'Maximum line count as a bare integer; default 1000.') {
+  || readProps.limit?.description !== 'Maximum line count as a bare integer; default 500.') {
   throw new Error('read range args must use the scalar integer contract with Mixdog descriptions');
 }
 if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
@@ -3325,9 +3337,9 @@ if (!grepStringPatternShape
 }
 if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.description || '')
     || !/contextual path:line blocks/i.test(grepTool?.description || '')
-    || !/conceptual keywords/i.test(grepTool?.description || '')
-    || !/Known symbol structure or relations use code_graph/i.test(grepTool?.description || '')
-    || /read only omitted lines|Batch independent searches/i.test(grepTool?.description || '')) {
+    || !/read only the lines they omit/i.test(grepTool?.description || '')
+    || !/reconnaissance pattern goes to mode:files/i.test(grepTool?.description || '')
+    || /Batch independent searches/i.test(grepTool?.description || '')) {
   throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
 }
 if (!/Glob filter/i.test(grepGlobDescription)) {
@@ -3370,8 +3382,7 @@ for (const [label, schema] of [
 }
 if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.description || '')
     || !/when those paths are needed/i.test(globTool?.description || '')
-    || !/Glob owns wildcard or recursive file-path enumeration/i.test(globTool?.description || '')
-    || !/list owns immediate directory entries/i.test(globTool?.description || '')
+    || !/Directories never match/i.test(globTool?.description || '')
     || !/Omit path for the current Project/i.test(globTool?.description || '')
     || !/base location is unknown, use find first/i.test(globTool?.description || '')
     || !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')) {
@@ -3399,8 +3410,7 @@ if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitD
 }
 if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || !/entry list itself is needed/i.test(listTool?.description || '')
-    || !/List owns immediate-entry enumeration/i.test(listTool?.description || '')
-    || !/glob owns wildcard or recursive file-path enumeration/i.test(listTool?.description || '')
+    || !/never as a prerequisite for another tool on that directory/i.test(listTool?.description || '')
     || !/no wildcard/i.test(listTool?.description || '')
     || listTool?.inputSchema?.properties?.path?.type !== 'string'
     || listTool?.inputSchema?.properties?.path?.minLength !== undefined

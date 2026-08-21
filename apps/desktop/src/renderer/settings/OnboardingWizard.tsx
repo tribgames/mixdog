@@ -41,6 +41,7 @@ import {
   patchCachedGitPanelInfo,
   preloadGitPanelInfo,
 } from './git-panel-info';
+import '../desktop/21-onboarding.css';
 
 type RecordValue = Record<string, unknown>;
 type RunCapability = <T = unknown>(

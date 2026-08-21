@@ -68,7 +68,7 @@ const rows = [
       for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','git','shell','task','recall','web_search','Skill','load_tool']) {
         if (!active.has(name)) throw new Error('missing ' + name + ' in ' + [...active].join(','));
       }
-      for (const name of ['cwd','web_fetch']) {
+      for (const name of ['cwd','git_stage','web_fetch']) {
         if (!catalog.has(name)) throw new Error('missing deferred ' + name + ' in tool catalog');
         if (catalog.get(name)?.active === true) throw new Error('deferred tool unexpectedly active: ' + name);
       }

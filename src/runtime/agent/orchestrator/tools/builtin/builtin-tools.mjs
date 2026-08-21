@@ -5,7 +5,7 @@
 // behavior, argument shapes, and the usage boundaries that only apply to that
 // tool; cross-tool policy lives in rules/shared/*.md.
 // Platform-specific command syntax belongs next to the command argument.
-import { GIT_TOOL_DEF } from './git-command-tool.mjs';
+import { GIT_STAGE_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
 import { SHELL_MONITOR_INTERVAL_MAX_MS } from './shell-monitor.mjs';
 const _shellSyntaxCheat =
     process.platform === 'win32'
@@ -81,7 +81,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. An already-open shell is never a reason to route work to it. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id and completes by notification. Use task monitor only after promotion when periodic progress is needed, task read for an extra current snapshot, and never poll in a loop.'}`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. An already-open shell is never a reason to route work to it. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic; do not poll with task read/monitor unless the user explicitly requests polling or periodic progress. Otherwise, use task read only for an immediate decision and task monitor only for explicitly requested periodic progress.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -97,11 +97,12 @@ export const BUILTIN_TOOLS = [
         },
     },
     GIT_TOOL_DEF,
+    GIT_STAGE_TOOL_DEF,
     {
         name: 'task',
         title: 'Task',
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one current output snapshot, change periodic monitoring, or cancel by task_id. Call it only when a snapshot must drive a decision; never poll in a loop — completion always arrives by notification.',
+        description: 'List shell tasks, read one current snapshot, change periodic monitoring, or cancel by task_id. Completion is automatic; do not poll with read/monitor unless the user explicitly requests polling or periodic progress. Otherwise, use read only for an immediate decision and monitor only for explicitly requested periodic progress.',
         inputSchema: {
             type: 'object',
             properties: {

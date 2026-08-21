@@ -708,7 +708,7 @@ export function WorkflowsPane({
                 route: webSearchRoute,
                 capability: 'setWebSearchRoute',
                 modelKind: 'webSearch',
-                description: 'Use when Mixdog runs the web_search tool.',
+                description: t('Use when Mixdog runs the web_search tool.'),
                 readOnlyDefinition: true,
               })}>
               <b>{t('Web Search')}</b>
@@ -722,7 +722,7 @@ export function WorkflowsPane({
                 route: webSearchRoute,
                 capability: 'setWebSearchRoute',
                 modelKind: 'webSearch',
-                description: 'Use when Mixdog runs the web_search tool.',
+                description: t('Use when Mixdog runs the web_search tool.'),
                 readOnlyDefinition: true,
               })}>
               <ChevronRight size={16} aria-hidden="true" />

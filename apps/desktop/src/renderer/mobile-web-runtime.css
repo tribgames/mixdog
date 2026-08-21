@@ -1,0 +1,59 @@
+/* Installed mobile-web runtime invariants. Browser tabs render only the
+   installation card, while the admitted PWA keeps every application surface
+   inside the current visual viewport as the soft keyboard opens and closes. */
+html[data-mixdog-mobile-tabs] {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* iOS may pan the visual viewport to a focused control without moving the
+   layout viewport. Body is the containing block for app portals and fixed
+   sheets, so applying both the visual origin and size keeps the whole UI—
+   composer included—on one frame instead of leaving overlays at layout y=0. */
+html[data-mixdog-mobile-tabs] body {
+  position: fixed;
+  top: var(--vv-offset-top, 0px);
+  left: var(--vv-offset-left, 0px);
+  width: var(--vvw, 100vw);
+  height: var(--vvh, 100dvh);
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y;
+  transform: translateZ(0);
+}
+
+html[data-mixdog-mobile-tabs] #root,
+html[data-mixdog-mobile-tabs] .app-shell {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Transcript is the only vertical page-like scroller. Containment prevents an
+   edge fling from escaping into the document and pulling the viewport frame. */
+html[data-mixdog-mobile-tabs] .transcript {
+  overscroll-behavior: contain;
+}
+
+/* iOS auto-zooms focused form controls below 16 CSS px. Keep visible editors
+   at that floor; Monaco/xterm helper textareas are geometry probes, not fields. */
+html[data-mixdog-mobile-tabs] :is(
+  input:not([type="hidden"]),
+  select,
+  textarea:not(.inputarea):not(.xterm-helper-textarea)
+) {
+  font-size: max(16px, 1em) !important;
+}
+
+/* A stale cached boot can still project a phone into 1040 layout pixels.
+   Multiplying the main typing surface by its projection factor preserves the
+   same 16 device-pixel floor in that recovery case. */
+html[data-mixdog-mobile-tabs] .composer textarea,
+html[data-mixdog-mobile-tabs] .studio-composer textarea {
+  font-size: max(16px, calc(16px * var(--mx-device-scale, 1))) !important;
+}

@@ -141,6 +141,7 @@ test('apply_patch, shell, and mutating git batches invalidate all earlier eviden
     for (const [mutationName, mutationArgs] of [
         ['apply_patch', {}],
         ['shell', {}],
+        ['git_stage', { diff_id: 'diff_test', change_ids: ['chg_test'] }],
         ['git', { command: 'git commit -m test' }],
         ['git', { command: "git reflog delete 'HEAD@{1}'" }],
     ]) {

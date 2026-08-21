@@ -5,7 +5,6 @@
 // window bar beside the sidebar toggle (user: 다운로드 아이콘 위치).
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { schedulePostInteractionIdle } from "./app-idle-warmup";
 import {
   desktopFeatureEnabled,
   desktopSidebarDestinationEnabled,
@@ -204,22 +203,15 @@ export function ActivityRail({
       setUsageOpen((open) => !open);
     });
   };
-  // The rail is always mounted, so the usage warmup finally has a host that
-  // outlives the popup: one low-priority post-boot idle prewarm fills the
-  // shared store before the first click, and one cadence holder keeps the
-  // refresh timer independent of flyout mounts.
+  // The rail is always mounted, so restore the synchronous cache seed and start
+  // one deduped refresh immediately. This lets pinned usage paint on first entry
+  // instead of waiting for the post-boot idle queue.
   useEffect(() => {
     if (!desktopFeatureEnabled("usage")) return undefined;
     const api = usageApi ?? window.mixdogDesktop;
     const release = holdUsageDashboardCadence(api);
-    const cancelPrewarm = schedulePostInteractionIdle(
-      () => void refreshUsageDashboard(api),
-      5_000,
-      1_500,
-      5_000,
-    );
+    void refreshUsageDashboard(api);
     return () => {
-      cancelPrewarm();
       release();
     };
   }, [usageApi]);

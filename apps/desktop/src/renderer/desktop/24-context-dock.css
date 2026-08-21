@@ -555,6 +555,13 @@
   overflow-y: auto;
   padding: 0 0 8px;
 }
+/* Agents and Source Control already own their vertical scrollers. Keeping the
+   pane scrollable as well lets their last row / commit region move past the
+   fixed web side-panel frame. Contain the pane so only the inner list scrolls. */
+.utility-dock-pane[data-tab="agents"],
+.utility-dock-pane[data-tab="source-control"] {
+  overflow-y: hidden;
+}
 .utility-dock-pane > .utility-dock-header {
   width: 100%;
   min-width: 0;

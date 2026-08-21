@@ -30,7 +30,8 @@
 @import "./desktop/18-surface-states.css";
 @import "./desktop/19-studio.css";
 @import "./desktop/20-automation.css";
-@import "./desktop/21-onboarding.css";
+/* Layer 21 is imported by the lazy OnboardingWizard module. Its selectors are
+   wizard-scoped, and Vite loads the chunk stylesheet before rendering it. */
 @import "./desktop/22-markdown.css";
 @import "./desktop/23-route-editor.css";
 @import "./desktop/24-context-dock.css";

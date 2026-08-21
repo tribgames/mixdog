@@ -31,16 +31,17 @@ The rules the overlays must keep:
 - every panel is fully INSIDE the window,
 - the commit row carries exactly ONE control (the split chevron is deleted) and
   that button spans the row inside the dock panel,
-- the toolbar is THREE EQUAL SECTIONS: project ▾ | branch ▾ | the morphing
-  Fetch/Pull/Push button are within 1px of each other's width (`EQUAL-THIRDS`),
-  at every dock width,
-- the third section shows its TEXT label, not an icon-only stub: at 380px and
+- the toolbar is THREE EQUAL SECTIONS: branch ▾ | Push | Fetch are within 1px
+  of each other's width (`EQUAL-THIRDS`) at every dock width,
+- the Push section shows its TEXT label, not an icon-only stub: at 380px and
   300px (`DESKTOP_UTILITY_DOCK_MIN_WIDTH`) `.dock-scm-remote-label` is rendered,
   UNCLIPPED, with more than two characters (`TEXT`) and the icon survives. The
   label degrades in whole pieces, never by truncation: the remote NAME goes
-  below 420px (`Pull origin` → `Pull`), the badge's direction arrows below
+  below 420px (`Push origin` → `Push`), the badge's direction arrows below
   340px (the counts stay), and only below 260px — far under the product floor —
   does the verb itself go,
+- the toolbar is marked `data-i18n-skip`, so branch names and the fixed
+  `Push`/`Fetch` Git action labels remain unchanged in every UI language,
 - the branch panel keeps ONE box across frames: its first frame (open, loading
   row visible) and its settled frame (branches listed) have the same height and
   the same position, on a fresh open AND on a cached reopen, and both reopen
@@ -53,11 +54,8 @@ The rules the overlays must keep:
   keeps the same stable box it has with four branches — the fixed four-row
   fixture never exercised scrolling.
 - no toolbar label renders as a clipped 1–2 character stub.
-- the panel header's ALWAYS-AVAILABLE Fetch (`.dock-scm-header-fetch`) is a
-  hit-sized box (≥16x16) inside the `Source Control` title row, pinned at its
-  right end and starting past the title's right edge — the toolbar's morphing
-  rung only offers Fetch while the branch is level, so this one may never be
-  covered by, or cover, the title.
+- the old panel-header Fetch is absent, so Fetch appears exactly once in its
+  fixed toolbar section.
 - the search box is part of the LIST: the Changes `Filter` box shares the
   changed-file rows' left/right edges and the History `Search commits` box
   shares the commit rows' edges (the dock's `--dock-scm-gutter` plus the

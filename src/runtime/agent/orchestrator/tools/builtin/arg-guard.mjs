@@ -802,10 +802,10 @@ function guardGlob(a) {
     }
     for (const k of globPatternKeys) {
         if (hasOwn(a, k)) a[k] = coercePatternStringValues(a[k]);
-        if (hasOwn(a, k) && !isString(a[k])) {
-            return `Error: glob arg "${k}" must be string (got ${describeType(a[k])})`;
+        if (hasOwn(a, k) && !isStringOrStringArray(a[k])) {
+            return `Error: glob arg "${k}" must be string or string[] (got ${describeType(a[k])})`;
         }
-        if (hasOwn(a, k) && a[k].trim().length === 0) {
+        if (hasOwn(a, k) && typeof a[k] === 'string' && a[k].trim().length === 0) {
             return `Error: glob arg "${k}" must be a non-empty string`;
         }
     }

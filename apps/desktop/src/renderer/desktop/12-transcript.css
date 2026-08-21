@@ -236,6 +236,7 @@ html[data-mixdog-mobile-tabs] .conversation {
    own rows, so no flex gap or negative margin can disagree with geometry. */
 .transcript-virtual-row-content[data-tag="UserMessage"],
 .transcript-virtual-row-content[data-tag="AssistantPart"],
+.transcript-virtual-row-content[data-tag="ToolActivity"],
 .transcript-virtual-row-content[data-tag="Thinking"],
 .transcript-virtual-row-content[data-tag="Error"] {
   width: 100%;
@@ -248,6 +249,7 @@ html[data-mixdog-mobile-tabs] .conversation {
 }
 .transcript-virtual-row-content[data-tag="UserMessage"],
 .transcript-virtual-row-content[data-tag="AssistantPart"],
+.transcript-virtual-row-content[data-tag="ToolActivity"],
 .transcript-virtual-row-content[data-tag="Thinking"],
 .transcript-virtual-row-content[data-tag="Error"] { padding-bottom: 12px; }
 /* The hover meta line (top:100% overlay, 24px) must fit INSIDE the clipped

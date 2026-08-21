@@ -237,7 +237,7 @@ export const PaneConversation = memo(function PaneConversation({
     presentedSessionId,
     defaultSessionLaneStore,
     desktopConversationShellSnapshotsEqual,
-    !hidden,
+    !hidden && presentedSessionId !== sessionId,
   );
   const routeSnapshot = presentedSessionId
     ? (presentedSessionId === sessionId ? lane : presentedLane) ?? EMPTY_SNAPSHOT
@@ -312,6 +312,7 @@ export const PaneConversation = memo(function PaneConversation({
         sessionId={sessionId}
         hidden={hidden} />}
       {...props}
+      statusIsland={<SessionStatusIsland snapshot={paneSnapshot} />}
     />
     <PaneSurfaceCover ready={surfaceReady} label={t("Loading conversation…")}
       transitionKey={coverKey} showSpinner={false} />

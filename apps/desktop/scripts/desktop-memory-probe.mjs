@@ -197,14 +197,76 @@ async function seedLayout(profilePath, port, kind, sessionIds = []) {
           type: "split", direction: index % 2 ? "row" : "column", ratio: 0.5, first, second,
         }));
       }
-      localStorage.setItem("mixdog.desktop.pane-layout.v1", JSON.stringify({
-        layout, focusedLeafId: kind === "empty" ? "probe-pane" : (kind === "one" ? "probe-pane" : "probe-0"),
-      }));
-      localStorage.setItem("mixdog.desktop-sidebar-open.v1", "false");
-      localStorage.removeItem("mixdog.desktop-last-session.v1");
-      return { sessions: ids.length, first: ids[0] || null };
+      const persistSeed = () => {
+        localStorage.setItem("mixdog.desktop.pane-layout.v1", JSON.stringify({
+          layout, focusedLeafId: kind === "empty" ? "probe-pane" : (kind === "one" ? "probe-pane" : "probe-0"),
+        }));
+        localStorage.setItem("mixdog.desktop-sidebar-open.v1", "false");
+        localStorage.removeItem("mixdog.desktop-last-session.v1");
+      };
+      persistSeed();
+      window.addEventListener("pagehide", persistSeed, { once: true });
+      return {
+        sessions: ids.length,
+        ids: kind === "empty" ? [] : ids.slice(0, kind === "one" ? 1 : ${SPLIT_SESSIONS}),
+        first: ids[0] || null,
+        timeOrigin: performance.timeOrigin,
+      };
     })()`);
-    console.log(`[seed:${kind}] sessions=${seeded?.sessions} first=${seeded?.first}`);
+    try { await client.evaluate('window.location.reload(); true'); } catch { /* context swaps below */ }
+    const restored = await evaluateStable(client, `(async () => {
+      const previousTimeOrigin = ${JSON.stringify(seeded?.timeOrigin || 0)};
+      const expectedIds = ${JSON.stringify(seeded?.ids || [])};
+      const layoutReady = () => {
+        const expectedKind = ${JSON.stringify(kind)};
+        const persisted = JSON.parse(localStorage.getItem("mixdog.desktop.pane-layout.v1") || "null");
+        const active = persisted?.layout?.activeKey || persisted?.layout?.type || null;
+        if (expectedKind === "empty") {
+          return Boolean(document.querySelector('.transcript[data-session-key="new-task"]'));
+        }
+        if (expectedKind === "one" && active !== "session:" + expectedIds[0]) {
+          document.querySelector(
+            '#recent-session-list [data-session-id="' + CSS.escape(expectedIds[0] || "") + '"]',
+          )?.click();
+          return false;
+        }
+        if (expectedKind === "split" && active !== "split") return false;
+        return expectedIds.every((id) => {
+          const transcript = document.querySelector(
+            '.transcript[data-session-key="' + CSS.escape(id) + '"]',
+          );
+          if (expectedKind === "split") return Boolean(transcript);
+          const rect = transcript?.getBoundingClientRect();
+          return Boolean(rect && rect.width > 100 && rect.height > 100);
+        });
+      };
+      const startupDeadline = performance.now() + 20_000;
+      while ((performance.timeOrigin === previousTimeOrigin
+        || !window.__mixdogStartupSettled
+        || !layoutReady())
+        && performance.now() < startupDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      if (performance.timeOrigin === previousTimeOrigin || !window.__mixdogStartupSettled
+        || !layoutReady()) {
+        throw new Error("Seeded memory layout did not restore after reload.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const sessionRows = await window.mixdogDesktop.listSessions().catch(() => []);
+      const expectedSessionId = ${JSON.stringify(seeded?.first || '')};
+      const persisted = JSON.parse(localStorage.getItem("mixdog.desktop.pane-layout.v1") || "null");
+      return {
+        active: persisted?.layout?.activeKey || persisted?.layout?.type || null,
+        leafCount: document.querySelectorAll("[data-pane-id]").length,
+        catalogCount: sessionRows.length,
+        expectedSession: expectedSessionId
+          ? sessionRows.some((row) => row?.id === expectedSessionId)
+          : null,
+      };
+    })()`, 30_000);
+    console.log(`[seed:${kind}] sessions=${seeded?.sessions} first=${seeded?.first}`
+      + ` active=${restored?.active} leaves=${restored?.leafCount}`
+      + ` catalog=${restored?.catalogCount} expected=${restored?.expectedSession}`);
   } finally {
     await stopApp(client, child);
   }
@@ -222,6 +284,8 @@ async function measure(profilePath, port, label) {
       await new Promise((resolve) => setTimeout(resolve, 8_000));
       return true;
     })()`, 40_000);
+    await client.request('HeapProfiler.collectGarbage', {}, 10_000).catch(() => null);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
     const heap = await client.evaluate(`(() => {
       const memory = performance.memory || {};
       return {

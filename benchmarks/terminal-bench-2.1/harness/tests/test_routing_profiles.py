@@ -559,7 +559,7 @@ class RoutingProfileTests(unittest.TestCase):
         config = build_benchmark_config(profile, "default")
         agent = config["agent"]
 
-        self.assertEqual(set(config), {"agent"})
+        self.assertEqual(set(config), {"agent", "outputStyle"})
         self.assertEqual(
             set(agent),
             {
@@ -571,8 +571,11 @@ class RoutingProfileTests(unittest.TestCase):
                 "agents",
                 "modelSettings",
                 "mcpServers",
+                "profile",
             },
         )
+        self.assertEqual(config["outputStyle"], "simple")
+        self.assertEqual(agent["profile"], {"language": "en"})
         self.assertEqual(agent["workflow"], {"active": "default"})
         self.assertEqual(agent["mcpServers"], {})
         self.assertEqual(agent["workflowRoutes"], {"lead": profile["routes"]["lead"]})
@@ -582,12 +585,10 @@ class RoutingProfileTests(unittest.TestCase):
         )
         serialized = json.dumps(config)
         for personal_key in (
-            "profile",
             "plugins",
             "channels",
             "sessions",
             "memory",
-            "outputStyle",
         ):
             self.assertNotIn(f'"{personal_key}"', serialized)
 

@@ -80,9 +80,9 @@ function publishBarrier(state: BootSurfaceBarrierState): void {
 function registerBarrierSurface(
   state: BootSurfaceBarrierState,
   id: string,
-  ready: boolean,
+  painted: boolean,
 ): void {
-  if (state.sealed || ready || state.pending.has(id)) return;
+  if (state.sealed || painted || state.pending.has(id)) return;
   state.pending.add(id);
   publishBarrier(state);
 }
@@ -97,9 +97,9 @@ function queueBarrierRegistration(id: string): void {
   queuedBarrierRegistrations.add(id);
   queueMicrotask(() => {
     queuedBarrierRegistrations.delete(id);
-    const ready = surfaceMetrics.get(id)?.stages.has("ready") === true;
+    const painted = surfaceMetrics.get(id)?.stages.has("paint") === true;
     for (const barrier of activeSurfaceBarriers) {
-      registerBarrierSurface(barrier, id, ready);
+      registerBarrierSurface(barrier, id, painted);
     }
   });
 }
@@ -232,8 +232,14 @@ export function reportBootSurfaceStage(
   const cleanStage = cleanToken(stage);
   if (!cleanStage || metric.stages.has(cleanStage)) return false;
   metric.stages.add(cleanStage);
-  if (cleanStage === "ready") {
+  // The cold-start cover has its own fade after the first real paint. Releasing
+  // its barrier at paint overlaps that fade with the second-frame stability
+  // check instead of serializing both delays. Per-surface ready metrics still
+  // complete on the following frame for diagnostics and later surface swaps.
+  if (cleanStage === "paint") {
     for (const barrier of activeSurfaceBarriers) resolveBarrierSurface(barrier, id);
+  }
+  if (cleanStage === "ready") {
     pruneSurfaceMetrics();
   }
   const total = totalMs();

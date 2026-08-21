@@ -14,7 +14,14 @@ export function isLiveSpinnerMetaVisible({
   liveSpinner,
   liveSpinnerIsCommand,
   latestTranscriptItem,
+  streamingTail,
+  transcriptViewActive = false,
 }) {
+  const visibleStreamingAssistant = !transcriptViewActive
+    && streamingTail?.kind === 'assistant'
+    && streamingTail.streaming === true
+    && String(streamingTail.text || '').trim().length > 0;
   return !inputBoxHidden && !slashPaletteOpen && !!liveSpinner
-    && (liveSpinnerIsCommand || latestTranscriptItem?.kind !== 'turndone');
+    && (liveSpinnerIsCommand || latestTranscriptItem?.kind !== 'turndone')
+    && (liveSpinnerIsCommand || !visibleStreamingAssistant);
 }

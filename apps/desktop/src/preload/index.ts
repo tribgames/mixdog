@@ -6,7 +6,6 @@ import {
   type DesktopAgentPoolRow,
   type DesktopApi,
   type DesktopRemoteClientClaim,
-  type DesktopRemoteProjectionState,
   type DesktopSessionSummary,
   type DesktopSessionStateUpdate,
   type DesktopSessionStateWireUpdate,
@@ -108,8 +107,10 @@ const api: DesktopApi = {
   },
   resolveLocalPaths: (paths) => ipcRenderer.invoke(DESKTOP_IPC.resolveLocalPaths, paths),
   readLocalFile: (path) => ipcRenderer.invoke(DESKTOP_IPC.readLocalFile, path),
-  folderWatch: (dir) => ipcRenderer.invoke(DESKTOP_IPC.folderWatch, dir),
-  folderUnwatch: (dir) => ipcRenderer.invoke(DESKTOP_IPC.folderUnwatch, dir),
+  folderWatch: (dir, recursive) =>
+    ipcRenderer.invoke(DESKTOP_IPC.folderWatch, dir, recursive === true),
+  folderUnwatch: (dir, recursive) =>
+    ipcRenderer.invoke(DESKTOP_IPC.folderUnwatch, dir, recursive === true),
   subscribeFolderChanges: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, dir: string): void => {
       listener(String(dir || ''));
@@ -193,17 +194,6 @@ const api: DesktopApi = {
     };
     ipcRenderer.on(DESKTOP_IPC.agentPoolChanged, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.agentPoolChanged, receive);
-  },
-  getRemoteProjection: () => ipcRenderer.invoke(DESKTOP_IPC.getRemoteProjection),
-  setRemoteProjection: (projection) =>
-    ipcRenderer.invoke(DESKTOP_IPC.setRemoteProjection, projection),
-  subscribeRemoteProjection: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      projection: DesktopRemoteProjectionState,
-    ): void => listener(projection);
-    ipcRenderer.on(DESKTOP_IPC.remoteProjectionChanged, receive);
-    return () => ipcRenderer.removeListener(DESKTOP_IPC.remoteProjectionChanged, receive);
   },
   renameSession: (sessionId, title) => ipcRenderer.invoke(DESKTOP_IPC.renameSession, sessionId, title),
   setSessionArchived: (sessionId, archived) =>
@@ -384,7 +374,7 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.termData, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.termData, receive);
   },
-  gitStatus: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitStatus, cwd),
+  gitStatus: (cwd, options) => ipcRenderer.invoke(DESKTOP_IPC.gitStatus, cwd, options),
   gitBranches: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitBranches, cwd),
   gitCheckoutBranch: (cwd, branch, remote) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitCheckoutBranch, cwd, branch, remote === true),

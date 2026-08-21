@@ -398,6 +398,7 @@ const TOOL_CATEGORY = new Map([
   ['str_replace_editor', 'Patch'],
   ['search_replace', 'Patch'],
   ['git', 'Git'],
+  ['git_stage', 'Git'],
   ['bash', 'Shell'],
   ['shell', 'Shell'],
   ['shell_command', 'Shell'],
@@ -583,6 +584,7 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'job_wait':
       return unitDescriptor('Shell', { count: queryCount(a, 'command', 'commands', 'cmd') || 1, noun: 'command' });
     case 'git':
+    case 'git_stage':
       return unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' });
     case 'agent':
     case 'bridge': {

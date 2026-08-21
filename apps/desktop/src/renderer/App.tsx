@@ -84,11 +84,6 @@ import {
   desktopUtilityDockTabEnabled,
 } from "./desktop-feature-config";
 import { primeEditorFileLoad } from "./editor-file-loader";
-import {
-  normalizeProjectionView,
-  shouldAdoptProjectionSelection,
-  useRemoteUiProjection,
-} from "./remote-ui-projection";
 import { isMobileRemoteSurface } from "./MobileTabOverview";
 import { registerMobileBack } from "./mobile-back";
 import {
@@ -205,7 +200,6 @@ const CommandSurface = lazy(() => loadCommandSurfaceModule()
 // app-idle-warmup.ts; importing it arms the schedule.
 import {
   DraftConversation,
-  PaneStatusIsland,
   preloadUtilityDock,
   selectDesktopSnapshot,
   SnapshotUtilityDock,
@@ -274,6 +268,7 @@ export function App() {
     closeSidebarPanels,
     commandSurface,
     commandSurfaceLane,
+    commandSurfaceSessionId,
     dismissSheetsForBottomPanel,
     dockMotion,
     dockOpen,
@@ -2134,10 +2129,6 @@ export function App() {
         onSelectProject: conversationSelectProject,
         onOpenCommandSurface: (surface) =>
           openConversationCommandSurface(surface, paneSessionId),
-        // Read-only island (user: 클릭 시 나오는 팝업/화면전환은 필요없음): the
-        // gauge and the work slot answer with their own cards. The context
-        // surface stays on /context, the Agents dock on its own tab.
-        statusIsland: <PaneStatusIsland sessionId={paneSessionId} hidden={false} />,
       }} />;
   };
   const {
@@ -2160,57 +2151,6 @@ export function App() {
   const activeBottomPanelTab: WorkbenchPanelId = isWorkbenchPanelId(bottomPanel.tab)
     ? bottomPanel.tab
     : "problems";
-  // Desk↔phone continuity. The projection is a small last-writer-wins state,
-  // so it costs nothing while idle and only travels when a surface actually
-  // changes. A cold open adopts the paired surface's selection so picking the
-  // phone up continues the desk; after the first touch, or once the cold
-  // window closes, only genuinely live changes follow.
-  const projectionEntry = useRef(0);
-  if (!projectionEntry.current) projectionEntry.current = Date.now();
-  const projectionApplied = useRef(false);
-  const projectionInteracted = useRef(false);
-  useEffect(() => {
-    const mark = () => { projectionInteracted.current = true; };
-    window.addEventListener("pointerdown", mark, true);
-    window.addEventListener("keydown", mark, true);
-    return () => {
-      window.removeEventListener("pointerdown", mark, true);
-      window.removeEventListener("keydown", mark, true);
-    };
-  }, []);
-  useRemoteUiProjection({
-    view: normalizeProjectionView({
-      selection,
-      sidebarOpen,
-      sidebarPanel,
-      dockOpen,
-      dockTab,
-      bottomPanelOpen: bottomPanel.open,
-      bottomPanelTab: activeBottomPanelTab,
-    }),
-    ready: startupSettled,
-    apply: (state) => {
-      const first = !projectionApplied.current;
-      projectionApplied.current = true;
-      if (!shouldAdoptProjectionSelection({
-        first,
-        elapsedMs: Date.now() - projectionEntry.current,
-        interacted: projectionInteracted.current,
-      })) return;
-      const next = asRecord(state.selection);
-      const kind = String(next?.kind || "");
-      const current = selectionRef.current;
-      if (kind === "session") {
-        const id = String(next?.id || "");
-        if (!id || (current.kind === "session" && current.id === id)) return;
-        void openSessionRef.current(id);
-        return;
-      }
-      if (kind === "new" && current.kind !== "new") {
-        activateSelection({ kind: "new" }, "New task");
-      }
-    },
-  });
   const desktopBootReady = snapshotHydrated
     && projectCatalogReady
     && onboardingReady
@@ -2756,8 +2696,15 @@ export function App() {
           onClose={() => setSettingsOpen(false)} />}
         {(["context", "usage", "doctor", "inherit"] as const).map((surface) =>
           commandSurface === surface || mountedCommandSurfaces.current.has(surface)
-            ? <CommandSurface key={surface} surface={surface}
+            ? <CommandSurface
+                key={surface === "context" || surface === "inherit"
+                  ? `${surface}:${commandSurfaceSessionId}`
+                  : surface}
+                surface={surface}
                 open={commandSurface === surface}
+                sessionId={surface === "context" || surface === "inherit"
+                  ? commandSurfaceSessionId
+                  : ""}
                 snapshot={surface === "context" || surface === "inherit"
                   ? commandSurfaceLane ?? EMPTY_SNAPSHOT
                   : snapshot}
