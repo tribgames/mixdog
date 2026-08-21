@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.146 - 2026-08-21
+
 - Mobile web conversations now keep touch scrolling, streaming Markdown
   measurement, tab swipes, compact composer controls, and responsive overlays
   stable across native gestures, rotation, and small-screen layouts.
