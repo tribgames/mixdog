@@ -3386,3 +3386,69 @@ test('codex turn-state: parity disabled leaves the frame untouched (no metadata,
     assert.equal(out, frame);
     assert.equal(out.client_metadata, undefined);
 });
+
+import {
+    acquireWebSocket,
+    releaseWebSocket,
+    _clearWebSocketPoolForTest,
+    _setOpenSocketForTest,
+} from '../src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs';
+
+// The server issues the x-codex-turn-state token on the handshake 101 response
+// and it pins the backend node holding the warm prefix. codex replays it on the
+// RECONNECT handshake (codex-rs/core/src/client.rs: build_responses_headers ->
+// connect_websocket) so a replacement connection re-pins the same node. Our
+// pooled entry dies with its socket, so the pool retains the token per poolKey.
+// This pins the three cases that matter: nothing to replay on a first
+// handshake, replay on a replacement, and never onto a parallel peer or a
+// different session.
+test('codex turn-state: replayed only on a replacement handshake', async () => {
+    const fakeSocket = () => ({
+        readyState: 1, // WebSocket.OPEN
+        on() {}, once() {}, removeListener() {},
+        close() {}, terminate() {},
+    });
+    const openedWith = [];
+    _clearWebSocketPoolForTest();
+    _setOpenSocketForTest(async ({ turnState }) => {
+        openedWith.push(turnState ?? null);
+        // The backend issues a token on the first handshake only, so the
+        // replacement below has nothing but the retained pin to go on.
+        return { socket: fakeSocket(), turnState: openedWith.length === 1 ? 'tok-shard-1' : null };
+    });
+    try {
+        const auth = { type: 'openai-oauth', account_id: 'acct-1' };
+        const poolKey = 'sess-turn-state-1';
+        const cacheKey = 'cache-turn-state-1';
+
+        const first = await acquireWebSocket({ auth, poolKey, cacheKey });
+        assert.equal(openedWith[0], null, 'a first handshake has no pin to replay');
+        assert.equal(first.entry.turnState, 'tok-shard-1');
+
+        // The socket dies while pooled; the next acquire prunes it and opens a
+        // replacement.
+        releaseWebSocket({ entry: first.entry, poolKey, keep: true });
+        first.entry.socket.readyState = 3; // CLOSED
+
+        const replacement = await acquireWebSocket({ auth, poolKey, cacheKey });
+        assert.equal(openedWith[1], 'tok-shard-1', 'a replacement handshake re-pins the shard');
+        assert.equal(replacement.entry.turnState, 'tok-shard-1', 'the pin survives a handshake that issues none');
+
+        // A parallel peer on the same key must open clean: inheriting a live
+        // sibling's token makes openai-oauth treat the request as a
+        // continuation of another in-flight turn.
+        const parallel = await acquireWebSocket({ auth, poolKey, cacheKey });
+        assert.equal(openedWith[2], null);
+
+        // A different session never inherits the pin.
+        const other = await acquireWebSocket({ auth, poolKey: 'sess-turn-state-2', cacheKey });
+        assert.equal(openedWith[3], null);
+
+        releaseWebSocket({ entry: other.entry, poolKey: 'sess-turn-state-2', keep: false });
+        releaseWebSocket({ entry: parallel.entry, poolKey, keep: false });
+        releaseWebSocket({ entry: replacement.entry, poolKey, keep: false });
+    } finally {
+        _setOpenSocketForTest(null);
+        _clearWebSocketPoolForTest();
+    }
+});

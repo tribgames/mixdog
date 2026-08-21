@@ -1398,6 +1398,14 @@ export async function sendViaWebSocket({
                 ws_client_metadata_has_thread_id: wireFrameMetadataTrace.hasThreadId,
                 ws_client_metadata_has_turn_state: wireFrameHadTurnState,
                 ws_entry_turn_state_available: useCodexWsClientMetadata && !!entry.turnState,
+                // Fingerprint only. The token is a routing credential, so it is
+                // hashed like every other handshake secret; the length still
+                // distinguishes a real server token from a stub value, and the
+                // hash shows whether one session keeps a single pin or is
+                // re-issued (reconnect / turn rollover).
+                ws_entry_turn_state_fp: typeof entry.turnState === 'string' && entry.turnState
+                    ? `${createHash('sha256').update(entry.turnState).digest('hex').slice(0, 12)}:len${entry.turnState.length}`
+                    : null,
                 chain_delta_reason: mode === 'delta' ? null : deltaReason,
                 chain_stripped_response_items: strippedResponseItems,
                 chain_skipped_response_items: skippedResponseItems,

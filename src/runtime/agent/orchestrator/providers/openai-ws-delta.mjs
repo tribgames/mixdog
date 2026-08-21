@@ -303,12 +303,16 @@ export function _buildResponseCreateFrame(body, { previousResponseId = null, inp
 
 export function _computeDelta({ entry, body, traceProvider }) {
     // DEFAULT: full-frame sends. codex's delta path is only cache-safe with
-    // the x-codex-turn-state sticky-routing token, which the backend issues to
-    // codex but never to us (R11-R14 2026-07-03: zero turn-state events across
-    // 200+ calls despite UA/version/beta-features/client_metadata parity;
-    // delta measured 18-28% warm miss vs full-frame 0.0%). Without the sticky
-    // token, previous_response_id requests hop cache nodes and only the first
-    // prefix blocks hit. Re-enable delta explicitly via
+    // the x-codex-turn-state sticky-routing token. R11-R14 (2026-07-03)
+    // measured zero turn-state EVENTS across 200+ calls despite
+    // UA/version/beta-features/client_metadata parity, and delta at 18-28% warm
+    // miss vs full-frame 0.0%. The event channel is still silent, but the
+    // conclusion "the backend never issues it to us" was wrong: the token
+    // arrives on the handshake 101 response instead (2026-08-21 bench: 81 of 88
+    // calls carried it from iteration 1, before any response event existed), so
+    // the pool captures it at upgrade and the frame metadata replays it.
+    // Without the sticky token, previous_response_id requests hop cache nodes
+    // and only the first prefix blocks hit.
     // Delta gating flows through the single transport-policy switch
     // (MIXDOG_OAI_TRANSPORT: ws-full | ws-delta | http-sse). Default ws-delta
     // selects the refs-compatible safe delta; 'ws-full'/'http-sse' force full
