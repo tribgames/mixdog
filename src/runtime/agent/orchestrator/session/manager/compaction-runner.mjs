@@ -349,6 +349,10 @@ export async function runSessionCompaction(session, opts = {}) {
                             sessionId: resolvedSessionId,
                             cwd: session.cwd,
                             signal: opts.signal || null,
+                            // Carries the session's wire identity so the
+                            // summary request stays on the session's own
+                            // prefix-cache slot instead of opening a second one.
+                            sendOpts: { session },
                             promptCacheKey: session.promptCacheKey || null,
                             providerCacheKey: session.promptCacheKey || null,
                             timeoutMs: semanticCompactTimeoutMs(session, beforeMessageTokens),
@@ -394,6 +398,9 @@ export async function runSessionCompaction(session, opts = {}) {
                     sessionId: resolvedSessionId,
                     cwd: session.cwd,
                     signal: opts.signal || null,
+                    // Same-session wire identity: one prefix-cache slot for
+                    // turns and their summaries alike.
+                    sendOpts: { session },
                     promptCacheKey: session.promptCacheKey || null,
                     providerCacheKey: session.promptCacheKey || null,
                     timeoutMs: semanticCompactTimeoutMs(session, beforeMessageTokens),

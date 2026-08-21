@@ -8,12 +8,30 @@ function _cleanMetaString(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
+function _codexUuidV7(value) {
+    const clean = String(value || '').trim().toLowerCase();
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(clean)) {
+        return clean;
+    }
+    const digest = createHash('sha256').update(clean).digest();
+    const bytes = Buffer.from(digest.subarray(0, 16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = bytes.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 export function _hashText(value, chars = 24) {
     return createHash('sha256').update(String(value || '')).digest('hex').slice(0, chars);
 }
 
 // Session ids embed their creation stamp; fall back to now for foreign shapes.
 function _sessionStartedAtUnixMs(sessionId) {
+    const compactUuid = String(sessionId || '').trim().replace(/-/g, '');
+    if (/^[0-9a-f]{12}7[0-9a-f]{19}$/i.test(compactUuid)) {
+        const timestamp = Number.parseInt(compactUuid.slice(0, 12), 16);
+        if (Number.isFinite(timestamp) && timestamp > 0) return timestamp;
+    }
     const parts = String(sessionId || '').split('_');
     for (const part of parts) {
         if (/^\d{12,}$/.test(part)) {
@@ -39,25 +57,49 @@ function _codexInstallationId(sendOpts) {
 // socket, or a later turn would
 // replay the first turn's identity.
 function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts, handshake = false } = {}) {
-    const sessionId = _cleanMetaString(sendOpts?.codexSessionId || sendOpts?.session?.codexSessionId || poolKey || cacheKey)
+    const rawSessionId = _cleanMetaString(
+        sendOpts?.codexSessionId
+        || sendOpts?.session?.codexWireSessionId
+        || sendOpts?.session?.codexSessionId
+        || poolKey
+        || cacheKey,
+    )
         || 'mixdog-session';
-    const threadId = _cleanMetaString(sendOpts?.threadId || sendOpts?.codexThreadId || sendOpts?.session?.threadId || cacheKey || sessionId)
-        || sessionId;
-    const installationId = _codexInstallationId(sendOpts);
+    const rawThreadId = _cleanMetaString(
+        sendOpts?.threadId
+        || sendOpts?.codexThreadId
+        || sendOpts?.session?.codexWireSessionId
+        || sendOpts?.session?.threadId
+        || cacheKey
+        || rawSessionId,
+    )
+        || rawSessionId;
+    const rawInstallationId = _codexInstallationId(sendOpts);
+    const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
+    const sessionId = wireParity ? _codexUuidV7(rawSessionId) : rawSessionId;
+    const threadId = wireParity ? _codexUuidV7(rawThreadId) : rawThreadId;
+    const installationId = wireParity ? _codexUuidV7(rawInstallationId) : rawInstallationId;
     const startedAt = Number.isFinite(Number(sendOpts?.turnStartedAtUnixMs))
         ? Math.floor(Number(sendOpts.turnStartedAtUnixMs))
-        : _sessionStartedAtUnixMs(sessionId);
-    const requestKind = _codexRequestKind(sendOpts, sessionId);
-    const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
+        : _sessionStartedAtUnixMs(rawSessionId);
+    const requestKind = _codexRequestKind(sendOpts, rawSessionId);
     // The reference client opens the WS with a prewarm (empty turn_id) BEFORE
     // the real turn. Under wire parity the handshake IS that prewarm, so its
     // turn_id empties and its request_kind becomes 'prewarm' instead of
     // presenting the handshake as a live turn. Parity off is unchanged.
     const isPrewarm = requestKind === 'prewarm' || handshake === true;
-    const explicitTurnId = _cleanMetaString(sendOpts?.turnId || sendOpts?.codexTurnId || sendOpts?.session?.turnId);
+    const rawExplicitTurnId = _cleanMetaString(sendOpts?.turnId || sendOpts?.codexTurnId || sendOpts?.session?.turnId);
     const explicitWindowId = _cleanMetaString(sendOpts?.windowId || sendOpts?.codexWindowId || sendOpts?.session?.windowId);
-    const turnId = wireParity && isPrewarm ? '' : (explicitTurnId || sessionId);
+    const turnId = wireParity && isPrewarm
+        ? ''
+        : wireParity
+            ? _codexUuidV7(rawExplicitTurnId || `${rawSessionId}:turn`)
+            : (rawExplicitTurnId || sessionId);
     const effectiveRequestKind = wireParity && isPrewarm ? 'prewarm' : requestKind;
+    // Window id is `<thread-id>:<auto-compact window number>`, and that counter
+    // starts at 0: a thread that never auto-compacted reports generation 0 and
+    // only advances when a new context window opens. The legacy non-parity
+    // wire kept :1 and is left alone so measured default behavior is unchanged.
     const windowId = explicitWindowId || `${threadId}:${wireParity ? 0 : 1}`;
     const turnMetadata = {
         installation_id: installationId,
@@ -66,13 +108,17 @@ function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts, handshake = fa
         turn_id: turnId,
         window_id: windowId,
         request_kind: effectiveRequestKind,
-        // Richer turn-metadata. A/B
-        // 2026-07-04 showed no effect, so it stays behind a knob for future
-        // probes; wire parity implies it.
-        ...((process.env.MIXDOG_OAI_TURN_METADATA_RICH === '1' || wireParity) ? {
-            thread_source: 'user',
-            sandbox: 'read-only',
-        } : {}),
+        // Turn-metadata fields the reference client fills on every request.
+        // They were behind a probe knob after a 2026-07-04 A/B showed no
+        // isolated effect; they are unconditional now because a partial blob is
+        // a shape no real client sends. Absolute agent path, not a bare name;
+        // the sandbox pair reports this runtime honestly (tools run with full
+        // host access, so there is no sandbox to declare).
+        agent_name: '/root',
+        thread_source: 'user',
+        sandbox: 'none',
+        sandbox_mode: 'danger-full-access',
+        auto_review_enabled: false,
         turn_started_at_unix_ms: startedAt,
     };
     return {
@@ -98,36 +144,32 @@ export function _metadataTrace(metadata) {
     };
 }
 
-// Handshake projection of the same identity. These ride on every
-// request; A/B 2026-07-04
-// showed the turn-metadata blob alone lifts prefix-cache hits, so it is ON by
-// default. MIXDOG_OAI_TURN_METADATA overrides:
-//   unset|1|turn-metadata : window-id + turn-metadata + installation-id
-//   parent                : + x-codex-parent-thread-id
-//   window                : window-id only (drop the blob)
-//   0|off|false|no        : pre-2026-07-04 baseline (drop the blob)
+// Handshake projection of the same identity: window id, the turn-metadata
+// blob, the installation id, and the routing hint. The reference client sends
+// all of them on every request, and a 2026-07-04 A/B measured the blob alone
+// lifting prefix-cache hits.
 export function _codexWsCompatibilityHeaders(context = {}) {
     const metadata = _codexMetadataBase(null, context);
     const headers = {};
     if (metadata['x-codex-window-id']) headers['x-codex-window-id'] = metadata['x-codex-window-id'];
     if (metadata['x-codex-turn-metadata']) headers['x-codex-turn-metadata'] = metadata['x-codex-turn-metadata'];
     if (metadata['x-codex-installation-id']) headers['x-codex-installation-id'] = metadata['x-codex-installation-id'];
-    const parentThreadId = () => _cleanMetaString(context?.sendOpts?.parentThreadId
-        || context?.sendOpts?.codexParentThreadId
-        || metadata.thread_id);
-    const probe = String(process.env.MIXDOG_OAI_TURN_METADATA || '').trim().toLowerCase();
-    if (probe === '0' || probe === 'off' || probe === 'false' || probe === 'no' || probe === 'window') {
-        delete headers['x-codex-turn-metadata'];
-    } else if (probe === 'parent') {
-        const parent = parentThreadId();
-        if (parent) headers['x-codex-parent-thread-id'] = parent;
-    }
-    // Turn-state gate probe: attach the parent header independent of the knob
-    // above (hypothesis: x-codex-turn-state issuance wants it). Default OFF.
-    const gate = String(process.env.MIXDOG_OAI_CODEX_TURN_STATE_GATE || '').trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on'].includes(gate) && !headers['x-codex-parent-thread-id']) {
-        const parent = parentThreadId();
-        if (parent) headers['x-codex-parent-thread-id'] = parent;
+    // Routing hint. The reference client attaches this to EVERY request whose
+    // auth is the ChatGPT backend — no flag, no mode, and with `model=` alone
+    // when no service tier is selected. It is how the backend lands the request
+    // on a node that already holds this model's prefix, so leaving it off makes
+    // node selection arbitrary and the first call of a session pays a cold
+    // prefix. Measured 2026-08-22: without the hint, 3 of 8 parallel sessions
+    // started with 0 cached tokens and 6 warm calls missed; the run that
+    // happened to carry a priority tier (its own routing signal) missed none.
+    const model = _cleanMetaString(context?.model || context?.sendOpts?.model);
+    if (model) {
+        const serviceTier = _cleanMetaString(context?.serviceTier
+            || context?.sendOpts?.serviceTier
+            || context?.sendOpts?.service_tier);
+        headers['x-codex-routing-hint'] = serviceTier
+            ? `model=${model};tier=${serviceTier}`
+            : `model=${model}`;
     }
     return headers;
 }

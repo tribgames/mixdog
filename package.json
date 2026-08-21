@@ -60,7 +60,7 @@
     "test:tool-contracts": "npm run build:spawn:test && node scripts/tool-smoke.mjs",
     "smoke:patch": "node scripts/apply-patch-edit-smoke.mjs",
     "test:shellhardening": "npm run build:spawn:test && node --test scripts/suite-shellhardening-test.mjs scripts/suite-shell-direct-exe-test.mjs",
-    "test:providers": "node --test scripts/provider-toolcall-test.mjs scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs scripts/cursor-provider-test.mjs",
+    "test:providers": "node --test scripts/provider-toolcall-test.mjs scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs scripts/cursor-provider-test.mjs src/runtime/agent/orchestrator/providers/openai-codex-identity.test.mjs src/runtime/agent/orchestrator/providers/openai-ws-delta-parity.test.mjs",
     "test:embedding-runtime:warmup": "node scripts/verify-embedding-runtime.mjs --warmup",
     "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --check scripts/prepare-native-assets.mjs && node --test scripts/release-gate-test.mjs scripts/prepare-native-assets-test.mjs",
     "test:native-edit-wire": "node scripts/native-edit-wire-test.mjs",

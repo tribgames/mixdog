@@ -146,16 +146,6 @@ function _stripRequestPrefix(curInput, prevInput) {
     return current.slice(previous.length);
 }
 
-function _isReplayLikeHead(item, responseItem) {
-    if (!item || !responseItem) return false;
-    const inputType = item.type || (item.role === 'assistant' ? 'message' : '');
-    const responseType = responseItem.type || '';
-    if (responseType === 'message') return inputType === 'message';
-    if (responseType === 'function_call') return inputType === 'function_call';
-    if (responseType === 'tool_search_call') return inputType === 'tool_search_call';
-    return inputType === responseType;
-}
-
 // The hash input follows the same per-item normalizations used by
 // _logicalResponseItemMatch, but is never emitted itself. This retains a
 // stable comparison fingerprint after history compaction without putting
@@ -222,32 +212,51 @@ export function _stripResponseItemsFromHead(items, responseItems) {
     const outputs = Array.isArray(responseItems) ? responseItems : [];
     let cursor = 0;
     let stripped = 0;
-    let skipped = 0;
     for (const output of outputs) {
-        if (cursor >= tail.length) break;
-        if (_logicalResponseItemMatch(tail[cursor], output)) {
-            cursor += 1;
-            stripped += 1;
-            continue;
-        }
-        if (_isReplayLikeHead(tail[cursor], output)) {
+        // The incremental request must extend the EXACT previous request plus
+        // its response: every item the previous response produced has to appear
+        // in the current prefix, in order, before anything new. Skipping a
+        // missing one builds a delta against a logical history the server never
+        // saw and can invalidate the cache chain while previous_response_id
+        // stays syntactically valid, so any gap forces a full-frame fallback.
+        // There is no per-item exception — reasoning included. Reasoning items
+        // are kept in the logical history precisely so this proof holds, and
+        // they leave the wire here, as part of the anchored prefix.
+        if (cursor >= tail.length) {
             return {
                 ok: false,
                 reason: `response_output_mismatch:${output?.type || 'unknown'}`,
                 tail,
                 stripped,
-                skipped,
+                skipped: 0,
                 responseOutputMismatch: _responseOutputMismatchDiagnostics(
-                    tail[cursor],
+                    undefined,
                     output,
                     tail.length,
                     outputs.length,
                 ),
             };
         }
-        skipped += 1;
+        if (_logicalResponseItemMatch(tail[cursor], output)) {
+            cursor += 1;
+            stripped += 1;
+            continue;
+        }
+        return {
+            ok: false,
+            reason: `response_output_mismatch:${output?.type || 'unknown'}`,
+            tail,
+            stripped,
+            skipped: 0,
+            responseOutputMismatch: _responseOutputMismatchDiagnostics(
+                tail[cursor],
+                output,
+                tail.length,
+                outputs.length,
+            ),
+        };
     }
-    return { ok: true, reason: null, tail: tail.slice(cursor), stripped, skipped };
+    return { ok: true, reason: null, tail: tail.slice(cursor), stripped, skipped: 0 };
 }
 
 // Official OpenAI Responses WebSocket guide: response.create WS frames mirror

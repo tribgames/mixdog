@@ -88,18 +88,25 @@ function _arch() {
 }
 
 /**
- * Originator token codex sends on every request (`codex_cli_rs`).
+ * Originator token codex sends on every request.
  *
  * Opt-in parity override: an operator can pin the exact originator a known-good
  * codex build reports via MIXDOG_CODEX_ORIGINATOR when the backend fingerprints
- * on it. Unset (default) keeps `codex_cli_rs`, so wire behavior is unchanged.
+ * on it. Default is the interactive CLI's `codex_cli_rs`, which is also what
+ * the User-Agent is built from.
  */
 export function codexOriginator() {
     const override = String(process.env.MIXDOG_CODEX_ORIGINATOR || '').trim();
     return override || 'codex_cli_rs';
 }
 
-/** codex_cli_rs/<version> (<os> <ver>; <arch>) <terminal> */
+/**
+ * <originator>/<version> (<os> <ver>; <arch>) <terminal>
+ *
+ * The reference client derives its User-Agent FROM the originator, so the two
+ * can never disagree: pinning the exec originator while advertising the
+ * interactive CLI agent would produce a pair no real client build sends.
+ */
 export function codexUserAgent() {
     // Opt-in parity override: pin an exact codex User-Agent string
     // (MIXDOG_CODEX_USER_AGENT) when the auto-derived os/arch/terminal tuple
@@ -107,7 +114,7 @@ export function codexUserAgent() {
     const override = String(process.env.MIXDOG_CODEX_USER_AGENT || '').trim();
     if (override) return override;
     const terminal = String(process.env.TERM_PROGRAM || 'unknown').trim() || 'unknown';
-    return `codex_cli_rs/${codexClientVersionSync()} (${_osType()} ${os.release()}; ${_arch()}) ${terminal}`;
+    return `${codexOriginator()}/${codexClientVersionSync()} (${_osType()} ${os.release()}; ${_arch()}) ${terminal}`;
 }
 
 /** Bare version header value — codex built-in provider http_headers "version". */

@@ -108,9 +108,12 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     const wireMessage = (role, content) => (wireParity
         ? { type: 'message', role, content, internal_chat_message_metadata_passthrough: {} }
         : { role, content });
-    const pushReasoningItems = (message) => {
+    // `phase` replays each retained item on the side of the assistant text it
+    // was emitted on, so the rebuilt turn keeps the response's own item order.
+    const pushReasoningItems = (message, phase = 'before') => {
         if (!replayEncryptedReasoning || message?.role !== 'assistant' || !Array.isArray(message.reasoningItems)) return;
         for (const item of message.reasoningItems) {
+            if ((item?.afterText === true) !== (phase === 'after')) continue;
             // Collector shape contract: the WS/HTTP stream collectors store
             // retained items as {id, encrypted_content, summary} WITHOUT a
             // type tag (openai-ws-stream pushReasoningItem). Requiring
@@ -163,7 +166,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
             continue;
         }
         flushToolMedia();
-        pushReasoningItems(m);
+        pushReasoningItems(m, 'before');
         if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
             // Default path deliberately omits reasoning replay: openai-oauth
             // rejects an `rs_*` item repeated inside the same stateful
@@ -171,6 +174,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
             // converter option with stateless HTTP headers, where the complete
             // retained conversation is the only continuation source.
             if (m.content) out.push(wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' })));
+            pushReasoningItems(m, 'after');
             for (const tc of m.toolCalls) {
                 const nativeSearchCall = nativeToolSearchCallInput(tc);
                 if (nativeSearchCall) {
@@ -198,6 +202,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
             m.role === 'assistant' ? 'assistant' : 'user',
             normalizeContentForOpenAIResponses(m.content, { role: m.role }),
         ));
+        pushReasoningItems(m, 'after');
     }
     flushToolMedia();
     return out;
@@ -253,8 +258,27 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     // wire (the only remap; every other effort passes through). Default medium.
     // Kept inline (not a module const) so buildRequestBody stays self-contained.
     // Extract system/instructions
+    // The volatile environment block (session header, cwd, shell startup
+    // capabilities) is per-session BY DEFINITION, so leaving it inside
+    // `instructions` makes the cached prefix unique to a single session and
+    // nothing can ever be shared. Measured 2026-08-21 on 8 parallel bench
+    // sessions: the first 10,408 bytes of `instructions` were byte-identical
+    // and only these lines differed, yet all 8 sessions paid a full cold
+    // prefix (0 cached tokens on every first call). The reference client keeps
+    // instructions static and delivers the same information as a leading
+    // <environment_context> input item; mirror that split here. Anthropic and
+    // Gemini paths are untouched — they consume the env block as its own
+    // unmarked system block.
     const systemMsgs = messages.filter(m => m.role === 'system');
-    const instructions = systemMsgs.map(m => m.content).join('\n\n') || 'You are a helpful assistant.';
+    const environmentMsgs = systemMsgs.filter(m => m?.cacheTier === 'env');
+    const prefixSystemMsgs = environmentMsgs.length
+        ? systemMsgs.filter(m => m?.cacheTier !== 'env')
+        : systemMsgs;
+    const instructions = prefixSystemMsgs.map(m => m.content).join('\n\n') || 'You are a helpful assistant.';
+    const environmentText = environmentMsgs
+        .map(m => (typeof m.content === 'string' ? m.content : ''))
+        .filter(Boolean)
+        .join('\n\n---\n\n');
     const opts = sendOpts || {};
     const promptCacheProvider = opts.promptCacheProvider || 'openai-oauth';
     // Recovery-only encrypted-reasoning replay is DEFAULT ON for the OAuth
@@ -274,6 +298,20 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         nativeToolSearchProvider: promptCacheProvider,
         replayEncryptedReasoning,
     });
+    if (environmentText) {
+        // Leading input item, after the cached prefix instead of inside it.
+        // convertMessagesToResponsesInput skips every system message, so this
+        // is the only copy on the wire — the information reaches the model
+        // unchanged, just one position later.
+        input.unshift({
+            type: 'message',
+            role: 'user',
+            content: [{
+                type: 'input_text',
+                text: `<environment_context>\n${environmentText}\n</environment_context>`,
+            }],
+        });
+    }
     // Match the request body shape the OAuth backend expects so the
     // server-side auto-cache routes correctly. text.verbosity / include /
     // tool_choice / parallel_tool_calls are all inert without side effects

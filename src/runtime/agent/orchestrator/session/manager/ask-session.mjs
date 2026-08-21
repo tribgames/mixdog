@@ -52,6 +52,7 @@ import {
 } from './runtime-liveness.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { acquireSessionLock } from './session-lock.mjs';
+import { codexWireSendOpts, ensureCodexWireSessionId, mintUuidV7 } from './session-id.mjs';
 import { _tryBridgeExplicitPrefetch } from './prefetch-bridge.mjs';
 import {
     filterModelVisibleSessionMessages,
@@ -283,6 +284,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         if (preSession.closed === true) {
             throw new SessionClosedError(sessionId, 'session already closed');
         }
+        const _codexWireSessionId = ensureCodexWireSessionId(preSession);
         if (!_crashRecoveryChecked) {
             _crashRecoveryChecked = true;
             const recovery = recoverTurnCheckpoint(preSession);
@@ -341,6 +343,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         const _turnInterruption = createTurnInterruptionTracker();
         const _turnCheckpointToken = randomUUID();
         const _turnCheckpointStartedAt = Date.now();
+        const _codexTurnId = _codexWireSessionId ? mintUuidV7(_turnCheckpointStartedAt) : null;
         const _TURN_CHECKPOINT_THROTTLE_MS = 150;
         let _turnCheckpointTimer = null;
         let _turnCheckpointStopped = false;
@@ -736,6 +739,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         try { askOpts?.onSteerMessage?.(text, detail); } catch {}
                     },
                     notifyFn: typeof askOpts?.notifyFn === 'function' ? askOpts.notifyFn : undefined,
+                    // Same projection compaction uses, so a session presents one
+                    // identity on every request it makes.
+                    ...(codexWireSendOpts(session, {
+                        turnId: _codexTurnId,
+                        startedAtMs: _turnCheckpointStartedAt,
+                    }) || {}),
                     promptCacheKey: session.promptCacheKey || sessionId,
                     // Provider-scoped cache key (mixdog-codex, mixdog-claude…).
                     // Distinct from sessionId — providers that pool sockets

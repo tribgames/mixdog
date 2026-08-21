@@ -36,22 +36,9 @@ export function _envOn(name) {
     return ['1', 'true', 'yes', 'on'].includes(v);
 }
 
-// --- Opt-in Codex fingerprint/id parity knobs ------------------------------
-// All default OFF; unset envs leave the winning combo
-// (MIXDOG_OAI_CODEX_WIRE_PARITY=1 + ws-delta + underscore session_id) exactly
-// as-is. These add EXTRA parity dimensions for backend fingerprint probes.
-
-// The reference client sends dashed RFC-4122 UUIDs as session-id/thread-id;
-// we key those dashed handshake headers off the underscore cacheKey by
-// default. Opt in with MIXDOG_OAI_CODEX_WIRE_PARITY_UUID_IDS to reshape ONLY
-// the dashed pair (session-id/thread-id/x-client-request-id) into codex's UUID
-// format. The value is derived deterministically from the id so it stays
-// stable per cache key (prefix-cache continuity preserved), and the underscore
-// `session_id` header (the backend prefix-dedupe key) is left untouched.
-export function _codexUuidIdParity() {
-    const v = String(process.env.MIXDOG_OAI_CODEX_WIRE_PARITY_UUID_IDS || '').trim().toLowerCase();
-    return ['1', 'true', 'yes', 'on', 'uuid', 'dashed'].includes(v);
-}
+// Dashed handshake ids are derived deterministically from the cache key, so a
+// session keeps the same pair for its whole life and prefix-cache continuity
+// holds.
 
 export function _codexDashedId(value) {
     const h = createHash('sha256').update(String(value)).digest();
@@ -62,23 +49,9 @@ export function _codexDashedId(value) {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-// Opt-in turn-state gate experiment bundle (MIXDOG_OAI_CODEX_TURN_STATE_GATE).
-// The debugger's working hypothesis for what gates x-codex-turn-state issuance
-// is a specific wire shape: Codex-shaped UUIDv7 session/thread ids + dashed-only
-// handshake headers (drop the underscore session_id) + NO duplicated
-// x-client-request-id + a parent-thread header (added in openai-oauth-ws.mjs).
-// This env ties those dimensions together as ONE experiment so operators can
-// A/B the whole gate shape without hand-composing four flags. Default OFF; it
-// leaves MIXDOG_OAI_CODEX_WIRE_PARITY_UUID_IDS / _SESSION_ID and every existing
-// flag intact and only reshapes the wire when explicitly enabled.
-export function _codexTurnStateGate() {
-    const v = String(process.env.MIXDOG_OAI_CODEX_TURN_STATE_GATE || '').trim().toLowerCase();
-    return ['1', 'true', 'yes', 'on'].includes(v);
-}
-
 // Same derivation as _codexDashedId but stamps the version-7 nibble so the
-// dashed pair reads as a Codex-shaped UUIDv7. Deterministic per id (prefix
-// cache continuity preserved); only used under the turn-state gate bundle.
+// dashed pair reads as a Codex-shaped UUIDv7, which is the shape the reference
+// client sends. Deterministic per id, so prefix-cache continuity holds.
 export function _codexDashedIdV7(value) {
     const h = createHash('sha256').update(String(value)).digest();
     const b = Buffer.from(h.subarray(0, 16));
@@ -88,24 +61,11 @@ export function _codexDashedIdV7(value) {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-// codex advertises enabled beta features on the WS handshake; the backend
-// plausibly gates x-codex-turn-state issuance on that list (see the
-// x-codex-beta-features comment below). MIXDOG_CODEX_BETA_FEATURES replaces the
-// whole list; MIXDOG_OAI_CODEX_TURN_STATE_FEATURES is a safe ADD-ONLY opt-in
-// that appends turn-state-gating feature token(s) (comma-separated, de-duped)
-// without dropping the default `remote_compaction_v2`. Unset = default list.
+// Beta features advertised on the WS handshake. MIXDOG_CODEX_BETA_FEATURES
+// replaces the list when an operator needs to pin exactly what a known-good
+// client build reports; unset keeps the default.
 export function _codexBetaFeatures() {
-    const base = process.env.MIXDOG_CODEX_BETA_FEATURES || 'remote_compaction_v2';
-    const extra = String(process.env.MIXDOG_OAI_CODEX_TURN_STATE_FEATURES || '').trim();
-    if (!extra) return base;
-    const seen = new Set();
-    const out = [];
-    for (const tok of `${base},${extra}`.split(',').map((s) => s.trim()).filter(Boolean)) {
-        if (seen.has(tok)) continue;
-        seen.add(tok);
-        out.push(tok);
-    }
-    return out.join(',');
+    return process.env.MIXDOG_CODEX_BETA_FEATURES || 'remote_compaction_v2';
 }
 
 // --- Opt-in raw WS capture for wire byte-diff -------------------------------

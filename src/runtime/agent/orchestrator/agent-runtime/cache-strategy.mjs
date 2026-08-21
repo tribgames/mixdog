@@ -266,7 +266,10 @@ function codexThreadPromptCacheKey(opts, namespace) {
     if (process.env.MIXDOG_OAI_CACHE_KEY_SHARED === '1') {
         return fitPromptCacheKey(explicit || namespace, 'mixdog-codex');
     }
-    const sessionKey = cleanString(opts?.sessionId || opts?.session?.id);
+    const codexIdentity = cleanString(opts?.codexSessionId)
+        || cleanString(opts?.codexThreadId)
+        || cleanString(opts?.session?.codexWireSessionId);
+    const sessionKey = codexIdentity || cleanString(opts?.sessionId || opts?.session?.id);
     return fitPromptCacheKey(sessionKey || explicit || namespace, namespace);
 }
 
