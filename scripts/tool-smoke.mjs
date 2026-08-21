@@ -3354,6 +3354,9 @@ const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
 const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
+const globPatternShapes = globTool?.inputSchema?.properties?.pattern?.anyOf;
+const globStringPatternShape = globPatternShapes?.find((shape) => shape?.type === 'string');
+const globArrayPatternShape = globPatternShapes?.find((shape) => shape?.type === 'array');
 for (const [label, schema] of [
   ['glob.limit', globTool?.inputSchema?.properties?.limit],
   ['glob.offset', globTool?.inputSchema?.properties?.offset],
@@ -3374,13 +3377,17 @@ if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.desc
     || !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('glob description must state its known-base wildcard path contract');
 }
-if (globTool?.inputSchema?.properties?.pattern?.type !== 'string'
-    || globTool?.inputSchema?.properties?.pattern?.minLength !== undefined
-    || globTool?.inputSchema?.properties?.pattern?.anyOf
+if (!globStringPatternShape
+    || globStringPatternShape?.minLength !== undefined
+    || globArrayPatternShape?.items?.type !== 'string'
+    || globArrayPatternShape?.items?.minLength !== undefined
+    || globArrayPatternShape?.minItems !== undefined
+    || globArrayPatternShape?.maxItems !== 10
+    || globTool?.inputSchema?.properties?.pattern?.type
     || globTool?.inputSchema?.properties?.path?.type !== 'string'
     || globTool?.inputSchema?.properties?.path?.minLength !== undefined
     || globTool?.inputSchema?.properties?.path?.anyOf) {
-  throw new Error('glob schema must expose scalar pattern and path');
+  throw new Error('glob schema must expose capped pattern fan-out and scalar path');
 }
 // Contract-only description: guessed-fragment/verified-root routing policy
 // lives in src/rules/shared/30-exploration.md.

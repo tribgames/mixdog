@@ -138,7 +138,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /If verification fails, collect all failures, leave Verification/i);
   assert.match(full, /A successful verification closes the task unless later changes affect it/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
-  assert.match(full, /Every repository mutation→`git`/i);
+  assert.match(full, /Every Git operation→`git`; source-file edits stay with `edit`\/`apply_patch`/i);
+  assert.doesNotMatch(full, /Every repository mutation→`git`/i);
   assert.doesNotMatch(full, /always batch safely in parallel/i);
   assert.match(full, /A required new file is created directly: Add File is itself the atomic\s+absence check/i);
   assert.match(full, /Source: use exact current target text from any visible evidence/i);

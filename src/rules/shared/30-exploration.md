@@ -2,10 +2,8 @@
 
 - Use read-only means for inspection; never mutate to clear an obstacle or
   unexpected state. Preserve evidence before a required mutation can destroy it.
-- Ownership is exclusive: each evidence type has one owner, another tool's
-  ability to reach the same target is never an alternative route, and a
-  successful owner result closes that facet — only a different evidence type
-  routes elsewhere.
+- Ownership is exclusive: each evidence type has one owner;
+  a successful owner result closes that facet.
 - Route the missing evidence to its primary owner:
   repository state, history, or diff→`git`;
   exact symbol declaration, body, usage, or relation→`code_graph`;
