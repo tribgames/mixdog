@@ -908,6 +908,14 @@ export function PaneWorkspace({
     // so the preview follows the side the pointer is travelling toward.
     if (!sessionDrag && sourceLeafId) {
       zone = orientVerticalDropZone(zone, verticalDirection);
+      // Center over the drag's OWN pane is a no-op that draws no overlay, so
+      // the wide middle band blanked the preview mid-gesture and read as a
+      // lost pointer. A vertical gesture keeps its travelling edge across the
+      // whole pane instead of flickering off and back on; the strip band
+      // above still cancels the split back into a plain reorder.
+      if (zone === "center" && verticalDirection && sourceLeafId === leafId) {
+        zone = verticalDirection > 0 ? "bottom" : "top";
+      }
     }
     if (zone !== "center") {
       const direction = zone === "left" || zone === "right" ? "row" : "column";

@@ -243,3 +243,77 @@ test('desktop activity keeps failures visible and suppresses image marker bodies
   assert.equal(image.resultLabel, 'Image');
   assert.equal(image.hasDetails, false);
 });
+
+test('expanded tool detail stays in the runtime English while chips localize', () => {
+  const write = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'write',
+    name: 'write',
+    args: { file_path: 'src/a.ts', content: 'export const a = 1;\n' },
+    result: 'written',
+    completedAt: 1,
+  });
+  assert.equal(write.title, 'Write');
+  // Detail labels are literals, never catalog keys: the body must read as the
+  // tool reported it even when the collapsed row is localized.
+  assert.equal(write.previewLabel, 'Content');
+  assert.equal(write.previewLanguage, 'ts');
+
+  // English UI: a runtime-composed chip keeps its own (grammatical) plural.
+  const read = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'read',
+    name: 'read',
+    args: { file_path: 'a.ts' },
+    result: 'one\ntwo\nthree',
+    rawResult: 'one\ntwo\nthree',
+    completedAt: 1,
+  });
+  assert.equal(read.resultLabel, '3 lines');
+
+  const single = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'single',
+    name: 'read',
+    args: { file_path: 'a.ts' },
+    result: 'one',
+    rawResult: 'one',
+    completedAt: 1,
+  });
+  assert.equal(single.resultLabel, '1 line');
+});
+
+test('desktop activity tags structured bodies with a highlighting language', () => {
+  const replacement = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'edit',
+    name: 'edit',
+    args: { file_path: 'src/theme.css', old_string: 'a', new_string: 'b' },
+    result: 'updated',
+    completedAt: 1,
+  });
+  assert.equal(replacement.replacementLanguage, 'css');
+
+  const payload = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'payload',
+    name: 'unknown_tool',
+    args: { q: 'x' },
+    result: '{"a":1}',
+    rawResult: '{"a":1}',
+    completedAt: 1,
+  });
+  assert.equal(payload.outputLanguage, 'json');
+  assert.equal(payload.outputText, '{\n  "a": 1\n}');
+
+  const log = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'log',
+    name: 'unknown_tool',
+    args: { q: 'x' },
+    result: 'plain log line',
+    rawResult: 'plain log line',
+    completedAt: 1,
+  });
+  assert.equal(log.outputLanguage, '');
+});
