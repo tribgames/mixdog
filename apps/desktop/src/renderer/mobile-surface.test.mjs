@@ -4,6 +4,10 @@ import { test } from "node:test";
 import { JSDOM } from "jsdom";
 
 const bootSource = readFileSync(new URL("./public/boot.js", import.meta.url), "utf8");
+const mobileChromeSource = readFileSync(
+  new URL("./desktop/07-mobile-chrome.css", import.meta.url),
+  "utf8",
+);
 
 test("iOS boot preserves device-width and marks the phone before CSS paint", () => {
   const dom = new JSDOM(
@@ -73,6 +77,26 @@ test("Android Samsung boot preserves device-width like iOS", () => {
   } finally {
     dom.window.close();
   }
+});
+
+test("phone finishing rules keep reading, touch and safe-area geometry aligned", () => {
+  assert.match(mobileChromeSource, /--mx-mobile-edge-main:\s*calc\(12px \* var\(--mx-device-scale/u);
+  assert.match(
+    mobileChromeSource,
+    /html\[data-mixdog-mobile-tabs\] \.transcript\s*\{[^}]*scrollbar-gutter:\s*auto;[^}]*touch-action:\s*pan-y;/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /html\[data-mixdog-mobile-tabs\] \.jump-to-latest\s*\{[^}]*min-height:\s*var\(--mx-touch-main\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /settings-confirm-dialog > footer button,[\s\S]*?min-height:\s*var\(--mx-touch\);/u,
+  );
+  assert.match(
+    mobileChromeSource,
+    /orientation:\s*landscape[\s\S]*?grid-template-columns:\s*repeat\(3,/u,
+  );
 });
 
 test("desktop Chrome boot retains the canonical projection", () => {

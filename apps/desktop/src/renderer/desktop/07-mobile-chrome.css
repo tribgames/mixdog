@@ -135,8 +135,21 @@ html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
    defined further down. */
 html[data-mixdog-mobile-tabs] .composer-footer,
 html[data-mixdog-mobile-tabs] .studio-composer-bar {
-  height: calc(52px * var(--mx-device-scale, 2.5));
+  height: calc(44px * var(--mx-device-scale, 2.5));
   padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+}
+/* The phone composer used two 52dp bands, so its empty state read as a
+   three-line text box. Keep the 44dp control row intact and tighten only the
+   typing band: 36 + 44 = 80dp, exactly one 24dp body line shorter. */
+html[data-mixdog-mobile-tabs] .composer {
+  min-height: calc(80px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer textarea {
+  min-height: calc(36px * var(--mx-device-scale, 2.5));
+  max-height: calc(180px * var(--mx-device-scale, 2.5));
+  padding-top: calc(6px * var(--mx-device-scale, 2.5));
+  padding-bottom: calc(6px * var(--mx-device-scale, 2.5));
+  line-height: calc(24px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .composer-tool,
 html[data-mixdog-mobile-tabs] .send-button,
@@ -146,6 +159,18 @@ html[data-mixdog-mobile-tabs] .studio-generate {
   height: calc(44px * var(--mx-device-scale, 2.5));
   min-width: calc(44px * var(--mx-device-scale, 2.5));
   flex-basis: calc(44px * var(--mx-device-scale, 2.5));
+}
+/* Mic and send are one optical frame: a 44dp touch target painting one 36dp
+   disc. Keep this geometry in one rule so recording/disabled state can change
+   ink without changing the circle. */
+html[data-mixdog-mobile-tabs] :is(.composer-mic, .send-button) {
+  width: calc(44px * var(--mx-device-scale, 2.5));
+  height: calc(44px * var(--mx-device-scale, 2.5));
+  min-width: calc(44px * var(--mx-device-scale, 2.5));
+  flex-basis: calc(44px * var(--mx-device-scale, 2.5));
+  padding: calc(4px * var(--mx-device-scale, 2.5));
+  border-radius: 999px;
+  background-clip: content-box;
 }
 /* ── Composer discs, restated as DESKTOP proportions (user: 비율 똑같이
    맞춰줘) ── desktop draws a 28px button that IS the disc; the phone keeps a
@@ -162,8 +187,6 @@ html[data-mixdog-mobile-tabs] .composer-mic {
   /* Both buttons already reserve 4 of their own padding on the facing edge,
      so the margin only carries what is left of the desktop 8/28 gap. */
   margin-right: calc(36px * 8 / 28 * var(--mx-device-scale, 2.5) - 8px * var(--mx-device-scale, 2.5));
-  padding: calc(4px * var(--mx-device-scale, 2.5));
-  background-clip: content-box;
 }
 /* Attach, mic and send share ONE glyph size on desktop (16px); they share one
    here too. */
@@ -185,10 +208,17 @@ html[data-mixdog-mobile-tabs] .send-button > svg.lucide,
 html[data-mixdog-mobile-tabs] .studio-generate > svg.lucide {
   stroke-width: calc(1.75px * 36 / 28 * var(--mx-device-scale, 2.5));
 }
-html[data-mixdog-mobile-tabs] .send-button,
 html[data-mixdog-mobile-tabs] .studio-generate {
   padding: calc(4px * var(--mx-device-scale, 2.5));
   background-clip: content-box;
+}
+/* During dictation the send action stays disabled, but dimming the whole
+   button made its equal 36dp disc look smaller beside the recording disc.
+   Disabled color still mutes the glyph; the plate keeps its full frame. */
+html[data-mixdog-mobile-tabs]
+  .composer:has(.composer-mic:is(.is-recording, .is-transcribing))
+  .send-button:disabled {
+  opacity: 1;
 }
 /* Both stop squares take the desktop 12/28 measure — the same 3:4 against the
    arrow that desktop draws. The send square had been pinned to an absolute
@@ -202,10 +232,10 @@ html[data-mixdog-mobile-tabs] .composer-mic.is-recording > svg {
   height: calc(36px * 12 / 28 * var(--mx-device-scale, 2.5));
   stroke: none;
 }
-/* The recording overlay stops at the footer band, which is taller here than
-   the desktop 44px, so the stop/send discs stay tappable underneath it. */
+/* The recording overlay stops at the footer band, so the stop/send discs stay
+   tappable underneath it. */
 html[data-mixdog-mobile-tabs] .composer-dictation-overlay {
-  inset: 0 0 calc(52px * var(--mx-device-scale, 2.5));
+  inset: 0 0 calc(44px * var(--mx-device-scale, 2.5));
   gap: calc(12px * var(--mx-device-scale, 2.5));
   padding-inline: calc(16px * var(--mx-device-scale, 2.5));
 }
@@ -746,6 +776,133 @@ html[data-mixdog-mobile-tabs] {
   --mx-touch-fixed-main: calc(28px * var(--mx-device-scale, 2.5));
   --mx-touch-glyph-main: calc(22px * var(--mx-device-scale, 2.5));
   --mx-touch-row-glyph-main: calc(20px * var(--mx-device-scale, 2.5));
+  --mx-mobile-edge-main: calc(12px * var(--mx-device-scale, 2.5));
+  --mx-mobile-floor-main: calc(8px * var(--mx-device-scale, 2.5));
+}
+
+/* ── Phone finishing pass ──────────────────────────────────────────────────
+   Reading and typing use one 24dp text edge: 12dp pane inset + 12dp content
+   inset. The previous phone exception kept transcript text 4px wider than the
+   composer and made the two columns visibly drift on 390/412px screens. */
+html[data-mixdog-mobile-tabs] :is(.conversation, .studio-shell) {
+  --pane-inset: var(--mx-mobile-edge-main);
+  --pane-chrome-inset: var(--mx-mobile-floor-main);
+  --composer-text-inset: var(--mx-mobile-edge-main);
+  --transcript-text-inset: var(--mx-mobile-edge-main);
+}
+html[data-mixdog-mobile-tabs] .composer-region {
+  padding-bottom: max(var(--mx-mobile-floor-main), env(safe-area-inset-bottom, 0px));
+}
+/* Mobile scrollbars are overlay feedback, not layout. Reserving the desktop
+   gutter narrowed every transcript row and left a permanent empty strip. */
+html[data-mixdog-mobile-tabs] .transcript {
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+  touch-action: pan-y;
+}
+html[data-mixdog-mobile-tabs] .transcript::-webkit-scrollbar { display: none; }
+/* The jump pill is a primary phone action, so its hit frame follows the same
+   44dp tier as composer and toolbar controls. */
+html[data-mixdog-mobile-tabs] .jump-to-latest {
+  min-height: var(--mx-touch-main);
+  padding-inline: calc(14px * var(--mx-device-scale, 2.5));
+  gap: calc(8px * var(--mx-device-scale, 2.5));
+  font-size: calc(14px * var(--mx-device-scale, 2.5));
+  line-height: calc(20px * var(--mx-device-scale, 2.5));
+}
+/* Code/table surfaces own horizontal touch once the swipe router has opted
+   them out. Keep their native momentum but hide tracks that otherwise flash
+   over the final line of content. */
+html[data-mixdog-mobile-tabs] :is(
+  .markdown-code > pre,
+  .markdown-table,
+  .detail-block pre
+) {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  touch-action: pan-x pan-y;
+}
+html[data-mixdog-mobile-tabs] :is(
+  .markdown-code > pre,
+  .markdown-table,
+  .detail-block pre
+)::-webkit-scrollbar {
+  display: none;
+}
+html[data-mixdog-mobile-tabs] .mobile-tab-overview-grid {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  touch-action: pan-y;
+}
+html[data-mixdog-mobile-tabs] .mobile-tab-overview-grid::-webkit-scrollbar { display: none; }
+
+/* Modal polish: safe-area-aware centring, no live blur on a phone GPU, and
+   footer actions large enough to tap without changing desktop density. */
+html[data-mixdog-mobile-tabs] :is(
+  .onboarding-layer,
+  .schedules-dialog-layer,
+  .settings-confirm-layer,
+  .mx-dialog-layer
+) {
+  padding: max(12px, env(safe-area-inset-top, 0px)) 12px
+    max(12px, env(safe-area-inset-bottom, 0px));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-mixdog-mobile-tabs] :is(
+  .schedules-dialog,
+  .settings-confirm-dialog,
+  .settings-oauth-dialog,
+  .mx-dialog
+) > header {
+  min-height: 56px;
+  align-items: center;
+  padding: 6px 8px 6px 16px;
+}
+html[data-mixdog-mobile-tabs] :is(
+  .schedules-dialog footer button,
+  .settings-confirm-dialog > footer button,
+  .settings-oauth-dialog > footer button,
+  .onboarding-dialog > footer button,
+  .mx-dialog > footer button
+) {
+  min-height: var(--mx-touch);
+  padding-inline: 16px;
+}
+html[data-mixdog-mobile-tabs] :is(
+  .settings-confirm-dialog > footer,
+  .settings-oauth-dialog > footer,
+  .mx-dialog > footer
+) {
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] {
+    padding-block: calc(4px * var(--mx-device-scale, 2.5));
+    padding-top: max(calc(4px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top, 0px));
+  }
+  html[data-mixdog-mobile-tabs] .mobile-tab-overview-scale {
+    gap: 6px;
+    padding-top: max(4px, env(safe-area-inset-top, 0px));
+  }
+  html[data-mixdog-mobile-tabs] .mobile-tab-overview-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  html[data-mixdog-mobile-tabs] .mobile-tab-card { min-height: 112px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-mixdog-mobile-tabs] :is(
+    .sidebar-drawer-frame,
+    .workbench-side-panel[data-side="right"],
+    .sidebar-backdrop,
+    .dock-backdrop
+  ) {
+    transition: none;
+  }
 }
 
 /* ── 1. Hover-revealed controls (user: 안 보이는 버튼) ──────────────────────

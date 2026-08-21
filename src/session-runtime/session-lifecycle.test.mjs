@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeResolveRoute } from './config-helpers.mjs';
 import { resolveRouteContextState, resolveRouteEffortState } from './session-lifecycle.mjs';
+import { inheritanceContextFit } from './lifecycle-api.mjs';
 
 test('cold route metadata preserves persisted effort and enabled Fast mode', () => {
   assert.deepEqual(resolveRouteEffortState({
@@ -99,4 +100,26 @@ test('route config treats a cleared context percentage as model-default intent',
     provider: 'cursor-oauth',
     model: 'gpt-5.4',
   }).contextPercent, undefined);
+});
+
+test('session inheritance uses the selected model compaction boundary as its fit guard', () => {
+  assert.deepEqual(inheritanceContextFit({
+    usedTokens: 80_000,
+    contextWindow: 200_000,
+    compaction: {
+      pressureTokens: 95_000,
+      triggerTokens: 100_000,
+    },
+  }), {
+    known: true,
+    fits: true,
+    used: 95_000,
+    limit: 100_000,
+  });
+  assert.equal(inheritanceContextFit({
+    compaction: {
+      pressureTokens: 100_000,
+      triggerTokens: 100_000,
+    },
+  }).fits, false);
 });

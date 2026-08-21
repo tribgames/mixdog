@@ -13,6 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { parseMarkdownToHast } from "./markdown-ast";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
+import { createTranscriptRowMeasureScheduler } from "./transcript-measure";
 
 function flatten(node) {
   if (node.type === "text") return JSON.stringify(node.value);
@@ -71,4 +72,16 @@ test("source fallback keeps fenced code in its final card grammar", () => {
   );
   assert.match(markup, /markdown-code/);
   assert.match(markup, /const a = 1;/);
+});
+
+test("markdown chunk promotions coalesce into one transcript row measurement", async () => {
+  let measurements = 0;
+  const schedule = createTranscriptRowMeasureScheduler(() => {
+    measurements += 1;
+  });
+  schedule();
+  schedule();
+  assert.equal(measurements, 0);
+  await Promise.resolve();
+  assert.equal(measurements, 1);
 });

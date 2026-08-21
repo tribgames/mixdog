@@ -32,6 +32,32 @@ function resolveResumeCwd(session, currentCwd) {
   return session?.cwd || currentCwd;
 }
 
+function contextNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+export function inheritanceContextFit(status) {
+  const context = status && typeof status === 'object' ? status : {};
+  const compaction = context.compaction && typeof context.compaction === 'object'
+    ? context.compaction
+    : {};
+  const used = contextNumber(
+    compaction.pressureTokens
+    ?? compaction.currentEstimatedTokens
+    ?? context.usedTokens
+    ?? context.currentEstimatedTokens,
+  );
+  const limit = contextNumber(compaction.triggerTokens ?? context.contextWindow);
+  const known = used !== null && limit !== null && limit > 0;
+  return {
+    known,
+    fits: !known || used < limit,
+    used: used ?? 0,
+    limit: limit ?? 0,
+  };
+}
+
 // Session lifecycle surface: teardown (close/abort), resume/new, and the
 // resumable-session listing. Extracted verbatim from the runtime API object;
 // stateless helpers are imported directly and the runtime injects live
@@ -51,7 +77,7 @@ export function createLifecycleApi(deps) {
     withTeardownDeadline, closePatchRuntimeIfLoaded, closeNativeToolTransports,
     stopSelfUpdateBootCheck,
     createCurrentSession, refreshRouteEffort,
-    invalidateContextStatusCache, invalidatePreSessionToolSurface,
+    computeContextStatus, invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     beginRoutePreparation, clearRoutePreparation,
     notificationListeners, clearRuntimeNotifications,
@@ -606,7 +632,24 @@ export function createLifecycleApi(deps) {
       if (!hasUserConversationMessage(carried)) {
         throw new Error('inheritFrom: the source session has no conversation to carry');
       }
+      const messageStart = target.messages.length;
       target.messages.push(...structuredClone(carried));
+      invalidateContextStatusCache();
+      try {
+        const fit = inheritanceContextFit(
+          typeof computeContextStatus === 'function' ? computeContextStatus() : null,
+        );
+        if (fit.known && !fit.fits) {
+          throw new Error(
+            `inheritFrom: the full conversation needs ${Math.ceil(fit.used)} tokens `
+            + `but the selected model allows ${Math.floor(fit.limit)} before compaction`,
+          );
+        }
+      } catch (error) {
+        target.messages.splice(messageStart);
+        invalidateContextStatusCache();
+        throw error;
+      }
       target.inheritedFromSessionId = source.id;
       target.updatedAt = Date.now();
       if (!clean(target.title) && clean(source.title)) target.title = source.title;

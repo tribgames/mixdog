@@ -302,7 +302,6 @@ export function Conversation({
     following,
     showJump,
     hasScrollGesture: hasTranscriptScrollGesture,
-    isTouchActive: hasTranscriptTouchContact,
     handleScroll: handleTranscriptScroll,
     handleWheel: handleTranscriptWheel,
     handlePointerDown: handleTranscriptPointerDown,
@@ -1010,7 +1009,6 @@ export function Conversation({
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
             markProgrammaticScroll={markTranscriptProgrammaticScroll}
             hasScrollGesture={hasTranscriptScrollGesture}
-            isTouchActive={hasTranscriptTouchContact}
             setAnchorBottomRef={setTranscriptAnchorBottomRef}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
         </div>

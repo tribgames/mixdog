@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type ComponentType } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 
 import type { MarkdownAstRoot } from "./markdown-ast";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
@@ -25,11 +25,13 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   parseText,
   parse,
   copyControl,
+  onRendered,
 }: {
   text: string;
   parseText: string;
   parse: boolean;
   copyControl: MarkdownCopyControl;
+  onRendered?: () => void;
 }) {
   const [rendered, setRendered] = useState<RenderedMarkdownAst | null>(() => {
     // A cache read is free, so even a tail past the parse cap opens styled
@@ -51,6 +53,10 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // truncation/replacement drops it back to source.
   const usable = exact
     ?? (rendered && text.startsWith(rendered.source) ? rendered : null);
+  const renderedRoot = usable?.root ?? null;
+  useLayoutEffect(() => {
+    onRendered?.();
+  }, [onRendered, renderedRoot]);
 
   useEffect(() => {
     if (!parse) return;
@@ -111,11 +117,13 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   parseText,
   parse = true,
   copyControl,
+  onRendered,
 }: {
   text: string;
   parseText?: string;
   parse?: boolean;
   copyControl: MarkdownCopyControl;
+  onRendered?: () => void;
 }) {
   // Stable chunks promote exactly (immutable text -> exact AST, whose source
   // never changes). The live tail renders the latest COMPLETED parse and
@@ -124,7 +132,7 @@ const StreamingMarkdownBody = memo(function StreamingMarkdownBody({
   // sees closed markers while the source fallback still shows exactly what
   // the model has emitted.
   return <ParsedMarkdownBody text={text} parseText={parseText ?? text} parse={parse}
-    copyControl={copyControl} />;
+    copyControl={copyControl} onRendered={onRendered} />;
 });
 
 export default StreamingMarkdownBody;

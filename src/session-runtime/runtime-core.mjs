@@ -1458,6 +1458,7 @@ export async function createMixdogSessionRuntime({
     stopSelfUpdateBootCheck: () => selfUpdate.stopBootCheck(),
     createCurrentSession,
     refreshRouteEffort,
+    computeContextStatus,
     invalidateContextStatusCache,
     invalidatePreSessionToolSurface,
     applyResolvedCwd,

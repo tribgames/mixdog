@@ -5,6 +5,7 @@ import {
   shouldCommitSwipe,
   swipeIntent,
   swipeProgress,
+  swipeTransitionFallbackCommits,
   swipeTargetIndex,
 } from "./mobile-tab-swipe.ts";
 
@@ -47,4 +48,10 @@ test("release commits by distance or directional velocity", () => {
   assert.equal(shouldCommitSwipe(-90, 300, -0.2, "next"), true);
   assert.equal(shouldCommitSwipe(-30, 300, -0.5, "next"), true);
   assert.equal(shouldCommitSwipe(-30, 300, 0.8, "next"), false);
+});
+
+test("failed interactive transitions commit only after an explicit release decision", () => {
+  assert.equal(swipeTransitionFallbackCommits(true), true);
+  assert.equal(swipeTransitionFallbackCommits(false), false);
+  assert.equal(swipeTransitionFallbackCommits(null), false);
 });

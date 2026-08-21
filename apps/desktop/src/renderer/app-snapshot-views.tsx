@@ -312,7 +312,8 @@ export const PaneConversation = memo(function PaneConversation({
         sessionId={sessionId}
         hidden={hidden} />}
       {...props}
-      statusIsland={<SessionStatusIsland snapshot={paneSnapshot} />}
+      statusIsland={<SessionStatusIsland snapshot={paneSnapshot}
+        onInherit={() => props.onOpenCommandSurface("inherit")} />}
     />
     <PaneSurfaceCover ready={surfaceReady} label={t("Loading conversation…")}
       transitionKey={coverKey} showSpinner={false} />

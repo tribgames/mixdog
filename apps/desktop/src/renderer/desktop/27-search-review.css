@@ -393,25 +393,35 @@
 }
 .queue-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
 .session-context-indicator[data-open="true"] .session-context-popover { pointer-events: auto; }
-.context-compact {
+.context-action {
   /* The card is ONE two-column grid, so the action has to span both tracks or
      it lands in the label column beside a value. */
   grid-column: 1 / -1;
   width: 100%;
   min-height: 32px;
-  margin-top: 6px;
-  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  margin-top: 0;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
-  color: var(--mx-text-accent);
-  background: var(--mx-bg-layer-2);
-  box-shadow: var(--mx-button);
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
 }
-.context-compact:hover:not(:disabled) { background: var(--mx-bg-layer-3); }
-.context-compact:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.session-context-popover > div + .context-action {
+  margin-top: 4px;
+  box-shadow: inset 0 .5px 0 var(--mx-border);
+}
+.context-action + .context-action { margin-top: 2px; }
+.context-action svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.context-action:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.context-action:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 /* ── Main-area Review pane ─────────── */
 /* Diff surface theming: @git-diff-view ships a GitHub palette (blue hunk
    bands, saturated pastel add/del). Override its custom properties with our

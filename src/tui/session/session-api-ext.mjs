@@ -9,7 +9,7 @@ import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
 import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
-import { aggregateBucketForCategory, aggregateRawResult, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
+import { aggregateBucketForCategory, aggregateRawResult, aggregateToolMembers, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
 import {
   isInternalTranscriptDisplayText,
   isTranscriptCancelledStatusText,
@@ -142,6 +142,7 @@ function buildRestoredAggregateItem(members) {
       toolName: item.name,
     }, resultText);
     calls.push({
+      callId: item.id,
       name: item.name,
       args: item.args,
       category,
@@ -150,7 +151,10 @@ function buildRestoredAggregateItem(members) {
       isExitError,
       exitCode,
       resultText,
+      rawResultText: String(item.rawResult ?? item.result ?? ''),
       resolved: true,
+      startedAt: item.startedAt,
+      completedAt: item.completedAt,
       summary: !isCallError && resultText.trim()
         ? summarizeToolResult(item.name, item.args, resultText, false)
         : null,
@@ -194,6 +198,7 @@ function buildRestoredAggregateItem(members) {
     result: displayDetail,
     text: displayDetail,
     rawResult: rawResult || null,
+    toolMembers: aggregateToolMembers(calls),
     ...(latestUiDiff ? { uiDiff: latestUiDiff.uiDiff } : {}),
     expanded: false,
     headerFinalized: true,

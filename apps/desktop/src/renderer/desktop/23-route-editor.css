@@ -786,14 +786,14 @@
 .session-context-popover > div:hover { background: var(--mx-hover); }
 .session-context-popover span {
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-minor);
   white-space: nowrap;
 }
 .session-context-popover b {
   justify-self: end;
   text-align: right;
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-semibold);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

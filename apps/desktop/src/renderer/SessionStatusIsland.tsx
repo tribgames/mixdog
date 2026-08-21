@@ -291,8 +291,9 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
 // above the composer — where they competed with the input surface for space
 // (user: 채팅 입력을 가린다). The capsule frames exactly TWO slots: aggregate
 // work status, then the context gauge.
-export function SessionStatusIsland({ snapshot }: {
+export function SessionStatusIsland({ snapshot, onInherit }: {
   snapshot: Snapshot;
+  onInherit?: () => void;
 }) {
   const [openPanel, setOpenPanel] = useState<'work' | 'context' | null>(null);
   const sessionId = String(snapshot.sessionId || '');
@@ -307,6 +308,7 @@ export function SessionStatusIsland({ snapshot }: {
     <LiveWorkIndicator snapshot={snapshot}
       open={openPanel === 'work'} onOpenChange={setWorkOpen} />
     <ContextUsageIndicator snapshot={snapshot}
-      open={openPanel === 'context'} onOpenChange={setContextOpen} />
+      open={openPanel === 'context'} onOpenChange={setContextOpen}
+      onInherit={onInherit} />
   </div>;
 }

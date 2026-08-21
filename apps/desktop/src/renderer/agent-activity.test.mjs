@@ -11,6 +11,10 @@ import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
 import { desktopHeaderSnapshotsEqual } from "./desktop-snapshot-store.ts";
 import { shellJobsStatusEqual } from "../shared/shell-jobs-status.ts";
+import {
+  inheritanceContextFit,
+  shouldOfferSessionInheritance,
+} from "./session-inheritance.ts";
 
 function installDom() {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
@@ -194,6 +198,52 @@ test("the status island keeps only one detail card open across hover and click c
     await act(async () => contextButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
     assert.equal(document.querySelector(".session-work-indicator")?.dataset.open, "false");
     assert.equal(document.querySelector(".session-context-indicator")?.dataset.open, "true");
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("the context card offers inheritance only after the selected model changes", async () => {
+  const changed = {
+    sessionId: "lead-inherit",
+    provider: "cursor",
+    model: "gpt-5.6",
+    items: [{ kind: "assistant", provider: "cursor", model: "ox-alpha", text: "done" }],
+    stats: { currentEstimatedContextTokens: 50 },
+    displayContextWindow: 100,
+  };
+  assert.equal(shouldOfferSessionInheritance(changed), true);
+  assert.equal(shouldOfferSessionInheritance({
+    ...changed,
+    items: [{ kind: "assistant", provider: "cursor", model: "gpt-5.6", text: "done" }],
+  }), false);
+  assert.deepEqual(inheritanceContextFit({
+    usedTokens: 80,
+    compaction: { triggerTokens: 100, pressureTokens: 90 },
+  }, changed), {
+    known: true,
+    fits: true,
+    used: 90,
+    limit: 100,
+    percent: 90,
+  });
+
+  const dom = installDom();
+  let inherited = 0;
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(SessionStatusIsland, {
+        snapshot: changed,
+        onInherit: () => { inherited += 1; },
+      }));
+    });
+    assert.ok(document.querySelector(".context-inherit"));
+    await act(async () => {
+      document.querySelector(".context-inherit")
+        .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(inherited, 1);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
