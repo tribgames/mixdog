@@ -266,6 +266,7 @@ test("Agent pane ignores a stale initial list that resolves after a live push", 
 
 test("active Agent pane reconciles missed pool pushes and clears departed rows", async () => {
   const dom = installDom();
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   const originalSetInterval = window.setInterval.bind(window);
   const originalClearInterval = window.clearInterval.bind(window);
   let reconcile = null;
