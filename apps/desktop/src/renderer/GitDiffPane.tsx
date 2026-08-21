@@ -1,5 +1,14 @@
 import { FileText, Minus, Plus, RefreshCw } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { splitGitPatchHunks, type GitPatchHunk } from "../shared/git-patch";
 import { t } from "./i18n";
@@ -11,6 +20,7 @@ import {
 import type { WorkspaceSelection } from "./nav-types";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { GitFileDiff } from "./ReviewPane";
+import { createSingleFlightRefresh } from "./git-diff-refresh";
 import { prefetchDiffView } from "./lazy-widgets";
 import { navigationKey } from "./text-format";
 
@@ -37,6 +47,13 @@ export function GitDiffPane({
   beginBootSurface("diff", metricKey);
   reportBootSurfaceStage("diff", metricKey, "module");
   const epoch = useRef(0);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const mountedRef = useRef(false);
+  const loadOnceRef = useRef<() => Promise<void>>(async () => undefined);
+  const [refreshQueue] = useState(
+    () => createSingleFlightRefresh(() => loadOnceRef.current()),
+  );
   const [patch, setPatch] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"unified" | "split">("unified");
@@ -44,9 +61,22 @@ export function GitDiffPane({
   // DiffEditor (char-level highlights, revert arrows, editable worktree side).
   const [renderer, setRenderer] = useState<"text" | "editor">("text");
   const [busyHunk, setBusyHunk] = useState(-1);
-  const load = useCallback(async () => {
-    if (!active) return;
-    const request = ++epoch.current;
+  // The shell owns its own visible Loading diff… / error states. Reveal it as
+  // soon as it mounts instead of keeping those states hidden behind a
+  // full-pane readiness cover until Git and the lazy renderer both finish.
+  useLayoutEffect(() => {
+    onReadyRef.current?.();
+  }, [metricKey]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      epoch.current += 1;
+    };
+  }, []);
+  const loadOnce = useCallback(async () => {
+    if (!activeRef.current || !mountedRef.current) return;
+    const request = epoch.current;
     setError("");
     try {
       const next = selection.source === "commit"
@@ -65,11 +95,9 @@ export function GitDiffPane({
       if (request === epoch.current) {
         const nextPatch = next ?? "";
         setPatch(nextPatch);
-        if (nextPatch) await prefetchDiffView().catch(() => undefined);
-        if (request !== epoch.current) return;
+        if (nextPatch) void prefetchDiffView().catch(() => undefined);
         reportBootSurfaceStage("diff", metricKey, "data");
         reportBootSurfaceReady("diff", metricKey);
-        onReadyRef.current?.();
       }
     } catch (reason) {
       if (request === epoch.current) {
@@ -77,13 +105,17 @@ export function GitDiffPane({
         setPatch("");
         reportBootSurfaceStage("diff", metricKey, "data", "error");
         reportBootSurfaceReady("diff", metricKey, "error");
-        onReadyRef.current?.();
       }
     }
-  }, [active, api, metricKey, selection]);
+  }, [api, metricKey, selection]);
+  loadOnceRef.current = loadOnce;
+  const load = useCallback(() => refreshQueue.request(), [refreshQueue]);
   useEffect(() => {
     epoch.current += 1;
     setPatch(null);
+    setError("");
+  }, [metricKey]);
+  useEffect(() => {
     if (!active) return undefined;
     void load();
     if (selection.source === "commit") return undefined;
@@ -94,7 +126,7 @@ export function GitDiffPane({
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
     };
-  }, [active, load, selection.source]);
+  }, [active, load, metricKey, selection.source]);
   const hunks = useMemo(
     () => patch && selection.source !== "commit" ? splitGitPatchHunks(patch) : [],
     [patch, selection.source],

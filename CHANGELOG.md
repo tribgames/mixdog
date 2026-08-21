@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop interaction now follows keyboard and pointer focus more reliably,
+  improves mobile pane swipes and transcript/status presentation, and reports
+  background shell task state with safer recovery behavior.
+- Git diff panes reveal their own loading state immediately, coalesce
+  overlapping refreshes, and render repository text without invoking configured
+  external diff or textconv commands.
+- Solo is now the default workflow, tool-use rules preserve evidence while
+  batching work more tightly, and bounded read/grep windows reduce unnecessary
+  context without hiding pagination.
+
 ## v0.9.143 - 2026-08-20
 
 - Session execution now shares one supervised runtime worker instead of a

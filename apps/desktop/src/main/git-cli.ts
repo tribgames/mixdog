@@ -324,6 +324,8 @@ export const {
   gitMergeBranch,
 } = branchOperations;
 
+const DISPLAY_DIFF_ARGS = ['--no-ext-diff', '--no-textconv', '--no-color'] as const;
+
 export function gitDiff(
   cwd: string,
   path: string,
@@ -332,7 +334,13 @@ export function gitDiff(
   untracked = false,
 ): Promise<string> {
   if (untracked) return untrackedPatch(cwd, path);
-  return run(cwd, ['diff', ...(staged ? ['--cached'] : worktreeOnly ? [] : ['HEAD']), '--', path]);
+  return run(cwd, [
+    'diff',
+    ...DISPLAY_DIFF_ARGS,
+    ...(staged ? ['--cached'] : worktreeOnly ? [] : ['HEAD']),
+    '--',
+    path,
+  ]);
 }
 
 export async function gitApplyPatch(
@@ -1145,9 +1153,9 @@ export async function gitShow(cwd: string, hash: string): Promise<GitCommitDetai
 export function gitShowDiff(cwd: string, hash: string, path: string): Promise<string> {
   return run(cwd, [
     'show',
+    ...DISPLAY_DIFF_ARGS,
     '--format=',
     '--patch',
-    '--no-color',
     '--find-renames',
     '--first-parent',
     hash,
@@ -1225,5 +1233,5 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
 export async function gitReviewDiff(cwd: string, path: string, untracked: boolean): Promise<string> {
   if (untracked) return untrackedPatch(cwd, path);
   const { ref } = await resolveMergeBase(cwd);
-  return run(cwd, ['diff', ref, '--', path]);
+  return run(cwd, ['diff', ...DISPLAY_DIFF_ARGS, ref, '--', path]);
 }

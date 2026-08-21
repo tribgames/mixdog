@@ -395,6 +395,43 @@ test("partial patches stage and unstage one hunk without touching neighboring wo
   }
 });
 
+test("display diffs ignore configured external diff and textconv commands", async () => {
+  const cwd = await createRepository();
+  try {
+    await writeFile(join(cwd, ".gitattributes"), [
+      "external.txt diff=mixdog-external",
+      "textconv.txt diff=mixdog-textconv",
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(join(cwd, "external.txt"), "one\n", "utf8");
+    await writeFile(join(cwd, "textconv.txt"), "one\n", "utf8");
+    await git(cwd, ["add", "--", ".gitattributes", "external.txt", "textconv.txt"]);
+    await git(cwd, ["commit", "-m", "Initial diff drivers"]);
+    await git(cwd, [
+      "config",
+      "diff.mixdog-external.command",
+      "mixdog-command-that-must-not-run",
+    ]);
+    await git(cwd, [
+      "config",
+      "diff.mixdog-textconv.textconv",
+      "mixdog-textconv-that-must-not-run",
+    ]);
+
+    await writeFile(join(cwd, "external.txt"), "one\ntwo\n", "utf8");
+    await writeFile(join(cwd, "textconv.txt"), "one\ntwo\n", "utf8");
+    assert.match(await gitDiff(cwd, "external.txt", false, true), /^\+two$/m);
+    assert.match(await gitDiff(cwd, "textconv.txt", false, true), /^\+two$/m);
+
+    await git(cwd, ["add", "--", "external.txt"]);
+    await git(cwd, ["commit", "-m", "External diff change"]);
+    const hash = (await git(cwd, ["rev-parse", "HEAD"])).trim();
+    assert.match(await gitShowDiff(cwd, hash, "external.txt"), /^\+two$/m);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("history returns commit metadata, changed files, and lazy per-file patches", async () => {
   const cwd = await createRepository();
   try {
