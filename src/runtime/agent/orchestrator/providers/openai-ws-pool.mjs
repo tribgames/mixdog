@@ -76,6 +76,46 @@ const MAX_POOLED_SOCKETS_PER_KEY = 8;
 export const _wsPool = new Map();
 let _releaseSequence = 0;
 
+// The server issues an `x-codex-turn-state` sticky-routing token on the
+// handshake 101 response; it pins the backend node that holds the warm prefix.
+// codex keeps that token in a turn-scoped cell and replays it on the RECONNECT
+// handshake (build_responses_headers -> connect_websocket), so a replacement
+// connection re-pins the same node instead of cold-starting the prefix. Our
+// pool entry dies with its socket, so the token is retained here at poolKey
+// scope and replayed only for a replacement socket. A parallel peer must still
+// open clean: inheriting a sibling's token makes openai-oauth treat the request
+// as a continuation of another in-flight turn ("No tool output found for
+// function call ...").
+const _turnStateByPoolKey = new Map();
+const MAX_RETAINED_TURN_STATE_KEYS = 4096;
+
+function _retainTurnState(poolKey, entry) {
+    if (!poolKey || !entry) return;
+    const turnState = typeof entry.turnState === 'string' ? entry.turnState : '';
+    // A token already retired by the per-turn drop guard must not be revived.
+    if (!turnState) return;
+    // Bounded like the other pool maps so a long-lived process cannot
+    // accumulate one token per dead session.
+    if (!_turnStateByPoolKey.has(poolKey) && _turnStateByPoolKey.size >= MAX_RETAINED_TURN_STATE_KEYS) {
+        const oldest = _turnStateByPoolKey.keys().next().value;
+        if (oldest !== undefined) _turnStateByPoolKey.delete(oldest);
+    }
+    _turnStateByPoolKey.set(poolKey, {
+        turnState,
+        // Carry the turn owner so the per-turn drop guard still retires a
+        // replayed token when turn_id moves on.
+        turnStateTurnId: entry.turnStateTurnId ?? null,
+    });
+}
+
+function _replacementTurnState(poolKey) {
+    if (!poolKey) return null;
+    // A live entry in the bucket means this handshake is a parallel peer, not
+    // a reconnect.
+    if (hasPooledWebSocket(poolKey)) return null;
+    return _turnStateByPoolKey.get(poolKey) || null;
+}
+
 function _poolCompatibility(auth, cacheKey) {
     const type = String(auth?.type || 'openai-oauth');
     // Prefer the stable OAuth account id so an access-token refresh can keep
@@ -139,6 +179,9 @@ function _removeFromPool(poolKey, entry) {
     // idle-close or liveness-ping interval.
     _clearIdle(entry);
     _clearLiveness(entry);
+    // The entry is going away; keep its shard pin so the session's next socket
+    // can reconnect onto the same backend node.
+    _retainTurnState(poolKey, entry);
     if (!poolKey) return;
     const arr = _wsPool.get(poolKey);
     if (!arr) return;
@@ -580,6 +623,13 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
             if (!_isOpen(arr[i]) || arr[i].closing || incompatibleIdle) {
                 if (incompatibleIdle) {
                     try { arr[i].socket.close(1000, 'pool_boundary_changed'); } catch {}
+                } else {
+                    // A dead socket pruned here never reaches _removeFromPool,
+                    // so retain its shard pin explicitly — this is the common
+                    // reconnect path and the one the replacement handshake
+                    // below reads. A boundary change deliberately drops the
+                    // pin: it belongs to the old auth/cache identity.
+                    _retainTurnState(poolKey, arr[i]);
                 }
                 _clearIdle(arr[i]);
                 _clearLiveness(arr[i]);
@@ -668,13 +718,17 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
     // Parallel sockets must not inherit sibling turnState or the openai-oauth server
     // treats the new request as a continuation of another in-flight turn and
     // returns "No tool output found for function call …". turnState only
-    // propagates within a single entry across its own iterations.
+    // propagates within a single entry across its own iterations — plus the
+    // codex reconnect case below, where the bucket holds no live entry and the
+    // retained token re-pins the shard the dead socket was using. forceFresh
+    // asks for a deliberately unpinned socket, so it always opens clean.
     const sessionToken = _mintSessionToken(cacheKey, auth);
     const compatibility = _poolCompatibility(auth, cacheKey);
+    const retainedTurnState = forceFresh ? null : _replacementTurnState(poolKey);
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] acquire-new tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _acqStart}ms\n`);
     }
-    const { socket, turnState } = await _openSocketImpl({ auth, sessionToken, turnState: null, externalSignal, cacheKey, codexHeaders });
+    const { socket, turnState } = await _openSocketImpl({ auth, sessionToken, turnState: retainedTurnState?.turnState || null, externalSignal, cacheKey, codexHeaders });
     // Drain may complete while the normal handshake is awaiting 'open'. Never
     // return or insert that late socket into the already-drained process pool.
     if (_drainComplete) {
@@ -693,7 +747,11 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
         lastInputPrefixHash: null,
         releaseSequence: 0,
         ...compatibility,
-        turnState: turnState || null,
+        // A token issued on THIS handshake supersedes the replayed one and is
+        // attributed on first use; a surviving retained token keeps its
+        // original turn owner so the per-turn drop guard still retires it.
+        turnState: turnState || retainedTurnState?.turnState || null,
+        turnStateTurnId: turnState ? null : (retainedTurnState?.turnStateTurnId ?? null),
         closing: false,
         ephemeral: false,
         sessionToken,
@@ -733,10 +791,15 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
 
 export function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') {
     if (!poolKey) return;
+    // The session is over, so its shard pin must not survive into a later
+    // session that reuses the key. Clearing each entry's token before the
+    // close() calls also keeps the async 'close' handlers from re-retaining it.
+    _turnStateByPoolKey.delete(poolKey);
     const entries = _wsPool.get(poolKey);
     if (!entries) return;
     _wsPool.delete(poolKey);
     for (const entry of entries) {
+        entry.turnState = null;
         _clearIdle(entry);
         _clearLiveness(entry);
         try { entry.socket.close(1000, reason); } catch {}
@@ -764,12 +827,14 @@ export function _seedWebSocketEntryForTest({ poolKey, auth, cacheKey, entry }) {
 export function _clearWebSocketPoolForTest() {
     for (const arr of _wsPool.values()) {
         for (const entry of arr) {
+            entry.turnState = null;
             _clearIdle(entry);
             _clearLiveness(entry);
             try { entry.socket.close(1000, 'test_cleanup'); } catch {}
         }
     }
     _wsPool.clear();
+    _turnStateByPoolKey.clear();
     _releaseSequence = 0;
 }
 
