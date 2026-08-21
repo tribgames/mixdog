@@ -215,9 +215,6 @@ export interface TranscriptFollow {
   followingRef: RefObject<boolean>;
   showJump: boolean;
   hasScrollGesture(): boolean;
-  /** True ONLY while a finger is on the glass (touchstart → touchend). A
-   *  corrective scroll write cancels a fling but not a tracked drag. */
-  isTouchActive(): boolean;
   handleScroll(): void;
   handleWheel(event: WheelLike): void;
   handlePointerDown(event: PointerLike): void;
@@ -333,11 +330,6 @@ export function useTranscriptFollow({
     () => hasGesture() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
     [hasGesture],
   );
-  // Contact, not motion: the fling AFTER a lift is the phase a corrective
-  // write would cancel, so the timeline compensates only while the finger is
-  // still tracked.
-  const isTouchActive = useCallback(() => touchGesture.current !== undefined, []);
-
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
     const time = Date.now();
     const queue = programmatic.current.filter(
@@ -748,7 +740,6 @@ export function useTranscriptFollow({
     followingRef,
     showJump,
     hasScrollGesture: hasReaderScroll,
-    isTouchActive,
     handleScroll,
     handleWheel,
     handlePointerDown,

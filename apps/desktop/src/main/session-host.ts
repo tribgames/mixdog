@@ -896,7 +896,12 @@ export class SessionHost implements DesktopService {
       ? { classification: 'project' as const, projectPath: cwd }
       : { classification: 'task' as const, projectPath: null };
     const created = await this.sessionClient.create(
-      { cwd, desktopSession },
+      {
+        cwd,
+        desktopSession,
+        ...(route?.provider ? { provider: route.provider } : {}),
+        ...(route?.model ? { model: route.model } : {}),
+      },
       this.callOptions(`session-create:${process.pid}:${randomUUID()}`),
     );
     const sessionId = sessionIdOf(created.sessionId);

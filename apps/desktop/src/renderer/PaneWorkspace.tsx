@@ -18,9 +18,11 @@ import {
   shouldCommitSwipe,
   SWIPE_LOCK_AXIS_RATIO,
   SWIPE_LOCK_DISTANCE,
+  SWIPE_VIEW_TRANSITION_READY_TIMEOUT_MS,
   swipeGestureAllowed,
   swipeIntent,
   swipeProgress,
+  swipeTransitionFallbackCommits,
   swipeTargetIndex,
 } from "./mobile-tab-swipe";
 import { PaneSplitLayout } from "./PaneSplitLayout";
@@ -343,10 +345,42 @@ export function PaneWorkspace({
     let snapshotAnimations: Animation[] = [];
     let pendingCommit: boolean | null = null;
     let settling = false;
+    let transitionReadyTimer = 0;
+    let transitionSettleTimer = 0;
+    let interactiveTransitionAvailable = true;
+    let cancelPendingUpdate: (() => void) | null = null;
+    let activeTargetApplied = false;
     const clearTransitionMarkers = (): void => {
       delete root.dataset.mobileTabSwipe;
       if (transitionCell) delete transitionCell.dataset.mobileTabSwipeSurface;
       transitionCell = null;
+    };
+    const clearTransitionTimers = (): void => {
+      if (transitionReadyTimer) window.clearTimeout(transitionReadyTimer);
+      if (transitionSettleTimer) window.clearTimeout(transitionSettleTimer);
+      transitionReadyTimer = 0;
+      transitionSettleTimer = 0;
+    };
+    const restoreOriginalSelection = (): void => {
+      if (!originalSelection || !originalKey) return;
+      const current = swipeWorkspace.current;
+      const selection = originalSelection;
+      flushSync(() => {
+        current.activateTab(leafId, originalKey);
+        swipeFocusSelection.current(selection);
+      });
+    };
+    const clearTransitionState = (): void => {
+      clearTransitionTimers();
+      activeTransition = null;
+      snapshotAnimations = [];
+      pendingCommit = null;
+      settling = false;
+      cancelPendingUpdate = null;
+      activeTargetApplied = false;
+      originalKey = "";
+      originalSelection = null;
+      clearTransitionMarkers();
     };
     const updateVelocity = (x: number, time: number): void => {
       const elapsed = time - lastTime;
@@ -367,6 +401,18 @@ export function PaneWorkspace({
         animation.currentTime = progress * scrubDuration;
       }
     };
+    const finishTransition = (
+      transition: SwipeViewTransition,
+      commit: boolean,
+    ): void => {
+      if (activeTransition !== transition) return;
+      if (!commit) restoreOriginalSelection();
+      for (const animation of snapshotAnimations) animation.cancel();
+      try {
+        transition.skipTransition();
+      } catch { /* transition already finished */ }
+      clearTransitionState();
+    };
     const settleTransition = (commit: boolean): void => {
       pendingCommit = commit;
       if (!activeTransition || snapshotAnimations.length === 0 || settling) return;
@@ -383,24 +429,34 @@ export function PaneWorkspace({
         animation.play();
       }
       void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
-        if (activeTransition !== transition) return;
-        if (!commit && originalSelection && originalKey) {
-          const current = swipeWorkspace.current;
-          const selection = originalSelection;
-          flushSync(() => {
-            current.activateTab(leafId, originalKey);
-            swipeFocusSelection.current(selection);
-          });
-        }
-        activeTransition = null;
-        snapshotAnimations = [];
-        pendingCommit = null;
-        settling = false;
-        originalKey = "";
-        originalSelection = null;
-        transition.skipTransition();
-        clearTransitionMarkers();
+        finishTransition(transition, commit);
       });
+      transitionSettleTimer = window.setTimeout(
+        () => finishTransition(transition, commit),
+        settleDuration + 120,
+      );
+    };
+    const abortInteractiveTransition = (
+      transition: SwipeViewTransition,
+    ): void => {
+      if (activeTransition !== transition) return;
+      const commit = swipeTransitionFallbackCommits(pendingCommit);
+      const fallbackIntent = lockedIntent;
+      cancelPendingUpdate?.();
+      for (const animation of snapshotAnimations) animation.cancel();
+      try {
+        transition.skipTransition();
+      } catch { /* transition already finished */ }
+      if (commit) {
+        if (!activeTargetApplied && fallbackIntent) activateDiscreteTarget(fallbackIntent);
+      } else if (activeTargetApplied) {
+        restoreOriginalSelection();
+      }
+      tracking = false;
+      gestureCell = null;
+      lockedIntent = null;
+      interactiveTransitionAvailable = false;
+      clearTransitionState();
     };
     const createSnapshotAnimations = (
       transition: SwipeViewTransition,
@@ -421,21 +477,27 @@ export function PaneWorkspace({
         fill: "both",
         pseudoElement,
       });
-      const outgoing = root.animate(
-        [
-          { transform: "translate3d(0, 0, 0)" },
-          { transform: outgoingEnd },
-        ],
-        options("::view-transition-old(mobile-tab-surface)"),
-      );
-      const incoming = root.animate(
-        [
-          { transform: incomingStart },
-          { transform: "translate3d(0, 0, 0)" },
-        ],
-        options("::view-transition-new(mobile-tab-surface)"),
-      );
-      snapshotAnimations = [outgoing, incoming];
+      const created: Animation[] = [];
+      try {
+        created.push(root.animate(
+          [
+            { transform: "translate3d(0, 0, 0)" },
+            { transform: outgoingEnd },
+          ],
+          options("::view-transition-old(mobile-tab-surface)"),
+        ));
+        created.push(root.animate(
+          [
+            { transform: incomingStart },
+            { transform: "translate3d(0, 0, 0)" },
+          ],
+          options("::view-transition-new(mobile-tab-surface)"),
+        ));
+      } catch (error) {
+        for (const animation of created) animation.cancel();
+        throw error;
+      }
+      snapshotAnimations = created;
       for (const animation of snapshotAnimations) animation.pause();
       setSnapshotProgress(dragProgress);
       if (pendingCommit !== null) settleTransition(pendingCommit);
@@ -443,7 +505,8 @@ export function PaneWorkspace({
     const beginInteractiveTransition = (
       intent: "previous" | "next",
     ): boolean => {
-      if (!startViewTransition || reducedMotion || !gestureCell || activeTransition) return false;
+      if (!startViewTransition || reducedMotion || !interactiveTransitionAvailable
+        || !gestureCell || activeTransition) return false;
       const current = swipeWorkspace.current;
       const leaf = current.leaves.find((entry) => entry.id === leafId);
       if (!leaf || leaf.tabs.length <= 1) return false;
@@ -461,29 +524,41 @@ export function PaneWorkspace({
       transitionCell.dataset.mobileTabSwipeSurface = "true";
       root.dataset.mobileTabSwipe = intent;
       try {
+        let cancelled = false;
         const transition = startViewTransition(() => {
+          if (cancelled) return;
           flushSync(() => {
             current.activateTab(leaf.id, keys[targetIndex]);
             swipeFocusSelection.current(targetSelection);
           });
+          activeTargetApplied = true;
         });
         activeTransition = transition;
+        cancelPendingUpdate = () => {
+          cancelled = true;
+        };
+        transitionReadyTimer = window.setTimeout(
+          () => abortInteractiveTransition(transition),
+          SWIPE_VIEW_TRANSITION_READY_TIMEOUT_MS,
+        );
         void transition.ready
-          .then(() => createSnapshotAnimations(transition, intent))
-          .catch(() => {
+          .then(() => {
             if (activeTransition !== transition) return;
-            activeTransition = null;
-            tracking = false;
-            lockedIntent = null;
-            clearTransitionMarkers();
-          });
-        void transition.finished.catch(() => undefined);
+            if (transitionReadyTimer) window.clearTimeout(transitionReadyTimer);
+            transitionReadyTimer = 0;
+            createSnapshotAnimations(transition, intent);
+          })
+          .catch(() => abortInteractiveTransition(transition));
+        void transition.finished.catch(() => abortInteractiveTransition(transition));
         return true;
       } catch {
-        activeTransition = null;
+        clearTransitionTimers();
+        cancelPendingUpdate?.();
+        cancelPendingUpdate = null;
         lockedIntent = null;
         originalKey = "";
         originalSelection = null;
+        interactiveTransitionAvailable = false;
         clearTransitionMarkers();
         return false;
       }
@@ -596,10 +671,15 @@ export function PaneWorkspace({
       document.removeEventListener("touchend", onTouchEnd, true);
       document.removeEventListener("touchcancel", onTouchCancel, true);
       const transition = activeTransition;
+      clearTransitionTimers();
+      cancelPendingUpdate?.();
+      cancelPendingUpdate = null;
       activeTransition = null;
       for (const animation of snapshotAnimations) animation.cancel();
       snapshotAnimations = [];
-      transition?.skipTransition();
+      try {
+        transition?.skipTransition();
+      } catch { /* transition already finished */ }
       clearTransitionMarkers();
     };
   }, []);

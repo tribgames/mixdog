@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { shouldDeferTranscriptScrollAdjustment } from "./TranscriptList.tsx";
 import { touchMoveShouldReleaseFollow } from "./use-transcript-follow.ts";
+
+test("every active reader gesture defers corrective transcript scroll writes", () => {
+  assert.equal(shouldDeferTranscriptScrollAdjustment(true), true);
+  assert.equal(shouldDeferTranscriptScrollAdjustment(false), false);
+});
 
 test("a touch drag toward older transcript history releases follow", () => {
   assert.equal(touchMoveShouldReleaseFollow({

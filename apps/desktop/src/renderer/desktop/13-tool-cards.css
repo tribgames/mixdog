@@ -24,8 +24,70 @@
   padding: 4px 0 0 20px;
 }
 .tool-activity-content > .tool-card { padding: 2px 0; }
-.tool-activity.failed .tool-icon { color: var(--mx-danger); }
-.tool-activity.warning .tool-icon { color: var(--mx-warning); }
+.tool-activity[data-surface="desktop"] .tool-activity-header,
+.tool-activity[data-surface="desktop"] .tool-activity-title b {
+  color: var(--mx-text-muted);
+}
+.tool-activity[data-surface="desktop"] .tool-activity-title small,
+.tool-activity[data-surface="desktop"] .tool-icon,
+.tool-activity[data-surface="desktop"] .tool-chevron {
+  color: var(--mx-text-faint);
+}
+.tool-activity[data-surface="desktop"] .tool-activity-content {
+  gap: 10px;
+  padding-top: 8px;
+}
+.tool-activity-member {
+  min-width: 0;
+  padding: 0 0 2px 10px;
+  border-left: 1px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+}
+.tool-activity-member-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tool-activity-member-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  font-weight: var(--mx-weight-medium);
+  line-height: var(--mx-line-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-activity-member-section {
+  min-width: 0;
+  margin: 5px 0 0 20px;
+}
+.tool-activity-member-section > span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.tool-activity-member-section pre {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  color: var(--mx-text-muted);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-activity-member.error .tool-icon,
+.tool-activity-member.error .tool-activity-member-name { color: var(--mx-danger); }
+.tool-activity-member.warning .tool-icon,
+.tool-activity-member.warning .tool-activity-member-name { color: var(--mx-warning); }
+.tool-activity:not([data-surface="desktop"]).failed .tool-icon { color: var(--mx-danger); }
+.tool-activity:not([data-surface="desktop"]).warning .tool-icon { color: var(--mx-warning); }
 .tool-card:has(.tool-content) { border: 0; background: transparent; box-shadow: none; }
 .tool-header {
   min-height: 20px;

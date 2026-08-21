@@ -9,7 +9,7 @@ import { isCancelLikeError } from '../../runtime/shared/err-text.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
-import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, assignAggregateSummaryOrder, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
+import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, aggregateToolMembers, assignAggregateSummaryOrder, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
 
 export const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
 
@@ -327,6 +327,7 @@ export function createRunTurn(bag) {
           result: displayDetail,
           text: displayDetail,
           rawResult: rawResult || null,
+          toolMembers: aggregateToolMembers(allCalls),
           isError: errors > 0,
           errorCount: errors,
           callErrorCount: callErrors,
@@ -403,6 +404,7 @@ export function createRunTurn(bag) {
         count: aggregate.calls.size,
         completedCount: [...aggregate.calls.values()].filter((r) => r.resolved || r.completedEarly).length,
         categories: Object.fromEntries(aggregate.categories),
+        toolMembers: aggregateToolMembers(aggregate.calls),
       };
       if (aggregate.pushed) {
         patchItem(aggregate.itemId, patch);
@@ -678,7 +680,9 @@ export function createRunTurn(bag) {
         callRec.isExitError = isExitError;
         callRec.exitCode = exitCode;
         callRec.resultText = text;
+        callRec.rawResultText = rawText;
         callRec.completedEarly = true;
+        callRec.completedAt = callRec.completedAt || Date.now();
         const allCalls = [...aggregate.calls.values()];
         const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
         const errors = allCalls.filter((r) => r.isError).length;
@@ -710,6 +714,7 @@ export function createRunTurn(bag) {
           exitErrorCount: exitErrors,
           count: allCalls.length,
           completedCount: visualCompleted,
+          toolMembers: aggregateToolMembers(allCalls),
         };
         if (visualCompleted >= allCalls.length) {
           patch.completedAt = Number(currentItem?.completedAt) || Date.now();
@@ -889,7 +894,7 @@ export function createRunTurn(bag) {
                 count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
               });
             }
-            aggregateCard.calls.set(callKey, { name, args, category, summary: null, summarySeq: null, isError: false, isCallError: false, isExitError: false, exitCode: null, resultText: null, resolved: false, completedEarly: false });
+            aggregateCard.calls.set(callKey, { callId: callKey, name, args, category, summary: null, summarySeq: null, isError: false, isCallError: false, isExitError: false, exitCode: null, resultText: null, rawResultText: null, resolved: false, completedEarly: false, startedAt: Date.now(), completedAt: null });
             touchedAggregates.add(aggregateCard);
             const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
             if (callId) {

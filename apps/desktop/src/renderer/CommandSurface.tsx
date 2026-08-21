@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import type { DesktopApi, DesktopCapability } from '../shared/contract';
+import type { DesktopApi, DesktopCapability, DesktopModelSelection } from '../shared/contract';
+import type { Snapshot } from './desktop-types';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 import {
   commandSurfaceCacheKey,
@@ -11,6 +12,10 @@ import {
 import { t } from './i18n';
 import { acquireModalLayer } from './modal-layer';
 import { showDesktopToast } from './notifications';
+import {
+  inheritanceContextFit,
+  sessionModelSelection,
+} from './session-inheritance';
 import { ContextBody } from './ContextBody';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { displayUsagePercent } from './usage-percent';
@@ -80,7 +85,7 @@ export function CommandSurface({
   snapshot?: unknown;
   sessionId?: string;
   /** /inherit only: hand the source session to the host and open the heir. */
-  onInherit?: (sourceSessionId: string) => Promise<void>;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onClose(): void;
 }) {
   const dialog = useRef<HTMLElement>(null);
@@ -299,7 +304,7 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, pending, r
   data: Record<string, unknown>;
   snapshot?: unknown;
   sessionId?: string;
-  onInherit?: (sourceSessionId: string) => Promise<void>;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   pending: string;
   run: SurfaceRun;
 }) {
@@ -321,19 +326,6 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, pending, r
   return null;
 }
 
-/** Percent of the model context this transcript already occupies. The reading
- *  travels under different shapes across surfaces, so every known place is
- *  tried and an unknown reading simply does not block the decision. */
-function contextPercent(status: unknown): number | null {
-  const root = record(status);
-  const candidates = [root, record(root.context), record(root.status), record(root.gauge)];
-  for (const candidate of candidates) {
-    const value = Number(candidate.percent ?? candidate.usedPercent);
-    if (Number.isFinite(value) && value > 0) return Math.round(value);
-  }
-  return null;
-}
-
 /**
  * /inherit — one decision surface: what carries over, where it lands, and
  * whether it can happen at all. The heir is a NEW session on the currently
@@ -343,7 +335,7 @@ function InheritBody({ status, snapshot, sessionId, onInherit }: {
   status: unknown;
   snapshot?: unknown;
   sessionId: string;
-  onInherit?: (sourceSessionId: string) => Promise<void>;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
 }) {
   const [running, setRunning] = useState(false);
   const [failure, setFailure] = useState('');
@@ -353,9 +345,10 @@ function InheritBody({ status, snapshot, sessionId, onInherit }: {
     const kind = String(record(item).kind || '');
     return kind === 'user' || kind === 'assistant';
   }).length;
-  const percent = contextPercent(status);
-  const provider = String(shell.provider || '').trim();
-  const model = String(shell.model || '').trim();
+  const route = sessionModelSelection(shell as Snapshot);
+  const fit = inheritanceContextFit(status, shell as Snapshot);
+  const provider = String(route?.provider || '').trim();
+  const model = String(route?.model || '').trim();
   // ONE reason at a time, in the order the user would hit them.
   const blocked = !sessionId
     ? t('This task has not started a session yet.')
@@ -365,7 +358,9 @@ function InheritBody({ status, snapshot, sessionId, onInherit }: {
         ? t('There is no conversation to carry over yet.')
         : !onInherit
           ? t('Inheritance is unavailable on this surface.')
-          : percent !== null && percent >= 95
+          : !route
+            ? t('Unknown')
+          : fit.known && !fit.fits
             ? t('This conversation no longer fits the model context. Run /compact first.')
             : '';
   return <Group title={t('Inherit session')}>
@@ -375,15 +370,15 @@ function InheritBody({ status, snapshot, sessionId, onInherit }: {
     <dl className="command-surface-facts">
       <div><dt>{t('Messages')}</dt><dd>{spoken}</dd></div>
       <div><dt>{t('Model')}</dt><dd>{model ? `${provider}/${model}` : t('Unknown')}</dd></div>
-      <div><dt>{t('Context')}</dt><dd>{percent === null ? '—' : `${percent}%`}</dd></div>
+      <div><dt>{t('Context')}</dt><dd>{fit.percent === null ? '—' : `${fit.percent}%`}</dd></div>
     </dl>
     {(blocked || failure) && <p className="settings-hint" role="status">{failure || blocked}</p>}
     <button type="button" disabled={Boolean(blocked) || running}
       onClick={() => {
-        if (blocked || !onInherit || running) return;
+        if (blocked || !onInherit || !route || running) return;
         setFailure('');
         setRunning(true);
-        void onInherit(sessionId)
+        void onInherit(sessionId, route)
           .catch((reason) => {
             setFailure(reason instanceof Error ? reason.message : String(reason));
           })

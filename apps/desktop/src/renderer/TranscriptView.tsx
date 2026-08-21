@@ -1,15 +1,18 @@
-import { ChevronRight, Code2, FileDiff, FoldVertical, Layers3, ListTree, X } from "lucide-react";
+import { ChevronRight, Code2, FileDiff, FoldVertical, GitFork, Layers3, ListTree, X } from "lucide-react";
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
 import { t } from "./i18n";
 import { DiffView } from "./lazy-widgets";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import { useMobileBack } from "./mobile-back";
+import { isMobileRemoteSurface } from "./mobile-surface";
 import { MxIcon } from "./MxIcon";
 import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { normalizeApplyPatch, parseUnifiedDiff } from "./renderer-logic.mjs";
+import { shouldOfferSessionInheritance } from "./session-inheritance";
 import {
   createStreamingMarkdownCache,
   healStreamingMarkdownTail,
@@ -19,7 +22,11 @@ import {
 import StreamingMarkdownBody from "./StreamingMarkdownBody";
 import { touchPrimaryPointer } from "./surface-input-focus";
 import { asRecord, copyTextToClipboard, formatElapsed, oneLine, publicThinkingSummary } from "./text-format";
-import { requestTranscriptRowMeasure } from "./transcript-measure";
+import { acquireTitleBarDim } from "./titlebar-dim";
+import {
+  createTranscriptRowMeasureScheduler,
+  requestTranscriptRowMeasure,
+} from "./transcript-measure";
 import { imagePreviewCache, imagePreviewKey } from "./transcript-metrics";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { aggregateToolCategoryEntries, classifyToolCategory, formatAggregateHeader, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
@@ -46,7 +53,7 @@ interface DetailLinePart { text: string; delta?: "+" | "-" }
 
 export const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 
-// TUI parity (Spinner formatNumber): compact lowercase k/m token units.
+// Desktop token readouts stay compact and use uppercase K/M units.
 const compactTokenFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
   maximumFractionDigits: 1,
@@ -85,7 +92,7 @@ export function resetToolDisclosureScope(scope: string): void {
 
 export function formatTokenCount(value: number): string {
   const tokens = Math.max(0, Number(value) || 0);
-  if (tokens >= 1000) return compactTokenFormatter.format(tokens).toLowerCase();
+  if (tokens >= 1000) return compactTokenFormatter.format(tokens).toUpperCase();
   return String(Math.round(tokens));
 }
 
@@ -215,10 +222,11 @@ function contextMetrics(snapshot: Snapshot) {
   return rememberedContextUsage.get(sessionId) ?? usage;
 }
 
-export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenChange }: {
+export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenChange, onInherit }: {
   snapshot: Snapshot;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onInherit?: () => void;
 }) {
   const [localOpen, setLocalOpen] = useState(false);
   const popoverOpen = controlledOpen ?? localOpen;
@@ -275,6 +283,7 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   const state = asRecord(snapshot);
   const sessionId = String(state?.sessionId || "").trim();
   const compactBusy = compacting || Boolean(state?.busy) || Boolean(state?.commandBusy);
+  const offerInheritance = Boolean(onInherit) && shouldOfferSessionInheritance(snapshot);
   const compact = async () => {
     if (!sessionId || compactBusy) return;
     setCompacting(true);
@@ -313,9 +322,12 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
     </button>
     {context && <div className="session-context-popover" id={descriptionId} role="tooltip">
       <div><span>{t("Usage")}</span><b>{context.percent}%</b></div>
-      <div><span>{context.estimated ? t("Tokens (est.)") : t("Tokens")}</span><b>{context.limit > 0
-        ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
-        : context.used.toLocaleString()}</b></div>
+      <div><span>{context.estimated ? t("Tokens (est.)") : t("Tokens")}</span><b
+        title={context.limit > 0
+          ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
+          : context.used.toLocaleString()}>{context.limit > 0
+          ? `${formatTokenCount(context.used)} / ${formatTokenCount(context.limit)}`
+          : formatTokenCount(context.used)}</b></div>
       {(() => {
         const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
         return cost > 0
@@ -325,8 +337,20 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
       {/* The readout that reports the pressure now relieves it too (user:
           호버하거나 클릭하면 나오는 곳에 컨텍스트 압축 버튼), so /compact and
           auto-compact are no longer the only ways in. */}
-      <button type="button" className="context-compact" disabled={compactBusy}
-        onClick={() => { void compact(); }}>{t("Compact context")}</button>
+      {offerInheritance && <button type="button" className="context-action context-inherit"
+        disabled={compactBusy} onClick={() => {
+          setPinned(false);
+          setPopoverOpen(false);
+          onInherit?.();
+        }}>
+        <GitFork size={14} aria-hidden="true" />
+        {t("Inherit session")}
+      </button>}
+      <button type="button" className="context-action context-compact" disabled={compactBusy}
+        onClick={() => { void compact(); }}>
+        <FoldVertical size={14} aria-hidden="true" />
+        {t("Compact context")}
+      </button>
     </div>}
   </div>;
 }
@@ -636,6 +660,13 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
   streaming: boolean;
 }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
+  const markdownRoot = useRef<HTMLDivElement>(null);
+  const scheduleMarkdownMeasure = useMemo(
+    () => createTranscriptRowMeasureScheduler(
+      () => requestTranscriptRowMeasure(markdownRoot.current),
+    ),
+    [],
+  );
   const workerPipeline = useRef(streaming);
   if (streaming) workerPipeline.current = true;
   // Renderer snapshots are already frame-coalesced. Adding another rAF here
@@ -648,7 +679,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
       key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current
         ? <StreamingMarkdownBody text={chunk}
-            copyControl={CopyControl} />
+            copyControl={CopyControl} onRendered={scheduleMarkdownMeasure} />
         : <StableMarkdownBody text={chunk} />}
     </Suspense>
   ));
@@ -667,12 +698,13 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
               text={markdownParts.unstableText}
               parseText={unstableParseText}
               parse={markdownParts.parseUnstable}
-              copyControl={CopyControl} />
+              copyControl={CopyControl}
+              onRendered={scheduleMarkdownMeasure} />
           : <StableMarkdownBody text={markdownParts.unstableText} />}
       </Suspense>,
     );
   }
-  return <div className={`markdown ${streaming ? "streaming" : ""}`}>
+  return <div className={`markdown ${streaming ? "streaming" : ""}`} ref={markdownRoot}>
     {renderedChunks}
   </div>;
 });
@@ -847,6 +879,52 @@ export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boole
   );
 }
 
+function TranscriptImagePreview({
+  src,
+  name,
+  onClose,
+}: {
+  src: string;
+  name: string;
+  onClose(): void;
+}) {
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useMobileBack(true, onClose);
+  useEffect(() => acquireTitleBarDim(), []);
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    closeButton.current?.focus({ preventScroll: true });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, [onClose]);
+  return createPortal(
+    <div className="message-image-preview-layer" role="presentation"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}>
+      <section className="message-image-preview-dialog" role="dialog" aria-modal="true"
+        aria-label={t("Image preview")}>
+        <img src={src} alt={name} />
+        <button ref={closeButton} type="button" aria-label={t("Close preview")}
+          onClick={onClose}>
+          <X size={18} aria-hidden="true" />
+        </button>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
@@ -861,6 +939,8 @@ export const TranscriptRow = memo(function TranscriptRow({
   disclosureScope?: string;
 }) {
   const previousStreaming = useRef(Boolean(item.streaming));
+  const [openImage, setOpenImage] = useState<{ src: string; name: string } | null>(null);
+  const closeImage = useCallback(() => setOpenImage(null), []);
   const announceSettled = previousStreaming.current && !item.streaming;
   useEffect(() => {
     previousStreaming.current = Boolean(item.streaming);
@@ -915,15 +995,22 @@ export const TranscriptRow = memo(function TranscriptRow({
               aria-label={t("Attachments")}>
               {attachedImages.map((image, index) => {
                 const preview = imagePreviewCache.get(imagePreviewKey(image.id, image.bytes));
-                return <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`}
-                  title={image.name || t('Attached image')}>
-                  {preview
-                    ? <img src={preview} alt={image.name || t('Attached image')} />
-                    : <span className="message-image-fallback">
+                const name = image.name || t('Attached image');
+                return preview
+                  ? <button type="button" className="message-image-chip message-image-chip-button"
+                    key={`${image.id ?? 'img'}-${index}`} title={name}
+                    aria-label={t("Open image")}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={() => setOpenImage({ src: preview, name })}>
+                    <img src={preview} alt={name} />
+                  </button>
+                  : <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`}
+                    title={name}>
+                    <span className="message-image-fallback">
                 <MxIcon name="photo" size={14} />
                       <span>{image.name || 'Image'}</span>
-                    </span>}
-                </span>;
+                    </span>
+                  </span>;
               })}
               {markerChips.map((chip, index) => (
                 <span className="message-image-chip" key={`marker-${index}`} title={chip.title}>
@@ -973,6 +1060,8 @@ export const TranscriptRow = memo(function TranscriptRow({
             className="message-actions response-copy" />}
         </footer>}
       </article>
+      {openImage && <TranscriptImagePreview src={openImage.src} name={openImage.name}
+        onClose={closeImage} />}
       {announceSettled && !completion && <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         Mixdog response complete.
       </p>}
@@ -1046,6 +1135,77 @@ function mergedToolActivityCategories(items: readonly TranscriptItem[]) {
   return { categories: Object.fromEntries(categories), order };
 }
 
+function localizedToolActivityCategory(category: string): string {
+  if (category === "Read") return t("File reading");
+  if (category === "Search") return t("Search");
+  if (category === "Load") return t("Tool loading");
+  if (category === "MCP") return t("MCP tools");
+  if (category === "Skill") return t("Skills");
+  if (category === "Web Research") return t("Web research");
+  if (category === "Memory") return t("Memory");
+  if (category === "Patch") return t("File editing");
+  if (category === "Git") return t("Git");
+  if (category === "Shell") return t("Command execution");
+  if (category === "Agent") return t("Agents");
+  if (category === "Task") return t("Tasks");
+  if (category === "Schedule") return t("Schedules");
+  if (category === "Channel") return t("Messages");
+  if (category === "Setup") return t("Setup");
+  return t("External tools");
+}
+
+export function desktopToolActivityCategorySummary(
+  categories: Record<string, unknown>,
+  order: readonly string[] = [],
+): string {
+  const totals = new Map<string, number>();
+  const categoryOrder: string[] = [];
+  const seenEntries = new Set<string>();
+  for (const key of [...order, ...Object.keys(categories)]) {
+    if (!key || seenEntries.has(key)) continue;
+    seenEntries.add(key);
+    const value = categories[key];
+    const record = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+    const count = Math.max(0, Number(record.count ?? value) || 0);
+    if (count <= 0) continue;
+    const rawCategory = String(record.category || key.split("|")[0] || "Other");
+    const category = [
+      "Read", "Search", "Load", "MCP", "Skill", "Web Research", "Memory",
+      "Patch", "Git", "Shell", "Agent", "Task", "Schedule", "Channel", "Setup",
+    ].includes(rawCategory) ? rawCategory : "Other";
+    if (!totals.has(category)) categoryOrder.push(category);
+    totals.set(category, Number(totals.get(category) || 0) + count);
+  }
+  return categoryOrder
+    .map((category) => `${localizedToolActivityCategory(category)} ${totals.get(category)}`)
+    .join(" · ");
+}
+
+export function flattenedToolActivityItems(items: readonly TranscriptItem[]): TranscriptItem[] {
+  const flattened: TranscriptItem[] = [];
+  for (const item of items) {
+    const members = item.aggregate === true && Array.isArray(item.toolMembers)
+      ? item.toolMembers
+      : [];
+    if (members.length === 0) {
+      flattened.push(item);
+      continue;
+    }
+    members.forEach((member, index) => {
+      if (!member || typeof member !== "object" || Array.isArray(member)) return;
+      const record = member as TranscriptItem;
+      flattened.push({
+        ...record,
+        kind: "tool",
+        id: record.id ?? `${String(item.id ?? "aggregate")}:member:${index}`,
+      });
+    });
+  }
+  return flattened;
+}
+
 function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: string): string {
   const id = String(items[0]?.id ?? "").trim();
   return id ? `${scope}:tool-activity:${id}` : "";
@@ -1072,16 +1232,21 @@ export function ToolActivityGroup({
     requestTranscriptRowMeasure(groupRef.current);
   }, [open]);
   const contentId = useId();
+  const mobileSurface = isMobileRemoteSurface();
   const pending = items.some((item) => !toolItemDone(item));
   const { categories, order } = useMemo(() => mergedToolActivityCategories(items), [items]);
-  const label = formatAggregateHeader(categories, { pending, order });
+  const label = mobileSurface ? formatAggregateHeader(categories, { pending, order }) : t("Tool use");
+  const categorySummary = mobileSurface ? "" : desktopToolActivityCategorySummary(categories, order);
+  const headerTitle = [label, categorySummary].filter(Boolean).join(" · ");
+  const memberItems = useMemo(() => flattenedToolActivityItems(items), [items]);
   const tones = items.map(toolActivityItemTone);
   const failure = tones.includes("error");
   const warning = !failure && tones.includes("warning");
 
   return (
     <article ref={groupRef}
-      className={`tool-activity ${failure ? "failed" : ""} ${warning ? "warning" : ""}`}
+      className={`tool-activity ${mobileSurface && failure ? "failed" : ""} ${mobileSurface && warning ? "warning" : ""}`}
+      data-surface={mobileSurface ? "mobile" : "desktop"}
       data-open={open ? "true" : "false"}>
       <button className="tool-header tool-activity-header"
         onPointerDown={(event) => event.stopPropagation()}
@@ -1092,19 +1257,53 @@ export function ToolActivityGroup({
         })}
         aria-expanded={open} aria-controls={contentId}>
         <span className="tool-icon"><ListTree size={16} /></span>
-        <span className="tool-title tool-activity-title" title={label}>
+        <span className="tool-title tool-activity-title" title={headerTitle}>
           <b>{label}</b>
+          {categorySummary && <small>{categorySummary}</small>}
         </span>
         {pending && <span className="sr-only" role="status">{t("Running")}</span>}
         <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>
       </button>
       {open && (
         <div className="tool-activity-content" id={contentId}>
-          {items.map((item, index) => (
-            <ToolCard key={String(item.id ?? index)} item={item}
-              disclosureScope={disclosureScope} />
-          ))}
+          {mobileSurface
+            ? items.map((item, index) => (
+                <ToolCard key={String(item.id ?? index)} item={item}
+                  disclosureScope={disclosureScope} />
+              ))
+            : memberItems.map((item, index) => (
+                <ToolActivityMember key={`${String(item.id ?? "tool")}:${index}`} item={item} />
+              ))}
         </div>
+      )}
+    </article>
+  );
+}
+
+function ToolActivityMember({ item }: { item: TranscriptItem }) {
+  const name = String(item.name || "tool");
+  const category = classifyToolCategory(name, item.args);
+  const tone = toolActivityItemTone(item);
+  const argsText = item.args == null ? "" : boundedTextOf(item.args, 40_000);
+  const output = item.rawResult ?? item.result;
+  const outputText = output == null ? "" : boundedTextOf(output, 100_000);
+  return (
+    <article className={`tool-activity-member ${tone}`}>
+      <div className="tool-activity-member-header">
+        <span className="tool-icon">{toolIcon(category)}</span>
+        <b className="tool-activity-member-name">{name}</b>
+      </div>
+      {argsText && (
+        <section className="tool-activity-member-section">
+          <span>{t("Arguments")}</span>
+          <pre>{argsText}</pre>
+        </section>
+      )}
+      {outputText && (
+        <section className="tool-activity-member-section">
+          <span>{t("Output")}</span>
+          <pre>{outputText}</pre>
+        </section>
       )}
     </article>
   );

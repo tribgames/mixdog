@@ -19,6 +19,7 @@ import {
   groupedToolResultText,
   aggregateRawResult,
   aggregateSummaries,
+  aggregateToolMembers,
   assignAggregateSummaryOrder,
   failureDetailText,
   toolCallOutcome,
@@ -104,7 +105,9 @@ export function createToolCardResults({
       callRec.isExitError = isExitError;
       callRec.exitCode = exitCode;
       callRec.resultText = text;
+      callRec.rawResultText = rawText;
       callRec.resolved = true;
+      callRec.completedAt = callRec.completedAt || Date.now();
       const allCalls = [...aggregate.calls.values()];
       const completed = allCalls.filter((r) => r.resolved).length;
       const errors = allCalls.filter((r) => r.isError).length;
@@ -138,6 +141,7 @@ export function createToolCardResults({
         count: allCalls.length,
         completedCount: visualCompleted,
         doneCategories: aggregateDoneCategories(allCalls),
+        toolMembers: aggregateToolMembers(allCalls),
         completedAt: Number(currentItem?.completedAt) || Date.now(),
       });
       card.done = true;
@@ -247,9 +251,11 @@ export function createToolCardResults({
         for (const rec of allCalls) {
           if (rec.resolved) continue;
           rec.resolved = true;
+          rec.completedAt = rec.completedAt || Date.now();
           if (!rec.completedEarly) {
             rec.isError = false;
             rec.resultText = rec.resultText || '';
+            rec.rawResultText = rec.rawResultText ?? rec.resultText;
           }
         }
         const completed = allCalls.filter((r) => r.resolved).length;
@@ -283,6 +289,7 @@ export function createToolCardResults({
           count: allCalls.length,
           completedCount: totalCompleted,
           doneCategories: aggregateDoneCategories(allCalls),
+          toolMembers: aggregateToolMembers(allCalls),
           completedAt: Date.now(),
         });
         for (const sibling of toolCards || []) {

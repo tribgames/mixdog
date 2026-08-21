@@ -152,12 +152,42 @@ export function aggregateRawResult(calls) {
   const chunks = [];
   for (const rec of calls || []) {
     if (rec?.resolved !== true) continue;
-    let text = String(rec?.resultText || '').replace(/\s+$/, '');
+    let text = String(rec?.rawResultText ?? rec?.resultText ?? '').replace(/\s+$/, '');
     if (!text.trim()) continue;
     const label = String(rec?.name || rec?.category || 'tool').trim() || 'tool';
     chunks.push(`${chunks.length + 1}. ${label}\n${text}`);
   }
   return chunks.join('\n\n');
+}
+
+/** Preserve the atomic calls behind a visual aggregate. Renderers can keep the
+ * aggregate as one quiet summary row while revealing the original tool names,
+ * arguments, and outputs in provider order. */
+export function aggregateToolMembers(calls) {
+  const source = calls?.values?.() || calls || [];
+  const members = [];
+  for (const rec of source) {
+    if (!rec || typeof rec !== 'object') continue;
+    const completed = rec.resolved === true || rec.completedEarly === true;
+    members.push({
+      kind: 'tool',
+      ...(rec.callId != null ? { id: rec.callId } : {}),
+      name: String(rec.name || 'tool'),
+      args: rec.args ?? {},
+      result: rec.resultText ?? null,
+      rawResult: rec.rawResultText ?? rec.resultText ?? null,
+      isError: rec.isError === true,
+      errorCount: rec.isError === true ? 1 : 0,
+      callErrorCount: rec.isCallError === true ? 1 : 0,
+      exitErrorCount: rec.isExitError === true ? 1 : 0,
+      count: 1,
+      completedCount: completed ? 1 : 0,
+      headerFinalized: completed,
+      ...(Number(rec.startedAt) > 0 ? { startedAt: Number(rec.startedAt) } : {}),
+      ...(Number(rec.completedAt) > 0 ? { completedAt: Number(rec.completedAt) } : {}),
+    });
+  }
+  return members;
 }
 
 export function aggregateBucketForCategory(category, { agentBatch = '' } = {}) {

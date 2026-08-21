@@ -5,6 +5,16 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Mobile web conversations now keep touch scrolling, streaming Markdown
+  measurement, tab swipes, compact composer controls, and responsive overlays
+  stable across native gestures, rotation, and small-screen layouts.
+- Sessions can carry a full conversation into the currently selected model
+  when it fits that model's context boundary, while context usage and inherited
+  route details remain explicit.
+- Transcript tool groups preserve their original calls, arguments, outputs, and
+  completion state for detailed inspection, with localized image previews and
+  clearer activity presentation.
+
 ## v0.9.145 - 2026-08-21
 
 - Mobile web sessions now keep native viewport scale, pairing recovery, remote

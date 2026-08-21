@@ -28,7 +28,7 @@ import {
   TRANSCRIPT_ROW_MEASURE_EVENT,
 } from "./transcript-measure";
 import { isRemoteBrowserRenderer } from "./remote-ui-projection";
-import { isIOSWebSurface, isMobileRemoteSurface } from "./mobile-surface";
+import { isMobileRemoteSurface } from "./mobile-surface";
 
 /**
  * The virtualized transcript timeline.
@@ -62,6 +62,11 @@ function logicalScrollOffset(
     (instance as unknown as { scrollAdjustments?: number }).scrollAdjustments,
   ) || 0;
   return (instance.scrollOffset ?? 0) + adjustments;
+}
+
+/** Native reader motion is the only scroll authority until it becomes idle. */
+export function shouldDeferTranscriptScrollAdjustment(hasReaderGesture: boolean): boolean {
+  return hasReaderGesture;
 }
 
 type SelectionPoint = { node: Node; offset: number };
@@ -108,7 +113,6 @@ export function TranscriptList({
   renderRow,
   markProgrammaticScroll,
   hasScrollGesture,
-  isTouchActive,
 }: {
   sessionKey: string;
   rows: readonly TranscriptRowModel[];
@@ -125,9 +129,6 @@ export function TranscriptList({
   markProgrammaticScroll?: (top: number, intended?: number) => void;
   /** True from the first wheel/touch/drag intent through its inertial tail. */
   hasScrollGesture: () => boolean;
-  /** True ONLY while a finger is on the glass (touchstart → touchend), which
-   *  is the one motion a corrective scroll write does not cancel. */
-  isTouchActive?: () => boolean;
 }) {
   const spacer = useRef<HTMLDivElement>(null);
   // Web snapshots and native scrolling can update in the same frame. Keep
@@ -151,25 +152,11 @@ export function TranscriptList({
   markProgrammaticScrollRef.current = markProgrammaticScroll;
   const hasScrollGestureRef = useRef(hasScrollGesture);
   hasScrollGestureRef.current = hasScrollGesture;
-  const isTouchActiveRef = useRef(isTouchActive);
-  isTouchActiveRef.current = isTouchActive;
-  // An Android drag keeps tracking the finger THROUGH a programmatic scroll
-  // write, so a size change above the reading offset can be compensated in
-  // the same frame there — the reader sees nothing move. A desktop wheel ramp
-  // is cancelled outright by such a write, and iOS defers it to the end of the
-  // gesture, so both keep the accumulate-then-flush path.
-  const compensateDuringTouch = isMobileRemoteSurface() && !isIOSWebSurface();
-  const adjustDuringGesture = useCallback(
-    () => compensateDuringTouch && isTouchActiveRef.current?.() === true,
-    [compensateDuringTouch],
-  );
-  const adjustDuringGestureRef = useRef(adjustDuringGesture);
-  adjustDuringGestureRef.current = adjustDuringGesture;
   // Sizes measured DURING a reader gesture for rows fully above the viewport
   // are deferred here. Applying them mid-gesture shifts the whole timeline
-  // under the reader with no compensating write allowed (the pane "tears" and
-  // snaps back at the bottom); applying them after the gesture lands the size
-  // and its scroll compensation in one pre-paint transaction instead.
+  // under the reader or competes with native touch motion. Applying them after
+  // the gesture lands the size and its scroll compensation in one pre-paint
+  // transaction instead.
   const pendingResizes = useRef(new Map<unknown, { index: number; size: number }>());
   const resizeFlushFrame = useRef(0);
   const baseResizeItem = useRef<((index: number, size: number) => void) | null>(null);
@@ -384,10 +371,8 @@ export function TranscriptList({
       // Reader gesture + row fully above the reading offset: DEFER. Never
       // drop — a dropped delta leaves the reader displaced by exactly that
       // delta once the geometry it saw is recomputed.
-      if (measured && hasScrollGestureRef.current()
-        // A drag that CAN be compensated in place takes the size now: the
-        // deferral existed only because no corrective write was allowed.
-        && !adjustDuringGestureRef.current()
+      if (measured
+        && shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current())
         && measured.end <= logicalScrollOffset(virtualizer)) {
         pendingResizes.current.set(measured.key, { index, size });
         scheduleResizeFlush();
@@ -433,17 +418,11 @@ export function TranscriptList({
   // bottom pin can no longer cancel a live wheel ramp (the "tears and snaps
   // back at the bottom" writer confirmed via CDP scrollTop-setter traces).
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
-    // A tracked phone drag is the exception: the write does not cancel it, so
-    // the row settling ABOVE the reader is compensated in the same frame
-    // instead of shifting the timeline under the finger.
-    if (hasScrollGestureRef.current() && !adjustDuringGestureRef.current()) return false;
+    if (shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current())) return false;
     return item.end <= logicalScrollOffset(instance);
   };
   virtualizer.shouldDeferScrollAdjustment = () =>
-    hasScrollGestureRef.current() && !adjustDuringGestureRef.current();
-  // The core defers on its OWN isScrolling flag as well; this lifts that gate
-  // for exactly the same tracked-drag window and nothing else.
-  virtualizer.allowScrollAdjustmentDuringScroll = () => adjustDuringGestureRef.current();
+    shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current());
   const measureRow = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
     // The FIRST measurement of a row rides the SAME commit that appended it.

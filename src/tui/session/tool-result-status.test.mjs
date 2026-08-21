@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  aggregateToolMembers,
   failureDetailText,
   shellCommandExitCode,
   toolCallOutcome,
@@ -98,4 +99,33 @@ test('shared TUI/desktop tone keeps command failures warning and tool failures r
   assert.equal(displayTerminalStatus('exit'), 'Exited');
   assert.equal(deriveToolOutcomeTone({ terminalStatus: 'exit', exitFailedCount: 1 }), 'warning');
   assert.equal(deriveToolOutcomeTone({ terminalStatus: 'failed', callFailedCount: 1 }), 'error');
+});
+
+test('aggregate members preserve atomic tool identity, inputs, outputs, and order', () => {
+  const members = aggregateToolMembers([
+    {
+      callId: 'call-read',
+      name: 'read',
+      args: { file_path: 'a.ts' },
+      resultText: 'source',
+      resolved: true,
+      isError: false,
+    },
+    {
+      callId: 'call-shell',
+      name: 'shell',
+      args: { command: 'exit 2' },
+      resultText: 'boom',
+      rawResultText: '[exit code: 2]\nboom',
+      resolved: true,
+      isError: false,
+      isExitError: true,
+    },
+  ]);
+  assert.deepEqual(members.map(({ id, name, args, result, rawResult, exitErrorCount }) => ({
+    id, name, args, result, rawResult, exitErrorCount,
+  })), [
+    { id: 'call-read', name: 'read', args: { file_path: 'a.ts' }, result: 'source', rawResult: 'source', exitErrorCount: 0 },
+    { id: 'call-shell', name: 'shell', args: { command: 'exit 2' }, result: 'boom', rawResult: '[exit code: 2]\nboom', exitErrorCount: 1 },
+  ]);
 });

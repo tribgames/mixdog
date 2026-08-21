@@ -25,6 +25,7 @@ import {
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import type {
+  DesktopModelSelection,
   DesktopProjectSummary,
   DesktopUpdaterState,
   DesktopWorkflowState,
@@ -1819,12 +1820,15 @@ export function App() {
   // /inherit: the heir carries this conversation onto the currently selected
   // model under a new id, opens in its own tab, and leaves the source session
   // untouched behind it.
-  const inheritSessionToNewTab = useCallback(async (sourceSessionId: string) => {
+  const inheritSessionToNewTab = useCallback(async (
+    sourceSessionId: string,
+    route: DesktopModelSelection,
+  ) => {
     const api = window.mixdogDesktop;
     if (typeof api?.inheritSession !== "function") {
       throw new Error("Session inheritance is unavailable on this surface.");
     }
-    const result = await api.inheritSession(sourceSessionId, null);
+    const result = await api.inheritSession(sourceSessionId, route);
     const inherited = String(result?.sessionId || "").trim();
     if (!inherited) throw new Error("The inherited session was not created.");
     setCommandSurface(null);

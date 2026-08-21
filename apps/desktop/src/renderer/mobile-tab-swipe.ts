@@ -18,6 +18,8 @@ export const SWIPE_LOCK_AXIS_RATIO = 1.25;
  *  can finish the page turn. */
 export const SWIPE_COMMIT_DISTANCE_RATIO = 0.3;
 export const SWIPE_COMMIT_VELOCITY = 0.45;
+/** A snapshot that cannot become interactive promptly must release the page. */
+export const SWIPE_VIEW_TRANSITION_READY_TIMEOUT_MS = 250;
 
 export type SwipeIntent = "previous" | "next" | null;
 
@@ -76,6 +78,12 @@ export function shouldCommitSwipe(
   const directionalVelocity = intent === "next" ? -velocityX : velocityX;
   return swipeProgress(deltaX, width, intent) >= distanceRatio
     || directionalVelocity >= minVelocity;
+}
+
+/** A failed interactive transition keeps its destination only after release
+ *  made an explicit commit decision. Pending and cancelled gestures roll back. */
+export function swipeTransitionFallbackCommits(pendingCommit: boolean | null): boolean {
+  return pendingCommit === true;
 }
 
 /** Surfaces that own horizontal gestures themselves. */
