@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.145 - 2026-08-21
+
 - Mobile web sessions now keep native viewport scale, pairing recovery, remote
   state projection, and transcript scrolling stable across touch gestures,
   streaming row measurements, app restores, and slow connections.
