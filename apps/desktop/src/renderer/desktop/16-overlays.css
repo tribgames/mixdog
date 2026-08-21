@@ -15,7 +15,7 @@
   color: var(--mx-text);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
-  animation: mx-menu-in 120ms ease-out;
+  animation: mx-menu-in var(--mx-motion-chrome);
 }
 .mx-menu[data-trigger-style="settings"] {
   min-width: 160px;
@@ -37,7 +37,7 @@
   line-height: var(--mx-line-ui);
   text-align: left;
   cursor: default;
-  transition: background 85ms ease-out, box-shadow 85ms ease-out;
+  transition: background var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .mx-menu-item:hover, .mx-menu-item:focus-visible, .mx-menu-item[data-active="true"] {
   outline: 0;
@@ -88,7 +88,7 @@
   /* Toasts carry only the floating elevation — no inset ring. */
   box-shadow: var(--mx-floating);
   pointer-events: auto;
-  animation: mx-toast-in 140ms ease-out;
+  animation: mx-toast-in var(--mx-motion-chrome);
 }
 @keyframes mx-toast-in { from { opacity: var(--mx-op-soft); transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .mx-toast > svg { flex: 0 0 16px; margin-top: 2px; color: var(--mx-icon); }
@@ -121,7 +121,7 @@
   font-variant-numeric: tabular-nums;
   pointer-events: none;
   user-select: none;
-  animation: mx-tooltip-in 120ms ease-out;
+  animation: mx-tooltip-in var(--mx-motion-chrome);
 }
 .mx-tooltip:has(.mx-keybind) {
   display: flex;

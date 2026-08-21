@@ -44,7 +44,7 @@
   color: var(--mx-text);
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
-  animation: route-popover-in 160ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: route-popover-in var(--mx-motion-slow) var(--mx-ease-emphasized) both;
   will-change: transform, opacity;
 }
 .route-sheet[data-placement="above"],
@@ -76,16 +76,16 @@
 .route-sheet[data-state="closing"],
 .route-sheet-flyout[data-state="closing"] {
   pointer-events: none;
-  animation: route-popover-out 110ms cubic-bezier(.4, 0, 1, 1) both;
+  animation: route-popover-out var(--mx-motion-base) var(--mx-ease-exit) both;
 }
 /* Codex-style pill morph: the sheet grows OUT of the trigger pill, expanding
    in both axes from the pill's size (vars set inline per open), and shrinks
    back into it on close. Content fades in slightly after the surface. */
 .route-sheet {
-  animation: route-sheet-morph-in 180ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: route-sheet-morph-in var(--mx-motion-slow) var(--mx-ease-emphasized) both;
 }
 .route-sheet[data-state="open"] > * {
-  animation: route-sheet-content-in 140ms ease-out 45ms both;
+  animation: route-sheet-content-in var(--mx-motion-chrome) 45ms both;
 }
 .route-sheet[data-state="closing"] { animation-name: route-sheet-morph-out; }
 /* The sheet anchors to the pill's LEFT edge, so it grows rightwards with it. */
@@ -104,7 +104,7 @@
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
-  transition: width 110ms cubic-bezier(.22, 1, .36, 1);
+  transition: width var(--mx-motion-base) var(--mx-ease-emphasized);
 }
 @keyframes route-sheet-morph-in {
   from { opacity: .35; transform: scale(var(--route-morph-sx, .9), var(--route-morph-sy, .7)); }
@@ -488,7 +488,7 @@
 }
 
 .mx-select-trigger {
-  transition: background 85ms ease-out, outline-color 85ms ease-out, box-shadow 85ms ease-out;
+  transition: background var(--mx-motion-ink), outline-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .mx-select-trigger:focus-visible {
   outline: 1px solid var(--mx-focus);
@@ -733,11 +733,7 @@
      already uses, and nothing above the composer can be covered by it. */
   top: calc(100% + 6px);
   right: 0;
-  /* ONE column pair shared by every row (user: 정렬 좀 맞춰주고): each row used
-     to split its own 184px with space-between, so the labels and the values
-     landed at different x per row and "Tokens (est.)" / "150,717 / 1,000,000"
-     both wrapped mid-word. The box now grows to its widest row and stays
-     inside a phone screen. */
+  /* Context, Shell, and Agent cards share one compact fixed width. */
   width: var(--session-status-card-width);
   max-width: calc(100vw - 24px);
   display: grid;
@@ -752,7 +748,7 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(-2px);
-  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms;
+  transition: opacity var(--mx-motion-ink), transform var(--mx-motion-ink), visibility var(--mx-motion-fast);
   pointer-events: none;
 }
 .session-context-indicator[data-open="true"] .session-context-popover {
@@ -775,17 +771,17 @@
 /* The row is a grouping element only; its label/value join the popover grid so
    both columns align across rows. */
 .session-context-popover > div {
-  min-height: 30px;
+  min-height: 36px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 16px;
-  padding: 0 6px;
+  gap: 10px;
+  padding: 6px 8px;
   border-radius: var(--mx-radius-md);
 }
 .session-context-popover > div:hover { background: var(--mx-hover); }
 .session-context-popover span {
-  color: var(--mx-text-muted);
+  color: var(--mx-text);
   font-size: var(--mx-font-minor);
   white-space: nowrap;
 }
@@ -794,6 +790,7 @@
   text-align: right;
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
+  color: var(--mx-text-faint);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

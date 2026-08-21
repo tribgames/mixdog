@@ -19,7 +19,7 @@
   border-radius: var(--mx-radius-lg);
   background: var(--mx-window-band);
   box-shadow: var(--mx-floating);
-  animation: mx-menu-in 120ms ease-out;
+  animation: mx-menu-in var(--mx-motion-chrome);
 }
 .rail-usage-popup[data-state="closed"] { display: none; }
 .sidebar-usage {

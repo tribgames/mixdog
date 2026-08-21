@@ -352,7 +352,7 @@
   position: absolute;
   inset: 2px 0;
   background: var(--mx-border-structure);
-  transition: background-color 100ms ease-out;
+  transition: background-color var(--mx-motion-ink);
 }
 .workbench-side-sash:hover::after,
 .workbench-side-sash:active::after {

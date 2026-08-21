@@ -12,4 +12,4 @@ Simple — concise summary.
 - Retain: the answer, core causal sequence, strongest evidence, direct
   consequences, and material scope or caveat. Keep it self-contained.
 - Omit: secondary evidence, implementation detail, examples, edge cases,
-  adjacent implications, alternatives, and unrequested remediation.
+  adjacent implications, and unrequested remediation.

@@ -126,6 +126,12 @@ PROVIDER_MODEL_CATALOG_FILES = {
     provider: entry["modelCatalogFile"]
     for provider, entry in PRISTINE_CONTRACT["oauthProviders"].items()
 }
+# API-key providers carry no host credential file; their secret travels as a
+# single container env var named by the pristine contract.
+API_KEY_PROVIDER_ENV = {
+    provider: entry
+    for provider, entry in PRISTINE_CONTRACT["apiKeyProviders"].items()
+}
 PERSONAL_STATE_AUDIT_NAME = "personal-state-audit.json"
 CONTAINER_PERSONAL_STATE_AUDIT = f"/logs/agent/{PERSONAL_STATE_AUDIT_NAME}"
 UV_BOOTSTRAP_ATTEMPTS = 3
@@ -154,13 +160,19 @@ def _collect_provider_files(providers: set[str]) -> dict[str, Path]:
     """Collect exact credential/catalog files for selected route providers."""
     data_dir = _host_data_dir()
     files: dict[str, Path] = {}
-    unsupported = sorted(set(providers) - set(PROVIDER_CREDENTIAL_FILES))
+    unsupported = sorted(
+        set(providers) - set(PROVIDER_CREDENTIAL_FILES) - set(API_KEY_PROVIDER_ENV)
+    )
     if unsupported:
         raise RuntimeError(
             "pristine benchmark credential injection does not support provider(s): "
             + ", ".join(unsupported)
         )
     for provider in sorted(providers):
+        if provider in API_KEY_PROVIDER_ENV:
+            # No host file exists; the key is injected as a container env var
+            # by _collect_api_key_env.
+            continue
         credential_name = PROVIDER_CREDENTIAL_FILES[provider]
         credential_path = (
             _host_credentials_path()
@@ -177,6 +189,53 @@ def _collect_provider_files(providers: set[str]) -> dict[str, Path]:
         if catalog_path.is_file():
             files[catalog_name] = catalog_path
     return files
+
+
+def _host_agent_api_key(provider: str) -> str | None:
+    """Read one host API key through the product's own env/keychain lookup.
+
+    The key is captured in-process only; it is never printed or logged.
+    """
+    module = (
+        Path(__file__).resolve().parents[3]
+        / "src" / "runtime" / "shared" / "provider-api-key.mjs"
+    )
+    code = (
+        'const { pathToFileURL } = await import("node:url");'
+        "const { getAgentApiKey } = await import("
+        "pathToFileURL(process.env.MIXDOG_PROVIDER_API_KEY_MODULE));"
+        "const key = getAgentApiKey(process.env.MIXDOG_PROVIDER_API_KEY_ID);"
+        "if (key) process.stdout.write(key);"
+    )
+    env = {
+        **os.environ,
+        "MIXDOG_PROVIDER_API_KEY_MODULE": str(module),
+        "MIXDOG_PROVIDER_API_KEY_ID": provider,
+    }
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", code],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout or None
+
+
+def _collect_api_key_env(providers: set[str]) -> dict[str, str]:
+    """Collect host API keys for selected API-key route providers."""
+    env: dict[str, str] = {}
+    for provider in sorted(providers & set(API_KEY_PROVIDER_ENV)):
+        var = API_KEY_PROVIDER_ENV[provider]
+        value = os.environ.get(var) or _host_agent_api_key(provider)
+        if not value:
+            raise RuntimeError(
+                f"required {provider} credentials are unavailable; "
+                f"set {var} on the host or store the key in the mixdog keychain"
+            )
+        env[var] = value
+    return env
 
 
 def _harness_snapshot_file(name: str) -> Path:
@@ -600,6 +659,7 @@ class MixdogAgent(BaseInstalledAgent):
             if fallback:
                 required_providers.add(fallback["provider"])
         boot_files = _collect_provider_files(required_providers)
+        self._api_key_env = _collect_api_key_env(required_providers)
         credential_snapshot_dir = None
         generated_dir = tempfile.TemporaryDirectory(prefix="mixdog-tb-pristine-")
         timings = {}
@@ -817,6 +877,7 @@ class MixdogAgent(BaseInstalledAgent):
 
         base_env = {
             **PRISTINE_GUARD_ENV,
+            **getattr(self, "_api_key_env", {}),
             "ANTHROPIC_OAUTH_CREDENTIALS_PATH": CONTAINER_CREDS_PATH,
             "MIXDOG_DATA_DIR": CONTAINER_DATA_DIR,
             # Uniform transport-policy passthrough (ws-full | ws-delta |

@@ -413,7 +413,7 @@ html[data-mixdog-mobile-tabs] .conversation {
   opacity: 0;
   pointer-events: none;
   cursor: pointer;
-  transition: opacity 85ms ease-out, color 85ms ease-out, background 85ms ease-out;
+  transition: opacity var(--mx-motion-ink), color var(--mx-motion-ink), background var(--mx-motion-ink);
 }
 .message:hover .message-actions,
 .message:focus-within .message-actions,

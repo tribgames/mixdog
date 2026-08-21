@@ -881,7 +881,7 @@
   place-items: center;
   color: var(--mx-icon-muted);
   opacity: var(--mx-op-dim);
-  transition: opacity 85ms ease-out;
+  transition: opacity var(--mx-motion-ink);
 }
 .project-group-toggle:hover .project-group-chevron,
 .project-group-toggle:focus-visible .project-group-chevron,

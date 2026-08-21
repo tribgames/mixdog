@@ -1206,6 +1206,53 @@ export function flattenedToolActivityItems(items: readonly TranscriptItem[]): Tr
   return flattened;
 }
 
+const DESKTOP_TOOL_ACTIVITY_ALIASES = new Map([
+  ["webfetch", "web_fetch"],
+  ["websearch", "web_search"],
+  ["patch", "apply_patch"],
+  ["write", "edit"],
+  ["question", "request_user_input"],
+  ["todowrite", "update_plan"],
+]);
+
+function desktopToolActivityModeledName(name: unknown, args: unknown): string {
+  const surface = formatToolSurface(String(name || "tool"), args);
+  return DESKTOP_TOOL_ACTIVITY_ALIASES.get(surface.normalizedName)
+    ?? String(name || "tool");
+}
+
+export function desktopToolActivityCategory(name: unknown, args: unknown): string {
+  const modeledName = desktopToolActivityModeledName(name, args);
+  const surface = formatToolSurface(modeledName, args);
+  return String(classifyToolCategory(modeledName, surface.args) || "Other");
+}
+
+export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem[]) {
+  const groups = new Map<string, {
+    category: string;
+    label: string;
+    count: number;
+    items: TranscriptItem[];
+  }>();
+  for (const item of flattenedToolActivityItems(items)) {
+    const category = desktopToolActivityCategory(item.name, item.args);
+    const count = Math.max(1, Math.round(Number(item.count || 1)));
+    const previous = groups.get(category);
+    if (previous) {
+      previous.count += count;
+      previous.items.push(item);
+      continue;
+    }
+    groups.set(category, {
+      category,
+      label: localizedToolActivityCategory(category),
+      count,
+      items: [item],
+    });
+  }
+  return [...groups.values()];
+}
+
 function toolActivityDisclosureKey(items: readonly TranscriptItem[], scope: string): string {
   const id = String(items[0]?.id ?? "").trim();
   return id ? `${scope}:tool-activity:${id}` : "";
@@ -1235,10 +1282,16 @@ export function ToolActivityGroup({
   const mobileSurface = isMobileRemoteSurface();
   const pending = items.some((item) => !toolItemDone(item));
   const { categories, order } = useMemo(() => mergedToolActivityCategories(items), [items]);
-  const label = mobileSurface ? formatAggregateHeader(categories, { pending, order }) : t("Tool use");
-  const categorySummary = mobileSurface ? "" : desktopToolActivityCategorySummary(categories, order);
-  const headerTitle = [label, categorySummary].filter(Boolean).join(" · ");
-  const memberItems = useMemo(() => flattenedToolActivityItems(items), [items]);
+  const desktopCategoryGroups = useMemo(
+    () => desktopToolActivityCategoryGroups(items),
+    [items],
+  );
+  const desktopCategorySummary = desktopCategoryGroups
+    .map((group) => `${group.label} ${group.count}`)
+    .join(" · ");
+  const label = mobileSurface
+    ? formatAggregateHeader(categories, { pending, order })
+    : desktopCategorySummary || t("Tool use");
   const tones = items.map(toolActivityItemTone);
   const failure = tones.includes("error");
   const warning = !failure && tones.includes("warning");
@@ -1256,10 +1309,19 @@ export function ToolActivityGroup({
           return next;
         })}
         aria-expanded={open} aria-controls={contentId}>
-        <span className="tool-icon"><ListTree size={16} /></span>
-        <span className="tool-title tool-activity-title" title={headerTitle}>
+        <span className="tool-icon">
+          {mobileSurface ? <ListTree size={16} /> : pending ? (
+            <svg className="live-activity-glyph tool-activity-pending-glyph"
+              viewBox="0 0 12 12" aria-hidden="true">
+              <g className="live-activity-glyph-spin">
+                <path className="live-activity-glyph-ring" d="M6 .9 11.1 6 6 11.1.9 6Z" />
+                <path className="live-activity-glyph-core" d="M6 .9 11.1 6 6 11.1.9 6Z" />
+              </g>
+            </svg>
+          ) : <Layers3 size={16} />}
+        </span>
+        <span className="tool-title tool-activity-title" title={label}>
           <b>{label}</b>
-          {categorySummary && <small>{categorySummary}</small>}
         </span>
         {pending && <span className="sr-only" role="status">{t("Running")}</span>}
         <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>
@@ -1271,39 +1333,1022 @@ export function ToolActivityGroup({
                 <ToolCard key={String(item.id ?? index)} item={item}
                   disclosureScope={disclosureScope} />
               ))
-            : memberItems.map((item, index) => (
-                <ToolActivityMember key={`${String(item.id ?? "tool")}:${index}`} item={item} />
-              ))}
+            : <DesktopToolActivityDetails groups={desktopCategoryGroups}
+                disclosureKey={disclosureKey} />}
         </div>
       )}
     </article>
   );
 }
 
-function ToolActivityMember({ item }: { item: TranscriptItem }) {
-  const name = String(item.name || "tool");
-  const category = classifyToolCategory(name, item.args);
-  const tone = toolActivityItemTone(item);
-  const argsText = item.args == null ? "" : boundedTextOf(item.args, 40_000);
-  const output = item.rawResult ?? item.result;
-  const outputText = output == null ? "" : boundedTextOf(output, 100_000);
+function activityItemKey(item: TranscriptItem, index: number): string {
+  return String(item.id ?? `${String(item.name || "tool")}:${index}`);
+}
+
+function disclosureChildKey(parent: string, kind: "category" | "item", id: string): string {
+  return parent ? `${parent}:${kind}:${id}` : "";
+}
+
+function DesktopToolActivityDetails({
+  groups,
+  disclosureKey,
+}: {
+  groups: ReturnType<typeof desktopToolActivityCategoryGroups>;
+  disclosureKey: string;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const contentId = useId();
+  const allItems = groups.flatMap((group) => group.items);
+  const rememberedCategory = () => groups.find((group) =>
+    toolDisclosureStates.get(disclosureChildKey(disclosureKey, "category", group.category)) === true)
+    ?.category ?? null;
+  const rememberedItem = () => allItems.find((item, index) =>
+    toolDisclosureStates.get(disclosureChildKey(
+      disclosureKey,
+      "item",
+      activityItemKey(item, index),
+    )) === true);
+  const [openCategory, setOpenCategory] = useState<string | null>(rememberedCategory);
+  const [openItem, setOpenItem] = useState<string | null>(() => {
+    const item = rememberedItem();
+    return item ? activityItemKey(item, allItems.indexOf(item)) : null;
+  });
+  useLayoutEffect(() => {
+    setOpenCategory(rememberedCategory());
+    const item = rememberedItem();
+    setOpenItem(item ? activityItemKey(item, allItems.indexOf(item)) : null);
+  }, [disclosureKey, groups]);
+  useLayoutEffect(() => {
+    requestTranscriptRowMeasure(rootRef.current);
+  }, [openCategory, openItem]);
+
+  const toggleCategory = (category: string) => {
+    const next = openCategory === category ? null : category;
+    if (openCategory) {
+      rememberToolDisclosure(
+        disclosureChildKey(disclosureKey, "category", openCategory),
+        false,
+      );
+    }
+    rememberToolDisclosure(
+      disclosureChildKey(disclosureKey, "category", category),
+      next !== null,
+    );
+    if (openItem) {
+      rememberToolDisclosure(disclosureChildKey(disclosureKey, "item", openItem), false);
+      setOpenItem(null);
+    }
+    setOpenCategory(next);
+  };
+
+  const toggleItem = (key: string) => {
+    const next = openItem === key ? null : key;
+    if (openItem) {
+      rememberToolDisclosure(disclosureChildKey(disclosureKey, "item", openItem), false);
+    }
+    rememberToolDisclosure(
+      disclosureChildKey(disclosureKey, "item", key),
+      next !== null,
+    );
+    setOpenItem(next);
+  };
+
+  let itemIndex = 0;
   return (
-    <article className={`tool-activity-member ${tone}`}>
-      <div className="tool-activity-member-header">
-        <span className="tool-icon">{toolIcon(category)}</span>
-        <b className="tool-activity-member-name">{name}</b>
-      </div>
-      {argsText && (
-        <section className="tool-activity-member-section">
-          <span>{t("Arguments")}</span>
-          <pre>{argsText}</pre>
-        </section>
-      )}
-      {outputText && (
-        <section className="tool-activity-member-section">
-          <span>{t("Output")}</span>
-          <pre>{outputText}</pre>
-        </section>
+    <div ref={rootRef} className="tool-activity-desktop-details">
+      {groups.map((group, groupIndex) => {
+        const groupItems = group.items.map((item) => ({
+          item,
+          index: itemIndex++,
+        }));
+        if (group.items.length <= 1) {
+          const entry = groupItems[0];
+          if (!entry) return null;
+          const key = activityItemKey(entry.item, entry.index);
+          return <DesktopToolActivityItem key={key} item={entry.item}
+            open={openItem === key} onToggle={() => toggleItem(key)}
+            contentId={`${contentId}-item-${entry.index}`} />;
+        }
+        const categoryOpen = openCategory === group.category;
+        const categoryPending = group.items.some((item) => !toolItemDone(item));
+        const categoryContentId = `${contentId}-category-${groupIndex}`;
+        return (
+          <section className="tool-activity-category"
+            data-open={categoryOpen ? "true" : "false"} key={group.category}>
+            <button type="button" className="tool-header tool-activity-category-header"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => toggleCategory(group.category)}
+              aria-expanded={categoryOpen} aria-controls={categoryContentId}>
+              <span className="tool-icon">{toolIcon(group.category)}</span>
+              <span className="tool-title tool-activity-category-title">
+                <b>{group.label}</b>
+                <small>{group.count}</small>
+              </span>
+              {categoryPending && <span className="sr-only" role="status">{t("Running")}</span>}
+              <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>
+            </button>
+            {categoryOpen && (
+              <div className="tool-activity-category-items" id={categoryContentId}>
+                {groupItems.map(({ item, index }) => {
+                  const key = activityItemKey(item, index);
+                  return <DesktopToolActivityItem key={key} item={item}
+                    open={openItem === key} onToggle={() => toggleItem(key)}
+                    contentId={`${contentId}-item-${index}`} />;
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+const TOOL_ACTIVITY_INTERNAL_ARGS = new Set([
+  "categoryOrder",
+  "loadingTargets",
+  "agentBatch",
+  "verifyShell",
+]);
+const TOOL_ACTIVITY_BULK_ARGS = new Set([
+  "old_string",
+  "new_string",
+  "oldString",
+  "newString",
+  "old_str",
+  "new_str",
+  "content",
+  "patch",
+]);
+
+const TOOL_ACTIVITY_SECRET_ARG = /(?:password|secret|token|api[_-]?key|authorization|cookie)/i;
+const TOOL_ACTIVITY_ROUTINE_RESULT = /^(?:ok|done|success(?:ful)?|completed|finished|updated|written|applied|saved|loaded|cancelled)[.!]?$/i;
+const TOOL_ACTIVITY_MEANINGLESS_RESULT = /^(?:ok|done|success(?:ful)?|completed|finished|updated|written|applied|loaded)[.!]?$/i;
+
+type ToolActivityStructuredKind = "plan" | "todos" | "questions" | "";
+
+interface ToolActivityStructuredRow {
+  text: string;
+  status: string;
+  answer?: string;
+}
+
+export interface DesktopToolActivityItemPresentation {
+  category: string;
+  title: string;
+  subject: string;
+  resultLabel: string;
+  pending: boolean;
+  tone: string;
+  command: string;
+  fields: Array<{ key: string; label: string; value: string }>;
+  diffPatch: string;
+  outputText: string;
+  metaText: string;
+  previewLabel: string;
+  previewText: string;
+  beforeText: string;
+  afterText: string;
+  structuredKind: ToolActivityStructuredKind;
+  structuredRows: ToolActivityStructuredRow[];
+  hasDetails: boolean;
+  hideSubjectWhenOpen: boolean;
+}
+
+function toolActivityInline(value: unknown, max = 500): string {
+  return oneLine(boundedTextOf(value, max)).trim();
+}
+
+function toolActivityFirstText(args: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return "";
+}
+
+function toolActivityStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => typeof entry === "string" ? entry.trim() : "")
+    .filter(Boolean);
+}
+
+function toolActivityCompact(parts: Array<string | undefined>): string {
+  return parts.map((part) => String(part || "").trim()).filter(Boolean).join(" · ");
+}
+
+function toolActivityQuoted(value: unknown): string {
+  const text = toolActivityInline(value, 300);
+  return text ? `"${text}"` : "";
+}
+
+function toolActivityCommand(args: Record<string, unknown>): string {
+  const direct = toolActivityFirstText(args, "command", "cmd", "description");
+  if (direct) return direct;
+  const commands = toolActivityStringList(args.commands);
+  return commands.join("\n");
+}
+
+function toolActivityPath(args: Record<string, unknown>): string {
+  return toolActivityFirstText(args, "file_path", "filePath", "path", "file", "target");
+}
+
+function toolActivitySubject(
+  normalizedName: string,
+  args: Record<string, unknown>,
+  fallback: string,
+): string {
+  const path = toolActivityPath(args);
+  switch (normalizedName) {
+    case "read": {
+      const paths = toolActivityStringList(args.file_path ?? args.path);
+      const target = paths.length > 1 ? `${paths.length} files` : path;
+      const offset = Number(args.offset);
+      const limit = Number(args.limit);
+      const window = Number.isFinite(offset) && offset > 0 && Number.isFinite(limit) && limit > 0
+        ? `lines ${offset}-${offset + limit - 1}`
+        : Number.isFinite(offset) && offset > 0
+          ? `from line ${offset}`
+          : Number.isFinite(limit) && limit > 0 ? `${limit} lines` : "";
+      return toolActivityCompact([target, window]);
+    }
+    case "view_image":
+    case "read_mcp_resource":
+      return path || toolActivityFirstText(args, "uri");
+    case "edit":
+    case "strreplace":
+    case "str_replace":
+    case "str_replace_editor":
+    case "search_replace":
+      return path;
+    case "apply_patch":
+      return fallback;
+    case "shell":
+    case "bash":
+    case "bash_session":
+    case "shell_command":
+    case "job_wait":
+    case "git":
+      return toolActivityInline(toolActivityCommand(args), 1_000);
+    case "git_stage": {
+      const files = toolActivityStringList(args.files ?? args.paths);
+      return files.length > 2 ? `${files.length} files` : files.join(", ");
+    }
+    case "grep": {
+      const patterns = toolActivityStringList(args.pattern ?? args.query);
+      const pattern = patterns.length > 1
+        ? `${patterns.length} patterns`
+        : toolActivityQuoted(args.pattern ?? args.query);
+      return toolActivityCompact([
+        pattern,
+        args.path ? `in ${toolActivityInline(args.path)}` : "",
+        args.glob ? toolActivityInline(args.glob) : "",
+      ]);
+    }
+    case "glob": {
+      const patterns = toolActivityStringList(args.pattern ?? args.glob);
+      const pattern = patterns.length > 1
+        ? `${patterns.length} globs`
+        : toolActivityInline(args.pattern ?? args.glob);
+      return toolActivityCompact([pattern, args.path ? `in ${toolActivityInline(args.path)}` : ""]);
+    }
+    case "find": {
+      const queries = toolActivityStringList(args.query ?? args.fuzzy);
+      const query = queries.length > 1
+        ? `${queries.length} queries`
+        : toolActivityQuoted(args.query ?? args.fuzzy);
+      return toolActivityCompact([query, args.path ? `in ${toolActivityInline(args.path)}` : ""]);
+    }
+    case "list":
+    case "ls":
+      return toolActivityCompact([
+        path,
+        args.limit ? `${toolActivityInline(args.limit)} entries` : "",
+      ]);
+    case "web_search":
+    case "web_search_call":
+    case "search_query":
+    case "image_query":
+      return toolActivityQuoted(args.query ?? args.keywords);
+    case "web_fetch":
+    case "fetch":
+      return toolActivityInline(args.url ?? args.uri ?? fallback, 1_000);
+    case "load_tool": {
+      const names = [
+        ...toolActivityStringList(args.names),
+        ...toolActivityStringList(args.select),
+      ];
+      return names.join(", ") || fallback;
+    }
+    case "skill":
+    case "skill_execute":
+    case "skill_view":
+    case "skills_list":
+    case "use_skill":
+      return toolActivityFirstText(args, "name", "skill", "skill_name", "query") || fallback;
+    case "task":
+      return toolActivityCompact([
+        toolActivityFirstText(args, "action"),
+        toolActivityFirstText(args, "task_id", "id"),
+      ]);
+    case "agent":
+    case "bridge":
+      return toolActivityFirstText(args, "description", "tag", "role", "model")
+        || fallback;
+    case "request_user_input": {
+      const questions = Array.isArray(args.questions) ? args.questions : [];
+      return questions.length ? `${questions.length} ${questions.length === 1 ? "question" : "questions"}` : "";
+    }
+    case "update_plan":
+      return "";
+    default:
+      return fallback;
+  }
+}
+
+function toolActivityTitle(
+  normalizedName: string,
+  originalName: string,
+  surfaceLabel: string,
+  args: Record<string, unknown>,
+): string {
+  if (originalName === "write") return "Write";
+  if (originalName === "question") return "Questions";
+  if (originalName === "todowrite" || Array.isArray(args.todos)) return "Todos";
+  switch (normalizedName) {
+    case "read": return "Read";
+    case "view_image": return "Image";
+    case "read_mcp_resource": return "Resource";
+    case "edit":
+    case "strreplace":
+    case "str_replace":
+    case "str_replace_editor":
+    case "search_replace":
+      return "Edit";
+    case "git":
+    case "git_stage":
+      return "Git";
+    case "shell":
+    case "bash":
+    case "bash_session":
+    case "shell_command":
+    case "job_wait":
+      return "Run";
+    case "grep":
+    case "glob":
+    case "find":
+      return "Search";
+    case "list":
+    case "ls":
+      return "List";
+    case "web_search":
+    case "web_search_call":
+    case "search_query":
+    case "image_query":
+      return "Web Search";
+    case "web_fetch":
+    case "fetch":
+      return "Fetch";
+    case "load_tool": return "Load";
+    case "task": return "Task";
+    case "agent":
+    case "bridge":
+      return "Agent";
+    case "request_user_input": return "Questions";
+    case "update_plan": return "Plan";
+    case "skill":
+    case "skill_execute":
+    case "skill_view":
+    case "skills_list":
+    case "use_skill":
+      return "Skill";
+    default:
+      return surfaceLabel || originalName || "Tool";
+  }
+}
+
+function toolActivityFieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    api_key: "API key",
+    include_noise: "Include ignored",
+    monitor_interval_ms: "Interval",
+    timeout_ms: "Timeout",
+  };
+  if (labels[key]) return labels[key];
+  const text = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : key;
+}
+
+function toolActivityFieldValue(key: string, value: unknown): string {
+  if (TOOL_ACTIVITY_SECRET_ARG.test(key)) return "••••••";
+  if ((key === "timeout_ms" || key === "monitor_interval_ms") && Number(value) > 0) {
+    return formatElapsed(Number(value));
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+    return value.join(", ");
+  }
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2).slice(0, 8_000);
+    } catch {}
+  }
+  return boundedTextOf(value, 8_000);
+}
+
+function toolActivityRedactInlineSecrets(text: string, args: Record<string, unknown>): string {
+  let redacted = text;
+  for (const [key, value] of Object.entries(args)) {
+    if (!TOOL_ACTIVITY_SECRET_ARG.test(key) || value == null || typeof value === "object") continue;
+    const raw = toolActivityInline(value);
+    if (!raw) continue;
+    redacted = redacted
+      .split(`${key}=${raw}`).join(`${key}=••••••`)
+      .split(`${key}: ${raw}`).join(`${key}: ••••••`);
+  }
+  return redacted;
+}
+
+function toolActivityRepresentedKeys(normalizedName: string): Set<string> {
+  const keys = new Set<string>();
+  const add = (...values: string[]) => values.forEach((value) => keys.add(value));
+  switch (normalizedName) {
+    case "read":
+      add("file_path", "filePath", "path", "file", "offset", "limit", "pages");
+      break;
+    case "view_image":
+    case "read_mcp_resource":
+      add("file_path", "filePath", "path", "file", "uri");
+      break;
+    case "edit":
+    case "strreplace":
+    case "str_replace":
+    case "str_replace_editor":
+    case "search_replace":
+      add("file_path", "filePath", "path", "file", "target");
+      break;
+    case "shell":
+    case "bash":
+    case "bash_session":
+    case "shell_command":
+    case "job_wait":
+    case "git":
+      add("command", "commands", "cmd", "description");
+      break;
+    case "git_stage":
+      add("files", "paths");
+      break;
+    case "grep":
+      add("pattern", "query", "path", "glob");
+      break;
+    case "glob":
+      add("pattern", "glob", "path");
+      break;
+    case "find":
+      add("query", "fuzzy", "path");
+      break;
+    case "list":
+    case "ls":
+      add("path", "dir", "cwd", "limit");
+      break;
+    case "web_search":
+    case "web_search_call":
+    case "search_query":
+    case "image_query":
+      add("query", "keywords");
+      break;
+    case "web_fetch":
+    case "fetch":
+      add("url", "uri");
+      break;
+    case "load_tool":
+      add("names", "select", "query", "q", "text");
+      break;
+    case "skill":
+    case "skill_execute":
+    case "skill_view":
+    case "skills_list":
+    case "use_skill":
+      add("name", "skill", "skill_name", "query", "q");
+      break;
+    case "task":
+      add("action", "task_id", "id");
+      break;
+    case "agent":
+    case "bridge":
+      add("type", "action", "description", "tag", "role", "model", "prompt",
+        "status", "task_id", "sessionId");
+      break;
+    case "request_user_input":
+      add("questions", "answers");
+      break;
+    case "update_plan":
+      add("plan", "todos", "explanation");
+      break;
+    case "memory":
+    case "remember":
+    case "save_memory":
+    case "update_memory":
+    case "recall_memory":
+    case "recall":
+    case "search_memories":
+      add("action", "type", "operation", "op", "query", "queries", "text", "input",
+        "summary", "element", "key", "name", "value", "limit", "topK");
+      break;
+    case "code_graph":
+      add("mode", "action", "symbols", "symbol", "query", "files", "file", "path",
+        "body", "limit", "depth", "cwd");
+      break;
+    case "cwd":
+      add("action", "type", "path", "cwd", "dir");
+      break;
+    case "list_mcp_resources":
+    case "list_mcp_resource_templates":
+      add("server");
+      break;
+  }
+  return keys;
+}
+
+function toolActivityErrorSummary(text: string): string {
+  const first = text.split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  return toolActivityInline(
+    first.replace(/^(?:\[(?:error|failed)\]\s*|error\s*:?\s*|failed\s*:?\s*)/i, ""),
+    180,
+  );
+}
+
+function toolActivityResultValue(item: TranscriptItem): unknown {
+  const value = item.rawResult ?? item.result;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed || !/^[{[]/.test(trimmed)) return value;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function toolActivityAnswer(
+  result: unknown,
+  question: Record<string, unknown>,
+  index: number,
+  total: number,
+): string {
+  const secret = question.is_secret === true || question.isSecret === true;
+  const record = asRecord(result);
+  const answers = record?.answers ?? record?.answer;
+  let value: unknown;
+  if (Array.isArray(answers)) value = answers[index];
+  else {
+    const answerRecord = asRecord(answers);
+    const id = toolActivityFirstText(question, "id");
+    value = answerRecord?.[id] ?? answerRecord?.[String(index)];
+  }
+  if (value == null && total === 1 && typeof result === "string"
+    && result.trim() && !TOOL_ACTIVITY_ROUTINE_RESULT.test(result.trim())) {
+    value = result.trim();
+  }
+  const text = Array.isArray(value)
+    ? value.map((entry) => toolActivityInline(entry)).filter(Boolean).join(", ")
+    : toolActivityInline(value);
+  return text ? (secret ? "••••••" : text) : "";
+}
+
+function toolActivityStructuredRows(
+  normalizedName: string,
+  args: Record<string, unknown>,
+  result: unknown,
+): { kind: ToolActivityStructuredKind; rows: ToolActivityStructuredRow[] } {
+  if (normalizedName === "request_user_input" && Array.isArray(args.questions)) {
+    const questions = args.questions
+      .map((entry) => asRecord(entry))
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+    return {
+      kind: "questions",
+      rows: questions.map((question, index) => ({
+        text: toolActivityFirstText(question, "question", "header", "text") || `Question ${index + 1}`,
+        status: toolActivityAnswer(result, question, index, questions.length) ? "completed" : "pending",
+        answer: toolActivityAnswer(result, question, index, questions.length),
+      })),
+    };
+  }
+  const source = Array.isArray(args.todos) ? args.todos
+    : normalizedName === "update_plan" && Array.isArray(args.plan) ? args.plan
+      : [];
+  if (source.length) {
+    const kind: ToolActivityStructuredKind = Array.isArray(args.todos) ? "todos" : "plan";
+    return {
+      kind,
+      rows: source.map((entry, index) => {
+        const record = asRecord(entry) ?? {};
+        return {
+          text: toolActivityFirstText(record, "content", "step", "text", "title") || `${kind === "todos" ? "Todo" : "Step"} ${index + 1}`,
+          status: toolActivityFirstText(record, "status") || "pending",
+        };
+      }),
+    };
+  }
+  return { kind: "", rows: [] };
+}
+
+function toolActivityOutputText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value !== "string") return toolActivityFieldValue("output", value).trimEnd();
+  const text = value.trimEnd();
+  const trimmed = text.trim();
+  if (/^[{[]/.test(trimmed)) {
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2).slice(0, 100_000);
+    } catch {}
+  }
+  return boundedTextOf(text, 100_000).trimEnd();
+}
+
+/* Every tool body arrives wrapped in harness scaffolding written for the
+   model: pagination hints, guard notices, evidence anchors, and polling
+   instructions. None of it means anything on screen, and it buried the actual
+   result, so each card strips it before rendering. */
+const TOOL_ACTIVITY_PROTOCOL_HINT =
+  /(?:pass offset:|one window:|to continue|for more|raw source spans|evidence-ref|showing \d+ of|top \d+ of)/i;
+const TOOL_ACTIVITY_TASK_INSTRUCTION =
+  /(?:completion is automatic|do not call task|continue independent work|explicitly ask|use read for full output)/i;
+
+function toolActivityIsProtocolLine(line: string): boolean {
+  const text = line.trim();
+  if (!text) return false;
+  if (/^\[arg-guard\]/i.test(text)) return true;
+  if (!/^(?:\.{3}\s*)?\[[^\]]*\]$/.test(text)) return false;
+  return TOOL_ACTIVITY_PROTOCOL_HINT.test(text);
+}
+
+function toolActivityCleanOutput(text: string): string {
+  if (!text.includes("[")) return text;
+  return text
+    .split("\n")
+    .filter((line) => !toolActivityIsProtocolLine(line))
+    .join("\n")
+    .trim();
+}
+
+/** A `background task` result is a protocol payload: an id/status header
+    followed by instructions telling the model not to poll. The card keeps the
+    status and id as one quiet line and shows only the real body. */
+function toolActivityBackgroundTask(text: string): { meta: string; body: string } | null {
+  const lines = text.split("\n");
+  if ((lines[0] ?? "").trim() !== "background task") return null;
+  const meta = new Map<string, string>();
+  let index = 1;
+  for (; index < lines.length; index += 1) {
+    const line = (lines[index] ?? "").trim();
+    if (!line) {
+      index += 1;
+      break;
+    }
+    const match = /^([a-z0-9_]+):\s*(.*)$/i.exec(line);
+    if (!match) break;
+    meta.set(match[1].toLowerCase(), match[2].trim());
+  }
+  const status = (meta.get("status") || "").toLowerCase();
+  const statusLabel = status === "running"
+    ? t("Running")
+    : status === "completed" ? t("Completed") : status === "failed" ? t("Failed") : status;
+  const body = lines.slice(index).join("\n")
+    .split(/\n{2,}/)
+    .filter((block) => block.trim() && !TOOL_ACTIVITY_TASK_INSTRUCTION.test(block))
+    .join("\n\n")
+    .trim();
+  return {
+    meta: toolActivityCompact([statusLabel, meta.get("task_id"), meta.get("error")]),
+    body,
+  };
+}
+
+function toolActivityIsCompleted(status: string): boolean {
+  return /^(?:completed|complete|done|success|succeeded|checked)$/i.test(status);
+}
+
+export function desktopToolActivityItemPresentation(
+  item: TranscriptItem,
+  nowMs = Date.now(),
+): DesktopToolActivityItemPresentation {
+  const name = String(item.name || "tool");
+  const originalSurface = formatToolSurface(name, item.args);
+  const originalName = originalSurface.normalizedName;
+  const modeledName = desktopToolActivityModeledName(name, item.args);
+  const surface = formatToolSurface(modeledName, item.args);
+  const normalizedName = surface.normalizedName;
+  const args = asRecord(surface.args) ?? asRecord(item.args) ?? {};
+  const done = toolItemDone(item);
+  const model = deriveToolCardModel({
+    name: modeledName,
+    args: item.args,
+    result: item.result,
+    rawResult: item.rawResult,
+    isError: item.isError,
+    errorCount: item.errorCount,
+    callErrorCount: item.callErrorCount,
+    exitErrorCount: item.exitErrorCount,
+    count: 1,
+    completedCount: done ? 1 : 0,
+    startedAt: item.startedAt,
+    completedAt: item.completedAt,
+    headerFinalized: item.headerFinalized,
+    nowMs,
+  }) as ToolCardModel & {
+    resultSummary?: string | null;
+    displayedResultBodyText?: string;
+    terminalStatus?: string;
+  };
+  const baseTone = toolActivityItemTone(item);
+  const tone = baseTone !== "neutral"
+    ? baseTone
+    : item.isError || Number(item.errorCount || 0) > 0 || /fail|error|timeout|denied/i.test(String(model.terminalStatus || ""))
+      ? "error"
+      : "neutral";
+  const resultValue = toolActivityResultValue(item);
+  const structured = toolActivityStructuredRows(normalizedName, args, resultValue);
+  const title = toolActivityTitle(normalizedName, originalName, surface.label, args);
+  const subject = toolActivityRedactInlineSecrets(toolActivitySubject(
+    normalizedName,
+    args,
+    oneLine(String(model.summaryText || "")),
+  ), args);
+  const command = /^(?:shell|bash|bash_session|shell_command|job_wait|git)$/.test(normalizedName)
+    ? toolActivityCommand(args)
+    : "";
+  const represented = toolActivityRepresentedKeys(normalizedName);
+  if (desktopToolActivityCategory(name, item.args) === "MCP") {
+    ["query", "q", "text", "prompt", "path", "uri", "name", "id", "action"]
+      .forEach((key) => represented.add(key));
+  }
+  const fields = Object.entries(args)
+    .filter(([key, value]) => (
+      value !== undefined
+      && value !== null
+      && value !== ""
+      && !represented.has(key)
+      && !TOOL_ACTIVITY_INTERNAL_ARGS.has(key)
+      && !TOOL_ACTIVITY_BULK_ARGS.has(key)
+      // Defaults say nothing on screen. An unset flag and a zeroed budget
+      // (timeout_ms: 0, monitor_interval_ms: 0) only added rows to read past.
+      && value !== false
+      && !(typeof value === "number" && value === 0)
+    ))
+    .map(([key, value]) => ({
+      key,
+      label: toolActivityFieldLabel(key),
+      value: toolActivityFieldValue(key, value),
+    }));
+  const argumentPatch = typeof args.patch === "string" ? args.patch.trim() : "";
+  const diffPatch = typeof item.uiDiff === "string" && item.uiDiff.trim()
+    ? item.uiDiff.trim()
+    : normalizedName === "apply_patch" ? argumentPatch : "";
+  const previewText = originalName === "write" && typeof args.content === "string"
+    ? args.content
+    : "";
+  const beforeText = !diffPatch && normalizedName === "edit"
+    ? toolActivityFirstText(args, "old_string", "oldString", "old_str")
+    : "";
+  const afterText = !diffPatch && normalizedName === "edit"
+    ? toolActivityFirstText(args, "new_string", "newString", "new_str")
+    : "";
+  let outputText = toolActivityCleanOutput(toolActivityOutputText(
+    item.rawResult ?? model.displayedResultBodyText ?? item.result,
+  ));
+  const backgroundTask = toolActivityBackgroundTask(outputText);
+  const metaText = backgroundTask ? backgroundTask.meta : "";
+  if (backgroundTask) outputText = backgroundTask.body;
+  const mutation = normalizedName === "edit" || normalizedName === "apply_patch";
+  const routineSurface = mutation
+    || normalizedName === "load_tool"
+    || /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName)
+    || normalizedName === "agent"
+    || normalizedName === "bridge"
+    || normalizedName === "task";
+  const quietSuccessSurface = normalizedName === "load_tool"
+    || /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName);
+  if (structured.kind || (tone === "neutral" && routineSurface
+    && TOOL_ACTIVITY_ROUTINE_RESULT.test(outputText.trim()))) {
+    outputText = "";
+  }
+  if (tone === "neutral" && quietSuccessSurface) outputText = "";
+  if (normalizedName === "view_image" && /^\[image:/i.test(outputText.trim())) outputText = "";
+  if (tone === "neutral" && diffPatch && outputText.split("\n").length === 1
+    && /(?:applied|updated|changed|created|deleted|success|done)/i.test(outputText)) {
+    outputText = "";
+  }
+  let resultLabel = "";
+  if (!model.pending) {
+    const semantic = oneLine(String(model.resultSummary || ""));
+    if (semantic && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(semantic)) resultLabel = semantic;
+    if (tone === "neutral" && quietSuccessSurface) resultLabel = "";
+    if (!resultLabel && tone === "error") {
+      const failure = oneLine(String(model.headerFailureText || model.detailLine || ""));
+      resultLabel = toolActivityErrorSummary(outputText)
+        || (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : t("Failed"));
+    }
+  }
+  if (structured.rows.length) {
+    const completed = structured.rows.filter((row) => toolActivityIsCompleted(row.status)).length;
+    resultLabel = `${completed}/${structured.rows.length}`;
+  }
+  if (!resultLabel && normalizedName === "git_stage" && /^staged\b/i.test(outputText.trim())) {
+    resultLabel = t("Staged");
+  }
+  if (resultLabel && outputText
+    && oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()) {
+    outputText = "";
+  }
+  const hasDetails = Boolean(
+    command
+    || fields.length
+    || diffPatch
+    || outputText
+    || metaText
+    || previewText
+    || beforeText
+    || afterText
+    || structured.rows.length,
+  );
+  return {
+    category: desktopToolActivityCategory(name, item.args),
+    title,
+    subject,
+    resultLabel,
+    pending: model.pending,
+    tone,
+    command,
+    fields,
+    diffPatch,
+    outputText,
+    metaText,
+    previewLabel: previewText ? t("Content") : "",
+    previewText,
+    beforeText,
+    afterText,
+    structuredKind: structured.kind,
+    structuredRows: structured.rows,
+    hasDetails,
+    hideSubjectWhenOpen: Boolean(command),
+  };
+}
+
+function DesktopToolActivityItem({
+  item,
+  open,
+  onToggle,
+  contentId,
+}: {
+  item: TranscriptItem;
+  open: boolean;
+  onToggle: () => void;
+  contentId: string;
+}) {
+  const itemRef = useRef<HTMLElement>(null);
+  const presentation = useMemo(
+    () => desktopToolActivityItemPresentation(item),
+    [item],
+  );
+  const panelOpen = open && presentation.hasDetails;
+  // The body outlives `open` by one exit animation so its height can ease back
+  // to zero, and the expanded flag is set a frame after mount so the row has a
+  // 0fr state to animate from. Reduced motion drops the body on the spot.
+  const [rendered, setRendered] = useState(panelOpen);
+  const [expanded, setExpanded] = useState(panelOpen);
+  useLayoutEffect(() => {
+    if (panelOpen) {
+      setRendered(true);
+      const frame = window.requestAnimationFrame(() => setExpanded(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+    setExpanded(false);
+    const timer = window.setTimeout(
+      () => setRendered(false),
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 0 : 200,
+    );
+    return () => window.clearTimeout(timer);
+  }, [panelOpen]);
+  useLayoutEffect(() => {
+    requestTranscriptRowMeasure(itemRef.current);
+  }, [rendered, expanded]);
+
+  return (
+    <article ref={itemRef} className={`tool-activity-item ${presentation.tone}`}
+      data-open={open ? "true" : "false"} data-expanded={expanded ? "true" : "false"}
+      onTransitionEnd={(event) => {
+        if (event.propertyName === "grid-template-rows") {
+          requestTranscriptRowMeasure(itemRef.current);
+        }
+      }}>
+      <button type="button" className="tool-header tool-activity-item-header"
+        disabled={!presentation.hasDetails}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={onToggle}
+        aria-expanded={presentation.hasDetails ? open : undefined}
+        aria-controls={presentation.hasDetails ? contentId : undefined}>
+        <span className="tool-icon">{toolIcon(presentation.category)}</span>
+        <span className="tool-title tool-activity-item-title"
+          title={[presentation.title, presentation.subject, presentation.resultLabel].filter(Boolean).join(" · ")}>
+          <b><TextShimmer text={presentation.title} active={presentation.pending} /></b>
+          {/* While a call is in flight its arguments can still be streaming
+              in, so the target is held back and only the shimmering verb runs
+              (opencode reference). A command is the exception: it IS the work,
+              and a running shell with no visible command says nothing. */}
+          {presentation.subject && !(open && presentation.hideSubjectWhenOpen)
+            && !(presentation.pending && !presentation.command)
+            && <small>{presentation.subject}</small>}
+        </span>
+        {presentation.resultLabel && <span className="tool-activity-item-result">{presentation.resultLabel}</span>}
+        {presentation.pending && <span className="sr-only" role="status">{t("Running")}</span>}
+        {presentation.hasDetails && <span className="tool-chevron" aria-hidden="true"><ChevronRight size={16} /></span>}
+      </button>
+      {rendered && presentation.hasDetails && (
+        <div className="tool-activity-item-body" id={contentId}>
+          {presentation.metaText && (
+            <p className="tool-activity-item-meta">{presentation.metaText}</p>
+          )}
+          {presentation.command && (
+            <section className="tool-activity-terminal">
+              <pre className="tool-activity-item-command"><code>$ {presentation.command}</code></pre>
+              {presentation.outputText && (
+                <pre className="tool-activity-item-output">{presentation.outputText}</pre>
+              )}
+              <CopyControl className="tool-detail-copy tool-activity-copy" label="Copy"
+                value={[presentation.command, presentation.outputText].filter(Boolean).join("\n\n")} />
+            </section>
+          )}
+          {presentation.structuredRows.length > 0 && (
+            <section className="tool-activity-item-section">
+              <span>{presentation.structuredKind === "questions"
+                ? t("Questions")
+                : presentation.structuredKind === "todos" ? t("Todos") : t("Plan")}</span>
+              <div className="tool-activity-structured-list">
+                {presentation.structuredRows.map((row, index) => (
+                  <div className="tool-activity-structured-row"
+                    data-status={row.status} key={`${row.text}:${index}`}>
+                    <span className="tool-activity-structured-marker" aria-hidden="true">
+                      {toolActivityIsCompleted(row.status) ? "✓" : "○"}
+                    </span>
+                    {presentation.structuredKind === "questions" ? (
+                      <span className="tool-activity-structured-question">
+                        <span className="tool-activity-structured-content">{row.text}</span>
+                        {row.answer && <span className="tool-activity-structured-answer">
+                          <span>{t("Answer")}</span>{row.answer}
+                        </span>}
+                      </span>
+                    ) : <span className="tool-activity-structured-content">{row.text}</span>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          {presentation.previewText && (
+            <section className="tool-activity-item-section">
+              <span>{presentation.previewLabel}</span>
+              <pre className="tool-activity-item-preview">{presentation.previewText}</pre>
+            </section>
+          )}
+          {(presentation.beforeText || presentation.afterText) && (
+            <section className="tool-activity-item-section tool-activity-replacement">
+              <div className="tool-activity-replacement-block" data-kind="before">
+                <span>{t("Before")}</span>
+                <pre>{presentation.beforeText}</pre>
+              </div>
+              <div className="tool-activity-replacement-block" data-kind="after">
+                <span>{t("After")}</span>
+                <pre>{presentation.afterText}</pre>
+              </div>
+            </section>
+          )}
+          {presentation.fields.length > 0 && (
+            <section className="tool-activity-item-section">
+              <span>{t("Arguments")}</span>
+              <dl className="tool-activity-item-fields">
+                {presentation.fields.map((field) => (
+                  <React.Fragment key={field.key}>
+                    <dt>{field.label}</dt>
+                    <dd>{field.value}</dd>
+                  </React.Fragment>
+                ))}
+              </dl>
+            </section>
+          )}
+          {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
+          {presentation.outputText && !presentation.command && (
+            <section className="tool-activity-item-section tool-activity-item-result-block">
+              <pre className="tool-activity-item-output">{presentation.outputText}</pre>
+              <CopyControl className="tool-detail-copy tool-activity-copy" label="Copy"
+                value={presentation.outputText} />
+            </section>
+          )}
+        </div>
       )}
     </article>
   );

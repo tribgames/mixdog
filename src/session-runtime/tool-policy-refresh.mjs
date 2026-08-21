@@ -8,6 +8,7 @@ import { applyDeferredToolSurface, filterDisallowedTools } from './tool-catalog.
 import { deferredSurfaceModeForLead } from './effort.mjs';
 import { applyInitialDeferredToolManifestToBp2, composeSystemPrompt } from '../runtime/agent/orchestrator/context/collect.mjs';
 import { _buildSharedRules, _buildLeadRules } from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+import { unusedModelEditToolName } from '../runtime/shared/edit-tool-dialect.mjs';
 
 function toolNames(list) {
   return (Array.isArray(list) ? list : []).map((item) => (
@@ -103,7 +104,9 @@ export function createToolPolicyRefresh({
     applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true });
 
     const allowsAgents = workflow?.delegatesAgents !== false;
-    const baseRules = _buildSharedRules({ omitTools: denied });
+    const baseRules = _buildSharedRules({
+      omitTools: [...denied, unusedModelEditToolName(getRoute()?.model)],
+    });
     const roleRules = _buildLeadRules({ includeLeadBrief: allowsAgents });
     let coreMemoryContext = '';
     if (memoryToolsEnabled()) {

@@ -4,7 +4,6 @@
 - Run only checks that directly cover the changed behavior or essential
   invariants; use an umbrella suite only when the user explicitly requests it
   or a documented project or release process requires it.
-- Issue all independent checks in one turn.
 - Blocking checks cover only essential integrity, security, compatibility, and
   buildability invariants. Treat mutable behavior, UX, exact text, snapshots,
   and implementation shape as advisory specifications; update them when the

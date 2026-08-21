@@ -180,7 +180,9 @@ function buildProfilePreferencesContent(dataDir) {
     lines.push(`- Development experience: ${experience.label}. ${experience.prompt}`);
     lines.push('- Adapt vocabulary and assumed background to this level without adding lessons, examples, or tips unless the task needs them; output style still controls information depth.');
   }
-  return `# Profile Preferences${lines.length ? `\n\n${lines.join('\n')}` : ''}`;
+  // No configured preference means no section: a bare heading would ship an
+  // empty block to every model that has neither a title nor an experience level.
+  return lines.length ? `# Profile Preferences\n\n${lines.join('\n')}` : '';
 }
 
 function buildLanguageSection(dataDir) {
@@ -192,9 +194,16 @@ function buildLanguageSection(dataDir) {
     : '';
   const lines = [
     `- Default user-facing language${source}: ${language.prompt}. Use it for all user-facing text (preambles, progress, questions, reports, notices), overriding output style; switch only when the user does or asks.`,
-    `- Keep code identifiers, paths, commands, symbols, API names, and exact errors in original form.`,
-    `- Never coin a word-for-word translation of source jargon; use the established original term or a plain functional description.`,
   ];
+  // Translation guards only bind when the output language differs from the
+  // language of code, docs, and errors. English output has nothing to
+  // mistranslate, so the two clauses would be dead text.
+  if (language.prompt !== 'English') {
+    lines.push(
+      `- Keep code identifiers, paths, commands, symbols, API names, and exact errors in original form.`,
+      `- Never coin a word-for-word translation of source jargon; use the established original term or a plain functional description.`,
+    );
+  }
   return `# Language\n\n${lines.join('\n')}`;
 }
 

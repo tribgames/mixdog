@@ -121,10 +121,10 @@ function runInjectionScaffold() {
   const sharedFormatMarkers = [
     'Choose the shape from the content and the reader',
     'no response shape is a default',
-    'Never produce an essay-shaped wall of text',
+    'never sprawl into an essay',
     'Use tables only for short enumerable',
     'Give each paragraph or list item one idea',
-    'Do not restate the request',
+    'State each point once and stop when the request is covered',
   ];
   // Every built-in depth variant uses the same Retain/Omit skeleton.
   const depthMarkers = ['- Retain:', '- Omit:'];

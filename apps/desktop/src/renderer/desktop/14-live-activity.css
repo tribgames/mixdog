@@ -27,7 +27,7 @@
    4px slide belongs to work that STARTS on screen, never to a band restored
    by re-entering the session. */
 .live-activity-status[data-animate="true"] {
-  animation: transcript-milestone-enter 260ms cubic-bezier(.2, .8, .2, 1);
+  animation: transcript-milestone-enter 260ms var(--mx-ease-emphasized);
 }
 .live-activity-icon {
   width: 16px;
@@ -279,11 +279,11 @@
 .turn-status.success[data-animate="true"] {
   animation:
     transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1),
-    turn-status-settle 1100ms cubic-bezier(.2, .8, .2, 1) 120ms both;
+    turn-status-settle 1100ms var(--mx-ease-emphasized) 120ms both;
 }
 .turn-status.complete[data-animate="true"]::before,
 .turn-status.success[data-animate="true"]::before {
-  animation: turn-status-mark-settle 1100ms cubic-bezier(.2, .8, .2, 1) 120ms both;
+  animation: turn-status-mark-settle 1100ms var(--mx-ease-emphasized) 120ms both;
 }
 @keyframes turn-status-settle {
   from { color: var(--mx-text); }
@@ -453,6 +453,22 @@
 }
 @keyframes transcript-live-pulse {
   50% { opacity: var(--mx-op-dim); }
+}
+/* Reduced motion: this layer is the shell's most animated surface — entrance
+   slides, two looping glyph animations, the verb sweep and the milestone
+   pops — and it carried NO reduce path at all. None of it reports state the
+   static frame does not already show. Gated entrances all carry
+   [data-animate], so the attribute names most of the set by itself. */
+@media (prefers-reduced-motion: reduce) {
+  [data-animate="true"],
+  [data-animate="true"]::before,
+  [data-animate="true"] .turn-status-icon,
+  [data-animate="true"] .compaction-icon,
+  .live-activity-glyph-spin,
+  .live-activity-glyph-core,
+  .live-activity [data-slot="text-shimmer-char"] {
+    animation: none;
+  }
 }
 /* Prompt-dock rule: approval belongs to the composer stack, never
    outside the virtual timeline's declared height. */

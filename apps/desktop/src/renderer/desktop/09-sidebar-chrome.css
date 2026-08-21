@@ -207,7 +207,7 @@
   width: 2px;
   border-radius: var(--mx-radius-pill);
   background: transparent;
-  transition: background 100ms ease-out;
+  transition: background var(--mx-motion-ink);
 }
 .session-sidebar-resize:hover::after,
 .session-sidebar-resize:focus-visible::after,

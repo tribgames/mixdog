@@ -47,14 +47,28 @@ export function renderShellCompletionEnvelope({
   stderrPreview = null,
   mergeStderr = false,
 } = {}) {
+  // Verdict, not just liveness. `status` only says the task reached a terminal
+  // state, so a run that completed with a non-zero exit reads as "completed"
+  // and invites a success reading. Foreground shell results already separate
+  // the two; background completions state the same outcome explicitly.
+  const normalizedStatus = String(status || '').toLowerCase();
+  const outcome = normalizedStatus === 'completed'
+    ? (exitCode === 0 ? 'success' : (typeof exitCode === 'number' ? 'command-failed' : 'completed'))
+    : (normalizedStatus === 'failed'
+      ? 'not-completed'
+      : ((normalizedStatus === 'cancelled' || normalizedStatus === 'canceled') ? 'cancelled' : null));
   const header = [
     `[task_id: ${jobId}]`,
     `[status: ${status}]`,
     `[exit: ${exitCode === null ? 'n/a' : exitCode}]`,
+    outcome ? `[outcome: ${outcome}]` : null,
     elapsedMs !== null ? `[elapsed: ${elapsedMs} ms]` : null,
     command ? `[command: ${compactCommand(command)}]` : null,
   ].filter((l) => l !== null);
   const bodySections = [
+    outcome === 'command-failed'
+      ? '[completed: the shell ran this command; its non-zero exit code and output are command results, not a tool failure]'
+      : null,
     summary ? `Summary: ${summary}` : null,
     stdoutPreview ? `\n[stdout preview]\n${stdoutPreview}` : null,
     (mergeStderr !== true && stderrPreview) ? `\n[stderr preview]\n${stderrPreview}` : null,

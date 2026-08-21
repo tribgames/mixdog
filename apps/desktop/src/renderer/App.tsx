@@ -142,6 +142,7 @@ import {
   desktopChromeSnapshotsEqual
 } from "./desktop-snapshot-store";
 import { DesktopToastRegion, DesktopUpdateDialog } from "./notifications";
+import { RemoteConnectionBanner } from "./RemoteConnectionBanner";
 import {
   loadSidebarPanelModule,
   ReadyTerminalPane,
@@ -892,6 +893,22 @@ export function App() {
     });
     return () => { live = false; };
   }, [invoke, refreshProjects, refreshSessions]);
+  // A phone's first catalog read can land before the relay leg is up. The boot
+  // pass then settles to an EMPTY list and nothing ever asks again, so the
+  // composer's project pill stays blank (user: 모바일에서 오래 비어 있다).
+  // Every recovered remote connection re-reads it while it is still empty.
+  useEffect(() => {
+    const retry = () => {
+      if (projects.length) return;
+      void refreshProjects().catch(() => undefined);
+    };
+    window.addEventListener("mixdog:remote-state-gap", retry);
+    window.addEventListener("mixdog:remote-reconnected", retry);
+    return () => {
+      window.removeEventListener("mixdog:remote-state-gap", retry);
+      window.removeEventListener("mixdog:remote-reconnected", retry);
+    };
+  }, [projects.length, refreshProjects]);
   useAppStartupRestore({
     restorePending: paneWorkspace.restorePending,
     restoredFromStorage: paneWorkspace.restoredFromStorage,
@@ -1798,7 +1815,7 @@ export function App() {
     if (!dockOpen) return undefined;
     return registerMobileBack(() => applyDockOpen(false));
   }, [applyDockOpen, dockOpen]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!settingsOpen) return undefined;
     return registerMobileBack(() => setSettingsOpen(false));
   }, [settingsOpen, setSettingsOpen]);
@@ -2373,6 +2390,7 @@ export function App() {
       style={{
         "--desktop-workspace-min-width": `${DESKTOP_WORKSPACE_MIN_WIDTH}px`,
       } as React.CSSProperties}>
+      <RemoteConnectionBanner />
       <DesktopTitlebar
         sidebarOpen={sidebarOpen && workbenchSideLayout.layout.left.length > 0}
         onToggleSidebar={() => {

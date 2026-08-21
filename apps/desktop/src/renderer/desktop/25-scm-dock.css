@@ -538,7 +538,7 @@
 .dock-scm-group-toggle:hover, .dock-scm-group-toggle:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
 .dock-scm-group-toggle > b { order: 1; }
 .dock-scm-group-toggle > span { order: 2; }
-.dock-scm-group-toggle > svg { order: 0; flex: 0 0 auto; transition: transform 100ms ease-out; }
+.dock-scm-group-toggle > svg { order: 0; flex: 0 0 auto; transition: transform var(--mx-motion-ink); }
 .dock-scm-group[data-collapsed] .dock-scm-group-toggle > svg { transform: rotate(-90deg); }
 .dock-scm-group-toggle > b { min-width: 0; flex: 0 1 auto; overflow: hidden; color: inherit; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
 .dock-scm-group-toggle > span { min-width: 0; margin-left: auto; padding: 0; color: var(--mx-text-faint); background: transparent; font-size: var(--mx-font-micro); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); text-align: right; font-variant-numeric: tabular-nums; }

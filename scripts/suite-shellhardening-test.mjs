@@ -259,10 +259,10 @@ test('shell execution policy matches sync-first background-task parity', () => {
     );
     assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
     assert.equal(shellTool.inputSchema.properties.monitor_interval_ms, undefined);
-    assert.match(shellTool.description, /10s foreground window.*continues.*task_id.*notification/i);
+    assert.match(shellTool.description, /10s foreground window.*continues as a tracked task_id.*Completion is automatic/i);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');
-    assert.match(taskTool.description, /List shell tasks.*snapshot.*monitoring.*cancel.*notification/i);
+    assert.match(taskTool.description, /List shell tasks.*snapshot.*monitoring.*cancel by task_id.*Completion is automatic/i);
     assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'monitor', 'cancel']);
     assert.deepEqual(taskTool.inputSchema.required, ['action']);
     assert.equal(taskTool.inputSchema.properties.timeout_ms, undefined);
@@ -431,6 +431,9 @@ test('shell output telemetry measures spill-backed raw bytes without retaining o
         commandOutputBytes: 120,
         capturedPreviewBytes: 15,
         spilled: true,
+        exitCode: null,
+        signal: null,
+        timedOut: false,
         shellResultBytes: 80,
         toolResultBytes: 70,
     });
@@ -604,6 +607,48 @@ test('lossless shell compaction summarizes successful test runners only with com
         signal: null,
         timedOut: false,
     }), null);
+
+    // A TAP tail that lost its header is not a Go package list: its `ok N - name`
+    // assertion lines were once counted as passing Go packages.
+    const tapTail = [
+        ...Array.from({ length: 40 }, (_, i) => `ok ${i + 1} - case ${i}`),
+        '1..80',
+        '# tests 80',
+        '# pass 80',
+        '# fail 0',
+        '# duration_ms 42.5',
+        '',
+    ].join('\n');
+    assert.equal(planLosslessShellCompaction({
+        command: 'node --test test/unit.test.mjs',
+        stdout: tapTail,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    }), null);
+
+    // A pipeline returns its last stage's exit status, so the runner's verdict
+    // is unknown and no summary may claim success on its behalf.
+    assert.equal(planLosslessShellCompaction({
+        command: 'node --test test/unit.test.mjs | tail -n 40',
+        stdout: tap,
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    }), null);
+
+    // Real Go output still summarizes.
+    const goPlan = planLosslessShellCompaction({
+        command: 'go test ./...',
+        stdout: 'ok  \texample.com/pkg/a\t0.02s\n'.repeat(60),
+        stderr: '',
+        exitCode: 0,
+        signal: null,
+        timedOut: false,
+    });
+    assert.equal(goPlan.stdout, 'Go test: 60 packages passed');
 });
 
 test('lossless shell compaction folds overwritten progress frames but never diagnostics', () => {
@@ -681,7 +726,9 @@ test('C: shell surface keeps execution contract separate from the platform comma
     const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
     assert.ok(shellTool, 'shell tool must exist');
     assert.match(shellTool.description, /^Run programs, runtime\/state operations,/);
-    assert.match(shellTool.description, /unless explicitly instructed or after verifying that a dedicated tool cannot do the job/);
+    // Cross-tool routing policy lives in rules/shared; the description keeps
+    // only the platform command cheat that rules cannot express.
+    assert.doesNotMatch(shellTool.description, /Avoid file operations covered by dedicated tools|never a reason to route work to it/);
     assert.match(shellTool.description, /Use read, NOT cat/);
     assert.match(shellTool.description, /list, NOT ls/);
     assert.match(shellTool.description, /grep, NOT grep\/rg/);

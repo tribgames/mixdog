@@ -29,6 +29,7 @@ import {
 import {
     filterModelEditToolNames,
     filterModelEditTools,
+    unusedModelEditToolName,
 } from '../../../../shared/edit-tool-dialect.mjs';
 import {
     positiveContextWindow,
@@ -234,7 +235,11 @@ export function createSession(opts) {
         ...(hiddenAgent ? ['Skill'] : []),
         ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
     ];
-    const injectedRules = skipAgentRules ? '' : _buildSharedRules({ omitTools: sessionDeny });
+    // The edit dialect this model never receives is omitted from the rules as
+    // well, so a session never reads placement guidance for a tool it cannot
+    // call.
+    const ruleOmitTools = [...sessionDeny, unusedModelEditToolName(modelName)];
+    const injectedRules = skipAgentRules ? '' : _buildSharedRules({ omitTools: ruleOmitTools });
     const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
     const roleRules = skipAgentRules
         ? ''

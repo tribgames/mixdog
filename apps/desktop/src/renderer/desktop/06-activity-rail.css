@@ -42,7 +42,7 @@
   color: inherit;
   background: transparent;
   cursor: pointer;
-  transition: color 100ms ease-out, background-color 100ms ease-out;
+  transition: color var(--mx-motion-ink), background-color var(--mx-motion-ink);
 }
 .activity-rail > nav > button:hover,
 .activity-rail > button:hover,
@@ -64,7 +64,7 @@
   background: var(--mx-text);
   opacity: 0;
   transform: scaleY(.55);
-  transition: opacity 100ms ease-out, transform 120ms cubic-bezier(.2, .8, .2, 1);
+  transition: opacity var(--mx-motion-ink), transform var(--mx-motion-base) var(--mx-ease-emphasized);
 }
 .activity-rail > nav > button.is-active::before,
 .activity-rail > button.is-active::before,

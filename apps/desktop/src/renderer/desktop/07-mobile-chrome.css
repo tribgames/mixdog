@@ -10,6 +10,45 @@
 /* The desktop title band is dead weight on a phone (user: 상단 상태줄 하나
    날리고 최상단): the Chrome toolbar IS the top row. */
 html[data-mixdog-mobile-tabs] .topbar { display: none; }
+/* A surface that has not reached its desktop for the disconnect threshold is
+   frozen, not broken: ONE dim layer with the wifi glyph blocks input until the
+   leg returns, and nothing is written on it (user: 오류도 띄우지 말고). Shorter
+   gaps — every background return costs one — show nothing at all. Unscoped on
+   purpose: any relay surface must be blocked, not only the phone layout. */
+.remote-connection-overlay {
+  box-sizing: border-box;
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--mx-text-soft);
+  background: rgb(0 0 0 / 62%);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+.remote-connection-overlay > svg {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  animation: remote-connection-pulse 1.8s ease-in-out infinite;
+}
+@keyframes remote-connection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .remote-connection-overlay > svg { animation: none; }
+}
+html[data-mixdog-mobile-tabs] .remote-connection-overlay > svg {
+  width: calc(30px * var(--mx-device-scale, 1));
+  height: calc(30px * var(--mx-device-scale, 1));
+}
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] {
   gap: calc(8px * var(--mx-device-scale, 2.5));
   padding: calc(8px * var(--mx-device-scale, 2.5));
@@ -139,16 +178,18 @@ html[data-mixdog-mobile-tabs] .studio-composer-bar {
   padding-inline: calc(8px * var(--mx-device-scale, 2.5));
 }
 /* The phone composer used two 52dp bands, so its empty state read as a
-   three-line text box. Keep the 44dp control row intact and tighten only the
-   typing band: 36 + 44 = 80dp, exactly one 24dp body line shorter. */
+   three-line text box; trimming the typing band to 36 then went one step too
+   far and the bar read as a squeezed strip (user: 살짝 높이가 좁아보인다).
+   The typing band now matches the control row it sits on: 44 + 44 = 88dp,
+   one 24dp body line above the 24dp text it holds. */
 html[data-mixdog-mobile-tabs] .composer {
-  min-height: calc(80px * var(--mx-device-scale, 2.5));
+  min-height: calc(88px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .composer textarea {
-  min-height: calc(36px * var(--mx-device-scale, 2.5));
+  min-height: calc(44px * var(--mx-device-scale, 2.5));
   max-height: calc(180px * var(--mx-device-scale, 2.5));
-  padding-top: calc(6px * var(--mx-device-scale, 2.5));
-  padding-bottom: calc(6px * var(--mx-device-scale, 2.5));
+  padding-top: calc(10px * var(--mx-device-scale, 2.5));
+  padding-bottom: calc(10px * var(--mx-device-scale, 2.5));
   line-height: calc(24px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .composer-tool,
@@ -420,7 +461,13 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
   bottom: auto;
   left: 0;
   height: calc(var(--vvh, 100vh) / var(--mx-device-scale, 2.5));
-  width: calc(78vw / var(--mx-device-scale, 2.5));
+  /* 78% of the screen is right in portrait and absurd once the same RATIO is
+     measured against a landscape long edge: a session list does not need 780dp
+     and the transcript behind it would be left a sliver. The cap is the
+     desktop sidebar's own maximum (MAX_SIDEBAR_WIDTH, session-sidebar.tsx), so
+     a rotated phone converges on the width grammar the app already uses
+     instead of inventing a second one. Inside the zoomed frame 1px IS 1dp. */
+  width: min(calc(78vw / var(--mx-device-scale, 2.5)), 420px);
   min-width: 0;
   display: flex;
   zoom: var(--mx-device-scale, 2.5);
@@ -534,7 +581,9 @@ html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"] {
   right: 0;
   bottom: auto;
   left: auto;
-  width: 78vw !important;
+  /* Same 420dp ceiling as the left drawer. This frame is NOT zoomed, so the
+     cap is written in layout px: 420dp × the projection factor. */
+  width: min(78vw, calc(420px * var(--mx-device-scale, 2.5))) !important;
   min-width: 0 !important;
   max-width: none !important;
   /* No zoom on this one — the scale rides on .workbench-side-panel-content —
@@ -622,7 +671,8 @@ html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock {
   bottom: auto;
   left: auto;
   height: calc(var(--vvh, 100vh) / var(--mx-device-scale, 2.5));
-  width: calc(78vw / var(--mx-device-scale, 2.5)) !important;
+  /* Zoomed frame, so this cap reads in dp exactly like the left drawer's. */
+  width: min(calc(78vw / var(--mx-device-scale, 2.5)), 420px) !important;
   min-width: 0;
   max-width: none;
   flex-basis: auto !important;

@@ -3,7 +3,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
     name: 'code_graph',
     title: 'Code Graph',
     annotations: { title: 'Code Graph', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false, compressibleLossless: true },
-    description: 'Read-only; safe to batch in parallel. Source-file structure, symbol relations, and flow. Exact identifiers route directly to find_symbol/references/callers/callees; symbol-name keywords use symbol_search/search. Source text, literals, regex, and conceptual keywords use grep. File modes use files[]; symbol modes use symbols[]. overview and mode:symbols return file summaries. find_symbol returns declaration/body; references returns declaration/usages plus optional body; callers/callees return locations.',
+    description: 'Read-only; safe to batch in parallel. Source-file structure, symbol relations, and flow. Exact identifiers route directly to find_symbol/references/callers/callees; symbol-name keywords use symbol_search/search. Text, literals, and regex belong to grep. File modes use files[]; symbol modes use symbols[]. overview and mode:symbols return file summaries. find_symbol returns declaration/body; references returns declaration/usages plus optional body; callers/callees return locations.',
     inputSchema: {
       type: 'object',
       properties: {

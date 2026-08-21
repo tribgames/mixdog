@@ -277,7 +277,7 @@
   color: var(--mx-text);
   background: transparent;
   cursor: pointer;
-  transition: color 100ms ease-out, background-color 100ms ease-out;
+  transition: color var(--mx-motion-ink), background-color var(--mx-motion-ink);
 }
 .utility-dock-tabs button:hover { color: var(--mx-text); background: transparent; }
 .utility-dock-tabs button:focus-visible,
@@ -301,7 +301,7 @@
   background: var(--mx-text);
   opacity: 0;
   transform: scaleX(.55);
-  transition: opacity 100ms ease-out, transform 120ms cubic-bezier(.2, .8, .2, 1);
+  transition: opacity var(--mx-motion-ink), transform var(--mx-motion-base) var(--mx-ease-emphasized);
 }
 .utility-dock-tabs button.active::after {
   opacity: 1;

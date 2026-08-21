@@ -92,15 +92,20 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   background: transparent;
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-minor);
+  /* Same operational row as the running band, the settled turn status and the
+     tool cards: 14/20 sans with tabular figures. This bar used to sit on the
+     14/18 minor pair, so the one row that lands directly under a tool run
+     broke the rhythm the rest of the transcript keeps. */
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 .turn-review-summary:hover { color: var(--mx-text); }
 .turn-review-summary svg { color: var(--mx-icon-muted); }
 .turn-review-summary strong {
   color: var(--mx-text);
-  font-size: var(--mx-font-minor);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
 }
 /* File count and deltas are one left-aligned summary. Attribution is a quiet
@@ -548,7 +553,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 .review-change-label { font-size: var(--mx-font-meta); font-style: normal; font-weight: var(--mx-weight-regular); }
 .review-change-label[data-type="added"] { color: var(--mx-success); }
 .review-change-label[data-type="removed"] { color: var(--mx-danger); }
-.review-chevron { flex: 0 0 auto; color: var(--mx-icon-muted); transition: transform .15s ease; }
+.review-chevron { flex: 0 0 auto; color: var(--mx-icon-muted); transition: transform var(--mx-motion-ink); }
 .review-file[data-open] .review-chevron { transform: rotate(180deg); }
 /* Revert is a HOVER action (GitHub row grammar): absolutely positioned so
    the +/− column keeps one right edge on every row. */

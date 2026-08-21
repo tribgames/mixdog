@@ -76,8 +76,32 @@ function compactStructuredJson(stdout) {
     return `${compacted.join('\n')}${hadTrailingNewline ? '\n' : ''}`;
 }
 
+// A test summary states the RUN's verdict, so it may only replace output whose
+// exit status belongs to the runner itself. A pipeline, chain, or substitution
+// can hand back someone else's status (`node --test … | tail` exits 0 while the
+// suite fails), which would turn a failed run into a success line. Plain
+// redirects keep the runner's own status and stay eligible.
+function statusOwningCommand(command) {
+    const text = String(command ?? '').replace(/\d?>&\d/g, ' ').trim();
+    if (!text) return false;
+    return !/[;&|<>`]|\$\(|\$\{/.test(text);
+}
+
+// Runner-agnostic failure markers. Whichever matcher would otherwise claim the
+// run, an explicit failure line forbids a success summary.
+function hasTestFailureMarker(stdout) {
+    const text = String(stdout ?? '');
+    return /(?:^|\n)\s*not ok\b/i.test(text)
+        || /^#\s*(?:fail|cancelled|todo)\s+[1-9]/m.test(text)
+        || /(?:^|\n)(?:---\s*FAIL|FAIL\b|FAILED\b)/.test(text)
+        || /(?:^|\n)\s*failures:/i.test(text)
+        || /\bpanicked at\b/.test(text)
+        || /[\u2716\u2718]/.test(text);
+}
+
 function testLikeCommand(command) {
     const text = String(command ?? '').trim();
+    if (!statusOwningCommand(text)) return false;
     return simplePytestCommand(text)
         || /^(?:node|bun)(?:\.exe)?\s+--test(?:\s|$)/i.test(text)
         || /^(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test(?:[:.\w-]*)(?:\s|$)/i.test(text)
@@ -137,10 +161,15 @@ function cargoTestSuccessSummary(stdout) {
     return `Cargo test: ${passed} passed in ${resultLines.length} suites${duration ? ` (${duration.toFixed(2)}s)` : ''}`;
 }
 
+// Go prints `ok  <pkg>  0.02s` or `ok  <pkg>  (cached)`. Anchoring on that
+// trailing duration field keeps TAP's `ok 3 - name` result lines — which are
+// individual assertions, not packages — from being counted as Go packages.
 function goTestSuccessSummary(stdout) {
     const text = String(stdout ?? '');
     if (/(?:^|\n)(?:FAIL\b|--- FAIL:)|\b(?:panic|warning):/im.test(text)) return null;
-    const packages = text.split(/\r?\n/).filter((line) => /^ok\s+\S+/.test(line.trim()));
+    if (/^TAP version \d+/m.test(text) || /^1\.\.\d+\s*$/m.test(text)) return null;
+    const packages = text.split(/\r?\n/)
+        .filter((line) => /^ok\s+\S+\s+(?:\(cached\)|[\d.]+m?s)\b/.test(line.trim()));
     if (!packages.length) return null;
     return `Go test: ${packages.length} packages passed`;
 }

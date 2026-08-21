@@ -792,7 +792,7 @@ export function execShellCommand({
           jobId,
           backgroundTimeoutMs: adoptedTimeoutMs,
           backgroundMessage: jobId
-            ? `${_verb}; still running. Completion is automatic; do not poll with task read/monitor unless the user explicitly requests polling or periodic progress.`
+            ? `${_verb}; still running. Completion is automatic; do not call task read/monitor to wait or check progress. Continue independent work or end the turn. Use task read only when the user explicitly asks for current status, and task monitor only when they explicitly ask for periodic progress.`
             : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
         }),
       );

@@ -13,27 +13,39 @@ function summarizeJobPreviewText(text, maxChars = 160) {
     return summary.length > maxChars ? `${summary.slice(0, maxChars - 1)}…` : summary;
 }
 
+// The reported source must be the stream the summary actually came from: a
+// present-but-blank preview previously mislabeled a stderr summary as stdout.
+function pickJobSummary(candidates) {
+    for (const [source, text] of candidates) {
+        const summary = summarizeJobPreviewText(text);
+        if (summary) return { summary, summarySource: source };
+    }
+    return { summary: '', summarySource: '' };
+}
+
 export function attachJobInsights(detail) {
     if (!detail || typeof detail !== 'object') return detail;
     const result = { ...detail };
     let summary = '';
     let summarySource = '';
+    const stdoutFirst = [['stdout', result.stdoutPreview], ['stderr', result.stderrPreview]];
+    const stderrFirst = [['stderr', result.stderrPreview], ['stdout', result.stdoutPreview]];
     if (result.status === 'completed') {
-        summary = summarizeJobPreviewText(result.stdoutPreview)
-            || summarizeJobPreviewText(result.stderrPreview);
-        summarySource = summary ? (result.stdoutPreview ? 'stdout' : 'stderr') : '';
+        // A non-zero exit means the diagnosis lives in stderr, so lead with it
+        // instead of the last stdout line, which is usually unrelated progress.
+        const failedExit = typeof result.exitCode === 'number' && result.exitCode !== 0;
+        ({ summary, summarySource } = pickJobSummary(failedExit ? stderrFirst : stdoutFirst));
     } else if (result.status === 'failed') {
-        summary = summarizeJobPreviewText(result.stderrPreview)
-            || summarizeJobPreviewText(result.stdoutPreview)
-            || String(result.error || '').trim();
-        summarySource = summary ? (result.stderrPreview ? 'stderr' : (result.stdoutPreview ? 'stdout' : 'status')) : '';
+        ({ summary, summarySource } = pickJobSummary(stderrFirst));
+        if (!summary) {
+            summary = String(result.error || '').trim();
+            summarySource = summary ? 'status' : '';
+        }
     } else if (result.status === 'cancelled') {
         summary = 'cancelled before completion';
         summarySource = 'status';
     } else if (result.status === 'running') {
-        summary = summarizeJobPreviewText(result.stdoutPreview)
-            || summarizeJobPreviewText(result.stderrPreview);
-        summarySource = summary ? (result.stdoutPreview ? 'stdout' : 'stderr') : '';
+        ({ summary, summarySource } = pickJobSummary(stdoutFirst));
     }
     if (summary) {
         result.summary = summary;
