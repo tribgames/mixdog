@@ -32,8 +32,14 @@ const GREP_CTX_HEAD_LIMIT_MAX = 40;
 
 // Unbounded (no offset/limit) plain full reads default to this window instead of
 // pulling the whole file; the read tool's ranged-read footer then hands the
-// caller the next offset to page with.
-const READ_GUARD_DEFAULT_LIMIT = 1000;
+// caller the next offset to page with. At 1000 a single default read returned
+// 51KB of an unread log; halving it capped the largest read at 20KB and the
+// callers paged on instead of re-reading (tool-budget bench, 20260821).
+// MIXDOG_READ_DEFAULT_LIMIT overrides for A/B runs.
+const READ_GUARD_DEFAULT_LIMIT = (() => {
+    const parsed = parseInt(process.env.MIXDOG_READ_DEFAULT_LIMIT ?? '', 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 500;
+})();
 
 // Best-effort clamp notice channel: stash a one-line note on the args so a
 // surfacing consumer can echo it. Underscore-prefixed; ignored by executors.

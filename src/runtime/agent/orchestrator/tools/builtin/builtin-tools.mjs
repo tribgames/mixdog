@@ -26,7 +26,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Spans another tool already returned are source context; read only what they omit. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges, bounded to the narrowest range that answers the question. Spans another tool already returned are source context; read only what they omit. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -41,7 +41,7 @@ export const BUILTIN_TOOLS = [
                 limit: {
                     type: 'integer',
                     minimum: 1,
-                    description: 'Maximum line count as a bare integer; default 1000.',
+                    description: 'Maximum line count as a bare integer; default 500.',
                 },
             },
             required: ['file_path'],
@@ -122,7 +122,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
+        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
