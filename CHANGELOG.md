@@ -5,6 +5,20 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Long OpenAI sessions now keep their response chain and turn-state pin intact
+  across reconnects, item reordering, and compaction, so the provider prefix
+  cache survives a session instead of restarting mid-task.
+- Session startup pre-warms the provider prefix and separates environment
+  details from the shared instruction prefix, cutting cold starts and repeated
+  upload of identical context.
+- Tool-use rules read shorter with the same guarantees: routing clauses now
+  disappear with the tools they name, and shell results are classified by the
+  runner that produced them.
+- Desktop tool cards and result summaries are localized, and the context gauge
+  reports the post-compaction estimate instead of the discarded prefix.
+- Benchmark runs gain fast route presets and a grok CLI reference adapter, so
+  reference numbers come from the same containers and verifier.
+
 ## v0.9.146 - 2026-08-21
 
 - Mobile web conversations now keep touch scrolling, streaming Markdown
