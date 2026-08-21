@@ -43,6 +43,14 @@
       "suite": "core",
       "routeProfile": "sol-xhigh-nofast"
     },
+    "sol-xhigh-fast": {
+      "suite": "core",
+      "routeProfile": "sol-xhigh-fast"
+    },
+    "gpt55-xhigh-fast": {
+      "suite": "core",
+      "routeProfile": "gpt55-xhigh-fast"
+    },
     "grok46-xhigh": {
       "suite": "core",
       "routeProfile": "grok46-xhigh"

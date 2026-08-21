@@ -890,6 +890,40 @@ class MixdogAgent(BaseInstalledAgent):
                 if os.environ.get("MIXDOG_OAI_TRANSPORT")
                 else {}
             ),
+            # Codex startup-prewarm parity (generate=false seeds the static
+            # instructions/tools prefix on the node before the first real
+            # request). Same passthrough shape as the transport switch:
+            # forwarded verbatim only when the host sets it, applied identically
+            # to every task — never a task-specific behavior knob.
+            **(
+                {
+                    "MIXDOG_OPENAI_OAUTH_WS_WARMUP": os.environ[
+                        "MIXDOG_OPENAI_OAUTH_WS_WARMUP"
+                    ]
+                }
+                if os.environ.get("MIXDOG_OPENAI_OAUTH_WS_WARMUP")
+                else {}
+            ),
+            # Codex startup metadata parity: prewarm uses window generation 0,
+            # an empty turn id, and request_kind=prewarm before the live turn.
+            **(
+                {
+                    "MIXDOG_OAI_CODEX_WIRE_PARITY": os.environ[
+                        "MIXDOG_OAI_CODEX_WIRE_PARITY"
+                    ]
+                }
+                if os.environ.get("MIXDOG_OAI_CODEX_WIRE_PARITY")
+                else {}
+            ),
+            # Wire-payload capture for prefix-cache forensics: writes the
+            # redacted handshake headers and the exact response.create frames
+            # under /logs/agent so a run can be byte-diffed against the
+            # reference client. Off unless the host asks for it.
+            **(
+                {"MIXDOG_OAI_WS_DUMP_DIR": os.environ["MIXDOG_OAI_WS_DUMP_DIR"]}
+                if os.environ.get("MIXDOG_OAI_WS_DUMP_DIR")
+                else {}
+            ),
             # Non-interactive: never open a browser / onboarding from the container.
             "CI": "1",
             # The host preflight above is the sole Anthropic refresh owner.
