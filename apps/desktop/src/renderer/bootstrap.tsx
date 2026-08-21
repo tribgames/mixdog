@@ -41,6 +41,7 @@ import "./webview-zoom";
 import { installShellViewport } from "./shell-viewport";
 import { installFocusModality } from "./focus-modality";
 import { installMobileSurfaceMarker } from "./mobile-surface";
+import { installMotionVisibility } from "./motion-visibility";
 import { installScrollbarMetrics } from "./scrollbar-metrics";
 import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
@@ -71,15 +72,8 @@ window.addEventListener("beforeunload", removeScrollbarMetrics, { once: true });
 // exist before the desktop grammar can paint even once.
 const removeMobileSurfaceMarker = installMobileSurfaceMarker();
 window.addEventListener("beforeunload", removeMobileSurfaceMarker, { once: true });
-const syncMotionVisibility = () => {
-  document.documentElement.dataset.mixdogMotion =
-    document.visibilityState === "visible" ? "running" : "paused";
-};
-syncMotionVisibility();
-document.addEventListener("visibilitychange", syncMotionVisibility);
-window.addEventListener("beforeunload", () => {
-  document.removeEventListener("visibilitychange", syncMotionVisibility);
-}, { once: true });
+const removeMotionVisibility = installMotionVisibility();
+window.addEventListener("beforeunload", removeMotionVisibility, { once: true });
 
 // Listen before React mounts. Persisted pane session ids are not registered
 // here: usePaneWorkspace first authorizes them against the durable catalog.

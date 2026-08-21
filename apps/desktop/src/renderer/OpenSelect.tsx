@@ -82,8 +82,12 @@ export function OpenSelect({
   const selected = options.find((option) => option.value === current);
   const routeStyle = variant === 'route';
   const settingsStyle = className.split(/\s+/).includes('settings-select');
+  // The composer pills and the route workflow chip read as ONE control each:
+  // the menu hangs off the pill, never off the inner button, or two pickers
+  // sitting in the same bar line up on different edges (user: 정렬 잘 시켜서).
   const contextPillStyle = className.split(/\s+/).includes('context-pill-select')
-    || className.split(/\s+/).includes('project-context-select');
+    || className.split(/\s+/).includes('project-context-select')
+    || className.split(/\s+/).includes('workflow-context-select');
   const activeOption = options[active]?.disabled ? undefined : options[active];
   const triggerLabel = displayValue || selected?.label || options[0]?.label || 'Select…';
   const shownLabel = (label: string) => localizeLabels ? t(label) : label;
@@ -104,16 +108,31 @@ export function OpenSelect({
     const viewportHeight = viewport?.height ?? window.innerHeight;
     const viewportLeft = viewport?.offsetLeft ?? 0;
     const viewportTop = viewport?.offsetTop ?? 0;
-    const sheet = trigger.current?.closest<HTMLElement>('.workspace, .session-sidebar');
+    const visible = {
+      left: viewportLeft,
+      top: viewportTop,
+      right: viewportLeft + viewportWidth,
+      bottom: viewportTop + viewportHeight,
+    };
+    // A split workspace makes the PANE the real box: measuring against the
+    // whole workspace flips the menu against room that belongs to a different
+    // pane, and lets it paint across the divider.
+    const sheet = trigger.current?.closest<HTMLElement>(
+      '.pane-leaf, .workspace, .session-sidebar',
+    );
     const sheetBounds = sheet?.getBoundingClientRect();
+    // A phone keeps the workspace box at full height while the keyboard and
+    // the browser chrome cover its bottom, so the sheet alone reports room
+    // that does not exist. Clipping it to what is actually visible is what
+    // makes the flip decision below honest (user: 버튼 아래 떠서 불편).
     const bounds = sheetBounds && sheetBounds.width > 0 && sheetBounds.height > 0
-      ? sheetBounds
-      : {
-        left: viewportLeft,
-        top: viewportTop,
-        right: viewportLeft + viewportWidth,
-        bottom: viewportTop + viewportHeight,
-      };
+      ? {
+        left: Math.max(sheetBounds.left, visible.left),
+        top: Math.max(sheetBounds.top, visible.top),
+        right: Math.min(sheetBounds.right, visible.right),
+        bottom: Math.min(sheetBounds.bottom, visible.bottom),
+      }
+      : visible;
     const edge = 8;
     const width = Math.min(
       Math.max(160, Math.min(368, anchorRect.width)),
@@ -122,7 +141,16 @@ export function OpenSelect({
     const estimatedHeight = Math.min(240, options.length * 30 + 8);
     const spaceBelow = bounds.bottom - anchorRect.bottom - edge;
     const spaceAbove = anchorRect.top - bounds.top - edge;
-    const openAbove = spaceBelow < Math.min(160, estimatedHeight) && spaceAbove > spaceBelow;
+    // Flip as soon as the WHOLE menu misses below and above is roomier, rather
+    // than waiting for the old 160px floor: a composer control sits at the
+    // bottom of the screen, where "some space below" is still a cramped strip.
+    // Composer context pills sit directly ON TOP of the input card, so the
+    // room below them is the textarea, never free space — they open upward
+    // and only fall back down when the menu cannot fit above at all
+    // (user: 아래로 열리잖아).
+    const openAbove = contextPillStyle
+      ? spaceAbove >= estimatedHeight || spaceAbove > spaceBelow
+      : spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
     const availableHeight = Math.max(0, (openAbove ? spaceAbove : spaceBelow) - menuGap);
     const viewportMaxHeight = Math.min(240, viewportHeight - edge * 2);
     const maxHeight = Math.min(viewportMaxHeight, availableHeight);
@@ -136,7 +164,14 @@ export function OpenSelect({
       width,
       ...(openAbove
         ? {
-          bottom: Math.max(edge, viewportHeight - bounds.bottom + (bounds.bottom - anchorRect.top + menuGap)),
+          // `bottom` on a fixed element resolves against the LAYOUT viewport,
+          // so an upward menu must measure from that height. The visual height
+          // shrinks with the keyboard and dropped the menu onto its trigger.
+          bottom: Math.max(
+            edge,
+            (document.documentElement.clientHeight || window.innerHeight)
+              - anchorRect.top + menuGap,
+          ),
           maxHeight,
           transformOrigin: 'bottom center',
         }

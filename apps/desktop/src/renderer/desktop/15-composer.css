@@ -17,8 +17,8 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
-  transition: max-height 140ms ease-out, opacity 110ms ease-out,
-    margin-bottom 140ms ease-out, min-height 140ms ease-out;
+  transition: max-height var(--mx-motion-chrome), opacity var(--mx-motion-chrome),
+    margin-bottom var(--mx-motion-chrome), min-height var(--mx-motion-chrome);
 }
 /* Promotion exit: collapse instead of an instant unmount (composer jerk). */
 .composer-context-bar-collapsing {
@@ -111,7 +111,7 @@
      Paint containment belongs on the textarea itself: placing it here clips
      the absolute slash/mention palettes that intentionally open above it. */
   contain: layout style;
-  transition: box-shadow 85ms ease-out;
+  transition: box-shadow var(--mx-motion-ink);
 }
 .composer:focus-within {
   border: 0;
@@ -220,7 +220,7 @@
   border-radius: var(--mx-radius-pill);
   background: var(--mx-bg-layer-1);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .16);
-  animation: composer-dictation-status-enter 160ms cubic-bezier(.2, .8, .2, 1);
+  animation: composer-dictation-status-enter var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
 .composer-dictation-status[data-state="transcribing"] {
   padding-right: calc(12px * var(--mx-device-scale, 1));
@@ -411,7 +411,7 @@
 }
 .model-trigger:focus-visible { outline: 0; }
 .provider-icon { width: 16px; height: 16px; flex: 0 0 16px; color: currentColor; }
-.model-trigger .provider-icon { opacity: var(--mx-op-secondary); transition: opacity 120ms ease-out; }
+.model-trigger .provider-icon { opacity: var(--mx-op-secondary); transition: opacity var(--mx-motion-chrome); }
 .model-trigger:hover .provider-icon,
 .model-trigger:focus-visible .provider-icon,
 .model-trigger[aria-expanded="true"] .provider-icon { opacity: 1; }
@@ -423,7 +423,7 @@
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating);
-  animation: mx-menu-in 120ms ease-out;
+  animation: mx-menu-in var(--mx-motion-chrome);
 }
 @keyframes mx-menu-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
 .model-search {
@@ -570,7 +570,7 @@
   line-height: var(--mx-line-ui);
   text-align: left;
   scroll-margin-top: 28px;
-  transition: background 100ms ease-out, box-shadow 100ms ease-out;
+  transition: background var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .model-option-row:hover,
 .model-option-row:focus-visible,
@@ -857,7 +857,7 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(-2px);
-  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms;
+  transition: opacity var(--mx-motion-ink), transform var(--mx-motion-ink), visibility var(--mx-motion-fast);
   pointer-events: none;
 }
 .live-work-status:hover .live-work-popover,
@@ -902,7 +902,7 @@
   border: 0;
   color: var(--mx-text);
   border-radius: var(--mx-radius-md);
-  transition: background 85ms ease-out, box-shadow 85ms ease-out;
+  transition: background var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .composer-attachments > div:not(.image) {
   height: 32px;
@@ -1052,5 +1052,5 @@
 .mx-select-root[data-trigger-style="settings"] .mx-select-trigger:active:not(:disabled) { background: var(--mx-flat-press); }
 .mx-select-trigger:disabled { opacity: var(--mx-op-disabled); cursor: not-allowed; }
 .mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mx-select-trigger svg { flex: 0 0 auto; color: var(--mx-icon-muted); transition: transform 90ms ease-out; }
+.mx-select-trigger svg { flex: 0 0 auto; color: var(--mx-icon-muted); transition: transform var(--mx-motion-ink); }
 .mx-select-trigger[aria-expanded="true"] svg { transform: rotate(180deg); }

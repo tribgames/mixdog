@@ -103,6 +103,18 @@ test('shared tool rules omit disabled web search and memory routes', () => {
   assert.doesNotMatch(omitted, /# Research/);
   assert.doesNotMatch(omitted, /# Memory/);
   assert.match(omitted, /`find`/);
+
+  // Exactly one edit dialect ships per model, so the rules must never describe
+  // the tool that is absent from the surface.
+  const patchOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['edit'] });
+  assert.doesNotMatch(patchOnly, /`edit`/);
+  assert.match(patchOnly, /Placement: use exact unchanged context/i);
+  assert.match(patchOnly, /source-file edits stay with `apply_patch`/i);
+  const editOnly = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot, omitTools: ['apply_patch'] });
+  assert.doesNotMatch(editOnly, /`apply_patch`/);
+  assert.doesNotMatch(editOnly, /Add File|Update File/);
+  assert.match(editOnly, /Placement: use an exact unique target string/i);
+  assert.match(editOnly, /source-file edits stay with `edit`\./i);
 });
 
 test('shared tool rules keep workflow and shell-boundary anchors', () => {
@@ -111,15 +123,15 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
   assert.match(full, /Minimize tool turns through maximal useful parallelism/i);
   assert.match(full, /In each round, issue every necessary non-overlapping call whose inputs are\s+already known/i);
+  assert.match(full, /Determine the required outcome and its gaps/i);
+  assert.match(full, /gather only what is missing, act, then verify the affected facets/i);
   assert.match(full, /Investigate, build, and verify only what the requested outcome requires, at\s+the level it requires/i);
   assert.match(full, /A check runs at the strictness the task requires; never raise a tool's own\s+severity beyond it/i);
   assert.match(full, /Cost is counted in\s+rounds, not calls/i);
-  assert.match(full, /Plan the fewest evidence-complete dependent\s+rounds first/i);
   assert.match(full, /defer a call only when its target or arguments require an\s+earlier result/i);
-  assert.match(full, /Route each remaining evidence facet once to its primary owner, preferring the\s+operation that directly returns the evidence needed for the next decision/i);
-  assert.match(full, /summary, overview, or enumeration is not a prerequisite when that operation's\s+complete inputs are already known/i);
+  assert.match(full, /Route each evidence facet once to its primary owner/i);
+  assert.match(full, /enumeration is not a prerequisite when that operation's/i);
   assert.match(full, /apply\s+one analysis to many targets as one parameterized call/i);
-  assert.match(full, /use Execution when the information can only be produced by running a program\s+or observing runtime state/i);
   assert.match(full, /Evidence or artifacts available only through program execution, calculation,\s+data transformation, generated output, or unsupported-format decoding→`shell`/i);
   assert.match(full, /an already-open shell is never a routing reason/i);
   assert.match(full, /Route the missing evidence to its primary owner/i);
@@ -138,15 +150,18 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /If verification fails, collect all failures, leave Verification/i);
   assert.match(full, /A successful verification closes the task unless later changes affect it/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
-  assert.match(full, /Every Git operation→`git`; source-file edits stay with `edit`\/`apply_patch`/i);
+  assert.match(full, /Every Git operation→`git`; source-file edits stay with `edit`\./i);
+  assert.match(full, /Every Git operation→`git`; source-file edits stay with `apply_patch`\./i);
   assert.doesNotMatch(full, /Every repository mutation→`git`/i);
   assert.doesNotMatch(full, /always batch safely in parallel/i);
   assert.match(full, /A required new file is created directly: Add File is itself the atomic\s+absence check/i);
   assert.match(full, /Source: use exact current target text from any visible evidence/i);
-  assert.match(full, /Placement: with `edit`, use an exact unique target string/i);
-  assert.match(full, /with `apply_patch`, use exact unchanged context/i);
+  assert.match(full, /Placement: use an exact unique target string/i);
+  assert.match(full, /Placement: use exact unchanged context/i);
   assert.match(full, /Apply all determined changes in the fewest safe calls the active tool\s+supports/i);
-  assert.match(full, /Batch scope: never split one file across concurrent edit calls/i);
+  assert.match(full, /One file, several changes: one Update File block carries every hunk/i);
+  assert.match(full, /One file, several changes: issue the calls together in one turn/i);
+  assert.match(full, /Defer only ambiguous or result-dependent changes/i);
   assert.match(full, /Commit, push, release, and deployment happen only on the user's explicit\s+request/i);
   assert.match(full, /past facts recorded in prior work or sessions→`recall`/i);
   assert.match(full, /Use judgment to decide whether a durable memory should be stored/i);

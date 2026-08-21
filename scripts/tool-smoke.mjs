@@ -1364,7 +1364,7 @@ const shellDescription = shellTool?.description || '';
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
     || !/10s foreground window.*not a timeout.*continues.*task_id/i.test(shellDescription)
-    || !/Completion is automatic.*do not poll with task read\/monitor unless the user explicitly requests polling or periodic progress.*Otherwise, use task read only for an immediate decision and task monitor only for explicitly requested periodic progress/i.test(shellDescription)) {
+    || !/Completion is automatic.*do not call task read\/monitor to wait or check progress.*Continue independent work or end the turn.*Use task read only when the user explicitly asks for current status.*task monitor only when they explicitly ask for periodic progress/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
@@ -1405,6 +1405,9 @@ if (shellZeroTimeoutErr || !/non-negative number/.test(String(shellNegativeTimeo
 }
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
+if (!/Completion is automatic.*do not call read\/monitor to wait or check progress.*Continue independent work or end the turn.*Use read only when the user explicitly asks for current status.*monitor only when they explicitly ask for periodic progress/i.test(publicTaskTool?.description || '')) {
+  throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
+}
 if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'monitor', 'cancel'])
   || publicTaskProps.task_id?.minLength !== undefined
   || publicTaskProps.monitor_interval_ms?.minimum !== 0
@@ -1623,7 +1626,7 @@ try {
   else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorAutoBgBudget;
 }
 if (!/auto-backgrounded/i.test(String(shellAutoPromoteOut))
-    || !/Completion is automatic; do not poll with task read\/monitor unless the user explicitly requests polling or periodic progress/i.test(String(shellAutoPromoteOut))) {
+    || !/Completion is automatic; do not call task read\/monitor to wait or check progress.*Continue independent work or end the turn.*Use task read only when the user explicitly asks for current status.*task monitor only when they explicitly ask for periodic progress/i.test(String(shellAutoPromoteOut))) {
   throw new Error(`shell auto-promotion must return a tracked task with automatic-completion guidance:\n${shellAutoPromoteOut}`);
 }
 const shellAutoPromoteTaskId = assertBackgroundStart('shell auto-promotion', shellAutoPromoteOut);
@@ -2774,7 +2777,7 @@ if (!/Source-file structure/i.test(codeGraphDescription)
   || !/overview and mode:symbols return file summaries/i.test(codeGraphDescription)
   || !/Exact identifiers route directly to find_symbol\/references\/callers\/callees/i.test(codeGraphDescription)
   || !/symbol-name keywords use symbol_search\/search/i.test(codeGraphDescription)
-  || !/Source text, literals, regex, and conceptual keywords use grep/i.test(codeGraphDescription)) {
+  || !/Text, literals, and regex belong to grep/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must stay structure-oriented and name its symbol modes');
 }
 if (!/File modes use files\[\]/i.test(codeGraphDescription) || !/symbol modes use symbols\[\]/i.test(codeGraphDescription)) {
@@ -3384,7 +3387,7 @@ if (!/wildcard-matching (?:file )?paths under a known base/i.test(globTool?.desc
     || !/when those paths are needed/i.test(globTool?.description || '')
     || !/Directories never match/i.test(globTool?.description || '')
     || !/Omit path for the current Project/i.test(globTool?.description || '')
-    || !/base location is unknown, use find first/i.test(globTool?.description || '')
+    || !/unknown base directory goes to find first/i.test(globTool?.description || '')
     || !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')) {
   throw new Error('glob description must state its known-base wildcard path contract');
 }

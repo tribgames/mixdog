@@ -57,7 +57,7 @@
    The branded native boot mark is intentionally exempt. */
 .desktop-loading-surface--delayed {
   opacity: 0;
-  animation: cover-spinner-reveal 120ms ease-out 600ms forwards;
+  animation: cover-spinner-reveal var(--mx-motion-chrome) 600ms forwards;
 }
 @keyframes cover-spinner-reveal { to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {

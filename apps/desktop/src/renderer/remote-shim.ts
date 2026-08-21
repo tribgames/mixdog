@@ -41,6 +41,12 @@ import {
   isInstalledMobileWebAppSurface,
   isMobileRemoteSurface,
 } from './mobile-surface';
+import {
+  REMOTE_WAKE_EVENT,
+  clearRemoteConnectionState,
+  setRemoteConnectionState,
+  shouldRunRemoteHeartbeat,
+} from './remote-connection-state';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
 // OS-shell integrations (recoverable trash, open-with, reveal) are Electron
@@ -900,12 +906,28 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let heartbeatSentAt = 0;
   let awaitingPong = false;
   let wakePongTimer: number | null = null;
+  // Any inbound frame already proves this leg is alive. The keepalive lane
+  // therefore exists ONLY for a silent socket: a busy session never spends a
+  // probe, and never risks the recycle that a lost pong triggers.
+  let lastTrafficAt = 0;
   const clearWakePongTimer = (): void => {
     if (wakePongTimer === null) return;
     window.clearTimeout(wakePongTimer);
     wakePongTimer = null;
   };
+  // Recycling a silent socket is invisible maintenance: nothing is waiting on
+  // an answer, so the redial that follows must not raise the disconnect
+  // surface. A close with calls in flight keeps the normal, visible path.
+  const quietRecycledSockets = new WeakSet<WebSocket>();
+  const recycleIdleSocket = (ws: WebSocket): void => {
+    if (pending.size === 0) quietRecycledSockets.add(ws);
+    try { ws.close(); } catch { /* reconnect loop takes over */ }
+  };
   window.setInterval(() => {
+    if (backgroundSuspended || !shouldRunRemoteHeartbeat(document.visibilityState)) {
+      awaitingPong = false;
+      return;
+    }
     const ws = socket;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       awaitingPong = false;
@@ -914,23 +936,47 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (awaitingPong) {
       if (Date.now() - heartbeatSentAt >= 10_000) {
         awaitingPong = false;
-        try { ws.close(); } catch { /* reconnect loop takes over */ }
+        recycleIdleSocket(ws);
       }
       return;
     }
-    if (Date.now() - heartbeatSentAt >= 25_000) {
+    // Silence, not elapsed time, is what needs probing: a leg that just
+    // delivered a frame is provably alive.
+    if (Date.now() - Math.max(lastTrafficAt, heartbeatSentAt) >= 25_000) {
       heartbeatSentAt = Date.now();
       awaitingPong = true;
       try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
     }
   }, 5_000);
-  let resyncOnWake = document.visibilityState === 'hidden';
+  let backgroundSuspended = document.visibilityState === 'hidden';
+  let resyncOnWake = backgroundSuspended;
+  let reconnectTimer: number | null = null;
+  const backgroundClosedSockets = new WeakSet<WebSocket>();
+  const suspendRemoteConnection = (): void => {
+    if (!isInstalledMobileWebAppSurface() || !token || !e2eePairing) return;
+    backgroundSuspended = true;
+    resyncOnWake = true;
+    awaitingPong = false;
+    clearWakePongTimer();
+    if (reconnectTimer !== null) {
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    setRemoteConnectionState('connecting');
+    const closeForBackground = (target: WebSocket | null): void => {
+      if (!target || target.readyState === WebSocket.CLOSED) return;
+      backgroundClosedSockets.add(target);
+      try { target.close(1000, 'background'); } catch { /* page suspension owns cleanup */ }
+    };
+    closeForBackground(socket);
+    if (openingSocket !== socket) closeForBackground(openingSocket);
+  };
   const wakeProbe = (event?: Event): void => {
     if (document.visibilityState === 'hidden') {
-      resyncOnWake = true;
-      clearWakePongTimer();
+      suspendRemoteConnection();
       return;
     }
+    backgroundSuspended = false;
     const shouldResync = resyncOnWake || event?.type === 'online';
     const ws = socket;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -946,6 +992,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       void connect().catch(() => { /* the retry loop keeps running */ });
       return;
     }
+    // A wake must never inherit a grown backoff: if this probe fails, the
+    // redial that follows IS the gap the user watches.
+    retryMs = 500;
     heartbeatSentAt = Date.now();
     awaitingPong = true;
     try { ws.send('{"ping":1}'); } catch { /* surfaces as close */ }
@@ -958,7 +1007,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       wakePongTimer = null;
       if (socket !== ws || !awaitingPong || heartbeatSentAt !== probeSentAt) return;
       awaitingPong = false;
-      try { ws.close(); } catch { /* reconnect loop takes over */ }
+      recycleIdleSocket(ws);
     }, 2_500);
     // A live socket proves nothing about the transcript: pushes sent while
     // this tab was hidden may have been dropped for a congested leg, and a
@@ -972,11 +1021,16 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   window.addEventListener('online', wakeProbe);
   window.addEventListener('focus', wakeProbe);
   window.addEventListener('pageshow', wakeProbe);
+  window.addEventListener('pagehide', suspendRemoteConnection);
+  // Tapping the disconnect overlay runs the same recovery a wake does, so a
+  // waiting user never has to sit out the remaining backoff.
+  window.addEventListener(REMOTE_WAKE_EVENT, wakeProbe);
 
   // This credential is unrecoverable. Wipe it and hand the surface back to the
   // entry screen, which asks the desktop for a new approval; the device route
   // survives because it is a routing label, not a credential.
   const resetApprovalAndAsk = (message: string): void => {
+    clearRemoteConnectionState();
     try {
       clearStoredRemotePairing(localStorage);
       if (deviceId) localStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
@@ -991,8 +1045,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     window.dispatchEvent(new CustomEvent(REMOTE_PAIRING_INVALID_EVENT, { detail: message }));
   };
 
-  let reconnectTimer: number | null = null;
   const scheduleReconnect = (): void => {
+    if (backgroundSuspended || !shouldRunRemoteHeartbeat(document.visibilityState)) {
+      setRemoteConnectionState('connecting');
+      return;
+    }
+    setRemoteConnectionState(everConnected ? 'reconnecting' : 'connecting');
     // Registration failures and socket closes can both ask for a retry in the
     // same tick; one timer serves them all.
     if (reconnectTimer !== null) return;
@@ -1049,6 +1107,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           if (openingSocket === ws) openingSocket = null;
         }
         connectionReady = true;
+        setRemoteConnectionState('connected');
         if (handshakeTimer !== null) {
           window.clearTimeout(handshakeTimer);
           handshakeTimer = null;
@@ -1116,6 +1175,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }, 10_000);
       };
       ws.onmessage = (event) => {
+        // Traffic on ANY lane, encrypted or clear, refreshes the keepalive
+        // window; only real silence may cost a probe.
+        lastTrafficAt = Date.now();
         void (async () => {
           if (event.data instanceof ArrayBuffer) {
             if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
@@ -1151,6 +1213,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
               // Calls sent to the old leg cannot complete; fail them now and
               // establish a new channel on the existing browser socket.
               connectionReady = false;
+              setRemoteConnectionState('reconnecting');
               resetDeltaState();
               const failure = new Error('Mixdog desktop connection restarted.');
               for (const entry of [...pending.values()]) entry.reject(failure);
@@ -1199,6 +1262,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         // A new connection starts a fresh delta lane; a stale base revision
         // must never accidentally match the new encoder's numbering.
         resetDeltaState();
+        // Decided BEFORE the rejection sweep empties the map: a keepalive
+        // recycle only stays quiet while nothing was waiting on this leg.
+        const quietRecycle = quietRecycledSockets.delete(ws) && pending.size === 0;
         const failure = new Error('Mixdog relay disconnected.');
         for (const entry of [...pending.values()]) entry.reject(failure);
         pending.clear();
@@ -1206,6 +1272,24 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         if (isInvalidRemotePairingClose(event)) {
           resetApprovalAndAsk(`This device is no longer approved (${event.code}).`);
           return;
+        }
+        if (backgroundClosedSockets.delete(ws)) {
+          setRemoteConnectionState('connecting');
+          if (!backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
+            retryMs = 500;
+            void connect().catch(() => { /* foreground retry loop takes over */ });
+          }
+          return;
+        }
+        if (quietRecycle) {
+          // One silent redial at full speed. If THAT one fails, the next close
+          // runs the normal path and the disconnect countdown starts.
+          setRemoteConnectionState('connecting');
+          if (!backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
+            retryMs = 500;
+            void connect().catch(() => { /* the retry loop takes over */ });
+            return;
+          }
         }
         scheduleReconnect();
       };
@@ -1523,5 +1607,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     resetApprovalAndAsk('This device has incomplete approval data. Ask for approval again.');
     return;
   }
-  void connect().catch(() => { /* the retry loop keeps running */ });
+  setRemoteConnectionState('connecting');
+  if (!backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
+    void connect().catch(() => { /* the retry loop keeps running */ });
+  }
 })();

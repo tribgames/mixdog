@@ -14,8 +14,8 @@ const _shellSyntaxCheat =
 // Keep the routing map short and adjacent to the shell's primary description.
 // PowerShell aliases appear only on win32.
 const _shellToolRouting = process.platform === 'win32'
-    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/echo/Set-Content or a file-writing heredoc.'
-    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/echo or a file-writing heredoc.';
+    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/echo/Set-Content or a file-writing heredoc; git, NOT a plain git command; task, NOT Start-Job or a wait loop.'
+    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/echo or a file-writing heredoc; git, NOT a plain git command; task, NOT & or a wait loop.';
 // Process-stable switch used to describe foreground-only execution accurately.
 const _shellBackgroundDisabled = /^(1|true|yes|on)$/i.test(
     String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
@@ -26,7 +26,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges, bounded to the narrowest range that answers the question. Spans another tool already returned are source context; read only what they omit. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges, bounded to the narrowest range that answers the question. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -52,7 +52,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Edit',
         annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-        description: 'Replace exact text in one file. Use exact text already in context; never re-open the file to build old_string or to verify a successful edit. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file.',
+        description: 'Replace exact text in one file. Use exact text already in context; never re-open the file to build old_string or to verify a successful edit. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file. Replaces sed/awk and echo redirection.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -81,7 +81,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. An already-open shell is never a reason to route work to it. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic; do not poll with task read/monitor unless the user explicitly requests polling or periodic progress. Otherwise, use task read only for an immediate decision and task monitor only for explicitly requested periodic progress.'}`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic; do not call task read/monitor to wait or check progress. Continue independent work or end the turn. Use task read only when the user explicitly asks for current status, and task monitor only when they explicitly ask for periodic progress.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -102,7 +102,7 @@ export const BUILTIN_TOOLS = [
         name: 'task',
         title: 'Task',
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one current snapshot, change periodic monitoring, or cancel by task_id. Completion is automatic; do not poll with read/monitor unless the user explicitly requests polling or periodic progress. Otherwise, use read only for an immediate decision and monitor only for explicitly requested periodic progress.',
+        description: 'List shell tasks, read one current snapshot, change periodic monitoring, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion is automatic; do not call read/monitor to wait or check progress. Continue independent work or end the turn. Use read only when the user explicitly asks for current status, and monitor only when they explicitly ask for periodic progress.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -153,7 +153,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Return wildcard-matching file paths under a known base directory when those paths are needed. Omit path for the current Project; if the base location is unknown, use find first. Directories never match. Newest first by default. Replaces find -name.',
+        description: 'Read-only; safe to batch in parallel. Return wildcard-matching file paths under a known base directory when those paths are needed. Omit path for the current Project; an unknown base directory goes to find first. Directories never match. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -165,7 +165,7 @@ export const BUILTIN_TOOLS = [
                     description: 'Glob or array of globs (max 10).',
                 },
                 path: {
-                    type: 'string',                    description: 'Known existing base directory; omit for the current Project; unknown location → find.',
+                    type: 'string',                    description: 'Known existing base directory; omit for the current Project.',
                 },
                 sort: { type: 'string', enum: ['natural', 'mtime'], description: 'mtime default (newest first); natural = raw walk order, cheaper on huge trees.' },
                 limit: { type: 'integer', minimum: 0, description: 'Max entries; default 100; 0 unlimited.' },
@@ -198,7 +198,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Read-only; safe to batch in parallel. Return a known directory's immediate entries (path + type) when the entry list itself is needed; never as a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode.",
+        description: "Read-only; safe to batch in parallel. Return a known directory's immediate entries (path + type) when the entry list itself is needed; never as a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode. Replaces ls/dir.",
         inputSchema: {
             type: 'object',
             properties: {

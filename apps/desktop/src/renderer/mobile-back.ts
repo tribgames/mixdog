@@ -7,7 +7,7 @@
 // no-ops unless the mobile-tabs marker is present.
 import { useEffect, useRef } from "react";
 
-type BackEntry = { close: () => void };
+type BackEntry = { close: () => void; armed: boolean };
 
 const stack: BackEntry[] = [];
 // Sentinel removals we caused ourselves (UI-side close → history.back());
@@ -15,14 +15,25 @@ const stack: BackEntry[] = [];
 let suppressedPops = 0;
 let armed = false;
 
+function armPendingEntries(): void {
+  if (suppressedPops > 0) return;
+  for (const entry of stack) {
+    if (entry.armed) continue;
+    entry.armed = true;
+    history.pushState({ mixdogBack: stack.indexOf(entry) + 1 }, "");
+  }
+}
+
 function onPopState(): void {
   if (suppressedPops > 0) {
     suppressedPops--;
+    armPendingEntries();
     return;
   }
   // Hardware back: the entry leaves the stack FIRST so the owner's cleanup
   // (unregister) sees it gone and does not pop history a second time.
   const top = stack.pop();
+  if (top) top.armed = false;
   top?.close();
 }
 
@@ -39,13 +50,18 @@ export function registerMobileBack(close: () => void): () => void {
     armed = true;
     window.addEventListener("popstate", onPopState);
   }
-  const entry: BackEntry = { close };
+  const entry: BackEntry = { close, armed: false };
   stack.push(entry);
-  history.pushState({ mixdogBack: stack.length }, "");
+  // A self-close traversal is asynchronous. Pushing a new sentinel before its
+  // popstate echo arrives would let that old history.back() consume the new
+  // layer, so queue registrations until the echo has settled.
+  armPendingEntries();
   return () => {
     const index = stack.indexOf(entry);
     if (index < 0) return; // already consumed by the back button
     stack.splice(index, 1);
+    if (!entry.armed) return;
+    entry.armed = false;
     // UI closed the layer itself: consume our sentinel quietly.
     suppressedPops++;
     history.back();

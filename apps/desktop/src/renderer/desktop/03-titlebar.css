@@ -121,7 +121,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
   border-radius: var(--mx-radius-md);
   color: var(--mx-icon);
   background: transparent;
-  transition: color 85ms ease-out, background 85ms ease-out;
+  transition: color var(--mx-motion-ink), background var(--mx-motion-ink);
 }
 .icon-button:hover, .icon-button:focus-visible,
 .toolbar-sidebar:hover, .titlebar-new:hover {

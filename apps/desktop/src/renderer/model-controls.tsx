@@ -109,6 +109,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   );
   const [optionsSettled, setOptionsSettled] = useState(Boolean(workflowOptionsCache));
   const [switching, setSwitching] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const switchGuard = useRef(false);
   beginBootSurface("workflow-controls", "catalog");
   // The inherited workflow label is a complete shell; fetching the dropdown
@@ -148,6 +149,24 @@ export const WorkflowSelect = memo(function WorkflowSelect({
       }
     })();
     return () => { cancelled = true; };
+  }, [reloadNonce]);
+  // On a phone the first read can land before the relay leg is up, and an
+  // empty result was final: the picker settled to nothing and REMOVED itself
+  // until a remount (user: 모바일에서 오래 비어 있다). An empty catalog is
+  // never cached, so re-running the read on a recovered connection is the
+  // whole repair. The guard keeps a healthy session from re-reading on every
+  // resync.
+  useEffect(() => {
+    const retry = () => {
+      if (workflowOptionsCache?.options.length) return;
+      setReloadNonce((nonce) => nonce + 1);
+    };
+    window.addEventListener('mixdog:remote-state-gap', retry);
+    window.addEventListener('mixdog:remote-reconnected', retry);
+    return () => {
+      window.removeEventListener('mixdog:remote-state-gap', retry);
+      window.removeEventListener('mixdog:remote-reconnected', retry);
+    };
   }, []);
   useEffect(() => {
     if (!optionsSettled) return;

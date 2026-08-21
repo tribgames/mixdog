@@ -158,12 +158,10 @@ function dropZoneStyle(preview: DropPreview): React.CSSProperties {
 
 function orientVerticalDropZone(
   zone: PaneDropZone | "center",
-  deltaX: number | undefined,
-  deltaY: number | undefined,
+  direction: number,
 ): PaneDropZone | "center" {
-  if ((zone !== "top" && zone !== "bottom") || !deltaY) return zone;
-  if (Math.abs(deltaY) <= Math.abs(deltaX ?? 0)) return zone;
-  return deltaY > 0 ? "bottom" : "top";
+  if ((zone !== "top" && zone !== "bottom") || !direction) return zone;
+  return direction > 0 ? "bottom" : "top";
 }
 
 export function PaneWorkspace({
@@ -689,6 +687,11 @@ export function PaneWorkspace({
   // subscription stable across renders.
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
   const treeDropOperation = useRef<TreeDropOperation | null>(null);
+  // Sticky vertical travel of the live drag. A frame's deltaY falls back to 0
+  // the moment the pointer pauses, so the last committed direction is what
+  // keeps a downward gesture from snapping back to the band it entered
+  // through (user: 아래로 끄는데 위쪽 절반이 선택된다).
+  const verticalDragDirection = useRef(0);
   const conversationOwnerSequence = useRef(0);
   const conversationOwners = useRef<ConversationOwner[]>([]);
   const previousPaneSurfaces = useRef(new Map<string, PaneSurfaceSnapshot>());
@@ -700,9 +703,22 @@ export function PaneWorkspace({
   focusSelectionRef.current = onFocusSelection;
   useEffect(() => subscribeTabDrag((frame) => {
     if (frame.phase === "cancel") {
+      verticalDragDirection.current = 0;
       treeDropOperation.current = null;
       setDropPreview(null);
       return;
+    }
+    let verticalDirection = verticalDragDirection.current;
+    if (frame.phase === "move") {
+      const stepY = frame.deltaY ?? 0;
+      if (Math.abs(stepY) >= 1 && Math.abs(stepY) > Math.abs(frame.deltaX ?? 0)) {
+        verticalDirection = stepY > 0 ? 1 : -1;
+        verticalDragDirection.current = verticalDirection;
+      }
+    } else {
+      // The committing frame reads the travel that produced the preview, then
+      // releases it so the next gesture starts without a stale direction.
+      verticalDragDirection.current = 0;
     }
     const current = workspaceRef.current;
     const groupDrag = frame.kind === "group";
@@ -740,9 +756,17 @@ export function PaneWorkspace({
       ? current.leaves.length > 1
       : sourceOwnsTab && (current.leaves.length > 1 || (sourceLeaf?.tabs.length ?? 0) > 1);
     const pointedStrip = pointedElement?.closest?.(".workspace-tabs-shell") ?? null;
-    const outerZone = sourceLeafId && panelRect
+    const travelledOuterZone = sourceLeafId && panelRect
       ? paneOuterDropZone(panelRect, frame.x, frame.y)
       : null;
+    // The root's top rail overlaps the strip band it sits on, so a tab pulled
+    // straight down out of its own strip lands inside a rail it is travelling
+    // AWAY from. A rail facing against the travel never wins.
+    const outerZone = !sessionDrag
+      && ((travelledOuterZone === "top" && verticalDirection > 0)
+        || (travelledOuterZone === "bottom" && verticalDirection < 0))
+      ? null
+      : travelledOuterZone;
     const panelElement = document.querySelector<HTMLElement>(".main-panel");
     const candidates: PaneHierarchyCandidate[] = panelElement
       ? [...panelElement.querySelectorAll<HTMLElement>("[data-pane-path]")]
@@ -878,11 +902,12 @@ export function PaneWorkspace({
     let zone: PaneDropZone | "center" = overStrip
       ? "center"
       : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
-    // A pointer crossing into a foreign pane can geometrically enter its
-    // opposite edge (downward motion enters the next pane's top band). Keep
-    // the preview on the side the pointer is actually travelling toward.
-    if (!sessionDrag && sourceLeafId && sourceLeafId !== leafId) {
-      zone = orientVerticalDropZone(zone, frame.deltaX, frame.deltaY);
+    // A pointer leaving the strip enters the editor area through its TOP band,
+    // whether that area belongs to a foreign pane or to the strip's own pane.
+    // Geometry alone therefore previews an upward split for a downward drag,
+    // so the preview follows the side the pointer is travelling toward.
+    if (!sessionDrag && sourceLeafId) {
+      zone = orientVerticalDropZone(zone, verticalDirection);
     }
     if (zone !== "center") {
       const direction = zone === "left" || zone === "right" ? "row" : "column";

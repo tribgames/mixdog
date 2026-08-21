@@ -17,6 +17,42 @@
   font-size: var(--mx-font-ui);
 }
 .tool-activity-title b { font-family: inherit; }
+.tool-activity[data-surface="desktop"] {
+  padding: 2px 0 4px;
+}
+.tool-activity[data-surface="desktop"] > .tool-activity-header {
+  min-height: 24px;
+  gap: 7px;
+  color: var(--mx-text-muted);
+}
+.tool-activity[data-surface="desktop"] > .tool-activity-header > .tool-icon {
+  width: 16px;
+  height: 20px;
+  flex-basis: 16px;
+  color: var(--mx-text-faint);
+  transform: none;
+}
+.tool-activity[data-surface="desktop"] .tool-activity-title { gap: 6px; }
+.tool-activity[data-surface="desktop"] .tool-activity-title b,
+.tool-activity[data-surface="desktop"] .tool-activity-title small {
+  font-family: var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.tool-activity[data-surface="desktop"] .tool-activity-title b {
+  color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-medium);
+}
+.tool-activity[data-surface="desktop"] .tool-activity-title small {
+  flex: 0 0 auto;
+  color: var(--mx-text-faint);
+  font-weight: var(--mx-weight-regular);
+}
+.tool-activity[data-surface="desktop"] .tool-activity-pending-glyph {
+  width: 12px;
+  height: 12px;
+  color: var(--mx-text-muted);
+}
 .tool-activity-content {
   min-width: 0;
   display: flex;
@@ -24,55 +60,272 @@
   padding: 4px 0 0 20px;
 }
 .tool-activity-content > .tool-card { padding: 2px 0; }
-.tool-activity[data-surface="desktop"] .tool-activity-header,
-.tool-activity[data-surface="desktop"] .tool-activity-title b {
-  color: var(--mx-text-muted);
+.tool-activity[data-surface="desktop"] > .tool-activity-content {
+  gap: 4px;
+  padding: 6px 0 2px 23px;
 }
-.tool-activity[data-surface="desktop"] .tool-activity-title small,
-.tool-activity[data-surface="desktop"] .tool-icon,
-.tool-activity[data-surface="desktop"] .tool-chevron {
+.tool-activity-category,
+.tool-activity-item {
+  min-width: 0;
+}
+.tool-activity-category-header,
+.tool-activity-item-header {
+  min-height: 24px;
+  gap: 7px;
+  color: var(--mx-text-muted);
+  /* Elapsed readouts and counts change every frame while a tool runs;
+     proportional figures made the whole row twitch. */
+  font-variant-numeric: tabular-nums;
+}
+.tool-activity-category-header > .tool-icon,
+.tool-activity-item-header > .tool-icon {
+  width: 16px;
+  height: 20px;
+  flex-basis: 16px;
   color: var(--mx-text-faint);
+  transform: none;
 }
-.tool-activity[data-surface="desktop"] .tool-activity-content {
-  gap: 10px;
-  padding-top: 8px;
-}
-.tool-activity-member {
+.tool-activity-category-title,
+.tool-activity-item-title {
   min-width: 0;
-  padding: 0 0 2px 10px;
-  border-left: 1px solid var(--mx-border-muted);
-  color: var(--mx-text-muted);
-}
-.tool-activity-member-header {
-  min-width: 0;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
 }
-.tool-activity-member-name {
+.tool-activity-category-title b,
+.tool-activity-category-title small {
+  font-family: var(--mx-font-sans);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+/* A category header leads its items, so it sits on the operational row too
+   rather than a rung below it. */
+.tool-activity-category-title b {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+  letter-spacing: var(--mx-tracking-tight);
+  line-height: var(--mx-line-ui);
+}
+.tool-activity-category-title small {
+  flex: 0 0 auto;
+  color: var(--mx-text-faint);
+  font-weight: var(--mx-weight-regular);
+}
+.tool-activity-category-items {
+  min-width: 0;
+  margin: 2px 0 4px 8px;
+  padding: 2px 0 2px 15px;
+  border-left: 1px solid var(--mx-border-muted);
+}
+.tool-activity-item-title b,
+.tool-activity-item-title small {
   min-width: 0;
   overflow: hidden;
-  color: var(--mx-text-muted);
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-code);
-  font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-ui);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tool-activity-member-section {
-  min-width: 0;
-  margin: 5px 0 0 20px;
+/* The tool NAME is chrome, not code. It joins the single operational row the
+   running band and the settled turn status already share — sans 14/20/500 with
+   tabular figures — so a card, a thinking line and a completed turn read as one
+   layer. Only the target beside it stays mono, because that IS a real path,
+   command or pattern. */
+.tool-activity-item-title b {
+  flex: 0 1 auto;
+  color: var(--mx-text-muted);
+  font-family: var(--mx-font-sans);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-medium);
+  letter-spacing: var(--mx-tracking-tight);
 }
-.tool-activity-member-section > span {
+.tool-activity-item-title small {
+  flex: 1 999 auto;
+  color: var(--mx-text-faint);
+  font-weight: var(--mx-weight-regular);
+}
+/* Title and subject ran together as one grey stream; a separator marks where
+   the tool name ends and its target begins (opencode reference). */
+.tool-activity-item-title small::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--mx-text-faint);
+  /* The separator is punctuation between two faces, not part of the mono
+     target: one rung down and never italic-slanted by the mono stack. */
+  font-family: var(--mx-font-sans);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-medium);
+}
+.tool-activity-item-result {
+  min-width: 0;
+  max-width: min(36ch, 40%);
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  font-family: var(--mx-font-sans);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Disclosure animates on height instead of snapping: the card itself is the
+   two-row grid and its body row runs 0fr→1fr on the assistant-ui timing
+   (the shell's slow clock on the emphasized curve). No wrapper element is involved, so the
+   body's own box has to collapse with the row — its vertical spacing is
+   PADDING, never margin, because a grid item keeps margin through the
+   collapse and would leave a gap behind a closing card. */
+.tool-activity-item {
+  display: grid;
+  grid-template-rows: auto 0fr;
+  transition: grid-template-rows var(--mx-motion-slow) var(--mx-ease-emphasized);
+}
+.tool-activity-item[data-expanded="true"] { grid-template-rows: auto 1fr; }
+@media (prefers-reduced-motion: reduce) {
+  .tool-activity-item { transition: none; }
+}
+.tool-activity-item-body {
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0 0 23px;
+  overflow: hidden;
+  padding: 7px 0 7px 10px;
+  border-left: 1px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+}
+.tool-activity-item-command {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  color: var(--mx-text);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* One quiet line for protocol facts a card still owes the reader — background
+   task status and id — instead of the nine-line key/value header the model
+   receives (user: 도구 실행이 안 이쁘다). */
+.tool-activity-item-meta {
+  margin: 0 0 6px;
+  color: var(--mx-text-faint);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  overflow-wrap: anywhere;
+}
+/* Command and its output read as one terminal surface (opencode reference):
+   a single tinted block, no section labels between the two. */
+.tool-activity-terminal,
+.tool-activity-item-result-block {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: var(--mx-radius-sm);
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+}
+.tool-activity-terminal > .tool-activity-item-output {
+  padding-top: 6px;
+  border-top: 1px solid var(--mx-border-muted);
+}
+/* Copy stays out of the way until the block is hovered or keyboard-focused. */
+.tool-activity-copy {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  opacity: 0;
+  transition: opacity var(--mx-motion-chrome);
+}
+.tool-activity-terminal:hover > .tool-activity-copy,
+.tool-activity-item-result-block:hover > .tool-activity-copy,
+.tool-activity-copy:focus-visible { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .tool-activity-copy { transition: none; }
+}
+.tool-activity-item-section {
+  min-width: 0;
+  margin-top: 8px;
+}
+.tool-activity-item-section:first-child { margin-top: 0; }
+.tool-activity-item-section > span {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-meta);
+}
+.tool-activity-structured-list {
+  display: grid;
+  gap: 5px;
+}
+.tool-activity-structured-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 5px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+}
+.tool-activity-structured-marker {
+  color: var(--mx-text-faint);
+  text-align: center;
+}
+.tool-activity-structured-row[data-status="completed"] .tool-activity-structured-marker {
+  color: var(--mx-success);
+}
+.tool-activity-structured-row[data-status="in_progress"] .tool-activity-structured-marker,
+.tool-activity-structured-row[data-status="running"] .tool-activity-structured-marker,
+.tool-activity-structured-row[data-status="active"] .tool-activity-structured-marker {
+  color: var(--mx-accent);
+}
+.tool-activity-structured-row[data-status="completed"] .tool-activity-structured-content {
+  color: var(--mx-text-faint);
+  text-decoration: line-through;
+}
+.tool-activity-structured-row[data-status="completed"] .tool-activity-structured-question .tool-activity-structured-content {
+  color: var(--mx-text-muted);
+  text-decoration: none;
+}
+.tool-activity-structured-question {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.tool-activity-structured-answer {
+  min-width: 0;
+  color: var(--mx-text-muted);
+  overflow-wrap: anywhere;
+}
+.tool-activity-structured-answer > span {
+  margin-right: 6px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
+.tool-activity-replacement {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.tool-activity-replacement-block {
+  min-width: 0;
+}
+.tool-activity-replacement-block > span {
+  display: block;
+  margin-bottom: 4px;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.tool-activity-member-section pre {
-  max-height: 220px;
+.tool-activity-replacement-block pre {
+  max-height: 180px;
   margin: 0;
   overflow: auto;
   color: var(--mx-text-muted);
@@ -82,12 +335,68 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.tool-activity-member.error .tool-icon,
-.tool-activity-member.error .tool-activity-member-name { color: var(--mx-danger); }
-.tool-activity-member.warning .tool-icon,
-.tool-activity-member.warning .tool-activity-member-name { color: var(--mx-warning); }
-.tool-activity:not([data-surface="desktop"]).failed .tool-icon { color: var(--mx-danger); }
-.tool-activity:not([data-surface="desktop"]).warning .tool-icon { color: var(--mx-warning); }
+.tool-activity-replacement-block[data-kind="before"] pre {
+  border-left: 2px solid color-mix(in srgb, var(--mx-danger) 55%, transparent);
+  padding-left: 7px;
+}
+.tool-activity-replacement-block[data-kind="after"] pre {
+  border-left: 2px solid color-mix(in srgb, var(--mx-success) 55%, transparent);
+  padding-left: 7px;
+}
+.tool-activity-item-fields {
+  display: grid;
+  grid-template-columns: minmax(72px, 8rem) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.tool-activity-item-fields dt,
+.tool-activity-item-fields dd {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+}
+.tool-activity-item-fields dt {
+  overflow: hidden;
+  color: var(--mx-text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-activity-item-fields dd {
+  max-height: 96px;
+  overflow: auto;
+  color: var(--mx-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-activity-item-preview,
+.tool-activity-item-output {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  color: var(--mx-text-muted);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-activity-item-preview { max-height: 180px; }
+/* Tool output is tab-separated far more often than it is tab-indented; the
+   default 8-column stop shredded list/glob rows. */
+.tool-activity-item-command,
+.tool-activity-item-preview,
+.tool-activity-item-output { tab-size: 2; }
+.tool-activity-item-body .code-diff { margin-top: 4px; }
+.tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-icon,
+.tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-activity-title b { color: var(--mx-danger); }
+.tool-activity:not([data-surface="desktop"]).warning > .tool-activity-header .tool-icon,
+.tool-activity:not([data-surface="desktop"]).warning > .tool-activity-header .tool-activity-title b { color: var(--mx-warning); }
+.tool-activity-item.error > .tool-activity-item-header .tool-icon,
+.tool-activity-item.error > .tool-activity-item-header .tool-activity-item-title b { color: var(--mx-danger); }
+.tool-activity-item.warning > .tool-activity-item-header .tool-icon,
+.tool-activity-item.warning > .tool-activity-item-header .tool-activity-item-title b { color: var(--mx-warning); }
 .tool-card:has(.tool-content) { border: 0; background: transparent; box-shadow: none; }
 .tool-header {
   min-height: 20px;
@@ -175,9 +484,30 @@
   color: var(--mx-text-faint);
   border-radius: var(--mx-radius-sm);
 }
-.tool-chevron svg { transition: transform 150ms ease-out; }
-.tool-card[data-open="true"] .tool-chevron svg,
-.tool-activity[data-open="true"] .tool-chevron svg { transform: rotate(90deg); }
+.tool-chevron svg { transition: transform var(--mx-motion-chrome); }
+/* A collapsed row keeps its chevron hidden until the row is hovered or focused
+   (Orca reference): a dozen stacked cards printed a permanent column of arrows
+   down the right edge, and none of them said anything. Opacity — never display
+   or width — so the 20px slot stays reserved and no title reflows on hover.
+   An open row keeps its rotated chevron visible as the way back. */
+.tool-chevron { opacity: 0; transition: opacity var(--mx-motion-chrome); }
+.tool-header:hover:not(:disabled) .tool-chevron,
+.tool-header:focus-visible .tool-chevron,
+.tool-card[data-open="true"] > .tool-header .tool-chevron,
+.tool-activity[data-open="true"] > .tool-activity-header .tool-chevron,
+.tool-activity-category[data-open="true"] > .tool-activity-category-header .tool-chevron,
+.tool-activity-item[data-open="true"] > .tool-activity-item-header .tool-chevron { opacity: 1; }
+/* Touch surfaces have no hover to reveal it, so the affordance stays put. */
+@media (hover: none) {
+  .tool-chevron { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-chevron { transition: none; }
+}
+.tool-card[data-open="true"] > .tool-header .tool-chevron svg,
+.tool-activity[data-open="true"] > .tool-activity-header .tool-chevron svg,
+.tool-activity-category[data-open="true"] > .tool-activity-category-header .tool-chevron svg,
+.tool-activity-item[data-open="true"] > .tool-activity-item-header .tool-chevron svg { transform: rotate(90deg); }
 .tool-content { gap: 8px; border: 0; padding: 8px 0 0; background: transparent; }
 /* Manual expansion adds exactly one summary row
    (355 lines / Failed · cause / Running · 12s). */
@@ -196,7 +526,7 @@
   /* Toggle smoothness (user: the summary "pops in from a weird spot"): a
      short fade-in settles the text in place; position stability itself comes
      from the click-anchor scroll correction in Conversation. */
-  animation: tool-detail-enter 110ms ease-out;
+  animation: tool-detail-enter var(--mx-motion-chrome);
 }
 @keyframes tool-detail-enter {
   from { opacity: 0; }

@@ -178,7 +178,7 @@
 .studio-tile-open video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .studio-thumbnail-image {
   opacity: 0;
-  transition: opacity 140ms ease-out;
+  transition: opacity var(--mx-motion-chrome);
 }
 .studio-thumbnail-image[data-ready='true'] { opacity: 1; }
 .studio-thumbnail-loading {
@@ -229,7 +229,7 @@
      swallowing the buttons after a few hovers (user). */
   z-index: 2;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--mx-motion-chrome);
 }
 .studio-tile-actions button {
   display: grid;
@@ -685,9 +685,9 @@
   box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
   /* Chat-composer parity: the panel scales out of the expanding pill. */
   transform-origin: bottom left;
-  animation: route-sheet-morph-in 160ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: route-sheet-morph-in var(--mx-motion-slow) var(--mx-ease-emphasized) both;
 }
-.studio-model-panel > * { animation: route-sheet-content-in 140ms ease-out 40ms both; }
+.studio-model-panel > * { animation: route-sheet-content-in var(--mx-motion-chrome) 40ms both; }
 /* Codex-style pill: expands to the panel width while open. */
 .studio-model-trigger[data-morph] {
   max-width: none;
@@ -695,7 +695,7 @@
   color: var(--mx-text);
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-muted);
-  transition: width 110ms cubic-bezier(.22, 1, .36, 1);
+  transition: width var(--mx-motion-base) var(--mx-ease-emphasized);
 }
 .studio-model-panel section + section {
   margin-top: 6px;
@@ -725,7 +725,7 @@
   font-size: var(--mx-font-ui);
   text-align: left;
   cursor: pointer;
-  transition: background 85ms ease-out, box-shadow 85ms ease-out;
+  transition: background var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .studio-model-panel button:hover,
 .studio-model-panel button:focus-visible {
@@ -834,7 +834,7 @@
   display: flex;
   background: var(--mx-window-band);
   opacity: 1;
-  transition: opacity 100ms ease-out;
+  transition: opacity var(--mx-motion-ink);
 }
 .desktop-boot-cover[data-leaving="true"] { opacity: 0; pointer-events: none; }
 .desktop-boot-cover > .desktop-loading-surface {
@@ -845,7 +845,7 @@
    spaces. Never show both marks at once: the cover exits first, then the
    final content-space mark fades in without appearing to jump position. */
 .desktop-boot-gate[data-brand-handoff] .welcome-logo {
-  animation: desktop-boot-brand-in 180ms 20ms ease-out both;
+  animation: desktop-boot-brand-in var(--mx-motion-slow) 20ms var(--mx-ease-standard) both;
 }
 @keyframes desktop-boot-brand-in {
   from { opacity: 0; }
@@ -871,7 +871,7 @@
      window on Windows GPU during slider drags. Gallery stays hidden so
      tiles cannot ghost through the veil. */
   background: var(--mx-scrim);
-  animation: studio-detail-in 140ms ease-out;
+  animation: studio-detail-in var(--mx-motion-chrome);
 }
 .studio-shell:has(.studio-detail) .studio-results,
 .studio-shell:has(.studio-detail) .studio-topbar {
@@ -908,7 +908,7 @@
   min-height: 0;
   object-fit: contain;
   border-radius: var(--mx-radius-md);
-  animation: studio-stage-in 160ms ease-out;
+  animation: studio-stage-in var(--mx-motion-chrome);
 }
 .studio-detail-side {
   display: flex;
@@ -920,7 +920,7 @@
   overflow: hidden;
   background: var(--mx-bg-base);
   box-shadow: inset .5px 0 0 var(--mx-border-muted);
-  animation: studio-side-in 160ms ease-out;
+  animation: studio-side-in var(--mx-motion-chrome);
 }
 @keyframes studio-detail-in {
   from { opacity: 0; }

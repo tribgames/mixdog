@@ -528,6 +528,16 @@
           "fast": false
         }
       }
+    },
+    "opengo-free": {
+      "routes": {
+        "lead": {
+          "provider": "opencode-go",
+          "model": "ox-alpha-free",
+          "effort": "high",
+          "fast": true
+        }
+      }
     }
   }
 }

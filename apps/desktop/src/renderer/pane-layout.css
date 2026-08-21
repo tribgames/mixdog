@@ -75,7 +75,7 @@
   z-index: 2;
   pointer-events: none;
   background: var(--mx-border-structure);
-  transition: background 120ms ease, width 120ms ease, height 120ms ease;
+  transition: background var(--mx-motion-chrome), width var(--mx-motion-chrome), height var(--mx-motion-chrome);
 }
 .pane-split-row > .pane-resize-handle::after {
   top: 0;
@@ -191,7 +191,7 @@
   cursor: row-resize;
   z-index: 4;
   background: transparent;
-  transition: background 120ms ease;
+  transition: background var(--mx-motion-chrome);
 }
 .bottom-panel-resize:hover,
 .bottom-panel-resize.is-dragging {
@@ -241,7 +241,7 @@
   text-transform: none;
   white-space: nowrap;
   cursor: pointer;
-  transition: opacity 100ms ease-out;
+  transition: opacity var(--mx-motion-ink);
 }
 .bottom-panel-tab-count {
   min-width: 16px;
@@ -655,7 +655,7 @@
      70ms glide between zones. The element remounts per pane, so the
      highlight never slides across panes. */
   transition: left 70ms ease-out, top 70ms ease-out,
-    width 70ms ease-out, height 70ms ease-out, opacity 150ms ease-out;
+    width 70ms ease-out, height 70ms ease-out, opacity var(--mx-motion-chrome);
 }
 @starting-style {
   .pane-drop-overlay { opacity: 0; }

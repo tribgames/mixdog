@@ -94,21 +94,52 @@
   /* Anchored to .transcript-shell (the scroller's bottom edge): a fixed
      116/140px guess overlapped the composer whenever it grew (user). */
   bottom: var(--pane-chrome-inset);
-  min-height: 28px;
+  /* Same capsule family as the status island at the opposite corner (user:
+     아일랜드 스타일이랑 비슷하게). The island paints a 28 slot inside 2px of
+     padding, so 32 is the shared resting height, and the surface itself stays
+     bare — the plate belongs to ::before below. */
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
+  padding: 0 12px;
   border: 0;
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-2);
-  box-shadow: var(--mx-floating);
+  background: transparent;
+  transition: background var(--mx-motion-ink);
   transform: translateX(-50%);
 }
-/* Hover lightens one layer; --mx-bg-contrast is #242424 in LIGHT mode and
-   turned the pill black on hover. */
-.jump-to-latest:hover, .jump-to-latest:focus-visible { background: var(--mx-bg-layer-3); }
+/* The island's plate, restated. The tint, blur and hairline MUST stay on this
+   negative layer: on the capsule itself the label would render inside its own
+   backdrop-filter group and lose its crisp text. The pill carries z-index 9,
+   so the layer stays inside its own stacking context. */
+.jump-to-latest::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--mx-bg-base) 62%, transparent);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
+}
+/* Hover is the island's slot idiom — one thin ink wash over the plate, not a
+   filled button. (--mx-bg-contrast is #242424 in LIGHT mode and turned the
+   pill black back when hover swapped the whole background.) */
+.jump-to-latest:hover, .jump-to-latest:focus-visible {
+  background: color-mix(in srgb, var(--mx-text) 6%, transparent);
+}
+/* Same phone reasoning as the island: a live backdrop blur pinned over the
+   transcript re-samples on every scrolled frame, so the projected phone keeps
+   the plate as a near-opaque tint and gives the budget back to scrolling. */
+html[data-mixdog-mobile-tabs] .jump-to-latest::before {
+  background: color-mix(in srgb, var(--mx-bg-base) 92%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 /* Session status island (user: 우상단에 아이폰 다이나믹 아일랜드 같은 섬).
    ONE capsule owns the context gauge and the live Agent/Shell chips at the
    scroller's top-right corner. The readouts used to sit inside the composer
@@ -119,7 +150,7 @@
 .transcript-shell > .session-status-island {
   --session-status-slot: 28px;
   --session-status-gap: 2px;
-  --session-status-card-width: clamp(248px, 28vw, 320px);
+  --session-status-card-width: 220px;
   position: absolute;
   z-index: 9;
   top: var(--pane-chrome-inset);
@@ -260,8 +291,8 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   padding: 8px;
 }
 .session-work-indicator[data-active="false"] .live-work-popover {
-  width: max-content;
-  min-width: 220px;
+  width: var(--session-status-card-width);
+  min-width: 0;
 }
 .live-work-group {
   min-width: 0;
@@ -302,7 +333,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   min-width: 0;
   min-height: 40px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 7px 8px;
@@ -323,27 +354,18 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   gap: 2px;
 }
 .session-work-indicator .live-work-copy > span {
-  display: -webkit-box;
+  display: block;
   overflow: hidden;
   color: var(--mx-text);
-  white-space: normal;
-  text-overflow: clip;
-  line-height: var(--mx-line-minor);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.session-work-indicator .live-work-copy > small {
-  overflow: hidden;
-  color: var(--mx-text-faint);
   white-space: nowrap;
   text-overflow: ellipsis;
+  line-height: var(--mx-line-minor);
+}
+.session-work-indicator .live-work-copy > small {
+  display: none;
 }
 .session-work-indicator .live-work-row > time {
-  align-self: center;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  display: none;
 }
 .live-work-stop {
   width: 26px;
@@ -971,7 +993,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
   display: inline-block;
   white-space: pre;
-  transition: color 220ms ease-out;
+  transition: color var(--mx-motion-slow) var(--mx-ease-standard);
 }
 [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-char"] {
   color: transparent;
@@ -1112,7 +1134,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 .fast-mode-toggle,
 .effort-control .mx-select-trigger,
 .send-button {
-  transition: color 85ms ease-out, background 85ms ease-out, box-shadow 85ms ease-out, opacity 85ms ease-out;
+  transition: color var(--mx-motion-ink), background var(--mx-motion-ink), box-shadow var(--mx-motion-ink), opacity var(--mx-motion-ink);
 }
 .composer-tool:focus-visible,
 .model-trigger:focus-visible,

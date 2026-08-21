@@ -47,7 +47,7 @@
   /* Flat by decision (user: 입체감은 별로, 플랫한 게 좋다): one hairline ring
      and the scrim carry the separation — no drop shadow, no lift. */
   box-shadow: inset 0 0 0 .5px var(--mx-border);
-  animation: mx-dialog-in .12s ease-out;
+  animation: mx-dialog-in var(--mx-motion-chrome);
 }
 .mx-dialog { width: min(480px, calc(100vw - 32px)); }
 /* The guided-setup card is fixed-size, so it follows the shorter layer too. */
@@ -281,7 +281,7 @@
 .onboarding-memory-options > button:not(.selected) {
   background: transparent;
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  transition: background-color .12s ease;
+  transition: background-color var(--mx-motion-ink);
 }
 .onboarding-provider-list > form:hover,
 .onboarding-provider-row:hover,
@@ -380,7 +380,7 @@
 /* Step entry fades only. The old translateY(10px) pushed the incoming step
    past the scroll box for a few frames, so a scrollbar flashed in and out on
    every step change (user: 진입할 때 스크롤바가 잠시 생겼다 사라진다). */
-.onboarding-step-view { animation: onboarding-step-fade .2s ease-out; }
+.onboarding-step-view { animation: onboarding-step-fade var(--mx-motion-slow) var(--mx-ease-standard); }
 @keyframes onboarding-step-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -553,9 +553,9 @@
    facing the pill stays put, the root steps aside, and a back header walks
    one level up, exactly like a phone settings screen. */
 .route-sheet {
-  transition: top 200ms cubic-bezier(.22, 1, .36, 1),
-    height 200ms cubic-bezier(.22, 1, .36, 1),
-    max-height 200ms cubic-bezier(.22, 1, .36, 1);
+  transition: top var(--mx-motion-slow) var(--mx-ease-emphasized),
+    height var(--mx-motion-slow) var(--mx-ease-emphasized),
+    max-height var(--mx-motion-slow) var(--mx-ease-emphasized);
 }
 .route-sheet[data-drilled] { overflow: hidden; }
 .route-sheet-rows,
@@ -582,7 +582,7 @@
   flex: 1 1 auto;
 }
 .route-sheet[data-state="open"] > .route-sheet-pane {
-  animation: route-drill-in 170ms cubic-bezier(.22, 1, .36, 1) both;
+  animation: route-drill-in var(--mx-motion-slow) var(--mx-ease-emphasized) both;
 }
 @keyframes route-drill-in {
   from { opacity: 0; transform: translateX(12px); }

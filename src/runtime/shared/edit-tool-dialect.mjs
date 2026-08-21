@@ -13,6 +13,14 @@ export function modelEditToolName(modelName) {
   return isGptFamilyModel(modelName) ? 'apply_patch' : 'edit';
 }
 
+/**
+ * The edit dialect this model never receives. Rules that name a concrete edit
+ * tool are gated on it, so a session only reads the dialect it can call.
+ */
+export function unusedModelEditToolName(modelName) {
+  return modelEditToolName(modelName) === 'edit' ? 'apply_patch' : 'edit';
+}
+
 export function filterModelEditTools(tools, modelName) {
   const selected = modelEditToolName(modelName);
   return (Array.isArray(tools) ? tools : []).filter((tool) => {

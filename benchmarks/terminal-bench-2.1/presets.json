@@ -68,6 +68,15 @@
     "grokbuild": {
       "suite": "core",
       "routeProfile": "grokbuild"
+    },
+    "opengo-free": {
+      "suite": "core",
+      "routeProfile": "opengo-free"
+    },
+    "opengo-free-n1": {
+      "suite": "core",
+      "routeProfile": "opengo-free",
+      "concurrent": 1
     }
   }
 }

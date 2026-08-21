@@ -76,6 +76,20 @@ test("a layer that closes itself consumes only its own sentinel", async () => {
   assert.deepEqual(closed, ["dialog"]);
 });
 
+test("a replacement layer opened before the cleanup pop keeps its sentinel", async () => {
+  const closed = [];
+  const releaseMenu = registerMobileBack(() => closed.push("menu"));
+
+  await afterPopState(() => {
+    releaseMenu();
+    registerMobileBack(() => closed.push("settings"));
+  });
+  assert.deepEqual(closed, []);
+
+  await afterPopState(() => dom.window.history.back());
+  assert.deepEqual(closed, ["settings"]);
+});
+
 test("releasing an entry the back button already consumed is a no-op", async () => {
   const closed = [];
   const release = registerMobileBack(() => closed.push("sheet"));

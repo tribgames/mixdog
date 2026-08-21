@@ -295,7 +295,7 @@
 /* Twistie column: 16px reserved on every row; the chevron rotates like the
    monaco tree codicon (collapsed = -90deg). */
 .explorer-twistie { flex: 0 0 16px; width: 16px; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--mx-text-muted); }
-.explorer-twistie svg { transition: transform 0.1s linear; }
+.explorer-twistie svg { transition: transform var(--mx-motion-ink); }
 .explorer-twistie.collapsed svg { transform: rotate(-90deg); }
 /* Indent guides only while the tree is hovered/focused — the
    tree's "onHover" default. One 1px hairline per

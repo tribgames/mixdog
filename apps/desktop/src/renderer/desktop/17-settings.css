@@ -270,7 +270,7 @@
   border-radius: var(--mx-radius-sm);
   background: linear-gradient(180deg, transparent, var(--mx-alpha-light-20)), var(--mx-bg-layer-3);
   box-shadow: var(--mx-switch-off);
-  transition: background 90ms ease-out, opacity 90ms ease-out;
+  transition: background var(--mx-motion-ink), opacity var(--mx-motion-ink);
 }
 .mixdog-settings__switch span::after {
   width: 12px;
@@ -281,7 +281,7 @@
   border-radius: var(--mx-radius-hair);
   background: linear-gradient(180deg, var(--mx-grey-50), transparent), var(--mx-grey-200);
   box-shadow: var(--mx-switch-thumb-shadow);
-  transition: transform 90ms ease-out, width 90ms ease-out, border-radius 90ms ease-out;
+  transition: transform var(--mx-motion-ink), width var(--mx-motion-ink), border-radius var(--mx-motion-ink);
 }
 .mixdog-settings__switch:hover span::after { width: 13px; border-radius: var(--mx-radius-sm); }
 .mixdog-settings__switch:hover span {

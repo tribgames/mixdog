@@ -147,7 +147,10 @@ async function routeToolContract(repoRoot, route) {
   const { BUILTIN_TOOLS } = await load('src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs');
   const { PATCH_TOOL_DEFS } = await load('src/runtime/agent/orchestrator/tools/patch-tool-defs.mjs');
   const { CODE_GRAPH_TOOL_DEFS } = await load('src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs');
-  const { TOOL_SEARCH_TOOL, CWD_TOOL, SKILL_TOOL } = await load('src/session-runtime/tool-defs.mjs');
+  // Benchmark trials run with MIXDOG_DISABLE_SKILLS=1 and MIXDOG_DISABLE_MCP=1,
+  // so the Skill tool never reaches the model; hashing it would describe a
+  // wider surface than the one that produced the score.
+  const { TOOL_SEARCH_TOOL, CWD_TOOL } = await load('src/session-runtime/tool-defs.mjs');
   const { filterModelEditTools } = await load('src/runtime/shared/edit-tool-dialect.mjs');
   const { applyDeferredToolSurface } = await load('src/session-runtime/tool-catalog.mjs');
   const { buildDeferredToolManifest } = await load(
@@ -166,7 +169,7 @@ async function routeToolContract(repoRoot, route) {
   applyDeferredToolSurface(
     session,
     'lead',
-    [TOOL_SEARCH_TOOL, CWD_TOOL, SKILL_TOOL],
+    [TOOL_SEARCH_TOOL, CWD_TOOL],
     { provider: route.provider, model: route.model },
   );
   const catalog = session.deferredToolCatalog || [];
@@ -219,9 +222,14 @@ function promptSurfaceDigest(repoRoot, workflowId, routeContract) {
   const builder = require(join(repoRoot, 'src', 'lib', 'rules-builder.cjs'));
   const PLUGIN_ROOT = join(repoRoot, 'src');
   const workflow = workflowDocument(repoRoot, workflowId);
+  // The edit dialect this route never receives is gated out of the rules at
+  // session build time, so the digest omits it here as well.
+  const unusedEditTool = routeContract.activeToolNames?.includes('apply_patch')
+    ? 'edit'
+    : 'apply_patch';
   const shared = builder.buildSharedToolContent({
     PLUGIN_ROOT,
-    omitTools: BENCHMARK_DISABLED_TOOLS,
+    omitTools: [...BENCHMARK_DISABLED_TOOLS, unusedEditTool],
   });
   const lead = builder.buildLeadRoleContent({
     PLUGIN_ROOT,

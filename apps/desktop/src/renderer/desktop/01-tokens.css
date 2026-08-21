@@ -308,16 +308,50 @@
   font-synthesis: none;
   --mx-font-mono: "JetBrains Mono Variable", "JetBrains Mono", Consolas, monospace;
   --titlebar-height: 35px;
+  /* ── Motion scale ── THREE clocks and THREE curves for the whole shell. The
+     numbers are the ones the shell had already converged on by hand: 85 for
+     ink-only feedback that must land before the eye follows it, 120 for
+     chrome that appears or turns in place, 180 for a surface that TRAVELS.
+     Anything that loops on its own rhythm — spinners, pulses, shimmer,
+     progress fills — keeps its own duration: it is a signal, not a
+     transition. */
+  --mx-motion-fast: 85ms;
+  --mx-motion-base: 120ms;
+  --mx-motion-slow: 180ms;
+  /* Standard carries ink and small chrome; emphasized carries travel; exit
+     ACCELERATES away, because a surface that is leaving must not decelerate
+     into a place it no longer occupies. The shell used to run two nearly
+     identical spring curves — .2,.8,.2,1 on panels, .22,1,.36,1 on route
+     sheets and studio — so two surfaces entering side by side settled on
+     different frames. */
+  --mx-ease-standard: ease-out;
+  --mx-ease-emphasized: cubic-bezier(.2, .8, .2, 1);
+  --mx-ease-exit: cubic-bezier(.4, 0, 1, 1);
+  /* Ready-made pairs for the two cases the shell repeats most. */
+  --mx-motion-ink: var(--mx-motion-fast) var(--mx-ease-standard);
+  --mx-motion-chrome: var(--mx-motion-base) var(--mx-ease-standard);
   /* One side-panel clock: desktop width expansion, mobile sheets, scrims, and
      the dock unmount timer all finish on the same frame. */
-  --mx-side-panel-duration: 180ms;
-  --mx-side-panel-easing: cubic-bezier(.2, .8, .2, 1);
+  --mx-side-panel-duration: var(--mx-motion-slow);
+  --mx-side-panel-easing: var(--mx-ease-emphasized);
   --mx-side-panel-motion: var(--mx-side-panel-duration) var(--mx-side-panel-easing);
   --mx-sheet-motion: var(--mx-side-panel-motion);
   /* Overlay height base: desktop = layout viewport; the mobile shell swaps
      in the tracked visual viewport so the soft keyboard never clips
      dialogs, menus, or sheets. */
   --vvh: 100vh;
+}
+
+/* Reduced motion, at the SOURCE: collapsing the scale itself retimes every
+   tokenized transition and the whole panel/sheet family from one place. The
+   per-rule `animation: none` blocks in the layers below stay as the safety
+   net for keyframe loops, which no duration token can reach. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --mx-motion-fast: 1ms;
+    --mx-motion-base: 1ms;
+    --mx-motion-slow: 1ms;
+  }
 }
 
 :root[data-mixdog-theme="light"] {

@@ -75,7 +75,7 @@
   border-radius: var(--mx-radius-pill);
   background: color-mix(in srgb, var(--mx-text-muted) 28%, transparent);
   cursor: pointer;
-  transition: width .3s ease, background-color .3s ease;
+  transition: width 300ms var(--mx-ease-standard), background-color 300ms var(--mx-ease-standard);
 }
 .onboarding-progress-bar::before { content: ""; position: absolute; inset: -8px -4px; }
 .onboarding-progress-bar:hover:not(:disabled):not(.active) { background: color-mix(in srgb, var(--mx-text-muted) 48%, transparent); }
@@ -120,7 +120,7 @@
   display: block;
   height: auto;
 }
-.onboarding-step-view { display: grid; gap: 22px; animation: onboarding-step-in .34s cubic-bezier(.22, 1, .36, 1); }
+.onboarding-step-view { display: grid; gap: 22px; animation: onboarding-step-in 340ms var(--mx-ease-emphasized); }
 @keyframes onboarding-step-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
@@ -191,7 +191,7 @@
   background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
     0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
-  transition: box-shadow .15s ease;
+  transition: box-shadow var(--mx-motion-chrome);
 }
 .onboarding-provider-list > form:hover, .onboarding-provider-row:hover,
 .onboarding-model-grid > label:hover {
@@ -314,7 +314,7 @@
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
     0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
   cursor: pointer;
-  transition: box-shadow .15s ease, transform .15s ease;
+  transition: box-shadow var(--mx-motion-chrome), transform var(--mx-motion-chrome);
 }
 .onboarding-workflow-grid > button:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -436,7 +436,7 @@
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
     0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
   cursor: pointer;
-  transition: box-shadow .15s ease, transform .15s ease;
+  transition: box-shadow var(--mx-motion-chrome), transform var(--mx-motion-chrome);
 }
 .onboarding-theme-grid > button:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -508,7 +508,7 @@
   align-items: flex-start;
   text-align: left;
   cursor: pointer;
-  transition: box-shadow .15s ease, transform .15s ease;
+  transition: box-shadow var(--mx-motion-chrome), transform var(--mx-motion-chrome);
 }
 .onboarding-choice-grid > button:hover:not(:disabled) {
   border: 0;
