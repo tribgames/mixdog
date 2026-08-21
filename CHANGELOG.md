@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.144 - 2026-08-21
+
 - Desktop interaction now follows keyboard and pointer focus more reliably,
   improves mobile pane swipes and transcript/status presentation, and reports
   background shell task state with safer recovery behavior.
