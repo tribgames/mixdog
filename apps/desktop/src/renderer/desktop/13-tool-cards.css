@@ -389,6 +389,43 @@
 .tool-activity-item-preview,
 .tool-activity-item-output { tab-size: 2; }
 .tool-activity-item-body .code-diff { margin-top: 4px; }
+/* Expanded tool bodies used to be one flat <pre>, so a fenced block, a table,
+   or a JSON payload arrived as an undifferentiated wall of text (user: 코드블록
+   이나 마크다운 적용도 안 되어서 지저분). Structured bodies now run through the
+   same markdown pipeline as the transcript, scoped down to card proportions. */
+.tool-activity-markdown {
+  max-height: 280px;
+  overflow: auto;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-code);
+}
+.tool-activity-markdown > :first-child { margin-top: 0; }
+.tool-activity-markdown > :last-child { margin-bottom: 0; }
+.tool-activity-markdown p,
+.tool-activity-markdown ul,
+.tool-activity-markdown ol,
+.tool-activity-markdown blockquote { margin: 4px 0; }
+.tool-activity-markdown h1,
+.tool-activity-markdown h2,
+.tool-activity-markdown h3,
+.tool-activity-markdown h4 {
+  margin: 6px 0 3px;
+  font-size: var(--mx-font-ui);
+}
+/* The transcript's code card carries its own chrome and padding; inside a card
+   body that nesting reads as a box in a box, so it flattens to bare code. */
+.tool-activity-markdown pre {
+  margin: 4px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.tool-activity-markdown pre code {
+  font-size: var(--mx-font-code);
+  line-height: var(--mx-line-ui);
+}
+.tool-activity-markdown .markdown-table { margin: 4px 0; }
+.tool-activity-replacement-block .tool-activity-markdown { max-height: 180px; }
 .tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-icon,
 .tool-activity:not([data-surface="desktop"]).failed > .tool-activity-header .tool-activity-title b { color: var(--mx-danger); }
 .tool-activity:not([data-surface="desktop"]).warning > .tool-activity-header .tool-icon,

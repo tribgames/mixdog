@@ -152,6 +152,21 @@ export function t(key: string, options?: Record<string, unknown>): string {
   return String(i18next.t(key, options));
 }
 
+/** Translate a runtime-composed phrase ONLY when the active catalog really
+ *  carries the key, and hand back the English original otherwise.
+ *
+ *  Tool result summaries ("3 matches", "1 line") are built by the runtime with
+ *  English pluralization already applied. Passing them through plain t() on an
+ *  untranslated locale would interpolate the plural key itself and print
+ *  "1 lines"; the original is always grammatical, so it wins the fallback. */
+export function tExisting(
+  key: string,
+  original: string,
+  options?: Record<string, unknown>,
+): string {
+  return i18next.exists(key) ? String(i18next.t(key, options)) : original;
+}
+
 // Used only by the legacy DOM compatibility localizer for interpolated
 // hardcoded strings. Keeping the list on the function avoids another catalog
 // import in the renderer entry.

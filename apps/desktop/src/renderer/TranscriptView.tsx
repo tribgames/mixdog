@@ -3,7 +3,7 @@ import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, 
 import { createPortal } from "react-dom";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
-import { t } from "./i18n";
+import { t, tExisting } from "./i18n";
 import { DiffView } from "./lazy-widgets";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import { useMobileBack } from "./mobile-back";
@@ -1464,6 +1464,180 @@ function DesktopToolActivityDetails({
   );
 }
 
+/* Tool notation splits on the disclosure line, not on the tool.
+   COLLAPSED rows are interface: the verb, the category, and the runtime's own
+   fixed result shapes follow the UI language. EXPANDED detail is evidence:
+   argument labels, section headings, and the body stay in the runtime's
+   English so what is on screen matches what the tool actually reported.
+   Before this split a card could show "Edit src/a.ts" next to "검색 2" in one
+   list, and "Arguments" was the single translated word inside an otherwise
+   English body. */
+const TOOL_DETAIL_LABELS = {
+  arguments: "Arguments",
+  content: "Content",
+  before: "Before",
+  after: "After",
+  answer: "Answer",
+  questions: "Questions",
+  todos: "Todos",
+  plan: "Plan",
+  running: "Running",
+  completed: "Completed",
+  failed: "Failed",
+} as const;
+
+const TOOL_ACTIVITY_RESULT_COUNT_KEYS = new Map([
+  ["line", "{{count}} lines"],
+  ["lines", "{{count}} lines"],
+  ["match", "{{count}} matches"],
+  ["matches", "{{count}} matches"],
+  ["file", "{{count}} files"],
+  ["files", "{{count}} files"],
+  ["entry", "{{count}} entries"],
+  ["entries", "{{count}} entries"],
+  ["candidate", "{{count}} candidates"],
+  ["candidates", "{{count}} candidates"],
+  ["result", "{{count}} results"],
+  ["results", "{{count}} results"],
+  ["skill", "{{count}} skills"],
+  ["skills", "{{count}} skills"],
+  ["memory", "{{count}} memories"],
+  ["memories", "{{count}} memories"],
+  ["message", "{{count}} messages"],
+  ["messages", "{{count}} messages"],
+  ["agent", "{{count}} agents"],
+  ["agents", "{{count}} agents"],
+  ["task", "{{count}} tasks"],
+  ["tasks", "{{count}} tasks"],
+  ["reference", "{{count}} references"],
+  ["references", "{{count}} references"],
+  ["definition", "{{count}} definitions"],
+  ["definitions", "{{count}} definitions"],
+  ["symbol", "{{count}} symbols"],
+  ["symbols", "{{count}} symbols"],
+  ["caller", "{{count}} callers"],
+  ["callers", "{{count}} callers"],
+  ["callee", "{{count}} callees"],
+  ["callees", "{{count}} callees"],
+]);
+
+const TOOL_ACTIVITY_RESULT_PHRASE_KEYS = new Map([
+  ["no results", "No results"],
+  ["no result", "No results"],
+  ["(no output)", "No output"],
+  ["no agents or tasks", "No agents or tasks"],
+  ["image", "Image"],
+  ["staged", "Staged"],
+  ["completed", "Completed"],
+  ["failed", "Failed"],
+  ["cancelled", "Cancelled"],
+  ["finished", "Finished"],
+]);
+
+/** Localize the collapsed result chip. Only the runtime's closed vocabulary is
+ *  translated — a shell's first output line, an agent's answer, or an error
+ *  cause is CONTENT and passes through untouched. */
+function toolActivityLocalizedResult(text: string): string {
+  const value = text.trim();
+  if (!value || value.length > 120) return text;
+  return value.split(" · ").map((part) => {
+    const counted = /^(\d+)\s+([A-Za-z]+)$/.exec(part);
+    if (counted) {
+      const key = TOOL_ACTIVITY_RESULT_COUNT_KEYS.get(counted[2].toLowerCase());
+      if (key) return tExisting(key, part, { count: Number(counted[1]) });
+    }
+    const exit = /^Exit\s+(\S+)$/i.exec(part);
+    if (exit) return tExisting("Exit {{code}}", part, { code: exit[1] });
+    const skill = /^(Loaded|Used)\s+(.+)$/.exec(part);
+    if (skill) {
+      return tExisting(
+        skill[1] === "Loaded" ? "Loaded {{name}}" : "Used {{name}}",
+        part,
+        { name: skill[2] },
+      );
+    }
+    const phrase = TOOL_ACTIVITY_RESULT_PHRASE_KEYS.get(part.toLowerCase());
+    return phrase ? tExisting(phrase, part) : part;
+  }).join(" · ");
+}
+
+// A body only earns the markdown pipeline when it actually carries structure;
+// plain log text renders faster and truer as preformatted output. Large bodies
+// stay preformatted regardless: parsing 100KB of log per expand is not worth a
+// heading.
+const TOOL_ACTIVITY_MARKDOWN_HINT =
+  /(?:^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)|\n\s*\|[^\n]*\|\s*(?:\n|$)/;
+const TOOL_ACTIVITY_MARKDOWN_MAX = 20_000;
+
+function toolActivityLooksMarkdown(text: string): boolean {
+  return text.length <= TOOL_ACTIVITY_MARKDOWN_MAX
+    && TOOL_ACTIVITY_MARKDOWN_HINT.test(text);
+}
+
+const TOOL_ACTIVITY_CODE_LANGUAGES = new Map([
+  ["ts", "ts"], ["tsx", "tsx"], ["mts", "ts"], ["cts", "ts"],
+  ["js", "js"], ["jsx", "jsx"], ["mjs", "js"], ["cjs", "js"],
+  ["json", "json"], ["jsonc", "json"], ["json5", "json"],
+  ["css", "css"], ["scss", "scss"], ["less", "less"],
+  ["html", "html"], ["htm", "html"], ["xml", "xml"], ["svg", "xml"],
+  ["md", "markdown"], ["markdown", "markdown"], ["mdx", "markdown"],
+  ["py", "python"], ["rb", "ruby"], ["php", "php"], ["java", "java"],
+  ["kt", "kotlin"], ["kts", "kotlin"], ["swift", "swift"], ["go", "go"],
+  ["rs", "rust"], ["c", "c"], ["h", "c"], ["cpp", "cpp"], ["cc", "cpp"],
+  ["hpp", "cpp"], ["cs", "csharp"], ["sql", "sql"], ["lua", "lua"],
+  ["sh", "bash"], ["bash", "bash"], ["zsh", "bash"], ["ps1", "powershell"],
+  ["psm1", "powershell"], ["yml", "yaml"], ["yaml", "yaml"], ["toml", "toml"],
+  ["ini", "ini"], ["dockerfile", "dockerfile"], ["gradle", "gradle"],
+  ["vue", "html"], ["svelte", "html"],
+]);
+
+/** Highlighting language for a file path, or "" when the extension says
+ *  nothing useful (plain text keeps the preformatted lane). */
+function toolActivityCodeLanguage(pathText: string): string {
+  const name = String(pathText || "").trim().replace(/[\\/]+$/, "");
+  if (!name) return "";
+  const base = name.split(/[\\/]/).pop() || "";
+  if (/^dockerfile$/i.test(base)) return "dockerfile";
+  const extension = /\.([A-Za-z0-9]+)$/.exec(base);
+  return extension
+    ? TOOL_ACTIVITY_CODE_LANGUAGES.get(extension[1].toLowerCase()) || ""
+    : "";
+}
+
+/** Wrap text in a fence long enough to survive fences inside the text. */
+function toolActivityFencedCode(text: string, language: string): string {
+  const longest = [...text.matchAll(/`{3,}/g)]
+    .reduce((max, match) => Math.max(max, match[0].length), 0);
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `${fence}${language}\n${text}\n${fence}`;
+}
+
+function ToolActivityRichBody({ text, language, fallbackClassName }: {
+  text: string;
+  language: string;
+  fallbackClassName: string;
+}) {
+  const source = language ? toolActivityFencedCode(text, language) : text;
+  return <div className="markdown tool-activity-markdown">
+    <Suspense fallback={<pre className={fallbackClassName}>{text}</pre>}>
+      <MarkdownBody text={source} copyControl={CopyControl} />
+    </Suspense>
+  </div>;
+}
+
+/** Preformatted when the body is plain, markdown/highlighted when it is not. */
+function ToolActivityBody({ text, language, className }: {
+  text: string;
+  language: string;
+  className: string;
+}) {
+  if (!language && !toolActivityLooksMarkdown(text)) {
+    return <pre className={className}>{text}</pre>;
+  }
+  return <ToolActivityRichBody text={text} language={language}
+    fallbackClassName={className} />;
+}
+
 const TOOL_ACTIVITY_INTERNAL_ARGS = new Set([
   "categoryOrder",
   "loadingTargets",
@@ -1505,10 +1679,13 @@ export interface DesktopToolActivityItemPresentation {
   diffPatch: string;
   outputText: string;
   metaText: string;
+  outputLanguage: string;
   previewLabel: string;
   previewText: string;
+  previewLanguage: string;
   beforeText: string;
   afterText: string;
+  replacementLanguage: string;
   structuredKind: ToolActivityStructuredKind;
   structuredRows: ToolActivityStructuredRow[];
   hasDetails: boolean;
@@ -1659,7 +1836,9 @@ function toolActivitySubject(
         || fallback;
     case "request_user_input": {
       const questions = Array.isArray(args.questions) ? args.questions : [];
-      return questions.length ? `${questions.length} ${questions.length === 1 ? "question" : "questions"}` : "";
+      if (!questions.length) return "";
+      const count = `${questions.length} ${questions.length === 1 ? "question" : "questions"}`;
+      return tExisting("{{count}} questions", count, { count: questions.length });
     }
     case "update_plan":
       return "";
@@ -1674,58 +1853,61 @@ function toolActivityTitle(
   surfaceLabel: string,
   args: Record<string, unknown>,
 ): string {
-  if (originalName === "write") return "Write";
-  if (originalName === "question") return "Questions";
-  if (originalName === "todowrite" || Array.isArray(args.todos)) return "Todos";
+  // Collapsed verb: interface text, so it speaks the UI language. The default
+  // branch is the exception — an MCP or provider tool's own name is an
+  // identifier, never a phrase to translate.
+  if (originalName === "write") return t("Write");
+  if (originalName === "question") return t("Questions");
+  if (originalName === "todowrite" || Array.isArray(args.todos)) return t("Todos");
   switch (normalizedName) {
-    case "read": return "Read";
-    case "view_image": return "Image";
-    case "read_mcp_resource": return "Resource";
+    case "read": return t("Read");
+    case "view_image": return t("Image");
+    case "read_mcp_resource": return t("Resource");
     case "edit":
     case "strreplace":
     case "str_replace":
     case "str_replace_editor":
     case "search_replace":
-      return "Edit";
+      return t("Edit");
     case "git":
     case "git_stage":
-      return "Git";
+      return t("Git");
     case "shell":
     case "bash":
     case "bash_session":
     case "shell_command":
     case "job_wait":
-      return "Run";
+      return t("Run");
     case "grep":
     case "glob":
     case "find":
-      return "Search";
+      return t("Search");
     case "list":
     case "ls":
-      return "List";
+      return t("List");
     case "web_search":
     case "web_search_call":
     case "search_query":
     case "image_query":
-      return "Web Search";
+      return t("Web Search");
     case "web_fetch":
     case "fetch":
-      return "Fetch";
-    case "load_tool": return "Load";
-    case "task": return "Task";
+      return t("Fetch");
+    case "load_tool": return t("Load");
+    case "task": return t("Task");
     case "agent":
     case "bridge":
-      return "Agent";
-    case "request_user_input": return "Questions";
-    case "update_plan": return "Plan";
+      return t("Agent");
+    case "request_user_input": return t("Questions");
+    case "update_plan": return t("Plan");
     case "skill":
     case "skill_execute":
     case "skill_view":
     case "skills_list":
     case "use_skill":
-      return "Skill";
+      return t("Skill");
     default:
-      return surfaceLabel || originalName || "Tool";
+      return surfaceLabel || originalName || t("Tool");
   }
 }
 
@@ -2016,9 +2198,12 @@ function toolActivityBackgroundTask(text: string): { meta: string; body: string 
     meta.set(match[1].toLowerCase(), match[2].trim());
   }
   const status = (meta.get("status") || "").toLowerCase();
+  // Expanded detail keeps the runtime's own wording (see TOOL_DETAIL_LABELS).
   const statusLabel = status === "running"
-    ? t("Running")
-    : status === "completed" ? t("Completed") : status === "failed" ? t("Failed") : status;
+    ? TOOL_DETAIL_LABELS.running
+    : status === "completed"
+      ? TOOL_DETAIL_LABELS.completed
+      : status === "failed" ? TOOL_DETAIL_LABELS.failed : status;
   const body = lines.slice(index).join("\n")
     .split(/\n{2,}/)
     .filter((block) => block.trim() && !TOOL_ACTIVITY_TASK_INSTRUCTION.test(block))
@@ -2119,6 +2304,15 @@ export function desktopToolActivityItemPresentation(
   const afterText = !diffPatch && normalizedName === "edit"
     ? toolActivityFirstText(args, "new_string", "newString", "new_str")
     : "";
+  // File bodies are code far more often than prose, and the extension is the
+  // only reliable signal for which grammar to highlight them with.
+  const targetPath = toolActivityFirstText(
+    args, "file_path", "filePath", "path", "file", "target",
+  );
+  const previewLanguage = previewText ? toolActivityCodeLanguage(targetPath) : "";
+  const replacementLanguage = beforeText || afterText
+    ? toolActivityCodeLanguage(targetPath)
+    : "";
   let outputText = toolActivityCleanOutput(toolActivityOutputText(
     item.rawResult ?? model.displayedResultBodyText ?? item.result,
   ));
@@ -2152,7 +2346,7 @@ export function desktopToolActivityItemPresentation(
     if (!resultLabel && tone === "error") {
       const failure = oneLine(String(model.headerFailureText || model.detailLine || ""));
       resultLabel = toolActivityErrorSummary(outputText)
-        || (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : t("Failed"));
+        || (failure && !TOOL_ACTIVITY_MEANINGLESS_RESULT.test(failure) ? failure : "Failed");
     }
   }
   if (structured.rows.length) {
@@ -2160,12 +2354,20 @@ export function desktopToolActivityItemPresentation(
     resultLabel = `${completed}/${structured.rows.length}`;
   }
   if (!resultLabel && normalizedName === "git_stage" && /^staged\b/i.test(outputText.trim())) {
-    resultLabel = t("Staged");
+    resultLabel = "Staged";
   }
   if (resultLabel && outputText
     && oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()) {
     outputText = "";
   }
+  // Localized LAST: every comparison above weighs the runtime's own English
+  // summary against the English body, and a translated chip would never match.
+  resultLabel = resultLabel ? toolActivityLocalizedResult(resultLabel) : "";
+  // Pretty-printed JSON arrives as a wall of braces; fencing it as json is what
+  // makes the structure readable. Shell bodies keep the terminal lane.
+  const outputLanguage = outputText && !command && /^[{[]/.test(outputText.trimStart())
+    ? "json"
+    : "";
   const hasDetails = Boolean(
     command
     || fields.length
@@ -2189,10 +2391,13 @@ export function desktopToolActivityItemPresentation(
     diffPatch,
     outputText,
     metaText,
-    previewLabel: previewText ? t("Content") : "",
+    outputLanguage,
+    previewLabel: previewText ? TOOL_DETAIL_LABELS.content : "",
     previewText,
+    previewLanguage,
     beforeText,
     afterText,
+    replacementLanguage,
     structuredKind: structured.kind,
     structuredRows: structured.rows,
     hasDetails,
@@ -2287,8 +2492,10 @@ function DesktopToolActivityItem({
           {presentation.structuredRows.length > 0 && (
             <section className="tool-activity-item-section">
               <span>{presentation.structuredKind === "questions"
-                ? t("Questions")
-                : presentation.structuredKind === "todos" ? t("Todos") : t("Plan")}</span>
+                ? TOOL_DETAIL_LABELS.questions
+                : presentation.structuredKind === "todos"
+                  ? TOOL_DETAIL_LABELS.todos
+                  : TOOL_DETAIL_LABELS.plan}</span>
               <div className="tool-activity-structured-list">
                 {presentation.structuredRows.map((row, index) => (
                   <div className="tool-activity-structured-row"
@@ -2300,7 +2507,7 @@ function DesktopToolActivityItem({
                       <span className="tool-activity-structured-question">
                         <span className="tool-activity-structured-content">{row.text}</span>
                         {row.answer && <span className="tool-activity-structured-answer">
-                          <span>{t("Answer")}</span>{row.answer}
+                          <span>{TOOL_DETAIL_LABELS.answer}</span>{row.answer}
                         </span>}
                       </span>
                     ) : <span className="tool-activity-structured-content">{row.text}</span>}
@@ -2312,24 +2519,28 @@ function DesktopToolActivityItem({
           {presentation.previewText && (
             <section className="tool-activity-item-section">
               <span>{presentation.previewLabel}</span>
-              <pre className="tool-activity-item-preview">{presentation.previewText}</pre>
+              <ToolActivityBody text={presentation.previewText}
+                language={presentation.previewLanguage}
+                className="tool-activity-item-preview" />
             </section>
           )}
           {(presentation.beforeText || presentation.afterText) && (
             <section className="tool-activity-item-section tool-activity-replacement">
               <div className="tool-activity-replacement-block" data-kind="before">
-                <span>{t("Before")}</span>
-                <pre>{presentation.beforeText}</pre>
+                <span>{TOOL_DETAIL_LABELS.before}</span>
+                <ToolActivityBody text={presentation.beforeText}
+                  language={presentation.replacementLanguage} className="" />
               </div>
               <div className="tool-activity-replacement-block" data-kind="after">
-                <span>{t("After")}</span>
-                <pre>{presentation.afterText}</pre>
+                <span>{TOOL_DETAIL_LABELS.after}</span>
+                <ToolActivityBody text={presentation.afterText}
+                  language={presentation.replacementLanguage} className="" />
               </div>
             </section>
           )}
           {presentation.fields.length > 0 && (
             <section className="tool-activity-item-section">
-              <span>{t("Arguments")}</span>
+              <span>{TOOL_DETAIL_LABELS.arguments}</span>
               <dl className="tool-activity-item-fields">
                 {presentation.fields.map((field) => (
                   <React.Fragment key={field.key}>
@@ -2343,7 +2554,9 @@ function DesktopToolActivityItem({
           {presentation.diffPatch && <CodeDiff patch={presentation.diffPatch} />}
           {presentation.outputText && !presentation.command && (
             <section className="tool-activity-item-section tool-activity-item-result-block">
-              <pre className="tool-activity-item-output">{presentation.outputText}</pre>
+              <ToolActivityBody text={presentation.outputText}
+                language={presentation.outputLanguage}
+                className="tool-activity-item-output" />
               <CopyControl className="tool-detail-copy tool-activity-copy" label="Copy"
                 value={presentation.outputText} />
             </section>
