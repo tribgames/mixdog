@@ -58,7 +58,7 @@ test('provider failures expose concise capacity, session-state, and retry reason
   );
 });
 
-test('auto-compact replaces stale exact context usage with the compacted estimate', () => {
+test('auto-compact completion estimate wins over stale runtime context usage', () => {
   let state = {
     sessionId: 'context-session',
     provider: 'test-provider',
@@ -81,7 +81,7 @@ test('auto-compact replaces stale exact context usage with the compacted estimat
     contextStatus: () => ({
       usedSource: 'last_api_request',
       usedTokens: 90_000,
-      currentEstimatedTokens: 12_000,
+      currentEstimatedTokens: 90_000,
       lastApiRequestTokens: 90_000,
       messages: { count: 3 },
       compaction: {},
@@ -94,7 +94,11 @@ test('auto-compact replaces stale exact context usage with the compacted estimat
     getPendingSessionReset: () => false,
   });
 
-  context.syncContextStats({ allowEstimated: true, invalidateExact: true });
+  context.syncContextStats({
+    allowEstimated: true,
+    invalidateExact: true,
+    compactedEstimateTokens: 12_000,
+  });
 
   assert.equal(state.stats.currentContextTokens, 0);
   assert.equal(state.stats.currentEstimatedContextTokens, 12_000);

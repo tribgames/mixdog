@@ -690,7 +690,12 @@ export function createSessionApiA(bag) {
         // no spinner until the compact already finished).
         await new Promise((resolve) => setTimeout(resolve, 0));
         const result = await runtime.compact({ recoverAgent: true });
-        syncContextStats({ allowEstimated: true });
+        const compactChanged = Boolean(result && !result.error && result.changed !== false);
+        syncContextStats({
+          allowEstimated: true,
+          invalidateExact: compactChanged,
+          compactedEstimateTokens: compactChanged ? result.afterTokens : null,
+        });
         set({ ...routeState(), stats: { ...getState().stats } });
         if (result) {
           if (!result.error && result.changed !== false) {
