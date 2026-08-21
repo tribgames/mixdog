@@ -55,8 +55,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # whole source tree — so always install the latest published package instead
 # of the local (possibly unpublished) package.json version.
 DEFAULT_MIXDOG_VERSION = "latest"
-# Terminal-Bench always boots a benchmark-owned route profile and the stock
-# default workflow unless an explicit workflow is selected.
+# Terminal-Bench always boots a benchmark-owned route profile and the shipped
+# default workflow (Solo) unless an explicit workflow is selected.
 
 # Where the OAuth credentials file lands inside the container. Also used as
 # MIXDOG_DATA_DIR so mixdog's default credential path resolves to the same file
@@ -345,9 +345,9 @@ class MixdogAgent(BaseInstalledAgent):
         # Legacy direct-worker probes still select "worker"; published runs use
         # the product headless path.
         self._mode = (mode or "headless").strip().lower()
-        # Bench runs use the stock default workflow; the prompt-level mandate
-        # bypasses only waiting for interactive approval.
-        self._workflow = workflow or "default"
+        # Bench runs use the shipped default workflow (Solo); the prompt-level
+        # mandate bypasses only waiting for interactive approval.
+        self._workflow = workflow or "solo"
         # None => use the configured route provider; e.g.
         # --ak provider=anthropic-oauth.
         self._provider = provider

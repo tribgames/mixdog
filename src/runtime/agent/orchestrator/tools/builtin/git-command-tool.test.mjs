@@ -182,6 +182,7 @@ test('git schema exposes only the compact shell-compatible contract', () => {
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
     assert.equal(properties.command.minLength, undefined);
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
+    assert.match(GIT_TOOL_DEF.description, /Use diff directly when changed content for a known target is required/i);
     assert.match(GIT_TOOL_DEF.description, /Run one Git command directly, without a shell/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });

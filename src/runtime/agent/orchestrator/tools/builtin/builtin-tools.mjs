@@ -26,12 +26,12 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Images render for viewing; not directories. Replaces cat/head/tail. Never re-open spans grep or code_graph already returned.',
+        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Spans another tool already returned are source context; read only what they omit. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
                 file_path: {
-                    type: 'string',                    description: 'Known file path as plain text; not a JSON array or annotated path. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.',
+                    type: 'string',                    description: 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.',
                 },
                 offset: {
                     type: 'integer',
@@ -52,7 +52,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Edit',
         annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-        description: 'Replace exact text in one file. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file. Use exact text already in context; never re-open the file to build old_string or to verify a successful edit.',
+        description: 'Replace exact text in one file. Use exact text already in context; never re-open the file to build old_string or to verify a successful edit. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -81,7 +81,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id and completes by notification. Use task monitor only after promotion when periodic progress is needed, task read for an extra current snapshot, and never poll in a loop.'}`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} Avoid file operations covered by dedicated tools unless explicitly instructed or after verifying that a dedicated tool cannot do the job. An already-open shell is never a reason to route work to it. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id and completes by notification. Use task monitor only after promotion when periodic progress is needed, task read for an extra current snapshot, and never poll in a loop.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -101,7 +101,7 @@ export const BUILTIN_TOOLS = [
         name: 'task',
         title: 'Task',
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one current output snapshot, change periodic monitoring, or cancel by task_id; completion always arrives by notification.',
+        description: 'List shell tasks, read one current output snapshot, change periodic monitoring, or cancel by task_id. Call it only when a snapshot must drive a decision; never poll in a loop — completion always arrives by notification.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -152,7 +152,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Return wildcard-matching file paths under a known base directory when those paths are needed. Directories never match; enumerate them with list. Omit path for the current Project; if the base location is unknown, use find first. Newest first by default. Replaces find -name.',
+        description: 'Read-only; safe to batch in parallel. Return wildcard-matching file paths under a known base directory when those paths are needed. Omit path for the current Project; if the base location is unknown, use find first. Directories never match. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -174,7 +174,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. No content or symbol search.',
+        description: 'Read-only; safe to batch in parallel. Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. Skip it when the path is already known or resolvable.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -193,7 +193,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Read-only; safe to batch in parallel. Return a known directory's immediate entries (path + type) when the entry list itself is needed; not a prerequisite for another tool on that directory — tree walks go to glob, name hunts to find. No wildcard; meta:true adds size/mtime/mode.",
+        description: "Read-only; safe to batch in parallel. Return a known directory's immediate entries (path + type) when the entry list itself is needed; never as a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode.",
         inputSchema: {
             type: 'object',
             properties: {

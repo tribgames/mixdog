@@ -41,7 +41,7 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command directly, without a shell. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
+    description: 'Run one Git command directly, without a shell. History, blame, and old commits are evidence only when the task itself is about the past; work on current code ends at status and diff. Use diff directly when changed content for a known target is required; status is the repository summary. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {

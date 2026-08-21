@@ -557,6 +557,9 @@ export function generateRunReport({ jobsDir, historyRoot }) {
     preset: {
       name: manifest.preset,
       fingerprint: manifest.fingerprint,
+      // Rules and tool-schema digests: the fingerprint covers routes only, so
+      // this is what tells two runs of one preset apart.
+      contract: manifest.contract ?? null,
       suite: manifest?.definition?.suite ?? null,
       routeProfile: manifest?.definition?.routeProfile ?? null,
       provider: lead.provider ?? null,
@@ -683,6 +686,11 @@ export function formatRunReport(report) {
     `- Final context median: ${number(report.finalContext.medianTokens, 0)} tokens (${report.finalContext.trials} trials)`,
     `- Reduction: ${report.reduction.totalSavedBytes} bytes saved, ${report.reduction.activity.artifactReads} artifact reads`,
   ];
+  const contract = report.preset.contract;
+  if (contract) {
+    const short = (hash) => String(hash || '').replace(/^sha256:/, '').slice(0, 12) || 'n/a';
+    lines.push(`- Contract: rules ${short(contract.rulesHash)} (${contract.rulesFiles} files), tools ${short(contract.toolCatalogHash)} (${contract.toolCount} tools, ${contract.toolSchemaBytes} B)`);
+  }
   if (previous) {
     lines.push(`- Previous delta: agent ${number(previous.deltas.agentTotalSeconds)}s, wall ${number(previous.deltas.wallSeconds)}s, input ${previous.deltas.inputTokens}, output ${previous.deltas.outputTokens}`);
   }

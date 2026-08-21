@@ -29,7 +29,10 @@ const STARTER_AGENT_ORDER = new Map([
   ['heavy-worker', 1],
   ['reviewer', 2],
 ]);
-export const DEFAULT_WORKFLOW_ID = 'default';
+// Fallback workflow for a config with no explicit selection, for an unknown
+// id, and for the pack reset after a delete. Solo is the shipped default
+// working mode; the cowork pack (directory id `default`) is opt-in.
+export const DEFAULT_WORKFLOW_ID = 'solo';
 
 const WEB_SEARCH_CAPABLE_PROVIDERS = new Set([
   'openai-oauth', 'openai', 'grok-oauth', 'xai', 'gemini', 'anthropic', 'anthropic-oauth',
@@ -245,8 +248,10 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     // Solo leads (user decision: solo is the default working mode), the
     // cowork pack (built-in id `default`) second, then customs alphabetically
     // — every picker (TUI, desktop sidebar, onboarding) shares this order.
+    // The cowork id stays literal here: DEFAULT_WORKFLOW_ID now means "the
+    // fallback pack" (solo), not "the pack whose directory is `default`".
     const weight = (pack) => pack.id === 'solo' ? 0
-      : (pack.id === DEFAULT_WORKFLOW_ID || pack.id === 'cowork') ? 1 : 2;
+      : (pack.id === 'default' || pack.id === 'cowork') ? 1 : 2;
     return [...byId.values()].sort((a, b) =>
       (weight(a) - weight(b)) || a.name.localeCompare(b.name));
   }
@@ -277,7 +282,7 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     const id = normalizeWorkflowId(pack?.id, DEFAULT_WORKFLOW_ID);
     return {
       id,
-      name: clean(pack?.name) || (id === DEFAULT_WORKFLOW_ID ? 'Default' : id),
+      name: clean(pack?.name) || (id === 'default' ? 'Default' : id),
       description: clean(pack?.description),
       source: clean(pack?.source),
       // Delegation surface field: the session stores this summary as

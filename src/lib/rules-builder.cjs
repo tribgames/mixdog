@@ -202,12 +202,32 @@ function stripFrontmatter(markdown) {
   return String(markdown || '').replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/, '').trim();
 }
 
-const WEB_SEARCH_ROUTE_RE = /^[ \t]*current or external information discovery→`web_search`;[ \t]*\r?\n?/gm;
-const WEB_FETCH_ROUTE_RE = /^[ \t]*page or documentation body retrieval from a known URL→`web_fetch`\.[ \t]*\r?\n?/gm;
-const RECALL_ROUTE_RE = /^-[ \t]*past facts recorded in prior work or sessions→`recall`[ \t]*\r?\n[ \t]*\(stored history only, never current local state\)\.[ \t]*\r?\n?/gm;
-const MEMORY_ROUTE_RE = /^-[ \t]*Durable memory creation or update→`memory`; store a compact English[ \t]*\r?\n[ \t]*statement\.[\s\S]*$/m;
-const EMPTY_RESEARCH_RE = /^# Research[ \t]*\r?\n(?:[ \t]*\r?\n)*-[ \t]*Research routes:[ \t]*\r?\n?/gm;
-const EMPTY_MEMORY_RE = /^# Memory[ \t]*\r?\n(?:[ \t]*\r?\n)*/gm;
+// Tool dependency is declared as metadata, not matched against prose. A
+// `<!-- tools: a, b -->` marker binds the block that follows it: the block
+// survives while any listed tool is on the session surface and disappears
+// once every one of them is omitted. Markers never reach the model.
+const TOOL_MARKER_RE = /^[ \t]*<!--[ \t]*tools:[ \t]*([^>]*?)[ \t]*-->[ \t]*$/;
+
+function markerTools(line) {
+  const match = TOOL_MARKER_RE.exec(String(line ?? ''));
+  if (!match) return null;
+  return match[1].split(',').map((name) => name.trim().toLowerCase()).filter(Boolean);
+}
+
+// A marked block runs from the line after the marker through every deeper
+// indented continuation line, ending at the next marker, blank line, or a
+// line at the same or shallower indent.
+function markedBlockEnd(lines, start) {
+  const indent = lines[start].search(/\S/);
+  let end = start + 1;
+  while (end < lines.length) {
+    const line = lines[end];
+    if (!line.trim() || markerTools(line)) break;
+    if (line.search(/\S/) <= indent) break;
+    end += 1;
+  }
+  return end;
+}
 
 function omitKeySet(omitTools) {
   return new Set((Array.isArray(omitTools) ? omitTools : []).map((name) => String(name || '').toLowerCase()).filter(Boolean));
@@ -216,16 +236,25 @@ function omitKeySet(omitTools) {
 /** Drop routing clauses for tools that are not on the session surface. */
 function omitToolRoutes(text, omitTools = []) {
   const deny = omitKeySet(omitTools);
-  let out = String(text || '');
-  if (deny.has('web_search')) out = out.replace(WEB_SEARCH_ROUTE_RE, '');
-  if (deny.has('web_fetch')) out = out.replace(WEB_FETCH_ROUTE_RE, '');
-  if (deny.has('recall')) out = out.replace(RECALL_ROUTE_RE, '');
-  if (deny.has('memory')) out = out.replace(MEMORY_ROUTE_RE, '');
-  if (deny.has('web_search') && deny.has('web_fetch')) {
-    out = out.replace(EMPTY_RESEARCH_RE, '');
+  const lines = String(text || '').split(/\r?\n/);
+  const kept = [];
+  let index = 0;
+  while (index < lines.length) {
+    const tools = markerTools(lines[index]);
+    if (!tools) {
+      kept.push(lines[index]);
+      index += 1;
+      continue;
+    }
+    index += 1;
+    if (index >= lines.length) break;
+    const end = markedBlockEnd(lines, index);
+    if (!tools.length || !tools.every((name) => deny.has(name))) {
+      kept.push(...lines.slice(index, end));
+    }
+    index = end;
   }
-  if (deny.has('recall') && deny.has('memory')) out = out.replace(EMPTY_MEMORY_RE, '');
-  return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+  return kept.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // Framing line under the style header: the block owns user-facing prose only,

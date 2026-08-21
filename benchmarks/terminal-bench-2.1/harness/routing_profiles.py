@@ -143,13 +143,13 @@ def load_route_profile(
 
 
 def build_benchmark_config(
-    profile: dict[str, Any], workflow: str = "default"
+    profile: dict[str, Any], workflow: str = "solo"
 ) -> dict[str, Any]:
     """Build a deterministic config containing benchmark-owned routing only."""
     validate_profile_document(
         {"schemaVersion": 1, "profiles": {"selected": copy.deepcopy(profile)}}
     )
-    selected_workflow = str(workflow or "").strip() or "default"
+    selected_workflow = str(workflow or "").strip() or "solo"
     routes = profile["routes"]
     lead_route = copy.deepcopy(routes["lead"])
     providers = {

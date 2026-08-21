@@ -58,19 +58,21 @@ test('disabled agents are stored apart from the route and survive canonicalizati
 
 test('a disabled agent leaves the Lead prompt and the delegation surface', () => {
   const { data, helpers } = fixture(['worker', 'reviewer']);
-  const enabled = helpers.activeWorkflowContext({}, data);
+  // The shipped fallback is Solo, so a delegating pack is selected explicitly.
+  const cowork = (extra = {}) => ({ workflow: { active: 'default' }, ...extra });
+  const enabled = helpers.activeWorkflowContext(cowork(), data);
   assert.match(enabled.context, /# Available Agents/);
   assert.match(enabled.context, /\(worker\)/);
   assert.equal(enabled.summary.delegatesAgents, true);
 
-  const partial = helpers.activeWorkflowContext({ disabledAgents: ['worker'] }, data);
+  const partial = helpers.activeWorkflowContext(cowork({ disabledAgents: ['worker'] }), data);
   assert.equal(partial.context.includes('(worker)'), false);
   assert.match(partial.context, /\(reviewer\)/);
   assert.equal(partial.summary.delegatesAgents, true);
 
   // Nobody left to delegate to: the agent tool drops exactly as it does for a
   // non-delegating pack.
-  const none = helpers.activeWorkflowContext({ disabledAgents: ['worker', 'reviewer'] }, data);
+  const none = helpers.activeWorkflowContext(cowork({ disabledAgents: ['worker', 'reviewer'] }), data);
   assert.equal(none.context.includes('# Available Agents'), false);
   assert.equal(none.summary.delegatesAgents, false);
   assert.deepEqual(helpers.delegatableAgentIds({ disabledAgents: ['worker'] }, data), ['reviewer']);
