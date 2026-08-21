@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.147 - 2026-08-21
+
 - Long OpenAI sessions now keep their response chain and turn-state pin intact
   across reconnects, item reordering, and compaction, so the provider prefix
   cache survives a session instead of restarting mid-task.
