@@ -25,7 +25,7 @@
  *    re-opening a panel the user dismissed. Use paint(null) — not close() —
  *    when the same flow clears the picker and keeps going (Enter → prompt).
  */
-import { currentPanelEpoch, isPanelEpochCurrent } from './panel-epoch.mjs';
+import { currentPanelEpoch, isPanelEpochCurrent, supersedePanelEpoch } from './panel-epoch.mjs';
 
 export function createPanelSurface({ setPicker, setContextPanel, setUsagePanel } = {}) {
   // The usage dashboard is not a picker: a streaming update is not a handover,
@@ -46,7 +46,20 @@ export function createPanelSurface({ setPicker, setContextPanel, setUsagePanel }
     return {
       owns,
       paint: (panel) => write(setPicker, panel),
-      context: (panel) => write(setContextPanel, panel),
+      // Clearing the context panel hands the surface back exactly as closing a
+      // picker does. setPicker's caller supersedes the epoch on a close (see
+      // shouldSupersedePanelEpoch); this sink has no such step, so a context
+      // open still in flight stayed valid and repainted "Context Usage" after
+      // the user had already pressed Esc. Superseding here is what makes the
+      // dismissal final, and re-reading the token keeps THIS flow (Esc inside a
+      // settings picker, which clears context and carries on) working.
+      context: (panel) => {
+        if (!owns()) return false;
+        setContextPanel?.(panel);
+        if (panel == null) supersedePanelEpoch();
+        token = currentPanelEpoch();
+        return true;
+      },
       close: () => {
         if (!owns()) return false;
         setPicker?.(null);

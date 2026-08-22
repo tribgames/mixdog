@@ -432,7 +432,11 @@ export function createStandaloneAgent({
     // which republished the session as `running`.
     const ok = mgr.closeSession(sessionId, 'cli-agent-close');
     if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by agent close');
-    forgetTerminalSession(tag, sessionId);
+    // Drop the row only once the cancellation is DURABLY recorded. A close that
+    // failed still forgot the row, leaving the next pool read with a fresh
+    // heartbeat and no cancelled state — which republished the session as
+    // `running`, the exact lingering row this whole path exists to prevent.
+    if (ok) forgetTerminalSession(tag, sessionId);
     return { closed: ok, tag, sessionId, task_id: task?.taskId || null };
   }
 

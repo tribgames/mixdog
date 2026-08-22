@@ -64,12 +64,15 @@ function createPanelHost() {
     if (shouldSupersedePanelEpoch(previous, live)) supersedePanelEpoch();
     painted.push(live);
   };
+  // The context panel is a SEPARATE sink with no supersede step of its own, so
+  // it has to be observed to prove a dismissed context stays dismissed.
+  const contextPainted = [];
   const surface = createPanelSurface({
     setPicker,
-    setContextPanel: () => {},
+    setContextPanel: (next) => contextPainted.push(next),
     setUsagePanel: () => {},
   });
-  return { setPicker, surface, painted, current: () => live };
+  return { setPicker, surface, painted, contextPainted, current: () => live };
 }
 
 function createSettingsHarness({ store: storeOverrides = {}, host = null } = {}) {
@@ -965,4 +968,42 @@ test('main-provider Enter still opens the provider action panel', async () => {
     host.painted.slice(-2).map((panel) => (panel === null ? null : panel.title)),
     [null, 'Provider · OpenAI'],
   );
+});
+
+test('a context open still in flight cannot reopen what Esc dismissed', () => {
+  supersedePanelEpoch();
+  const host = createPanelHost();
+  const usage = { _kind: 'context-usage', title: 'Context Usage' };
+
+  // A flow opens the context panel and keeps its claim, the way a real
+  // openContextPicker() holds one across the await that fetches the numbers.
+  const opening = host.surface.claim();
+  assert.equal(opening.context(usage), true);
+
+  // Esc on the context panel: that keypress owns what it closes
+  // (use-global-key-input.mjs, use-prompt-handlers.mjs, slash-dispatch.mjs all
+  // take a fresh claim for exactly this).
+  assert.equal(host.surface.claim().context(null), true);
+
+  // The open settles afterwards. Before the surface superseded on a context
+  // clear this repainted "Context Usage" over a screen the user had dismissed.
+  assert.equal(opening.context(usage), false, 'late context paint was accepted');
+  assert.deepEqual(host.contextPainted, [usage, null]);
+
+  // The dismissal does not wedge the surface: the next user action still owns it.
+  const reopening = host.surface.claim();
+  assert.equal(reopening.context(usage), true);
+  assert.deepEqual(host.contextPainted, [usage, null, usage]);
+});
+
+test('clearing context mid-flow keeps the flow that cleared it', () => {
+  supersedePanelEpoch();
+  const host = createPanelHost();
+
+  // Settings pickers clear the context panel and carry on painting their own
+  // surface in the same action (maintenance-pickers.mjs, theme-effort-pickers.mjs).
+  const own = host.surface.claim();
+  assert.equal(own.context(null), true);
+  assert.equal(own.paint({ _kind: 'settings', title: 'Settings' }), true);
+  assert.equal(host.current()?.title, 'Settings');
 });
