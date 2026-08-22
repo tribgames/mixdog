@@ -8,7 +8,7 @@ import {
     anthropicMaxAttempts,
     anthropicRequestTimeoutMs,
     classifyError,
-    createStallRetryBudget,
+    resolveStallRetryBudget,
     midstreamBackoffFor,
     sleepWithAbort,
     STREAM_STALL_RETRY_BUDGET_MS,
@@ -252,9 +252,19 @@ export class AnthropicProvider {
         const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
         let firstAttemptError = null;
         let firstAttemptClassifier = null;
-        // Send-scoped stall window: in-place stall retries share one wall
-        // clock starting at the first stall (see createStallRetryBudget).
-        const stallRetryBudget = createStallRetryBudget();
+        // Shared logical-send window: provider fallback and loop replay consume
+        // the same recovery budget.
+        const stallRetryBudget = resolveStallRetryBudget(opts);
+        const requireTransportRecoveryBudget = (error, controller) => {
+            if (stallRetryBudget.allowStallRetry()) return;
+            try {
+                process.stderr.write(
+                    `[${this.name}] transport recovery budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first failure)\n`,
+                );
+            } catch {}
+            try { controller?.abort?.(error); } catch {}
+            throw error;
+        };
 
         const buildReturnFromParse = (parseResult) => {
             const usageRaw = parseResult.usage?.raw || null;
@@ -379,6 +389,7 @@ export class AnthropicProvider {
                 try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
                 throw streamingError;
             }
+            requireTransportRecoveryBudget(streamingError, streamController);
             return issueNonStreamingFallback(streamController, streamingError);
         };
 
@@ -628,17 +639,12 @@ export class AnthropicProvider {
                         && !midState.emittedToolCall
                         && !midState.partialToolCall
                         && !midState.emittedThinking) {
+                        requireTransportRecoveryBudget(err, streamController);
                         try { process.stderr.write(`[${this.name}] stream stalled with no exposure — retrying non-streaming\n`); } catch {}
                         return await issueNonStreamingFallback(streamController, err);
                     }
-                    if (classifier === 'stream_stalled' && !stallRetryBudget.allowStallRetry()) {
-                        try {
-                            process.stderr.write(
-                                `[${this.name}] stall retry budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first stall) — surfacing for fresh-request retry\n`,
-                            );
-                        } catch {}
-                        try { streamController.abort?.(err); } catch {}
-                        throw err;
+                    if (classifier === 'stream_stalled') {
+                        requireTransportRecoveryBudget(err, streamController);
                     }
                     if (classifier && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                         firstAttemptError = err;

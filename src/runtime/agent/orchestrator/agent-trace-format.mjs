@@ -347,7 +347,7 @@ function classifyToolFailure(resultText, toolName) {
     if (/^\[shell-tool-failed\](?:\s|$)/i.test(leading)) return 'tool-call/failure';
     if (/^\[shell-run-failed\](?:\s|$)/i.test(leading)) {
         if (/\[timeout:|cause:\s*(?:timeout|cancellation)\b/i.test(leading)) return 'timeout/abort';
-        if (/cause:\s*(?:output-limit|output-capture-error|background-adoption-failed)\b/i.test(leading)) return 'runtime/failure';
+        if (/cause:\s*(?:output-limit|output-capture-error|background-promotion-failed)\b/i.test(leading)) return 'runtime/failure';
         if (/\[signal:\s*[^\]]+/i.test(leading)) return 'process/signal';
         return 'command-exit';
     }

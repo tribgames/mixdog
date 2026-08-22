@@ -66,7 +66,6 @@ CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 HARNESS_SNAPSHOT_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT"
 HARNESS_SNAPSHOT_MANIFEST_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST"
 REFUSAL_FALLBACK_EXIT_CODE = 86
-TRANSPORT_RETRY_EXIT_CODE = 87
 FALLBACK_STATE_ENV = "MIXDOG_TB_FALLBACK_STATE_DIR"
 # Every trial receives the same full local src archive captured before Harbor.
 _REPO_SRC = _REPO_ROOT / "src"
@@ -876,56 +875,9 @@ class MixdogAgent(BaseInstalledAgent):
         await self._inject_credentials(environment)
 
         base_env = {
-            **PRISTINE_GUARD_ENV,
             **getattr(self, "_api_key_env", {}),
             "ANTHROPIC_OAUTH_CREDENTIALS_PATH": CONTAINER_CREDS_PATH,
             "MIXDOG_DATA_DIR": CONTAINER_DATA_DIR,
-            # Uniform transport-policy passthrough (ws-full | ws-delta |
-            # http-sse) for infra A/B probes. Forwarded verbatim only when the
-            # host sets it; absent otherwise, so default runs are unchanged.
-            # Infra-level switch applied identically to every task — never a
-            # task-specific behavior knob.
-            **(
-                {"MIXDOG_OAI_TRANSPORT": os.environ["MIXDOG_OAI_TRANSPORT"]}
-                if os.environ.get("MIXDOG_OAI_TRANSPORT")
-                else {}
-            ),
-            # Codex startup-prewarm parity (generate=false seeds the static
-            # instructions/tools prefix on the node before the first real
-            # request). Same passthrough shape as the transport switch:
-            # forwarded verbatim only when the host sets it, applied identically
-            # to every task — never a task-specific behavior knob.
-            **(
-                {
-                    "MIXDOG_OPENAI_OAUTH_WS_WARMUP": os.environ[
-                        "MIXDOG_OPENAI_OAUTH_WS_WARMUP"
-                    ]
-                }
-                if os.environ.get("MIXDOG_OPENAI_OAUTH_WS_WARMUP")
-                else {}
-            ),
-            # Codex startup metadata parity: prewarm uses window generation 0,
-            # an empty turn id, and request_kind=prewarm before the live turn.
-            **(
-                {
-                    "MIXDOG_OAI_CODEX_WIRE_PARITY": os.environ[
-                        "MIXDOG_OAI_CODEX_WIRE_PARITY"
-                    ]
-                }
-                if os.environ.get("MIXDOG_OAI_CODEX_WIRE_PARITY")
-                else {}
-            ),
-            # Wire-payload capture for prefix-cache forensics: writes the
-            # redacted handshake headers and the exact response.create frames
-            # under /logs/agent so a run can be byte-diffed against the
-            # reference client. Off unless the host asks for it.
-            **(
-                {"MIXDOG_OAI_WS_DUMP_DIR": os.environ["MIXDOG_OAI_WS_DUMP_DIR"]}
-                if os.environ.get("MIXDOG_OAI_WS_DUMP_DIR")
-                else {}
-            ),
-            # Non-interactive: never open a browser / onboarding from the container.
-            "CI": "1",
             # The host preflight above is the sole Anthropic refresh owner.
             # Containers receive a bounded-lifetime snapshot and fail clearly
             # instead of consuming its single-use rotating refresh token.
@@ -933,45 +885,6 @@ class MixdogAgent(BaseInstalledAgent):
             "MIXDOG_USAGE_LOG": "/logs/agent/usage.json",
             "MIXDOG_SESSION_TRANSCRIPT_LOG": "/logs/agent/session-transcript.json",
             "MIXDOG_AGENT_TRACE_PATH": "/logs/agent/agent-trace.jsonl",
-            # Credential-agnostic boot: model catalogs come from uploaded
-            # caches and no unrelated provider is touched at startup.
-            "MIXDOG_DISABLE_PROVIDER_WARMUP": "1",
-            "MIXDOG_DISABLE_MODEL_PREFETCH": "1",
-            "MIXDOG_DISABLE_MODEL_CATALOG_WARMUP": "1",
-            # Pristine benchmark boundary: no project/config MCP, no skill
-            # discovery/seeding/tool surface, no personal core-memory boot, and
-            # no channel startup.
-            # Bench-only decision cadence: cap explicit sync shell timeouts at
-            # 2 min (blocking window), so promote-on-timeout delivers the
-            # partial-output decision point early. Uniform time policy — no
-            # task-specific heuristics; matches the product's 2 min foreground cap.
-            "BASH_MAX_TIMEOUT_MS": "120000",
-            # Network-stall recovery layering (2026-08-03 v3 postmortem: the
-            # old STALL_TIMEOUT_S=300 collapsed the provider semantic idle to
-            # 135s and beheaded LIVE silent-thinking streams — regex-chess /
-            # circuit-fibsqrt died deterministically at 4x~138s). The PROVIDER
-            # layer now owns fast detection/recovery: byte-level first byte at
-            # 120s, semantic idle fixed at 300s (silent effort-mode thinking
-            # is live generation, not a wedge), and a stall that exposed
-            # nothing is re-issued NON-STREAMING (waits for the full body, up
-            # to Claude Code's 300s parity ceiling below). Agent and driver watchdogs are pure backstops
-            # and must sit ABOVE the compound provider window
-            # (300s stream + 300s non-stream = 600s):
-            #   provider 120/300+300 < agent abort 780 < driver 840 < Harbor.
-            "STALL_TIMEOUT_S": "780",
-            "MIXDOG_NONSTREAM_TOTAL_TIMEOUT_MS": "300000",
-            # Wedged-socket first byte: provider aborts at 120s and retries.
-            # The agent-level requesting-stage backstop must exceed the 420s
-            # non-streaming wait so a slow silent body surfaces as a
-            # retryable transport timeout, not an agent kill.
-            "MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS": "120000",
-            "MIXDOG_STALL_FIRST_BYTE_ABORT_S": "450",
-            # BP4 messages-tail cache TTL pinned to 1h: bench turns routinely
-            # gap >5m (long thinking / 900s tools), so a 5m tail would expire
-            # between requests and re-write the whole context. The uncached
-            # double-billing was the ANCHOR lag, fixed in
-            # applyAnthropicCacheMarkers (true-tip candidate), not the TTL.
-            "MIXDOG_CACHE_MESSAGES_TTL": "1h",
         }
         fallback_route = (
             self._route_profile.get("leadFallback")
@@ -1141,13 +1054,25 @@ class MixdogAgent(BaseInstalledAgent):
         if fast:
             route_args += " --fast"
         escaped_instruction = shlex.quote(instruction)
+        refusal_check = shlex.quote(
+            "const fs=require('node:fs');"
+            "let result=null;"
+            "for(const line of fs.readFileSync('/logs/agent/mixdog.txt','utf8').split(/\\r?\\n/)){"
+            "if(!line.trim())continue;"
+            "try{const event=JSON.parse(line);if(event?.type==='result')result=event;}catch{}"
+            "}"
+            "if(result?.termination_reason==='refusal')process.exit(86);"
+        )
         lead_pipeline = (
             "mkdir -p /logs/agent; "
             "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
             f"mixdog exec --json --provider {shlex.quote(provider)} "
             f"--model {shlex.quote(selected_model)}{route_args} "
             f"-- {escaped_instruction} "
-            "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"
+            "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt; "
+            "status=$?; "
+            'if [ "$status" -ne 0 ]; then exit "$status"; fi; '
+            f"node -e {refusal_check}"
         )
         try:
             await self.exec_as_agent(

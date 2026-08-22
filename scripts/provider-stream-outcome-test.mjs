@@ -36,6 +36,8 @@ import {
     shouldDropPreviousResponseId,
     classifyHandshakeError,
     isContextOverflowError,
+    createStallRetryBudget,
+    resolveStallRetryBudget,
 } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import { parseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-sse.mjs';
 import { consumeGeminiRestStreamResponse } from '../src/runtime/agent/orchestrator/providers/gemini-stream.mjs';
@@ -52,6 +54,19 @@ const WS_POLICY = { mode: 'ws', transientCloseRetries: 5, defaultRetries: 5 };
 const SSE_POLICY = { mode: 'sse', defaultRetries: 3, perClassifierGate: false };
 
 const err = (message, props = {}) => Object.assign(new Error(message), props);
+
+test('transport recovery budget is shared across one logical send', () => {
+    const opts = {};
+    const first = resolveStallRetryBudget(opts);
+    const second = resolveStallRetryBudget(opts);
+    assert.equal(second, first);
+
+    let now = 1_000;
+    const budget = createStallRetryBudget(100, () => now);
+    assert.equal(budget.allowStallRetry(), true);
+    now = 1_101;
+    assert.equal(budget.allowStallRetry(), false);
+});
 
 // ── Transport fixtures: the EXACT record each transport stamps ──────────────
 // openai-ws-stream.mjs finish(), openai-oauth-http-sse.mjs catch,
@@ -1155,6 +1170,13 @@ function recoveryCtx(sendErr) {
 test('send-with-recovery: no-tool stall with partial text stays an explicit failure', async () => {
     const e = err('stalled', { streamStalled: true, partialContent: 'half written summary' });
     await assert.rejects(sendWithRecovery(recoveryCtx(e)), (thrown) => thrown === e);
+});
+
+test('send-with-recovery: exhausted shared budget blocks a fresh transport replay', async () => {
+    const e = err('reset', { code: 'ECONNRESET' });
+    const ctx = recoveryCtx(e);
+    ctx.opts._stallRetryBudget = { allowStallRetry: () => false };
+    await assert.rejects(sendWithRecovery(ctx), (thrown) => thrown === e);
 });
 
 test('send-with-recovery: stall with COMPLETE tool calls recovers as a tool turn', async () => {

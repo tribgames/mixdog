@@ -351,6 +351,47 @@ test('headless exec emits structured JSONL failure before returning exit 1', asy
   assert.deepEqual(errors, ['mixdog: boom\n']);
 });
 
+test('headless exec exposes typed refusal as an API error result', async () => {
+  const output = [];
+  const code = await runHeadlessExec({
+    message: 'request',
+    provider: 'anthropic-oauth',
+    model: 'claude-test',
+    json: true,
+    usageLogPath: '',
+    write: (text) => output.push(text),
+    writeErr() {},
+    boundaryFactory: () => ({
+      loadConfig: () => ({ providers: { 'anthropic-oauth': { enabled: true } } }),
+      cleanup() {},
+    }),
+    runtimeFactory: async () => ({
+      id: 'sess_json_refusal',
+      model: 'claude-test',
+      clientHostPid: 123,
+      async ask() {
+        return {
+          result: {
+            content: 'Unable to respond.',
+            stopReason: 'refusal',
+            terminationReason: 'refusal',
+          },
+        };
+      },
+      async close() {},
+    }),
+    hasActiveTasks: () => false,
+    installSignalCleanupFn: () => ({ uninstall() {} }),
+  });
+
+  const terminal = output.join('').trim().split('\n').map((line) => JSON.parse(line)).at(-1);
+  assert.equal(code, 0);
+  assert.equal(terminal.subtype, 'success');
+  assert.equal(terminal.is_error, true);
+  assert.equal(terminal.stop_reason, 'refusal');
+  assert.equal(terminal.termination_reason, 'refusal');
+});
+
 test('--json is accepted for exec and rejected for the interactive command', () => {
   const exec = classifyCliInvocation([
     'exec',

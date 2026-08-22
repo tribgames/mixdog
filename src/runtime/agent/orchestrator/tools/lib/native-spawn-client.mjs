@@ -11,13 +11,39 @@ import { ensureSpawnBinary, findCachedSpawnBinary } from '../spawn-binary-fetche
 
 const RESTART_BACKOFF_MS = 30_000;
 const SERVER_READY_TIMEOUT_MS = 5_000;
+const REQUIRED_LIFECYCLE_CAPS = Object.freeze([
+  'trackedForeground',
+  'promoteTask',
+  'cancelOwner',
+]);
 
 let _server = null;
 let _binaryPath = undefined;
 let _lastFailureAt = 0;
 const _tasks = new Map();
-const _pidToRequest = new Map();
 const _taskEvents = new EventEmitter();
+
+function nativeSpawnCompatibilityError(server) {
+  if (!server?.ready) return null;
+  const missingCaps = REQUIRED_LIFECYCLE_CAPS.filter((cap) => server.caps?.[cap] !== true);
+  if (missingCaps.length === 0) return null;
+  const error = new Error(
+    `native spawn server is incompatible; missing required lifecycle capabilities: ${missingCaps.join(', ')}`,
+  );
+  error.code = 'NATIVE_SPAWN_INCOMPATIBLE';
+  error.missingCaps = missingCaps;
+  return error;
+}
+
+function assertNativeSpawnCompatibility(server) {
+  const error = nativeSpawnCompatibilityError(server);
+  if (error) throw error;
+}
+
+export function _assertNativeSpawnCapabilitiesForTest(caps = {}) {
+  assertNativeSpawnCompatibility({ ready: true, caps });
+  return true;
+}
 
 // Warm-standby correction. The spawn server stamps a task with the moment its
 // PROCESS was created, which for a pre-spawned standby shell is up to the
@@ -305,7 +331,16 @@ function _ensureServer() {
       settleReady(true);
       return;
     }
-    if (String(message?.event || '').startsWith('task_')) acceptTask(message);
+    const event = String(message?.event || '');
+    if (event === 'task_released') {
+      const jobId = String(message?.jobId || '');
+      if (jobId) {
+        _tasks.delete(jobId);
+        _startedAtOverrides.delete(jobId);
+      }
+    } else if (event.startsWith('task_')) {
+      acceptTask(message);
+    }
     const pending = server.pending.get(Number(message?.id));
     if (!pending) return;
     pending.onMessage(message);
@@ -333,7 +368,10 @@ export async function warmNativeSpawnServer() {
 }
 
 export async function ensureNativeSpawnServer() {
-  if (_server?.ready) return true;
+  if (_server?.ready) {
+    assertNativeSpawnCompatibility(_server);
+    return true;
+  }
   let binary = _resolveBinary();
   if (!binary) {
     binary = await ensureSpawnBinary(getPluginData());
@@ -367,12 +405,14 @@ export async function ensureNativeSpawnServer() {
       });
     }
   }
+  assertNativeSpawnCompatibility(server);
   return true;
 }
 
 export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
   const server = _ensureServer();
   if (!server) return null;
+  assertNativeSpawnCompatibility(server);
   const id = ++server.sequence;
   const fake = new NativeSpawnChild(id, (cancelId) => {
     try { server.child.stdin.write(`${JSON.stringify({ cancel: cancelId })}\n`); } catch {}
@@ -417,7 +457,6 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
       const event = String(message?.event || '');
       if (event === 'spawned') {
         fake.pid = Number(message.pid) || undefined;
-        if (fake.pid) _pidToRequest.set(fake.pid, id);
         fake.emit('spawn');
         return;
       }
@@ -440,7 +479,6 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
       }
       else if (event === 'exit') {
         server.pending.delete(id);
-        if (fake.pid) _pidToRequest.delete(fake.pid);
         fake.exitCode = message.code == null ? null : Number(message.code);
         fake.signalCode = message.signal || null;
         fake._closed = true;
@@ -463,7 +501,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
   }
   return {
     child: fake,
-    adoptErrorHandler(handler) {
+    attachErrorHandler(handler) {
       fake.on('error', handler);
     },
   };
@@ -492,6 +530,28 @@ export function cancelNativeTask(jobId) {
   if (!server || !task) return null;
   server.child.stdin.write(`${JSON.stringify({ id: ++server.sequence, cancelTask: key })}\n`);
   return task;
+}
+
+export function cancelNativeTasks({ ownerSessionId = null } = {}) {
+  const owner = String(ownerSessionId || '').trim();
+  if (!owner) return { cancelled: 0 };
+  const running = [..._tasks.values()].filter((task) =>
+    task.status === 'running' && String(task.ownerSessionId || '') === owner);
+  const server = _server;
+  if (server?.caps?.cancelOwner === true) {
+    try {
+      server.child.stdin.write(`${JSON.stringify({
+        id: ++server.sequence,
+        cancelOwnerSession: owner,
+      })}\n`);
+    } catch {}
+  }
+  // Also issue direct per-task cancellation for entries already visible in
+  // this client so teardown does not wait on the owner-wide command round trip.
+  for (const task of running) {
+    try { cancelNativeTask(task.jobId); } catch {}
+  }
+  return { cancelled: running.length };
 }
 
 export function waitNativeTask(jobId, timeoutMs = 30_000) {
@@ -572,19 +632,10 @@ export async function startNativeTask({
   });
 }
 
-export function adoptNativeTaskByPid({
-  pid,
-  command = '',
-  cwd = '',
-  timeoutMs = 0,
-  shellType = null,
-  ownerSessionId = null,
-  clientHostPid = null,
-  jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-} = {}) {
-  const requestId = _pidToRequest.get(Number(pid));
-  const server = _ensureServer();
-  if (!server || !requestId) return null;
+function requestNativeTaskState(jobId, payload, errorLabel) {
+  const key = String(jobId || '').trim();
+  const server = _server;
+  if (!server || !key) return null;
   const id = ++server.sequence;
   return new Promise((resolve, reject) => {
     let timer = null;
@@ -597,14 +648,14 @@ export function adoptNativeTaskByPid({
     };
     server.pending.set(id, {
       fail(error) {
-        finish(null, error instanceof Error ? error : new Error(String(error || 'native adoption failed')));
+        finish(null, error instanceof Error ? error : new Error(String(error || `${errorLabel} failed`)));
       },
       onMessage(message) {
         const event = String(message?.event || '');
-        if (event === 'task_started') {
-          finish(getNativeTask(jobId));
+        if (event === 'task_started' || event === 'task_status') {
+          finish(getNativeTask(key));
         } else if (event === 'error') {
-          const error = new Error(String(message.message || 'native adoption failed'));
+          const error = new Error(String(message.message || `${errorLabel} failed`));
           if (message.code) error.code = String(message.code);
           finish(null, error);
         }
@@ -612,26 +663,62 @@ export function adoptNativeTaskByPid({
     });
     _setServerReferenced(server, true);
     try {
-      server.child.stdin.write(`${JSON.stringify({
-        id,
-        adopt: requestId,
-        jobId,
-        timeoutMs,
-        command,
-        cwd,
-        shellType,
-        ownerSessionId,
-        clientHostPid,
-      })}\n`);
+      server.child.stdin.write(`${JSON.stringify({ id, ...payload })}\n`);
     } catch (error) {
       finish(null, error);
       return;
     }
     timer = setTimeout(() => {
-      finish(null, Object.assign(new Error('native task adoption timeout'), { code: 'ETIMEDOUT' }));
+      finish(null, Object.assign(new Error(`${errorLabel} timeout`), { code: 'ETIMEDOUT' }));
     }, 5_000);
     timer.unref?.();
   });
+}
+
+export function trackNativeForegroundTask({
+  child,
+  jobId,
+  command = '',
+  cwd = '',
+  shellType = null,
+  ownerSessionId = null,
+  clientHostPid = null,
+} = {}) {
+  const requestId = Number(child?._id) || 0;
+  const server = _server;
+  if (!server || server.caps?.trackedForeground !== true || !requestId) return null;
+  return requestNativeTaskState(jobId, {
+    track: requestId,
+    jobId,
+    command,
+    cwd,
+    shellType,
+    ownerSessionId,
+    clientHostPid,
+  }, 'native task tracking');
+}
+
+export function promoteNativeTask({
+  jobId,
+  command = '',
+  cwd = '',
+  timeoutMs = 0,
+  shellType = null,
+  ownerSessionId = null,
+  clientHostPid = null,
+} = {}) {
+  const key = String(jobId || '').trim();
+  const server = _server;
+  if (server?.caps?.promoteTask !== true || !getNativeTask(key)) return null;
+  return requestNativeTaskState(key, {
+    promoteTask: key,
+    timeoutMs,
+    command,
+    cwd,
+    shellType,
+    ownerSessionId,
+    clientHostPid,
+  }, 'native task promotion');
 }
 
 // Capability handshake: true only after the connected spawn server announced
@@ -648,7 +735,6 @@ export function _resetNativeSpawnClientForTest() {
   _binaryPath = undefined;
   _lastFailureAt = 0;
   _tasks.clear();
-  _pidToRequest.clear();
   _taskEvents.removeAllListeners();
 }
 

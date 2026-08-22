@@ -36,7 +36,7 @@ import {
     classifyHandshakeError,
     classifyMidstreamError,
     createStreamSafetyStamps,
-    createStallRetryBudget,
+    resolveStallRetryBudget,
     jitterDelayMs,
     MIDSTREAM_RETRY_POLICY,
     sleepWithAbort,
@@ -521,9 +521,9 @@ export async function sendViaWebSocket({
     const MAX_MIDSTREAM_RETRIES = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT;
     let firstAttemptError = null;
     let firstAttemptClassifier = null;
-    // Send-scoped stall window: in-place stall retries share one wall clock
-    // starting at the first stall (see createStallRetryBudget).
-    const stallRetryBudget = createStallRetryBudget();
+    // Shared logical-send window: WS retries and loop replay consume the same
+    // recovery budget.
+    const stallRetryBudget = resolveStallRetryBudget(sendOpts);
     // A generate:false prewarm is billable even if its main request later
     // retries on a fresh socket or falls back to HTTP. Retain one completed
     // result across the whole logical send and attach it to terminal errors.

@@ -1285,7 +1285,7 @@ test('execShellCommand carries cancellation cause alongside process signal', asy
   assert.ok(result.signal || process.platform === 'win32');
 });
 
-test('cancellation racing with auto-background adoption is returned as cancelled', async () => {
+test('cancellation racing with auto-background promotion is returned as cancelled', async () => {
   const controller = new AbortController();
   // Abort synchronously at the promotion re-check. Earlier preflight reads
   // remain false, so unrelated admission/spawn probes cannot consume the race.

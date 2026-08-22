@@ -202,6 +202,25 @@ function collectTrials(runDir, costDetails = {}) {
         } catch { /* retain the last valid result row */ }
       }
     } catch { /* non-mixdog baselines have other logs */ }
+    if (finalContextTokens == null) {
+      // A baseline harness writes its own transcript. Claude Code reports the
+      // live window on every assistant message, so the last one carries the
+      // final context and the metric stays comparable across harnesses.
+      try {
+        for (const line of readFileSync(join(trialDir, 'agent', 'claude-code.txt'), 'utf8').split(/\r?\n/)) {
+          if (!line.includes('"usage"')) continue;
+          try {
+            const usage = JSON.parse(line)?.message?.usage;
+            const input = optionalNumber(usage?.input_tokens);
+            if (input != null) {
+              finalContextTokens = input
+                + finite(usage?.cache_read_input_tokens)
+                + finite(usage?.cache_creation_input_tokens);
+            }
+          } catch { /* retain the last valid usage row */ }
+        }
+      } catch { /* baseline without a readable transcript */ }
+    }
     const totalSeconds = seconds(result?.started_at, result?.finished_at);
     const environmentSetupSeconds = seconds(
       result?.environment_setup?.started_at,
@@ -445,12 +464,14 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
           agentSeconds: ours.agentSeconds,
           tokens: ours.tokens,
           costUsd: ours.costUsd,
+          finalContextTokens: ours.finalContextTokens,
         },
         baseline: {
           passed: baseline.passed,
           agentSeconds: baseline.agentSeconds,
           tokens: baseline.tokens,
           costUsd: baseline.costUsd,
+          finalContextTokens: baseline.finalContextTokens,
         },
       };
     });
@@ -463,8 +484,13 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
   const complete = current.result.total > 0 && current.result.completed === current.result.total;
   const baselineStats = aggregate?.stats ?? {};
   const baselinePassed = baselineTrials.filter((trial) => trial.passed).length;
-  const currentContext = median(trials.map((trial) => trial.finalContextTokens));
-  const baselineContext = optionalNumber(config.finalContextMedianTokens);
+  // Every pair metric reads the shared tasks only. A median taken over the
+  // whole run against a baseline's full-run constant would compare different
+  // task sets, so both sides come from the same pairs and the pinned constant
+  // stays as the fallback for a baseline whose transcripts are unreadable.
+  const currentContext = median(oursRows.map((row) => row.finalContextTokens));
+  const baselineContext = median(baselineRows.map((row) => row.finalContextTokens))
+    ?? optionalNumber(config.finalContextMedianTokens);
   return {
     name: manifest.comparison.name,
     label: config.label ?? manifest.comparison.name,

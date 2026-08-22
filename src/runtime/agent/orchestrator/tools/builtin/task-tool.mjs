@@ -14,12 +14,14 @@ import {
     SHELL_MONITOR_INTERVAL_MIN_MS,
 } from './shell-monitor.mjs';
 import {
+    acknowledgeBackgroundTaskCompletion,
     cancelBackgroundTask,
     completeBackgroundTask,
     getBackgroundTask,
     renderBackgroundTask,
     renderBackgroundTaskList,
 } from '../../../../shared/background-tasks.mjs';
+import { recordDeliveredCompletion } from '../../session/manager/delivered-completions.mjs';
 import {
     listShellJobRecords,
     readShellJobRecord,
@@ -125,9 +127,9 @@ export async function executeTaskTool(args, options = {}) {
             return `Error: task not found: ${taskId}`;
         }
         if (action === 'read') {
-            return recovered.terminal
-                ? renderRecoveredShellTask(recovered)
-                : `Error: task state is unavailable after restart: ${taskId}`;
+            if (!recovered.terminal) return `Error: task state is unavailable after restart: ${taskId}`;
+            recordDeliveredCompletion({ executionId: taskId });
+            return renderRecoveredShellTask(recovered);
         }
         if (action === 'cancel') {
             return recovered.terminal
@@ -144,6 +146,9 @@ export async function executeTaskTool(args, options = {}) {
         if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
         const latest = getBackgroundTask(taskId, { context: options }) || task;
         const rendered = renderBackgroundTask(latest, { includeResult: true });
+        if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {
+            recordDeliveredCompletion({ executionId: taskId });
+        }
         return rendered;
     }
 
