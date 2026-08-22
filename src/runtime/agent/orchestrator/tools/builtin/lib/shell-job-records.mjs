@@ -122,7 +122,7 @@ async function sweepOrphanRecords(dir) {
     }
 }
 
-/** Publish the record for a job that has just started or been adopted. */
+/** Publish the record for a job that has just started or been promoted. */
 export function publishShellJobRecord(task, {
     ownerSessionId = null,
     clientHostPid = null,

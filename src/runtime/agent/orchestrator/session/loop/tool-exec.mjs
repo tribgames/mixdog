@@ -179,7 +179,11 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
                 const visible = modelVisibleToolCompletionMessage(text, meta);
                 // Inherently a tool-completion notification → tag so a later
                 // resume drops it instead of replaying it as user text.
-                if (visible) enqueuePendingMessage(notificationSessionId, markCompletionEntry(visible));
+                if (visible) {
+                    enqueuePendingMessage(notificationSessionId, markCompletionEntry(visible, {
+                        executionId: meta?.execution_id,
+                    }));
+                }
             } catch { /* best effort */ }
         };
     const completionToolOpts = {

@@ -314,7 +314,7 @@ export class TaskOutput {
 
   // Force the in-memory buffers onto disk-backed files regardless of the
   // SHELL_OUTPUT_INLINE_CAP*4 threshold. Used by the auto-background
-  // transition: once a foreground command is adopted into a tracked job,
+  // transition: once a foreground command is promoted into a tracked job,
   // every subsequent stdout/stderr chunk must land in the spill files so
   // task wait/read can read it (the caller has already settled and will no
   // longer drain the in-memory buffers). No-op once already spilled.
@@ -535,7 +535,7 @@ export class ExecResult {
     // foreground command outlives autoBackgroundMs the call settles with
     // backgrounded:true + the jobId for manual task control. The
     // child stays owned by the CLI process; stdout/stderr keep flowing to
-    // the spill files now adopted by the shell-jobs registry.
+    // the spill files now owned by the shell-jobs registry.
     this.backgrounded = opts.backgrounded === true;
     this.jobId = opts.jobId || null;
     this.backgroundMessage = opts.backgroundMessage || null;

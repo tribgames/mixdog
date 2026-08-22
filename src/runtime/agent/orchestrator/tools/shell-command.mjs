@@ -19,12 +19,14 @@ import { acquire as acquireChildSpawnSlot } from '../../../shared/child-spawn-ga
 // a static cycle — safe because neither binding is touched at module-eval
 // time, only when the respective functions actually run.
 import {
-  adoptForegroundShellJob,
   attachShellJobResourceLease,
   killShellJob,
+  promoteForegroundShellJob,
   publishForegroundShellRecord,
   retireForegroundShellRecord,
+  trackForegroundShellJob,
 } from './builtin/shell-jobs.mjs';
+import { setNativeTaskStartedAt } from './lib/native-spawn-client.mjs';
 import {
   _maybeEncodePowerShellCommand,
   extractPowerShellCommandInner,
@@ -285,7 +287,7 @@ export function execShellCommand({
       if (outputTailTimer) { clearInterval(outputTailTimer); outputTailTimer = null; }
     };
     // Auto-background transition flag. Set the moment the autoBackgroundMs
-    // timer fires and adopts the still-running child. Once
+    // timer fires and promotes the still-running child. Once
     // true the normal settle()/close/exit/treeKill paths are inert for this
     // run — the call has already resolved with a 'backgrounded' result and
     // the child's lifecycle is owned by the shell-jobs registry. Mutually
@@ -395,44 +397,66 @@ export function execShellCommand({
       // full-lifetime gating concern in the note below stays true.
       let spawned = null;
       if (_standby) {
-        spawned = _standby.spawned;
-      } else {
-      const _releaseSpawnSlot = await acquireChildSpawnSlot(abortSignal || null, 'process-spawn', {
-        ownerKey: ownerSessionId,
-      });
-      // Gate drain can grant several waiters in one tick. Yield so CreateProcess
-      // + AV does not freeze graph/patch/search callbacks in that same turn.
-      await new Promise((resolve) => setImmediate(resolve));
-      if (abortSignal?.aborted) {
-        try { _releaseSpawnSlot(); } catch { /* idempotent */ }
-        throw abortSignal.reason || new Error('aborted');
+        let tracked = null;
+        try {
+          tracked = await trackForegroundShellJob({
+            command,
+            cwd,
+            child: _standby.spawned.child,
+            jobId: _foregroundRecordId,
+            ownerSessionId,
+            clientHostPid,
+          });
+        } catch {}
+        if (tracked) {
+          spawned = _standby.spawned;
+        } else {
+          // The parked process settled or lost its native request identity.
+          // Do not feed it; replace it with a normally tracked spawn.
+          try { _standby.spawned.child.kill(); } catch {}
+          _standby = null;
+        }
       }
-      try {
-        spawned = await _spawnShellWithRetry({
-        shell,
-        argv,
-        shellArg,
-        cwd,
-        spawnOptions: {
-        env,
-        cwd,
-        outputLimit: SHELL_OUTPUT_DISK_CAP,
-        rawOutput: true,
-        // NOTE (child-spawn-gate): the full command lifetime is intentionally
-        // NOT gated — bash/pwsh commands can run for minutes and would starve
-        // rg/code_graph. Only the spawn window above holds a slot.
-        // POSIX: detached gives the child its own process group so treeKill can
-        // signal the whole group. The child is still CLI-owned because we do
-        // not unref it after adoption. Windows detached has different console
-        // semantics, so it stays off there.
-        },
+      if (!spawned) {
+        const _releaseSpawnSlot = await acquireChildSpawnSlot(abortSignal || null, 'process-spawn', {
+          ownerKey: ownerSessionId,
         });
-      } finally {
-        try { _releaseSpawnSlot(); } catch { /* idempotent */ }
-      }
+        // Gate drain can grant several waiters in one tick. Yield so CreateProcess
+        // + AV does not freeze graph/patch/search callbacks in that same turn.
+        await new Promise((resolve) => setImmediate(resolve));
+        if (abortSignal?.aborted) {
+          try { _releaseSpawnSlot(); } catch { /* idempotent */ }
+          throw abortSignal.reason || new Error('aborted');
+        }
+        try {
+          spawned = await _spawnShellWithRetry({
+            shell,
+            argv,
+            shellArg,
+            cwd,
+            spawnOptions: {
+              env,
+              cwd,
+              outputLimit: SHELL_OUTPUT_DISK_CAP,
+              rawOutput: true,
+              jobId: _foregroundRecordId,
+              command,
+              ownerSessionId,
+              clientHostPid,
+              // NOTE (child-spawn-gate): the full command lifetime is intentionally
+              // NOT gated — bash/pwsh commands can run for minutes and would starve
+              // rg/code_graph. Only the spawn window above holds a slot.
+              // POSIX: detached gives the child its own process group so treeKill can
+              // signal the whole group. Windows detached has different console
+              // semantics, so it stays off there.
+            },
+          });
+        } finally {
+          try { _releaseSpawnSlot(); } catch { /* idempotent */ }
+        }
       }
       child = spawned.child;
-      spawned.adoptErrorHandler(_onChildError);
+      spawned.attachErrorHandler(_onChildError);
       // Feed the standby only after the error handler is attached; server
       // messages cannot be processed before this synchronous block yields.
       if (_standby) _standby.feed(_spawnCommand, cwd);
@@ -440,6 +464,7 @@ export function execShellCommand({
       // readout measures from, and the point from which a still-running
       // command deserves to be visible in the shell readouts.
       _commandStartedAtMs = Date.now();
+      setNativeTaskStartedAt(_foregroundRecordId, _commandStartedAtMs);
       _foregroundRecordTimer = setTimeout(() => {
         _foregroundRecordTimer = null;
         if (settled || autoBackgrounded || !child?.pid) return;
@@ -600,14 +625,14 @@ export function execShellCommand({
     child.once('exit', _onChildExit);
     // Auto-background transition. Two triggers
     // resolve the call immediately with a 'backgrounded' result while the
-    // child keeps running, adopted into the shell-jobs registry but still
+    // child keeps running, promoted in the shell-jobs registry but still
     // owned by this CLI process:
     //   1. the autoBackgroundMs soft foreground threshold — an EARLIER
     //      promotion before the timeout, and
     //   2. the foreground timeout deadline (backgroundOnTimeout) — the default
     //      promote-on-timeout that replaces the old tree-kill.
     // A capped explicit foreground timeout supplies its remaining deadline to
-    // the adopted job; otherwise adoption remains unlimited as before.
+    // the promoted job; otherwise background execution remains unlimited.
     // Mutually exclusive with settle() via the autoBackgrounded flag set
     // synchronously at the top before any await.
     const _autoBackground = async ({ reason = 'threshold' } = {}) => {
@@ -618,49 +643,50 @@ export function execShellCommand({
       if (child.exitCode != null || child.signalCode != null) return;
       autoBackgrounded = true;
       // The foreground capture is over; stop the local watchdogs/timers so
-      // they cannot treeKill the now-adopted child.
+      // they cannot treeKill the now-promoted child.
       if (timer) { clearTimeout(timer); timer = null; }
       _clearProgressTimer();
       if (autoBgTimer) { clearTimeout(autoBgTimer); autoBgTimer = null; }
       // Keep the abort handler ATTACHED through the promotion window. A user
-      // cancel racing in after promotion starts must still bring the adopted
+      // cancel racing in after promotion starts must still bring the promoted
       // child down — the handler's treeKill(child) does exactly that (settle()
       // is inert once autoBackgrounded, but the kill itself still lands, and
       // refreshShellJob then flags the job failed). We only detach on a real
-      // settle() or on the adoption-failure fallback below.
+      // settle() or on the promotion-failure fallback below.
       // Every subsequent stdout/stderr chunk must hit disk — the call is
       // about to resolve and nobody will drain the in-memory buffers again.
       try { taskOutput.forceSpill(); } catch {}
       // The foreground sizeWatchdog was cleared above; the output cap now
-      // travels with the adopted job — adoptForegroundShellJob arms a periodic
+      // travels with the promoted job — the shell-job watcher arms a periodic
       // refreshShellJob tick that enforces SHELL_JOB_OUTPUT_DISK_CAP against the
       // same spill files (stdoutPath/stderrPath below), killing + flagging a
       // runaway background producer even with no active task waiter.
       const stdoutPath = taskOutput.spilled ? taskOutput.stdoutPath : null;
       const stderrPath = taskOutput.spilled ? taskOutput.stderrPath : null;
       let job = null;
-      // The adopted job publishes its own record under the real task id; drop
+      // The promoted job publishes its own record under the real task id; drop
       // the foreground marker first so the command is never counted twice.
       _clearForegroundRecord();
       const elapsedMs = _elapsedSinceStart();
-      const adoptedTimeoutMs = reason === 'timeout'
+      const remainingBackgroundTimeoutMs = reason === 'timeout'
         ? promotedTimeoutMs
         : (backgroundDeadlineMs > 0
           ? Math.max(1, backgroundDeadlineMs - elapsedMs)
           : 0);
       try {
-        job = await adoptForegroundShellJob({
+        job = await promoteForegroundShellJob({
           command,
           cwd,
           pid: child.pid,
-          timeoutMs: adoptedTimeoutMs,
-          // Carry the command's own start moment into the job: adoption time
+          jobId: _foregroundRecordId,
+          timeoutMs: remainingBackgroundTimeoutMs,
+          // Carry the command's own start moment into the job: promotion time
           // and a standby's process-creation time are both wrong.
           startedAtMs: _commandStartedAtMs,
           mergeStderr: false,
           stdoutPath,
           stderrPath,
-          // Stamp the adopted job with the dispatching terminal's claude.exe
+          // Stamp the promoted job with the dispatching terminal's claude.exe
           // pid so the statusline scopes it to the owning session.
           clientHostPid,
           // …and with the dispatching SESSION, so a pooled host (desktop) can
@@ -682,7 +708,7 @@ export function execShellCommand({
           timedOut = true;
           _treeKillForceSettle('timeout');
         } else {
-          _treeKillForceSettle('background-adoption-failed');
+          _treeKillForceSettle('background-promotion-failed');
         }
         return;
       }
@@ -707,12 +733,12 @@ export function execShellCommand({
       try { stderr = await taskOutput.getStderr(); }
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
       // Re-check after the awaited capture reads: cancellation can race after
-      // adoption commits. Never report that cancelled process as a successful
+      // promotion commits. Never report that cancelled process as a successful
       // still-running background task.
       // EXCEPTION: an interrupt-driven promotion starts FROM an aborted signal
       // by design (the user typed a new message), so this guard must not undo
       // the very transition it was asked to perform. A plain cancellation still
-      // reverts adoption and kills.
+      // reverts promotion and kills.
       if (abortSignal && abortSignal.aborted
         && !(reason === 'interrupt' && _abortReasonIsInterrupt(abortSignal))) {
         killed = true;
@@ -739,11 +765,11 @@ export function execShellCommand({
         return;
       }
       // Completed-during-promotion race: the child
-      // finished while adoption was committing. Report a clean COMPLETED
+      // finished while promotion was committing. Report a clean COMPLETED
       // result instead of backgrounded — the caller then never arms the
       // completion watcher, so no redundant task notification fires. Write
       // the exit/done files here as well: when 'close' fired before the
-      // once('close') wiring above, nothing else would ever flip the adopted
+      // once('close') wiring above, nothing else would ever flip the promoted
       // job detail off 'running'.
       if (child.exitCode != null || child.signalCode != null) {
         detachAbortHandler();
@@ -765,7 +791,7 @@ export function execShellCommand({
         }));
         return;
       }
-      // The adopted job now owns cancellation through task control. Retaining
+      // The promoted job now owns cancellation through task control. Retaining
       // the foreground caller's signal listener would keep the completed tool
       // frame alive and could later kill an unrelated, already-returned job.
       detachAbortHandler();
@@ -790,7 +816,7 @@ export function execShellCommand({
           outputCaptureError: taskOutput.writeError,
           backgrounded: true,
           jobId,
-          backgroundTimeoutMs: adoptedTimeoutMs,
+          backgroundTimeoutMs: remainingBackgroundTimeoutMs,
           backgroundMessage: jobId
             ? `${_verb}; still running. Completion is automatic; do not call task read/monitor to wait or check progress. Continue independent work or end the turn. Use task read only when the user explicitly asks for current status, and task monitor only when they explicitly ask for periodic progress.`
             : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
@@ -831,7 +857,7 @@ export function execShellCommand({
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         // Promote-on-timeout: if the caller allows backgrounding and the child
-        // is still running (not a trailing-`&` detach), adopt it as a tracked
+        // is still running (not a trailing-`&` detach), promote it as a tracked
         // background job instead of tree-killing it. Falls through to the old
         // kill path for disallowed/opted-out commands (backgroundOnTimeout
         // false) or when a terminal transition already won the race.
@@ -904,7 +930,7 @@ export function execShellCommand({
         // to stop is the worse outcome. Explicit cancellation (ESC) keeps the
         // kill. The promotion reuses the timeout path's guards verbatim so a
         // detached / already-settled / already-exited child can never be
-        // adopted as a job.
+        // promoted as a job.
         if (
           _abortReasonIsInterrupt(abortSignal) &&
           backgroundOnTimeout &&

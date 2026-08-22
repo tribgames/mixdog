@@ -211,6 +211,20 @@ function isCompletionNotificationEntry(entry) {
         && entry.notificationKind === COMPLETION_NOTIFICATION_KIND;
 }
 
+function completionExecutionId(entry) {
+    const value = typeof entry?.executionId === 'string' ? entry.executionId.trim() : '';
+    return value || null;
+}
+
+function completionWasDelivered(entry, site) {
+    if (!isCompletionNotificationEntry(entry)) return false;
+    const executionId = completionExecutionId(entry);
+    const text = pendingMessageText(entry);
+    if (!isDeliveredCompletion({ executionId, text })) return false;
+    logDuplicateSkip(site, { executionId, text });
+    return true;
+}
+
 // Canonical completion-enqueue tagger. Every deferred tool/agent completion
 // notification MUST be enqueued through this so drain can discard it on resume
 // (never replay out-of-order). Pass the model-visible completion text (or an
@@ -223,7 +237,14 @@ export function markCompletionEntry(text, options = {}) {
     const executionId = String(options?.executionId || '').trim();
     const identity = executionId ? `execution:${executionId}` : `content:${content}`;
     const id = `completion_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
-    return { id, content, text: content, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Date.now() };
+    return {
+        id,
+        content,
+        text: content,
+        notificationKind: COMPLETION_NOTIFICATION_KIND,
+        ...(executionId ? { executionId } : {}),
+        enqueuedAt: Date.now(),
+    };
 }
 
 function pendingMessagesPath() {
@@ -266,7 +287,11 @@ function normalizeTuiSteeringQueueEntry(entry) {
             enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
         };
         return entry.notificationKind === COMPLETION_NOTIFICATION_KIND
-            ? { ...normalized, notificationKind: COMPLETION_NOTIFICATION_KIND }
+            ? {
+                ...normalized,
+                notificationKind: COMPLETION_NOTIFICATION_KIND,
+                ...(completionExecutionId(entry) ? { executionId: completionExecutionId(entry) } : {}),
+            }
             : normalized;
     }
     return null;
@@ -322,7 +347,11 @@ function normalizePendingMessageEntry(entry) {
         ? { options: entry.options }
         : {};
     const marker = entry.notificationKind === COMPLETION_NOTIFICATION_KIND
-        ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: Number(entry.enqueuedAt) || Date.now() }
+        ? {
+            notificationKind: COMPLETION_NOTIFICATION_KIND,
+            ...(completionExecutionId(entry) ? { executionId: completionExecutionId(entry) } : {}),
+            enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
+        }
         : null;
     const content = Object.prototype.hasOwnProperty.call(entry, 'content')
         ? entry.content
@@ -358,7 +387,11 @@ function pendingMessageQueueEntry(entry) {
         enqueuedAt: Number(normalized.enqueuedAt) || Date.now(),
     };
     const marker = isCompletionNotificationEntry(normalized)
-        ? { notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt: normalized.enqueuedAt }
+        ? {
+            notificationKind: COMPLETION_NOTIFICATION_KIND,
+            ...(completionExecutionId(normalized) ? { executionId: completionExecutionId(normalized) } : {}),
+            enqueuedAt: normalized.enqueuedAt,
+        }
         : null;
     const base = {
         ...identity,
@@ -390,7 +423,13 @@ function normalizePersistedEntry(entry) {
             ? entry.message.trim()
             : pendingMessageText(entry);
         return message
-            ? { id, message, notificationKind: COMPLETION_NOTIFICATION_KIND, enqueuedAt }
+            ? {
+                id,
+                message,
+                notificationKind: COMPLETION_NOTIFICATION_KIND,
+                ...(completionExecutionId(entry) ? { executionId: completionExecutionId(entry) } : {}),
+                enqueuedAt,
+            }
             : null;
     }
     if (typeof entry.message === 'string') {
@@ -1032,6 +1071,9 @@ export function enqueuePendingMessage(sessionId, message) {
         }
         : null;
     if (!sessionId || !entry) return 0;
+    // A terminal task read may ACK before an async fallback enqueue settles.
+    // Treat that completion as already delivered and never publish it.
+    if (completionWasDelivered(entry, 'enqueue')) return 1;
     // A provider/tool completion that lands after the session was tombstoned
     // must NOT recreate memory/spool state (and never clears the tombstone):
     // only an explicit create/reopen record makes the session writable again.
@@ -1315,18 +1357,22 @@ export function drainPendingMessages(sessionId) {
     // was already delivered+ACKed (TUI execution-ui) this process — those would
     // double-inject next turn. Only marked completion entries are eligible;
     // genuine user/steering entries carry no marker and are always kept.
-    const memoryKept = memory.filter((m) => {
-        if (!isCompletionNotificationEntry(m)) return true;
-        const text = pendingMessageText(m);
-        if (text && isDeliveredCompletion({ text })) {
-            logDuplicateSkip('drain', { text });
-            return false;
-        }
-        return true;
-    });
+    const deliveredIds = new Set();
+    const deliveredEntries = [];
+    const keepUndelivered = (entry) => {
+        if (!isCompletionNotificationEntry(entry)) return true;
+        const id = pendingMessageId(entry);
+        if (id && deliveredIds.has(id)) return false;
+        if (!completionWasDelivered(entry, 'drain')) return true;
+        if (id) deliveredIds.add(id);
+        deliveredEntries.push(entry);
+        return false;
+    };
+    const memoryKept = memory.filter(keepUndelivered);
+    const bufferedKept = buffered.filter(keepUndelivered);
     const tagged = [
         ...hydrated.map((entry, index) => ({ entry, source: 0, index })),
-        ...buffered.map((entry, index) => ({ entry, source: 1, index })),
+        ...bufferedKept.map((entry, index) => ({ entry, source: 1, index })),
         ...memoryKept.map((entry, index) => ({ entry, source: 2, index })),
     ];
     tagged.sort((a, b) => {
@@ -1351,7 +1397,8 @@ export function drainPendingMessages(sessionId) {
     const dropped = ordered.filter(({ entry, source }) => source === 0
         && isCompletionNotificationEntry(entry))
         .map(({ entry }) => entry);
-    if (dropped.length > 0) acknowledgePendingMessages(sessionId, dropped);
+    const acknowledged = [...deliveredEntries, ...dropped];
+    if (acknowledged.length > 0) acknowledgePendingMessages(sessionId, acknowledged);
     const visible = modelVisiblePendingMessages(ordered
         .filter(({ entry }) => !dropped.includes(entry))
         .map(({ entry }) => entry));

@@ -605,6 +605,20 @@ export function createStallRetryBudget(budgetMs = STREAM_STALL_RETRY_BUDGET_MS, 
   }
 }
 
+// One recovery window must span every layer of the same logical send:
+// provider-local stream recovery, streaming→non-streaming fallback, and the
+// loop-level fresh-request replay. Callers pass the same opts object through
+// those layers; keep the budget there instead of silently resetting it.
+export function resolveStallRetryBudget(opts) {
+  const existing = opts?._stallRetryBudget
+  if (existing && typeof existing.allowStallRetry === 'function') return existing
+  const budget = createStallRetryBudget()
+  if (opts && typeof opts === 'object') {
+    try { opts._stallRetryBudget = budget } catch {}
+  }
+  return budget
+}
+
 // ── Shared network-resilience interface ──────────────────────────────────────
 // One home for the logic shared across providers: mid-stream classifier
 // (WS + SSE), transport fallback predicate, stream-safety stamp latches,

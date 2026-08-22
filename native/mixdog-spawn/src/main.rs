@@ -109,10 +109,27 @@ struct SpawnRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AdoptRequest {
+struct TrackRequest {
     id: u64,
-    adopt: u64,
+    track: u64,
     job_id: String,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    shell_type: Option<String>,
+    #[serde(default)]
+    owner_session_id: Option<String>,
+    #[serde(default)]
+    client_host_pid: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PromoteRequest {
+    id: u64,
+    promote_task: String,
     #[serde(default)]
     timeout_ms: u64,
     #[serde(default)]
@@ -134,7 +151,8 @@ enum WireRequest {
     Cancel {
         cancel: u64,
     },
-    Adopt(AdoptRequest),
+    Track(TrackRequest),
+    Promote(PromoteRequest),
     StdinWrite {
         #[serde(rename = "stdinWrite")]
         stdin_write: u64,
@@ -153,6 +171,11 @@ enum WireRequest {
         id: u64,
         #[serde(rename = "cancelTask")]
         cancel_task: String,
+    },
+    CancelOwner {
+        id: u64,
+        #[serde(rename = "cancelOwnerSession")]
+        cancel_owner_session: String,
     },
     TaskStatus {
         id: u64,
@@ -374,6 +397,7 @@ struct ManagedProcess {
     control: ProcessControl,
     state: Mutex<TaskState>,
     done: AtomicBool,
+    retained: AtomicBool,
     stdin: Mutex<Option<std::process::ChildStdin>>,
 }
 
@@ -601,11 +625,13 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     } else {
         DEFAULT_OUTPUT_LIMIT
     };
-    let job_id = req.background.then(|| {
-        req.job_id
-            .clone()
-            .unwrap_or_else(|| format!("job_{}_{}", now_ms(), id))
-    });
+    // A supplied job id tracks foreground work from spawn time without
+    // changing its streaming behavior. `background` controls stream/retention;
+    // identity and ownership are orthogonal.
+    let job_id = req
+        .job_id
+        .clone()
+        .or_else(|| req.background.then(|| format!("job_{}_{}", now_ms(), id)));
     let managed = Arc::new(ManagedProcess {
         request_id: id,
         pid,
@@ -636,6 +662,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
             output_limit,
         }),
         done: AtomicBool::new(false),
+        retained: AtomicBool::new(req.background),
         stdin: Mutex::new(stdin_handle),
     });
     manager
@@ -781,6 +808,23 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     if managed.snapshot().is_some() {
         emit_task(id, "task_complete", &managed);
     }
+    // Foreground identities exist only while the process is live. A promoted
+    // or explicitly-background task is retained for later task read/list.
+    if !managed.retained.load(Ordering::Acquire) {
+        let job_id = managed
+            .state
+            .lock()
+            .ok()
+            .and_then(|state| state.job_id.clone());
+        if let Some(job_id) = job_id {
+            manager
+                .jobs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&job_id);
+            emit(&json!({ "id": id, "event": "task_released", "jobId": job_id }));
+        }
+    }
     emit(&json!({
         "id": id,
         "event": "exit",
@@ -789,12 +833,12 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     }));
 }
 
-fn adopt(req: AdoptRequest, manager: &Arc<Manager>) {
+fn track(req: TrackRequest, manager: &Arc<Manager>) {
     let managed = manager
         .live
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&req.adopt)
+        .get(&req.track)
         .cloned();
     let Some(managed) = managed else {
         spawn_error(req.id, "native process is no longer running");
@@ -823,6 +867,38 @@ fn adopt(req: AdoptRequest, manager: &Arc<Manager>) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(req.job_id, Arc::clone(&managed));
+    emit_task(req.id, "task_started", &managed);
+}
+
+fn promote(req: PromoteRequest, manager: &Arc<Manager>) {
+    let managed = manager
+        .jobs
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&req.promote_task)
+        .cloned();
+    let Some(managed) = managed else {
+        spawn_error(req.id, format!("task not found: {}", req.promote_task));
+        return;
+    };
+    managed.retained.store(true, Ordering::Release);
+    if let Ok(mut state) = managed.state.lock() {
+        if let Some(command) = req.command {
+            state.command = command;
+        }
+        if let Some(cwd) = req.cwd {
+            state.cwd = cwd;
+        }
+        if req.shell_type.is_some() {
+            state.shell_type = req.shell_type;
+        }
+        if req.owner_session_id.is_some() {
+            state.owner_session_id = req.owner_session_id;
+        }
+        if req.client_host_pid.is_some() {
+            state.client_host_pid = req.client_host_pid;
+        }
+    }
     arm_timeout(Arc::clone(&managed), req.timeout_ms);
     emit_task(req.id, "task_started", &managed);
 }
@@ -830,7 +906,15 @@ fn adopt(req: AdoptRequest, manager: &Arc<Manager>) {
 fn main() {
     #[cfg(unix)]
     close_inherited_file_descriptors();
-    emit(&json!({ "ready": true, "caps": { "stdinPipe": true } }));
+    emit(&json!({
+        "ready": true,
+        "caps": {
+            "stdinPipe": true,
+            "trackedForeground": true,
+            "promoteTask": true,
+            "cancelOwner": true
+        }
+    }));
     let manager = Arc::new(Manager::new());
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
@@ -899,7 +983,8 @@ fn main() {
                     }
                 }
             }
-            Ok(WireRequest::Adopt(req)) => adopt(req, &manager),
+            Ok(WireRequest::Track(req)) => track(req, &manager),
+            Ok(WireRequest::Promote(req)) => promote(req, &manager),
             Ok(WireRequest::CancelTask { id, cancel_task }) => {
                 let managed = manager
                     .jobs
@@ -918,6 +1003,36 @@ fn main() {
                 } else {
                     spawn_error(id, format!("task not found: {cancel_task}"));
                 }
+            }
+            Ok(WireRequest::CancelOwner {
+                id,
+                cancel_owner_session,
+            }) => {
+                let live: Vec<Arc<ManagedProcess>> = manager
+                    .live
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .values()
+                    .cloned()
+                    .collect();
+                let mut cancelled = 0usize;
+                for managed in live {
+                    if let Ok(mut state) = managed.state.lock() {
+                        if state.owner_session_id.as_deref() != Some(cancel_owner_session.as_str())
+                            || managed.done.load(Ordering::Acquire)
+                            || state.status != "running"
+                        {
+                            continue;
+                        }
+                        state.killed = true;
+                        state.status = "cancelled".to_string();
+                        state.error =
+                            Some("cancelled because the owning session closed".to_string());
+                        managed.terminate();
+                        cancelled += 1;
+                    }
+                }
+                emit(&json!({ "id": id, "event": "owner_cancelled", "count": cancelled }));
             }
             Ok(WireRequest::TaskStatus { id, task_status }) => {
                 let managed = manager

@@ -714,6 +714,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // iteration is a fresh request and must get the full replay budget
         // again (mirrors contextOverflowRetryUsed above).
         _transportRetriesUsed = 0;
+        delete opts._stallRetryBudget;
         _imageStripUsed = false;
         _sendMessages = null;
         // Capture opaque state for the next turn only when the provider

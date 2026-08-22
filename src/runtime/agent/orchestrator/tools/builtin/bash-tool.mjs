@@ -524,7 +524,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     const execTimeoutMs = timeout;
     // A caller deadline at or below the foreground window has no remaining
     // budget to transfer. Let execShellCommand enforce that timeout instead of
-    // adopting the child with timeoutMs=0, which means unlimited to shell-jobs.
+    // promoting the child with timeoutMs=0, which means unlimited to shell-jobs.
     const promoteAtTimeout = backgroundOnTimeout
         && (!hasExplicitTimeout || promotedTimeoutMs > 0);
     const mergeStderr = true;
@@ -600,7 +600,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         catch { bashAbortSignal = null; }
         combinedBashAbort = _combineAbortSignals(bashAbortSignal, options?.abortSignal || null);
         // Promote-at-timeout. When a
-        // foreground one-shot hits its timeout and is still running, adopt it
+        // foreground one-shot hits its timeout and is still running, promote it
         // as a background job (task_id + notify) instead of tree-killing it.
         // The truthy MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS env restores the old
         // foreground-only behavior.
@@ -642,7 +642,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         const stderr = stripAnsi(result.stderr || '');
         recordShellCaptureTelemetry(options?.resultTelemetry, result, stdout, stderr);
         // Auto-backgrounded: the command outlived autoBackgroundMs and is
-        // still running, now adopted as a tracked shell-job. Surface the
+        // still running, now promoted as a tracked shell-job. Surface the
         // task_id + partial output for manual task control instead of
         // keeping the tool call open until the hard timeout.
         if (result.backgrounded) {

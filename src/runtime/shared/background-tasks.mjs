@@ -286,6 +286,18 @@ export function cancelBackgroundTasks(options = {}) {
   return { cancelled };
 }
 
+export function acknowledgeBackgroundTaskCompletion(taskId, options = {}) {
+  const task = getBackgroundTask(taskId, options);
+  if (!task || !TERMINAL_STATUSES.has(task.status)) return null;
+  // A terminal task read is an explicit consumer ACK. It wins over a racing
+  // async notify settlement and prevents any later reconcile from re-firing
+  // the same completion.
+  task.completionAcknowledged = true;
+  task.notified = true;
+  task.notifiedWithBody = true;
+  return task;
+}
+
 function resultTextForTask(task) {
   if (task.resultText) return task.resultText;
   if (task.result !== undefined) {
@@ -327,6 +339,7 @@ export function completeBackgroundTask(taskId, {
   if (resultText != null) task.resultText = compactText(resultText);
   if (error != null) task.error = presentErrorText(error, { surface: task.surface });
   if (resultType) task.resultType = resultType;
+  if (instruction) task.notificationInstruction = compactText(instruction, 1_000);
   if (notify) {
     task.meta = sanitizeTaskMeta(task.meta);
     notifyTaskCompletion(task, instruction);
@@ -337,6 +350,7 @@ export function completeBackgroundTask(taskId, {
 export function notifyTaskCompletion(task, instruction) {
   if (!task) return false;
   if (!TERMINAL_STATUSES.has(task.status)) return false;
+  if (task.completionAcknowledged === true) return false;
   // `notified` tracks whether *any* completion notification was sent (e.g. an
   // early header-only preview from the agent surface). A later call that can
   // finally include the result body must still fire once, otherwise the owner
@@ -364,6 +378,7 @@ export function notifyTaskCompletion(task, instruction) {
     // marks, preserving exact-once.
     onSettled: (delivered) => {
       if (delivered) return;
+      if (task.completionAcknowledged === true) return;
       task.notified = false;
       task.notifiedWithBody = false;
     },

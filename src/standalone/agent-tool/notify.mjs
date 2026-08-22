@@ -28,7 +28,9 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
       }
       // Mark this as a deferred completion/task notification so a later session
       // resume drops it rather than replaying it out-of-order (owner decision).
-      return Boolean(mgr.enqueuePendingMessage(target, markCompletionEntry(visible)) > 0);
+      return Boolean(mgr.enqueuePendingMessage(target, markCompletionEntry(visible, {
+        executionId: meta?.execution_id,
+      })) > 0);
     } catch {
       return false;
     }

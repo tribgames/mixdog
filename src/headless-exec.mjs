@@ -424,6 +424,8 @@ function createJsonLifecycle({
       }
       const durationMs = Math.max(0, completedAt - turnStartedAt);
       const usage = usageSummary(stats, toolCallCount);
+      const terminationReason = clean(result?.terminationReason) || null;
+      const isApiError = terminationReason === 'refusal';
       emit({
         type: 'turn.completed',
         thread_id: threadId,
@@ -441,7 +443,7 @@ function createJsonLifecycle({
         turn_id: turnId,
         session_id: threadId,
         model: resolvedModel,
-        is_error: false,
+        is_error: isApiError,
         duration_ms: durationMs,
         duration_api_ms: providerDurationMs,
         num_turns: 1,
@@ -449,6 +451,7 @@ function createJsonLifecycle({
         tool_calls: toolCallCount,
         result: finalText,
         stop_reason: result?.stopReason ?? result?.stop_reason ?? null,
+        termination_reason: terminationReason,
         usage,
       }, completedAt);
     },

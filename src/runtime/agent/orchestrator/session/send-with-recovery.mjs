@@ -12,6 +12,7 @@ import {
     isRetryableWireErrorEvent,
     isRetryableStreamErrorEvent,
     jitterDelayMs,
+    resolveStallRetryBudget,
 } from '../providers/retry-classifier.mjs';
 import {
     persistenceMessagesForConfirmedImageRejection,
@@ -96,6 +97,7 @@ export async function sendWithRecovery(ctx) {
         sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
         transportRetriesUsed = 0, imageStripUsed = false, signal,
     } = ctx;
+    const transportRetryBudget = resolveStallRetryBudget(opts);
     let response;
     // Bench-only turn timing (MIXDOG_TURN_TIMING=1): one stderr line per
     // provider request — TTFT (first visible model progress) and total stream
@@ -297,6 +299,7 @@ export async function sendWithRecovery(ctx) {
                 // because this guard demanded 'transient' and never fired).
                 if (
                     transportRetriesUsed < TRANSPORT_RETRY_MAX
+                    && transportRetryBudget.allowStallRetry()
                     && await retractExposedTextForReplay()
                 ) {
                     const waitMs = transportRetryWaitMs(transportRetriesUsed);
@@ -414,6 +417,7 @@ export async function sendWithRecovery(ctx) {
             // send after a bounded wait instead of failing the turn.
             if (
                 transportRetriesUsed < TRANSPORT_RETRY_MAX
+                && transportRetryBudget.allowStallRetry()
                 && (
                     (outcome.replaySafe === true && classifyError(sendErr) === 'transient')
                     || (

@@ -17,13 +17,14 @@ import {
     notifyBackgroundTaskProgress,
 } from '../../../../shared/background-tasks.mjs';
 import {
-    adoptNativeTaskByPid,
     cancelNativeTask,
     getNativeTask,
     listNativeTasks,
+    promoteNativeTask,
     setNativeTaskStartedAt,
     startNativeTask,
     subscribeNativeTask,
+    trackNativeForegroundTask,
     waitNativeTask,
 } from '../lib/native-spawn-client.mjs';
 import {
@@ -357,7 +358,9 @@ export function watchBackgroundShellJob(jobId, notifyCtx, { monitorIntervalMs } 
                         visible = modelVisibleToolCompletionMessage(`${message}\n\n(no output)`, meta);
                     }
                     if (!visible) return false;
-                    return enqueuePendingMessage(sessionId, markCompletionEntry(visible)) > 0;
+                    return enqueuePendingMessage(sessionId, markCompletionEntry(visible, {
+                        executionId: meta?.execution_id,
+                    })) > 0;
                 },
                 logPrefix: 'shell-jobs',
             });
@@ -371,17 +374,36 @@ export function watchBackgroundShellJob(jobId, notifyCtx, { monitorIntervalMs } 
     queueMicrotask(() => finish(getNativeTask(jobId)));
 }
 
-export async function adoptForegroundShellJob({
+export async function trackForegroundShellJob({
+    command,
+    cwd,
+    child,
+    jobId,
+    clientHostPid,
+    ownerSessionId,
+}) {
+    return trackNativeForegroundTask({
+        child,
+        jobId,
+        command,
+        cwd,
+        ownerSessionId,
+        clientHostPid,
+    });
+}
+
+export async function promoteForegroundShellJob({
     command,
     cwd,
     pid,
+    jobId,
     timeoutMs,
     clientHostPid,
     ownerSessionId,
     startedAtMs = 0,
 }) {
-    const native = await adoptNativeTaskByPid({
-        pid,
+    const native = await promoteNativeTask({
+        jobId,
         command,
         cwd,
         timeoutMs,
@@ -390,8 +412,8 @@ export async function adoptForegroundShellJob({
     });
     if (!native) return null;
     demoteBackgroundShellPriority(pid);
-    // Adoption stamps the task at adoption time, and a promoted standby shell
-    // carries its process-creation time. Neither is when this command started,
+    // Promotion refreshes the task at transition time, and a promoted standby
+    // shell carries its process-creation time. Neither is when this command started,
     // so the runner's own start moment is registered before anything reads the
     // task — the record, the completion elapsed and the live readouts then all
     // measure the command itself.
@@ -476,7 +498,9 @@ export async function reconcileRecoveredShellJobCompletions() {
                 enqueueFallback: (sessionId, message, meta) => {
                     const visible = modelVisibleToolCompletionMessage(message, meta);
                     if (!visible) return false;
-                    return enqueuePendingMessage(sessionId, markCompletionEntry(visible)) > 0;
+                    return enqueuePendingMessage(sessionId, markCompletionEntry(visible, {
+                        executionId: meta?.execution_id,
+                    })) > 0;
                 },
                 logPrefix: 'shell-jobs-recovery',
             });

@@ -11,6 +11,7 @@ import { _dropPendingMessageState } from './pending-messages.mjs';
 import { _stopToolActivityHeartbeat, _getRuntimeEntry, _clearSessionRuntime } from './runtime-liveness.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
+import { cancelNativeTasks } from '../../tools/lib/native-spawn-client.mjs';
 
 /**
  * Close a session. Plants a `closed=true` tombstone on disk with a bumped
@@ -91,6 +92,10 @@ export function closeSession(id, reason = 'manual', opts = {}) {
         } catch { /* best-effort */ }
         return false;
     }
+    // A session owns every shell process it started, including commands still
+    // in the foreground. Cancel by immutable owner identity before the runtime
+    // entry is cleared so a direct agent/session close cannot orphan a tree.
+    try { cancelNativeTasks({ ownerSessionId: id }); } catch { /* ignore */ }
     // prepareCloseSnapshot was folded into the synchronous generation write
     // above. Only now is it safe to remove the crash fallback.
     clearTurnCheckpoint(id);

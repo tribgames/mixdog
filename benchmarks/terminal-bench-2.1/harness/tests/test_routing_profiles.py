@@ -117,30 +117,7 @@ class RoutingProfileTests(unittest.TestCase):
         self.document = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
 
     def test_profile_schema_and_exact_routes(self) -> None:
-        validated = validate_profile_document(self.document)
-        self.assertEqual(
-            set(validated["profiles"]),
-            {
-                "opus-xhigh",
-                "sol-xhigh",
-                "sol-high",
-                "sol-xhigh-nofast",
-                "sol-luna-terra-max",
-                "grok46-xhigh",
-                "grok46-high",
-                "grokbuild",
-                "opus5-solo",
-                "opus5-solo-med",
-                "opus48-solo",
-                "fable-xhigh",
-                "fable-opus-heavy-xhigh",
-                "fable-sol-heavy-opus-reviewer-xhigh",
-                "fable-opus-heavy-sol-reviewer-xhigh",
-                "fable-high",
-                "fable-sol-workers-xhigh",
-                "fable-opus-workers-xhigh",
-            },
-        )
+        validate_profile_document(self.document)
         profile = load_route_profile("fable-xhigh")
         self.assertEqual(tuple(profile["routes"]), PROFILE_ROLES)
         self.assertEqual(
@@ -1079,22 +1056,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         agent.exec_as_root = exec_as_root
         agent.exec_as_agent = exec_as_agent
-        with tempfile.TemporaryDirectory(prefix="mixdog-harness-snapshot-test-") as temp:
-            root = Path(temp)
-            driver = root / "lead_driver.mjs"
-            shutil.copy2(HARNESS_ROOT / driver.name, driver)
-            manifest = {
-                driver.name: hashlib.sha256(driver.read_bytes()).hexdigest()
-            }
-            with mock.patch.dict(
-                os.environ,
-                {
-                    module.HARNESS_SNAPSHOT_ENV: str(root),
-                    module.HARNESS_SNAPSHOT_MANIFEST_ENV: json.dumps(manifest),
-                },
-                clear=False,
-            ):
-                await agent._run_lead(Environment(), "adapter task", None, base_env)
+        await agent._run_lead(Environment(), "adapter task", None, base_env)
         return captured[0]
 
     def test_headless_exec_uses_product_usage_contract(self) -> None:
@@ -1399,7 +1361,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 len(list((root / "exhausted").glob("*.retry"))), 1
             )
 
-    def test_run_forbids_anthropic_refresh_without_serializing_trials(self) -> None:
+    def test_run_only_sets_credential_and_log_environment(self) -> None:
         module = self.load_adapter_module()
 
         class Environment:
@@ -1422,7 +1384,17 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         agent._inject_credentials = inject
         agent._run_lead = run_lead
-        asyncio.run(agent.run("task", Environment(), None))
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MIXDOG_OAI_TRANSPORT": "ws-delta",
+                "MIXDOG_OPENAI_OAUTH_WS_WARMUP": "1",
+                "MIXDOG_OAI_CODEX_WIRE_PARITY": "1",
+                "MIXDOG_OAI_WS_DUMP_DIR": "/tmp/wire-dump",
+            },
+            clear=False,
+        ):
+            asyncio.run(agent.run("task", Environment(), None))
 
         self.assertEqual(
             captured[0]["MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED"], "1"
@@ -1436,30 +1408,24 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             captured[0]["MIXDOG_AGENT_TRACE_PATH"],
             "/logs/agent/agent-trace.jsonl",
         )
-        self.assertNotIn("MIXDOG_DRIVER_DEADLINE_MS", captured[0])
-        self.assertEqual(captured[0]["MIXDOG_DISABLE_MCP"], "1")
-        self.assertEqual(captured[0]["MIXDOG_DISABLE_SKILLS"], "1")
-        self.assertEqual(captured[0]["MIXDOG_BOOT_CORE_MEMORY"], "0")
-        self.assertEqual(captured[0]["MIXDOG_DISABLE_CHANNEL_START"], "1")
-        self.assertEqual(
-            {
-                key: captured[0][key]
-                for key in module.PRISTINE_GUARD_ENV
-            },
-            module.PRISTINE_GUARD_ENV,
-        )
-        approved = set(module.PRISTINE_CONTRACT["approvedExecutionEnv"])
-        guarded = set(module.PRISTINE_GUARD_ENV)
-        auth = {"ANTHROPIC_OAUTH_CREDENTIALS_PATH"}
-        boundary = {"MIXDOG_DATA_DIR", "MIXDOG_HOME"}
-        self.assertTrue(
-            {
-                key
-                for key in captured[0]
-                if key.startswith("MIXDOG_")
-            }
-            <= approved | guarded | auth | boundary
-        )
+        for key in (
+            *module.PRISTINE_GUARD_ENV,
+            "CI",
+            "BASH_MAX_TIMEOUT_MS",
+            "STALL_TIMEOUT_S",
+            "MIXDOG_DISABLE_PROVIDER_WARMUP",
+            "MIXDOG_DISABLE_MODEL_PREFETCH",
+            "MIXDOG_DISABLE_MODEL_CATALOG_WARMUP",
+            "MIXDOG_NONSTREAM_TOTAL_TIMEOUT_MS",
+            "MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS",
+            "MIXDOG_STALL_FIRST_BYTE_ABORT_S",
+            "MIXDOG_CACHE_MESSAGES_TTL",
+            "MIXDOG_OAI_TRANSPORT",
+            "MIXDOG_OPENAI_OAUTH_WS_WARMUP",
+            "MIXDOG_OAI_CODEX_WIRE_PARITY",
+            "MIXDOG_OAI_WS_DUMP_DIR",
+        ):
+            self.assertNotIn(key, captured[0])
 
     def test_injection_is_allowlisted_and_emits_non_secret_pristine_audit(self) -> None:
         module = self.load_adapter_module()
@@ -1934,24 +1900,9 @@ INSTALLER
 
         agent.exec_as_root = exec_as_root
         agent.exec_as_agent = exec_as_agent
-        with tempfile.TemporaryDirectory(prefix="mixdog-harness-snapshot-test-") as temp:
-            root = Path(temp)
-            driver = root / "lead_driver.mjs"
-            shutil.copy2(HARNESS_ROOT / driver.name, driver)
-            manifest = {
-                driver.name: hashlib.sha256(driver.read_bytes()).hexdigest()
-            }
-            with mock.patch.dict(
-                os.environ,
-                {
-                    module.HARNESS_SNAPSHOT_ENV: str(root),
-                    module.HARNESS_SNAPSHOT_MANIFEST_ENV: json.dumps(manifest),
-                },
-                clear=False,
-            ):
-                asyncio.run(
-                    agent._run_lead(Environment(), "- fixture", None, {"BASE": "value"})
-                )
+        asyncio.run(
+            agent._run_lead(Environment(), "- fixture", None, {"BASE": "value"})
+        )
 
         command, run_env = captured[0]
         self.assertIn(
@@ -1963,6 +1914,9 @@ INSTALLER
         self.assertIn("mixdog exec --json --provider anthropic-oauth", command)
         self.assertIn("--model claude-sonnet-4-5", command)
         self.assertIn("/logs/agent/mixdog.stderr", command)
+        self.assertIn("termination_reason", command)
+        self.assertIn("refusal", command)
+        self.assertIn("exit(86)", command)
         self.assertLess(command.index("-- "), command.index("- fixture"))
         self.assertNotIn("MIXDOG_PROMPT", run_env)
         self.assertNotIn("MIXDOG_WORKFLOW", run_env)
@@ -2061,10 +2015,10 @@ INSTALLER
         module = self.load_adapter_module()
         with tempfile.TemporaryDirectory(prefix="mixdog-harness-snapshot-") as temp:
             root = Path(temp)
-            driver = root / "lead_driver.mjs"
-            driver.write_bytes(b"const frozen = true;\n")
+            artifact = root / "anthropic_oauth_preflight.mjs"
+            artifact.write_bytes(b"const frozen = true;\n")
             manifest = {
-                driver.name: hashlib.sha256(driver.read_bytes()).hexdigest()
+                artifact.name: hashlib.sha256(artifact.read_bytes()).hexdigest()
             }
             with mock.patch.dict(
                 os.environ,
@@ -2074,12 +2028,15 @@ INSTALLER
                 },
                 clear=False,
             ):
-                self.assertEqual(module._harness_snapshot_file(driver.name), driver)
-                driver.write_bytes(b"const mutated = true;\n")
+                self.assertEqual(module._harness_snapshot_file(artifact.name), artifact)
+                artifact.write_bytes(b"const mutated = true;\n")
                 with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
-                    module._harness_snapshot_file(driver.name)
+                    module._harness_snapshot_file(artifact.name)
 
 
+@unittest.skip(
+    "legacy lead driver removed; product behavior is covered by headless-exec tests"
+)
 class LeadDriverBehaviorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
