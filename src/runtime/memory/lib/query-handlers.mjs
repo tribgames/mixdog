@@ -612,7 +612,6 @@ export function createQueryHandlers({
         projectScope,
         category,
         excludeStatuses,
-        writeBackMemberHits: false,
         latestByConcept: latestIntent && args.period == null,
         // useHotActive was set to true here so default (no-period) calls
         // routed through the mv_hot_active materialized view — a narrow
@@ -648,7 +647,6 @@ export function createQueryHandlers({
               ...searchOptions,
               includeMembers: false,
               rootOnly: true,
-              writeBackMemberHits: false,
             })
           : Promise.resolve([]),
       ])

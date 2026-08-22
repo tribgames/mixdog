@@ -17,7 +17,27 @@
       "polyglot-c-py",
       "prove-plus-comm"
     ],
-    "full": []
+    "full": [],
+    "retry15": [
+      "adaptive-rejection-sampler",
+      "configure-git-webserver",
+      "db-wal-recovery",
+      "dna-insert",
+      "extract-moves-from-video",
+      "filter-js-from-html",
+      "gpt2-codegolf",
+      "install-windows-3.11",
+      "make-doom-for-mips",
+      "mteb-leaderboard",
+      "pytorch-model-cli",
+      "regex-chess",
+      "sqlite-with-gcov",
+      "train-fasttext",
+      "video-processing"
+    ],
+    "regex-chess": [
+      "regex-chess"
+    ]
   },
   "baselines": {
     "codex-gpt56-sol": {
@@ -72,6 +92,15 @@
       "suite": "full",
       "routeProfile": "opus5-solo",
       "compareTo": "claude-code-opus5"
+    },
+    "regexchess-opus5-solo": {
+      "suite": "regex-chess",
+      "routeProfile": "opus5-solo",
+      "concurrent": 1
+    },
+    "retry15-opus5-solo": {
+      "suite": "retry15",
+      "routeProfile": "opus5-solo"
     },
     "grokbuild": {
       "suite": "core",

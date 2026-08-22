@@ -134,6 +134,19 @@ let folderClipboard: { op: "copy" | "cut"; paths: string[] } | null = null;
  *  dropping a folder onto itself or its own descendants). */
 let activeDragPaths: string[] | null = null;
 let placesCache: DesktopFolderPlace[] | null = null;
+/** When the places were last read from disk. Drives come and go (USB sticks,
+ *  network mounts) and free space moves, so the cache only paints the FIRST
+ *  frame — a fresh read follows it, throttled so per-operation refreshes never
+ *  rescan every drive letter. */
+let placesReadAt = 0;
+const PLACES_MAX_AGE_MS = 5_000;
+
+/** Recoverable trash, open-with and reveal are Electron APIs the relay-served
+ *  web surface cannot reach. Knowing that up front lets the menu disable them
+ *  instead of failing after the click. */
+function isDesktopShell(): boolean {
+  return !(window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
+}
 
 interface FolderMenuState {
   x: number;
@@ -543,14 +556,17 @@ export default function FolderPane({
   }, [menu, toolMenu, crumbMenu, propsEntry, renaming, newFileDraft, conflictAsk, focusSurface]);
 
   useEffect(() => {
-    if (placesCache) return;
+    if (placesCache && Date.now() - placesReadAt < PLACES_MAX_AGE_MS) return;
+    placesReadAt = Date.now();
     void Promise.resolve(window.mixdogDesktop?.folderPlaces?.() ?? [])
       .then((rows) => {
+        // An empty answer means the bridge is not up yet; keep what is shown.
+        if (!rows.length && placesCache?.length) return;
         placesCache = rows;
         setPlaces(rows);
       })
       .catch(() => {});
-  }, []);
+  }, [reloadTick]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -851,6 +867,22 @@ export default function FolderPane({
   const startRename = () => {
     if (selected.size === 1) setRenaming([...selected][0]);
   };
+  /** Explorer keeps deleting after an item fails and reports the ones that
+   *  stayed, rather than stopping the whole batch at the first error. */
+  const trashAll = useCallback(async (paths: string[]) => {
+    const failures: string[] = [];
+    for (const path of paths) {
+      try {
+        await window.mixdogDesktop?.trashFolderEntry?.(path);
+      } catch (cause) {
+        failures.push(`${folderBaseName(path)}: ${errorText(cause)}`);
+      }
+    }
+    if (!failures.length) return;
+    throw new Error(failures.length > 2
+      ? `${failures.slice(0, 2).join(" · ")} · ${failures.length - 2} more`
+      : failures.join(" · "));
+  }, []);
   const deleteSelected = useCallback(() => {
     const paths = selectedPaths;
     if (!paths.length) return;
@@ -870,13 +902,9 @@ export default function FolderPane({
       return "";
     })();
     if (survivor) pendingSelectRef.current = survivor;
-    runOp((async () => {
-      for (const path of paths) {
-        await window.mixdogDesktop?.trashFolderEntry?.(path);
-      }
-    })());
+    runOp(trashAll(paths));
     setSelected(new Set());
-  }, [selectedPaths, selected, orderedEntries, runOp]);
+  }, [selectedPaths, selected, orderedEntries, runOp, trashAll]);
   const cutOrCopy = useCallback((op: "copy" | "cut") => {
     if (!selectedPaths.length) return;
     folderClipboard = { op, paths: selectedPaths };
@@ -942,19 +970,31 @@ export default function FolderPane({
     if (action.kind === "rename") {
       runOp(window.mixdogDesktop?.renameFolderEntry?.(action.to, folderBaseName(action.from)));
     } else if (action.kind === "remove") {
-      runOp((async () => {
-        for (const path of action.paths) {
-          await window.mixdogDesktop?.trashFolderEntry?.(path);
-        }
-      })());
+      runOp(trashAll(action.paths));
     } else {
+      // Undo restores the ORIGINAL name: "keep both" quietly turned a failed
+      // restore into "name (2)". A blocked slot now says so instead.
       runOp((async () => {
         for (const { from, to } of action.moved) {
-          await window.mixdogDesktop?.moveFolderEntry?.([to], parentFolderPath(from), "keepBoth");
+          const targetDir = parentFolderPath(from);
+          const originalName = folderBaseName(from);
+          let current = to;
+          if (parentFolderPath(to).toLowerCase() !== targetDir.toLowerCase()) {
+            const result = await window.mixdogDesktop
+              ?.moveFolderEntry?.([to], targetDir, "ask");
+            if (result?.conflicts?.length) {
+              throw new Error(`${originalName} already exists at this location.`);
+            }
+            current = result?.moved?.[0]?.to
+              ?? joinFolderPath(targetDir, folderBaseName(to));
+          }
+          if (folderBaseName(current) !== originalName) {
+            await window.mixdogDesktop?.renameFolderEntry?.(current, originalName);
+          }
         }
       })());
     }
-  }, [runOp]);
+  }, [runOp, trashAll]);
   const paste = useCallback(() => {
     const clipboard = folderClipboard;
     if (!clipboard?.paths.length) return;
@@ -1878,21 +1918,25 @@ export default function FolderPane({
         contextEntry && !contextEntry.dir && onOpenTextFile
         && isLocalTextFilePath(contextEntry.name),
       );
+      const shellActions = isDesktopShell();
       return createPortal(
       <div className="folder-pane-menu" role="menu"
         style={{ left: Math.min(menu.x, window.innerWidth - 210), top: Math.min(menu.y, window.innerHeight - 320) }}>
         {menu.name ? <>
           {/* Open choices lead, followed by shell reveal, clipboard/path
               commands, rename/delete, then the local details dialog. */}
-          <button type="button" role="menuitem" onClick={() => {
-            setMenu(null);
-            if (contextEntry) openEntry(contextEntry);
-          }}>{contextEntry?.dir ? "Open" : opensInMixdog ? "Open in Mixdog" : "Open in default app"}</button>
-          {opensInMixdog && <button type="button" role="menuitem" onClick={() => {
-            setMenu(null);
-            openInDefaultApp(joinFolderPath(currentPath, menu.name));
-          }}>Open in default app</button>}
-          <button type="button" role="menuitem" onClick={() => {
+          <button type="button" role="menuitem"
+            disabled={!contextEntry?.dir && !opensInMixdog && !shellActions}
+            onClick={() => {
+              setMenu(null);
+              if (contextEntry) openEntry(contextEntry);
+            }}>{contextEntry?.dir ? "Open" : opensInMixdog ? "Open in Mixdog" : "Open in default app"}</button>
+          {opensInMixdog && <button type="button" role="menuitem" disabled={!shellActions}
+            onClick={() => {
+              setMenu(null);
+              openInDefaultApp(joinFolderPath(currentPath, menu.name));
+            }}>Open in default app</button>}
+          <button type="button" role="menuitem" disabled={!shellActions} onClick={() => {
             setMenu(null);
             revealInShell(joinFolderPath(currentPath, menu.name));
           }}>Show in Explorer</button>
@@ -1906,7 +1950,8 @@ export default function FolderPane({
           <i className="folder-menu-divider" aria-hidden="true" />
           <button type="button" role="menuitem" disabled={selected.size !== 1}
             onClick={() => { setMenu(null); startRename(); }}>Rename</button>
-          <button type="button" role="menuitem" onClick={() => { setMenu(null); deleteSelected(); }}>Delete</button>
+          <button type="button" role="menuitem" disabled={!shellActions}
+            onClick={() => { setMenu(null); deleteSelected(); }}>Delete</button>
           <i className="folder-menu-divider" aria-hidden="true" />
           <button type="button" role="menuitem" onClick={() => {
             setMenu(null);
@@ -1943,7 +1988,7 @@ export default function FolderPane({
             setMenu(null);
             void navigator.clipboard?.writeText(currentPath).catch(() => {});
           }}>Copy path</button>
-          <button type="button" role="menuitem" onClick={() => {
+          <button type="button" role="menuitem" disabled={!shellActions} onClick={() => {
             setMenu(null);
             revealInShell(currentPath);
           }}>Show in Explorer</button>
@@ -2052,7 +2097,7 @@ export default function FolderPane({
             <dt>Modified</dt><dd>{formatFolderDate(propsEntry.mtimeMs) || "—"}</dd>
           </dl>
           <footer>
-            <button type="button" onClick={() => {
+            <button type="button" disabled={!isDesktopShell()} onClick={() => {
               revealInShell(joinFolderPath(currentPath, propsEntry.name));
             }}>Show in Explorer</button>
             <button type="button" onClick={() => setPropsEntry(null)}>Close</button>
@@ -2081,7 +2126,13 @@ export default function FolderPane({
               <span>… {conflictAsk.conflicts.length - 8} more</span>}
           </div>
           <footer>
-            <button type="button" onClick={() => resolveConflict("replace")}>Replace</button>
+            {/* Replace trashes the displaced entry first, and the recoverable
+                OS trash is an Electron integration the relay-served surface
+                cannot reach (remote-methods.ts rejects the strategy). Offering
+                it there closed the dialog straight into a guaranteed error, so
+                the phone gets the choices that can actually run. */}
+            {isDesktopShell() &&
+              <button type="button" onClick={() => resolveConflict("replace")}>Replace</button>}
             <button type="button" onClick={() => resolveConflict("keepBoth")}>Keep both</button>
             <button type="button" onClick={() => resolveConflict("skip")}>Skip</button>
             <button type="button" onClick={() => setConflictAsk(null)}>Cancel</button>

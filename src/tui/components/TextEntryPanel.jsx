@@ -29,6 +29,7 @@ import {
   textEntryReservedRows,
   wrappedTextRows,
 } from '../app/text-layout.mjs';
+import { canSubmitTextEntry } from '../app/text-entry-policy.mjs';
 
 function insertText(draft, input) {
   if (!input) return draft;
@@ -167,6 +168,10 @@ export function TextEntryPanel({
   hint = '',
   detail = '',
   initialValue = '',
+  // Blank submit = the documented reset/clear action for some prompt kinds
+  // (system shell → auto, provider auto-clear → built-in, profile title →
+  // cleared). Off by default: every other prompt still requires a value.
+  allowEmpty = false,
   mask = false,
   multiline = false,
   maxContentRows = 8,
@@ -246,7 +251,7 @@ export function TextEntryPanel({
 
   const submit = () => {
     if (submitGateRef.current) return;
-    if (!String(draftRef.current.value || '').trim()) return;
+    if (!canSubmitTextEntry(draftRef.current.value, allowEmpty)) return;
     submitGateRef.current = true;
     const accepted = onSubmit?.(draftRef.current.value) !== false;
     if (accepted) {
@@ -261,7 +266,7 @@ export function TextEntryPanel({
     if (submitGateRef.current) return;
     const current = draftRef.current;
     const next = prefix ? insertText(current, prefix) : current;
-    if (!String(next.value || '').trim()) return;
+    if (!canSubmitTextEntry(next.value, allowEmpty)) return;
     submitGateRef.current = true;
     const accepted = onSubmit?.(next.value) !== false;
     if (accepted) {

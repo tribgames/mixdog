@@ -59,8 +59,6 @@ export function overlayBlocksGlobalTranscriptScroll(owner = {}) {
     owner.contextPanel ||
     owner.usagePanel ||
     owner.providerPrompt ||
-    owner.channelPrompt ||
-    owner.hookPrompt ||
     owner.settingsPrompt
   );
 }

@@ -13,7 +13,7 @@
 //     billing-uncached input for Anthropic mirrors, but TOTAL input
 //     (uncached + cached) for OpenAI mirrors — subtract cacheTokens there
 //     (verified 2026-08-08: sol trial in 24,601 = unc 9,753 + cr 14,848).
-// Rates: official list prices per model (RATES below). Opus 5 cache write
+// Rates: analysis/model-rates.mjs (unknown models report unsupported). Opus 5 cache write
 // $10/M (1h TTL) for BOTH sides — mixdog runs 1h TTL, and CC does too
 // (measured 2026-08-03: all 89 jobs-full-cc-n8 trajectories report writes
 // exclusively under ephemeral_1h_input_tokens; ephemeral_5m total is 0).
@@ -22,31 +22,15 @@
 // Usage: node harness/cost-exact.mjs <runDir> [ccBaseline.json]
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { pricedCost, pricedSplitCost, rateFor, uncachedTokens } from '../analysis/model-rates.mjs';
 
 const [runDir, ccPath] = process.argv.slice(2);
 if (!runDir) { console.error('usage: node cost-exact.mjs <runDir> [ccBaseline.json]'); process.exit(1); }
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const cc = ccPath && existsSync(ccPath) ? readJson(ccPath) : null;
 
-// Official list prices ($/M): family drives usage.json inputTokens semantics.
-const RATES = [
-    [/luna/, { in: 0.2, cr: 0.02, cw: 0.25, out: 1.2, family: 'openai' }],
-    [/terra/, { in: 2, cr: 0.2, cw: 2.5, out: 12, family: 'openai' }],
-    [/sol|gpt/, { in: 5, cr: 0.5, cw: 6.25, out: 30, family: 'openai' }],
-    [/haiku/, { in: 1, cr: 0.1, cw: 1.25, out: 5, family: 'anthropic' }],
-    [/opus|fable|claude/, { in: 5, cr: 0.5, cw: 10, out: 25, family: 'anthropic' }],
-];
-const rateFor = (m) => {
-    m = String(m || '').toLowerCase();
-    for (const [re, r] of RATES) if (re.test(m)) return r;
-    return RATES[4][1];
-};
-const uncFor = (rate, input, cached, cacheWrite = 0) => rate.family === 'openai'
-    ? Math.max(input - cached - cacheWrite, 0)
-    : input;
-
 const rows = [];
-const sum = { n: 0, t: 0, cost: 0, turns: 0, turnN: 0, ctx: 0, win: 0, in: 0, cr: 0, cw: 0, out: 0 };
+const sum = { n: 0, t: 0, cost: 0, costN: 0, turns: 0, turnN: 0, ctx: 0, win: 0, in: 0, cr: 0, cw: 0, out: 0 };
 const ccSum = { n: 0, t: 0, cost: 0, calls: 0, win: 0 };
 const pairs = []; // matched tasks: per-task 1:1 ratios (mixdog / CC)
 const paired = { mixCost: 0, ccCost: 0, mixT: 0, ccT: 0 };
@@ -61,25 +45,29 @@ for (const entry of readdirSync(runDir, { withFileTypes: true })) {
     const u = ud?.totals ?? null;
     if (!s && !u) continue;
     const num = (v) => Number(v) || 0;
-    const R = rateFor(s?.model || (ud?.sessions?.[0]?.models || [])[0]);
+    const model = s?.model || (ud?.sessions?.[0]?.models || [])[0];
+    const R = rateFor(model);
     const cw = s ? num(s.totalCacheWriteTokens) : num(u?.cacheWriteTokens);
     const cr = s ? num(s.totalCachedReadTokens) : num(u?.cacheTokens);
     const out = s ? num(s.totalOutputTokens) : num(u?.outputTokens);
     // True billing-uncached input: provider-reported when mirrored (family
     // semantics above), else transcript aggregate minus the writes it folds in.
     const inTok = u && u.inputTokens != null
-        ? uncFor(R, num(u.inputTokens), num(u.cacheTokens), num(u.cacheWriteTokens))
+        ? (R ? uncachedTokens(R, num(u.inputTokens), num(u.cacheTokens), num(u.cacheWriteTokens)) : null)
         : Math.max(num(s?.totalUncachedInputTokens) - cw, 0);
     const flag = s ? '' : ' [usage-only]';
-    // Per-session model-accurate sum when available (agent lanes bill at
-    // their own list prices); trial-level fallback otherwise.
-    const cost = Array.isArray(ud?.sessions) && ud.sessions.length
-        ? ud.sessions.reduce((acc, x) => {
-            const r2 = rateFor((x.models || [])[0]);
-            const unc = uncFor(r2, num(x.inputTokens), num(x.cacheTokens), num(x.cacheWriteTokens));
-            return acc + (unc * r2.in + num(x.cacheTokens) * r2.cr + num(x.cacheWriteTokens) * r2.cw + num(x.outputTokens) * r2.out) / 1e6;
-        }, 0)
-        : (inTok * R.in + cr * R.cr + cw * R.cw + out * R.out) / 1e6;
+    const sessionCosts = Array.isArray(ud?.sessions) && ud.sessions.length
+        ? ud.sessions.map((x) => pricedCost({
+            model: (x.models || [])[0],
+            input: x.inputTokens,
+            cached: x.cacheTokens,
+            cacheWrite: x.cacheWriteTokens,
+            output: x.outputTokens,
+        }))
+        : null;
+    const cost = sessionCosts
+        ? (sessionCosts.some((value) => value == null) ? null : sessionCosts.reduce((acc, value) => acc + value, 0))
+        : pricedSplitCost({ model, uncached: inTok, cached: cr, cacheWrite: cw, output: out });
     const agent = (Date.parse(r.agent_execution.finished_at) - Date.parse(r.agent_execution.started_at)) / 1e3;
     const name = entry.name.split('__')[0];
     let turns = Number.isFinite(Number(s?.lastIterationIndex)) ? Number(s.lastIterationIndex) : null;
@@ -90,22 +78,34 @@ for (const entry of readdirSync(runDir, { withFileTypes: true })) {
         } catch {}
     }
     const ctx = num(s?.lastContextTokens);
-    sum.n++; sum.t += agent; sum.cost += cost; sum.win += reward; sum.ctx += ctx;
+    sum.n++; sum.t += agent; sum.win += reward; sum.ctx += ctx;
+    if (cost != null) { sum.cost += cost; sum.costN++; }
     if (turns != null) { sum.turns += turns; sum.turnN++; }
-    sum.in += inTok; sum.cr += cr; sum.cw += cw; sum.out += out;
+    sum.in += inTok || 0; sum.cr += cr; sum.cw += cw; sum.out += out;
     let ccCol = '';
     const v = cc?.[name];
     if (v) {
-        const ccCost = (v.unc * 5 + v.cr * 0.5 + v.cw * 10 + v.out * 25) / 1e6;
-        ccSum.n++; ccSum.t += v.t; ccSum.cost += ccCost; ccSum.calls += v.calls; ccSum.win += v.reward;
-        const ratio = ccCost > 0 ? cost / ccCost : NaN;
+        const ccCost = pricedSplitCost({
+            model: 'claude-opus-5',
+            uncached: v.unc,
+            cached: v.cr,
+            cacheWrite: v.cw,
+            output: v.out,
+        });
+        ccSum.n++; ccSum.t += v.t; ccSum.cost += ccCost || 0; ccSum.calls += v.calls; ccSum.win += v.reward;
+        const ratio = cost != null && ccCost > 0 ? cost / ccCost : NaN;
         const tRatio = v.t > 0 ? agent / v.t : NaN;
         if (Number.isFinite(ratio)) pairs.push({ name, ratio, tRatio });
-        paired.mixCost += cost; paired.ccCost += ccCost; paired.mixT += agent; paired.ccT += v.t;
-        ccCol = ` | CC: r=${Math.round(v.reward)} ${String(Math.round(v.t)).padStart(5)}s $${ccCost.toFixed(2)} x${ratio.toFixed(2)}`;
+        if (cost != null && ccCost != null) {
+            paired.mixCost += cost; paired.ccCost += ccCost; paired.mixT += agent; paired.ccT += v.t;
+        }
+        const ccCostText = ccCost == null ? 'unsupported' : `$${ccCost.toFixed(2)}`;
+        const ratioText = Number.isFinite(ratio) ? ` x${ratio.toFixed(2)}` : '';
+        ccCol = ` | CC: r=${Math.round(v.reward)} ${String(Math.round(v.t)).padStart(5)}s ${ccCostText}${ratioText}`;
     }
     const turnsText = turns == null ? '?' : String(turns);
-    rows.push(`${name.padEnd(32)} r=${reward} ${String(Math.round(agent)).padStart(5)}s turns=${turnsText.padStart(2)} ctx=${String(Math.round(ctx / 1e3)).padStart(3)}K in=${String(Math.round(inTok)).padStart(5)} cw=${String(Math.round(cw / 1e3)).padStart(4)}K $${cost.toFixed(2).padEnd(5)}${ccCol}${flag}`);
+    const costText = cost == null ? 'unsupported' : `$${cost.toFixed(2).padEnd(5)}`;
+    rows.push(`${name.padEnd(32)} r=${reward} ${String(Math.round(agent)).padStart(5)}s turns=${turnsText.padStart(2)} ctx=${String(Math.round(ctx / 1e3)).padStart(3)}K in=${String(Math.round(inTok ?? 0)).padStart(5)} cw=${String(Math.round(cw / 1e3)).padStart(4)}K ${costText}${ccCol}${flag}`);
 }
 if (sum.n === 0) {
     console.error(`no benchmark trials found under: ${runDir}`);
@@ -115,7 +115,10 @@ rows.sort();
 console.log(rows.join('\n'));
 if (sum.n > 0) {
     const avgTurns = sum.turnN > 0 ? (sum.turns / sum.turnN).toFixed(1) : 'n/a';
-    console.log(`-- mixdog n=${sum.n}: win=${sum.win} avg agent=${Math.round(sum.t / sum.n)}s avg turns=${avgTurns} avg finalCtx=${Math.round(sum.ctx / sum.n / 1e3)}K avg cost=$${(sum.cost / sum.n).toFixed(3)} total=$${sum.cost.toFixed(2)}`);
+    const avgCost = sum.costN > 0 ? `$${(sum.cost / sum.costN).toFixed(3)}` : 'unsupported';
+    const totalCost = sum.costN > 0 ? `$${sum.cost.toFixed(2)}` : 'unsupported';
+    const unsupported = sum.n - sum.costN;
+    console.log(`-- mixdog n=${sum.n}: win=${sum.win} avg agent=${Math.round(sum.t / sum.n)}s avg turns=${avgTurns} avg finalCtx=${Math.round(sum.ctx / sum.n / 1e3)}K avg cost=${avgCost} total=${totalCost}${unsupported ? ` unsupported=${unsupported}` : ''}`);
     console.log(`-- mixdog components: in=${Math.round(sum.in / 1e3)}K cr=${Math.round(sum.cr / 1e3)}K cw=${Math.round(sum.cw / 1e3)}K out=${Math.round(sum.out / 1e3)}K`);
 }
 if (ccSum.n > 0) {

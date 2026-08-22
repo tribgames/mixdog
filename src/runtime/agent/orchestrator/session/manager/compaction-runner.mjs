@@ -36,7 +36,9 @@ import { _getPendingMessagesForSession } from './pending-messages.mjs';
 import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
 import {
     compactTargetBudget as compactTargetBudgetForPolicy,
+    currentContextEstimateTokens,
     invalidateProviderContextBaseline,
+    resolveGaugeContextTokens,
     resolveWorkerCompactPolicy,
 } from '../loop/compact-policy.mjs';
 
@@ -259,7 +261,13 @@ export async function runSessionCompaction(session, opts = {}) {
         ? (compactTargetBudgetForPolicy({ ...alignedPolicy, force }) || boundary)
         : boundary;
     const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
-    const beforeTokens = pressureTokens;
+    // Reported before/after are the SAME number the context gauge shows: the
+    // provider-billed prompt plus calibrated growth when a baseline is live.
+    // pressureTokens stays the trigger numerator, so the compaction decision is
+    // unchanged; only the reported scale is aligned.
+    const beforeTokens = (alignedPolicy
+        ? resolveGaugeContextTokens(beforeMessageTokens, alignedPolicy, { messages, sessionRef: session })
+        : 0) || pressureTokens;
     // Manual /compact may explicitly request the original semantic path:
     // summarize THIS session's transcript directly without hydrating/searching
     // Memory first. Automatic and auto-clear compaction keep their configured
@@ -534,7 +542,12 @@ export async function runSessionCompaction(session, opts = {}) {
     try { beforeEncoded = JSON.stringify(messages); } catch { beforeEncoded = ''; }
     try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
     const afterMessageTokens = estimateMessagesTokens(compacted);
-    const afterTokens = afterMessageTokens + reserveTokens;
+    // Same scale as beforeTokens: compaction invalidates the provider baseline,
+    // so the gauge's post-compact number is the calibrated transcript estimate
+    // plus the request reserve. The raw sum reported roughly half of that.
+    const afterTokens = alignedPolicy
+        ? currentContextEstimateTokens(afterMessageTokens, alignedPolicy)
+        : afterMessageTokens + reserveTokens;
     const changed = beforeEncoded && afterEncoded
         ? beforeEncoded !== afterEncoded
         : (compacted.length !== messages.length || afterMessageTokens !== beforeMessageTokens);

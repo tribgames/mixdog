@@ -3,10 +3,17 @@ import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } fro
 
 import type { DesktopAgentPoolRow, DesktopApi, DesktopSessionSummary } from '../shared/contract';
 import {
+  createDesktopCancellationLedger,
+  desktopAgentActivityState,
+  desktopAgentCancelStatus,
   desktopAgentIdentity,
   desktopAgentStatus,
   isActiveDesktopAgentEntry,
+  isCancelUnconfirmedDesktopAgentEntry,
+  isCancelledDesktopAgentEntry,
   isQueuedDesktopAgentEntry,
+  type DesktopAgentActivityState,
+  type DesktopAgentCancellationLedger,
 } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
@@ -23,6 +30,9 @@ interface AgentPoolStore {
   revision: number;
   started: boolean;
   inFlight?: Promise<void>;
+  /** Cancelled identities survive here, so a later pool snapshot cannot
+   *  republish a stopped agent as working. */
+  cancellations: DesktopAgentCancellationLedger;
   listeners: Set<() => void>;
   getSnapshot(): DesktopAgentPoolRow[] | null;
   subscribe(listener: () => void): () => void;
@@ -37,6 +47,7 @@ function createAgentPoolStore(host?: DesktopApi): AgentPoolStore {
     rows: host ? null : [],
     revision: 0,
     started: false,
+    cancellations: createDesktopCancellationLedger(),
     listeners: new Set(),
     getSnapshot: () => store.rows,
     subscribe: (listener) => {
@@ -57,7 +68,12 @@ function agentPoolStore(host?: DesktopApi): AgentPoolStore {
 }
 
 function publishAgentPool(store: AgentPoolStore, rows: unknown): void {
-  store.rows = Array.isArray(rows) ? rows as DesktopAgentPoolRow[] : [];
+  // Every snapshot passes the cancellation ledger: the pool's heartbeat
+  // sidecar re-declares a session `running` once the durable index drops its
+  // cancelled row, and that promotion is a stale lease, not new work.
+  store.rows = store.cancellations.apply(
+    Array.isArray(rows) ? rows as DesktopAgentPoolRow[] : [],
+  );
   for (const listener of store.listeners) listener();
 }
 
@@ -107,6 +123,9 @@ interface LiveAgentSummary {
   fast: boolean;
   tag: string;
   status: string;
+  /** Lifecycle the surface must paint. `cancel-unconfirmed` rows stay live on
+   *  purpose: their process is not proven gone. */
+  state: DesktopAgentActivityState;
   queued: boolean;
   startedAt: number;
   turnStartedAt: number;
@@ -137,18 +156,49 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
     if (identity) workerByIdentity.set(identity, entry);
   });
   const mapped = new Map<string, LiveAgentSummary>();
-  [
+  const entries = [
     ...workers.map((entry, index) => ({ entry, index, worker: true })),
     ...jobs.map((entry, index) => ({ entry, index: workers.length + index, worker: false })),
-  ].forEach(({ entry, index, worker }) => {
-    if (!isActiveDesktopAgentEntry(entry)) return;
+  ];
+  // A CONFIRMED cancel is the last word about that identity. Worker and job
+  // rows for one agent settle at different moments, so a cancelled job
+  // routinely arrives beside a worker row that still says `running` (and vice
+  // versa); taking the active row would keep the stopped agent on the live
+  // surfaces forever. Collected BEFORE the active filter and the merge below,
+  // so neither the entry order nor the status preference in the merge can
+  // resurrect it.
+  // An UNCONFIRMED cancel (`cancelling`, `cancel-unconfirmed`) is the opposite
+  // case: the process is not proven gone — on Windows a git-bash background
+  // survivor is unreachable from JS and answers with
+  // SURVIVING_DESCENDANTS_UNREACHABLE_WARNING — so dropping it would hide a
+  // possibly still-live agent. Those rows stay, carrying their own state.
+  const cancelled = new Set<string>();
+  const unconfirmedCancels = new Map<string, string>();
+  for (const { entry } of entries) {
+    if (!isCancelledDesktopAgentEntry(entry)) continue;
     const identity = desktopAgentIdentity(entry);
+    if (!identity) continue;
+    if (isCancelUnconfirmedDesktopAgentEntry(entry)) {
+      unconfirmedCancels.set(identity, desktopAgentCancelStatus(entry) || 'cancel-unconfirmed');
+    } else cancelled.add(identity);
+  }
+  // One unproven signal outranks a confirmed twin: nothing is proven gone.
+  for (const identity of unconfirmedCancels.keys()) cancelled.delete(identity);
+  entries.forEach(({ entry, index, worker }) => {
+    const identity = desktopAgentIdentity(entry);
+    if (identity && cancelled.has(identity)) return;
+    const unconfirmed = (identity ? unconfirmedCancels.get(identity) : '')
+      || (isCancelUnconfirmedDesktopAgentEntry(entry) ? desktopAgentCancelStatus(entry) : '');
+    if (!unconfirmed && !isActiveDesktopAgentEntry(entry)) return;
     if (!worker && identity) {
       const workerEntry = workerByIdentity.get(identity);
       if (workerEntry
         && (isActiveDesktopAgentEntry(workerEntry) || !isQueuedDesktopAgentEntry(entry))) return;
     }
-    const status = desktopAgentStatus(entry);
+    const status = unconfirmed || desktopAgentStatus(entry);
+    const state: DesktopAgentActivityState = unconfirmed
+      ? 'cancel-unconfirmed'
+      : desktopAgentActivityState(entry);
     const tag = String(entry.tag || '').trim();
     const taskId = String(entry.task_id || entry.taskId || '').trim();
     const roleValue = String(entry.agent || entry.name || entry.type || '').trim();
@@ -162,7 +212,8 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
     const turnStartedAt = timeMs(entry.turnStartedAt);
     const sessionId = String(entry.sessionId || '').trim();
     const ownerSessionId = String(entry.ownerSessionId || fallbackOwnerSessionId || '').trim();
-    const queued = isQueuedDesktopAgentEntry(entry);
+    // An unproven cancel is not queued work, whatever stage the row still says.
+    const queued = !unconfirmed && isQueuedDesktopAgentEntry(entry);
     const key = identity || `${roleValue || 'agent'}-${index}`;
     const current = mapped.get(key);
     if (!current) {
@@ -176,6 +227,7 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
         fast,
         tag: tag || taskId,
         status,
+        state,
         queued,
         startedAt,
         turnStartedAt,
@@ -193,7 +245,14 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
       effort: current.effort || effort,
       fast: current.fast || fast,
       tag: current.tag || tag || taskId,
-      status: current.queued && !queued ? status : current.status,
+      // Keeping the earlier status is safe ONLY because a confirmed cancel
+      // never reaches this merge (see the cancelled set above) and an
+      // unconfirmed one wins here: whichever twin reports it, the merge can
+      // never fall back to the live twin's status.
+      status: state === 'cancel-unconfirmed' && current.state !== 'cancel-unconfirmed'
+        ? status
+        : current.queued && !queued ? status : current.status,
+      state: state === 'cancel-unconfirmed' ? state : current.state,
       queued: current.queued && queued,
       startedAt: current.startedAt || startedAt,
       turnStartedAt: current.turnStartedAt || turnStartedAt,
@@ -320,8 +379,13 @@ function AgentPoolRow({
   onOpenLeadSession?(sessionId: string): void;
   onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
 }): React.ReactElement {
-  const queued = isQueuedDesktopAgentEntry(agent);
-  const running = isActiveDesktopAgentEntry(agent) && !queued;
+  // One lifecycle mapping owns this row. Cancellation is settled first, so a
+  // stopped agent can never borrow the running timer or the "Completed" notice
+  // (an agent cancelled mid-turn still carries stage `running`, and one
+  // cancelled while waiting still carries stage `queued`).
+  const state = desktopAgentActivityState(agent, { unread });
+  const queued = state === 'queued';
+  const running = state === 'running';
   const role = agentRoleLabel(agent.agent || agent.tag);
   const sessionId = String(agent.sessionId || '').trim();
   const lead = Boolean(sessionId) && sessionId === ownerSessionId;
@@ -336,7 +400,7 @@ function AgentPoolRow({
   const elapsedBase = timeMs(agent.turnStartedAt) || timeMs(agent.startedAt);
   // Idle duration carries no information (user: 대기중인데 왜 시간 표기하냐):
   // a resting agent's card says only that it rests. Time belongs to work.
-  const done = !queued && !running && unread;
+  const done = state === 'done';
   const workMeta = elapsedBase
     ? formatWorkElapsed(clock - elapsedBase) || '0s'
     : '0s';
@@ -344,9 +408,13 @@ function AgentPoolRow({
     ? t('Queued')
     : running
       ? workMeta
-      : done
-        ? t('Completed')
-        : t('Idle');
+      : state === 'cancel-unconfirmed'
+        ? t('Cancel unconfirmed')
+        : state === 'cancelled'
+          ? t('Cancelled')
+          : done
+            ? t('Completed')
+            : t('Idle');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();
   const prefetch = () => {
@@ -374,7 +442,10 @@ function AgentPoolRow({
     </span>
     <span className="agent-activity-status">
       <time className="agent-activity-elapsed" aria-label={elapsed}
-        data-state={queued ? 'queued' : running ? 'running' : done ? 'done' : 'idle'}>
+        title={state === 'cancel-unconfirmed'
+          ? t('Cancel was delivered, but the process could not be confirmed stopped.')
+          : undefined}
+        data-state={state}>
         {elapsed}
       </time>
     </span>

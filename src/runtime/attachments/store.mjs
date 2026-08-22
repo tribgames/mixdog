@@ -138,10 +138,18 @@ export function readAttachmentBuffer(value) {
   const path = attachmentPath(ref);
   const cached = bufferCache.get(path);
   if (cached) {
-    cacheHits += 1;
+    // The cache hands out the stored Buffer instance itself, so a caller that
+    // mutated an earlier read would poison every later reader with content that
+    // no longer matches the content address. Re-verify the digest on each hit
+    // instead of trusting the instance.
+    if (createHash('sha256').update(cached).digest('hex') === ref) {
+      cacheHits += 1;
+      bufferCache.delete(path);
+      bufferCache.set(path, cached);
+      return cached;
+    }
     bufferCache.delete(path);
-    bufferCache.set(path, cached);
-    return cached;
+    bufferCacheBytes -= cached.length;
   }
   cacheMisses += 1;
   const info = statSync(path);

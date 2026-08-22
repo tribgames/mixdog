@@ -21,6 +21,50 @@ function Resolve-JobsPath([string]$Path) {
     return [IO.Path]::GetFullPath((Join-Path $benchRoot $Path))
 }
 
+function Assert-PrebakeCurrent {
+    # The container install verifies that the prebaked dependency shell matches
+    # the pinned package version and exits 1 otherwise — which only surfaces
+    # after a full trial wave has been set up and torn down. Check the same
+    # thing here, in seconds, before any container starts.
+    $repoRoot = (Resolve-Path (Join-Path $benchRoot "..\..")).Path
+    $pinned = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).version)
+    $tarPath = [string]$env:MIXDOG_TB_PREBAKE_TAR
+    if ([string]::IsNullOrWhiteSpace($tarPath)) {
+        $tarPath = Join-Path $benchRoot "mixdog-prebake/mixdog-node-prebake.tar.gz"
+    }
+    if (-not (Test-Path -LiteralPath $tarPath -PathType Leaf)) {
+        # No cache: install() runs the stock installer path. Slower, valid.
+        "prebake none (stock installer), pinned=$pinned"
+        return
+    }
+    $prebakeDir = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($tarPath))
+    $stampPath = Join-Path $prebakeDir "prebake.json"
+    $rebuildHint = "rebuild with: pwsh -NoLogo -NoProfile -File harness/prebake.ps1"
+    if (-not (Test-Path -LiteralPath $stampPath -PathType Leaf)) {
+        throw "prebake stamp missing ($stampPath); $rebuildHint"
+    }
+    $baked = ""
+    try {
+        $baked = [string]((Get-Content -Raw -LiteralPath $stampPath | ConvertFrom-Json).mixdogVersion)
+    } catch {
+        throw "prebake stamp unreadable ($stampPath); $rebuildHint"
+    }
+    if ([string]::IsNullOrWhiteSpace($baked)) {
+        throw "prebake stamp has no mixdogVersion ($stampPath); $rebuildHint"
+    }
+    if ($baked -ne $pinned) {
+        throw "prebake mixdog version $baked != pinned $pinned — every trial would fail at install; $rebuildHint"
+    }
+    $stampTime = (Get-Item -LiteralPath $stampPath).LastWriteTimeUtc
+    $newer = Get-ChildItem -LiteralPath $prebakeDir -File |
+        Where-Object { $_.Name -like 'mixdog-node-prebake.*' -and $_.LastWriteTimeUtc -gt $stampTime } |
+        Select-Object -ExpandProperty Name
+    if ($newer) {
+        throw "prebake artifacts newer than stamp ($($newer -join ', ')); $rebuildHint"
+    }
+    "prebake $baked ok"
+}
+
 function Write-JsonAtomic([object]$Value, [string]$Path) {
     $temporary = "$Path.tmp-$PID"
     $Value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $temporary -Encoding utf8
@@ -157,6 +201,7 @@ $taskLabel = if ($tasks.Count -eq 0) { "full" } else { [string]$tasks.Count }
 if ($null -ne $comparison) {
     "pair $($comparison.baseline.label)"
 }
+Assert-PrebakeCurrent
 
 $runnerArgs = @{
     JobsDir = $resolvedJobsDir
@@ -185,29 +230,39 @@ $manifestPath = Join-Path $resolvedJobsDir "preset-run.json"
 # The fingerprint pins dataset and routes only. Capture the prompt surface —
 # rules and tool schemas as the container will see them — before the snapshot
 # is taken, so the report identifies the exact contract under measurement.
-$contract = $null
-try {
-    $contractArgs = @(
-        $contractPath,
-        "--provider", [string]$lead.provider,
-        "--model", [string]$lead.model,
-        "--workflow", "solo"
+$contractArgs = @(
+    $contractPath,
+    "--provider", [string]$lead.provider,
+    "--model", [string]$lead.model,
+    "--workflow", "solo"
+)
+foreach ($slot in @('worker', 'heavy-worker', 'reviewer', 'debugger')) {
+    $routeSlot = $routeProperty.Value.routes.PSObject.Properties[$slot]
+    if ($null -eq $routeSlot -or $null -eq $routeSlot.Value) { continue }
+    $contractArgs += @(
+        "--route",
+        ("{0}={1}/{2}" -f $slot, [string]$routeSlot.Value.provider, [string]$routeSlot.Value.model)
     )
-    $leadFallback = $routeProperty.Value.leadFallback
-    if ($null -ne $leadFallback) {
-        $contractArgs += @(
-            "--fallback-provider", [string]$leadFallback.provider,
-            "--fallback-model", [string]$leadFallback.model
-        )
-    }
-    $contractJson = & node @contractArgs
-    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($contractJson)) {
-        $contract = $contractJson | ConvertFrom-Json
-        "contract rules=$($contract.rulesHash.Substring(7, 12)) tools=$($contract.toolContractHash.Substring(7, 12)) catalog=$($contract.toolCount) active=$($contract.activeToolCount) provider-tools=$($contract.providerToolCount)"
-    }
-} catch {
-    [Console]::Error.WriteLine("contract digest failed: $($_.Exception.Message)")
 }
+$leadFallback = $routeProperty.Value.leadFallback
+if ($null -ne $leadFallback) {
+    $contractArgs += @(
+        "--fallback-provider", [string]$leadFallback.provider,
+        "--fallback-model", [string]$leadFallback.model
+    )
+}
+$contractJson = & node @contractArgs
+if ($LASTEXITCODE -ne 0) {
+    throw "contract digest failed (exit $LASTEXITCODE)"
+}
+if ([string]::IsNullOrWhiteSpace($contractJson)) {
+    throw "contract digest returned no JSON"
+}
+$contract = $contractJson | ConvertFrom-Json
+if ($null -eq $contract.rulesHash -or $null -eq $contract.toolContractHash -or $null -eq $contract.promptSurfaceHash) {
+    throw "contract digest missing rulesHash, toolContractHash, or promptSurfaceHash"
+}
+"contract rules=$($contract.rulesHash.Substring(7, 12)) tools=$($contract.toolContractHash.Substring(7, 12)) catalog=$($contract.toolCount) active=$($contract.activeToolCount) provider-tools=$($contract.providerToolCount)"
 $manifest = [ordered]@{
     schemaVersion = 1
     preset = $Preset

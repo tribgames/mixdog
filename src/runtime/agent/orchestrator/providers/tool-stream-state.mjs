@@ -1,13 +1,11 @@
 /**
- * tool-stream-state.mjs — shared active tool-item / alias tracking and the
- * complete-tool early-settle predicate for the OpenAI Responses stream
- * consumers.
+ * tool-stream-state.mjs — shared active tool-item / alias tracking for the
+ * OpenAI Responses stream consumers.
  *
  * Extracted verbatim (no behavior change) from openai-ws-stream.mjs, where the
  * activeToolItems Set + activeToolAliases Map (id/call_id/fallback-key alias
- * union) and the hasCompleteToolCall gate were WS-local closures. Kept as a
- * plain factory + pure predicate so any Responses-shaped stream can reuse the
- * same lifecycle-tracking semantics.
+ * union) were WS-local closures. Kept as a plain factory so any
+ * Responses-shaped stream can reuse the same lifecycle-tracking semantics.
  */
 
 /**
@@ -59,20 +57,4 @@ export function createActiveToolItemTracker() {
         mark,
         clear,
     };
-}
-
-/**
- * Early tool-call settle predicate. True only when a fully-formed tool call
- * (real id + name, not a deferred salvage placeholder) is captured and no tool
- * work is still in flight — pendingCalls drained, no active lifecycle item, and
- * the in-flight latch cleared. Callers pass the current sizes/flag rather than
- * the live collections so the check stays a pure snapshot.
- */
-export function hasCompleteToolCall({ toolCalls, pendingSize, activeSize, toolInFlight }) {
-    return toolCalls.length > 0
-        && pendingSize === 0
-        && activeSize === 0
-        && toolInFlight !== true
-        && !toolCalls.some((t) => t && t._deferred)
-        && toolCalls.every((t) => t && t.id && t.name);
 }

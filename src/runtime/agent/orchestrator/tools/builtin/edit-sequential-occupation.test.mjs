@@ -60,10 +60,15 @@ test('count drift falls through to the strict ambiguity reject', async (t) => {
     assert.match(String(result), /current file excerpt lines/);
 });
 
-test('successful edit snapshot makes a follow-up read return unchanged', async (t) => {
+test('an edit on a body the session already read makes a follow-up read return unchanged', async (t) => {
     const { dir, file } = makeTempFile('alpha\nkeep\n');
     const sessionId = `edit-known-current-${process.pid}`;
     t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    // The "unchanged" stub is sound only because the model already holds the
+    // pre-edit body: deliver it first.
+    const firstRead = await executeBuiltinTool('read', { path: file }, dir, { sessionId });
+    assert.match(String(firstRead), /alpha/);
 
     const result = await tryExecuteExternalToolAdapter('edit', {
         file_path: file,
@@ -76,10 +81,30 @@ test('successful edit snapshot makes a follow-up read return unchanged', async (
     assert.equal(reread, `[file unchanged: ${file.replaceAll('\\', '/')}]`);
 });
 
-test('successful apply_patch snapshot makes a follow-up read return unchanged', async (t) => {
+test('an edit on a never-read file still delivers the body on the next read', async (t) => {
+    const { dir, file } = makeTempFile('alpha\nkeep\n');
+    const sessionId = `edit-unseen-body-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const result = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: 'alpha',
+        new_string: 'omega',
+    }, dir, { sessionId });
+    assert.match(String(result), /^Updated /);
+
+    const reread = String(await executeBuiltinTool('read', { path: file }, dir, { sessionId }));
+    assert.doesNotMatch(reread, /file unchanged/);
+    assert.match(reread, /omega/);
+});
+
+test('an apply_patch on a body the session already read makes a follow-up read return unchanged', async (t) => {
     const { dir, file } = makeTempFile('alpha\nkeep\n');
     const sessionId = `patch-known-current-${process.pid}`;
     t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const firstRead = await executeBuiltinTool('read', { path: file }, dir, { sessionId });
+    assert.match(String(firstRead), /alpha/);
 
     const result = await executePatchTool('apply_patch', {
         base_path: dir,
@@ -92,10 +117,35 @@ test('successful apply_patch snapshot makes a follow-up read return unchanged', 
 *** End Patch
 `,
     }, dir, { sessionId });
-    assert.match(String(result), /^Applied 1 File \(Native\)/);
+    // Executor (Native vs JS) depends on the engine-contract gate; the
+    // snapshot contract is what this test pins.
+    assert.match(String(result), /^Applied 1 File/);
 
     const reread = await executeBuiltinTool('read', { path: file }, dir, { sessionId });
     assert.equal(reread, `[file unchanged: ${file.replaceAll('\\', '/')}]`);
+});
+
+test('an external write between read and edit is never hidden by "file unchanged"', async (t) => {
+    const { dir, file } = makeTempFile('alpha\nkeep\n');
+    const sessionId = `edit-stale-prior-${process.pid}`;
+    t.after(() => { rmSync(dir, { recursive: true, force: true }); void closeNativePatchServerForTests?.(); });
+
+    const firstRead = await executeBuiltinTool('read', { path: file }, dir, { sessionId });
+    assert.match(String(firstRead), /alpha/);
+
+    // Someone else changes the file AFTER the session read it.
+    writeFileSync(file, 'alpha\nEXTERNAL\nkeep\n', 'utf8');
+
+    const result = await tryExecuteExternalToolAdapter('edit', {
+        file_path: file,
+        old_string: 'alpha',
+        new_string: 'omega',
+    }, dir, { sessionId });
+    assert.match(String(result), /^Updated /);
+
+    const reread = String(await executeBuiltinTool('read', { path: file }, dir, { sessionId }));
+    assert.doesNotMatch(reread, /file unchanged/);
+    assert.match(reread, /EXTERNAL/);
 });
 
 test('stale read snapshot does not block a still-unique current old_string', async (t) => {

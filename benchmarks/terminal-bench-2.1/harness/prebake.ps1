@@ -10,27 +10,24 @@
 # untouched — this caches OUR agent's own dependency shell only, exactly like
 # the claude-code prebaked binary (cc-bin/).
 #
-# Re-run whenever you want to refresh mixdog@latest in the cache. The src
-# snapshot overlay still replaces the whole source tree per run, so the cache
-# only pins the dependency shell, not mixdog code.
+# Re-run whenever the pinned package.json version changes. The src snapshot
+# overlay still replaces the whole source tree per run, so the cache only pins
+# the dependency shell, not mixdog code.
 param(
     [string]$Image = "debian:bookworm-slim",
-    [string]$MixdogVersion = "latest",
-    [string]$SpawnBuildImage = "rust:1.89-alpine3.22"
+    [string]$MixdogVersion = ""
 )
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($MixdogVersion)) {
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+    $MixdogVersion = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).version)
+}
+if ([string]::IsNullOrWhiteSpace($MixdogVersion) -or $MixdogVersion -eq "latest") {
+    throw "MixdogVersion must be a pinned package version, not latest"
+}
 $outDir = Join-Path (Split-Path $PSScriptRoot -Parent) "mixdog-prebake"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "../../..")).Path
-$spawnSource = Join-Path $repoRoot "native/mixdog-spawn"
 $hostOut = $outDir -replace '\\', '/'
-$hostSpawnSource = $spawnSource -replace '\\', '/'
-docker run --rm `
-    -v "${hostSpawnSource}:/src:ro" `
-    -v "${hostOut}:/out" `
-    $SpawnBuildImage sh -c `
-    "set -eu; apk add --no-cache musl-dev; CARGO_TARGET_DIR=/tmp/target cargo build --locked --release --manifest-path /src/Cargo.toml; install -m 0755 /tmp/target/release/mixdog-spawn /out/mixdog-spawn-linux-x64"
-if ($LASTEXITCODE -ne 0) { throw "static spawn build failed (exit $LASTEXITCODE)" }
 $script = @'
 set -eu
 export DEBIAN_FRONTEND=noninteractive
@@ -40,8 +37,9 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y nodejs
 npm install -g mixdog@__VERSION__
 MIXDOG_PKG="$(npm root -g)/mixdog"
-install -m 0755 /fixed-spawn "$MIXDOG_PKG/native-tools/mixdog-spawn"
-printf '' | "$MIXDOG_PKG/native-tools/mixdog-spawn" | grep -q '"ready":true'
+# Native spawn is supplied by the local runtime bundle, never by this
+# dependency cache. Removing it makes a missing bundle fail closed.
+rm -f "$MIXDOG_PKG/native-tools/mixdog-spawn"
 node --version
 mixdog --help >/dev/null 2>&1 && echo "mixdog ok"
 # Bench containers never run local embeddings (memory features are disabled
@@ -109,8 +107,18 @@ echo "prebake zst written"
 # The here-string inherits this file's CRLF endings; bash -lc treats a
 # trailing \r as part of the command (exit 127), so normalize to LF.
 $script = $script -replace "`r", ""
-$hostSpawn = (Join-Path $outDir "mixdog-spawn-linux-x64") -replace '\\', '/'
-docker run --rm -v "${hostOut}:/out" -v "${hostSpawn}:/fixed-spawn:ro" $Image bash -lc $script
+docker run --rm -v "${hostOut}:/out" $Image bash -lc $script
 if ($LASTEXITCODE -ne 0) { throw "prebake build failed (exit $LASTEXITCODE)" }
 $tar = Join-Path $outDir "mixdog-node-prebake.tar.gz"
-"prebake ready: $tar ($([math]::Round((Get-Item $tar).Length/1MB)) MB)"
+# Version stamp for the pre-run guard in run.ps1. install() verifies the same
+# version INSIDE the container, but that costs a full trial wave to discover;
+# the stamp lets a run fail in seconds when the cache is stale.
+$stamp = [ordered]@{
+    schemaVersion = 1
+    mixdogVersion = $MixdogVersion
+    image = $Image
+    builtAt = (Get-Date).ToUniversalTime().ToString("o")
+}
+$stampPath = Join-Path $outDir "prebake.json"
+$stamp | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $stampPath -Encoding utf8
+"prebake ready: $tar ($([math]::Round((Get-Item $tar).Length/1MB)) MB) version=$MixdogVersion"

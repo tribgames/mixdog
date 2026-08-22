@@ -65,7 +65,7 @@ import { retrieveEntries } from './lib/memory-retrievers.mjs'
 import { pruneOldEntries } from './lib/memory-maintenance-store.mjs'
 import { computeEntryScore } from './lib/memory-score.mjs'
 import { runFullBackfill } from './lib/memory-ops-policy.mjs'
-import { listCore, addCore, editCore, deleteCore, compactCoreIds, listCoreCandidates, promoteCoreCandidate, dismissCoreCandidate } from './lib/core-memory-store.mjs'
+import { listCore, addCore, editCore, deleteCore, listCoreCandidates, promoteCoreCandidate, dismissCoreCandidate } from './lib/core-memory-store.mjs'
 import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs'
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
 import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
@@ -451,12 +451,6 @@ async function _initRuntime() {
   memoryProfile('runtime-init:start')
   await _initStore()
   memoryProfile('runtime-init:init-store-ready', { ms: (performance.now() - runtimeStartedAt).toFixed(1) })
-  // Restore the core_entries.id == 1..N invariant once per boot: SERIAL only
-  // increments, so deleted rows leave permanent gaps. Fast no-op when already
-  // contiguous (or empty). Runs only here — never in cycle2/addCore/deleteCore.
-  const compactStartedAt = performance.now()
-  await compactCoreIds(DATA_DIR)
-  memoryProfile('core-ids:compact:done', { ms: (performance.now() - compactStartedAt).toFixed(1) })
   // First boot migrates existing PG core data; later boots reconcile any
   // crash window between a committed PG mutation and its atomic file refresh.
   // The snapshot is not part of memory readiness.

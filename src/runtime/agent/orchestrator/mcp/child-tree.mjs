@@ -44,23 +44,25 @@ function run(cmd, args) {
 async function enumerate() {
     const childrenOf = new Map();
     const tokenOf = new Map();
+    const nameOf = new Map();
     const out = isWin
         ? await run('powershell.exe', [
             '-NoProfile', '-NonInteractive', '-Command',
-            `Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.ToString('o'))" }`,
+            `Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $($_.CreationDate.ToString('o'))" }`,
         ])
-        : await run('ps', ['-A', '-o', 'pid=,ppid=,lstart=']);
+        : await run('ps', ['-A', '-o', 'pid=,ppid=,comm=,lstart=']);
     for (const line of out.split(/\r?\n/)) {
-        const m = line.trim().match(/^(\d+)\s+(\d+)(?:\s+(.+))?$/);
+        const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)(?:\s+(.+))?$/);
         if (!m) continue;
         const pid = Number(m[1]);
         const ppid = Number(m[2]);
-        const token = (m[3] || '').trim() || null;
+        const token = (m[4] || '').trim() || null;
         if (!childrenOf.has(ppid)) childrenOf.set(ppid, []);
         childrenOf.get(ppid).push(pid);
         tokenOf.set(pid, token);
+        nameOf.set(pid, m[3]);
     }
-    return { childrenOf, tokenOf };
+    return { childrenOf, tokenOf, nameOf };
 }
 
 // BFS every descendant pid of rootPid (excludes rootPid).
@@ -85,6 +87,33 @@ function descendantsOf(childrenOf, rootPid) {
 async function collectDescendants(rootPid) {
     const { childrenOf } = await enumerate();
     return descendantsOf(childrenOf, rootPid);
+}
+
+/** Descendant pids WITH their image names, from one batched process-table
+ *  read. Shared with the shell runner's post-exit descendant observation so
+ *  both use a single enumeration implementation. */
+export async function collectDescendantProcesses(rootPid) {
+    const { childrenOf, nameOf } = await enumerate().catch(() => ({ childrenOf: new Map(), nameOf: new Map() }));
+    return descendantsOf(childrenOf, rootPid).map((pid) => ({ pid, name: nameOf.get(pid) || '' }));
+}
+
+/** Force-kill whole process trees by pid. Windows batches one taskkill /T /F
+ *  for every pid; POSIX escalates SIGTERM → SIGKILL. Best-effort: the caller
+ *  verifies liveness afterwards rather than trusting the signal. */
+export async function killProcessTrees(pids) {
+    const targets = [...new Set((pids || []).map(Number).filter((pid) => Number.isInteger(pid) && pid > 0))];
+    if (targets.length === 0) return;
+    if (isWin) {
+        const args = ['/F', '/T'];
+        for (const pid of targets) args.push('/PID', String(pid));
+        await run('taskkill', args);
+        return;
+    }
+    for (const pid of targets) { try { process.kill(pid, 'SIGTERM'); } catch { /* ignore */ } }
+    await delay(300);
+    for (const pid of targets) {
+        if (isAlive(pid)) { try { process.kill(pid, 'SIGKILL'); } catch { /* ignore */ } }
+    }
 }
 
 /**

@@ -120,17 +120,54 @@ export async function run(argv = [], classifiedInvocation = null) {
   // in src. Sample a few hot files — a newer source than the bundle means the
   // running behavior will NOT match the tree, so warn loudly.
   try {
-    const { statSync } = await import('node:fs');
+    const { readdirSync, statSync } = await import('node:fs');
     const bundleMtime = statSync(bundle).mtimeMs;
     const hotSources = [
       join(__dirname, 'runtime', 'agent', 'orchestrator', 'session', 'agent-loop.mjs'),
       join(__dirname, 'runtime', 'agent', 'orchestrator', 'session', 'loop', 'stored-tool-args.mjs'),
-      join(__dirname, 'tui', 'engine', 'session-api-ext.mjs'),
       join(__dirname, 'standalone', 'agent-tool.mjs'),
     ];
-    const stale = hotSources.some((file) => {
-      try { return statSync(file).mtimeMs > bundleMtime + 1_000; } catch { return false; }
-    });
+    // The TUI half of the guard used to sample ONE path that does not exist
+    // (tui/engine/session-api-ext.mjs), so every real src/tui edit ran silently
+    // against an old bundle. Walk the actual bundled tree instead — dist (the
+    // build output) and dev (excluded from the package) are not inputs.
+    const tuiSourceNewestMtime = (() => {
+      const skipDirs = new Set(['dist', 'dev', 'node_modules']);
+      // Ceilings, not expectations: the bundled tree is currently 2 levels
+      // deep with ~150 files, so depth 12 reaches every source that can end up
+      // in the bundle (the old depth-6 cut would have started missing files as
+      // soon as the tree grew), while the visit budget keeps this boot-time
+      // walk bounded on any pathological tree. The guard is advisory, so a
+      // budget-truncated walk still reports the newest mtime it did see.
+      const MAX_DEPTH = 12;
+      const MAX_VISITS = 5000;
+      let visits = 0;
+      let newest = 0;
+      const walk = (dir, depth) => {
+        if (depth > MAX_DEPTH || visits >= MAX_VISITS) return;
+        let entries;
+        try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const entry of entries) {
+          if (visits >= MAX_VISITS) return;
+          visits += 1;
+          if (entry.isDirectory()) {
+            if (!skipDirs.has(entry.name)) walk(join(dir, entry.name), depth + 1);
+            continue;
+          }
+          if (!/\.(mjs|jsx|js)$/.test(entry.name)) continue;
+          try {
+            const mtime = statSync(join(dir, entry.name)).mtimeMs;
+            if (mtime > newest) newest = mtime;
+          } catch { /* unreadable file is not evidence of staleness */ }
+        }
+      };
+      walk(join(__dirname, 'tui'), 0);
+      return newest;
+    })();
+    const stale = tuiSourceNewestMtime > bundleMtime + 1_000
+      || hotSources.some((file) => {
+        try { return statSync(file).mtimeMs > bundleMtime + 1_000; } catch { return false; }
+      });
     if (stale) {
       process.stderr.write(
         'mixdog: TUI bundle is OLDER than runtime sources — behavior will not match the tree.\n'

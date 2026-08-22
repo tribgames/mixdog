@@ -19,10 +19,8 @@ import {
 
 export function createOnboardingSteps({
   store,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
   setOnboardingActive,
   onboardingRef,
@@ -85,6 +83,11 @@ export function createOnboardingSteps({
 
   const openOnboardingAuthStep = async () => {
     prefetchOnboardingStep2();
+    // Surface claim (panel-surface.mjs): the provider-setup read below runs
+    // before anything paints, and the wizard is reachable while a normal
+    // surface is on screen (/onboarding, Step-1 re-entry), so Esc during the
+    // wait must leave that surface alone instead of dropping Step 1 on it.
+    const own = surface.claim();
     // Load the provider setup BEFORE opening the picker so Step 1 renders the
     // real list in one frame instead of flashing the "Checking Providers"
     // placeholder (that swap is what looked like a jump on entry). On failure,
@@ -93,6 +96,7 @@ export function createOnboardingSteps({
     try {
       preloadedSetup = await store.getProviderSetup?.();
     } catch { /* openProviderSetupPicker will show its loading frame + error. */ }
+    if (!own.owns()) return;
     void openProviderSetupPicker({
       title: 'First Run · Step 1/4 · Provider Auth',
       returnTo: () => openOnboardingAuthStep(),
@@ -133,7 +137,7 @@ export function createOnboardingSteps({
     const webSearchRoute = onboardingRef.current.webSearchRoute || null;
     const overrides = onboardingRef.current.agentRoutes || {};
     const hasOverrides = Object.keys(overrides).length > 0;
-    setPicker(null);
+    surface.claim().close();
     setOnboardingActive(false);
     const done = () => store.pushNotice('First-run setup complete.', 'info');
     const failed = (e) => store.pushNotice(`Couldn’t save setup: ${e?.message || e}`, 'error');
@@ -172,6 +176,7 @@ export function createOnboardingSteps({
   // the plain model list is shown. Selecting Main Model updates defaultRoute;
   // agents that have no explicit override keep inheriting it.
   const openOnboardingRoleModelPicker = async (target) => {
+    const own = surface.claim();
     const isLead = target === 'lead';
     const isWebSearch = target === 'webSearch';
     // Web Search uses the web-search-capable model list; lead/agent use provider models.
@@ -186,14 +191,15 @@ export function createOnboardingSteps({
       models = normalizeModelOptions(webSearchModels || []);
       if (models.length === 0) {
         store.pushNotice('no native web-search models available; connect OpenAI, Grok, Gemini, or Anthropic', 'warn');
-        void openOnboardingWorkflowStep();
+        // Fallback delegation is a paint by proxy: prove ownership first.
+        if (own.owns()) void openOnboardingWorkflowStep();
         return;
       }
     } else {
       models = normalizeModelOptions(onboardingRef.current.providerModels || []);
       if (models.length === 0) {
         store.pushNotice('no provider models available; open /providers to sign in', 'warn');
-        openOnboardingAuthStep();
+        if (own.owns()) openOnboardingAuthStep();
         return;
       }
     }
@@ -245,7 +251,8 @@ export function createOnboardingSteps({
       : isWebSearch
         ? 'Web Search'
         : (onboardingRef.current.agents || []).find((a) => a.id === target)?.label || target;
-    setPicker({
+    if (!own.owns()) return;
+    own.paint({
       title: `First Run · ${label}`,
       description: isLead
         ? 'Pick the main model. Agents inherit this unless individually changed.'
@@ -294,6 +301,7 @@ export function createOnboardingSteps({
   };
 
   const openOnboardingWorkflowStep = async () => {
+    const own = surface.claim();
     if (!Array.isArray(onboardingRef.current.providerModels) || onboardingRef.current.providerModels.length === 0) {
       try {
         onboardingRef.current.providerModels = await store.listProviderModels();
@@ -308,7 +316,9 @@ export function createOnboardingSteps({
       onboardingRef.current.defaultRoute = null;
       onboardingRef.current.agentRoutes = {};
       store.pushNotice('no provider models available; open /providers to sign in', 'warn');
-      openOnboardingAuthStep();
+      // Step 2's empty-model fallback hands the surface to Step 1 after an
+      // await: same ownership rule as its own paint below.
+      if (own.owns()) openOnboardingAuthStep();
       return;
     }
     // Main Model stays unset until the user picks one; no auto-recommendation.
@@ -326,11 +336,10 @@ export function createOnboardingSteps({
     const webSearchRoute = onboardingRef.current.webSearchRoute || null;
     const overrides = onboardingRef.current.agentRoutes || {};
     const agents = onboardingRef.current.agents || [];
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker({
+    own.paint({
       title: 'First Run · Step 2/4 · Models',
       description: 'Set the Main Model; each agent inherits it unless changed.',
       indexMode: 'always',
@@ -384,7 +393,7 @@ export function createOnboardingSteps({
         }
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         onboardingWarnReopen();
       },
     });

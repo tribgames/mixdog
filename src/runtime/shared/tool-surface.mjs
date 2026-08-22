@@ -365,7 +365,7 @@ export function toolLoadingTargets(name, args = {}) {
 
 const CATEGORY_ORDER = [
   'Read', 'Search', 'Load', 'MCP', 'Skill', 'Web Research', 'Memory',
-  'Patch', 'Git', 'Shell', 'Agent', 'Task', 'Schedule', 'Channel', 'Setup', 'Other',
+  'Patch', 'Git', 'Shell', 'Agent', 'Task', 'Setup', 'Other',
 ];
 
 const TOOL_CATEGORY = new Map([
@@ -443,8 +443,6 @@ const CATEGORY_COPY = new Map([
   ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
   ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
   ['Task', { active: 'Checking', done: 'Checked', noun: 'task' }],
-  ['Schedule', { active: 'Running', done: 'Ran', noun: 'schedule' }],
-  ['Channel', { active: 'Sending', done: 'Sent', noun: 'message' }],
   ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
   ['Other', { active: 'Calling', done: 'Called', noun: 'tool' }],
 ]);
@@ -584,8 +582,11 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'job_wait':
       return unitDescriptor('Shell', { count: queryCount(a, 'command', 'commands', 'cmd') || 1, noun: 'command' });
     case 'git':
-    case 'git_stage':
       return unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' });
+    // Staging is not "running a Git command": it selects change_ids out of an
+    // existing diff. Its own work unit keeps the two apart on the activity row.
+    case 'git_stage':
+      return unitDescriptor('Git', { count: queryCount(a, 'change_ids', 'change_id') || 1, active: 'Staging', done: 'Staged', noun: 'change' });
     case 'agent':
     case 'bridge': {
       const type = String(a.type || a.action || '').toLowerCase();
@@ -604,8 +605,13 @@ export function toolWorkUnit(name, args = {}, category = '') {
     }
     case 'task': {
       const action = String(a.action || '').toLowerCase();
-      if (action === 'cancel') return unitDescriptor('Task', { count: queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1, active: 'Cancelling', done: 'Cancelled', noun: 'task' });
-      return unitDescriptor('Task', { count: queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1, noun: 'task' });
+      const taskCount = queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1;
+      // Waiting on a task, enumerating tasks, and cancelling one are distinct
+      // work; only `read`/`status` falls through to the neutral check verb.
+      if (action === 'cancel') return unitDescriptor('Task', { count: taskCount, active: 'Cancelling', done: 'Cancelled', noun: 'task' });
+      if (action === 'wait') return unitDescriptor('Task', { count: taskCount, active: 'Waiting for', done: 'Waited for', noun: 'task' });
+      if (action === 'list') return unitDescriptor('Task', { count: taskCount, active: 'Listing', done: 'Listed', noun: 'task' });
+      return unitDescriptor('Task', { count: taskCount, noun: 'task' });
     }
     case 'skill':
     case 'skill_execute':
@@ -620,7 +626,9 @@ export function toolWorkUnit(name, args = {}, category = '') {
         count: queryCount(a, 'symbols', 'symbol', 'query', 'file', 'path') || 1,
         active: searching ? 'Mapping' : 'Reading',
         done: searching ? 'Mapped' : 'Read',
-        noun: searching ? 'symbol' : 'file',
+        // "code map", not "file": an overview/imports/impact pass reads
+        // structure, and sharing the plain read unit hid it behind file reads.
+        noun: searching ? 'symbol' : 'code map',
       });
     }
     case 'request_user_input':

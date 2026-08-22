@@ -15,6 +15,7 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
+import { isPidAlive, parsePid } from '../runtime/shared/pid-liveness.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -99,17 +100,6 @@ function callSignature(name, args) {
   } catch { return null; }
 }
 
-function parsePid(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-function isPidAlive(pid) {
-  const n = parsePid(pid);
-  if (!n) return false;
-  try { process.kill(n, 0); return true; }
-  catch (error) { return error?.code === 'EPERM'; }
-}
 
 // A stalled reader collapses the backlog to one frame per key. That is right
 // for SNAPSHOTS (the newest state is the whole truth) and wrong for a BYTE
@@ -313,17 +303,39 @@ export function createSessionTransport({
     return Math.min(limit, bytes);
   }
 
+  let callCachePressureLoggedAt = 0;
+
   function pruneCallCache() {
-    while (callCache.size > CALL_CACHE_MAX || callCacheBytes > CALL_CACHE_MAX_BYTES) {
-      let removed = false;
-      for (const [key, record] of callCache) {
-        // Never lose the dedup identity of an in-flight mutation.
-        if (!record.settled) continue;
-        deleteCallCacheEntry(key, record);
-        removed = true;
-        break;
-      }
-      if (!removed) return;
+    if (callCache.size <= CALL_CACHE_MAX && callCacheBytes <= CALL_CACHE_MAX_BYTES) return;
+    const now = nowMs();
+    // 1) Only an entry whose promised TTL has already elapsed may be forgotten
+    //    completely (its own timer may not have fired yet).
+    for (const [key, record] of callCache) {
+      if (callCache.size <= CALL_CACHE_MAX && callCacheBytes <= CALL_CACHE_MAX_BYTES) return;
+      if (!record.settled || !record.settledAt) continue;
+      if (now - record.settledAt < CALL_CACHE_TTL_MS) continue;
+      deleteCallCacheEntry(key, record);
+    }
+    // 2) Byte pressure drops the retained RESULT of settled entries, oldest
+    //    first, and KEEPS their dedup identity: evicting the identity inside
+    //    the promised TTL is exactly what let a retried submit/abort/configure
+    //    execute twice. A replay of a dropped result fails closed instead.
+    for (const record of callCache.values()) {
+      if (callCacheBytes <= CALL_CACHE_MAX_BYTES) break;
+      if (!record.settled || record.resultDropped) continue;
+      callCacheBytes = Math.max(0, callCacheBytes - (record.bytes || 0));
+      record.bytes = 0;
+      record.resultDropped = true;
+      record.promise = null;
+    }
+    // 3) Entry-count pressure never evicts a live dedup identity. What remains
+    //    carries no payload and expires with its own TTL timer.
+    if (callCache.size > CALL_CACHE_MAX && now - callCachePressureLoggedAt > 60_000) {
+      callCachePressureLoggedAt = now;
+      log(
+        `session call dedup cache above its entry budget (${callCache.size}/${CALL_CACHE_MAX});`
+        + ' every remaining entry is still inside its retry TTL',
+      );
     }
   }
 
@@ -738,7 +750,14 @@ export function createSessionTransport({
         const cached = cacheKey ? callCache.get(cacheKey) : null;
         let dispatch;
         if (cached) {
-          if (!signature || cached.signature !== signature) {
+          if (cached.resultDropped) {
+            // The identity survived memory pressure but its result did not.
+            // Fail closed: re-running a settled mutation is never correct.
+            dispatch = Promise.reject(Object.assign(
+              new Error(`callId '${callId}' already ran; its result is no longer retained`),
+              { code: 'ECALLRESULTDROPPED' },
+            ));
+          } else if (!signature || cached.signature !== signature) {
             // callId is an idempotency key, not a caller-selected overwrite
             // slot. Fail closed while the original keeps its cache identity;
             // dispatching here could execute two side-effecting mutations.
@@ -762,7 +781,13 @@ export function createSessionTransport({
           );
           if (cacheKey) {
             const record = {
-              promise: dispatch, at: nowMs(), signature, settled: false, bytes: 0,
+              promise: dispatch,
+              at: nowMs(),
+              signature,
+              settled: false,
+              settledAt: 0,
+              resultDropped: false,
+              bytes: 0,
             };
             callCache.set(cacheKey, record);
             pruneCallCache();
@@ -773,6 +798,7 @@ export function createSessionTransport({
               callCacheBytes += record.bytes;
             }, () => {}).then(() => {
               record.settled = true;
+              record.settledAt = nowMs();
               pruneCallCache();
               const t = setTimeout(() => {
                 deleteCallCacheEntry(cacheKey, record);
@@ -786,8 +812,13 @@ export function createSessionTransport({
           sendJson(res, { result });
         } catch (err) {
           // Session call errors travel as a 200 {error} envelope so the client can
-          // tell a failed CALL from a dead TRANSPORT (which must re-attach).
-          sendJson(res, { error: err?.message || String(err) }, 200);
+          // tell a failed CALL from a dead TRANSPORT (which must re-attach). The
+          // machine-readable `code` (ECALLIDCONFLICT / ECALLRESULTDROPPED) travels
+          // with it: a client must be able to branch on it, not parse prose.
+          sendJson(res, {
+            error: err?.message || String(err),
+            ...(err?.code ? { code: String(err.code) } : {}),
+          }, 200);
         }
         return;
       }

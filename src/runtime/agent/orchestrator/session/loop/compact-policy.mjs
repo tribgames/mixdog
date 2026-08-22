@@ -203,7 +203,7 @@ function compactPressureTokens(messageTokensEst, policy) {
 // Request/schema reserve remains included because those bytes are sent to the
 // model; configured reserve is merely local headroom and must not inflate the
 // user-facing context gauge.
-function currentContextEstimateTokens(messageTokensEst, policy) {
+export function currentContextEstimateTokens(messageTokensEst, policy) {
     if (messageTokensEst === null) return 0;
     const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
     const configured = Math.max(0, Number(policy?.configuredReserveTokens) || 0);
@@ -532,7 +532,7 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
             at: Date.now(),
             stage: meta.stage || null,
             pressure: meta.pressureTokens ?? null,
-            est: meta.beforeTokens ?? null,
+            est: meta.messageTokensEst ?? meta.beforeTokens ?? null,
             trigger: policy.triggerTokens || policy.boundaryTokens || null,
             baseline: positiveTokenInt(sessionRef.contextPressureBaselineTokens) || null,
             baselineAt: Number(sessionRef.contextPressureBaselineUpdatedAt) || null,

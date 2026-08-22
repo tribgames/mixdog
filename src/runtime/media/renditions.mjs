@@ -90,7 +90,13 @@ function renditionPath(cacheDir, variant, id, extension) {
 function cachedRendition(cacheDir, variant, id) {
   for (const [extension, mime] of Object.entries(EXTENSION_MIME)) {
     const path = renditionPath(cacheDir, variant, id, extension);
-    if (existsSync(path)) return { path, mime, bytes: statSync(path).size };
+    // stat IS the existence check: a separate existsSync leaves a window in
+    // which concurrent pruning unlinks the file between the two calls, turning
+    // a plain cache miss into a thrown media request.
+    try {
+      const info = statSync(path);
+      if (info.isFile()) return { path, mime, bytes: info.size };
+    } catch { /* absent or evicted mid-lookup */ }
   }
   return null;
 }

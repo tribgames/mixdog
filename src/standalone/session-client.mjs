@@ -26,6 +26,7 @@ import {
   SESSION_READ_ACTION_SET,
 } from './session-protocol.mjs';
 import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 
 function runtimeRoot() {
@@ -86,6 +87,7 @@ const EVENT_STREAM_RECONNECT_MAX_MS = 30_000;
 const EVENT_STREAM_LIVENESS_TIMEOUT_MS = 45_000;
 const EVENT_STREAM_RECONNECT_BUDGET_MS = 10 * 60_000;
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
+const DEFAULT_DAEMON_UPGRADE_TIMEOUT_MS = 120_000;
 const DAEMON_OWNER_POLL_MS = 50;
 // A daemon that restarted needs a moment to rebind its port, so one immediate
 // re-attach often lands in the same gap the first call died in. Mirror the
@@ -146,13 +148,6 @@ export async function probeSessionHealth({ port, token, timeoutMs = 800 } = {}) 
   } catch { return null; }
 }
 
-function isPidAlive(pid) {
-  const value = Number(pid);
-  if (!Number.isInteger(value) || value <= 0) return false;
-  try { process.kill(value, 0); return true; }
-  catch (error) { return error?.code === 'EPERM'; }
-}
-
 export function readSessionDiscovery(discoveryPath = sessionDiscoveryPath()) {
   const readUnified = (candidate) => {
     const parsed = JSON.parse(readFileSync(candidate, 'utf8'));
@@ -208,9 +203,15 @@ export function sessionDaemonCompatibility(health, {
 
 async function replaceLowerDaemon(discovery, initialHealth, { log }) {
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_UPGRADE_TIMEOUT_MS);
-  const deadline = configuredTimeoutMs > 0
-    ? Date.now() + Math.max(10_000, configuredTimeoutMs)
-    : Number.POSITIVE_INFINITY;
+  // A stuck older daemon (a worker that never finishes draining) must not hang
+  // every newer client forever: the wait is always bounded, and the caller
+  // surfaces `daemonUpgradePending` instead of blocking indefinitely.
+  // Infinity/NaN are NOT a configuration — they are the unbounded wait this
+  // deadline exists to prevent, so they fall back to the default.
+  const boundedTimeoutMs = Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+    ? Math.max(10_000, configuredTimeoutMs)
+    : DEFAULT_DAEMON_UPGRADE_TIMEOUT_MS;
+  const deadline = Date.now() + boundedTimeoutMs;
   const result = await request({
     port: discovery.port,
     token: discovery.token,
@@ -638,7 +639,12 @@ export async function attachSession({
       err.daemonTransportError = true;
       throw err;
     }
-    if (out && out.error) throw new Error(out.error);
+    if (out && out.error) {
+      // Preserve the daemon's machine-readable classification across the wire.
+      const err = new Error(out.error);
+      if (out.code) err.code = String(out.code);
+      throw err;
+    }
     return out?.result;
   }
 
@@ -751,6 +757,13 @@ async function ensureSharedAttachment({ cwd, log }) {
       onFatal: (reason) => {
         log(`daemon attachment lost (${reason})`);
         if (shared === state) shared = null;
+        // The dead attachment still owns a server-side client record and its
+        // session subscriptions. Release it explicitly; otherwise every fatal
+        // re-attach cycle leaks one client (and one subscriber per session) on
+        // the daemon until its pid sweep runs.
+        void Promise.resolve()
+          .then(() => state.client?.close?.(`attachment lost: ${reason}`))
+          .catch((err) => log(`daemon attachment release failed: ${err?.message || err}`));
         for (const bucket of views.values()) {
           for (const view of [...bucket]) view.applyDetached(reason);
         }
@@ -872,8 +885,19 @@ export async function createSession(options = {}) {
   }
 
   let resyncing = false;
+  // A revision gap that lands while a read is already in flight is NOT covered
+  // by that read: it must re-run afterwards, otherwise the view stays stale
+  // forever behind a coalesced request.
+  let resyncDirty = false;
+  let resyncDirtyReason = '';
+  let resyncFailed = false;
   function resync(reason) {
-    if (disposed || resyncing) return;
+    if (disposed) return;
+    if (resyncing) {
+      resyncDirty = true;
+      resyncDirtyReason = String(reason || 'revision gap');
+      return;
+    }
     resyncing = true;
     const requestAttachment = attachment;
     void requestAttachment.client.read({
@@ -885,10 +909,28 @@ export async function createSession(options = {}) {
       if (result && typeof result === 'object') resultAttachments.set(result, requestAttachment);
       if (!applyBody(result, requestAttachment) && result?.revision !== undefined) {
         log(`session ${sessionId} resync returned an unusable body`);
+        resyncDirty = true;
+        resyncFailed = true;
+        resyncDirtyReason = 'unusable resync body';
       }
     }).catch((err) => {
       log(`session ${sessionId} resync after ${reason} failed: ${err?.message || err}`);
-    }).finally(() => { resyncing = false; });
+      resyncDirty = true;
+      resyncFailed = true;
+      resyncDirtyReason = `retry after failed resync (${reason})`;
+    }).finally(() => {
+      resyncing = false;
+      if (!resyncDirty || disposed) return;
+      resyncDirty = false;
+      const retryReason = resyncDirtyReason || 'revision gap';
+      resyncDirtyReason = '';
+      if (!resyncFailed) { resync(retryReason); return; }
+      // A failing daemon must not spin: retry the coalesced gap on a short
+      // fixed delay instead of a tight loop.
+      resyncFailed = false;
+      const timer = setTimeout(() => { if (!disposed) resync(retryReason); }, 250);
+      timer.unref?.();
+    });
   }
 
   let recoveryPromise = null;
@@ -1038,6 +1080,13 @@ export async function createSession(options = {}) {
     transitionChain = run.then(() => {}, () => {});
     return run;
   }
+  // Mutations must not queue behind each other (ESC/abort stays immediate), but
+  // they MUST observe the session a new/resume transition is rebinding to.
+  // Joining the current tail of the transition chain — without extending it —
+  // keeps a prompt from routing to the session that was just replaced.
+  function afterPendingTransition() {
+    return transitionChain;
+  }
 
   function remoteCall(method, args, callOptions = {}) {
     if (disposed) return Promise.reject(new Error('This session view is disposed.'));
@@ -1047,21 +1096,28 @@ export async function createSession(options = {}) {
         ? 'session.configure'
         : null;
     if (!route) return Promise.reject(new TypeError(`session action ${method} is unavailable`));
-    const targetSessionId = sessionId;
-    const baseRevision = baseRevisionFor(attachment, targetSessionId);
     const stableCallId = typeof callOptions.callId === 'string' && callOptions.callId.trim()
       ? callOptions.callId.trim()
       : randomUUID();
-    return sendCall(route, {
-      sessionId: targetSessionId,
-      action: method,
-      args,
-      open: openParams,
-      baseRevision,
-    }, stableCallId).then(async (result) => {
+    const dispatch = async () => {
+      if (disposed) throw new Error('This session view is disposed.');
+      const targetSessionId = sessionId;
+      const baseRevision = baseRevisionFor(attachment, targetSessionId);
+      const result = await sendCall(route, {
+        sessionId: targetSessionId,
+        action: method,
+        args,
+        open: openParams,
+        baseRevision,
+      }, stableCallId);
       if (!disposed && sessionId === targetSessionId) await applyResult(result, method);
       return result?.value ?? null;
-    });
+    };
+    // Reads stay immediate; a configure action is a mutation and waits out an
+    // in-flight new/resume rebind.
+    return route === 'session.configure'
+      ? afterPendingTransition().then(dispatch)
+      : dispatch();
   }
 
   async function rebindTo(result, previousSessionId) {
@@ -1122,6 +1178,9 @@ export async function createSession(options = {}) {
     if (disposed) throw new Error('This session view is disposed.');
     const submissionId = String(options?.id || '').trim()
       || `session-submit-${process.pid}-${Date.now()}-${(submitSeq += 1)}`;
+    // Never address the session a new/resume transition is replacing.
+    await afterPendingTransition();
+    if (disposed) throw new Error('This session view is disposed.');
     const targetSessionId = sessionId;
     const baseRevision = baseRevisionFor(attachment, targetSessionId);
     const result = await sendCall('session.submit', {
@@ -1136,6 +1195,10 @@ export async function createSession(options = {}) {
   }
 
   async function abortAsync(options = {}) {
+    if (disposed) return { aborted: false };
+    // Abort skips the ordinary call queue but still targets the CURRENT
+    // session: a rebind in flight owns the runtime the user is aborting.
+    await afterPendingTransition();
     if (disposed) return { aborted: false };
     const result = await sendCall('session.abort', {
       sessionId, open: openParams, options,

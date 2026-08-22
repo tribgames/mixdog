@@ -16,6 +16,14 @@ const BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const OMNI_TIMEOUT_MS = 600_000;
 const POLL_INTERVAL_MS = 8_000;
 const TOTAL_TIMEOUT_MS = 900_000;
+// Submission and each poll need their own ceiling: an unbounded request keeps
+// the 15-minute budget from ever starting (or ever ending).
+const REQUEST_TIMEOUT_MS = 60_000;
+
+function boundedSignal(signal, deadline, capMs = REQUEST_TIMEOUT_MS) {
+  const remaining = Math.max(1, deadline - Date.now());
+  return AbortSignal.any([signal, AbortSignal.timeout(Math.min(capMs, remaining))].filter(Boolean));
+}
 
 function isOmniModel(model) {
   return /omni/i.test(String(model || ''));
@@ -75,22 +83,27 @@ async function generateViaVeo({ model, prompt, options, references = [], signal,
   const duration = Math.trunc(Number(options?.duration) || 0);
   if ([4, 6, 8].includes(duration)) parameters.durationSeconds = duration;
 
+  // The budget starts at submission, not after it: a hung predictLongRunning
+  // POST used to run without any ceiling of its own.
+  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
   const started = await fetch(`${BASE_URL}/models/${encodeURIComponent(model)}:predictLongRunning`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ instances: [instance], parameters }),
-    signal,
+    signal: boundedSignal(signal, deadline),
   });
   if (!started.ok) throw upstreamError('Veo video', started.status, await started.text().catch(() => ''));
   const operation = await started.json();
   if (!operation?.name) throw mediaError('Veo returned no operation name', 'MEDIA_UPSTREAM_FAILED', 502);
 
-  const deadline = Date.now() + TOTAL_TIMEOUT_MS;
   for (;;) {
     if (signal?.aborted) throw mediaError('canceled', 'MEDIA_CANCELED', 499);
     if (Date.now() > deadline) throw mediaError('Veo poll budget exceeded', 'MEDIA_TIMEOUT', 504);
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    const poll = await fetch(`${BASE_URL}/${operation.name}`, { headers, signal });
+    const poll = await fetch(`${BASE_URL}/${operation.name}`, {
+      headers,
+      signal: boundedSignal(signal, deadline),
+    });
     if (!poll.ok) throw upstreamError('Veo poll', poll.status, await poll.text().catch(() => ''));
     const data = await poll.json();
     if (!data?.done) {
@@ -107,7 +120,10 @@ async function generateViaVeo({ model, prompt, options, references = [], signal,
     const uri = sample?.video?.uri || sample?.video?.fileUri;
     if (!uri) throw mediaError('Veo finished without a video URI', 'MEDIA_EMPTY_RESULT', 502);
     return {
-      bytes: await downloadGeminiMedia(uri, { key, signal }),
+      // The download is part of the generation budget: unbounded, it held an
+      // active job slot (and the upstream connection) open indefinitely after
+      // the poll loop finished.
+      bytes: await downloadGeminiMedia(uri, { key, signal: boundedSignal(signal, deadline, TOTAL_TIMEOUT_MS) }),
       mime: 'video/mp4',
     };
   }

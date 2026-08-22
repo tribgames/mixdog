@@ -19,12 +19,9 @@ import { providerDisplayRank } from './model-options.mjs';
 
 export function createProviderSetupPicker({
   store,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
-  setContextPanel,
   closeUsagePanel,
   oauthSubmitRef,
   clearModelCaches,
@@ -33,25 +30,34 @@ export function createProviderSetupPicker({
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const onContinue = typeof options.onContinue === 'function' ? options.onContinue : returnTo;
     const onCancel = typeof options.onCancel === 'function' ? options.onCancel : null;
+    // ONE claim (panel-surface.mjs) per open, shared by the nested action /
+    // progress / result panels: every paint re-validates and re-arms it, so a
+    // daemon ack (key removal, OAuth callback, usage login) landing after Esc
+    // can neither paint nor navigate.
+    const own = surface.claim();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
     // Close full-panel overlays too: they render ahead of providerPrompt in
     // the floating-panel chain, so a lingering usage/context panel would mask
     // any text-entry prompt opened from the provider actions (e.g. the
     // OpenCode Go cookie prompt appeared to do nothing).
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
     // Onboarding (and any caller) can pass a preloaded provider setup so we skip
     // the "Checking Providers" placeholder frame that otherwise flashes before
     // the real list — that swap is what looked like a jump on Step 1 entry.
+    const ownsSurface = () => own.owns();
+    const paintProviders = (panel) => own.paint(panel);
+    // The flow itself handing the picker surface to a prompt (Enter on a row):
+    // still ours, so clear-and-continue instead of going stale. Esc paths use
+    // own.close() — leaving IS the handover.
+    const releaseSurface = () => own.paint(null);
     let setup = options.preloadedSetup && typeof options.preloadedSetup === 'object'
       ? options.preloadedSetup
       : null;
     options.preloadedSetup = null;
     if (!setup) {
-      setPicker({
+      paintProviders({
         title: options.title || 'Providers',
         description: options.description || 'Choose a provider to configure.',
         labelWidth: 18,
@@ -67,7 +73,7 @@ export function createProviderSetupPicker({
         }],
         onSelect: () => {},
         onCancel: () => {
-          setPicker(null);
+          own.close();
           if (onCancel) onCancel();
         },
       });
@@ -170,7 +176,11 @@ export function createProviderSetupPicker({
     };
 
     const reopenProviders = () => {
-      void openProviderSetupPicker(options);
+      // Reached from acks as well as key presses: a stale ack must not restart
+      // the whole cluster over the user's surface.
+      if (!ownsSurface()) return;
+      void Promise.resolve(openProviderSetupPicker(options))
+        .catch((e) => store.pushNotice(`providers failed: ${e?.message || e}`, 'error'));
     };
     const providerActionFooter = (provider) => provider ? [{
       glyph: providerIsActive(provider) ? '●' : '○',
@@ -178,6 +188,7 @@ export function createProviderSetupPicker({
       text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)].filter(Boolean).join(' · '),
     }] : '';
     const setApiKeyPrompt = (providerItem) => {
+      if (!ownsSurface()) return;
       setProviderPrompt({
         kind: 'api-key',
         providerId: providerItem._providerId,
@@ -189,6 +200,9 @@ export function createProviderSetupPicker({
       });
     };
     const openApiProviderActions = (providerItem) => {
+      // Reached from acks (forget-key failure, usage-login back-out) as well as
+      // key presses: prove ownership at the sink so every caller is covered.
+      if (!ownsSurface()) return;
       rememberProviderSelection(providerItem);
       const provider = providerItem._provider || {};
       const hasAuth = providerItem._authenticated || provider.authenticated;
@@ -216,7 +230,7 @@ export function createProviderSetupPicker({
           _action: 'usage-login-browser',
         });
       }
-      setPicker({
+      paintProviders({
         title: `Provider · ${providerItem._providerName}`,
         description: 'Choose an API-key action.',
         footer: () => providerActionFooter(provider),
@@ -227,19 +241,23 @@ export function createProviderSetupPicker({
         initialIndex: 0,
         items: apiActions,
         onSelect: (_detailValue, detail) => {
-          setPicker(null);
+          releaseSurface();
           if (detail._action === 'set-key') {
             setApiKeyPrompt(providerItem);
             return;
           }
           if (detail._action === 'forget-key') {
-            try {
-              store.forgetProviderAuth(providerItem._providerId);
-              clearModelCaches('all');
-              reopenProviders();
-            } catch (e) {
-              store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
-            }
+            // Daemon RPC: only navigate once the removal is acknowledged, and
+            // return to these actions (not an empty panel) when it fails.
+            void Promise.resolve(store.forgetProviderAuth?.(providerItem._providerId))
+              .then(() => {
+                clearModelCaches('all');
+                reopenProviders();
+              })
+              .catch((e) => {
+                store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
+                openApiProviderActions(providerItem);
+              });
           }
           if (detail._action === 'usage-login-browser') {
             let backedOut = false;
@@ -259,7 +277,7 @@ export function createProviderSetupPicker({
                 _action: 'back',
               },
             ];
-            setPicker({
+            paintProviders({
               title: `Provider · ${providerItem._providerName}`,
               description: 'Opening browser. Sign in at opencode.ai/auth; the auth cookie is captured automatically.',
               footer: () => providerActionFooter(provider),
@@ -317,7 +335,7 @@ export function createProviderSetupPicker({
             _action: 'back',
           },
         ];
-        setPicker({
+        paintProviders({
           title: `Provider · ${providerItem._providerName}`,
           description: message,
           footer: () => providerActionFooter(provider),
@@ -336,7 +354,7 @@ export function createProviderSetupPicker({
       };
       const showOAuthResult = (ok, message = '') => {
         setProviderPrompt(null);
-        setPicker({
+        paintProviders({
           title: `Provider · ${providerItem._providerName}`,
           description: message || (ok ? 'Login complete.' : 'Login did not complete.'),
           footer: () => providerActionFooter(provider),
@@ -386,7 +404,10 @@ export function createProviderSetupPicker({
         void store.beginOAuthProviderLogin(providerItem._providerId)
           .then((login) => {
             if (typeof login?.completeCode === 'function') {
-              setPicker(null);
+              // Post-await handover to the OAuth code prompt: only if this flow
+              // still owns the surface (Esc during beginOAuthProviderLogin).
+              if (!ownsSurface()) return;
+              releaseSurface();
               const manualUrl = login?.manualUrl || '';
               setProviderPrompt({
                 kind: 'oauth-code',
@@ -445,6 +466,7 @@ export function createProviderSetupPicker({
         });
     };
     const openOAuthProviderActions = (providerItem) => {
+      if (!ownsSurface()) return;
       rememberProviderSelection(providerItem);
       const provider = providerItem._provider || {};
       const hasAuth = providerItem._authenticated || provider.authenticated || provider.reauthRequired === true;
@@ -463,7 +485,7 @@ export function createProviderSetupPicker({
           _action: 'forget-oauth',
         });
       }
-      setPicker({
+      paintProviders({
         title: `Provider · ${providerItem._providerName}`,
         description: 'Choose an OAuth login action.',
         footer: () => providerActionFooter(provider),
@@ -479,13 +501,15 @@ export function createProviderSetupPicker({
             return;
           }
           if (detail._action === 'forget-oauth') {
-            try {
-              store.forgetProviderAuth(providerItem._providerId);
-              clearModelCaches('all');
-              reopenProviders();
-            } catch (e) {
-              store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
-            }
+            void Promise.resolve(store.forgetProviderAuth?.(providerItem._providerId))
+              .then(() => {
+                clearModelCaches('all');
+                reopenProviders();
+              })
+              .catch((e) => {
+                store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
+                openOAuthProviderActions(providerItem);
+              });
           }
         },
         onCancel: reopenProviders,
@@ -493,6 +517,7 @@ export function createProviderSetupPicker({
     };
 
     const openLocalProviderActions = (providerItem) => {
+      if (!ownsSurface()) return;
       rememberProviderSelection(providerItem);
       const provider = providerItem._provider || {};
       const localActions = [
@@ -511,7 +536,7 @@ export function createProviderSetupPicker({
           _action: 'disable-local',
         });
       }
-      setPicker({
+      paintProviders({
         title: `Provider · ${providerItem._providerName}`,
         description: 'Choose a local endpoint action.',
         footer: () => providerActionFooter(provider),
@@ -522,7 +547,7 @@ export function createProviderSetupPicker({
         initialIndex: 0,
         items: localActions,
         onSelect: (_detailValue, detail) => {
-          setPicker(null);
+          releaseSurface();
           if (detail._action === 'set-local-url') {
             setProviderPrompt({
               kind: 'local-url',
@@ -534,20 +559,22 @@ export function createProviderSetupPicker({
             return;
           }
           if (detail._action === 'disable-local') {
-            try {
-              store.setLocalProvider(providerItem._providerId, { enabled: false, baseURL: providerItem._baseURL });
-              clearModelCaches('all');
-              reopenProviders();
-            } catch (e) {
-              store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
-            }
+            void Promise.resolve(store.setLocalProvider?.(providerItem._providerId, { enabled: false, baseURL: providerItem._baseURL }))
+              .then(() => {
+                clearModelCaches('all');
+                reopenProviders();
+              })
+              .catch((e) => {
+                store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
+                openLocalProviderActions(providerItem);
+              });
           }
         },
         onCancel: reopenProviders,
       });
     };
 
-    setPicker({
+    paintProviders({
       title: options.title || 'Providers',
       description: options.description || 'Choose a provider. Enter opens provider actions.',
       footer: providerFooter,
@@ -564,7 +591,11 @@ export function createProviderSetupPicker({
         if (item?._providerId) rememberProviderSelection(item);
       },
       onSelect: (_value, item) => {
-        setPicker(null);
+        // In-flow navigation (Enter on a provider row): the flow keeps the
+        // surface, so clear-and-continue — own.close() would supersede this
+        // very flow and paintProviders would then reject the action panel the
+        // user just asked for. Esc (onCancel below) does close.
+        releaseSurface();
         if (item._type === 'continue') {
           onContinue?.();
           return;
@@ -582,7 +613,7 @@ export function createProviderSetupPicker({
         }
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         if (onCancel) onCancel();
         else if (returnTo) returnTo();
       },

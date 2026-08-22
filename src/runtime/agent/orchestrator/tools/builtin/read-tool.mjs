@@ -193,9 +193,19 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             let _globOut = '';
             try { _globOut = String(await executeChildBuiltinTool('glob', { pattern: _globNorm, head_limit: READ_GLOB_CAP + 1 }, workDir) || ''); }
             catch { _globOut = ''; }
+            // Note lines the glob tool can emit; everything else is a path.
+            // The old prefix filter dropped legitimate names such as
+            // `[id].tsx`, `(draft).md` or `...rest.ts`.
+            const _isGlobNoteLine = (l) => (
+                l.startsWith('# ')
+                || l.startsWith('... [')
+                || l.startsWith('(no ')
+                || l.startsWith('Error: ')
+                || (/^\[.+\]$/.test(l) && /\s/.test(l))
+            );
             const _globFiles = _globOut.split('\n')
                 .map((l) => l.trim())
-                .filter((l) => l && !l.startsWith('(') && !l.startsWith('[') && !l.startsWith('...') && !l.startsWith('Error'));
+                .filter((l) => l && !_isGlobNoteLine(l));
             if (_globFiles.length > 0) {
                 const _capped = _globFiles.slice(0, READ_GLOB_CAP);
                 const _capNote = _globFiles.length > READ_GLOB_CAP

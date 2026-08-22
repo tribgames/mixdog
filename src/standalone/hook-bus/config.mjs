@@ -116,16 +116,32 @@ export function hookConfigEntries(dataDir, cwd) {
   ]);
 }
 
-export function isStandardConfig(parsed) {
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
+/** Classify a hooks file and name the malformed events inside it.
+ *
+ *  One bad value under `hooks` used to demote the WHOLE file to legacy, which
+ *  silently disabled every standard policy handler in it. A file with at least
+ *  one well-formed event stays standard; the malformed keys are reported so the
+ *  caller can surface them instead of dropping them in silence. */
+export function standardConfigReport(parsed) {
+  const empty = { standard: false, validEvents: [], invalidEvents: [] };
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return empty;
   const hooks = parsed.hooks;
-  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return false;
-  const values = Object.values(hooks);
-  if (values.length === 0) return false;
-  return values.every((groups) => (
-    Array.isArray(groups)
-    && groups.every((g) => g && typeof g === 'object' && Array.isArray(g.hooks))
-  ));
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return empty;
+  const entries = Object.entries(hooks);
+  if (entries.length === 0) return empty;
+  const validEvents = [];
+  const invalidEvents = [];
+  for (const [eventName, groups] of entries) {
+    const wellFormed = Array.isArray(groups)
+      && groups.every((g) => g && typeof g === 'object' && Array.isArray(g.hooks));
+    if (wellFormed) validEvents.push(eventName);
+    else invalidEvents.push(eventName);
+  }
+  return { standard: validEvents.length > 0, validEvents, invalidEvents };
+}
+
+export function isStandardConfig(parsed) {
+  return standardConfigReport(parsed).standard;
 }
 
 const SIMPLE_MATCHER_RE = /^[A-Za-z0-9_ ,|]*$/;

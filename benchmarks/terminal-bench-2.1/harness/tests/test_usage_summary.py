@@ -80,6 +80,49 @@ class UsageSummaryTests(unittest.TestCase):
         self.assertIn("$3.45", result.stdout)
         self.assertIn("avg turns=7.0", result.stdout)
 
+    @unittest.skipUnless(shutil.which("node"), "Node.js is not installed")
+    def test_cost_report_does_not_invent_prices_for_unknown_models(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="mixdog-cost-unknown-") as temp:
+            run_dir = Path(temp)
+            trial_dir = run_dir / "fixture__trial"
+            agent_dir = trial_dir / "agent"
+            agent_dir.mkdir(parents=True)
+            (trial_dir / "result.json").write_text(
+                json.dumps(
+                    {
+                        "verifier_result": {"rewards": {"reward": 1}},
+                        "agent_execution": {
+                            "started_at": "2026-01-01T00:00:00Z",
+                            "finished_at": "2026-01-01T00:00:10Z",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (agent_dir / "session-transcript.json").write_text(
+                json.dumps(
+                    {
+                        "model": "unknown-model-xyz",
+                        "totalCachedReadTokens": 0,
+                        "totalCacheWriteTokens": 0,
+                        "totalOutputTokens": 1000,
+                        "lastContextTokens": 1000,
+                        "lastIterationIndex": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                ["node", str(COST_REPORT), str(run_dir)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("unsupported", result.stdout)
+        self.assertNotIn("$", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

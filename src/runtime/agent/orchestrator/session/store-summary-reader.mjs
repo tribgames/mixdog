@@ -22,6 +22,19 @@ const LIVING_AGENT_STATUS =
     /^(?:idle|connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 const WORKING_AGENT_STATUS =
     /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
+// Confirmed cancel vs a cancel whose stop is not proven. The heartbeat lease
+// must never rewrite either as `running`, and the two must stay distinct:
+// `cancel-unconfirmed` is the honest Windows git-bash-survivor answer, not a
+// successful cancel.
+const CANCELLED_AGENT_STATUS =
+    /^(?:cancelled|canceled|killed)$/i;
+// Bare `cancelling` is still working (ACTIVE_STAGES). Only an explicit
+// unconfirmed/pending cancel is a distinct terminal-unconfirmed outcome.
+const CANCEL_UNCONFIRMED_AGENT_STATUS =
+    /^(?:cancel[-_\s]?(?:unconfirmed|pending))$/i;
+const SESSION_CANCEL_FIELDS = [
+    'cancelStatus', 'status', 'state', 'lastStatus', 'stage', 'outcome', 'terminationReason',
+];
 const AGENT_POOL_HEARTBEAT_FRESH_MS = 2 * 60 * 1000;
 
 // Mirror of lifecycle-api.mjs listLeadSessions visibility: the cold catalog
@@ -184,13 +197,64 @@ function frozenIdleSince(sessionId, working, fallback) {
     return value;
 }
 
-function activeAgentWorker(row) {
-    const statuses = [row?.stage, row?.status]
+function agentStatusValues(row) {
+    return [row?.stage, row?.status]
         .map(cleanValue)
         .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
+}
+
+function activeAgentWorker(row) {
+    const statuses = agentStatusValues(row);
     return statuses.length > 0
         && !statuses.some((status) => DEAD_AGENT_STATUS.test(status))
         && statuses.some((status) => LIVING_AGENT_STATUS.test(status));
+}
+
+function stampMs(value) {
+    if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
+    const text = cleanValue(value);
+    if (!text) return 0;
+    const numeric = Number(text);
+    if (Number.isFinite(numeric) && numeric > 0 && !/^\d{4}-/.test(text)) return numeric;
+    const parsed = Date.parse(text);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function workStampMs(row) {
+    if (!row || typeof row !== 'object') return 0;
+    return Math.max(stampMs(row.turnStartedAt), stampMs(row.startedAt));
+}
+
+function cancelStampMs(row) {
+    if (!row || typeof row !== 'object') return 0;
+    return Math.max(stampMs(row.cancelledAt), stampMs(row.finishedAt));
+}
+
+/** Confirmed cancel yields to unconfirmed when both are present so a
+ *  still-tearing-down or unobservable stop is never reported as success.
+ *  `cancelling` alone is working and is not a cancel. */
+function sessionCancelState(row) {
+    if (!row || typeof row !== 'object') return null;
+    const statuses = SESSION_CANCEL_FIELDS
+        .map((key) => cleanValue(row[key]))
+        .filter((status, index, values) => Boolean(status) && values.indexOf(status) === index);
+    const status = statuses.find((value) => CANCEL_UNCONFIRMED_AGENT_STATUS.test(value))
+        || statuses.find((value) => CANCELLED_AGENT_STATUS.test(value))
+        || '';
+    if (!status) return null;
+    return { status, at: cancelStampMs(row) };
+}
+
+/** Rank two cancel states: an unconfirmed stop always outranks a confirmed
+ *  one, so no source can report success for a kill another source could not
+ *  prove. Same-class states keep the index row (`a`) as the richer source. */
+function preferUnconfirmedCancel(a, b) {
+    if (!a) return b || null;
+    if (!b) return a;
+    const aUnconfirmed = CANCEL_UNCONFIRMED_AGENT_STATUS.test(a.status);
+    const bUnconfirmed = CANCEL_UNCONFIRMED_AGENT_STATUS.test(b.status);
+    if (aUnconfirmed === bUnconfirmed) return a;
+    return aUnconfirmed ? a : b;
 }
 
 export function storedAgentWorkerIndexPath() {
@@ -219,7 +283,12 @@ export function listStoredAgentWorkers() {
             : [];
     const bySessionId = new Map();
     for (const row of source) {
-        if (!row || typeof row !== 'object' || !activeAgentWorker(row)) continue;
+        if (!row || typeof row !== 'object') continue;
+        // Cancelled rows stay visible so the 2-minute heartbeat lease cannot
+        // resurrect them as `running` once DEAD_AGENT_STATUS would have
+        // dropped them from the map. Unconfirmed cancels are not dead, but
+        // also must not be overwritten by the sidecar.
+        if (!activeAgentWorker(row) && !sessionCancelState(row)) continue;
         if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
         const sessionId = cleanValue(row.sessionId);
         const tag = cleanValue(row.tag);
@@ -286,6 +355,51 @@ export function listStoredAgentWorkers() {
         // here made every completed agent show as working and then flip back —
         // the dock read as blinking (user: 유휴인데 계속 살아있고 깜빡인다).
         // The sidecar promotes only rows the index does not already mark idle.
+        // A cancel is the same class of authority: the lease must not rewrite
+        // cancelled / cancel-unconfirmed as running at any point. Bare
+        // `cancelling` stays working. Genuinely new work is a strictly later
+        // turn/start stamp, not a heartbeat-rewritten updatedAt.
+        const currentCancel = sessionCancelState(current);
+        const sessionCancel = sessionCancelState(session);
+        // An UNCONFIRMED cancel outranks a confirmed one whichever side holds
+        // it. Taking the index row first let a row still stamped `cancelled`
+        // MASK the durable `cancel-unconfirmed` on the session, reporting a
+        // stop that was never proven as a success. Never the reverse: a
+        // confirmed row only wins when the session is not unconfirmed.
+        const cancel = preferUnconfirmedCancel(currentCancel, sessionCancel);
+        const newerWork = Boolean(cancel?.at)
+            && (workStampMs(current) > cancel.at || workStampMs(session) > cancel.at);
+        if (cancel && !newerWork) {
+            // A cancel outranks a leftover heartbeat. Newer work is only a
+            // strictly later turn/start stamp — never updatedAt, which the
+            // sidecar rewrites every tick.
+            if (currentCancel) continue;
+            bySessionId.set(sessionId, {
+                ...current,
+                tag: cleanValue(session?.agentTag) || cleanValue(current.tag)
+                    || `${agent || 'agent'}:${sessionId}`,
+                sessionId,
+                ownerSessionId,
+                title: cleanValue(session?.title) || current.title || null,
+                agent: agent || current.agent || null,
+                provider: cleanValue(session?.provider) || current.provider || null,
+                model: cleanValue(session?.model) || current.model || null,
+                effort: cleanValue(session?.effort) || current.effort || null,
+                fast: session?.fast === true || current.fast === true,
+                status: cancel.status,
+                stage: cancel.status,
+                startedAt: session?.createdAt || current.startedAt || heartbeatAt,
+                turnStartedAt: current.turnStartedAt || null,
+                createdAt: session?.createdAt || current.createdAt || null,
+                updatedAt: heartbeatAt,
+                cwd: cleanValue(session?.cwd) || current.cwd || null,
+                clientHostPid: positiveNumber(session?.clientHostPid, 0)
+                    || current.clientHostPid || null,
+                taskId: cleanValue(session?.task_id || session?.taskId)
+                    || current.taskId || null,
+            });
+            continue;
+        }
         const currentStatus = cleanValue(current.stage || current.status);
         if (currentStatus && !WORKING_AGENT_STATUS.test(currentStatus)) continue;
         bySessionId.set(sessionId, {

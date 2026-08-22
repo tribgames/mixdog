@@ -18,13 +18,16 @@ import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
+import { TOOL_OUTPUT_MAX_BYTES } from './builtin/tool-output-limit.mjs';
 
-// Inline cap. Output above this size is spilled to disk and the caller
-// renders a path marker instead of pasting the tail. Matches the
-// SHELL_OUTPUT_MAX_CHARS used by the smart-truncate renderer in
-// builtin.mjs so spilled output and inline output share the same boundary.
+// Inline cap, in BYTES. Output at or below this size is pasted whole; above
+// it the rendered body becomes head+tail carrying a "full output at <path>"
+// marker. Bound to the shared model-facing tool-output budget
+// (TOOL_OUTPUT_MAX_BYTES, env MIXDOG_TOOL_OUTPUT_MAX_BYTES) so one shell call
+// costs no more context than one read/list call, and so the spill-file
+// retention rule in shell-command.mjs keys off this exact boundary.
 
-export const SHELL_OUTPUT_INLINE_CAP = 30_000;
+export const SHELL_OUTPUT_INLINE_CAP = TOOL_OUTPUT_MAX_BYTES;
 
 // Hard ceiling on disk-backed output. Past this the SIZE_WATCHDOG (G2)
 // SIGKILLs the child to avoid filling the filesystem. 100 MB is generous
@@ -74,8 +77,10 @@ export function inspectShellTextChunk(value, channel = 'stdout') {
     || unsafeCount > Math.max(8, Math.floor(text.length * 0.1))
     || replacementCount > Math.max(4, Math.floor(text.length * 0.02));
   if (binary) {
+    // Sanitize, never stop: the printable remainder is often the answer the
+    // caller needs (a git protocol banner, a VM boot log, a PDF text run).
     return {
-      text: `[binary output detected on ${channel}; stream stopped after ${bytes} bytes]\n`,
+      text: text.replace(/\u0000/g, '').replace(UNSAFE_TEXT_CONTROL_RE, ''),
       binary: true,
       bytes,
     };
@@ -188,7 +193,7 @@ export function treeKill(child) {
 // 4 B, so a small padding window lets us cut/advance on codepoint boundaries
 // instead of emitting a U+FFFD glyph at the seam.
 function _readHeadTail(filePath, fileSize) {
-  if (fileSize <= SHELL_OUTPUT_INLINE_CAP * 4) {
+  if (fileSize <= SHELL_OUTPUT_INLINE_CAP) {
     return readFileSync(filePath, 'utf-8');
   }
   const padding = 4;
@@ -221,7 +226,7 @@ function _readHeadTail(filePath, fileSize) {
 
 // Owns the captured stdout/stderr buffers for a single command run. Starts
 // fully in memory; once the combined byte total exceeds the spill threshold
-// (SHELL_OUTPUT_INLINE_CAP*4), opens append-only files in
+// (SHELL_OUTPUT_INLINE_CAP), opens append-only files in
 // $PLUGIN_DATA/shell-output/ and from then on writes go straight to disk.
 // On settle, the caller (execShellCommand) decides whether to keep the
 // spilled files based on the final size.
@@ -307,13 +312,13 @@ export class TaskOutput {
     if (this.spilled) return;
     // Threshold is in BYTES — string .length counts UTF-16 units, which
     // understates CJK output by up to 3x against the byte-sized cap.
-    if (this._inlineBytes > SHELL_OUTPUT_INLINE_CAP * 4) {
+    if (this._inlineBytes > SHELL_OUTPUT_INLINE_CAP) {
       this._ensureFileBacking();
     }
   }
 
   // Force the in-memory buffers onto disk-backed files regardless of the
-  // SHELL_OUTPUT_INLINE_CAP*4 threshold. Used by the auto-background
+  // SHELL_OUTPUT_INLINE_CAP threshold. Used by the auto-background
   // transition: once a foreground command is promoted into a tracked job,
   // every subsequent stdout/stderr chunk must land in the spill files so
   // task wait/read can read it (the caller has already settled and will no
@@ -352,12 +357,13 @@ export class TaskOutput {
 
   writeStdout(s) {
     if (!s) return;
-    if (this.binaryOutput) return;
     const inspected = inspectShellTextChunk(s, 'stdout');
-    if (inspected.binary) {
+    if (inspected.binary && !this.binaryOutput) {
       this.binaryOutput = { channel: 'stdout', bytes: inspected.bytes };
+      s = `[binary output on stdout sanitized; non-printable bytes removed]\n${inspected.text}`;
+    } else {
+      s = inspected.text;
     }
-    s = inspected.text;
     if (this.spilled) {
       try {
         writeSync(this.stdoutFd, s);
@@ -374,12 +380,13 @@ export class TaskOutput {
 
   writeStderr(s) {
     if (!s) return;
-    if (this.binaryOutput) return;
     const inspected = inspectShellTextChunk(s, 'stderr');
-    if (inspected.binary) {
+    if (inspected.binary && !this.binaryOutput) {
       this.binaryOutput = { channel: 'stderr', bytes: inspected.bytes };
+      s = `[binary output on stderr sanitized; non-printable bytes removed]\n${inspected.text}`;
+    } else {
+      s = inspected.text;
     }
-    s = inspected.text;
     if (this.spilled) {
       try {
         writeSync(this.stderrFd, s);
@@ -539,6 +546,11 @@ export class ExecResult {
     this.backgrounded = opts.backgrounded === true;
     this.jobId = opts.jobId || null;
     this.backgroundMessage = opts.backgroundMessage || null;
+    // Survivors observed AFTER the shell process exited (process group on
+    // POSIX, process tree + held stdio on win32). Non-null means the command
+    // finished but left live descendants, which the caller turns into a
+    // tracked, cancellable task. See tools/lib/shell-descendants.mjs.
+    this.descendants = opts.descendants || null;
   }
 }
 

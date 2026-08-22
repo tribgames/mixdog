@@ -165,6 +165,17 @@ export async function renameFolderEntryAbs(path: string, newName: string): Promi
   await rename(path, target);
 }
 
+/** Windows resolves paths case-insensitively, so a self-nesting guard that
+ *  misses `C:\Foo` → `c:\foo\bar` hands the OS a rename that cannot succeed
+ *  and surfaces its errno instead of the real reason. */
+function isSelfOrDescendant(target: string, source: string): boolean {
+  const fold = (value: string) =>
+    process.platform === 'win32' ? value.toLocaleLowerCase() : value;
+  const targetKey = fold(target);
+  const sourceKey = fold(source);
+  return targetKey === sourceKey || targetKey.startsWith(sourceKey + sep);
+}
+
 export type FolderMoveStrategy = 'ask' | 'replace' | 'keepBoth' | 'skip';
 
 export interface FolderMoveResult {
@@ -193,7 +204,7 @@ export async function moveFolderEntriesAbs(
   const destinationKeys = new Set<string>();
   for (const source of paths) {
     if (dirname(source) === source) throw new Error('Cannot move a drive root.');
-    if (targetDir === source || targetDir.startsWith(source + sep)) {
+    if (isSelfOrDescendant(targetDir, source)) {
       throw new Error('Cannot move a folder into itself.');
     }
     const destination = join(targetDir, basename(source));
@@ -246,7 +257,7 @@ export async function copyFolderEntriesAbs(
   const created: string[] = [];
   for (const source of paths) {
     if (dirname(source) === source) throw new Error('Cannot copy a drive root.');
-    if (targetDir === source || targetDir.startsWith(source + sep)) {
+    if (isSelfOrDescendant(targetDir, source)) {
       throw new Error('Cannot copy a folder into itself.');
     }
     const sourceIsDir = (await stat(source)).isDirectory();

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  initialActiveWorkbenchSideViews,
   moveWorkbenchSideGroup,
   moveWorkbenchSideView,
   nextRetainedWorkbenchSideRoots,
@@ -11,6 +12,76 @@ import {
   workbenchSidePaneDropIsNoop,
   workbenchSidePaneDropSlot,
 } from "./workbench-side-view-layout.tsx";
+
+test("a persisted layout restores its sides and re-seats newly available views", () => {
+  // Exactly what the hook does on boot: read the stored JSON, then normalize
+  // it against the views this build actually offers.
+  const persisted = JSON.stringify({
+    left: [["projects"]],
+    right: [["sessions", "agents"]],
+  });
+  assert.deepEqual(
+    normalizeWorkbenchSideViewLayout(
+      JSON.parse(persisted),
+      ["sessions", "projects", "agents", "search"],
+    ),
+    {
+      left: [["projects"]],
+      right: [["sessions", "agents"], ["search"]],
+    },
+  );
+});
+
+test("restoration drops views this build no longer offers", () => {
+  assert.deepEqual(
+    normalizeWorkbenchSideViewLayout(
+      { left: [["sessions", "webhooks"]], right: [["agents"]] },
+      ["sessions", "agents"],
+    ),
+    { left: [["sessions"]], right: [["agents"]] },
+  );
+});
+
+test("a corrupt or missing persisted layout falls back to the defaults", () => {
+  assert.deepEqual(
+    normalizeWorkbenchSideViewLayout(null, ["sessions", "agents"]),
+    { left: [["sessions"]], right: [["agents"]] },
+  );
+});
+
+test("the first active view per side follows the RESTORED placement", () => {
+  // Sessions was moved to the right side, so the left must not select it: the
+  // left panel used to render fallback content with no icon selected while the
+  // right side opened with nothing selected at all.
+  const layout = { left: [["projects"], ["search"]], right: [["sessions", "agents"]] };
+  assert.deepEqual(
+    initialActiveWorkbenchSideViews(layout, { left: "sessions", right: "agents" }),
+    { left: "projects", right: "sessions" },
+  );
+});
+
+test("a preferred view still wins on the side that holds it", () => {
+  const layout = { left: [["sessions"], ["projects"]], right: [["agents"]] };
+  assert.deepEqual(
+    initialActiveWorkbenchSideViews(layout, { left: "sessions", right: "agents" }),
+    { left: "sessions", right: "agents" },
+  );
+  // A view inside a combined group selects that group's root.
+  assert.deepEqual(
+    initialActiveWorkbenchSideViews(
+      { left: [["projects", "sessions"]], right: [] },
+      { left: "sessions", right: null },
+    ),
+    { left: "projects", right: null },
+  );
+});
+
+test("an empty side has no active view", () => {
+  assert.deepEqual(
+    initialActiveWorkbenchSideViews({ left: [], right: [["agents"]] }, {}),
+    { left: null, right: "agents" },
+  );
+});
 
 test("side view layout keeps every available category exactly once", () => {
   assert.deepEqual(

@@ -619,6 +619,20 @@ export function resolveStallRetryBudget(opts) {
   return budget
 }
 
+// A loop-level replay issues a BRAND NEW request, so it opens a new stall
+// window instead of inheriting the spent one. Sharing it made the two 300s
+// numbers cancel out: one full-length stall consumes the whole budget, and the
+// replacement request is then aborted while its response is already arriving
+// (observed live: regex-chess died on a healthy HTTP 200 replay with two hours
+// of task budget left). Total exposure stays bounded by TRANSPORT_RETRY_MAX.
+export function resetStallRetryBudget(opts) {
+  const budget = createStallRetryBudget()
+  if (opts && typeof opts === 'object') {
+    try { opts._stallRetryBudget = budget } catch {}
+  }
+  return budget
+}
+
 // ── Shared network-resilience interface ──────────────────────────────────────
 // One home for the logic shared across providers: mid-stream classifier
 // (WS + SSE), transport fallback predicate, stream-safety stamp latches,

@@ -312,14 +312,13 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
   const workflowId = input.workflowId === undefined
     ? ''
     : requiredString(input.workflowId, 'workflowId', 256);
-  if (input.remote !== undefined && typeof input.remote !== 'boolean') {
-    throw new TypeError('new task remote flag is invalid.');
-  }
+  // A legacy `remote` flag was validated here, but NEW_TASK_DRAFT_KEYS rejects
+  // the key before this point, the contract has no such field, and no caller
+  // sends one: the branch was unreachable and is gone with its passthrough.
   return {
     ...(projectPath ? { projectPath } : {}),
     ...(route ? { route } : {}),
     ...(workflowId ? { workflowId } : {}),
-    ...(input.remote === true ? { remote: true } : {}),
   };
 }
 

@@ -36,6 +36,7 @@ import {
     nativeResponsesTools,
     knownToolNamesFromOpenAITools,
     knownToolNamesFromResponsesTools,
+    deepseekReplaysReasoningContent,
     parseToolCalls,
     parseResponsesToolCalls,
     responseOutputText,
@@ -47,17 +48,18 @@ import {
     xaiCacheRouting,
     xaiResponsesCacheRouting,
     normalizeXaiReasoningEffort,
+    xaiModelSupportsReasoningEffort,
     normalizeOpencodeGoReasoningEffort,
     useXaiResponsesApi,
     useXaiResponsesWebSocket,
     useXaiResponsesWebSocketWarmup,
     _shouldFallbackXaiWsToHttp,
-    _envFlag,
-    withXaiResponsesCacheLane,
+    XAI_CACHE_LANE_META,
     writeCompatCacheTrace,
     traceXaiResponsesCacheContext,
     writeXaiResponsesCacheTrace,
 } from './openai-compat-xai.mjs';
+import { envFlag as _envFlag } from './lib/env-utils.mjs';
 
 const requireOpenAI = createRequire(import.meta.url);
 let _OpenAI = null;
@@ -171,7 +173,11 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
             ?? opts.effort
             ?? config?.reasoningEffort
             ?? process.env.MIXDOG_XAI_REASONING_EFFORT);
-        if (reasoningEffort) params.reasoning_effort = reasoningEffort;
+        // grok-3/grok-4/grok-4-fast reject the parameter with a 400, so the
+        // model decides whether it ships at all.
+        if (reasoningEffort && xaiModelSupportsReasoningEffort(params.model)) {
+            params.reasoning_effort = reasoningEffort;
+        }
         return params;
     }
     if (providerName === 'deepseek') {
@@ -189,7 +195,10 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
             if (!disabled) {
                 const effort = String(rawEffort ?? '').trim().toLowerCase();
                 if (effort === 'max' || effort === 'xhigh') params.reasoning_effort = 'max';
-                else if (['low', 'medium', 'high'].includes(effort)) params.reasoning_effort = 'high';
+                // DeepSeek documents low/high/max; `medium` is its own alias for
+                // high, and `low` is a real level that must not be promoted.
+                else if (effort === 'low') params.reasoning_effort = 'low';
+                else if (['medium', 'high'].includes(effort)) params.reasoning_effort = 'high';
             }
         }
         return params;
@@ -399,7 +408,10 @@ export class OpenAICompatProvider {
         const modelInfo = this.name === 'opencode-go'
             ? (this.getCachedModelInfo(useModel) || getModelMetadataSync(useModel, this.name))
             : null;
-        const replaysReasoningContent = modelInfo?.reasoningContentField === 'reasoning_content';
+        // DeepSeek decides per model, not per provider: deepseek-reasoner 400s
+        // when reasoning_content is echoed back, thinking models 400 without it.
+        const replaysReasoningContent = modelInfo?.reasoningContentField === 'reasoning_content'
+            || (this.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
         const params = {
             model: useModel,
             messages: toOpenAIMessages(messages, this.name, { replaysReasoningContent }),
@@ -724,81 +736,70 @@ export class OpenAICompatProvider {
             ?? opts.effort
             ?? this.config?.reasoningEffort
             ?? process.env.MIXDOG_XAI_REASONING_EFFORT);
-        if (reasoningEffort) params.reasoning = { effort: reasoningEffort };
+        if (reasoningEffort && xaiModelSupportsReasoningEffort(useModel)) {
+            params.reasoning = { effort: reasoningEffort };
+        }
         params.stream = true;
         let response;
-        let cacheLane = null;
-        const scheduled = await withXaiResponsesCacheLane({
-            opts,
-            config: this.config,
-            cacheRouting,
-            model: useModel,
-            transport: 'http',
-            previousResponseId,
-            inputCount: Array.isArray(input) ? input.length : 0,
-            signal,
-        }, async (laneMeta) => {
-            cacheLane = laneMeta;
-            // Streaming (params.stream = true above): pass-through external
-            // signal with no absolute wall-clock cap — see _doSend. The stream
-            // is bounded by the per-attempt first-byte timeout, the external
-            // signal, and the SSE idle watchdog, never a fixed total timer that
-            // would false-abort a healthy long-reasoning stream.
-            const totalSignal = createPassthroughSignal(signal);
-            try {
-                return await withRetry(
-                    async ({ signal: attemptSignal }) => {
-                        const stream = await withRetry(
-                            ({ signal: openSignal }) => this.client.responses.create(params, { signal: openSignal }),
-                            {
-                                signal: attemptSignal,
-                                // Single attempt: first-byte timeout only; retry
-                                // is owned by the outer withRetry (see chat path).
-                                maxAttempts: 1,
-                                perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-                                perAttemptLabel: 'xai responses first byte',
-                            },
-                        );
-                        try { opts.onStageChange?.('streaming'); } catch { /* heartbeat best-effort */ }
-                        return consumeCompatResponsesStream(stream, {
+        const cacheLane = XAI_CACHE_LANE_META;
+        // Streaming (params.stream = true above): pass-through external
+        // signal with no absolute wall-clock cap — see _doSend. The stream
+        // is bounded by the per-attempt first-byte timeout, the external
+        // signal, and the SSE idle watchdog, never a fixed total timer that
+        // would false-abort a healthy long-reasoning stream.
+        const totalSignal = createPassthroughSignal(signal);
+        let streamed;
+        try {
+            streamed = await withRetry(
+                async ({ signal: attemptSignal }) => {
+                    const stream = await withRetry(
+                        ({ signal: openSignal }) => this.client.responses.create(params, { signal: openSignal }),
+                        {
                             signal: attemptSignal,
-                            label: 'xai:responses',
-                            onStreamDelta: opts.onStreamDelta,
-                            onToolCall: opts.onToolCall,
-                            onTextDelta: opts.onTextDelta,
-                            parseResponsesToolCalls,
-                            responseOutputText,
-                            knownToolNames: knownToolNamesFromResponsesTools(params.tools),
-                        });
-                    },
-                    {
-                        signal: totalSignal.signal,
-                        onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
-                            const delayLabel = Number.isFinite(Number(delayMs)) ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}` : '';
-                            process.stderr.write(`[xai:responses] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`);
-                            try {
-                                opts.onStageChange?.('reconnecting', {
-                                    attempt: attempt + 1,
-                                    max: maxAttempts,
-                                    waitMs: delayMs,
-                                    classifier: lastErr?.retryClassifier || lastErr?.code || null,
-                                    message: providerRetryStatusText(lastErr, {
-                                        attempt: attempt + 1,
-                                        maxAttempts,
-                                        delayMs,
-                                    }),
-                                });
-                            } catch { /* display-only */ }
+                            // Single attempt: first-byte timeout only; retry
+                            // is owned by the outer withRetry (see chat path).
+                            maxAttempts: 1,
+                            perAttemptTimeoutMs: PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+                            perAttemptLabel: 'xai responses first byte',
                         },
+                    );
+                    try { opts.onStageChange?.('streaming'); } catch { /* heartbeat best-effort */ }
+                    return consumeCompatResponsesStream(stream, {
+                        signal: attemptSignal,
+                        label: 'xai:responses',
+                        onStreamDelta: opts.onStreamDelta,
+                        onToolCall: opts.onToolCall,
+                        onTextDelta: opts.onTextDelta,
+                        parseResponsesToolCalls,
+                        responseOutputText,
+                        knownToolNames: knownToolNamesFromResponsesTools(params.tools),
+                    });
+                },
+                {
+                    signal: totalSignal.signal,
+                    onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
+                        const delayLabel = Number.isFinite(Number(delayMs)) ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}` : '';
+                        process.stderr.write(`[xai:responses] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`);
+                        try {
+                            opts.onStageChange?.('reconnecting', {
+                                attempt: attempt + 1,
+                                max: maxAttempts,
+                                waitMs: delayMs,
+                                classifier: lastErr?.retryClassifier || lastErr?.code || null,
+                                message: providerRetryStatusText(lastErr, {
+                                    attempt: attempt + 1,
+                                    maxAttempts,
+                                    delayMs,
+                                }),
+                            });
+                        } catch { /* display-only */ }
                     },
-                );
-            } finally {
-                totalSignal.cleanup();
-            }
-        });
-        const streamed = scheduled.value;
+                },
+            );
+        } finally {
+            totalSignal.cleanup();
+        }
         response = streamed.response;
-        cacheLane = cacheLane || scheduled.laneMeta;
         const toolCalls = streamed.toolCalls;
         writeXaiResponsesCacheTrace({
             model: useModel,
@@ -948,16 +949,14 @@ export class OpenAICompatProvider {
             ?? opts.effort
             ?? this.config?.reasoningEffort
             ?? process.env.MIXDOG_XAI_REASONING_EFFORT);
-        if (reasoningEffort) params.reasoning = { effort: reasoningEffort };
-        const warmupBody = useXaiResponsesWebSocketWarmup(opts, this.config, {
-            previousResponseId,
-            instructions,
-            rawTools: tools || [],
-        })
+        if (reasoningEffort && xaiModelSupportsReasoningEffort(useModel)) {
+            params.reasoning = { effort: reasoningEffort };
+        }
+        const warmupBody = useXaiResponsesWebSocketWarmup(opts, this.config, { previousResponseId })
             ? { ...params, generate: false, input: [] }
             : null;
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
-        let cacheLane = null;
+        const cacheLane = XAI_CACHE_LANE_META;
         // Fast-fallback only shortens the WS handshake retry budget when the
         // HTTP/SSE fallback is actually enabled for this call. With no-fallback
         // (allowHttpFallback=false) the WS path must keep its FULL retry budget,
@@ -968,47 +967,33 @@ export class OpenAICompatProvider {
         );
         const httpFallbackEnabled = xaiTransportPolicy.allowHttpFallback
             && _envFlag('MIXDOG_XAI_WS_HTTP_FALLBACK', true);
-        const scheduled = await withXaiResponsesCacheLane({
-            opts,
-            config: this.config,
-            cacheRouting,
-            model: useModel,
-            transport: 'websocket',
-            previousResponseId,
-            inputCount: Array.isArray(input) ? input.length : 0,
-            signal,
-        }, async (laneMeta) => {
-            cacheLane = laneMeta;
-            return await sendViaWebSocket({
-                auth: { type: 'xai', apiKey },
-                body: params,
-                sendOpts: opts,
-                onStreamDelta: typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null,
-                onToolCall: typeof opts.onToolCall === 'function' ? opts.onToolCall : null,
-                onTextDelta: typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null,
-                onStageChange: typeof opts.onStageChange === 'function' ? opts.onStageChange : null,
-                externalSignal: signal,
-                poolKey: opts.sessionId || opts.session?.id || null,
-                cacheKey: cacheRouting.key,
-                iteration,
-                useModel,
-                displayModel: (id) => id,
-                includeResponseId: true,
-                traceProvider: 'xai',
-                logSuppressedReasoningDeltas: false,
-                warmupBody,
-                _carriedWarmup: opts._carriedWarmup || null,
-                // Mirror openai-oauth fast fallback: when the HTTP fallback is
-                // enabled (outer catch → _shouldFallbackXaiWsToHttp), a first
-                // acquire/first-byte failure should skip remaining WS
-                // handshake retries instead of burning the retry budget
-                // before HTTP starts. Gated on httpFallbackEnabled so a
-                // no-fallback config keeps the full WS retry budget.
-                fastFallback: httpFallbackEnabled,
-            });
+        const result = await sendViaWebSocket({
+            auth: { type: 'xai', apiKey },
+            body: params,
+            sendOpts: opts,
+            onStreamDelta: typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null,
+            onToolCall: typeof opts.onToolCall === 'function' ? opts.onToolCall : null,
+            onTextDelta: typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null,
+            onStageChange: typeof opts.onStageChange === 'function' ? opts.onStageChange : null,
+            externalSignal: signal,
+            poolKey: opts.sessionId || opts.session?.id || null,
+            cacheKey: cacheRouting.key,
+            iteration,
+            useModel,
+            displayModel: (id) => id,
+            includeResponseId: true,
+            traceProvider: 'xai',
+            logSuppressedReasoningDeltas: false,
+            warmupBody,
+            _carriedWarmup: opts._carriedWarmup || null,
+            // Mirror openai-oauth fast fallback: when the HTTP fallback is
+            // enabled (outer catch → _shouldFallbackXaiWsToHttp), a first
+            // acquire/first-byte failure should skip remaining WS
+            // handshake retries instead of burning the retry budget
+            // before HTTP starts. Gated on httpFallbackEnabled so a
+            // no-fallback config keeps the full WS retry budget.
+            fastFallback: httpFallbackEnabled,
         });
-        const result = scheduled.value;
-        cacheLane = cacheLane || scheduled.laneMeta;
         const responseId = result.responseId || previousResponseId || null;
         // Same rationale as the HTTP path above: `length` stop keeps the chain.
         const nextPreviousResponseId = responseId;

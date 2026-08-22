@@ -645,7 +645,26 @@ export async function createMixdogSessionRuntime({
     state: mcpState,
   });
   const hooksStartedAt = performance.now();
-  const hooks = createStandaloneHookBus({ dataDir: cfgMod.getPluginData() });
+  const hooks = createStandaloneHookBus({
+    dataDir: cfgMod.getPluginData(),
+    // `mcp_tool` hooks run against the SAME connected MCP servers this session
+    // uses. Without this runner every configured mcp_tool hook reported
+    // "handler type mcp_tool not configured", so the handler's timeout +
+    // cancellation path never ran in production. The hook's abort signal is
+    // forwarded so a timed-out hook cancels its tool call instead of leaving it
+    // holding an admission slot.
+    mcpToolRunner: async ({ name, args, signal }) => {
+      if (typeof mcpClient?.executeMcpTool !== 'function') {
+        throw new Error('MCP runtime is unavailable');
+      }
+      const result = await mcpClient.executeMcpTool(name, args ?? {}, {
+        scopeId: rt.mcpScopeId,
+        signal: signal || null,
+        ownerKey: `hook:${name}`,
+      });
+      return typeof result === 'string' ? result : String(result?.result ?? '');
+    },
+  });
   hooks.emit('runtime:start', { cwd: rt.currentCwd, provider: rt.route.provider, model: rt.route.model, toolMode: rt.mode });
   bootProfile('hooks:ready', { ms: (performance.now() - hooksStartedAt).toFixed(1) });
 

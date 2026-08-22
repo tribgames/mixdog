@@ -85,11 +85,29 @@ export async function readLargeHeadWindowSync(fullPath, st, n) {
     // then drop a lead byte whose declared sequence runs past bytesRead.
     let endByte = bytesRead;
     if (headBytes < st.size) {
-        while (endByte > 0 && (buf[endByte - 1] & 0xC0) === 0x80) endByte--;
-        if (endByte > 0) {
-            const lead = buf[endByte - 1];
+        // Walk back over the trailing continuation bytes to their lead byte and
+        // decide ONCE: a complete sequence is kept whole, an incomplete one is
+        // dropped whole. The previous version stripped the continuation bytes
+        // first and then compared the lead against the untrimmed length, so a
+        // COMPLETE multi-byte character at the cut lost its continuations and
+        // rendered as a replacement glyph.
+        let leadIdx = endByte - 1;
+        let contBytes = 0;
+        while (leadIdx >= 0 && (buf[leadIdx] & 0xC0) === 0x80 && contBytes < 3) {
+            leadIdx--;
+            contBytes++;
+        }
+        if (leadIdx >= 0) {
+            const lead = buf[leadIdx];
             const seqLen = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
-            if (seqLen > 1 && (endByte - 1) + seqLen > bytesRead) endByte--;
+            if (seqLen === 1) {
+                // ASCII (or a stray continuation run): drop only the strays.
+                endByte = contBytes === 0 ? bytesRead : leadIdx + 1;
+            } else if (leadIdx + seqLen <= bytesRead) {
+                endByte = bytesRead; // complete codepoint at the boundary
+            } else {
+                endByte = leadIdx;   // truncated codepoint — drop it entirely
+            }
         }
     }
     const text = buf.subarray(0, endByte).toString('utf-8');

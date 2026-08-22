@@ -149,19 +149,32 @@ export class OpenAIDirectProvider {
         // continuation is only valid when the anchored response was actually
         // stored — store:false + previous_response_id is a broken
         // combination there (the server has nothing to look up). This
-        // provider's WS transport always injects previous_response_id via
+        // provider's WS transport injects previous_response_id via
         // openai-oauth-ws.mjs's delta path once a response id is cached, so
-        // force store:true here — same override xAI's Responses path takes
+        // store defaults to true here — same override xAI's Responses path takes
         // (see openai-compat.mjs _doSendXaiResponses/_doSendXaiResponsesWebSocket:
         // "the public endpoint currently returns previous_response_not_found
         // ... unless the chain is stored").
-        body.store = true;
-        // Public Responses API supports prompt_cache_retention='24h' at no
-        // extra cost (same cached_input_tokens billing as the default 5–10
-        // min in-memory cache). openai-oauth rejects the parameter, so it's
-        // injected only on the direct path. See openai-oauth.mjs:290-294
-        // for the rationale.
-        body.prompt_cache_retention = '24h';
+        //
+        // MIXDOG_OAI_STORE=0 is an explicit user opt-out of server-side
+        // response persistence and outranks that default: store stays false and
+        // the 24h retention hint is not sent. _computeDelta (openai-ws-delta.mjs)
+        // refuses to build a previous_response_id continuation for a non-stored
+        // direct request, so opting out degrades to full frames rather than
+        // anchoring on a response the server never kept.
+        const storeResponses = _envFlag('MIXDOG_OAI_STORE', true);
+        body.store = storeResponses;
+        if (storeResponses) {
+            // Public Responses API supports prompt_cache_retention='24h' at no
+            // extra cost (same cached_input_tokens billing as the default 5–10
+            // min in-memory cache). openai-oauth rejects the parameter, so it's
+            // injected only on the direct path. See openai-oauth.mjs:290-294
+            // for the rationale. Retention is meaningless without storage, so it
+            // rides the same opt-out.
+            body.prompt_cache_retention = '24h';
+        } else {
+            delete body.prompt_cache_retention;
+        }
         // poolKey MUST be sessionId-only. Falling back to promptCacheKey would
         // let unrelated raw sessions sharing the same provider-scoped cache
         // bucket reuse each other's pooled socket and inherit lastResponseId
@@ -252,7 +265,12 @@ export class OpenAIDirectProvider {
             // an API key rotated. Match the OAuth path and keep it terminal.
             // The direct fallback guard denies auth statuses, so this branch
             // owns the single credential-reload replay.
-            if (status === 401 && err?.wsFailurePhase !== 'stream' && !unsafeToRetry) {
+            // Phase is NOT the safety boundary: an in-band 401 arriving in the
+            // stream phase before any output is exactly as replayable as a
+            // handshake 401, and refusing it left a rotated key unrecoverable.
+            // unsafeToRetry (live text / dispatched tool / explicit marker) is
+            // the boundary, so a 401 after visible output stays terminal.
+            if (status === 401 && !unsafeToRetry) {
                 process.stderr.write(`[openai-ws] ${status} — reloading apiKey and retrying once\n`);
                 const freshKey = this.reloadApiKey();
                 if (freshKey) {

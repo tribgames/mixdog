@@ -198,6 +198,16 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });
 
+// `git --version` is how a caller checks whether git exists at all; rejecting
+// it as an "unsupported subcommand" turned the probe into a dead turn.
+test('git availability probes answer instead of erroring', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-probe-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const probe = String(await executeGitTool({ command: 'git --version' }, root));
+    assert.doesNotMatch(probe, /unsupported git subcommand/);
+    assert.match(probe, /git version/i);
+});
+
 test('git stages selected change IDs and rejects stale diff snapshots without touching the index', async (t) => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog-git-stage-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));

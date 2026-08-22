@@ -412,19 +412,38 @@ export function resolveProviderPromptCacheLane(provider, opts = {}, config = {})
             || promptCacheLaneAutoRequested(opts?.promptCacheLane?.auto)
             || promptCacheLaneAutoRequested(config?.promptCacheLaneAuto)
             || promptCacheLaneAutoRequested(config?.openaiCacheLaneAuto);
+    // Lane SHARDS, requested either by their own name (`*CacheLaneShards`) or
+    // through the legacy `*CacheMaxParallel` / MIXDOG_*_CACHE_MAX_PARALLEL
+    // aliases. Those knobs also bounded in-flight admission for the removed
+    // compat cache lane — that half is gone for good, admission now belongs
+    // solely to the provider/account scheduler — but on OpenAI direct/OAuth
+    // they have always selected the prompt-cache shard count as well, and
+    // existing configurations depend on it. They stay accepted here at LOWER
+    // precedence than the explicitly named shard settings.
+    // Exception: xAI compatibility routing passes promptCacheLaneIgnoreAliases
+    // so the alias keeps meaning nothing there (openai-compat-xai.mjs), where
+    // it never selected shards and would silently fan out cache keys.
+    const ignoreAliases = opts?.promptCacheLaneIgnoreAliases === true
+        || config?.promptCacheLaneIgnoreAliases === true;
+    const rawShards = opts?.promptCacheLaneShards
+        ?? opts?.promptCacheLane?.shards
+        ?? opts?.openaiCacheLaneShards
+        ?? config?.promptCacheLaneShards
+        ?? config?.openaiCacheLaneShards
+        ?? env[`MIXDOG_${envKey}_CACHE_LANE_SHARDS`]
+        ?? env.MIXDOG_OPENAI_CACHE_LANE_SHARDS;
+    const rawAlias = ignoreAliases
+        ? undefined
+        : (opts?.promptCacheLaneMaxParallel
+            ?? opts?.promptCacheLane?.maxParallel
+            ?? opts?.openaiCacheMaxParallel
+            ?? config?.promptCacheLaneMaxParallel
+            ?? config?.openaiCacheMaxParallel
+            ?? env[`MIXDOG_${envKey}_CACHE_MAX_PARALLEL`]
+            ?? env.MIXDOG_OPENAI_CACHE_MAX_PARALLEL);
     const rawLimit = requestedAuto
         ? 'auto'
-        : (opts?.promptCacheLaneShards
-            ?? opts?.promptCacheLane?.shards
-            ?? opts?.openaiCacheLaneShards
-            ?? opts?.openaiCacheMaxParallel
-            ?? config?.promptCacheLaneShards
-            ?? config?.openaiCacheLaneShards
-            ?? config?.openaiCacheMaxParallel
-            ?? env[`MIXDOG_${envKey}_CACHE_LANE_SHARDS`]
-            ?? env[`MIXDOG_${envKey}_CACHE_MAX_PARALLEL`]
-            ?? env.MIXDOG_OPENAI_CACHE_LANE_SHARDS
-            ?? env.MIXDOG_OPENAI_CACHE_MAX_PARALLEL);
+        : (rawShards ?? rawAlias);
     const shards = parsePromptCacheLaneLimit(rawLimit, defaultPromptCacheLaneShards(provider));
     const auto = shards <= 0;
     const seed = cleanString(

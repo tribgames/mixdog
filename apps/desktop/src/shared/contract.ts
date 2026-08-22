@@ -51,6 +51,7 @@ export const DESKTOP_IPC = {
   lspApplyWorkspaceEdit: 'mixdog:lsp-apply-workspace-edit',
   lspDiagnostics: 'mixdog:lsp-diagnostics',
   lspStatus: 'mixdog:lsp-status',
+  relayPayloadRefused: 'mixdog:relay-payload-refused',
   listSessions: 'mixdog:list-sessions',
   renameSession: 'mixdog:rename-session',
   setSessionArchived: 'mixdog:set-session-archived',
@@ -1491,6 +1492,11 @@ export interface DesktopApi {
   ): Promise<void>;
   subscribeLspDiagnostics?(listener: (event: DesktopLspDiagnosticEvent) => void): () => void;
   subscribeLspStatus?(listener: (event: DesktopLspStatusEvent) => void): () => void;
+  /** The relay refused an oversize frame this desktop sent and named no
+   *  client. Surfaced to the user; it blames no call and reaches no phone. */
+  subscribeRelayPayloadRefused?(
+    listener: (detail: { bytes: number | null; limit: number | null }) => void,
+  ): () => void;
   listSessions(): Promise<DesktopSessionSummary[]>;
   /** Push channel: fires with a fresh catalog whenever the on-disk session
    *  store changes (any mixdog process). Renderers fall back to their

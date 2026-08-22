@@ -24,7 +24,7 @@ import {
     resolveAnthropicModelAfter404,
     ensureLatestAnthropicModel,
 } from './anthropic-model-resolve.mjs';
-import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
+import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import {
     TOKEN_REFRESH_SKEW_MS,
     isAnthropicOAuthRefreshDisabled,
@@ -66,6 +66,7 @@ import {
     stampAnthropicStreamOutcome,
 } from './anthropic-sse.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import { fastModeAvailable, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import { gzipSync } from 'node:zlib';
 
 // Request-body gzip gate (see the fetch site below). Env kill-switch
@@ -84,7 +85,6 @@ import {
     shouldIncludeEffortBeta,
 } from './anthropic-effort.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
-import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
 import {
     ANTHROPIC_CACHE_TTL_STABLE as CACHE_TTL_STABLE,
@@ -95,7 +95,9 @@ import {
     requestAnthropicTools as sharedRequestAnthropicTools,
     normalizeAnthropicNonStreamingResponse,
     resolveAnthropicCacheTtls as resolveCacheTtls,
+    resolveAnthropicMessageCacheSlots,
     sanitizeAnthropicInputSchema,
+    toAnthropicMessages,
     toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
 
@@ -258,92 +260,6 @@ function requestAnthropicTools(tools, messages, opts) {
     return sharedRequestAnthropicTools(tools, messages, opts, 'anthropic-oauth');
 }
 
-function toAnthropicMessages(messages) {
-    // Marker-free lowering. cache_control is applied AFTER sanitization by
-    // applyAnthropicCacheMarkers() so that block drops/inserts/reorders
-    // performed by sanitizeAnthropicContentPairs cannot move or delete a
-    // marked block (the root cause of the sporadic COLD-turn cache miss:
-    // pre-sanitize markers landed on blocks the sanitizer then rewrote, so
-    // the provider-visible breakpoint diverged from the cached one).
-    const result = [];
-    for (let idx = 0; idx < messages.length; idx++) {
-        const m = messages[idx];
-        if (m.role === 'system') continue;
-
-        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
-            let content;
-            if (m.assistantBlocks?.length) {
-                content = m.assistantBlocks.slice();
-            } else {
-                content = [];
-                // Adaptive-thinking round-trip: prior-turn thinking blocks are
-                // REQUIRED back, unmodified (signature intact; empty thinking
-                // field allowed), and MUST precede tool_use blocks. Emit them
-                // first, verbatim as received from the SSE parser.
-                if (Array.isArray(m.thinkingBlocks)) {
-                    for (const tb of m.thinkingBlocks) {
-                        if (tb && typeof tb === 'object') content.push(tb);
-                    }
-                }
-                if (m.content) content.push({ type: 'text', text: m.content });
-                for (const tc of m.toolCalls || []) {
-                    content.push({
-                        type: 'tool_use',
-                        id: tc.id,
-                        name: tc.name,
-                        input: tc.arguments,
-                    });
-                }
-            }
-            result.push({ role: 'assistant', content });
-            continue;
-        }
-
-        if (m.role === 'tool') {
-            const last = result[result.length - 1];
-            const native = m.nativeToolSearch;
-            const nativeProvider = String(native?.provider || '').toLowerCase();
-            const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
-            const references = (!nativeProvider || anthropicNative.has(nativeProvider))
-                && Array.isArray(native?.toolReferences)
-                ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
-                : [];
-            const block = {
-                type: 'tool_result',
-                tool_use_id: m.toolCallId || '',
-                content: references.length
-                    ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
-                    : normalizeContentForAnthropic(m.content),
-                ...((m.toolKind === 'error' || m.isError === true) ? { is_error: true } : {}),
-            };
-            if (last?.role === 'user' && Array.isArray(last.content)) {
-                last.content.push(block);
-            } else {
-                result.push({ role: 'user', content: [block] });
-            }
-            continue;
-        }
-
-        // First-party client parity: fold a user text turn that directly follows a
-        // tool_result turn into that tool_result's content. A sibling text
-        // turn after tool_result renders as `</function_results>\n\nHuman:`
-        // on the wire and trains the model toward 3-token empty end_turn
-        // completions (see foldUserTextIntoToolResultTail).
-        //   EXCEPTION: steering-origin user messages (human/TUI interjections)
-        //   must keep their own user turn so their provenance survives — folding
-        //   them into the preceding tool_result would disguise user input as
-        //   tool output. Anthropic accepts a user text message after a
-        //   tool_result message, so the distinct turn stays request-valid.
-        const isSteering = m.role === 'user' && m.meta?.source === 'steering';
-        if (m.role === 'user' && !isSteering
-            && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
-            continue;
-        }
-        result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
-    }
-    return sanitizeAnthropicContentPairs(result);
-}
-
 // Applies cache_control markers to the FINAL, already-sanitized Anthropic
 // message array — by INVARIANT, never by pre-sanitize index. Because
 // sanitizeAnthropicContentPairs has already run (and must NOT run again
@@ -375,32 +291,16 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     // sessionMarker (cacheTier:'tier3') at ttls.tier3.
     const systemBlocks = buildSystemBlocks(systemMsgs, model, ttls?.system, ttls?.tier3);
 
-    // 4-BP budget layout. tools BP is dropped — system BP covers the
-    // tools prefix via Anthropic's prompt cache prefix semantics
-    // (order: tools → system → messages). That frees slots for the
-    // messages-tail. The system blocks now hold BP1/BP2/BP3 (tier3), so the
-    // tier3 breakpoint is accounted for inside systemBpUsed.
-    const systemBpUsed = systemBlocks.filter(b => b.cache_control).length;
-    const toolsBpUsed = 0;
-    const usedSlots = toolsBpUsed + systemBpUsed;
-    // Env override for BP strategy. ANTHROPIC_MSG_SLOTS=0 disables message
-    // caching entirely. Any value >=1 first marks the previous user text turn
-    // so consecutive requests share a breakpoint; a second free slot marks the
-    // tail for the newest delta.
-    const msgSlotsCap = Number.parseInt(process.env.ANTHROPIC_MSG_SLOTS, 10);
-    const defaultMsgSlots = Math.max(0, 4 - usedSlots);
-    const msgSlots = ttls.messages
-        ? (Number.isFinite(msgSlotsCap) && msgSlotsCap >= 0 ? Math.min(msgSlotsCap, defaultMsgSlots) : defaultMsgSlots)
-        : 0;
+    // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is shared
+    // with anthropic.mjs — see resolveAnthropicMessageCacheSlots.
+    const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls);
     // Build → sanitize (once, inside toAnthropicMessages) → mark. Markers are
     // applied to the FINAL sanitized array by invariant, so block drops /
     // inserts / reorders performed by the sanitizer can never move or delete a
     // marked block. NEVER sanitize again after this (see send path).
-    // msgSlots === 0 (ANTHROPIC_MSG_SLOTS=0, or no free slot) → tail disabled.
-    const tailTtl = msgSlots > 0 ? ttls.messages : null;
     const anthropicMessages = applyAnthropicCacheMarkers(
         toAnthropicMessages(chatMsgs),
-        { messageTtl: tailTtl, messageSlots: msgSlots },
+        messageCacheSlots,
     );
 
     const body = {
@@ -436,7 +336,9 @@ function buildRequestBody(messages, model, tools, sendOpts) {
         logTag: 'anthropic-oauth',
     });
 
-    if (opts.fast === true && supportsAnthropicFastMode(model)) {
+    // Skipped while the fast capacity pool is in cooldown (or permanently
+    // unavailable) so a drained pool is not re-probed every turn.
+    if (opts.fast === true && supportsAnthropicFastMode(model) && fastModeAvailable()) {
         body.speed = 'fast';
     }
 
@@ -761,6 +663,12 @@ export class AnthropicOAuthProvider {
                     try { result.controller?.abort?.(); } catch {}
                     // Initial-response failure: nothing was sampled, so the
                     // typed retry rules upstream own the decision.
+                    // Subscription 429s never retry in-loop, so the cooldown is
+                    // what keeps the NEXT turn off the drained fast pool.
+                    noteFastModeCapacityError(
+                        { httpStatus: status, headers: result?.response?.headers },
+                        { fast: requestBody?.speed === 'fast' },
+                    );
                     throw Object.assign(
                         anthropicQuotaError(status, result?.response?.headers, this.scrubTokens(quotaText)),
                         { initialResponseError: true },
@@ -800,6 +708,12 @@ export class AnthropicOAuthProvider {
             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
                 const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0) || null;
                 if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
+                // Fast capacity exhausted: drop `speed` so the replay runs at
+                // standard speed instead of re-hitting the drained pool.
+                if (requestBody?.speed === 'fast'
+                    && noteFastModeCapacityError(lastErr, { fast: true }) !== 'retry-fast') {
+                    delete requestBody.speed;
+                }
                 const reason = status || lastErr?.code || lastErr?.message || 'network error';
                 const suffix = delayReason ? ` (${delayReason})` : '';
                 try {

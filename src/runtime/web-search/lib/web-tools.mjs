@@ -292,9 +292,33 @@ function _notifyPoolWaiter() {
   if (next) next()
 }
 
-async function _acquirePoolSlot() {
+async function _acquirePoolSlot(signal) {
+  const abortError = () => signal?.reason || new Error('aborted')
+  // Waiting for a pool slot used to be uncancellable: an aborted tool call kept
+  // queueing until a slot freed, then launched a page nobody was waiting for.
   while (_poolActive >= PUPPETEER_POOL_MAX_PAGES) {
-    await new Promise((resolve) => _poolWaiters.push(resolve))
+    if (signal?.aborted) throw abortError()
+    await new Promise((resolve, reject) => {
+      let onAbort = null
+      const waiter = () => {
+        if (onAbort) signal.removeEventListener('abort', onAbort)
+        resolve()
+      }
+      if (signal) {
+        onAbort = () => {
+          const index = _poolWaiters.indexOf(waiter)
+          if (index >= 0) _poolWaiters.splice(index, 1)
+          reject(abortError())
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+      }
+      _poolWaiters.push(waiter)
+    })
+  }
+  if (signal?.aborted) {
+    // Woken but cancelled: pass the wake-up on so a live waiter isn't stranded.
+    _notifyPoolWaiter()
+    throw abortError()
   }
   _poolActive++
   _poolLastActivity = Date.now()
@@ -421,7 +445,7 @@ async function closeBrowserBounded(browser, timeoutMs = 5000) {
 }
 
 async function withPuppeteerPage(signal, fn) {
-  await _acquirePoolSlot()
+  await _acquirePoolSlot(signal)
   let browser
   let context
   let page
@@ -435,13 +459,26 @@ async function withPuppeteerPage(signal, fn) {
     }
     if (signal?.aborted) throw signal.reason || new Error('aborted')
     if (signal) {
-      onExternalAbort = () => { closeBrowserBounded(browser) }
+      // Tear down THIS call's page/context only. The browser is pooled and
+      // shared with every concurrent scrape, so closing it here killed
+      // unrelated in-flight pages.
+      onExternalAbort = () => {
+        try { void page?.close()?.catch?.(() => {}) } catch {}
+        try { void context?.close()?.catch?.(() => {}) } catch {}
+      }
       signal.addEventListener('abort', onExternalAbort, { once: true })
     }
+    // Creation is multi-step and awaits between each step: without a checkpoint
+    // per step an abort landing mid-setup was lost and the page ran anyway.
+    // (The finally below closes whatever was created by then.)
     context = await browser.createBrowserContext()
+    if (signal?.aborted) throw signal.reason || new Error('aborted')
     page = await context.newPage()
+    if (signal?.aborted) throw signal.reason || new Error('aborted')
     cdp = await page.createCDPSession()
+    if (signal?.aborted) throw signal.reason || new Error('aborted')
     await installPuppeteerSsrfGate(page, cdp, signal)
+    if (signal?.aborted) throw signal.reason || new Error('aborted')
     return await fn(page)
   } finally {
     if (onExternalAbort && signal) signal.removeEventListener('abort', onExternalAbort)
@@ -610,7 +647,11 @@ async function scrapeUrl(url, timeoutMs, usageState, signal) {
         throw err
       }
       const errorKind = classifyProviderError(error)
-      noteProviderFailure(usageState, extractor, message, errorKind)
+      // A status carried by the error came from the target page, so it is a
+      // property of that site — not of `readability`/`puppeteer`, which hold no
+      // credentials at all.
+      const siteScoped = Number.isFinite(Number(error?.status)) || /\bHTTP\s+\d{3}\b/.test(message)
+      noteProviderFailure(usageState, extractor, message, errorKind, { siteScoped })
     }
   }
 

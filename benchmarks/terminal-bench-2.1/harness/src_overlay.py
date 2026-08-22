@@ -1,19 +1,40 @@
-"""Immutable full-tree snapshots of the local ``src`` used by Terminal-Bench."""
+"""Immutable local runtime bundles used by Terminal-Bench."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 
 SNAPSHOT_ENV = "MIXDOG_TB_SRC_SNAPSHOT"
 ARCHIVE_ROOT = "src"
+NATIVE_ROOT = "native-tools"
+SPAWN_MEMBER = f"{NATIVE_ROOT}/mixdog-spawn"
+REQUIRED_SPAWN_CAPS = ("trackedForeground", "promoteTask", "cancelOwner")
+SPAWN_BUILD_IMAGE = "rust:1.89-alpine3.22"
+SPAWN_PROBE_IMAGE = "alpine:3.20"
+
+
+def spawn_capability_shell(binary_expr: str) -> str:
+    """POSIX probe that the native spawn binary exposes the required caps."""
+    caps = " ".join(REQUIRED_SPAWN_CAPS)
+    return (
+        f'READY="$(printf \'\' | {binary_expr})"; '
+        "printf '%s\\n' \"$READY\" | grep -q '\"ready\":true'; "
+        f"for cap in {caps}; do "
+        "printf '%s\\n' \"$READY\" | grep -q \"\\\"$cap\\\":true\"; "
+        "done"
+    )
 
 
 class SrcOverlayError(RuntimeError):
@@ -33,6 +54,167 @@ class _SourceEntry:
     mode: int
     size: int
     is_directory: bool
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _spawn_source_digest(spawn_source: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        entries = sorted(
+            spawn_source.rglob("*"),
+            key=lambda path: _path_order(path.relative_to(spawn_source).as_posix()),
+        )
+    except OSError as exc:
+        raise SrcOverlayError(f"cannot enumerate native spawn source: {exc}") from exc
+    for source in entries:
+        relative = source.relative_to(spawn_source)
+        if relative.parts and relative.parts[0] == "target":
+            continue
+        try:
+            info = os.lstat(source)
+        except OSError as exc:
+            raise SrcOverlayError(f"cannot inspect native spawn source {source}: {exc}") from exc
+        if stat.S_ISLNK(info.st_mode):
+            raise SrcOverlayError(f"refusing symlink in native spawn source: {source}")
+        if stat.S_ISDIR(info.st_mode):
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            raise SrcOverlayError(f"refusing unsupported native spawn source: {source}")
+        digest.update(relative.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(stat.S_IMODE(info.st_mode)).encode("ascii"))
+        digest.update(b"\0")
+        with source.open("rb") as content:
+            while chunk := content.read(1024 * 1024):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _docker_mount(path: Path) -> str:
+    return path.resolve().as_posix()
+
+
+def _run_docker(arguments: list[str], label: str) -> None:
+    try:
+        result = subprocess.run(
+            ["docker", *arguments],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError as exc:
+        raise SrcOverlayError(f"{label} could not start Docker: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+        raise SrcOverlayError(f"{label} failed: {detail[-4000:]}")
+
+
+def _spawn_capability_probe(binary_path: Path) -> None:
+    command = (
+        "set -eu; "
+        "cp /runtime/mixdog-spawn-linux-x64 /tmp/mixdog-spawn; "
+        "chmod 0755 /tmp/mixdog-spawn; "
+        f"{spawn_capability_shell('/tmp/mixdog-spawn')}"
+    )
+    _run_docker(
+        [
+            "run",
+            "--rm",
+            "-v",
+            f"{_docker_mount(binary_path.parent)}:/runtime:ro",
+            SPAWN_PROBE_IMAGE,
+            "sh",
+            "-c",
+            command,
+        ],
+        "native spawn capability preflight",
+    )
+
+
+def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
+    """Build or reuse the current Linux spawn binary outside the prebake cache."""
+    spawn_source = repo_root / "native" / "mixdog-spawn"
+    source_digest = _spawn_source_digest(spawn_source)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    binary_path = build_dir / "mixdog-spawn-linux-x64"
+    manifest_path = build_dir / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        manifest = {}
+    if (
+        binary_path.is_file()
+        and manifest.get("schemaVersion") == 1
+        and manifest.get("sourceSha256") == source_digest
+        and manifest.get("binarySha256") == _sha256_file(binary_path)
+    ):
+        try:
+            _spawn_capability_probe(binary_path)
+            return binary_path
+        except SrcOverlayError:
+            pass
+
+    temporary = Path(tempfile.mkdtemp(prefix=".spawn-build-", dir=build_dir))
+    try:
+        command = (
+            "set -eu; "
+            "apk add --no-cache musl-dev >/dev/null; "
+            "CARGO_TARGET_DIR=/tmp/target cargo build --locked --release "
+            "--manifest-path /src/Cargo.toml; "
+            "BINARY=/tmp/target/release/mixdog-spawn; "
+            + spawn_capability_shell('"$BINARY"') + "; " +
+            "install -m 0755 \"$BINARY\" /out/mixdog-spawn-linux-x64"
+        )
+        _run_docker(
+            [
+                "run",
+                "--rm",
+                "-v",
+                f"{_docker_mount(spawn_source)}:/src:ro",
+                "-v",
+                f"{_docker_mount(temporary)}:/out",
+                SPAWN_BUILD_IMAGE,
+                "sh",
+                "-c",
+                command,
+            ],
+            "local native spawn build",
+        )
+        candidate = temporary / binary_path.name
+        if not candidate.is_file() or candidate.stat().st_size == 0:
+            raise SrcOverlayError("local native spawn build produced no binary")
+        binary_digest = _sha256_file(candidate)
+        candidate.replace(binary_path)
+        manifest_temp = temporary / "manifest.json"
+        manifest_temp.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "sourceSha256": source_digest,
+                    "binarySha256": binary_digest,
+                    "requiredCaps": list(REQUIRED_SPAWN_CAPS),
+                    "buildImage": SPAWN_BUILD_IMAGE,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        manifest_temp.replace(manifest_path)
+        _spawn_capability_probe(binary_path)
+        return binary_path
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
 
 
 def _path_order(value: str) -> bytes:
@@ -203,9 +385,23 @@ def _tar_info(entry: _SourceEntry) -> tarfile.TarInfo:
     return info
 
 
-def build_src_snapshot(repo_src: Path, output_path: Path) -> SrcSnapshot:
-    """Capture every current local ``src`` entry into one read-only tar archive."""
-    entries = _collect_source_entries(repo_src, _git_index_file_modes(repo_src))
+def build_src_snapshot(
+    repo_src: Path, output_path: Path, spawn_binary: Path
+) -> SrcSnapshot:
+    """Capture current source and its matching native spawn binary."""
+    try:
+        spawn_info = os.lstat(spawn_binary)
+    except OSError as exc:
+        raise SrcOverlayError(f"cannot inspect local native spawn binary: {exc}") from exc
+    if stat.S_ISLNK(spawn_info.st_mode) or not stat.S_ISREG(spawn_info.st_mode):
+        raise SrcOverlayError(f"local native spawn binary is not a regular file: {spawn_binary}")
+    if spawn_info.st_size == 0:
+        raise SrcOverlayError(f"local native spawn binary is empty: {spawn_binary}")
+    entries = (
+        *_collect_source_entries(repo_src, _git_index_file_modes(repo_src)),
+        _SourceEntry(spawn_binary.parent, NATIVE_ROOT, 0o755, 0, True),
+        _SourceEntry(spawn_binary, SPAWN_MEMBER, 0o755, spawn_info.st_size, False),
+    )
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("xb") as output:
@@ -239,8 +435,10 @@ def _validate_archive_name(name: str) -> tuple[str, ...]:
     parts = PurePosixPath(name).parts
     if any(part in {"", ".", ".."} for part in parts):
         raise SrcOverlayError(f"src snapshot path escapes its root: {name!r}")
-    if not parts or parts[0] != ARCHIVE_ROOT:
-        raise SrcOverlayError(f"src snapshot path is outside {ARCHIVE_ROOT}/: {name!r}")
+    if not parts or parts[0] not in {ARCHIVE_ROOT, NATIVE_ROOT}:
+        raise SrcOverlayError(f"runtime snapshot path is outside its roots: {name!r}")
+    if parts[0] == NATIVE_ROOT and name not in {NATIVE_ROOT, SPAWN_MEMBER}:
+        raise SrcOverlayError(f"unsupported runtime native path: {name!r}")
     for part in parts:
         _validate_component(part)
     if "/".join(parts) != name:
@@ -262,6 +460,8 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
             members = archive.getmembers()
             names: set[str] = set()
             kinds: dict[str, str] = {}
+            modes: dict[str, int] = {}
+            sizes: dict[str, int] = {}
             ordered_names: list[str] = []
             for member in members:
                 parts = _validate_archive_name(member.name)
@@ -269,6 +469,8 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
                     raise SrcOverlayError(f"duplicate src snapshot path: {member.name!r}")
                 names.add(member.name)
                 ordered_names.append(member.name)
+                modes[member.name] = member.mode
+                sizes[member.name] = member.size
                 if member.isdir():
                     kinds[member.name] = "directory"
                 elif member.isfile():
@@ -301,6 +503,12 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
                         )
             if kinds.get(ARCHIVE_ROOT) != "directory":
                 raise SrcOverlayError("src snapshot does not contain a src root directory")
+            if kinds.get(NATIVE_ROOT) != "directory":
+                raise SrcOverlayError("runtime snapshot does not contain native-tools")
+            if kinds.get(SPAWN_MEMBER) != "file" or sizes.get(SPAWN_MEMBER, 0) == 0:
+                raise SrcOverlayError("runtime snapshot does not contain native spawn")
+            if modes.get(SPAWN_MEMBER, 0) & 0o111 == 0:
+                raise SrcOverlayError("runtime snapshot native spawn is not executable")
     except SrcOverlayError:
         raise
     except (OSError, tarfile.TarError, EOFError) as exc:
@@ -311,13 +519,27 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--spawn-binary", type=Path)
     args = parser.parse_args(argv)
-    repo_src = Path(__file__).resolve().parents[3] / "src"
+    repo_root = Path(__file__).resolve().parents[3]
+    repo_src = repo_root / "src"
     try:
-        build_src_snapshot(repo_src, args.output)
+        spawn_binary = args.spawn_binary or build_local_spawn(
+            repo_root, Path(__file__).resolve().parents[1] / ".runtime-build"
+        )
+        snapshot = build_src_snapshot(repo_src, args.output, spawn_binary)
     except SrcOverlayError as exc:
-        print(f"src snapshot preflight failed: {exc}", file=sys.stderr)
+        print(f"runtime bundle preflight failed: {exc}", file=sys.stderr)
         return 1
+    print(
+        json.dumps(
+            {
+                "runtimeBundle": str(snapshot.archive_path),
+                "spawnSha256": _sha256_file(spawn_binary),
+            },
+            separators=(",", ":"),
+        )
+    )
     return 0
 
 

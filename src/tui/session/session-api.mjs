@@ -28,6 +28,7 @@ export function createSessionApi(bag) {
       toolModules: await read(api.getToolModuleSettings),
       channels: await read(api.getChannelSettings, { includeStatus: false }),
       systemShell: await read(api.getSystemShell),
+      webSearchRoute: await read(api.getWebSearchRoute),
       outputStyle: (await read(api.getOutputStyle)) || (await read(api.listOutputStyles)),
       channelWorker: await read(api.getChannelWorkerStatus),
       profile: await read(api.getProfile),

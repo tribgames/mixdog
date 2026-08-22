@@ -377,6 +377,18 @@
   color: var(--mx-text-accent);
   font-weight: 600;
 }
+/* A cancel is not a completion and not a rest. It never borrows the accented
+   "done" tone or the live running tone: a stopped row reads as stopped. */
+.utility-dock .agent-activity-elapsed[data-state="cancelled"] {
+  color: var(--mx-danger);
+  font-weight: 600;
+}
+/* Delivered but unproven (Windows git-bash survivors): the warning tone says
+   the process could not be confirmed gone, never that the cancel succeeded. */
+.utility-dock .agent-activity-elapsed[data-state="cancel-unconfirmed"] {
+  color: var(--mx-warning);
+  font-weight: 600;
+}
 /* Agents dock reuses the Workflows rail grammar. */
 .utility-dock .agent-activity-page .workflows-models,
 .utility-dock .agent-activity-page .schedules-list,

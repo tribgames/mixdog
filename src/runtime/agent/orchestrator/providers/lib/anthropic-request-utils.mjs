@@ -1,5 +1,7 @@
 import { providerNativeToolPrefixCount } from '../../../../../session-runtime/provider-request-tools.mjs';
 import { isNativeServerToolBlockType } from './anthropic-native-blocks.mjs';
+import { sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../../session/context-utils.mjs';
+import { normalizeContentForAnthropic } from '../media-normalization.mjs';
 
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 export const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
@@ -45,6 +47,117 @@ export function resolveAnthropicCacheTtls(opts) {
         else minRank = rank;
     }
     return resolved;
+}
+
+// Message-tail cache budget, shared by both Anthropic providers.
+//
+// 4-BP layout: the tools breakpoint is dropped — the system BP covers the tools
+// prefix via Anthropic's prompt-cache prefix semantics (order: tools → system →
+// messages), which frees its slot for the messages tail. The system blocks hold
+// BP1/BP2/BP3 (tier3), so every consumed slot is already counted there.
+//
+// Env override: ANTHROPIC_MSG_SLOTS=0 disables message caching entirely; any
+// value >=1 first marks the previous user text turn so consecutive requests
+// share a breakpoint, and a second free slot marks the tail for the newest
+// delta. messageTtl === null (no slot, or ttls.messages disabled) turns the
+// tail off.
+export function resolveAnthropicMessageCacheSlots(systemBlocks, ttls) {
+    const usedSlots = systemBlocks.filter(b => b.cache_control).length;
+    const slotsCap = Number.parseInt(process.env.ANTHROPIC_MSG_SLOTS, 10);
+    const defaultSlots = Math.max(0, 4 - usedSlots);
+    const messageSlots = ttls.messages
+        ? (Number.isFinite(slotsCap) && slotsCap >= 0 ? Math.min(slotsCap, defaultSlots) : defaultSlots)
+        : 0;
+    // Key order matches the object both call sites built inline: messageTtl
+    // first, then messageSlots.
+    return { messageTtl: messageSlots > 0 ? ttls.messages : null, messageSlots };
+}
+
+// Single lowering of orchestrator messages to the Anthropic wire shape. The
+// API-key provider (anthropic.mjs, via anthropic-messages.mjs) and the OAuth
+// provider (anthropic-oauth.mjs) both used to carry byte-identical copies;
+// they now share this one.
+//
+// Marker-free lowering. cache_control is applied AFTER sanitization by
+// applyAnthropicCacheMarkers() so that block drops/inserts/reorders performed
+// by sanitizeAnthropicContentPairs cannot move or delete a marked block (the
+// root cause of the sporadic COLD-turn cache miss: pre-sanitize markers landed
+// on blocks the sanitizer then rewrote, so the provider-visible breakpoint
+// diverged from the cached one).
+export function toAnthropicMessages(messages) {
+    const result = [];
+    for (let idx = 0; idx < messages.length; idx++) {
+        const m = messages[idx];
+        if (m.role === 'system') continue;
+        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
+            let content;
+            if (m.assistantBlocks?.length) {
+                content = m.assistantBlocks.slice();
+            } else {
+                content = [];
+                // Adaptive-thinking round-trip: prior-turn thinking blocks are
+                // REQUIRED back, unmodified (signature intact; empty thinking
+                // field allowed), and MUST precede tool_use blocks. Emit them
+                // first, verbatim as received from the SSE parser.
+                if (Array.isArray(m.thinkingBlocks)) {
+                    for (const tb of m.thinkingBlocks) {
+                        if (tb && typeof tb === 'object') content.push(tb);
+                    }
+                }
+                if (m.content) content.push({ type: 'text', text: m.content });
+                for (const tc of m.toolCalls || []) {
+                    content.push({
+                        type: 'tool_use',
+                        id: tc.id,
+                        name: tc.name,
+                        input: tc.arguments,
+                    });
+                }
+            }
+            result.push({ role: 'assistant', content });
+            continue;
+        }
+        if (m.role === 'tool') {
+            const last = result[result.length - 1];
+            const native = m.nativeToolSearch;
+            const nativeProvider = String(native?.provider || '').toLowerCase();
+            const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
+            const references = (!nativeProvider || anthropicNative.has(nativeProvider))
+                && Array.isArray(native?.toolReferences)
+                ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
+                : [];
+            const block = {
+                type: 'tool_result',
+                tool_use_id: m.toolCallId || '',
+                content: references.length
+                    ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
+                    : normalizeContentForAnthropic(m.content),
+                ...((m.toolKind === 'error' || m.isError === true) ? { is_error: true } : {}),
+            };
+            if (last?.role === 'user' && Array.isArray(last.content)) {
+                last.content.push(block);
+            } else {
+                result.push({ role: 'user', content: [block] });
+            }
+            continue;
+        }
+        // First-party client parity: fold a user text turn that directly follows a
+        // tool_result turn into that tool_result's content. A sibling text turn
+        // after tool_result renders as `</function_results>\n\nHuman:` on the wire
+        // and trains the model toward 3-token empty end_turn completions (empty
+        // end_turn livelock prevention; see foldUserTextIntoToolResultTail).
+        //   EXCEPTION: steering-origin user messages (human/TUI interjections)
+        //   keep their own user turn so provenance survives — folding them would
+        //   disguise user input as tool output. Anthropic accepts a user text
+        //   message after a tool_result message, so the turn stays request-valid.
+        const isSteering = m.role === 'user' && m.meta?.source === 'steering';
+        if (m.role === 'user' && !isSteering
+            && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
+            continue;
+        }
+        result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
+    }
+    return sanitizeAnthropicContentPairs(result);
 }
 
 export function clampAnthropicThinkingBudget(value, maxTokens) {

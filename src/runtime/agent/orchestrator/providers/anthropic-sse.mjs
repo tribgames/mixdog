@@ -757,7 +757,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                             // An invalid-args marker never fingerprint-collides with
                             // a real recovered call, so malformed native calls still
                             // dispatch (the marker path is unaffected).
-                            if (_toolDedupe.shouldDispatch(call.name, call.arguments)) {
+                            if (_toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) {
                                 toolCalls.push(call);
                                 // Ordered replay copy of the dispatched call —
                                 // skipped/deduped calls stay out so a replayed

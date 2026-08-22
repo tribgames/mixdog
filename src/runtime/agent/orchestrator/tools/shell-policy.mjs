@@ -63,7 +63,12 @@ const BLOCKED_PATTERNS = [
   /\bformat\s+[a-z]:/i,
   new RegExp(_CMD_START + '(?:shutdown|reboot|halt)\\b', 'i'),
   new RegExp(_CMD_START + 'mkfs(?:\\.|\\b)', 'i'),
-  new RegExp(_CMD_START + 'dd\\s+[^\\n]*\\b(?:if|of)=/dev/', 'i'),
+  // Raw-device WRITES only. `if=/dev/…` is a read (`dd if=/dev/zero of=file`
+  // is the ordinary way to create a fixed-size file), and the standard sinks
+  // below cannot destroy anything, so the block is scoped to a device target
+  // that can actually overwrite a disk. Raw-device READS still surface as a
+  // non-blocking destructive warning.
+  new RegExp(_CMD_START + 'dd\\s+[^\\n]*\\bof=/dev/(?!(?:null|zero|stdout|stderr|full|tty)\\b)', 'i'),
   new RegExp(_CMD_START + 'diskpart\\b[^\\n]*\\bclean\\b', 'i'),
   /:\(\)\s*\{[^}]*:\|:&[^}]*\};\s*:/, // bash fork-bomb signature
 ];

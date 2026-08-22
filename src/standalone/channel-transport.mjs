@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
+import { isPidAlive, parsePid } from '../runtime/shared/pid-liveness.mjs';
 import { readBody, sendJson, sendError } from '../runtime/memory/lib/http-wire.mjs';
 import { createFairCallScheduler } from './fair-call-scheduler.mjs';
 
@@ -26,17 +27,6 @@ function readChannelBody(req) {
   return readBody(req, { maxBytes: CHANNEL_HTTP_BODY_MAX_BYTES });
 }
 
-function parsePid(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
-
-function isPidAlive(pid) {
-  const n = parsePid(pid);
-  if (!n) return false;
-  try { process.kill(n, 0); return true; }
-  catch (error) { return error?.code === 'EPERM'; }
-}
 
 const ACTIVATE_TOOL = 'activate_channel_bridge';
 const REBIND_TOOL = 'rebind_current_transcript';
@@ -103,6 +93,16 @@ export function createChannelTransport({
     queueMax: Math.max(16, Math.min(64, CALL_QUEUE_MAX)),
     minOwnerQueue: 4,
   });
+  // Binding calls (manual ON/OFF, rebind) mutate GLOBAL pointer/pin state after
+  // reading it. The control lane is unbounded, so two sessions toggling at once
+  // would interleave read and write and clobber each other's binding. Every
+  // binding call therefore runs alone on this chain.
+  let bindingChain = Promise.resolve();
+  function runExclusiveBinding(run) {
+    const result = bindingChain.then(run, run);
+    bindingChain = result.then(() => {}, () => {});
+    return result;
+  }
   // Reconnect register replay: a server may commit replacement just before its
   // HTTP response is lost. The retry supplies this stable id and receives the
   // already-created fresh token instead of creating an orphan replacement.
@@ -813,6 +813,17 @@ export function createChannelTransport({
             const previousRemoteSessionId = c.remoteSessionId || null;
             const previousRemoteAcquired = remoteAcquired;
             const previousStickyRemoteFrame = stickyRemoteFrame;
+            // A failed manual ON must leave ownership exactly as it was.
+            const rollbackActivation = () => {
+              if (!activating || pointerToken !== clientToken
+                  || c.remoteSessionId !== bindingSessionId) return;
+              pointerToken = previousPointerToken && clients.has(previousPointerToken)
+                ? previousPointerToken
+                : null;
+              c.remoteSessionId = previousRemoteSessionId;
+              remoteAcquired = previousRemoteAcquired;
+              stickyRemoteFrame = previousStickyRemoteFrame;
+            };
             if (activating) {
               c.remoteSessionId = bindingSessionId;
               movePointer(clientToken, 'manual remote ON', { notifyDisplaced: false });
@@ -823,6 +834,16 @@ export function createChannelTransport({
                 leadPid: c?.leadPid ?? null,
                 cwd: c?.cwd ?? null,
               });
+              // A soft `{isError:true}` envelope is a FAILED call, not a
+              // result: taking the success path here moved control ownership
+              // on a failed ON and cleared the durable pin on a failed OFF
+              // while the runtime was still bound.
+              if (result?.isError === true) {
+                rollbackActivation();
+                log(`${name} failed (soft error); binding state unchanged for session=${bindingSessionId || '?'}`);
+                publishRemoteState();
+                return result;
+              }
               if (activating && previousPointerToken && previousPointerToken !== clientToken) {
                 const displaced = clients.get(previousPointerToken);
                 if (displaced && isPidAlive(displaced.leadPid)
@@ -837,7 +858,7 @@ export function createChannelTransport({
                 remoteAcquired = false;
                 stickyRemoteFrame = null;
               }
-              if (activating && result?.isError !== true
+              if (activating
                   && pointerToken === clientToken
                   && c.remoteSessionId === bindingSessionId) {
                 remoteAcquired = true;
@@ -846,21 +867,14 @@ export function createChannelTransport({
               publishRemoteState();
               return result;
             } catch (err) {
-              if (activating && pointerToken === clientToken
-                  && c.remoteSessionId === bindingSessionId) {
-                pointerToken = previousPointerToken && clients.has(previousPointerToken)
-                  ? previousPointerToken
-                  : null;
-                c.remoteSessionId = previousRemoteSessionId;
-                remoteAcquired = previousRemoteAcquired;
-                stickyRemoteFrame = previousStickyRemoteFrame;
-                publishRemoteState();
-              }
+              rollbackActivation();
+              publishRemoteState();
               throw err;
             }
           };
-          const scheduler = BINDING_TOOLS.has(name) ? channelControlCalls : channelCalls;
-          dispatch = scheduler.enqueue(ownerKey, run);
+          const bindingCall = BINDING_TOOLS.has(name);
+          const scheduler = bindingCall ? channelControlCalls : channelCalls;
+          dispatch = scheduler.enqueue(ownerKey, bindingCall ? () => runExclusiveBinding(run) : run);
           if (cacheKey) {
             const record = { promise: dispatch, at: nowMs() };
             callCache.set(cacheKey, record);
@@ -880,7 +894,12 @@ export function createChannelTransport({
           const result = await dispatch;
           sendJson(res, { result });
         } catch (err) {
-          sendJson(res, { error: err?.message || String(err) }, 200);
+          // Keep the machine-readable code beside the message: callers branch
+          // on it instead of pattern-matching free text.
+          sendJson(res, {
+            error: err?.message || String(err),
+            ...(err?.code ? { code: String(err.code) } : {}),
+          }, 200);
         }
         return;
       }

@@ -10,33 +10,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { RemoteClaimPrompt } from "./RemoteClaimPrompt";
 import { DesktopErrorBoundary, installGlobalRendererDiagnostics } from "./RendererRecovery";
-import "@fontsource-variable/jetbrains-mono";
-// Pretendard owns both Latin and Hangul across the shell. Geist/Inter used to
-// be bundled as fallbacks even though no rendered stack selected them, adding
-// font-face CSS and making the launch gate fetch an unused Geist face.
-// Dynamic subset (not the single 2MB variable file): the face ships as ~93
-// unicode-range slices, so a browser/phone downloads only the Hangul blocks it
-// actually paints instead of the whole family on every cold load.
-import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
-// Monaco's structural CSS is NOT imported here. The esm build the editor chunk
-// uses pulls in the same rules, and Vite resolves a lazy chunk's stylesheet
-// before its component renders, so editor DOM still never paints unstyled.
-// Importing min/vs/editor/editor.main.css as well put a SECOND ~200KB copy of
-// those rules into the first-paint stylesheet, which every phone downloaded
-// before it could show a single message.
-// Codicon FONT (B안): chrome-level glyphs render through the text
-// rasterizer on their native 16px grid — crisp on device pixels where the
-// scaled 24-grid lucide SVG strokes went fractional and soft. Loaded BEFORE
-// desktop.css so our sizing overrides win the equal-specificity cascade.
-import "@vscode/codicons/dist/codicon.css";
-import "./ui/tokens.css";
-import "./styles.css";
-import "./desktop.css";
-// Split-pane workspace + bottom panel chrome (components import no css).
-import "./pane-layout.css";
-// Mobile PWA runtime invariants load last: they own the visual-viewport frame,
-// page scroll lock, and iOS input scale floor over every desktop layer.
-import "./mobile-web-runtime.css";
+import "./bootstrap-styles";
 import "./webview-zoom";
 import { installShellViewport } from "./shell-viewport";
 import { installFocusModality } from "./focus-modality";
@@ -97,6 +71,32 @@ try {
   ]);
 } catch { /* font swap stays a cosmetic fallback */ }
 
+// The desktop keeps its window hidden until rendererReady, so its launch
+// sequence is never visible. Over the relay that call is a no-op and the
+// installed web app showed every step of it (user: 웹앱 처음 들어갈 때 화면이
+// 툭툭 튄다). boot.js gates #root behind the window band; release it once the
+// first frame is as settled as it is going to get.
+function revealInstalledWebApp(): void {
+  const reveal = (window as typeof window & { mixdogRevealApp?: () => void }).mixdogRevealApp;
+  if (typeof reveal !== "function") return;
+  const startupSettled = new Promise<void>((resolve) => {
+    if ((window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled) {
+      resolve();
+      return;
+    }
+    window.addEventListener("mixdog:startup-settled", () => resolve(), { once: true });
+  });
+  // Session/layout restore is a relay round trip here, so the reveal waits for
+  // it instead of letting the restored layout land on an already visible frame.
+  // A slow desktop leg can never hold the app behind the gate.
+  void Promise.race([
+    startupSettled,
+    new Promise((resolve) => { window.setTimeout(resolve, 1200); }),
+  ]).then(() => {
+    window.requestAnimationFrame(() => reveal());
+  });
+}
+
 const reactCommitted = new Promise<void>((resolve) => {
   window.addEventListener("mixdog:react-committed", () => resolve(), { once: true });
 });
@@ -131,6 +131,7 @@ void reactCommitted.then(() => {
   void fontsSettled.then(() => {
     markBootStage("fonts-settled");
     window.mixdogDesktop?.rendererReady?.();
+    revealInstalledWebApp();
     // With the launch faces settled and the window revealed, warm the rest of
     // the local font inventory so later-created UI text never lazy-loads.
     scheduleFontWarmup();

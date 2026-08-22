@@ -2,18 +2,21 @@
  * resume-picker.mjs — the /resume saved-chat session picker.
  *
  * Extracted from App.jsx behavior-preservingly as a dependency-injection
- * factory: openResumePicker drives setPicker and reads live store state, so it
- * can't be pure. The function body is the original App logic verbatim, with
- * closure identifiers (store, setPicker, and the two session formatters from
- * projects.mjs) threaded in through the factory argument.
+ * factory: openResumePicker drives the panel surface and reads live store
+ * state, so it can't be pure. The function body is the original App logic
+ * verbatim, with closure identifiers (store, surface, and the two session
+ * formatters from projects.mjs) threaded in through the factory argument.
  */
 export function createResumePicker({
   store,
-  setPicker,
+  surface,
   formatSessionUpdatedAt,
   formatSessionMessageCount,
 }) {
   const openResumePicker = async () => {
+    // Surface claim (panel-surface.mjs): the storage rescan below is slow, so
+    // Esc can easily land before this panel ever paints.
+    const own = surface.claim();
     let sessions;
     try {
       // Terminal ↔ desktop interop: the summary cache is per-process, so a
@@ -39,13 +42,13 @@ export function createResumePicker({
         description: title || preview || '(no message)',
       };
     });
-    setPicker({
+    own.paint({
       title: 'Resume',
       description: 'Restore a saved chat session.',
       items,
       labelWidth: 21,
       onSelect: (value) => {
-        setPicker(null);
+        own.close();
         const selected = sessions.find((session) => session.id === value);
         const resumedName = String(selected?.title || selected?.preview || value)
           .replace(/\s+/g, ' ')
@@ -55,7 +58,7 @@ export function createResumePicker({
           .catch((e) => store.pushNotice(`Couldn’t resume chat: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
       },
     });
   };

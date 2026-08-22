@@ -456,13 +456,23 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   if (mode === 'overview') {
     if (rel && !node) return _appendSameBasenameHint(`Error: code_graph overview: file not found in graph: ${normFile}`, normFile, graph);
     if (node) return _buildExplainerFileSummary(node, graph, cwd, { depth: args?.depth });
+    // A directory anchor is a SCOPE: counting the whole repository under it
+    // reported totals the caller never asked for.
+    const scopedNodes = scopeRelPrefix
+      ? [...graph.nodes.values()].filter((n) => n.rel === scopeRelPrefix.slice(0, -1)
+        || n.rel.startsWith(scopeRelPrefix))
+      : [...graph.nodes.values()];
+    if (scopeRelPrefix && scopedNodes.length === 0) {
+      return `(no indexed files under ${scopeRelPrefix})`;
+    }
     const byLang = new Map();
-    for (const node of graph.nodes.values()) {
+    for (const node of scopedNodes) {
       byLang.set(node.lang, (byLang.get(node.lang) || 0) + 1);
     }
     const lines = [
-      `files\t${graph.nodes.size}`,
-      `edges\t${Array.from(graph.nodes.values()).reduce((sum, n) => sum + n.resolvedImports.length, 0)}`,
+      ...(scopeRelPrefix ? [`scope\t${scopeRelPrefix}`] : []),
+      `files\t${scopedNodes.length}`,
+      `edges\t${scopedNodes.reduce((sum, n) => sum + n.resolvedImports.length, 0)}`,
     ];
     for (const [lang, count] of [...byLang.entries()].sort((a, b) => b[1] - a[1])) {
       lines.push(`${lang}\t${count}`);
@@ -658,14 +668,19 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       [...graph.nodes.values()].filter((candidate) => !Array.isArray(candidate?.symbols) || candidate.symbols.length === 0),
       { signal },
     );
+    // Honour the file/directory anchor: symbol_search used to scan the whole
+    // graph even when the caller scoped the call.
+    if (rel && !node) {
+      return _appendSameBasenameHint(`Error: code_graph symbol_search: file not found in graph: ${normFile}`, normFile, graph);
+    }
     if (keywords.length === 1) {
-      return _searchSymbolsByKeyword(graph, keywords[0], cwd, { language, limit });
+      return _searchSymbolsByKeyword(graph, keywords[0], cwd, { language, limit, fileRel: rel, scopeRelPrefix });
     }
     // Batch: merge results across symbols, dedupe identical result blocks.
     const seen = new Set();
     const sections = [];
     for (const kw of keywords) {
-      const result = _searchSymbolsByKeyword(graph, kw, cwd, { language, limit });
+      const result = _searchSymbolsByKeyword(graph, kw, cwd, { language, limit, fileRel: rel, scopeRelPrefix });
       if (seen.has(result)) continue;
       seen.add(result);
       sections.push(`# symbol_search: ${kw}\n${result}`);
@@ -700,7 +715,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
       ? Math.min(500, Math.floor(rawLimit))
       : null;
     const _refNodes = await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
-    const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix, nodes: _refNodes });
+    const refResult = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, fileRel: rel, scopeRelPrefix, nodes: _refNodes });
     const detailedReferences = _formatReferenceDetails(graph, symbol, refResult, userLimit ? { limit: userLimit } : undefined);
     const references = narrowedByCaller ? detailedReferences : _augmentNoHitDiagnostic(detailedReferences, '(no references)', graph, cwd, symbol);
     const declaration = _findSymbolAcrossGraph(graph, symbol, cwd, {
@@ -741,9 +756,18 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
     const _callerNodes = await _prewarmReferenceSourceText(graph, symbol, lang, { signal });
     const depth = Math.max(1, Math.min(5, Math.floor(Number(args?.depth) || 1)));
     if (depth > 1) {
-      return _formatTransitiveCallers(graph, symbol, cwd, { language: lang, depth, page: args?.page });
+      // Scope and limit are honoured at every level: a file/directory anchor
+      // and an explicit limit used to be dropped for depth>1.
+      return _formatTransitiveCallers(graph, symbol, cwd, {
+        language: lang,
+        depth,
+        page: args?.page,
+        fileRel: rel,
+        scopeRelPrefix,
+        ...(userLimit ? { pageSize: userLimit } : {}),
+      });
     }
-    const refs = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, limit: userLimit, fileRel: rel, scopeRelPrefix, nodes: _callerNodes });
+    const refs = _cheapReferenceSearch(graph, symbol, cwd, { language: lang, fileRel: rel, scopeRelPrefix, nodes: _callerNodes });
     const callerResult = _formatCallerReferences(graph, symbol, refs, userLimit ? { limit: userLimit } : undefined);
     return narrowedByCaller ? callerResult : _augmentNoHitDiagnostic(callerResult, '(no callers)', graph, cwd, symbol);
   }
@@ -1038,9 +1062,31 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
         const rawMode = String(args?.mode || '').trim();
         const batchMode = rawMode === 'search' ? 'symbol_search' : rawMode;
         const declModes = new Set(['symbol', 'find_symbol']);
-        const dispatchOne = (a) => (declModes.has(rawMode)
+        const dispatchRaw = (a) => (declModes.has(rawMode)
           ? findSymbolTool(_stripEmptyArgs(a), effectiveCwd, signal, options)
           : codeGraph(a, effectiveCwd, signal, options));
+        // `files` is documented as an optional SCOPE for the symbol modes, but
+        // only the file-mode branch below normalized it — so find_symbol /
+        // symbol_search / references / callers / callees silently answered for
+        // the whole repository. Apply the scope here: a single entry becomes
+        // the `file` anchor, several entries fan out per file.
+        const symbolScopeFiles = (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)
+          && !(typeof args?.file === 'string' && args.file.trim()))
+          ? _collectGraphFileList(args)
+          : [];
+        const dispatchOne = symbolScopeFiles.length === 0
+          ? dispatchRaw
+          : (symbolScopeFiles.length === 1
+            ? (a) => dispatchRaw({ ...a, file: symbolScopeFiles[0], files: undefined })
+            : async (a) => {
+              const scoped = await _mapWithConcurrency(symbolScopeFiles, async (f) => {
+                let body;
+                try { body = await dispatchRaw({ ...a, file: f, files: undefined }); }
+                catch (e) { body = `Error: ${e?.message || String(e)}`; }
+                return `# file ${f}\n${body}`;
+              });
+              return scoped.join('\n\n');
+            });
         if (CODE_GRAPH_BATCHABLE_MODES.has(batchMode)) {
           const symbolList = _collectGraphSymbolList(args);
           if (symbolList.length > 1) {

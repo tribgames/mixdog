@@ -25,12 +25,9 @@ import { normalizeSlashCommandName } from './slash-commands.mjs';
 export function createAppPickers({
   state,
   store,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
-  setContextPanel,
   setOnboardingActive,
   closeUsagePanel,
   oauthSubmitRef,
@@ -41,6 +38,7 @@ export function createAppPickers({
   modelPickerRequestRef,
   onboardingPrefetchSeqRef,
   settingsHeavyCacheRef,
+  settingsRequestRef,
   livePickerRef,
   disabledSkills,
   setDisabledSkills,
@@ -55,19 +53,16 @@ export function createAppPickers({
   const { openThemePicker, openEffortPicker } = createThemeEffortPickers({
     state,
     store,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
-    setContextPanel,
     closeUsagePanel,
     clean,
   });
-  // Resume picker — independent (store + setPicker + two session formatters).
+  // Resume picker — independent (store + surface + two session formatters).
   const { openResumePicker } = createResumePicker({
     store,
-    setPicker,
+    surface,
     formatSessionUpdatedAt,
     formatSessionMessageCount,
   });
@@ -79,7 +74,7 @@ export function createAppPickers({
   // the picker's own onSelect closures), so they stay unbound here.
   const { openMemoryCorePicker } = createCoreMemoryPicker({
     store,
-    setPicker,
+    surface,
     setSettingsPrompt,
     parseMemoryCoreRows,
   });
@@ -99,11 +94,9 @@ export function createAppPickers({
     theme,
     clean,
     copyToClipboard,
-    setPicker,
+    surface,
     getPicker: () => livePickerRef.current,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
     getDisabledSkills: () => disabledSkills,
     setDisabledSkills,
@@ -116,12 +109,9 @@ export function createAppPickers({
     store,
     theme,
     formatDuration,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
-    setContextPanel,
     closeUsagePanel,
   });
   // Onboarding wizard + channel setup picker factories. Instantiated here —
@@ -130,10 +120,8 @@ export function createAppPickers({
   // that resolve the live binding at call time.
   const { onboardingWarnReopen, openOnboardingAuthStep } = createOnboardingSteps({
     store,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
     setOnboardingActive,
     onboardingRef,
@@ -145,12 +133,9 @@ export function createAppPickers({
   });
   const { openProviderSetupPicker } = createProviderSetupPicker({
     store,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
-    setContextPanel,
     closeUsagePanel,
     oauthSubmitRef,
     clearModelCaches,
@@ -158,10 +143,8 @@ export function createAppPickers({
   const { openModelPicker } = createModelPicker({
     store,
     getState: () => state,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
     providerModelsCacheRef,
     webSearchModelsCacheRef,
@@ -178,12 +161,9 @@ export function createAppPickers({
   } = createRoutePickers({
     store,
     state,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
-    setContextPanel,
     closeUsagePanel,
     clean,
     routeLabel,
@@ -195,12 +175,11 @@ export function createAppPickers({
   const { openSettingsPicker } = createSettingsPicker({
     store,
     state,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
     settingsHeavyCacheRef,
+    settingsRequestRef,
     formatDuration,
     displayModelName,
     routeModelLabel,
@@ -227,7 +206,7 @@ export function createAppPickers({
     state,
     store,
     normalizeSlashCommandName,
-    setContextPanel,
+    surface,
     closeUsagePanel,
     openModelPicker: (...a) => openModelPicker(...a),
     modelSwitchNotice,

@@ -9,7 +9,7 @@ import { flushEmbeddingDirty } from './memory-embed.mjs'
 import { refreshHotActive } from './memory.mjs'
 import { backfillCoreEmbeddings, nominateCoreCandidates } from './core-memory-store.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
-import { __mixdogMemoryLog, throwIfAborted } from './memory-cycle2-shared.mjs'
+import { __mixdogMemoryLog, throwIfAborted, isStoreFault } from './memory-cycle2-shared.mjs'
 import {
   applyBatchStatusVerdicts, clampPendingPromotions, blockTransientPromotions, applySimpleStatus, applyUpdate, applyLineage, applyMerge, runPhaseMerge,
 } from './memory-cycle2-mutations.mjs'
@@ -142,6 +142,16 @@ export async function runCycle2(db, config = {}, options = {}, dataDir = null) {
       try {
         result = await _runCycle2Impl(db, config, options, dataDir)
       } catch (err) {
+        // A marked store fault means the database just failed (or ambiguously
+        // failed) a write: do not push another write — the coalesced-request
+        // ledger is a meta-table INSERT/UPDATE — onto it. Go straight to the
+        // { ok: false } boundary. The in-process retry timer is left intact so
+        // recovery still happens on a later, independent run.
+        if (isStoreFault(err)) {
+          __mixdogMemoryLog('[cycle2] store fault — skipping coalesced request mark\n')
+          if (coalescedRetry && retryAttempt < maxRetries) scheduleRetry()
+          throw err
+        }
         if (coalescedRetry) {
           await markCycleRequest(db, 'cycle2', 'retry-error', requestSignature)
           if (retryAttempt < maxRetries) scheduleRetry()
@@ -162,6 +172,12 @@ export async function runCycle2(db, config = {}, options = {}, dataDir = null) {
           const next = await _runCycle2Impl(db, config, options, dataDir)
           result = mergeCycle2Results(result, next)
         } catch (err) {
+          // Same rule on the drain pass: no ledger write after a store fault.
+          if (isStoreFault(err)) {
+            __mixdogMemoryLog('[cycle2] store fault — skipping coalesced drain mark\n')
+            if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
+            throw err
+          }
           await markCycleRequest(db, 'cycle2', 'drain-error', requestSignature)
           if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry()
           throw err
@@ -178,7 +194,10 @@ export async function runCycle2(db, config = {}, options = {}, dataDir = null) {
       return okResult
     } catch (e) {
       if (signal?.aborted) throw signal.reason ?? e
-      return { ok: false, error: e.message, ...partial }
+      // The store-fault outcome leaves this boundary as an explicit boolean, so
+      // no consumer downstream (IPC, worker, log pipeline) ever has to re-derive
+      // it from the error text.
+      return { ok: false, error: e.message, storeFault: isStoreFault(e), ...partial }
     } finally {
       let releaseErr = null
       try {
@@ -540,7 +559,16 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
             )
             continue
           }
-          const moved = await applyMerge(db, targetId, sourceIds, { signal, floorGuard })
+          // Pass the snapshot each verdict was computed against so applyMerge
+          // can refuse to archive a source whose status/content moved on.
+          const expectedBySource = {}
+          for (const sourceId of sourceIds.map(Number)) {
+            const sourceRow = rowsById.get(sourceId)
+            if (sourceRow) expectedBySource[sourceId] = { status: sourceRow.status, summary: sourceRow.summary }
+          }
+          const targetRow = rowsById.get(Number(targetId))
+          const expectedTarget = targetRow ? { status: targetRow.status, summary: targetRow.summary } : null
+          const moved = await applyMerge(db, targetId, sourceIds, { signal, floorGuard, expectedBySource, expectedTarget })
           throwIfAborted(signal)
           if (moved > 0) {
             stats.merged += moved
@@ -561,6 +589,12 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
         if (accepted) reviewedIds.push(id)
       } catch (err) {
         if (signal?.aborted) throw signal.reason ?? err
+        // A store fault leaves the database state unknown and the floor
+        // reservation permanently spent, so the cycle stops here exactly like
+        // phase_merge does (runCycle2 reports it as { ok: false }). Verdict
+        // rejections never land here — a guard mismatch or skipped merge
+        // returns normally and is counted as merge_rejected / error_count.
+        if (isStoreFault(err)) throw err
         __mixdogMemoryLog(`[cycle2] action error (id=${id}): ${err.message}\n`)
       }
     }

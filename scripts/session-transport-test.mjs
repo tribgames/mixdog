@@ -36,6 +36,7 @@ const {
 } =
   await import('../src/standalone/session-client.mjs');
 const { createProjectPicker } = await import('../src/tui/app/project-picker.mjs');
+const { createPanelSurface } = await import('../src/tui/app/panel-surface.mjs');
 const { createSessionApiA } = await import('../src/tui/session/session-api.mjs');
 const { createSessionApiB } = await import('../src/tui/session/session-api-ext.mjs');
 const {
@@ -667,14 +668,17 @@ test('the TUI project picker awaits service switches and contains service failur
       },
       pushNotice: (message, tone) => notices.push([message, tone]),
     },
-    setPicker: (next) => {
-      picker = typeof next === 'function' ? next(picker) : next;
-    },
+    surface: createPanelSurface({
+      setPicker: (next) => {
+        picker = typeof next === 'function' ? next(picker) : next;
+      },
+      setContextPanel: () => {},
+      setUsagePanel: () => {},
+    }),
     setProviderPrompt: () => {},
     setChannelPrompt: () => {},
     setHookPrompt: () => {},
     setSettingsPrompt: () => {},
-    setContextPanel: () => {},
     closeUsagePanel: () => {},
     projectNameFromPath: (value) => value,
     pickFolder: async () => ({ available: true, path: null }),
@@ -690,12 +694,11 @@ test('the TUI project picker awaits service switches and contains service failur
       setCwd: async () => { throw new Error('service rejected cwd'); },
       pushNotice: (message, tone) => notices.push([message, tone]),
     },
-    setPicker: () => {},
+    surface: createPanelSurface({ setPicker: () => {}, setContextPanel: () => {}, setUsagePanel: () => {} }),
     setProviderPrompt: () => {},
     setChannelPrompt: () => {},
     setHookPrompt: () => {},
     setSettingsPrompt: () => {},
-    setContextPanel: () => {},
     closeUsagePanel: () => {},
     projectNameFromPath: (value) => value,
     pickFolder: async () => ({ available: true, path: null }),

@@ -8,6 +8,9 @@ import {
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { summarizeReductionTraceRows } from '../../../src/runtime/agent/orchestrator/session/reduction-metrics.mjs';
+import { pricedCost, pricedSplitCost, rateFor } from './model-rates.mjs';
+
+export { pricedCost, pricedSplitCost, rateFor };
 
 const readJson = (path) => JSON.parse(readFileSync(path, 'utf8'));
 const tryReadJson = (path) => {
@@ -30,60 +33,41 @@ const median = (values) => {
 const sum = (rows, read) => rows.reduce((total, row) => total + finite(read(row)), 0);
 const inline = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
-const RATES = [
-  [/luna/, { input: 0.2, cached: 0.02, write: 0.25, output: 1.2, family: 'openai' }],
-  [/terra/, { input: 2, cached: 0.2, write: 2.5, output: 12, family: 'openai' }],
-  [/sol|gpt/, { input: 5, cached: 0.5, write: 6.25, output: 30, family: 'openai' }],
-  [/haiku/, { input: 1, cached: 0.1, write: 1.25, output: 5, family: 'anthropic' }],
-  [/opus|fable|claude/, { input: 5, cached: 0.5, write: 10, output: 25, family: 'anthropic' }],
-];
-
-function rateFor(model) {
-  const name = String(model || '').toLowerCase();
-  return RATES.find(([pattern]) => pattern.test(name))?.[1] ?? RATES.at(-1)[1];
-}
-
-function pricedCost({ model, input, cached, cacheWrite, output }) {
-  const rate = rateFor(model);
-  const uncached = rate.family === 'openai'
-    ? Math.max(finite(input) - finite(cached) - finite(cacheWrite), 0)
-    : finite(input);
-  return (
-    uncached * rate.input
-    + finite(cached) * rate.cached
-    + finite(cacheWrite) * rate.write
-    + finite(output) * rate.output
-  ) / 1e6;
-}
-
 function usageMetrics(trialDir, transcript) {
   const usage = tryReadJson(join(trialDir, 'agent', 'usage.json'));
   if (Array.isArray(usage?.sessions) && usage.sessions.length) {
-    const costUsd = usage.sessions.reduce((total, session) => total + pricedCost({
+    const costs = usage.sessions.map((session) => pricedCost({
       model: session?.models?.[0],
       input: session.inputTokens,
       cached: session.cacheTokens,
       cacheWrite: session.cacheWriteTokens,
       output: session.outputTokens,
-    }), 0);
+    }));
+    if (costs.some((cost) => cost == null)) {
+      return {
+        costUsd: null,
+        cacheWrite: finite(usage?.totals?.cacheWriteTokens),
+        costUnsupported: true,
+      };
+    }
     return {
-      costUsd,
+      costUsd: costs.reduce((total, cost) => total + cost, 0),
       cacheWrite: finite(usage?.totals?.cacheWriteTokens),
     };
   }
   if (!transcript) return { costUsd: null, cacheWrite: 0 };
   const cacheWrite = finite(transcript.totalCacheWriteTokens);
-  const rate = rateFor(transcript.model);
-  const uncached = Math.max(finite(transcript.totalUncachedInputTokens) - cacheWrite, 0);
-  return {
-    costUsd: (
-      uncached * rate.input
-      + finite(transcript.totalCachedReadTokens) * rate.cached
-      + cacheWrite * rate.write
-      + finite(transcript.totalOutputTokens) * rate.output
-    ) / 1e6,
+  const costUsd = pricedSplitCost({
+    model: transcript.model,
+    uncached: Math.max(finite(transcript.totalUncachedInputTokens) - cacheWrite, 0),
+    cached: transcript.totalCachedReadTokens,
     cacheWrite,
-  };
+    output: transcript.totalOutputTokens,
+  });
+  if (costUsd == null) {
+    return { costUsd: null, cacheWrite, costUnsupported: true };
+  }
+  return { costUsd, cacheWrite };
 }
 
 function findRunDir(jobsDir) {
@@ -281,6 +265,9 @@ function collectTrials(runDir, costDetails = {}) {
           ?? finite(trace?.tokens?.output),
       },
       costUsd: optionalNumber(costDetails[task]) ?? directCost ?? usage.costUsd,
+      costUnsupported: Boolean(usage.costUnsupported)
+        && optionalNumber(costDetails[task]) == null
+        && directCost == null,
       finalContextTokens: optionalNumber(transcript?.lastContextTokens) ?? finalContextTokens,
       trace: result?.exception_info || trace?.failures?.length ? trace : null,
     });
@@ -306,7 +293,22 @@ function reductionRows(runDir) {
   return summarizeReductionTraceRows(rows);
 }
 
-function historyReports(historyRoot, fingerprint, currentJobsDir) {
+function contractKey(contract) {
+  if (!contract || typeof contract !== 'object') return null;
+  const rules = String(contract.rulesHash || '');
+  const tools = String(contract.toolContractHash || contract.toolCatalogHash || '');
+  const prompt = String(contract.promptSurfaceHash || '');
+  if (!rules || !tools || !prompt) return null;
+  return `${rules}|${tools}|${prompt}`;
+}
+
+function sameMeasuredContract(left, right) {
+  const a = contractKey(left);
+  const b = contractKey(right);
+  return a !== null && a === b;
+}
+
+function historyReports(historyRoot, fingerprint, currentJobsDir, contract) {
   const reports = [];
   for (const entry of readdirSync(historyRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
@@ -318,7 +320,11 @@ function historyReports(historyRoot, fingerprint, currentJobsDir) {
     try {
       const manifest = readJson(manifestPath);
       const report = readJson(reportPath);
-      if (manifest.fingerprint === fingerprint && report?.preset?.fingerprint === fingerprint) {
+      if (
+        manifest.fingerprint === fingerprint
+        && report?.preset?.fingerprint === fingerprint
+        && sameMeasuredContract(contract, manifest.contract ?? report.preset.contract)
+      ) {
         reports.push(report);
       }
     } catch {
@@ -331,6 +337,9 @@ function historyReports(historyRoot, fingerprint, currentJobsDir) {
       if (entry?.fingerprint !== fingerprint) continue;
       const runDir = resolve(historyRoot, String(entry.runDir || ''));
       if (runDir === currentJobsDir || !existsSync(join(runDir, 'result.json'))) continue;
+      const historicalContract = tryReadJson(join(runDir, 'preset-run.json'))?.contract
+        ?? tryReadJson(join(runDir, 'report.json'))?.preset?.contract;
+      if (!sameMeasuredContract(contract, historicalContract)) continue;
       const aggregate = tryReadJson(join(runDir, 'result.json'));
       const trials = collectTrials(runDir);
       const stats = aggregate?.stats ?? {};
@@ -433,10 +442,14 @@ function tokenTotals(rows) {
 }
 
 function knownCost(rows) {
+  if (rows.some((row) => row.costUnsupported)) {
+    return { usd: null, trials: 0, unsupported: true };
+  }
   const known = rows.filter((row) => Number.isFinite(row.costUsd));
   return {
     usd: known.length ? sum(known, (row) => row.costUsd) : null,
     trials: known.length,
+    unsupported: false,
   };
 }
 
@@ -648,7 +661,12 @@ export function generateRunReport({ jobsDir, historyRoot }) {
     pair: null,
   };
 
-  const historical = historyReports(resolve(historyRoot), manifest.fingerprint, absoluteJobsDir);
+  const historical = historyReports(
+    resolve(historyRoot),
+    manifest.fingerprint,
+    absoluteJobsDir,
+    manifest.contract ?? null,
+  );
   const priorClean = historical
     .filter((report) => report?.result?.clean && report.result.total === total)
     .sort((a, b) => String(a?.timing?.finishedAt).localeCompare(String(b?.timing?.finishedAt)));
@@ -708,7 +726,7 @@ export function formatRunReport(report) {
     `- Agent total: **${number(report.timing.agentTotalSeconds)}s** — rank ${rankText(report.comparison.ranks.agentTotalSeconds)}`,
     `- Wall: **${number(report.timing.wallSeconds)}s** — rank ${rankText(report.comparison.ranks.wallSeconds)}`,
     `- Tokens: input ${report.tokens.input}, cached ${report.tokens.cached}, output ${report.tokens.output}`,
-    `- Cost: $${number(report.cost.usd, 2)} (${report.cost.trials} trials)`,
+    `- Cost: ${report.cost.unsupported ? 'unsupported' : `$${number(report.cost.usd, 2)} (${report.cost.trials} trials)`}`,
     `- Final context median: ${number(report.finalContext.medianTokens, 0)} tokens (${report.finalContext.trials} trials)`,
     `- Reduction: ${report.reduction.totalSavedBytes} bytes saved, ${report.reduction.activity.artifactReads} artifact reads`,
   ];

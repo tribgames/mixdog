@@ -83,6 +83,14 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
   assert.match(mobileChromeSource, /--mx-mobile-edge-main:\s*calc\(12px \* var\(--mx-device-scale/u);
   assert.match(
     mobileChromeSource,
+    /html\[data-mixdog-mobile-tabs\] \.session-sidebar \.session-row\s*\{[^}]*height:\s*var\(--mx-touch-row\);[^}]*min-height:\s*var\(--mx-touch-row\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.session-sidebar \.session-row-actions\s*\{[^}]*top:\s*calc\(\(var\(--mx-touch-row\) - 24px\) \/ 2\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
     /html\[data-mixdog-mobile-tabs\] \.transcript\s*\{[^}]*scrollbar-gutter:\s*auto;[^}]*touch-action:\s*pan-y;/su,
   );
   assert.match(

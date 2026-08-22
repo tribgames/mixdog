@@ -212,15 +212,21 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-faint);
-  background: transparent;
+  background: color-mix(in srgb, var(--mx-bg-base) 54%, transparent);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
   cursor: pointer;
 }
 .session-work-indicator > button:disabled { cursor: default; }
 .session-work-indicator > button:hover:not(:disabled),
 .session-work-indicator > button:focus-visible {
   color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  background: var(--mx-hover);
   outline: none;
+}
+.session-work-indicator[data-open="true"] > button {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
 }
 /* Active work keeps the base glyph blue. A second copy carries one narrow
    highlight across the stroke without pulsing the whole icon. */
@@ -282,12 +288,19 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   height: 6px;
 }
 .session-work-indicator .live-work-popover {
+  /* ONE measure ladder for the header and its rows (user: 인덱스표기가 아래랑
+     안맞고): the group count and every row's Stop button share the same
+     trailing column, and a row label starts on the header label's own column
+     instead of 23px to its left. */
+  --live-work-inset: 8px;
+  --live-work-gap: 7px;
+  --live-work-action: 28px;
   right: 0;
   width: var(--session-status-card-width);
   max-width: calc(100vw - 24px);
   display: grid;
   grid-template-columns: 1fr;
-  gap: 6px;
+  gap: 8px;
   padding: 8px;
 }
 .session-work-indicator[data-active="false"] .live-work-popover {
@@ -297,23 +310,25 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 .live-work-group {
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 .live-work-group + .live-work-group {
-  padding-top: 6px;
+  padding-top: 8px;
   border-top: .5px solid var(--mx-border);
 }
 .live-work-group-header {
   min-width: 0;
-  height: 28px;
+  height: 30px;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) var(--live-work-action);
   align-items: center;
-  gap: 7px;
-  padding: 0 8px;
+  gap: var(--live-work-gap);
+  padding: 0 var(--live-work-inset);
+  border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
+  background: color-mix(in srgb, var(--mx-text) 3%, transparent);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
-.live-work-group-header > svg { color: var(--mx-icon-muted); }
 .live-work-group-header > span {
   overflow: hidden;
   font-size: var(--mx-font-minor);
@@ -321,27 +336,35 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The count sits INSIDE the action column and centers on it, so it lands on
+   the same vertical line every Stop button below it uses. */
 .live-work-group-header > b {
-  min-width: 18px;
+  min-width: 0;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
-  text-align: right;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 .session-work-indicator .live-work-row {
   min-width: 0;
   min-height: 40px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* Label, elapsed, Stop — the trailing column matches the header's count
+     column, and the leading inset matches the header's label column. */
+  grid-template-columns: minmax(0, 1fr) auto var(--live-work-action);
   align-items: center;
-  gap: 10px;
-  padding: 7px 8px;
+  gap: var(--live-work-gap);
+  padding: 7px var(--live-work-inset);
   border-radius: var(--mx-radius-md);
+  background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
 }
 .session-work-indicator .live-work-row:hover { background: var(--mx-hover); }
+/* The idle line belongs to no group, so it keeps the plain card inset. */
 .session-work-indicator .live-work-row:only-child:not([data-kind]) {
   grid-template-columns: 1fr;
+  padding-left: var(--live-work-inset);
   color: var(--mx-text-muted);
 }
 .session-work-indicator[data-active="false"] .live-work-row {
@@ -364,12 +387,19 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 .session-work-indicator .live-work-copy > small {
   display: none;
 }
+/* How long this job has been running (user: 경과 시간표기는있어야할듯). The
+   value ticks on the card's own 1s clock and reads as meta ink, so it informs
+   without competing with the label. */
 .session-work-indicator .live-work-row > time {
-  display: none;
+  justify-self: end;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .live-work-stop {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   align-self: center;
   display: grid;
   place-items: center;
@@ -377,11 +407,18 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   border: 0;
   border-radius: var(--mx-radius-sm);
   color: var(--mx-icon-muted);
+  /* A filled plate on every row read as a row of little squares stamped over
+     the card (user: 중단버튼도 뭔가 튀네). The mark stays a bare glyph and
+     only earns its frame under the pointer. */
   background: transparent;
   box-shadow: none;
   cursor: pointer;
 }
-.live-work-stop:hover:not(:disabled) { color: var(--mx-danger); background: var(--mx-danger-bg); }
+.live-work-stop:hover:not(:disabled) {
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 38%, transparent);
+}
 .live-work-stop:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .session-work-indicator[data-active="true"] .session-work-icon {

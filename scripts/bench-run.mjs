@@ -22,6 +22,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
+import { pricedSplitCost } from '../benchmarks/terminal-bench-2.1/analysis/model-rates.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-exec.mjs')).href;
@@ -260,17 +261,6 @@ const RUNNERS = {
   },
 };
 
-function scoreSessions(ids) {
-  if (!ids.length) return null;
-  const raw = execFileSync('node', [TASK_BENCH, '--session', ids.join(','), '--group', '--json'], {
-    encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, ...(opts?.env || {}) },
-  });
-  const s = raw.replace(/^\uFEFF/, '');
-  const i = s.indexOf('{');
-  return JSON.parse(i >= 0 ? s.slice(i) : s);
-}
-
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms));
 }
@@ -301,26 +291,16 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-// USD list pricing per 1M tokens (input / cached input / output), 2026-07.
-// Cross-harness cost comparison needs a real currency: OAuth lanes bill
-// quota, not dollars, but token counts priced at API list rates are the
-// only harness-neutral metric. Unknown models fall back to gpt-5.5 rates.
-const USD_PER_1M = {
-  'gpt-5.5': { in: 5.00, cachedIn: 0.50, out: 30.00 },
-  'gpt-5.6-sol': { in: 5.00, cachedIn: 0.50, out: 30.00 },
-  // Official list prices — keep in lockstep with
-  // benchmarks/terminal-bench-2.1/harness/cost-exact.mjs RATES.
-  'gpt-5.6-terra': { in: 2.00, cachedIn: 0.20, out: 12.00 },
-  'gpt-5.6-luna': { in: 0.20, cachedIn: 0.02, out: 1.20 },
-  'claude-sonnet-5': { in: 2.00, cachedIn: 0.20, out: 10.00 },
-  'claude-fable-5': { in: 5.00, cachedIn: 0.50, out: 25.00 },
-};
 function usdCost(model, uncachedIn, cachedIn, outTokens) {
-  const key = String(model || '').toLowerCase();
-  const p = USD_PER_1M[key]
-    || USD_PER_1M[Object.keys(USD_PER_1M).find((k) => key.includes(k))]
-    || USD_PER_1M['gpt-5.5'];
-  return Math.round(((num(uncachedIn) * p.in + num(cachedIn) * p.cachedIn + num(outTokens) * p.out) / 1e6) * 10000) / 10000;
+  const value = pricedSplitCost({
+    model,
+    uncached: uncachedIn,
+    cached: cachedIn,
+    cacheWrite: 0,
+    output: outTokens,
+  });
+  if (value == null) return null;
+  return Math.round(value * 10000) / 10000;
 }
 
 function averageCards(cards) {
@@ -328,7 +308,15 @@ function averageCards(cards) {
   const keys = Object.keys(cards[0]).filter((k) => cards.some((c) => typeof c[k] === 'number' && Number.isFinite(c[k])));
   const out = { n: cards.length };
   for (const k of keys) {
-    const vals = cards.map((c) => num(c[k]));
+    if (k === 'usd_cost') {
+      const priced = cards.map((c) => c.usd_cost).filter((v) => typeof v === 'number' && Number.isFinite(v));
+      out.usd_cost = priced.length === cards.length
+        ? Math.round((priced.reduce((a, b) => a + b, 0) / priced.length) * 10) / 10
+        : null;
+      continue;
+    }
+    const vals = cards.map((c) => c[k]).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    if (!vals.length) continue;
     out[k] = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
   }
   return out;

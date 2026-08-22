@@ -71,6 +71,7 @@ if ($deployPlan.deploy) {
     $ErrorActionPreference = 'Stop'
     $tgz = Join-Path $env:TEMP 'mixdog-relay-upload.tgz'
     Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
+    try {
     $entries = @('server.mjs', 'package.json', 'package-lock.json', 'lib', 'deploy')
     if ($includeRenderer) {
       $deltaTool = Join-Path $relayDir 'deploy\renderer-delta.mjs'
@@ -104,6 +105,11 @@ if ($deployPlan.deploy) {
       + " && tar -xzf /root/relay-upload.tgz -C /root/relay-upload" `
       + " && bash /root/relay-upload/deploy/deploy-release.sh $Domain v$version")
     if ($LASTEXITCODE -ne 0) { throw "VPS swap exited with $LASTEXITCODE" }
+    } finally {
+      & ssh -o BatchMode=yes -o ConnectTimeout=10 $SshHost `
+        'rm -rf -- /root/relay-upload /root/relay-upload.tgz /root/mixdog-renderer-delta.mjs' 2>$null
+      Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
+    }
     $ErrorActionPreference = 'Continue'
     $health = 'no response'
     foreach ($attempt in 1..10) {

@@ -281,8 +281,13 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     // to return the unchanged stub.
     const _mutationSnapshot = readStateScope ? getReadSnapshot(fullPath, readStateScope) : null;
     const _mutationSource = String(_mutationSnapshot?.source || '');
+    // `bodyDelivered` is the guard that the session actually received this
+    // file's body before the mutation: an edit/patch on a file that was never
+    // read otherwise answered "[file unchanged]" forever, with the body never
+    // delivered to the model.
     if (
         (_mutationSource === 'edit' || _mutationSource.startsWith('apply_patch_'))
+        && _mutationSnapshot?.bodyDelivered === true
         && statMatchesSnapshot(st, _mutationSnapshot)
         && snapshotCoversFullFile(_mutationSnapshot)
     ) {
@@ -741,6 +746,13 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
                 const mid = Math.ceil((lo + hi) / 2);
                 if (Buffer.byteLength(rendered.slice(0, mid), 'utf8') <= _readMaxOutputBytes) lo = mid;
                 else hi = mid - 1;
+            }
+            // `lo` is a UTF-16 code-unit index: cutting between a high and low
+            // surrogate emits a lone surrogate (replacement glyph) and breaks
+            // the byte count the cap just computed. Step back off the pair.
+            if (lo > 0) {
+                const cu = rendered.charCodeAt(lo - 1);
+                if (cu >= 0xD800 && cu <= 0xDBFF) lo -= 1;
             }
             const slice = rendered.slice(0, lo);
             const completeRenderedLines = Math.max(0, slice.split('\n').length - 1);

@@ -5,13 +5,7 @@ import {
     canonicalizeAgentRouteStorage,
 } from '../../shared/agent-route-config.mjs';
 import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
-import {
-    hasAnthropicOAuthCredentials,
-    hasOpenAIOAuthCredentials,
-    hasGrokOAuthCredentials,
-    hasCursorOAuthCredentials,
-    hasAntigravityOAuthCredentials,
-} from './providers/oauth-credential-probes.mjs';
+import { oauthCredentialProbeState } from './providers/oauth-credential-probes.mjs';
 
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
 // can import a single helper without reaching into shared/.
@@ -165,22 +159,40 @@ function buildDefaultConfig(options = {}) {
         };
     }
     // OAuth provider detection uses lightweight credential probes so config
-    // load does not import provider runtimes or SDKs. WebSocket transport is on by default —
-    // measured ~96% cross-session cache hit with delta payloads. Users who
-    // need to force SSE (e.g. a corporate proxy blocking WSS) can set
-    // `websocket: false` in mixdog-config.json (agent.providers.openai-oauth).
-    providers['openai-oauth'] = { enabled: detectCredentials ? hasOpenAIOAuthCredentials() : false, websocket: true };
-    providers['anthropic-oauth'] = { enabled: detectCredentials ? hasAnthropicOAuthCredentials() : false };
+    // load does not import provider runtimes or SDKs.
+    //
+    // The probe has THREE outcomes and `enabled` is only a boolean, so the
+    // third one is carried alongside it: a credential file that EXISTS but
+    // could not be read/parsed this instant (lock contention, EACCES, a torn
+    // atomic write) yields enabled:false + credentialProbeUnavailable:true.
+    // Without that marker the registry cannot tell such a load apart from a
+    // real logout/disable and would latch a momentary FS failure as a user
+    // opt-out. The marker is ephemeral: loadConfig drops it as soon as the
+    // stored config states `enabled` itself, and saveConfig never persists it.
+    const oauthEntry = (name, extra = {}) => {
+        const state = detectCredentials ? oauthCredentialProbeState(name) : 'absent';
+        return {
+            enabled: state === 'present',
+            ...(state === 'unreadable' ? { credentialProbeUnavailable: true } : {}),
+            ...extra,
+        };
+    };
+    // WebSocket transport is on by default — measured ~96% cross-session cache
+    // hit with delta payloads. Users who need to force SSE (e.g. a corporate
+    // proxy blocking WSS) can set `websocket: false` in mixdog-config.json
+    // (agent.providers.openai-oauth).
+    providers['openai-oauth'] = oauthEntry('openai-oauth', { websocket: true });
+    providers['anthropic-oauth'] = oauthEntry('anthropic-oauth');
     // Grok OAuth ("Grok Build"). Like the other OAuth entries it is not
     // stored in mixdog-config.json — enabled at runtime from the presence of
     // Mixdog-owned credentials.
-    providers['grok-oauth'] = { enabled: detectCredentials ? hasGrokOAuthCredentials() : false };
+    providers['grok-oauth'] = oauthEntry('grok-oauth');
     // Experimental direct Cursor wire provider. It remains disabled unless a
     // Mixdog-owned login or CURSOR_ACCESS_TOKEN is present.
-    providers['cursor-oauth'] = { enabled: detectCredentials ? hasCursorOAuthCredentials() : false };
+    providers['cursor-oauth'] = oauthEntry('cursor-oauth');
     // Google Antigravity (Cloud Code Assist). Gemini and Claude behind one
     // Google login; enabled only once a login has stored tokens + project.
-    providers['antigravity-oauth'] = { enabled: detectCredentials ? hasAntigravityOAuthCredentials() : false };
+    providers['antigravity-oauth'] = oauthEntry('antigravity-oauth');
     // Local providers — opt-in via setup UI after HTTP ping confirms server is running
     providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };
     providers.lmstudio = { enabled: false, baseURL: 'http://localhost:1234/v1' };
@@ -461,6 +473,14 @@ export function loadConfig(options = {}) {
                 for (const [name, val] of Object.entries(raw.providers)) {
                     if (val && typeof val === 'object') {
                         mergedProviders[name] = { ...(mergedProviders[name] || {}), ...val };
+                        // A STORED `enabled` is the user's own decision (setup
+                        // UI disable / hand edit) and outranks the probe: keep
+                        // it authoritative by dropping the probe-availability
+                        // marker, so a disable still removes the provider even
+                        // while its credential file happens to be unreadable.
+                        if (Object.prototype.hasOwnProperty.call(val, 'enabled')) {
+                            delete mergedProviders[name].credentialProbeUnavailable;
+                        }
                     } else {
                         mergedProviders[name] = val;
                     }
@@ -679,13 +699,28 @@ function buildAgentSaveBuilder(config, appliedDirty) {
     // provider keys are keychain-only (loadConfig overlays them into memory;
     // persisting would leak plaintext back into mixdog-config.json). It stays
     // in KNOWN_PROVIDER_KEYS so the generic passthrough loop also skips it.
-    const KNOWN_PROVIDER_KEYS = new Set(['apiKey', 'enabled', 'baseURL']);
+    // `credentialProbeUnavailable` is a per-load probe observation, not user
+    // state: persisting it would turn one unreadable-file moment into a marker
+    // that outlives the condition on every later load. Listed here so the
+    // generic passthrough loop below skips it.
+    const KNOWN_PROVIDER_KEYS = new Set(['apiKey', 'enabled', 'baseURL', 'credentialProbeUnavailable']);
     const persistedProviders = {};
     if (config.providers) {
         for (const [name, val] of Object.entries(config.providers)) {
             if (!val || typeof val !== 'object') continue;
             const slim = {};
-            if (typeof val.enabled === 'boolean') slim.enabled = val.enabled;
+            // NEVER persist an `enabled:false` that came from a credential probe
+            // which could not READ the credential this load. Writing it would
+            // convert a momentary FS failure into a stored user decision: the
+            // marker is stripped on save, so the next load would read that false
+            // as a deliberate disable and the provider would stay off for good.
+            // Omitting the key leaves `enabled` derived from the probe again on
+            // the next load. This can never erase a real user disable: loadConfig
+            // drops the marker whenever the stored config states `enabled`
+            // itself, so a marker in memory means nothing was stored for it.
+            const probeUnavailable = val.credentialProbeUnavailable === true;
+            const skipEnabled = probeUnavailable && val.enabled === false;
+            if (typeof val.enabled === 'boolean' && !skipEnabled) slim.enabled = val.enabled;
             if (val.baseURL) slim.baseURL = val.baseURL;
             for (const [k, v] of Object.entries(val)) {
                 if (KNOWN_PROVIDER_KEYS.has(k)) continue;

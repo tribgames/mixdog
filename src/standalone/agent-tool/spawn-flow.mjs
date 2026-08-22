@@ -4,7 +4,13 @@
 // execution with turn-review collection and terminal accounting.
 import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, positiveInt, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, writeAgentStatuslineRoute } from './helpers.mjs';
 import { createNotify } from './notify.mjs';
-import { reconcileBackgroundTask, sanitizeTaskMeta, startBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
+import { sanitizeTaskMeta, startBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
+import {
+  reconcileJobFinally,
+  reconcileJobStreamStalled,
+  reconcileJobTerminalResult,
+  reconcileJobWatchdogPartial,
+} from './job-task-reconcile.mjs';
 import { isAgentDisabled } from '../../runtime/shared/agent-route-config.mjs';
 import { abnormalEmptyFinishError, renderResult } from './render.mjs';
 import { resourceAdmission } from '../../runtime/shared/resource-admission.mjs';
@@ -14,8 +20,14 @@ import { normalizeAgentPermission } from '../../runtime/shared/markdown-frontmat
 import { resolveAgentSpawnPreset } from './spawn-preset.mjs';
 import { resolveAgentWatchdogPolicy, resolveHandoffMessageStartIndex, watchdogPartialHandoffFromError } from '../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { prepareAgentSession } from '../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
+import { saveSessionAsync } from '../../runtime/agent/orchestrator/session/store.mjs';
 import { AGENT_OWNER } from '../../runtime/agent/orchestrator/agent-owner.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
+// Mid-turn worker persistence cadence. The watchdog sweep runs every second;
+// a transcript save is far more expensive than a bookkeeping stamp, so the
+// in-progress snapshot lands on this slower clock.
+const AGENT_PROGRESS_SAVE_MS = 2_000;
+
 export function createSpawnFlow({
   mgr,
   forgetTerminalSession,
@@ -189,6 +201,35 @@ export function createSpawnFlow({
     });
   };
 
+  // In-turn progress stamp. turnStartStamper only fires at a TURN boundary, so
+  // one long first turn (a review agent easily runs 20+ tool iterations) left
+  // the worker row untouched for minutes and the panel looked stalled. The
+  // watchdog sweep reports each observed change; the row keeps its own live
+  // message count and updatedAt from it.
+  const progressStamper = (session, tag) => {
+    let lastSavedAt = 0;
+    return (progress = {}) => {
+      const messages = Number(progress?.messages) || 0;
+      upsertWorkerSessionDeferred(session, tag, {
+        status: 'running',
+        stage: 'running',
+        ...(messages > 0 ? { messages } : {}),
+      });
+      // Mid-turn durability. A worker transcript otherwise reaches disk only
+      // when the turn ENDS, so a pane opened on a running worker shows the
+      // prompt and nothing after it — the work is real but invisible to every
+      // viewer. Persisting on the sweep makes the in-progress transcript
+      // readable like any other session. Throttled: a transcript save is not
+      // free, and the sweep runs every second.
+      const now = Date.now();
+      if (now - lastSavedAt < AGENT_PROGRESS_SAVE_MS) return;
+      lastSavedAt = now;
+      try {
+        Promise.resolve(saveSessionAsync(session)).catch(() => {});
+      } catch { /* progress persistence is best-effort */ }
+    };
+  };
+
   async function prepareSpawn(args, callerCwd = null, context = {}, prepState = null) {
     refreshTagsFromSessions({ context });
     return prepareSpawnInProcess(args, callerCwd, context, prepState);
@@ -325,6 +366,7 @@ export function createSpawnFlow({
     const { args, tag, session, agent, preset, presetName, workerCwd, prompt, watchdogPolicy } = prepared;
     const watchdog = startProgressIdleWatchdog(session.id, watchdogPolicy, agent, {
       onTurnStart: turnStartStamper(session, tag),
+      onProgress: progressStamper(session, tag),
     });
     const turnReview = createTurnReviewCollector(session, tag, agent, notifyContext || {});
     let finalStatus = 'idle';
@@ -374,29 +416,7 @@ export function createSpawnFlow({
             const value = completionValue(terminalResult);
             if (job) job._terminalResultValue = value;
             notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
-            // Mark the task terminal the moment the worker produces its final
-            // result, so a hung/slow post-result session save cannot strand the
-            // task (and the status card) in `running`. Idempotent; the finally
-            // reconcile remains a backup for the error/no-terminal-result path.
-            if (job?.taskId) {
-              try {
-                // An empty/abnormal finish is a failure, not a completion:
-                // reconcile as `failed` with the accurate error so the Lead
-                // card renders `error: …` instead of a header-only empty card.
-                reconcileBackgroundTask(job.taskId, value.error
-                  ? {
-                      status: 'failed',
-                      result: value,
-                      error: value.error,
-                      terminalReason: 'agent-empty-final',
-                    }
-                  : {
-                      status: 'completed',
-                      result: value,
-                      terminalReason: 'agent-terminal-result',
-                    });
-              } catch {}
-            }
+            reconcileJobTerminalResult(job, value);
           },
         } : {}),
       });
@@ -431,34 +451,11 @@ export function createSpawnFlow({
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;
-        if (job?.taskId) {
-          try {
-            reconcileBackgroundTask(job.taskId, {
-              status: 'completed',
-              result: value,
-              terminalReason: 'agent-watchdog-partial',
-            });
-          } catch {}
-        }
+        reconcileJobWatchdogPartial(job, value);
         return value;
       }
       finalStatus = 'error';
-      // Part C: a mid-stream stall (StreamStalledError / ESTREAMSTALL) throws
-      // here WITHOUT a terminal result, so the finally reconcile below (gated on
-      // _terminalResultValue) would be skipped and only the outer task-reject
-      // path would notify. Belt-and-suspenders: reconcile this job to `failed`
-      // now so the owner (Lead) always gets a failure notification instead of a
-      // task stranded in `running`. Idempotent — completeBackgroundTask no-ops
-      // once terminal, so the outer reject path can't double-notify.
-      if (job?.taskId && job._terminalResultValue === undefined) {
-        try {
-          reconcileBackgroundTask(job.taskId, {
-            status: 'failed',
-            error,
-            terminalReason: 'agent-stream-stalled',
-          });
-        } catch {}
-      }
+      reconcileJobStreamStalled(job, error);
       throw error;
     } finally {
       turnReview.complete();
@@ -475,23 +472,7 @@ export function createSpawnFlow({
         finishedAt: new Date().toISOString(),
       });
       setImmediate(notifyStatusChange);
-      // Safety net: if a post-result step (session save) hung or threw after the
-      // worker already produced a terminal result, the task could otherwise be
-      // stranded in `running`. Reconcile it to a terminal state using the
-      // captured result so the owner gets a completion notification + the
-      // statusline clears. Idempotent once the task is already terminal.
-      if (job && job._terminalResultValue !== undefined) {
-        try {
-          reconcileBackgroundTask(job.taskId, {
-            status: finalStatus === 'error' ? 'failed' : 'completed',
-            result: job._terminalResultValue,
-            ...(finalStatus === 'error' && job._terminalResultValue?.error
-              ? { error: job._terminalResultValue.error }
-              : {}),
-            terminalReason: 'agent-finally-reconcile',
-          });
-        } catch {}
-      }
+      reconcileJobFinally(job, finalStatus);
       scheduleReap(session.id);
       // SubagentStop: worker finished (terminal), regardless of outcome.
       emitSubagentEvent('stop', agent, { session_id: session.id, tag, status: finalStatus });
@@ -510,6 +491,7 @@ export function createSpawnFlow({
     progressWatchdogs,
     startProgressIdleWatchdog,
     turnStartStamper,
+    progressStamper,
     prepareSpawn,
     prepareSpawnInProcess,
     runSpawn,

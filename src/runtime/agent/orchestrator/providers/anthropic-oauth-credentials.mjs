@@ -115,11 +115,6 @@ function _loadCredentialsFile(path) {
     }
 }
 
-export function loadCredentialsFromPath(path) {
-    if (!path) return null;
-    return _loadCredentialsFile(resolve(path));
-}
-
 // Cross-process safe credential save. Lockfile (O_EXCL) prevents two Mixdog
 // refreshers from clobbering each other; atomic rename guarantees readers see
 // either the old or new file, never a half-written one. Used so refresh_token

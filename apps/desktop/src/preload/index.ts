@@ -111,6 +111,16 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.folderWatch, dir, recursive === true),
   folderUnwatch: (dir, recursive) =>
     ipcRenderer.invoke(DESKTOP_IPC.folderUnwatch, dir, recursive === true),
+  subscribeRelayPayloadRefused: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      detail: { bytes: number | null; limit: number | null },
+    ): void => {
+      listener(detail ?? { bytes: null, limit: null });
+    };
+    ipcRenderer.on(DESKTOP_IPC.relayPayloadRefused, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.relayPayloadRefused, receive);
+  },
   subscribeFolderChanges: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, dir: string): void => {
       listener(String(dir || ''));

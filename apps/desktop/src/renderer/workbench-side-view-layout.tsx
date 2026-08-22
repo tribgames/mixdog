@@ -206,6 +206,28 @@ export function moveWorkbenchSideView(
   return next;
 }
 
+/**
+ * First active view per side, reconciled with the RESTORED placement.
+ *
+ * A preferred view (Sessions on the left, the persisted dock tab on the right)
+ * only wins on the side that actually holds it after restoration. Seeding the
+ * preference blindly left a moved Sessions panel selecting nothing on either
+ * side: the left panel rendered fallback content with no highlighted icon,
+ * and the side that really owns it opened unselected.
+ */
+export function initialActiveWorkbenchSideViews(
+  layout: WorkbenchSideViewLayout,
+  preferred: Partial<Record<WorkbenchSide, WorkbenchSideViewId | null>> = {},
+): Record<WorkbenchSide, WorkbenchSideViewId | null> {
+  const pick = (side: WorkbenchSide): WorkbenchSideViewId | null => {
+    const groups = layout[side];
+    const wanted = preferred[side] ?? null;
+    const owning = wanted ? groups.find((group) => group.includes(wanted)) : undefined;
+    return owning?.[0] ?? groups[0]?.[0] ?? null;
+  };
+  return { left: pick("left"), right: pick("right") };
+}
+
 function readLayout(): unknown {
   try {
     return JSON.parse(window.localStorage.getItem(WORKBENCH_SIDE_LAYOUT_KEY) || "null");
@@ -265,6 +287,7 @@ export interface WorkbenchSideViewDescriptor {
   label: string;
   tooltip?: string;
   icon: LucideIcon;
+  onPrefetch?(): void;
 }
 
 type WorkbenchSideDragPayload = {
@@ -385,6 +408,11 @@ export function WorkbenchSideIconBar({
         data-tooltip={t(descriptor.tooltip || descriptor.label)}
         data-drop-position={drop?.root === root ? drop.placement : undefined}
         draggable
+        onPointerEnter={descriptor.onPrefetch}
+        onFocus={descriptor.onPrefetch}
+        onPointerDown={(event) => {
+          if (event.button === 0) descriptor.onPrefetch?.();
+        }}
         onDragStart={(event) => {
           activeWorkbenchSideDrag = { type: "group", id: root };
           event.dataTransfer.effectAllowed = "move";

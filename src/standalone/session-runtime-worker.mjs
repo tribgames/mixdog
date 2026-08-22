@@ -27,10 +27,19 @@ let unhealthyReported = false;
 const pendingAbortPressureChecks = new WeakSet();
 const ABORT_PRESSURE_RETENTION_CHECK_MS = 30_000;
 
+// Reporting is bound to DETECTION, not to a successful runtime call: an idle
+// worker (or one whose every call fails) would otherwise never be recycled.
+function reportUnhealthy() {
+  if (stopping || unhealthyReported || !unhealthyDetail) return;
+  unhealthyReported = true;
+  send({ type: 'unhealthy', detail: unhealthyDetail });
+}
+
 process.on(SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT, (detail) => {
   if (stopping || unhealthyDetail) return;
   unhealthyDetail = sanitizeForWire(detail) || { reason: 'session runtime worker unhealthy' };
   process.stderr.write(`[session-runtime-health] ${unhealthyDetail.reason || 'unhealthy'}\n`);
+  reportUnhealthy();
 });
 
 process.on('warning', (warning) => {
@@ -193,6 +202,26 @@ async function workloadSnapshot() {
   };
 }
 
+// Accepted user input lives in the pending-message spool until its write
+// settles. Exiting on top of an in-flight write silently loses it, so every
+// exit path drains the spool first (bounded; a stuck write must not wedge
+// shutdown).
+async function exitAfterPendingWrites(code = 0) {
+  try {
+    const pendingMessages = await import(
+      '../runtime/agent/orchestrator/session/manager/pending-messages.mjs'
+    );
+    await pendingMessages.settlePendingMessageWrites?.({ timeoutMs: 1_500 });
+  } catch (error) {
+    try {
+      process.stderr.write(
+        `[session-runtime-worker] pending message drain failed: ${error?.message || error}\n`,
+      );
+    } catch {}
+  }
+  process.exit(code);
+}
+
 async function stopAll(reason = 'session runtime worker shutdown') {
   if (stopping) return;
   stopping = true;
@@ -231,20 +260,19 @@ process.on('message', (message) => {
     throw new Error(`unknown session runtime message ${message.type}`);
   })().then((value) => {
     if (requestId) send({ type: 'response', requestId, ok: true, value: value ?? null });
-    if (message.type === 'call' && unhealthyDetail && !unhealthyReported) {
-      unhealthyReported = true;
-      send({ type: 'unhealthy', detail: unhealthyDetail });
-    }
-    if (message.type === 'shutdown') setImmediate(() => process.exit(0));
+    reportUnhealthy();
+    if (message.type === 'shutdown') setImmediate(() => { void exitAfterPendingWrites(0); });
   }).catch((error) => {
     if (requestId) send({ type: 'response', requestId, ok: false, error: errorBody(error) });
+    reportUnhealthy();
   });
 });
 
 process.on('disconnect', () => {
-  void stopAll('session runtime parent disconnected').finally(() => process.exit(0));
+  void stopAll('session runtime parent disconnected')
+    .finally(() => exitAfterPendingWrites(0));
 });
 
 process.on('SIGTERM', () => {
-  void stopAll('session runtime SIGTERM').finally(() => process.exit(0));
+  void stopAll('session runtime SIGTERM').finally(() => exitAfterPendingWrites(0));
 });

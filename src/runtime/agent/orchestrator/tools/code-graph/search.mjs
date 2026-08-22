@@ -3,7 +3,7 @@
 // verbatim from code-graph.mjs.
 import { readFile } from 'node:fs/promises';
 import { codeGraphSourceIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
-import { _isJsLike } from './lang-predicates.mjs';
+import { _isJsLike, REGEX_PRECEDENT_CHARS, REGEX_PRECEDENT_KEYWORDS } from './lang-predicates.mjs';
 import { _maskNonCodeText } from './text-mask.mjs';
 import {
   _graphRel,
@@ -19,7 +19,6 @@ import {
   _capGraphList,
 } from './symbol-index.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
-import { _inferSpanEndByIndent } from './span.mjs';
 import {
   _toByteColumn,
   _byteColToCharCol,
@@ -33,6 +32,123 @@ import {
 } from './keyword-match.mjs';
 
 export { _formatRelated, _formatImpact, _impactSourceNodes, _findSymbolAcrossGraph, _resolveReferenceLanguageNode, _formatReferenceDetails, _formatCallerReferences, _formatTransitiveCallers } from './search-references.mjs';
+
+// `/` at an expression position opens a RegExp literal, not a comment or a
+// division. The callee body scanners below walk RAW source (the mask runs
+// afterwards), so without this a literal like /[{}]/ moved the brace depth and
+// truncated — or ran past — the declaration body.
+// Does the `{` at `idx` open an OBJECT LITERAL (value) or a BLOCK (statement)?
+// The scanners track this per brace so the matching `}` can disambiguate a
+// following `/` — a line break cannot: `const x = {}\n/ 2` is still division.
+const _STATEMENT_BLOCK_KEYWORDS = new Set(['else', 'do', 'try', 'finally', 'static']);
+
+// Does the `:` at `colonIdx` belong to a ternary (value) rather than a label
+// or a `case`? Scan back to the nearest statement boundary.
+function _colonIsTernary(text, colonIdx) {
+  // Pair colons with question marks while scanning back: a `?` only belongs to
+  // OUR colon when no inner `:` has claimed it. `case c ? a : b:` therefore
+  // stays a case label instead of borrowing the ternary's `?`.
+  let pendingColons = 0;
+  for (let i = colonIdx - 1; i >= 0; i -= 1) {
+    const ch = text[i];
+    if (ch === ';' || ch === '{' || ch === '}') return false;
+    if (ch === ':') { pendingColons += 1; continue; }
+    if (ch === '?') {
+      if (pendingColons === 0) return true;
+      pendingColons -= 1;
+      continue;
+    }
+    if (/[A-Za-z0-9_$]/.test(ch)) {
+      let start = i;
+      while (start >= 0 && /[A-Za-z0-9_$]/.test(text[start])) start -= 1;
+      const word = text.slice(start + 1, i + 1);
+      // `case …:` / `default:` introduce STATEMENTS, so their colon is a label.
+      if (word === 'case' || word === 'default') return false;
+      i = start + 1;
+    }
+  }
+  return false;
+}
+
+export function _jsBraceKindAt(text, idx, lastClosedBraceKind = null, enclosingBraceKind = null) {
+  let k = idx - 1;
+  while (k >= 0 && (text[k] === ' ' || text[k] === '\t' || text[k] === '\r' || text[k] === '\n')) k -= 1;
+  if (k < 0) return 'block'; // program start — statement position
+  const prev = text[k];
+  // `key: {…}` inside an object literal is a value; `label: {…}` and
+  // `case x: {…}` inside a block are STATEMENTS, so their braces open blocks.
+  if (prev === ':') {
+    if (enclosingBraceKind === 'object') return 'object';
+    return _colonIsTernary(text, k) ? 'object' : 'block';
+  }
+  // Statement boundaries and block introducers, whatever the operator table
+  // says: `; {`, `{ {`, `} {`, `=> {`, `else {`.
+  if (prev === ';' || prev === '{' || prev === '}') return 'block';
+  if (prev === '>' && text[k - 1] === '=') return 'block';
+  if (/[A-Za-z0-9_$]/.test(prev)) {
+    let s = k;
+    while (s >= 0 && /[A-Za-z0-9_$]/.test(text[s])) s -= 1;
+    if (_STATEMENT_BLOCK_KEYWORDS.has(text.slice(s + 1, k + 1))) return 'block';
+  }
+  // Otherwise decide by GRAMMATICAL POSITION rather than a character list: a
+  // brace where a regex literal could start is an expression, i.e. an object
+  // literal (`= {}`, `!{}`, `1 - {}`, `f({})`, `return {}`); a brace in value
+  // position (`) {`, `] {`) opens a block. Sharing the test with the
+  // regex/division rule keeps the two consistent by construction.
+  return _atJsRegexPosition(text, idx, lastClosedBraceKind) ? 'object' : 'block';
+}
+
+export function _atJsRegexPosition(text, idx, lastClosedBraceKind = null) {
+  let k = idx - 1;
+  let sawNewline = false;
+  while (k >= 0 && (text[k] === ' ' || text[k] === '\t' || text[k] === '\r' || text[k] === '\n')) {
+    if (text[k] === '\n') sawNewline = true;
+    k -= 1;
+  }
+  if (k < 0) return true; // start of file — statement position
+  const prev = text[k];
+  // `}` is ambiguous: it closes a block (statement position → regex) or an
+  // object literal (value position → division, `const x = {} / 2`). The
+  // scanners pass the kind of the brace that actually closed; only a stateless
+  // caller falls back to the line-break heuristic.
+  if (prev === '}') {
+    if (lastClosedBraceKind) return lastClosedBraceKind === 'block';
+    return sawNewline;
+  }
+  if (REGEX_PRECEDENT_CHARS.has(prev)) {
+    // `a++ / b` and `a-- / b` are divisions: the operand is the postfix
+    // expression, not the `+`/`-` operator this would otherwise look like.
+    if ((prev === '+' || prev === '-') && text[k - 1] === prev) return false;
+    return true;
+  }
+  if (/[A-Za-z0-9_$]/.test(prev)) {
+    let s = k;
+    while (s >= 0 && /[A-Za-z0-9_$]/.test(text[s])) s -= 1;
+    return REGEX_PRECEDENT_KEYWORDS.has(text.slice(s + 1, k + 1));
+  }
+  // Identifier / `)` / `]` / literal → value position, so `/` is division.
+  return false;
+}
+
+// Index just past the closing `/flags` of the regex literal starting at `idx`.
+function _skipJsRegexLiteral(text, idx) {
+  let j = idx + 1;
+  let inCharClass = false;
+  while (j < text.length) {
+    const c = text[j];
+    if (c === '\n') return j; // unterminated on this line — treat as division
+    if (c === '\\') { j += 2; continue; }
+    if (c === '[' && !inCharClass) { inCharClass = true; j += 1; continue; }
+    if (c === ']' && inCharClass) { inCharClass = false; j += 1; continue; }
+    if (c === '/' && !inCharClass) {
+      j += 1;
+      while (j < text.length && text[j] >= 'a' && text[j] <= 'z') j += 1;
+      return j;
+    }
+    j += 1;
+  }
+  return j;
+}
 export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol = null, language = null } = {}) {
   if (!declHit || !_CALLEES_BRACE_LANGS.has(declHit.lang)) return [];
   const declNode = graph.nodes.get(declHit.rel);
@@ -73,6 +189,7 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
     const maxI = lineEnd < 0 ? sourceText.length : lineEnd;
     i = Math.min(i + (declColChar - 1), maxI);
   }
+  const jsLike = _isJsLike(declHit.lang);
   let inLineComment = false;
   let inBlockComment = false;
   let quote = '';
@@ -97,6 +214,10 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
     }
     if (ch === '/' && next === '/') { inLineComment = true; scanI += 2; continue; }
     if (ch === '/' && next === '*') { inBlockComment = true; scanI += 2; continue; }
+    if (ch === '/' && jsLike && _atJsRegexPosition(sourceText, scanI)) {
+      scanI = _skipJsRegexLiteral(sourceText, scanI);
+      continue;
+    }
     if (ch === '"' || ch === "'" || ch === '`') { quote = ch; scanI += 1; continue; }
     if (ch === '(') { parenDepth += 1; scanI += 1; continue; }
     if (ch === ')') { if (parenDepth > 0) parenDepth -= 1; scanI += 1; continue; }
@@ -108,6 +229,11 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
   let depth = 0;
   let bodyEnd = -1;
   inLineComment = false; inBlockComment = false; quote = '';
+  // Brace context: each `{` records whether it opened a block or an object
+  // literal, so the matching `}` tells a following `/` apart (regex vs
+  // division) without guessing from line breaks.
+  const braceKinds = [];
+  let lastClosedBraceKind = null;
   let j = bodyStart;
   while (j < sourceText.length) {
     const ch = sourceText[j];
@@ -127,9 +253,21 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
     }
     if (ch === '/' && next === '/') { inLineComment = true; j += 2; continue; }
     if (ch === '/' && next === '*') { inBlockComment = true; j += 2; continue; }
+    if (ch === '/' && jsLike && _atJsRegexPosition(sourceText, j, lastClosedBraceKind)) {
+      j = _skipJsRegexLiteral(sourceText, j);
+      continue;
+    }
     if (ch === '"' || ch === "'" || ch === '`') { quote = ch; j += 1; continue; }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
+    if (ch === '{') {
+      braceKinds.push(_jsBraceKindAt(
+        sourceText,
+        j,
+        lastClosedBraceKind,
+        braceKinds.length ? braceKinds[braceKinds.length - 1] : null,
+      ));
+      depth += 1;
+    } else if (ch === '}') {
+      lastClosedBraceKind = braceKinds.pop() || 'block';
       depth -= 1;
       if (depth === 0) { bodyEnd = j; break; }
     }
@@ -159,12 +297,33 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
     'isFinite','isNaN','toFixed','isArray','from','of','addEventListener',
     'removeEventListener','dispatchEvent','bind','call','apply',
   ]);
+  // One memoized declaration lookup per callee name, shared by the blacklist
+  // check below and the row resolution further down.
+  const declLookupCache = new Map();
+  const resolveCalleeDecl = (name) => {
+    if (declLookupCache.has(name)) return declLookupCache.get(name);
+    let decl = null;
+    try {
+      decl = _resolveCalleeDeclaration(graph, name, { language, preferRel: declHit.rel });
+    } catch {
+      decl = null; // identifier shapes that trip the lookup regex
+    }
+    declLookupCache.set(name, decl);
+    return decl;
+  };
   const recordHit = (name, index, isMember) => {
     if (!name) return;
     if (_CALLEES_JS_KEYWORDS.has(name)) return;
     if (_isJsLike(declHit.lang)) {
       if (_CALLEES_JS_BUILTINS.has(name)) return;
-      if (isMember && _CALLEES_JS_METHODS.has(name)) return;
+      // The member blacklist exists to drop BUILT-IN methods (arr.map, set.add
+      // …). A project that declares its own get/set/add/delete/find/… was
+      // silenced with them, so keep any name the graph resolves to a real
+      // declaration.
+      if (isMember && _CALLEES_JS_METHODS.has(name)) {
+        const decl = resolveCalleeDecl(name);
+        if (!decl?.declarationLike) return;
+      }
     }
     if (selfName && name === selfName) return;
     if (seen.has(name)) return;
@@ -193,7 +352,7 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
     let resolvedLine = 0;
     let resolvedDecl = false;
     try {
-      const calleeDecl = _resolveCalleeDeclaration(graph, name, { language, preferRel: declHit.rel });
+      const calleeDecl = resolveCalleeDecl(name);
       if (calleeDecl && calleeDecl.declarationLike) {
         const memberOk = !info.isMember
           || calleeDecl.rel === declHit.rel
@@ -316,10 +475,12 @@ export async function _prewarmReferenceSourceText(graph, symbol, language, optio
   return candidateNodes;
 }
 
-export function _cheapReferenceSearch(graph, symbol, cwd, { language = null, limit = null, fileRel = null, scopeRelPrefix = null, nodes = null } = {}) {
+export function _cheapReferenceSearch(graph, symbol, cwd, { language = null, fileRel = null, scopeRelPrefix = null, nodes = null } = {}) {
   const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   if (!escaped) return '(no references)';
-  const cacheKey = `${language || '*'}|${symbol}|${Number.isFinite(limit) && limit > 0 ? String(Math.floor(limit)) : 'd'}|${fileRel || '*'}|${scopeRelPrefix || '*'}`;
+  // No `limit` in the key: the raw hit set is limit-independent (see below),
+  // so every limit shares one cached scan.
+  const cacheKey = `${language || '*'}|${symbol}|${fileRel || '*'}|${scopeRelPrefix || '*'}`;
   const cached = graph?._referenceSearchCache?.get(cacheKey);
   if (typeof cached === 'string') {
     return cached;
@@ -332,10 +493,14 @@ export function _cheapReferenceSearch(graph, symbol, cwd, { language = null, lim
   let candidateNodes = Array.isArray(nodes) ? nodes : _lookupCandidateNodes(graph, symbol, language);
   if (fileRel) candidateNodes = candidateNodes.filter((node) => node.rel === fileRel);
   if (scopeRelPrefix) candidateNodes = candidateNodes.filter((node) => node.rel === scopeRelPrefix.slice(0, -1) || node.rel.startsWith(scopeRelPrefix));
-  const ENV_CAP = Math.max(1, Number(process.env.REFERENCE_HIT_CAP) || 200);
-  const REFERENCE_HIT_CAP = limit !== null && Number.isFinite(limit) && limit > 0
-    ? Math.min(Math.max(1, Math.floor(limit)), ENV_CAP)
-    : ENV_CAP;
+  // The caller's `limit` bounds the FORMATTED rows, and the formatters
+  // (_formatReferenceDetails / _formatCallerReferences) drop declarations,
+  // imports and non-call lines AFTER this scan. Truncating the raw scan to the
+  // same limit therefore threw away the real references — a small limit whose
+  // first hits were the declaration and its imports reported
+  // "(no references)" / "(no callers)". Collect up to the scan budget and let
+  // the formatters apply the user limit post-filter.
+  const REFERENCE_HIT_CAP = Math.max(1, Number(process.env.REFERENCE_HIT_CAP) || 200);
   const REFERENCE_LINE_CAP = Math.max(20, Number(process.env.REFERENCE_LINE_CAP) || 80);
   let cappedOut = false;
   outer: for (const node of candidateNodes) {
@@ -629,13 +794,25 @@ function _nativeSymbolHit(node, sym) {
   };
 }
 
-function _collectNativeKeywordSymbolEntries(graph, keyword, { language = null } = {}) {
+// A file/directory anchor is a SCOPE for every symbol mode, symbol_search
+// included — it used to scan the whole graph and ignore the anchor entirely.
+export function _nodeInGraphScope(node, fileRel, scopeRelPrefix) {
+  if (fileRel) return node?.rel === fileRel;
+  if (scopeRelPrefix) {
+    const rel = String(node?.rel || '');
+    return rel === scopeRelPrefix.slice(0, -1) || rel.startsWith(scopeRelPrefix);
+  }
+  return true;
+}
+
+function _collectNativeKeywordSymbolEntries(graph, keyword, { language = null, fileRel = null, scopeRelPrefix = null } = {}) {
   const lowerKey = String(keyword || '').toLowerCase();
   if (!lowerKey) return [];
   const keyTokens = _tokenizeKeyword(keyword);
   const byName = new Map();
   for (const node of graph?.nodes?.values?.() || []) {
     if (language && node.lang !== language) continue;
+    if (!_nodeInGraphScope(node, fileRel, scopeRelPrefix)) continue;
     const symbols = Array.isArray(node?.symbols) ? node.symbols : [];
     if (!symbols.length) continue;
     for (const sym of symbols) {
@@ -670,13 +847,14 @@ function _collectNativeKeywordSymbolEntries(graph, keyword, { language = null } 
   return entries;
 }
 
-function _collectCheapKeywordSymbolEntries(graph, keyword, { language = null } = {}) {
+function _collectCheapKeywordSymbolEntries(graph, keyword, { language = null, fileRel = null, scopeRelPrefix = null } = {}) {
   const lowerKey = String(keyword || '').toLowerCase();
   if (!lowerKey) return [];
   const keyTokens = _tokenizeKeyword(keyword);
   const entries = [];
   for (const node of graph?.nodes?.values?.() || []) {
     if (language && node.lang !== language) continue;
+    if (!_nodeInGraphScope(node, fileRel, scopeRelPrefix)) continue;
     if (Array.isArray(node?.symbols) && node.symbols.length) continue;
     const sourceText = _getSourceTextForNode(graph, node);
     for (const sym of _collectCheapSymbols(sourceText, node.lang)) {
@@ -727,25 +905,29 @@ function _setKeywordSearchCache(graph, cacheKey, value) {
   return value;
 }
 
-export function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, limit = 30 } = {}) {
+export function _searchSymbolsByKeyword(graph, keyword, cwd, { language = null, limit = 30, fileRel = null, scopeRelPrefix = null } = {}) {
   const clean = String(keyword || '').trim();
   if (!clean) return '(no keyword)';
   const cap = Math.max(1, Math.min(100, Math.floor(Number(limit) || 30)));
+  const scope = { language, fileRel, scopeRelPrefix };
+  const scopeLabel = fileRel || scopeRelPrefix || '';
   // Memoize the full formatted output per (language, keyword, cap). Repeated
   // symbol_search scans (e.g. batched keywords) otherwise re-walk every graph
   // node — native + cheap symbol collection — for each keyword. The cached
   // string already embeds the truncated WARN line, so truncated/incomplete
   // semantics are preserved byte-for-byte on a cache hit.
-  const cacheKey = JSON.stringify([_keywordSearchLanguageCacheKey(language), clean, cap]);
+  const cacheKey = JSON.stringify([
+    _keywordSearchLanguageCacheKey(language), clean, cap, fileRel || '*', scopeRelPrefix || '*',
+  ]);
   const cached = graph?._keywordSearchCache?.get(cacheKey);
   if (typeof cached === 'string') return cached;
   const _memo = (s) => _setKeywordSearchCache(graph, cacheKey, s);
-  const nativeEntries = _collectNativeKeywordSymbolEntries(graph, clean, { language });
-  const cheapEntries = _collectCheapKeywordSymbolEntries(graph, clean, { language });
+  const nativeEntries = _collectNativeKeywordSymbolEntries(graph, clean, scope);
+  const cheapEntries = _collectCheapKeywordSymbolEntries(graph, clean, scope);
   const entries = [...nativeEntries, ...cheapEntries];
   if (!entries.length) {
     const nodeCount = graph?.nodes?.size ?? 0;
-    return _memo(`(no symbol keyword matches in cwd=${cwd})\ngraph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`);
+    return _memo(`(no symbol keyword matches in cwd=${cwd}${scopeLabel ? ` scope=${scopeLabel}` : ''})\ngraph: nodes=${nodeCount}${language ? `, language=${language}` : ''}`);
   }
   entries.sort((a, b) => {
     const rank = Number(b.resolved) - Number(a.resolved);

@@ -2,6 +2,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { isPidAlive } from './pid-liveness.mjs';
 import { detachedSpawnOpts } from './spawn-flags.mjs';
 
 function positiveInt(value) {
@@ -169,15 +170,6 @@ function sendBrokerMessage(message) {
   }
 }
 
-function targetPidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
-}
-
 function stopBrokerTargetSweepIfIdle() {
   if (brokerTargets.size > 0 || !brokerTargetSweepTimer) return;
   clearInterval(brokerTargetSweepTimer);
@@ -198,7 +190,7 @@ function ensureBrokerTargetSweep() {
   if (brokerTargetSweepTimer) return;
   brokerTargetSweepTimer = setInterval(() => {
     for (const [id, target] of brokerTargets) {
-      if (!targetPidAlive(target.childPid)) removeBrokerTarget(id);
+      if (!isPidAlive(target.childPid)) removeBrokerTarget(id);
     }
     stopBrokerTargetSweepIfIdle();
   }, 250);

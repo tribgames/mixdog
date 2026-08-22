@@ -334,7 +334,7 @@ export async function _streamResponse({
     // dispatch site routes through emitToolCallDedupe.
     const _toolDedupe = createToolCallDedupe();
     const emitToolCallDedupe = (call) => {
-        if (!_toolDedupe.shouldDispatch(call?.name, call?.arguments)) return;
+        if (!_toolDedupe.shouldDispatch(call?.name, call?.arguments, call?.id)) return;
         midState.emittedToolCall = true;
         try { onToolCall?.(call); } catch {}
     };
@@ -462,7 +462,7 @@ export async function _streamResponse({
             name: recovered.name,
             arguments: args,
         };
-        if (!_toolDedupe.shouldDispatch(call.name, call.arguments)) return;
+        if (!_toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) return;
         toolCalls.push(call);
         midState.emittedToolCall = true;
         try { onToolCall?.(call); } catch {}

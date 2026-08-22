@@ -39,7 +39,9 @@ import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
+import { envFlag as _envFlag } from './lib/env-utils.mjs';
 export { envPositiveInt as _envPositiveInt } from './lib/env-utils.mjs';
+export { _envFlag };
 
 // Public OpenAI Responses API endpoint for the api-key `openai` provider.
 // The openai-direct WS transport hits the same origin (openai-ws-pool
@@ -64,12 +66,6 @@ function _zstdHeaders(headers, bodyForSend) {
     return bodyForSend.encoding
         ? { ...headers, 'Content-Encoding': bodyForSend.encoding }
         : headers;
-}
-
-export function _envFlag(name, fallback = true) {
-    const raw = process.env[name];
-    if (raw == null || raw === '') return fallback;
-    return !['0', 'false', 'off', 'no'].includes(String(raw).toLowerCase());
 }
 
 // Completed function_call.arguments parse for the OpenAI Responses stream.
@@ -585,7 +581,7 @@ export async function sendViaHttpSse({
         if (!call || !call.id) return;
         if (emittedToolCallIds.has(call.id)) return;
         emittedToolCallIds.add(call.id);
-        if (!_toolDedupe.shouldDispatch(call.name, call.arguments)) return;
+        if (!_toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) return;
         emittedToolCall = true;
         try { onToolCall?.(call); } catch {}
     };
@@ -696,18 +692,28 @@ export async function sendViaHttpSse({
         toolCalls.push(call);
         emitToolCall(call);
     };
+    // One-shot latch for the first-server-event → semantic-idle handover.
+    let _semanticIdleArmed = false;
     const meaningful = (kind = 'semantic') => {
         if (ttftMs == null) ttftMs = Date.now() - sseStartedAt;
+        _semanticIdleArmed = true;
         _armSemanticIdle();
         try { onStreamDelta?.(kind); } catch {}
     };
     const handleEvent = (event) => {
         if (!event || typeof event.type !== 'string') return;
         _clearFirstServerEvent();
-        // Once any real SSE server event arrives, the fixed initial deadline is
-        // satisfied and semantic-idle ownership begins. meaningful() below may
-        // immediately re-arm it for a semantic event.
-        _armSemanticIdle();
+        // Once the FIRST real SSE server event arrives, the fixed initial
+        // deadline is satisfied and semantic-idle ownership begins. Arming here
+        // is a one-time handover: re-arming on every parsed event let a
+        // metadata-only stream (repeated response.in_progress, keepalive/ping
+        // frames, unknown event types) refresh the watchdog forever without
+        // producing a single token. Only meaningful() — text, reasoning, tool
+        // and real lifecycle progress — re-arms it from here on.
+        if (!_semanticIdleArmed) {
+            _semanticIdleArmed = true;
+            _armSemanticIdle();
+        }
         switch (event.type) {
             case 'response.created':
                 if (event.response?.model) model = event.response.model;

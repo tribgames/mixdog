@@ -1,7 +1,8 @@
-import { Activity, Bot } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { liveAgentRows, liveShellCount, liveShellRows } from './AgentActivityPane';
+import { desktopCancelOutcome } from '../shared/agent-activity';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
@@ -109,9 +110,16 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       key: agent.key,
       kind: 'agent',
       label: agent.role,
-      detail: agent.queued
-        ? t('Queued')
-        : elapsed(agent.turnStartedAt || agent.startedAt) || agent.status,
+      // A cancel that could not be confirmed keeps its row — the process may
+      // still be alive — but it says so instead of borrowing the work timer.
+      detail: agent.state === 'cancel-unconfirmed'
+        ? t('Cancel unconfirmed')
+        : agent.queued
+          ? t('Queued')
+          : elapsed(agent.turnStartedAt || agent.startedAt) || agent.status,
+      ...(agent.state === 'cancel-unconfirmed'
+        ? { title: t('Cancel was delivered, but the process could not be confirmed stopped.') }
+        : {}),
       ...(agent.tag ? { stop: { kind: 'agent' as const, id: agent.tag } } : {}),
     });
   }
@@ -212,10 +220,21 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       const request = target.kind === 'agent'
         ? { capability: 'agentControl' as const, args: [{ type: 'cancel', tag: target.id }] }
         : { capability: 'taskControl' as const, args: [{ action: 'cancel', task_id: target.id }] };
-      await window.mixdogDesktop.invokeCapability({
+      const result = await window.mixdogDesktop.invokeCapability({
         ...request,
         ...(ownerSessionId ? { sessionId: ownerSessionId } : {}),
       });
+      // A delivered signal is not a confirmed stop. Task control answers
+      // `cancel-unconfirmed` when the exit could not be observed (on Windows a
+      // git-bash background survivor is unreachable from JS and reports
+      // SURVIVING_DESCENDANTS_UNREACHABLE_WARNING), and a silent return would
+      // read as a successful cancel.
+      if (desktopCancelOutcome(result?.value) === 'unconfirmed') {
+        showDesktopToast(
+          t('Cancel was delivered, but the process could not be confirmed stopped.'),
+          'warn',
+        );
+      }
     } catch (reason) {
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
     } finally {
@@ -255,10 +274,10 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       {rows.length
         ? groups.map((group) => <section className="live-work-group"
           data-kind={group.kind} key={group.kind}>
+          {/* Text only (user: TASK 아일랜드 버튼에 왼쪽 아이콘 빼주고): the
+              group name already says agent or shell, so a leading glyph only
+              pushed the label off the column its own rows start on. */}
           <header className="live-work-group-header">
-            {group.kind === 'agent'
-              ? <Bot size={14} aria-hidden="true" />
-              : <MxIcon name="terminal" size={14} />}
             <span>{group.label}</span>
             <b>{group.count}</b>
           </header>
@@ -272,7 +291,7 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
                 disabled={stopping.has(`${row.stop.kind}:${row.stop.id}`)}
                 aria-label={t('Stop')} title={t('Stop')}
                 onClick={() => { void stop(row.stop as { kind: 'agent' | 'shell'; id: string }); }}>
-              <MxIcon name="stop" size={10} />
+              <MxIcon name="stop" size={12} />
             </button>}
           </div>)}
         </section>)

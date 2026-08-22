@@ -6,7 +6,6 @@ import {
   type MutableRefObject,
   type RefObject,
 } from "react";
-import { isMobileRemoteSurface } from "./mobile-surface";
 
 /**
  * Transcript auto-scroll + session scroll-gesture grammar.
@@ -23,6 +22,10 @@ const GESTURE_WINDOW_MS = 250;
 // so late idle measurements can still compensate in a continuous burst.
 const READER_SCROLL_IDLE_MS = 180;
 export const BOTTOM_THRESHOLD_PX = 10;
+// A virtualized transcript must have exactly one geometry authority.
+// Browser anchoring and virtual-core both compensate rows that resize above
+// the viewport, so enabling both makes upward reader motion oscillate.
+export const TRANSCRIPT_OVERFLOW_ANCHOR = "none";
 // Re-attaching tolerates more slack than releasing does: while a turn streams,
 // the tail keeps moving away between the reader's last scroll frame and this
 // handler, so a deliberate scroll back down lands tens of px above a bottom
@@ -132,6 +135,54 @@ export function touchMoveShouldReleaseFollow({
   return -delta > RELEASE_MOVE_PX;
 }
 
+/** A wheel notch toward older history releases follow as soon as the gesture
+ *  reaches the transcript — either directly or through a nested scroller that
+ *  is already at its leading boundary. Unlike touch, no minimum travel applies:
+ *  a wheel notch is deliberate by construction. */
+export function wheelShouldReleaseFollow({
+  delta,
+  transcriptReached,
+}: {
+  /** Normalized wheel delta: negative moves the transcript toward older rows. */
+  delta: number;
+  transcriptReached: boolean;
+}): boolean {
+  if (!Number.isFinite(delta) || !transcriptReached) return false;
+  return delta < 0;
+}
+
+/** Does a scroller own this delta, or has it reached its boundary and handed
+ *  the gesture to the transcript? Pure geometry so it can be checked without a
+ *  live layout. */
+export function boundaryGestureReached(
+  metrics: { scrollTop: number; scrollHeight: number; clientHeight: number },
+  delta: number,
+): boolean {
+  const max = metrics.scrollHeight - metrics.clientHeight;
+  if (max <= 1) return true;
+  if (!delta) return false;
+  if (delta < 0) return metrics.scrollTop + delta <= 0;
+  return delta > max - metrics.scrollTop;
+}
+
+/** Does this offset belong to a write the timeline itself made? Bursts are
+ *  remembered, so an earlier write in the same commit still counts. */
+export function programmaticWriteMatches({
+  writes,
+  top,
+  now,
+  windowMs = PROGRAMMATIC_WINDOW_MS,
+}: {
+  writes: readonly { top: number; time: number }[];
+  top: number;
+  now: number;
+  windowMs?: number;
+}): boolean {
+  const rounded = Math.round(top);
+  return writes.some((entry) =>
+    now - entry.time < windowMs && Math.abs(rounded - entry.top) < 2);
+}
+
 function reportRelease(reason: string, element: HTMLElement, previousTop: number): void {
   try {
     window.mixdogDesktop?.perfLog?.(
@@ -178,11 +229,7 @@ function shouldMarkBoundaryGesture(
   target: HTMLElement,
   delta: number,
 ): boolean {
-  const max = target.scrollHeight - target.clientHeight;
-  if (max <= 1) return true;
-  if (!delta) return false;
-  if (delta < 0) return target.scrollTop + delta <= 0;
-  return delta > max - target.scrollTop;
+  return boundaryGestureReached(target, delta);
 }
 
 export function wheelConsumedByNestedScroller(
@@ -349,8 +396,7 @@ export function useTranscriptFollow({
     );
     programmatic.current = queue;
     if (!queue.length) return false;
-    const top = Math.round(element.scrollTop);
-    return queue.some((entry) => Math.abs(top - entry.top) < 2);
+    return programmaticWriteMatches({ writes: queue, top: element.scrollTop, now: time });
   }, []);
 
   const scrollToBottom = useCallback((force: boolean) => {
@@ -464,16 +510,19 @@ export function useTranscriptFollow({
     const delta = normalizeWheelDelta(event);
     if (!delta) return;
     const target = boundaryTarget(root, event.target);
-    if (target === root || shouldMarkBoundaryGesture(target, delta)) {
-      markGesture();
-    }
-    const nested = event.target instanceof Element
-      ? event.target.closest("[data-scrollable]")
-      : null;
+    // One boundary decision drives BOTH marks. Testing "is there any nested
+    // scroller?" separately kept follow armed for an upward wheel at a nested
+    // scroller's leading edge: the gesture was marked, the transcript scrolled
+    // up by chaining, and the end anchor then fought the reader every frame.
+    const transcriptReached = target === root || shouldMarkBoundaryGesture(target, delta);
+    if (!transcriptReached) return;
+    markGesture();
     // Wheel rule: an upward wheel is explicit intent
     // and releases immediately, however small it is. Re-attaching is the side
     // that carries the slack (reattachBand).
-    if (delta < 0 && (!nested || nested === root)) stop("wheel", lastTop.current);
+    if (wheelShouldReleaseFollow({ delta, transcriptReached })) {
+      stop("wheel", lastTop.current);
+    }
   }, [markGesture, stop]);
 
   const handlePointerDown = useCallback((event: PointerLike) => {
@@ -626,17 +675,11 @@ export function useTranscriptFollow({
     const target = content.current;
     const element = viewport.current;
     if (!target || !element) return undefined;
-    // Dynamic anchoring: while following, the virtual
-    // timeline owns anchoring (overflow-anchor:none). Once the reader has left
-    // the tail, browser auto-anchoring helps keep the reading position still
-    // across rewrap/content mutations.
-    // A phone NEVER hands anchoring back. The projected surface writes row
-    // positions straight to the DOM, so the browser's correction and the
-    // timeline's own correction landed on the same size change and fought
-    // each other frame by frame (user: 스크롤 올리는 중에 위아래로 덜덜거림).
-    element.style.overflowAnchor = followingRef.current || isMobileRemoteSurface()
-      ? "none"
-      : "auto";
+    // Virtual-core owns every measured-size correction. Browser anchoring must
+    // stay off after follow releases too; otherwise both authorities compensate
+    // the same above-viewport resize and reverse each other during upward
+    // wheel, touch, and scrollbar motion.
+    element.style.overflowAnchor = TRANSCRIPT_OVERFLOW_ANCHOR;
     // Chromium always provides ResizeObserver. The renderer's jsdom harness
     // intentionally omits it in tests that do not exercise layout delivery.
     if (typeof ResizeObserver !== "function") return undefined;

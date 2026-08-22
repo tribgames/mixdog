@@ -5,7 +5,7 @@
 // improvements over spawnSync are:
 //   - native process-tree termination on timeout / abort.
 //   - automatic spill to $PLUGIN_DATA/shell-output/<taskId>.* once the
-//     in-memory buffers exceed SHELL_OUTPUT_INLINE_CAP*4 bytes. The caller
+//     in-memory buffers exceed SHELL_OUTPUT_INLINE_CAP bytes. The caller
 //     receives an outputFilePath marker the model can FileRead later
 //     instead of losing the tail past the inline cap.
 //   - external AbortSignal hookup so a session-scoped abort (ESC, new
@@ -33,6 +33,10 @@ import {
 } from './shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
 import { takeWarmShellStandby } from './lib/shell-warm-standby.mjs';
+import {
+  probeShellDescendants,
+  STDIO_HELD_AFTER_EXIT_MS,
+} from './lib/shell-descendants.mjs';
 
 export {
   _maybeEncodePowerShellCommand,
@@ -154,6 +158,29 @@ export function _abortReasonIsInterrupt(abortSignal) {
   return false;
 }
 
+/** Host family of the shell that will ACTUALLY execute the command, resolved
+ *  from the spawn target itself: the binary being launched and its arguments.
+ *  Caller-supplied metadata never overrides the target — a spec claiming `cmd`
+ *  while launching pwsh.exe is answered `powershell`, because pwsh is what
+ *  parses the text. Returns null when the target cannot be identified; callers
+ *  must then leave the command exactly as written rather than rewrite it on a
+ *  guess. (A union of "plausible" families was worse than the ambiguity: it
+ *  rewrote a valid CMD `echo literal ^&` into `echo literal ^`.) */
+// Arguments are accepted for call-site convenience but never classify.
+export function _shellFamilyForSpawn({ shell = '', shellArg: _shellArg = '', shellArgs: _shellArgs = null } = {}) {
+  const name = String(shell || '').toLowerCase().replace(/\.exe$/, '').split(/[\\/]/).pop();
+  if (name === 'pwsh' || name === 'powershell') return 'powershell';
+  if (name === 'cmd') return 'cmd';
+  // bash-family shells add `$'…'` / `$"…"`; sh/dash/ash/busybox do not, and
+  // their delimiter words keep `$` as an ordinary character.
+  if (/^(?:bash|zsh|ksh|ksh93|mksh)$/.test(name)) return 'bash';
+  if (/^(?:sh|dash|ash|busybox)$/.test(name)) return 'posix';
+  // Arguments never classify: `/c` looks like cmd.exe, but `{shell:'/usr/bin/env',
+  // shellArg:'/c'}` is not cmd — only the executable receiving the command text
+  // decides, and an unrecognized one means detect nothing and rewrite nothing.
+  return null;
+}
+
 export async function acquireShellLeaseBounded(admission, {
   abortSignal, label, dependency = 'scoped', ownerKey = null,
 } = {}) {
@@ -239,6 +266,11 @@ export function execShellCommand({
     };
     const taskId = `shell_${randomUUID().slice(0, 8)}`;
     const taskOutput = new TaskOutput(taskId);
+    // The command text is NEVER inspected or rewritten here: whatever the
+    // caller wrote reaches the shell byte for byte, trailing `&` included.
+    // A command that detaches work is dealt with AFTER it runs, by observing
+    // whether the shell's process group / tree still holds live processes
+    // (see the descendant probe in settle()).
     const stdoutDecoder = new ShellTextDecoder();
     const stderrDecoder = new ShellTextDecoder();
     let timedOut = false;
@@ -253,6 +285,10 @@ export function execShellCommand({
     let timer = null;
     let abortHandler = null;
     let partialOutput = false;
+    // Moment the shell PROCESS itself exited. The gap between it and the
+    // stdio close is the win32 evidence that descendants inherited (and still
+    // hold) this command's stdout/stderr — see lib/shell-descendants.mjs.
+    let rootExitAtMs = 0;
     let resourceLease = null;
     const releaseResourceLease = async () => {
       if (!resourceLease) return null;
@@ -295,31 +331,47 @@ export function execShellCommand({
     let autoBackgrounded = false;
     let autoBackgroundJobId = null;
     let autoBgTimer = null;
-    // Treekill + force-settle deadline. treeKill alone leaves settle()
-    // pending on 'close'/'exit'; on Windows a taskkill miss or a grandchild
-    // holding stdio fds keeps the dispatch stalled until the upstream
-    // ceiling. Covers every kill path (timeout / pre-aborted / abort /
-    // capture-error / size-watchdog) so the hang risk does not live on
-    // outside the timeout branch. Function declaration so callers placed
-    // above settle()'s const definition still resolve via hoisting; the
-    // 5 s deadline always fires after settle is constructed.
+    // Treekill + exit confirmation. treeKill alone leaves settle() pending on
+    // 'close'/'exit'; on Windows a taskkill miss or a grandchild holding stdio
+    // fds keeps the dispatch stalled until the upstream ceiling. Covers every
+    // kill path (timeout / pre-aborted / abort / capture-error /
+    // size-watchdog) so the hang risk does not live on outside the timeout
+    // branch. Function declaration so callers placed above settle()'s const
+    // definition still resolve via hoisting.
+    // A single 5 s force-settle was NOT enough: settling on that timer while
+    // the tree was still alive released the admission lease and the capture
+    // files under a running process. Each deadline now RE-issues the kill and
+    // re-arms; only a confirmed exit settles normally, and the bounded last
+    // resort settles with killUnconfirmed so cleanup follows the real exit.
+    const KILL_CONFIRM_INTERVAL_MS = 5000;
+    const KILL_CONFIRM_ATTEMPTS = 3;
+    let killUnconfirmed = false;
     function _treeKillForceSettle(cause) {
       killed = true;
       killCause = killCause || cause || 'runtime-guard';
+      let attempts = 0;
+      const armConfirmation = () => {
+        const deadline = setTimeout(() => {
+          if (settled || autoBackgrounded) return;
+          // A confirmed exit is settled by the child's own close/exit
+          // handlers with its real status; nothing to force here.
+          if (child?.exitCode != null || child?.signalCode != null) return;
+          attempts += 1;
+          if (attempts < KILL_CONFIRM_ATTEMPTS) {
+            treeKill(child);
+            armConfirmation();
+            return;
+          }
+          partialOutput = true;
+          killUnconfirmed = true;
+          failureReason = failureReason || 'kill unconfirmed';
+          settle(1, 'SIGKILL');
+        }, KILL_CONFIRM_INTERVAL_MS);
+        if (deadline.unref) deadline.unref();
+      };
       treeKill(child);
-      const _killDeadline = setTimeout(() => {
-        if (settled) return;
-        partialOutput = true;
-        settle(1, 'SIGKILL');
-      }, 5000);
-      if (_killDeadline.unref) _killDeadline.unref();
+      armConfirmation();
     }
-    // Background commands (trailing `&`) intentionally detach stdio
-    // from the parent shell, so 'close' may never fire while the
-    // backgrounded grandchild is still alive. For those we settle
-    // immediately on direct-child exit instead of waiting for close.
-    const _trimmed = String(command || '').replace(/\s+$/, '');
-    const _isBackground = /(^|[^&|])&$/.test(_trimmed);
 
     let child;
     let _onChildErrorRef = null;
@@ -511,16 +563,20 @@ export function execShellCommand({
       _treeKillForceSettle('cancellation');
     }
 
+    // Binary bytes are sanitized by the capture layer and the run CONTINUES.
+    // Killing the whole process tree on the first non-text chunk also killed
+    // the servers and pipelines that legitimately emit binary (git http
+    // protocol, VM stdout, PDF/ISO dumps) and returned zero output for work
+    // that had already succeeded. Runaway volume stays bounded by the inline
+    // cap and the SHELL_OUTPUT_DISK_CAP watchdog.
     const _stdoutData = (chunk) => {
       const text = stdoutDecoder.write(chunk);
       if (text) taskOutput.writeStdout(text);
-      if (taskOutput.binaryOutput && !settled && !autoBackgrounded) _treeKillForceSettle('binary-output');
       if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
     };
     const _stderrData = (chunk) => {
       const text = stderrDecoder.write(chunk);
       if (text) taskOutput.writeStderr(text);
-      if (taskOutput.binaryOutput && !settled && !autoBackgrounded) _treeKillForceSettle('binary-output');
       if (taskOutput.writeError && !settled && !autoBackgrounded) _treeKillForceSettle('output-capture-error');
     };
     if (child.stdout) {
@@ -530,8 +586,49 @@ export function execShellCommand({
       child.stderr.on('data', _stderrData);
     }
 
+    // Promotion resolves the call and hands the child's lifecycle to the
+    // shell-jobs registry, but the spill FDs stay owned by THIS runner and
+    // nothing else would ever close them — one leaked descriptor pair per
+    // promoted command. Released on the promoted child's own terminal event.
+    let _promotedCaptureReleased = false;
+    const _releasePromotedCapture = () => {
+      if (_promotedCaptureReleased) return;
+      if (child?.exitCode == null && child?.signalCode == null) return;
+      _promotedCaptureReleased = true;
+      try {
+        // An empty spill pair is garbage nothing can reference; captured
+        // bytes stay, because the promoted task record points at these files.
+        if (taskOutput.spilled && taskOutput.totalDiskBytes() === 0) taskOutput.deleteFiles();
+        else taskOutput.closeFds();
+      } catch { /* best-effort */ }
+    };
+    // Unconfirmed-kill cleanup. The result is already reported, but the tree
+    // may still be alive: defer closing the capture and returning the
+    // admission lease to the child's real exit, with a ceiling so an
+    // unkillable tree cannot pin the shell lane forever.
+    const UNCONFIRMED_KILL_CLEANUP_CEILING_MS = 60_000;
+    let _deferredCleanupDone = false;
+    const _deferCleanupToChildExit = () => {
+      const run = () => {
+        if (_deferredCleanupDone) return;
+        _deferredCleanupDone = true;
+        try { taskOutput.closeFds(); } catch { /* best-effort */ }
+        void releaseResourceLease();
+      };
+      try {
+        child.once('close', run);
+        child.once('exit', run);
+      } catch { /* child may already be gone */ }
+      const ceiling = setTimeout(run, UNCONFIRMED_KILL_CLEANUP_CEILING_MS);
+      if (ceiling.unref) ceiling.unref();
+    };
+
     settle = async (exitCode, signal) => {
-      if (settled || autoBackgrounded) return;
+      if (settled) return;
+      if (autoBackgrounded) {
+        _releasePromotedCapture();
+        return;
+      }
       settled = true;
       // Off the readouts the instant the command is over, before any awaited
       // output capture — a finished command must never linger as "running".
@@ -563,18 +660,42 @@ export function execShellCommand({
       catch (err) { taskOutput.writeError = taskOutput.writeError || err; }
       if (spawnError && !stderr) stderr = String(spawnError.message || spawnError);
       // Inline-only path: nothing spilled. Nothing to clean up.
-      // Spilled but tiny: drop the files — outputFilePath would duplicate
-      // the inline body. Spilled and large: keep the files, caller renders
-      // the path marker.
-      if (
+      // Spilled but within the inline cap: getStdout/getStderr already
+      // returned the whole file, so the files would only duplicate the
+      // inline body — drop them. Past the cap the rendered body is head+tail
+      // carrying a "full output at <path>" marker, so the files MUST survive.
+      // The test compares captured BYTES, not rendered UTF-16 length: a CJK
+      // head+tail holds ~1/3 the char count of its byte size and under a
+      // length test would delete the very file its own marker names.
+      if (killUnconfirmed) {
+        // Never confirmed dead: deleting the capture files or handing back the
+        // lease now would release resources a live process still owns. The
+        // spilled paths therefore survive and travel with the result below.
+        _deferCleanupToChildExit();
+      } else if (
         taskOutput.spilled &&
-        stdout.length + stderr.length <= SHELL_OUTPUT_INLINE_CAP
+        taskOutput.totalDiskBytes() <= SHELL_OUTPUT_INLINE_CAP
       ) {
         taskOutput.deleteFiles();
+        void releaseResourceLease();
       } else {
         taskOutput.closeFds();
+        void releaseResourceLease();
       }
-      void releaseResourceLease();
+      // The shell is gone — did it leave anything RUNNING? Answered from the
+      // process group / process tree the spawn layer already owns, never from
+      // the command text. A handle here means the caller reports a tracked
+      // task instead of a clean finish; null means nothing survived.
+      let descendants = null;
+      if (!killed && !timedOut && child?.pid) {
+        try {
+          descendants = await probeShellDescendants({
+            pid: child.pid,
+            stdioHeld: rootExitAtMs > 0 && (Date.now() - rootExitAtMs) >= STDIO_HELD_AFTER_EXIT_MS,
+          });
+          if (descendants) descendants.taskId = _foregroundRecordId;
+        } catch { descendants = null; }
+      }
       resolveResult(
         new ExecResult({
           stdout,
@@ -593,6 +714,7 @@ export function execShellCommand({
           outputCaptureError: taskOutput.writeError,
           failurePhase,
           failureReason,
+          descendants,
         }),
       );
     };
@@ -608,18 +730,23 @@ export function execShellCommand({
     // 'close' only fires after stdio drains; a forked grandchild that
     // inherited stdout/stderr fds can hold them open past direct-child
     // exit and stall settle() until timeoutMs. 'exit' fires on direct
-    // child termination regardless — give 'close' a 2 s grace then
-    // settle anyway.
+    // child termination regardless — give 'close' a 3 s grace then
+    // settle anyway. The grace outlives the spawn server's own 2 s drain
+    // deadline, so the real exit status normally still arrives first.
     const _onChildExit = (code, signal) => {
-      if (_isBackground) {
-        setImmediate(() => settle(code == null ? 1 : code, signal));
-        return;
-      }
+      if (!rootExitAtMs) rootExitAtMs = Date.now();
       const grace = setTimeout(() => {
-        if (settled || autoBackgrounded) return;
+        if (settled) return;
+        if (autoBackgrounded) {
+          // A promoted child whose 'close' never arrives (grandchild holding
+          // the stdio) would otherwise keep its spill descriptors forever:
+          // 'exit' is the only terminal event this path gets.
+          _releasePromotedCapture();
+          return;
+        }
         partialOutput = true;
         settle(code == null ? 1 : code, signal);
-      }, 2000);
+      }, 3000);
       if (grace.unref) grace.unref();
     };
     child.once('exit', _onChildExit);
@@ -818,7 +945,7 @@ export function execShellCommand({
           jobId,
           backgroundTimeoutMs: remainingBackgroundTimeoutMs,
           backgroundMessage: jobId
-            ? `${_verb}; still running. Completion is automatic; do not call task read/monitor to wait or check progress. Continue independent work or end the turn. Use task read only when the user explicitly asks for current status, and task monitor only when they explicitly ask for periodic progress.`
+            ? `${_verb}; still running. Completion is automatic, so continue independent work or end the turn. When the next step needs the result, call task wait once—it returns the moment the task settles—instead of polling task read.`
             : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
         }),
       );
@@ -836,6 +963,12 @@ export function execShellCommand({
         detachAbortHandler();
         try { if (autoBackgroundJobId) killShellJob(autoBackgroundJobId); } catch {}
         try { treeKill(child); } catch {}
+        // settle() is inert from here (settled), so the cleanup it owns has to
+        // run in this branch: the reported result carries no spill paths, so
+        // the capture files are unreferenced garbage — drop them, close their
+        // descriptors and hand back any lease the failed handoff still holds.
+        try { taskOutput.deleteFiles(); } catch { /* best-effort */ }
+        void releaseResourceLease();
         resolveResult(new ExecResult({
           stdout: '',
           stderr: `resource cleanup failed during background promotion: ${error?.message || error}`,
@@ -857,13 +990,12 @@ export function execShellCommand({
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         // Promote-on-timeout: if the caller allows backgrounding and the child
-        // is still running (not a trailing-`&` detach), promote it as a tracked
-        // background job instead of tree-killing it. Falls through to the old
-        // kill path for disallowed/opted-out commands (backgroundOnTimeout
-        // false) or when a terminal transition already won the race.
+        // is still running, promote it as a tracked background job instead of
+        // tree-killing it. Falls through to the old kill path for
+        // disallowed/opted-out commands (backgroundOnTimeout false) or when a
+        // terminal transition already won the race.
         if (
           backgroundOnTimeout &&
-          !_isBackground &&
           !settled &&
           !autoBackgrounded &&
           !killed &&
@@ -882,9 +1014,8 @@ export function execShellCommand({
     // Live-progress heartbeat: every 2 s while the foreground command runs,
     // emit "running Ns" so the MCP client renders live progress
     // instead of an opaque hang. Only armed for a genuine foreground run with
-    // a subscribed client; trailing-`&` background commands settle on exit and
-    // never need it. Cleared on settle / auto-background (see above).
-    if (_hasProgress && !_isBackground) {
+    // a subscribed client. Cleared on settle / auto-background (see above).
+    if (_hasProgress) {
       progressTimer = setInterval(() => {
         if (settled || autoBackgrounded) return;
         const secs = Math.round(_elapsedSinceStart() / 1000);
@@ -895,7 +1026,7 @@ export function execShellCommand({
 
     // Live output tail pump (see declaration above). Emits only on change so
     // idle commands cost one getLiveTail per second and zero downstream work.
-    if (_hasOutputTail && !_isBackground) {
+    if (_hasOutputTail) {
       outputTailTimer = setInterval(() => {
         if (settled || autoBackgrounded) return;
         try {
@@ -910,12 +1041,10 @@ export function execShellCommand({
     }
 
     // Arm the auto-background timer only for the genuine foreground one-shot
-    // path: a positive threshold strictly below the hard timeout, and not a
-    // trailing-`&` background command (those already detach + settle on exit).
+    // path: a positive threshold strictly below the hard timeout.
     if (
       typeof autoBackgroundMs === 'number' &&
       autoBackgroundMs > 0 &&
-      !_isBackground &&
       (timeoutMs <= 0 || autoBackgroundMs < timeoutMs)
     ) {
       autoBgTimer = setTimeout(() => { fireAutoBackground(); }, autoBackgroundMs);
@@ -934,7 +1063,6 @@ export function execShellCommand({
         if (
           _abortReasonIsInterrupt(abortSignal) &&
           backgroundOnTimeout &&
-          !_isBackground &&
           !settled &&
           !autoBackgrounded &&
           !killed &&

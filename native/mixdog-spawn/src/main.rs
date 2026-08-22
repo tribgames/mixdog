@@ -172,6 +172,11 @@ enum WireRequest {
         #[serde(rename = "cancelTask")]
         cancel_task: String,
     },
+    ReleaseTask {
+        id: u64,
+        #[serde(rename = "releaseTask")]
+        release_task: String,
+    },
     CancelOwner {
         id: u64,
         #[serde(rename = "cancelOwnerSession")]
@@ -442,6 +447,39 @@ fn emit(value: &serde_json::Value) {
 fn emit_task(id: u64, event: &str, managed: &ManagedProcess) {
     if let Some(task) = managed.snapshot() {
         emit(&json!({ "id": id, "event": event, "task": task }));
+    }
+}
+
+// Retained (promoted / background) tasks stay queryable after they finish, so
+// the jobs map only ever grew: a long-lived daemon accumulated one entry per
+// command for its whole life. Clients release explicitly (releaseTask), and
+// this cap is the backstop for clients that never do. FINISHED jobs are
+// dropped oldest-first; a live job is never pruned.
+const RETAINED_JOB_LIMIT: usize = 256;
+
+fn prune_retained_jobs(manager: &Arc<Manager>) {
+    let mut jobs = manager.jobs.lock().unwrap_or_else(|e| e.into_inner());
+    if jobs.len() <= RETAINED_JOB_LIMIT {
+        return;
+    }
+    let excess = jobs.len() - RETAINED_JOB_LIMIT;
+    let mut finished: Vec<(u64, String)> = jobs
+        .iter()
+        .filter(|(_, managed)| managed.done.load(Ordering::Acquire))
+        .map(|(job_id, managed)| {
+            let finished_at = managed
+                .state
+                .lock()
+                .ok()
+                .and_then(|state| state.finished_at_ms)
+                .unwrap_or(0);
+            (finished_at, job_id.clone())
+        })
+        .collect();
+    finished.sort_by_key(|(finished_at, _)| *finished_at);
+    for (_, job_id) in finished.into_iter().take(excess) {
+        jobs.remove(&job_id);
+        emit(&json!({ "id": 0, "event": "task_released", "jobId": job_id }));
     }
 }
 
@@ -824,6 +862,8 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
                 .remove(&job_id);
             emit(&json!({ "id": id, "event": "task_released", "jobId": job_id }));
         }
+    } else {
+        prune_retained_jobs(&manager);
     }
     emit(&json!({
         "id": id,
@@ -912,7 +952,8 @@ fn main() {
             "stdinPipe": true,
             "trackedForeground": true,
             "promoteTask": true,
-            "cancelOwner": true
+            "cancelOwner": true,
+            "releaseTask": true
         }
     }));
     let manager = Arc::new(Manager::new());
@@ -1033,6 +1074,30 @@ fn main() {
                     }
                 }
                 emit(&json!({ "id": id, "event": "owner_cancelled", "count": cancelled }));
+            }
+            Ok(WireRequest::ReleaseTask { id, release_task }) => {
+                // Drop a SETTLED task's retained slot. A live task keeps its
+                // slot: releasing it would strand a running process with no
+                // way left to observe or cancel it.
+                let released = {
+                    let mut jobs = manager.jobs.lock().unwrap_or_else(|e| e.into_inner());
+                    match jobs.get(&release_task) {
+                        Some(managed) if managed.done.load(Ordering::Acquire) => {
+                            jobs.remove(&release_task);
+                            true
+                        }
+                        _ => false,
+                    }
+                };
+                if released {
+                    emit(&json!({ "id": id, "event": "task_released", "jobId": release_task }));
+                } else {
+                    emit(&json!({
+                        "id": id,
+                        "event": "task_release_declined",
+                        "jobId": release_task,
+                    }));
+                }
             }
             Ok(WireRequest::TaskStatus { id, task_status }) => {
                 let managed = manager

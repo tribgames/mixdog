@@ -93,7 +93,13 @@ export function validateRendererManifest(value) {
   if (value.treeHash !== expectedTreeHash) {
     throw new Error('Renderer manifest tree hash does not match its file list.');
   }
-  return { schemaVersion: 1, treeHash: expectedTreeHash, files };
+  // Provenance: which installed tree this manifest's delta was computed
+  // against. Empty for a plain (full) manifest.
+  const base = value.base == null || value.base === '' ? '' : String(value.base);
+  if (base && !/^[a-f0-9]{64}$/.test(base)) {
+    throw new Error('Renderer manifest base hash is invalid.');
+  }
+  return { schemaVersion: 1, treeHash: expectedTreeHash, base, files };
 }
 
 export async function buildRendererManifest(root) {
@@ -154,7 +160,9 @@ export async function createRendererDelta({
     changedBytes += file.size;
     changedFiles += 1;
   }
-  await writeJsonAtomic(manifestPath, current);
+  // Record the base tree: a delta is only valid against the exact tree it was
+  // computed from, and `apply` refuses anything else.
+  await writeJsonAtomic(manifestPath, { ...current, base: base.treeHash });
   return {
     totalFiles: current.files.length,
     totalBytes: current.files.reduce((sum, file) => sum + file.size, 0),
@@ -174,6 +182,18 @@ export async function applyRendererDelta({
   outputDir,
 }) {
   const target = validateRendererManifest(manifest);
+  // A delta reconstructs its target tree ONLY on top of the base it was built
+  // against. Without this gate a cached delta from an older release rebuilds
+  // that older renderer, and every downstream hash check — computed from the
+  // same reconstruction — happily confirms it.
+  if (target.base) {
+    const baseState = await buildRendererManifest(baseDir);
+    if (baseState.treeHash !== target.base) {
+      throw new Error(
+        `Renderer delta base failed verification: expected ${target.base}, found ${baseState.treeHash}`,
+      );
+    }
+  }
   const targetFiles = new Map(target.files.map((file) => [file.path, file]));
   await rm(outputDir, { recursive: true, force: true });
   if (await pathType(baseDir) === 'directory') {

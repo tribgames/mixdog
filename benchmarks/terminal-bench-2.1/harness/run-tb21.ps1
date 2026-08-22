@@ -71,7 +71,7 @@ if ($hasRouteProfile -and ($hasProvider -or $hasModel -or $hasEffort)) {
 if ($hasProvider -ne $hasModel) {
     throw "Provider and Model must be supplied together, or both omitted."
 }
-$resolvedProfile = $null
+$resolvedAudit = $null
 if ($hasRouteProfile) {
     $profilePath = Join-Path $PSScriptRoot "route_profiles.json"
     $profileDoc = Get-Content -Raw $profilePath | ConvertFrom-Json
@@ -88,14 +88,14 @@ if ($hasRouteProfile) {
     # alone accepts missing/extra route fields and weakly compares booleans to
     # schemaVersion 1, so it is not sufficient validation.
     $validatorPath = Join-Path $PSScriptRoot "routing_profiles.py"
-    $validationCode = 'import json, runpy, sys; from pathlib import Path; module = runpy.run_path(sys.argv[1]); print(json.dumps(module["load_route_profile"](sys.argv[2], Path(sys.argv[3])), separators=(",", ":")))'
-    $validatedProfileJson = @(
+    $validationCode = 'import runpy, sys; from pathlib import Path; m = runpy.run_path(sys.argv[1]); p = m["load_route_profile"](sys.argv[2], Path(sys.argv[3])); print(m["format_resolved_routes"](sys.argv[2], p))'
+    $validatedAudit = @(
         & python -c $validationCode $validatorPath $RouteProfile $profilePath 2>&1
     )
     if ($LASTEXITCODE -ne 0) {
-        throw "Invalid RouteProfile '$RouteProfile': $($validatedProfileJson -join [Environment]::NewLine)"
+        throw "Invalid RouteProfile '$RouteProfile': $($validatedAudit -join [Environment]::NewLine)"
     }
-    $resolvedProfile = ($validatedProfileJson -join [Environment]::NewLine) | ConvertFrom-Json
+    $resolvedAudit = $validatedAudit -join [Environment]::NewLine
 }
 # Windows: harbor/rich read+write UTF-8 content (agent logs, box-drawing
 # glyphs); the cp949 default codec crashed a full run mid-flight. Force
@@ -108,30 +108,31 @@ $benchRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $benchRoot
 $env:PYTHONPATH = $benchRoot
 
-# Freeze the complete source union before Harbor starts. Every trial uploads
-# only this immutable snapshot; the adapter verifies it again before apply.
+# Freeze the complete local runtime before Harbor starts. The local build
+# couples current src with its matching Linux native spawn binary; every trial
+# uploads only this immutable bundle.
 $snapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-src-" + [guid]::NewGuid().ToString("N"))
 $harnessSnapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-harness-" + [guid]::NewGuid().ToString("N"))
-$fallbackStateRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-fallback-" + [guid]::NewGuid().ToString("N"))
 $harborExitCode = 0
 try {
-    $overlayPreflight = & python -m harness.src_overlay --output $snapshotRoot 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "Terminal-Bench src overlay preflight failed: $($overlayPreflight -join [Environment]::NewLine)"
+    if (-not $DryRun) {
+        $overlayPreflight = & python -m harness.src_overlay --output $snapshotRoot 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Terminal-Bench runtime bundle preflight failed: $($overlayPreflight -join [Environment]::NewLine)"
+        }
+        New-Item -ItemType Directory -Path $harnessSnapshotRoot -ErrorAction Stop | Out-Null
+        $harnessManifest = [ordered]@{}
+        foreach ($name in @("anthropic_oauth_preflight.mjs")) {
+            $source = Join-Path $PSScriptRoot $name
+            $target = Join-Path $harnessSnapshotRoot $name
+            Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop
+            (Get-Item -LiteralPath $target).IsReadOnly = $true
+            $harnessManifest[$name] = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+        $env:MIXDOG_TB_SRC_SNAPSHOT = $snapshotRoot
+        $env:MIXDOG_TB_HARNESS_SNAPSHOT = $harnessSnapshotRoot
+        $env:MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST = ($harnessManifest | ConvertTo-Json -Compress)
     }
-    New-Item -ItemType Directory -Path $harnessSnapshotRoot -ErrorAction Stop | Out-Null
-    $harnessManifest = [ordered]@{}
-    foreach ($name in @("anthropic_oauth_preflight.mjs")) {
-        $source = Join-Path $PSScriptRoot $name
-        $target = Join-Path $harnessSnapshotRoot $name
-        Copy-Item -LiteralPath $source -Destination $target -ErrorAction Stop
-        (Get-Item -LiteralPath $target).IsReadOnly = $true
-        $harnessManifest[$name] = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
-    }
-    $env:MIXDOG_TB_SRC_SNAPSHOT = $snapshotRoot
-    $env:MIXDOG_TB_HARNESS_SNAPSHOT = $harnessSnapshotRoot
-    $env:MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST = ($harnessManifest | ConvertTo-Json -Compress)
-    $env:MIXDOG_TB_FALLBACK_STATE_DIR = $fallbackStateRoot
 
 $harborArgs = @(
     "run",
@@ -178,15 +179,7 @@ foreach ($item in $AgentEnv) {
 }
 if ($hasRouteProfile) {
     $harborArgs += @("--ak", "route_profile=$RouteProfile")
-    $routeParts = @()
-    foreach ($role in @("lead", "worker", "heavy-worker", "reviewer", "debugger")) {
-        $routeProperty = $resolvedProfile.routes.PSObject.Properties[$role]
-        if ($null -eq $routeProperty) { continue }
-        $route = $routeProperty.Value
-        $fast = if ($route.fast -eq $true) { "true" } else { "false" }
-        $routeParts += "${role}=$($route.provider)/$($route.model) effort=$($route.effort) fast=$fast"
-    }
-    "route-profile ${RouteProfile}: $($routeParts -join '; ')"
+    $resolvedAudit
 }
 
 $displayArgs = @($harborArgs)
@@ -238,15 +231,11 @@ finally {
     Remove-Item Env:MIXDOG_TB_SRC_SNAPSHOT -ErrorAction SilentlyContinue
     Remove-Item Env:MIXDOG_TB_HARNESS_SNAPSHOT -ErrorAction SilentlyContinue
     Remove-Item Env:MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST -ErrorAction SilentlyContinue
-    Remove-Item Env:MIXDOG_TB_FALLBACK_STATE_DIR -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $snapshotRoot) {
         Remove-Item -LiteralPath $snapshotRoot -Recurse -Force
     }
     if (Test-Path -LiteralPath $harnessSnapshotRoot) {
         Remove-Item -LiteralPath $harnessSnapshotRoot -Recurse -Force
-    }
-    if (Test-Path -LiteralPath $fallbackStateRoot) {
-        Remove-Item -LiteralPath $fallbackStateRoot -Recurse -Force
     }
 }
 if ($harborExitCode -ne 0) {

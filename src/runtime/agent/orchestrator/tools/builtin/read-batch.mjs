@@ -14,6 +14,11 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
     const lines = body.split('\n');
     const kept = [];
     let footerIdx = -1;
+    // Coverage of the SOURCE body. A coalesced union read can be cut short
+    // (output byte cap), so a later window in the same batch may lie partly or
+    // wholly past what was actually returned.
+    let minSeen = Infinity;
+    let maxSeen = -Infinity;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (line.startsWith('[lines ') || line.startsWith('[read complete')) {
@@ -23,6 +28,8 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
         const m = /^(\d+)[\t│→]/.exec(line);
         if (m) {
             const ln = parseInt(m[1], 10);
+            if (ln < minSeen) minSeen = ln;
+            if (ln > maxSeen) maxSeen = ln;
             if (ln >= firstLine && ln <= lastLine) kept.push(line);
         } else if (kept.length === 0 && footerIdx === -1) {
             kept.push(line);
@@ -37,16 +44,37 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
     const totalNum = totalM ? parseInt(totalM[1], 10) : NaN;
     const haveTotal = Number.isFinite(totalNum);
     const finiteLast = Number.isFinite(lastLine);
-    const emittedLast = haveTotal && finiteLast
+    const sourceCovered = Number.isFinite(maxSeen) && minSeen <= maxSeen;
+    // NEVER fabricate a `[lines a-b of N]` footer for a window the body does
+    // not contain: the batch parent parses that footer, records the range in
+    // the read snapshot and hashes those lines from disk — claiming the
+    // session received lines it never saw.
+    if (kept.length === 0 && sourceCovered) {
+        if (haveTotal && firstLine > totalNum) {
+            return `(no lines in range; file has ${totalNum} lines)`;
+        }
+        const wanted = finiteLast ? `${firstLine}-${lastLine}` : `${firstLine}+`;
+        const totalNote = haveTotal ? ` of ${totalNum}` : '';
+        const limitNote = finiteLast ? ` limit:${lastLine - firstLine + 1}` : '';
+        return `(lines ${wanted} were NOT returned — the coalesced read stopped after covering lines `
+            + `${minSeen}-${maxSeen}${totalNote}; re-read this file with offset:${off}${limitNote})`;
+    }
+    // Line numbers actually present in this slice — the footer is derived from
+    // them, never from the request alone.
+    let keptFirst = null;
+    let keptLast = null;
+    for (const line of kept) {
+        const km = /^(\d+)[\t│→]/.exec(line);
+        if (!km) continue;
+        const n = parseInt(km[1], 10);
+        if (keptFirst === null) keptFirst = n;
+        keptLast = n;
+    }
+    const requestedLast = haveTotal && finiteLast
         ? Math.min(lastLine, totalNum)
-        : (finiteLast ? lastLine : (kept.length > 0
-            ? (() => {
-                // Read the last kept line's number prefix.
-                const lastKept = kept[kept.length - 1];
-                const km = /^(\d+)[\t│→]/.exec(lastKept);
-                return km ? parseInt(km[1], 10) : firstLine;
-            })()
-            : firstLine));
+        : (finiteLast ? lastLine : (keptLast ?? firstLine));
+    const emittedStart = keptFirst ?? firstLine;
+    const emittedLast = keptLast !== null ? Math.min(requestedLast, keptLast) : requestedLast;
     const totalPart = haveTotal ? ` of ${totalNum}` : '';
     const moreToRead = haveTotal ? emittedLast < totalNum : finiteLast;
     // Anti-fragmentation: modest remainders get the exact one-window
@@ -57,7 +85,7 @@ export function sliceReadBodyByLines(body, origOffset, origLimit) {
             ? `; ${_remaining} left — ONE window: offset:${emittedLast} limit:${_remaining}`
             : `; pass offset:${emittedLast} to continue`)
         : '';
-    const newFooter = `[lines ${firstLine}-${emittedLast}${totalPart}${continuationPart}]`;
+    const newFooter = `[lines ${emittedStart}-${emittedLast}${totalPart}${continuationPart}]`;
     return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;
 }
 

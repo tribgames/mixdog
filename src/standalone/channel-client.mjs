@@ -8,22 +8,11 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-
-function parsePid(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
+import { isPidAlive, parsePid } from '../runtime/shared/pid-liveness.mjs';
 
 function parsePort(value) {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 && n < 65536 ? n : null;
-}
-
-function isPidAlive(pid) {
-  const n = parsePid(pid);
-  if (!n) return false;
-  try { process.kill(n, 0); return true; }
-  catch (error) { return error?.code === 'EPERM'; }
 }
 
 // Read + validate the discovery file. Returns null when missing/corrupt or when
@@ -153,6 +142,11 @@ export async function attachChannel({
   if (!isExpectedDaemon(initialHealth)) throw staleDiscoveryError('daemon discovery pid does not match health');
 
   let reg;
+  // A stable registration id even on the FIRST attach: if this response is
+  // lost, the daemon reaps the never-acknowledged token through its replay TTL
+  // instead of holding an unreapable client against a live pid forever (which
+  // blocks daemon self-shutdown).
+  const initialRegistrationId = randomUUID();
   try {
     reg = await request({
       port,
@@ -161,7 +155,10 @@ export async function attachChannel({
       path: '/client/register',
       // Channel attachment observes the current owner and never claims the
       // manual routing seat merely by opening the transport.
-      body: { leadPid, cwd, passive: true, restoreSessionId },
+      body: {
+        leadPid, cwd, passive: true, restoreSessionId,
+        registrationId: initialRegistrationId,
+      },
       timeoutMs: 3000,
       agent: controlAgent,
     });
@@ -186,7 +183,12 @@ export async function attachChannel({
   let reconnectReplaceToken = null;
   let lifecycle = 0;
   let stableTimer = null;
+  let livenessTimer = null;
   let closePromise = null;
+  // The daemon writes a `: ka` comment every 15s. A half-open socket delivers
+  // no bytes and no FIN, so without this deadline the stream stays "connected"
+  // forever and the client never reconnects.
+  const STREAM_LIVENESS_MS = 45_000;
   // Bounded reconnect is only for a verified-live daemon's transient SSE loss.
   // A stale/dead endpoint signals onFatal immediately so the owner re-reads
   // discovery instead of spinning against the captured port.
@@ -220,6 +222,10 @@ export async function attachChannel({
     if (stableTimer) { try { clearTimeout(stableTimer); } catch {} stableTimer = null; }
   }
 
+  function clearLivenessTimer() {
+    if (livenessTimer) { try { clearTimeout(livenessTimer); } catch {} livenessTimer = null; }
+  }
+
   function signalFatal(reason) {
     if (closed || fatal) return;
     fatal = true;
@@ -227,6 +233,7 @@ export async function attachChannel({
     lifecycle++;
     if (reconnectTimer) { try { clearTimeout(reconnectTimer); } catch {} reconnectTimer = null; }
     clearStableTimer();
+    clearLivenessTimer();
     try { sseReq?.destroy?.(); } catch {}
     log(`sse stale endpoint (${reason}); signalling re-attach`);
     try { onFatal(reason); } catch {}
@@ -251,6 +258,9 @@ export async function attachChannel({
 
   function openStream() {
     if (closed) return;
+    // A liveness expiry is a transient stream loss (reconnect), not a dead
+    // endpoint: keep the destroy() it triggers off the fatal path.
+    let livenessLost = false;
     const req = http.request({
       hostname: '127.0.0.1',
       port,
@@ -278,9 +288,22 @@ export async function attachChannel({
         if (!closed && !fatal && req === sseReq) reconnectAttempts = 0;
       }, STABLE_STREAM_MS);
       stableTimer.unref?.();
+      const armLiveness = () => {
+        clearLivenessTimer();
+        livenessTimer = setTimeout(() => {
+          if (closed || fatal || req !== sseReq) return;
+          livenessLost = true;
+          handleStreamLoss(`sse liveness timeout after ${STREAM_LIVENESS_MS}ms`);
+          try { req.destroy(new Error('channel SSE liveness timeout')); } catch {}
+        }, STREAM_LIVENESS_MS);
+        livenessTimer.unref?.();
+      };
+      armLiveness();
       let buf = '';
       res.on('data', (chunk) => {
         if (req !== sseReq || closed) return;
+        // Any byte, including a `: ka` keepalive comment, proves liveness.
+        armLiveness();
         buf += chunk;
         let idx;
         while ((idx = buf.indexOf('\n\n')) >= 0) {
@@ -299,18 +322,21 @@ export async function attachChannel({
       res.on('end', () => {
         if (req === sseReq) {
           clearStableTimer();
+          clearLivenessTimer();
           handleStreamLoss('sse ended');
         }
       });
       res.on('error', () => {
         if (req === sseReq) {
           clearStableTimer();
+          clearLivenessTimer();
           handleStreamLoss('sse error');
         }
       });
     });
     req.on('error', () => {
-      if (req === sseReq) signalFatal('sse req error');
+      if (req !== sseReq || livenessLost) return;
+      signalFatal('sse req error');
     });
     sseReq = req;
     req.end();
@@ -384,7 +410,12 @@ export async function attachChannel({
       err.daemonTransportError = true;
       throw err;
     }
-    if (out && out.error) throw new Error(out.error);
+    if (out && out.error) {
+      // Preserve the daemon's machine-readable classification across the wire.
+      const err = new Error(out.error);
+      if (out.code) err.code = String(out.code);
+      throw err;
+    }
     return out?.result;
   }
 
@@ -394,6 +425,7 @@ export async function attachChannel({
     lifecycle++;
     if (reconnectTimer) { try { clearTimeout(reconnectTimer); } catch {} reconnectTimer = null; }
     clearStableTimer();
+    clearLivenessTimer();
     try { sseReq?.destroy?.(); } catch {}
     // A re-register already in flight can mint a fresh token after close().
     // Await it so its stale branch deregisters that token before close resolves.

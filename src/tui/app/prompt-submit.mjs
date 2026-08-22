@@ -5,32 +5,38 @@
 // re-created per render so it closes over the CURRENT prompt/panel state.
 import {
   memoryCoreResultErrorText,
-  parseHookRuleInput,
   parseMcpServerInput,
   parseSkillInput,
 } from './input-parsers.mjs';
 import { projectNameFromPath } from './app-format.mjs';
+import { isPanelEpochCurrent, supersedePanelEpoch } from './panel-epoch.mjs';
 import {
   buildPromptContentWithImages,
   imageReferenceIds,
   pastedTextReferenceIds,
 } from '../paste-attachments.mjs';
 
+// In-flight prompt writes, tracked at MODULE scope: createPromptSubmit is
+// re-created on every render, so a closure flag resets mid-write and a second
+// Enter starts an overlapping daemon write whose OLDER ack then closes the
+// panel that already holds newer (restored) input. Each value is the panel
+// epoch its write owns, so a write stops blocking the moment the user takes
+// the surface back (Esc/close bumps the epoch).
+let providerWriteToken = 0;
+let settingsWriteToken = 0;
+const providerWriteInFlight = () => providerWriteToken > 0 && isPanelEpochCurrent(providerWriteToken);
+const settingsWriteInFlight = () => settingsWriteToken > 0 && isPanelEpochCurrent(settingsWriteToken);
+
 export function createPromptSubmit({
   store,
   state,
   providerPrompt,
-  channelPrompt,
-  hookPrompt,
   settingsPrompt,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
   oauthSubmitRef,
   clearModelCaches,
   openProviderSetupPicker,
-  openHooksPicker,
   openSettingsPicker,
   openProjectPicker,
   openAutoClearPicker,
@@ -54,6 +60,14 @@ export function createPromptSubmit({
     }
     return Promise.resolve(target.apply(store, args));
   };
+  // Panel openers are async on a daemon-backed store: a bare call leaves a
+  // rejected open as an unhandled rejection, which terminates the TUI.
+  const openPanel = (open, ...args) => {
+    if (typeof open !== 'function') return;
+    void Promise.resolve(open(...args)).catch((error) => {
+      store.pushNotice(`panel failed to open: ${error?.message || error}`, 'error');
+    });
+  };
   const submitPrompt = (prompt, options) => {
     if (typeof store.submitAsync !== 'function') return store.submit(prompt, options);
     void Promise.resolve(store.submitAsync(prompt, options)).then((accepted) => {
@@ -65,6 +79,17 @@ export function createPromptSubmit({
     // durable intake, while provider execution continues independently.
     return true;
   };
+  // A rejected daemon write keeps the settings prompt OPEN with the typed
+  // value restored (the epoch remounts the editor, so an identical retry value
+  // still re-seeds it) instead of closing and losing the entry.
+  const restoreSettingsPrompt = (target, value) => {
+    setSettingsPrompt({
+      ...target,
+      submitting: false,
+      initialValue: value,
+      restoreEpoch: (Number(target.restoreEpoch) || 0) + 1,
+    });
+  };
   const onSubmit = (raw) => {
     const text = String(raw ?? '');
     const commandText = text.trim();
@@ -73,57 +98,94 @@ export function createPromptSubmit({
         store.pushNotice('wait for the current command to finish', 'warn');
         return false;
       }
+      // Every provider write below is a DAEMON RPC (async). The prompt may only
+      // close once the write is acknowledged; a rejection keeps the panel open
+      // with the entered value restored so a transport hiccup never silently
+      // eats a credential or claims success.
+      const beginProviderSave = (target) => {
+        // A new submit supersedes every older in-flight write for this surface.
+        const token = supersedePanelEpoch();
+        providerWriteToken = token;
+        setProviderPrompt((prompt) => (prompt === target ? { ...prompt, submitting: true } : prompt));
+        return token;
+      };
+      const endProviderSave = (token) => {
+        if (providerWriteToken === token) providerWriteToken = 0;
+      };
+      const finishProviderSave = (target, token) => {
+        endProviderSave(token);
+        // Stale ack (newer submit, or the user closed the prompt): never close
+        // or navigate a surface this write no longer owns.
+        if (!isPanelEpochCurrent(token)) return;
+        setProviderPrompt(null);
+        if (target.afterSave) target.afterSave();
+        else openPanel(openProviderSetupPicker);
+      };
+      const failProviderSave = (target, value, message, token) => {
+        endProviderSave(token);
+        store.pushNotice(message, 'error');
+        if (!isPanelEpochCurrent(token)) return;
+        // The restored panel now owns the surface.
+        supersedePanelEpoch();
+        setProviderPrompt({
+          ...target,
+          submitting: false,
+          initialValue: value,
+          restoreEpoch: (Number(target.restoreEpoch) || 0) + 1,
+        });
+      };
       if (providerPrompt.kind === 'api-key') {
         if (!commandText) {
           store.pushNotice(`API key is required for ${providerPrompt.providerId}`, 'warn');
           return false;
         }
-        try {
-          store.saveProviderApiKey(providerPrompt.providerId, commandText);
-          clearModelCaches('all');
-          const afterSave = providerPrompt.afterSave;
-          setProviderPrompt(null);
-          if (afterSave) afterSave();
-          else void openProviderSetupPicker();
-          return true;
-        } catch (e) {
-          store.pushNotice(`api key save failed: ${e?.message || e}`, 'error');
+        if (providerWriteInFlight()) {
+          store.pushNotice('API key is already being saved', 'warn');
           return false;
         }
+        const target = providerPrompt;
+        const token = beginProviderSave(target);
+        void serviceCall('saveProviderApiKey', target.providerId, commandText)
+          .then(() => {
+            clearModelCaches('all');
+            finishProviderSave(target, token);
+          })
+          .catch((error) => failProviderSave(target, commandText, `api key save failed: ${error?.message || error}`, token));
+        return true;
       }
       if (providerPrompt.kind === 'openai-usage-session') {
         if (!commandText) {
           store.pushNotice('OpenAI usage session key is required for credit lookup', 'warn');
           return false;
         }
-        try {
-          store.saveOpenAIUsageSessionKey(commandText);
-          const afterSave = providerPrompt.afterSave;
-          setProviderPrompt(null);
-          if (afterSave) afterSave();
-          else void openProviderSetupPicker();
-          return true;
-        } catch (e) {
-          store.pushNotice(`OpenAI usage auth save failed: ${e?.message || e}`, 'error');
+        if (providerWriteInFlight()) {
+          store.pushNotice('OpenAI usage session key is already being saved', 'warn');
           return false;
         }
+        const target = providerPrompt;
+        const token = beginProviderSave(target);
+        void serviceCall('saveOpenAIUsageSessionKey', commandText)
+          .then(() => finishProviderSave(target, token))
+          .catch((error) => failProviderSave(target, commandText, `OpenAI usage auth save failed: ${error?.message || error}`, token));
+        return true;
       }
       if (providerPrompt.kind === 'local-url') {
-        try {
-          store.setLocalProvider(providerPrompt.providerId, {
-            enabled: true,
-            baseURL: commandText || providerPrompt.defaultURL,
-          });
-          clearModelCaches('all');
-          const afterSave = providerPrompt.afterSave;
-          setProviderPrompt(null);
-          if (afterSave) afterSave();
-          else void openProviderSetupPicker();
-          return true;
-        } catch (e) {
-          store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
+        if (providerWriteInFlight()) {
+          store.pushNotice('local provider update is already running', 'warn');
           return false;
         }
+        const target = providerPrompt;
+        const token = beginProviderSave(target);
+        void serviceCall('setLocalProvider', target.providerId, {
+          enabled: true,
+          baseURL: commandText || target.defaultURL,
+        })
+          .then(() => {
+            clearModelCaches('all');
+            finishProviderSave(target, token);
+          })
+          .catch((error) => failProviderSave(target, commandText, `local provider update failed: ${error?.message || error}`, token));
+        return true;
       }
       if (providerPrompt.kind === 'oauth-code') {
         if (!commandText) {
@@ -146,7 +208,7 @@ export function createPromptSubmit({
             store.pushNotice(`${providerPrompt.providerName || 'OAuth'} login complete`, 'info');
             if (successReturn) successReturn();
             else if (afterSave) afterSave();
-            else void openProviderSetupPicker();
+            else openPanel(openProviderSetupPicker);
           })
           .catch((e) => {
             oauthSubmitRef.current = false;
@@ -157,48 +219,61 @@ export function createPromptSubmit({
         return true;
       }
     }
-    // Channel token/target prompt kinds retired with Discord/Telegram
-    // messaging (user decision: the PWA replaces channels).
-    if (hookPrompt) {
-      if (state.commandBusy) {
-        store.pushNotice('wait for the current command to finish', 'warn');
-        return false;
-      }
-      try {
-        if (hookPrompt.kind === 'rule-add') {
-          const parsed = parseHookRuleInput(commandText);
-          if (parsed.error) {
-            store.pushNotice(parsed.error, 'warn');
-            return false;
-          }
-          store.addHookRule?.(parsed.rule);
-          setHookPrompt(null);
-          void openHooksPicker();
-          return true;
-        }
-      } catch (e) {
-        store.pushNotice(`hook update failed: ${e?.message || e}`, 'error');
-        return false;
-      }
-    }
+    // Channel token/target and hook-rule text prompts are retired: channels
+    // moved to the PWA and hook rules are edited in the Hooks picker, so no
+    // opener sets those prompts any more.
     if (settingsPrompt) {
       if (state.commandBusy) {
         store.pushNotice('wait for the current command to finish', 'warn');
         return false;
       }
+      // Settings writes are daemon RPCs and the panel stays open until they
+      // ACK, so a second Enter used to start an OVERLAPPING write: the older
+      // ack then closed the prompt that already held the newer, restored value
+      // and the user's input was lost. One write at a time per surface, and a
+      // superseded ack is ignored below.
+      if (settingsWriteInFlight()) {
+        store.pushNotice('wait for the current settings change to finish', 'warn');
+        return false;
+      }
+      const beginSettingsSave = (target) => {
+        const token = supersedePanelEpoch();
+        settingsWriteToken = token;
+        setSettingsPrompt((prompt) => (prompt === target ? { ...prompt, submitting: true } : prompt));
+        return token;
+      };
+      const endSettingsSave = (token) => {
+        if (settingsWriteToken === token) settingsWriteToken = 0;
+      };
+      const finishSettingsSave = (token, after) => {
+        endSettingsSave(token);
+        // Stale ack: a newer submit or an Esc owns this surface now.
+        if (!isPanelEpochCurrent(token)) return;
+        setSettingsPrompt(null);
+        after?.();
+      };
+      const failSettingsSave = (target, value, message, token, tone = 'error') => {
+        endSettingsSave(token);
+        store.pushNotice(message, tone);
+        if (!isPanelEpochCurrent(token)) return;
+        // The restored panel now owns the surface.
+        supersedePanelEpoch();
+        restoreSettingsPrompt(target, value);
+      };
       try {
         if (settingsPrompt.kind === 'cwd') {
           if (!commandText) {
             store.pushNotice('working directory path is required', 'warn');
             return false;
           }
+          const target = settingsPrompt;
+          const token = beginSettingsSave(target);
           void serviceCall('setCwd', commandText, {
             message: `Project set: ${projectNameFromPath(commandText)}`,
           }).then(() => {
-            setSettingsPrompt(null);
-            void openSettingsPicker();
+            finishSettingsSave(token, () => openPanel(openSettingsPicker));
           }).catch((error) => {
-            store.pushNotice(`project switch failed: ${error?.message || error}`, 'error');
+            failSettingsSave(target, commandText, `project switch failed: ${error?.message || error}`, token);
           });
           return true;
         }
@@ -207,17 +282,21 @@ export function createPromptSubmit({
             store.pushNotice('project path is required', 'warn');
             return false;
           }
+          const target = settingsPrompt;
+          const token = beginSettingsSave(target);
           void serviceCall('inspectProjectPath', commandText).then((result) => {
             const path = String(result?.path || commandText);
             if (result?.directory === true) {
-              setSettingsPrompt(null);
-              void registerProject(path);
+              finishSettingsSave(token, () => openPanel(registerProject, path));
               return;
             }
             if (result?.exists === true) {
-              store.pushNotice(`${path} is not a directory`, 'warn');
+              failSettingsSave(target, commandText, `${path} is not a directory`, token, 'warn');
               return;
             }
+            endSettingsSave(token);
+            if (!isPanelEpochCurrent(token)) return;
+            supersedePanelEpoch();
             setSettingsPrompt({
               kind: 'project-create-confirm',
               label: 'New project · Create folder?',
@@ -225,7 +304,7 @@ export function createPromptSubmit({
               pendingPath: path,
             });
           }).catch((error) => {
-            store.pushNotice(`project path check failed: ${error?.message || error}`, 'error');
+            failSettingsSave(target, commandText, `project path check failed: ${error?.message || error}`, token);
           });
           return true;
         }
@@ -233,12 +312,16 @@ export function createPromptSubmit({
           const pendingPath = String(settingsPrompt.pendingPath || '');
           const answer = String(commandText || '').trim().toLowerCase();
           if (answer === 'y' || answer === 'yes') {
+            const target = settingsPrompt;
+            const token = beginSettingsSave(target);
             void serviceCall('ensureProjectDirectory', pendingPath).then((created) => {
-              setSettingsPrompt(null);
-              void registerProject(created || pendingPath);
+              finishSettingsSave(token, () => openPanel(registerProject, created || pendingPath));
             }).catch((error) => {
+              endSettingsSave(token);
               store.pushNotice(`could not create folder: ${error?.message || error}`, 'error');
-              setSettingsPrompt(null);
+              // The typed value here is only the y/n answer, so close rather
+              // than restore — but never close a surface we no longer own.
+              if (isPanelEpochCurrent(token)) setSettingsPrompt(null);
             });
             return true;
           }
@@ -248,21 +331,29 @@ export function createPromptSubmit({
         }
         if (settingsPrompt.kind === 'project-rename') {
           const targetPath = String(settingsPrompt.projectPath || '');
+          const target = settingsPrompt;
+          const token = beginSettingsSave(target);
           void serviceCall('renameProject', targetPath, commandText).then((updated) => {
             if (updated) {
               store.pushNotice(`project renamed to "${updated.name}"`, 'info');
             }
-            setSettingsPrompt(null);
-            void openProjectPicker();
+            finishSettingsSave(token, () => openPanel(openProjectPicker));
           }).catch((error) => {
-            store.pushNotice(`rename failed: ${error?.message || error}`, 'error');
+            failSettingsSave(target, commandText, `rename failed: ${error?.message || error}`, token);
           });
           return true;
         }
         if (settingsPrompt.kind === 'system-shell') {
-          store.setSystemShell?.(commandText);
-          setSettingsPrompt(null);
-          void openSettingsPicker();
+          const target = settingsPrompt;
+          const token = beginSettingsSave(target);
+          // Empty is the documented reset to automatic selection.
+          void serviceCall('setSystemShell', commandText)
+            .then(() => {
+              finishSettingsSave(token, () => openPanel(openSettingsPicker));
+            })
+            .catch((error) => {
+              failSettingsSave(target, commandText, `system shell update failed: ${error?.message || error}`, token);
+            });
           return true;
         }
         if (settingsPrompt.kind === 'autoclear-provider') {
@@ -271,28 +362,32 @@ export function createPromptSubmit({
             store.pushNotice('auto-clear provider is missing', 'warn');
             return false;
           }
-          const text = String(commandText || '').trim();
-          try {
-            if (text) store.setAutoClear?.({ provider, duration: text });
-            else store.setAutoClear?.({ provider, resetProvider: true });
-            store.pushNotice(text ? `Auto-clear ${provider} default set to ${text}` : `Auto-clear ${provider} default reset`, 'info');
-          } catch (e) {
-            store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error');
-            return false;
-          }
-          setSettingsPrompt(null);
-          openAutoClearPicker({ advanced: true, returnTo: settingsPrompt.returnTo });
+          const duration = String(commandText || '').trim();
+          const target = settingsPrompt;
+          const token = beginSettingsSave(target);
+          // Empty is the documented reset to the built-in provider default.
+          void serviceCall('setAutoClear', duration ? { provider, duration } : { provider, resetProvider: true })
+            .then(() => {
+              store.pushNotice(duration ? `Auto-clear ${provider} default set to ${duration}` : `Auto-clear ${provider} default reset`, 'info');
+              finishSettingsSave(token, () => openPanel(openAutoClearPicker, { advanced: true, returnTo: target.returnTo }));
+            })
+            .catch((error) => {
+              failSettingsSave(target, duration, `autoclear failed: ${error?.message || error}`, token);
+            });
           return true;
         }
         if (settingsPrompt.kind === 'profile-title') {
-          try {
-            store.setProfile?.({ title: commandText });
-            store.pushNotice(commandText ? `Title set to "${commandText.trim()}"` : 'Title cleared', 'info');
-          } catch (e) {
-            store.pushNotice(`profile update failed: ${e?.message || e}`, 'error');
-          }
-          setSettingsPrompt(null);
-          openProfilePicker();
+          const target = settingsPrompt;
+          const token = beginSettingsSave(target);
+          // Empty is the documented "clear the title" action.
+          void serviceCall('setProfile', { title: commandText })
+            .then(() => {
+              store.pushNotice(commandText ? `Title set to "${commandText.trim()}"` : 'Title cleared', 'info');
+              finishSettingsSave(token, () => openPanel(openProfilePicker));
+            })
+            .catch((error) => {
+              failSettingsSave(target, commandText, `profile update failed: ${error?.message || error}`, token);
+            });
           return true;
         }
         if (settingsPrompt.kind === 'plugin-add') {

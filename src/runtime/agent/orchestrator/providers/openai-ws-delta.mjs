@@ -353,6 +353,17 @@ export function _computeDelta({ entry, body, traceProvider }) {
     if (!entry || !entry.lastRequestSansInput || !entry.lastResponseId) {
         return { mode: 'full', reason: 'no_anchor', frame: buildFrame(body) };
     }
+    // Public OpenAI resolves previous_response_id out of its response STORE, so
+    // an anchor only exists when the anchored response was stored. store:false
+    // there — e.g. an explicit MIXDOG_OAI_STORE=0 opt-out on the openai-direct
+    // provider — makes a continuation frame fail with
+    // previous_response_not_found, so the opt-out degrades to full frames.
+    // openai-oauth/Codex (per-WS-session server state) and xAI (in-connection
+    // ZDR continuation with encrypted reasoning) both anchor without the store
+    // and are deliberately excluded from this gate.
+    if (traceProvider === 'openai-direct' && body?.store !== true) {
+        return { mode: 'full', reason: 'store_disabled', frame: buildFrame(body) };
+    }
     if (!deltaForce && !deltaRefs && !entry.turnState) {
         return { mode: 'full', reason: 'delta_missing_turn_state', frame: buildFrame(body) };
     }

@@ -1051,7 +1051,13 @@ export async function sendViaWebSocket({
             // intact; the next forceFresh acquire creates a new entry into
             // which we manually carry the anchor so the retry continues the
             // same conversation instead of cold-starting one.
-            if (auth?.type === 'xai' && entry.lastResponseId) {
+            // Only a STORED response survives its connection. xAI's default
+            // (store:false) continuation is in-connection state: replaying its
+            // previous_response_id onto the fresh socket the retry acquires
+            // fails with a missing-response anchor and burns the recovery
+            // attempt, so a non-stored anchor is dropped and the retry
+            // cold-starts the conversation with the full input instead.
+            if (auth?.type === 'xai' && entry.lastResponseId && body?.store === true) {
                 carryForwardCache = {
                     lastResponseId: entry.lastResponseId,
                     lastInputPrefixHash: entry.lastInputPrefixHash,

@@ -35,7 +35,7 @@ export function messageSelectorLabel(text, width = 56) {
 export function useMessageSelector({
   store,
   state,
-  setPicker,
+  surface,
   setPromptDraftOverride,
   syncPromptLayoutRows,
   showPromptHint,
@@ -69,14 +69,15 @@ export function useMessageSelector({
       showPromptHint('No message to jump back to.', 'info');
       return false;
     }
-    setPicker({
+    const own = surface.claim();
+    own.paint({
       _kind: 'message-selector',
       title: 'Jump back to a message',
       description: 'Rewind the conversation to a previous prompt and edit it.',
       initialIndex: rows.length - 1,
       items: rows.map((row) => ({ value: row.id, label: messageSelectorLabel(row.text) })),
       onSelect: (value) => {
-        setPicker(null);
+        own.close();
         let restored;
         try {
           restored = store.rewindToItem?.(value);
@@ -94,10 +95,10 @@ export function useMessageSelector({
         }
         applyRewind(restored);
       },
-      onCancel: () => setPicker(null),
+      onCancel: () => own.close(),
     });
     return true;
-  }, [store, state.items, setPicker, applyRewind, showPromptHint]);
+  }, [store, state.items, surface, applyRewind, showPromptHint]);
 
   return { hasUserMessages, openMessageSelector };
 }

@@ -23,9 +23,18 @@ const PE_MACHINE = new Map([[0x8664, 'x64'], [0xaa64, 'arm64'], [0x14c, 'ia32']]
 function machOArch(buffer) {
   if (buffer.length < 8) return null
   const magic = buffer.readUInt32BE(0)
-  // Thin Mach-O: 0xfeedfacf (64-bit) / 0xfeedface (32-bit), either endianness.
-  if (magic === 0xfeedfacf || magic === 0xfeedface) return MACHO_CPU.get(buffer.readUInt32BE(4)) || null
-  if (magic === 0xcffaedfe || magic === 0xcefaedfe) return MACHO_CPU.get(buffer.readUInt32LE(4)) || null
+  // mach_header_64 is 32 bytes; mach_header is 28. Do not trust cputype until
+  // the full header extent is present.
+  if (magic === 0xfeedfacf || magic === 0xcffaedfe) {
+    if (buffer.length < 32) return null
+    const cpu = magic === 0xfeedfacf ? buffer.readUInt32BE(4) : buffer.readUInt32LE(4)
+    return MACHO_CPU.get(cpu) || null
+  }
+  if (magic === 0xfeedface || magic === 0xcefaedfe) {
+    if (buffer.length < 28) return null
+    const cpu = magic === 0xfeedface ? buffer.readUInt32BE(4) : buffer.readUInt32LE(4)
+    return MACHO_CPU.get(cpu) || null
+  }
   return null
 }
 
@@ -40,10 +49,10 @@ function machOFatArches(buffer) {
   const count = buffer.readUInt32BE(4)
   if (!count || count > 16) return null
   const entrySize = wide ? 32 : 20
+  if (buffer.length < 8 + count * entrySize) return null
   const arches = []
   for (let index = 0; index < count; index += 1) {
     const offset = 8 + index * entrySize
-    if (offset + 4 > buffer.length) return null
     const arch = MACHO_CPU.get(buffer.readUInt32BE(offset))
     if (arch) arches.push(arch)
   }
@@ -51,17 +60,26 @@ function machOFatArches(buffer) {
 }
 
 function elfArch(buffer) {
-  if (buffer.length < 20) return null
-  if (buffer.readUInt32BE(0) !== 0x7f454c46) return null
-  const littleEndian = buffer[5] === 1
+  if (buffer.length < 16 || buffer.readUInt32BE(0) !== 0x7f454c46) return null
+  const eiClass = buffer[4]
+  const eiData = buffer[5]
+  if (eiData !== 1 && eiData !== 2) return null
+  const headerSize = eiClass === 1 ? 52 : eiClass === 2 ? 64 : 0
+  if (!headerSize || buffer.length < headerSize) return null
+  const littleEndian = eiData === 1
   const machine = littleEndian ? buffer.readUInt16LE(18) : buffer.readUInt16BE(18)
-  return ELF_MACHINE.get(machine) || null
+  const arch = ELF_MACHINE.get(machine)
+  if (!arch) return null
+  const expectedClass = arch === 'ia32' ? 1 : 2
+  if (eiClass !== expectedClass) return null
+  return arch
 }
 
 function peArch(buffer) {
   if (buffer.length < 64 || buffer.readUInt16LE(0) !== 0x5a4d) return null
   const headerOffset = buffer.readUInt32LE(60)
-  if (headerOffset + 6 > buffer.length) return null
+  // IMAGE_NT_HEADERS starts at e_lfanew: 4-byte PE signature + 20-byte COFF header.
+  if (headerOffset < 64 || headerOffset + 24 > buffer.length) return null
   if (buffer.readUInt32LE(headerOffset) !== 0x00004550) return null
   return PE_MACHINE.get(buffer.readUInt16LE(headerOffset + 4)) || null
 }
@@ -83,11 +101,10 @@ export function nativeBinaryArch(buffer) {
 }
 
 /**
- * True when the artifact can run on `arch`. An unrecognized header answers
- * true: the caller is verifying compiled objects, and refusing every file it
- * cannot parse would fail builds over unrelated payloads.
+ * True when the artifact can run on `arch`. Unknown, truncated, or unsupported
+ * headers answer false so a wrong-arch or unreadable object cannot publish.
  */
 export function nativeBinaryRunsOn(buffer, arch) {
   const arches = nativeBinaryArches(buffer)
-  return arches === null || arches.includes(arch)
+  return Array.isArray(arches) && arches.includes(arch)
 }

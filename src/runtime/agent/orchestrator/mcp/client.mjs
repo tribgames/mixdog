@@ -377,12 +377,28 @@ export async function executeMcpTool(name, args, options = {}) {
     if (!server)
         throw new Error(`MCP server "${serverName}" not connected`);
     const gate = callAdmissionFor(server);
+    const callSignal = options?.signal || null;
     return gate.run(options?.ownerKey || currentToolExecutionOwner(), async () => {
+        // The gate stops forwarding the caller's abort once this task is
+        // admitted, so the task itself observes the signal for its whole run.
+        if (callSignal?.aborted) {
+            throw mcpAbortError(
+                callSignal,
+                `MCP tool call aborted before dispatch (server="${serverName}", tool="${toolName}")`,
+            );
+        }
         let result;
         try {
-            result = await _callToolWithTimeout(server, toolName, args);
+            result = await _callToolWithTimeout(server, toolName, args, callSignal);
         } catch (firstErr) {
             const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
+            if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
+                // A cancelled call is not a transport failure: reconnecting and
+                // replaying it would duplicate the side effect the caller just
+                // walked away from.
+                mcpLog(`[mcp-client] Tool call aborted by caller for "${serverName}/${toolName}".\n`);
+                throw firstErr;
+            }
             if (isMcpToolCallTimeoutError(firstErr)) {
                 mcpLog(`[mcp-client] Tool call timed out; skipping reconnect retry for "${serverName}/${toolName}".\n`);
                 throw firstErr;
@@ -390,14 +406,33 @@ export async function executeMcpTool(name, args, options = {}) {
             mcpLog(`[mcp-client] Tool call failed, attempting shared reconnect...\n`);
             let retryServer;
             try {
-                retryServer = await reconnectMcpServer(scopeId, serverName, server);
+                // The reconnect is SHARED (singleflight): the race only stops
+                // THIS caller from waiting on it — the reconnect keeps running
+                // for its other waiters. Without this, an abort mid-reconnect
+                // could not settle the call and the admission slot stayed held
+                // until the reconnect finished, or forever if it hung.
+                retryServer = await raceMcpAbort(
+                    reconnectMcpServer(scopeId, serverName, server),
+                    callSignal,
+                    `MCP tool call aborted during reconnect (server="${serverName}", tool="${toolName}")`,
+                );
             } catch (reconnectErr) {
+                if (isMcpCallAbortError(reconnectErr) || callSignal?.aborted) throw reconnectErr;
                 const reconnectMsg = reconnectErr instanceof Error ? reconnectErr.message : String(reconnectErr);
                 throw new Error(`Tool call failed: ${firstMsg}; reconnect also failed: ${reconnectMsg}`);
             }
+            // A reconnect that outlived the caller's abort must not dispatch the
+            // retry: that would run the side effect after cancellation.
+            if (callSignal?.aborted) {
+                throw mcpAbortError(
+                    callSignal,
+                    `MCP tool call aborted after reconnect (server="${serverName}", tool="${toolName}")`,
+                );
+            }
             try {
-                result = await _callToolWithTimeout(retryServer, toolName, args);
+                result = await _callToolWithTimeout(retryServer, toolName, args, callSignal);
             } catch (retryErr) {
+                if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
                 const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
                 throw new Error(`Tool call failed: ${firstMsg}; retry after reconnect also failed: ${retryMsg}`);
             }
@@ -408,7 +443,7 @@ export async function executeMcpTool(name, args, options = {}) {
             ? makeToolEnvelope(text, [], { explicitSuccess: true })
             : text;
     }, {
-        signal: options?.signal || null,
+        signal: callSignal,
     });
 }
 
@@ -471,11 +506,58 @@ export function resolveMcpStartupTimeoutMs(cfg = {}, env = process.env) {
     return Math.round(parsed);
 }
 
-async function _callToolWithTimeout(server, toolName, args) {
+// Caller-driven cancellation (hook timeout, aborted turn, closed pane).
+// Admission alone is not cancellation: an admitted call that ignores the
+// caller's signal keeps its concurrency slot until the SERVER timeout, which an
+// operator may have disabled entirely.
+function mcpAbortError(signal, message) {
+    const reason = signal?.reason;
+    if (reason instanceof Error) return reason;
+    const error = new Error(reason ? String(reason) : message);
+    error.code = 'EMCPCALLABORTED';
+    return error;
+}
+
+function isMcpCallAbortError(err) {
+    return err?.code === 'EMCPCALLABORTED' || err?.name === 'AbortError';
+}
+
+/** Settle as soon as `signal` aborts. Promise.race keeps a later rejection of
+ *  `promise` handled, so the abandoned call cannot surface as an unhandled
+ *  rejection. */
+function raceMcpAbort(promise, signal, message) {
+    if (!signal) return promise;
+    if (signal.aborted) {
+        void Promise.resolve(promise).catch(() => {});
+        return Promise.reject(mcpAbortError(signal, message));
+    }
+    let onAbort = null;
+    const aborted = new Promise((_resolve, reject) => {
+        onAbort = () => reject(mcpAbortError(signal, message));
+        signal.addEventListener('abort', onAbort, { once: true });
+    });
+    return Promise.race([promise, aborted]).finally(() => {
+        if (onAbort) {
+            try { signal.removeEventListener('abort', onAbort); } catch { /* already detached */ }
+        }
+    });
+}
+
+async function _callToolWithTimeout(server, toolName, args, signal = null) {
     let timer;
     const timeoutMs = resolveMcpCallTimeoutMs(server?.cfg);
+    // The signal goes INTO the SDK request: an aborted caller cancels the live
+    // JSON-RPC request (notifications/cancelled) instead of merely walking away
+    // from it. The race below additionally frees the admission slot at once.
+    const requestOptions = signal ? { signal } : undefined;
+    const abortMessage = `MCP tool call aborted (server="${server?.name}", tool="${toolName}")`;
     if (!(timeoutMs > 0)) {
-        return server.client.callTool({ name: toolName, arguments: args });
+        // Server timeout disabled: the caller's signal is then the ONLY bound.
+        return raceMcpAbort(
+            server.client.callTool({ name: toolName, arguments: args }, undefined, requestOptions),
+            signal,
+            abortMessage,
+        );
     }
     const timeout = new Promise((_, rej) => {
         timer = setTimeout(() => {
@@ -492,10 +574,10 @@ async function _callToolWithTimeout(server, toolName, args) {
         if (timer.unref) timer.unref();
     });
     try {
-        return await Promise.race([
-            server.client.callTool({ name: toolName, arguments: args }),
+        return await raceMcpAbort(Promise.race([
+            server.client.callTool({ name: toolName, arguments: args }, undefined, requestOptions),
             timeout,
-        ]);
+        ]), signal, abortMessage);
     } finally {
         if (timer) clearTimeout(timer);
     }
@@ -878,7 +960,9 @@ export function _registerMcpServerForTest(scopeId, name, rawTools = [], options 
             callTool: typeof options.callTool === 'function'
                 ? options.callTool
                 : async () => ({ content: [{ type: 'text', text: 'ok' }] }),
-            close: async () => {},
+            // Injectable so a test can stall teardown (and therefore the shared
+            // reconnect) without a transport or a child process.
+            close: typeof options.close === 'function' ? options.close : async () => {},
         },
         generation: currentConnectAbortGeneration(normalizedScopeId),
     };

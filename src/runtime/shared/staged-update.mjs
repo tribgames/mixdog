@@ -36,6 +36,8 @@ import { dirname, basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { resolvePluginData } from './plugin-paths.mjs';
+// Same probe every discovery/lock reader uses; `process.pid` is trivially alive.
+import { isPidAlive as pidAlive } from './pid-liveness.mjs';
 import { detachedSpawnOpts, hiddenSpawnOpts } from './spawn-flags.mjs';
 import { renameWithRetrySync } from './atomic-file.mjs';
 import {
@@ -65,18 +67,6 @@ function liveSessionsDir() {
 
 function rmDir(dir) {
   try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
-}
-
-function pidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (pid === process.pid) return true;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM = exists but not signalable → alive; ESRCH = gone.
-    return err?.code === 'EPERM';
-  }
 }
 
 function sleepSync(ms) {

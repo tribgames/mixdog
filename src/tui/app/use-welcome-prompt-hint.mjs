@@ -54,12 +54,24 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
           }
         }
       }
-      const activeWorkflow = await activeWorkflowSummaryForStore(store, state.workflow || {});
+      let activeWorkflow = null;
+      try {
+        activeWorkflow = await activeWorkflowSummaryForStore(store, state.workflow || {});
+      } catch {
+        // Workflow probing is advisory only; fall back to the state snapshot.
+      }
       if (!next && String(activeWorkflow?.id || state.workflow?.id || '').toLowerCase() === 'solo') {
         next = CONDITIONAL_WELCOME_PROMPT_HINTS.soloWorkflow;
       }
       if (!next) {
-        const webSearchRoute = (await store.getWebSearchRoute?.()) || null;
+        // Remote probe on a daemon-backed store: an unguarded reject here used
+        // to escape the fire-and-forget effect below and kill the TUI.
+        let webSearchRoute = null;
+        try {
+          webSearchRoute = (await store.getWebSearchRoute?.()) || null;
+        } catch {
+          // Web-search route probing is advisory only.
+        }
         const webSearchProvider = String(webSearchRoute?.provider || '').trim();
         const webSearchModel = String(webSearchRoute?.model || '').trim();
         const defaultWebSearchRoute = webSearchProvider.toLowerCase() === 'default' && webSearchModel.toLowerCase() === 'default';
@@ -82,7 +94,9 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
       }
       if (alive) setConditionalWelcomePromptHint((prev) => (prev === next ? prev : next));
     };
-    void refreshConditionalWelcomeHint();
+    // Outer backstop: this effect is fire-and-forget, so ANY rejection from the
+    // hint probes must die here instead of becoming an unhandled rejection.
+    void refreshConditionalWelcomeHint().catch(() => { /* hint stays generic */ });
     return () => { alive = false; };
   }, [store, state.provider, state.model, state.workflow?.id, toastErrorSignature]);
 

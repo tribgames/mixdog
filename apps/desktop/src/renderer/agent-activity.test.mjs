@@ -4,7 +4,17 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 
-import { AGENT_POOL_RECONCILE_MS, AgentActivityPane } from "./AgentActivityPane.tsx";
+import {
+  AGENT_POOL_RECONCILE_MS,
+  AgentActivityPane,
+  liveAgentRows,
+  liveTaskCount,
+} from "./AgentActivityPane.tsx";
+import {
+  createDesktopCancellationLedger,
+  desktopAgentActivityState,
+  desktopCancelOutcome,
+} from "../shared/agent-activity.ts";
 import { LiveWorkIndicator, SessionStatusIsland } from "./SessionStatusIsland.tsx";
 import { PaneStatusIsland } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
@@ -839,4 +849,242 @@ test("Agents move on turn start and completion only, never on a heartbeat", asyn
     await act(async () => dom.root.unmount());
     dom.close();
   }
+});
+
+test("cancellation is its own lifecycle state, never queued, running, done or idle", () => {
+  // The runtime keeps stage and status apart: a cancel lands on `status` while
+  // `stage` still holds the work the agent was doing when it was stopped.
+  assert.equal(desktopAgentActivityState({ stage: "queued", status: "cancelled" }), "cancelled");
+  assert.equal(desktopAgentActivityState({ stage: "running", status: "cancelled" }), "cancelled");
+  assert.equal(desktopAgentActivityState({ status: "cancelling" }), "cancel-unconfirmed");
+  assert.equal(
+    desktopAgentActivityState({ stage: "running", status: "cancel-unconfirmed" }),
+    "cancel-unconfirmed",
+  );
+  // The four live/settled states keep their meaning.
+  assert.equal(desktopAgentActivityState({ status: "queued" }), "queued");
+  assert.equal(desktopAgentActivityState({ status: "running" }), "running");
+  assert.equal(desktopAgentActivityState({ status: "idle" }, { unread: true }), "done");
+  assert.equal(desktopAgentActivityState({ status: "idle" }), "idle");
+});
+
+test("a cancelled agent leaves the live surfaces whatever its twin row still claims", () => {
+  // Worker and job rows settle at different moments, so the cancelled job
+  // routinely arrives beside a worker row that still says running.
+  const jobCancelled = {
+    sessionId: "lead-a",
+    agentWorkers: [{ tag: "review", agent: "reviewer", status: "running", stage: "running" }],
+    agentJobs: [{ task_id: "task-1", tag: "review", status: "cancelled" }],
+  };
+  assert.deepEqual(liveAgentRows(jobCancelled), []);
+  assert.equal(liveTaskCount(jobCancelled), 0);
+
+  // Same truth with the order reversed: the worker reports the cancel while
+  // the job row is still marked running.
+  const workerCancelled = {
+    sessionId: "lead-a",
+    agentWorkers: [{ tag: "review", agent: "reviewer", status: "cancelled", stage: "running" }],
+    agentJobs: [{ task_id: "task-1", tag: "review", status: "running" }],
+  };
+  assert.deepEqual(liveAgentRows(workerCancelled), []);
+
+  // Cancelled while still waiting in the queue.
+  assert.deepEqual(liveAgentRows({
+    agentJobs: [{ task_id: "task-2", tag: "plan", stage: "queued", status: "cancelled" }],
+  }), []);
+
+  // An unrelated live agent is untouched.
+  assert.deepEqual(liveAgentRows({
+    agentWorkers: [
+      { tag: "review", agent: "reviewer", status: "cancelled" },
+      { tag: "build", agent: "builder", status: "running" },
+    ],
+  }).map((row) => row.tag), ["build"]);
+});
+
+test("the cancellation ledger holds a stopped row against a later running snapshot", () => {
+  const ledger = createDesktopCancellationLedger();
+  const row = (status, turnStartedAt) => ({
+    tag: "review",
+    sessionId: "worker-a",
+    status,
+    stage: status,
+    turnStartedAt,
+  });
+  assert.equal(ledger.apply([row("cancelled", 1_000)])[0].status, "cancelled");
+  // The pool's heartbeat sidecar re-declares the session running once the
+  // durable index drops the cancelled row: a stale lease, not new work.
+  const resurrected = ledger.apply([{ ...row("running", 1_000), updatedAt: 9_000_000 }])[0];
+  assert.equal(resurrected.status, "cancelled");
+  assert.equal(resurrected.stage, "cancelled");
+  assert.equal(desktopAgentActivityState(resurrected), "cancelled");
+  // A genuinely newer frozen turn stamp IS new work and releases the row.
+  assert.equal(ledger.apply([row("running", 2_000)])[0].status, "running");
+  assert.equal(ledger.size(), 0);
+});
+
+test("an unstamped cancellation survives a heartbeat that invents a start stamp", () => {
+  const ledger = createDesktopCancellationLedger();
+  // An agent cancelled WHILE QUEUED never ran, so it carries no frozen stamp:
+  // its ledger baseline is 0 and any later stamp would outrank it.
+  assert.equal(ledger.apply([{
+    tag: "plan", sessionId: "worker-queued", stage: "queued", status: "cancelled",
+  }])[0].status, "cancelled");
+  // The pool promotion publishes `running` with a SYNTHESIZED startedAt
+  // (session createdAt / heartbeat mtime) and never a turn start.
+  const promoted = ledger.apply([{
+    tag: "plan", sessionId: "worker-queued", stage: "running", status: "running",
+    startedAt: Date.now(), createdAt: Date.now(), updatedAt: Date.now(),
+  }])[0];
+  assert.equal(promoted.status, "cancelled");
+  assert.equal(promoted.stage, "cancelled");
+  assert.equal(desktopAgentActivityState(promoted), "cancelled");
+  // ISO heartbeat stamps take the same path.
+  assert.equal(ledger.apply([{
+    tag: "plan", sessionId: "worker-queued", status: "running",
+    startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  }])[0].status, "cancelled");
+  // Only a real turn start proves new work under that identity.
+  assert.equal(ledger.apply([{
+    tag: "plan", sessionId: "worker-queued", status: "running", turnStartedAt: Date.now(),
+  }])[0].status, "running");
+  assert.equal(ledger.size(), 0);
+});
+
+test("an unconfirmed cancel stays on the live surfaces; only a confirmed one drops", () => {
+  const unconfirmed = {
+    sessionId: "lead-a",
+    agentWorkers: [{
+      tag: "build", agent: "builder", stage: "running", status: "cancel-unconfirmed",
+    }],
+  };
+  // Hiding this row is how a Windows git-bash survivor would vanish from the
+  // surface while its process may still be alive.
+  assert.deepEqual(
+    liveAgentRows(unconfirmed).map((row) => [row.tag, row.state, row.queued]),
+    [["build", "cancel-unconfirmed", false]],
+  );
+  assert.equal(liveTaskCount(unconfirmed), 1);
+  // A worker still winding down is equally unproven.
+  assert.deepEqual(
+    liveAgentRows({ agentWorkers: [{ tag: "plan", agent: "planner", status: "cancelling" }] })
+      .map((row) => row.state),
+    ["cancel-unconfirmed"],
+  );
+  // Twin rows: the live twin must not hide the unproven truth, in either order.
+  assert.deepEqual(liveAgentRows({
+    agentWorkers: [{ tag: "build", agent: "builder", status: "running", stage: "running" }],
+    agentJobs: [{ task_id: "task-1", tag: "build", status: "cancel-unconfirmed" }],
+  }).map((row) => [row.tag, row.state]), [["build", "cancel-unconfirmed"]]);
+  assert.deepEqual(liveAgentRows({
+    agentWorkers: [{ tag: "build", agent: "builder", stage: "running", status: "cancel-unconfirmed" }],
+    agentJobs: [{ task_id: "task-1", tag: "build", status: "running" }],
+  }).map((row) => [row.tag, row.state]), [["build", "cancel-unconfirmed"]]);
+  // A confirmed cancel still drops, exactly like `completed`.
+  assert.deepEqual(
+    liveAgentRows({ agentWorkers: [{ tag: "build", agent: "builder", status: "cancelled" }] }),
+    [],
+  );
+});
+
+test("the Agents pane paints a cancelled agent as cancelled, never completed or idle", async () => {
+  const dom = installDom();
+  let push = () => {};
+  window.mixdogDesktop = {
+    async listAgentPool() { return []; },
+    subscribeAgentPool(listener) {
+      push = listener;
+      return () => {};
+    },
+  };
+  const sessions = [
+    { id: "lead-a", title: "Lead A", preview: "", updatedAt: 1, messageCount: 1 },
+  ];
+  const stateOf = (sessionId) => document
+    .querySelector(`[data-agent-session-id="${sessionId}"] .agent-activity-elapsed`)
+    ?.dataset.state;
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(AgentActivityPane, {
+        active: false,
+        sessions,
+        // Both owners are unseen: the old mapping turned that into
+        // "Completed" for a cancelled row.
+        unreadSessionIds: new Set(["worker-queued", "worker-running", "worker-unconfirmed"]),
+      }));
+    });
+    await act(async () => push([
+      {
+        tag: "plan", agent: "planner", stage: "queued", status: "cancelled",
+        sessionId: "worker-queued", ownerSessionId: "lead-a",
+      },
+      {
+        tag: "review", agent: "reviewer", stage: "running", status: "cancelled",
+        sessionId: "worker-running", ownerSessionId: "lead-a", turnStartedAt: 1_000,
+      },
+      {
+        tag: "build", agent: "builder", stage: "running", status: "cancel-unconfirmed",
+        sessionId: "worker-unconfirmed", ownerSessionId: "lead-a", turnStartedAt: 1_000,
+      },
+    ]));
+    assert.equal(stateOf("worker-queued"), "cancelled");
+    assert.equal(stateOf("worker-running"), "cancelled");
+    assert.equal(stateOf("worker-unconfirmed"), "cancel-unconfirmed");
+    assert.match(document.body.textContent, /Cancelled/);
+    assert.match(document.body.textContent, /Cancel unconfirmed/);
+    assert.doesNotMatch(document.body.textContent, /Completed|Idle|Queued/);
+
+    // A later snapshot promoting the same sessions back to running (the pool's
+    // 2-minute heartbeat lease) must not resurrect either of them — including
+    // the queued cancellation, which has NO frozen stamp of its own while the
+    // promotion invents startedAt from the session record / heartbeat mtime.
+    await act(async () => push([
+      {
+        tag: "plan", agent: "planner", stage: "running", status: "running",
+        sessionId: "worker-queued", ownerSessionId: "lead-a",
+        startedAt: Date.now(), createdAt: Date.now(), updatedAt: Date.now(),
+      },
+      {
+        tag: "review", agent: "reviewer", stage: "running", status: "running",
+        sessionId: "worker-running", ownerSessionId: "lead-a", turnStartedAt: 1_000,
+        updatedAt: Date.now(),
+      },
+    ]));
+    assert.equal(stateOf("worker-queued"), "cancelled");
+    assert.equal(stateOf("worker-running"), "cancelled");
+
+    // Real new work under the same identity carries a newer turn stamp — the
+    // one signal the heartbeat promotion never publishes.
+    await act(async () => push([
+      {
+        tag: "plan", agent: "planner", stage: "running", status: "running",
+        sessionId: "worker-queued", ownerSessionId: "lead-a", turnStartedAt: Date.now(),
+      },
+      {
+        tag: "review", agent: "reviewer", stage: "running", status: "running",
+        sessionId: "worker-running", ownerSessionId: "lead-a", turnStartedAt: Date.now(),
+      },
+    ]));
+    assert.equal(stateOf("worker-queued"), "running");
+    assert.equal(stateOf("worker-running"), "running");
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("an unconfirmed cancel is reported as unconfirmed, never as a successful cancel", () => {
+  // Windows git-bash survivors cannot be killed from JS: task control answers
+  // with cancel-unconfirmed plus the survivor warning.
+  assert.equal(
+    desktopCancelOutcome("status: cancel-unconfirmed\ntask_id: task_shell_1"),
+    "unconfirmed",
+  );
+  assert.equal(
+    desktopCancelOutcome({ text: "SURVIVING_DESCENDANTS_UNREACHABLE_WARNING: 2 survivors" }),
+    "unconfirmed",
+  );
+  assert.equal(desktopCancelOutcome({ status: "cancelled" }), "cancelled");
+  assert.equal(desktopCancelOutcome({ status: "completed" }), "");
+  assert.equal(desktopCancelOutcome(null), "");
 });

@@ -16,6 +16,10 @@ const JOBS = new Map();
 // terminal state, then drop out to bound memory.
 const TERMINAL_TTL_MS = 10 * 60_000;
 const MAX_PROMPT_CHARS = 8_000;
+// Video lanes hold an upstream slot for minutes each. Without a ceiling a
+// caller can start unbounded concurrent generations, each pinning provider
+// quota and a poll loop for its whole budget.
+const MAX_ACTIVE_JOBS = Math.max(1, Number(process.env.MIXDOG_MEDIA_MAX_ACTIVE_JOBS) || 4);
 
 function snapshot(job) {
   return {
@@ -84,6 +88,15 @@ export function startMediaJob({ lane: laneId, kind, model, prompt, options = {},
     .slice(0, maxRefs)
     .map((ref) => ({ base64: ref.base64, mime: String(ref.mime || 'image/png') }));
   sweep();
+  let active = 0;
+  for (const entry of JOBS.values()) if (entry.status === 'running') active += 1;
+  if (active >= MAX_ACTIVE_JOBS) {
+    throw mediaError(
+      `too many media generations are already running (${active}/${MAX_ACTIVE_JOBS})`,
+      'MEDIA_TOO_MANY_JOBS',
+      429,
+    );
+  }
 
   const controller = new AbortController();
   const job = {

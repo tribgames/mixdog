@@ -58,13 +58,16 @@ function mergeSteeringMetadata(entries) {
     };
 }
 
-export function mergeSteeringEntries(entries) {
-    const normalized = (Array.isArray(entries) ? entries : [])
-        .map(normalizeSteeringEntry)
-        .filter(Boolean);
+// Shared merge core for queued user input. N already-normalized
+// {content, text} entries collapse into ONE turn message — all-string content
+// stays a joined string, anything structured becomes a parts array — plus the
+// newline-joined display text. The loop's steering queue and the cross-process
+// pending-message spool both route through this, so the two can never drift on
+// how queued input reaches a turn. `contentText` is the caller's own
+// content→text projection (attachment-aware for prompts, plain for steering).
+export function mergeNormalizedContentEntries(normalized, contentText) {
     if (normalized.length === 0) return null;
-    const metadata = mergeSteeringMetadata(normalized);
-    const displayText = normalized.map((entry) => entry.text || steeringContentText(entry.content))
+    const displayText = normalized.map((entry) => entry.text || contentText(entry.content))
         .filter((text) => String(text || '').trim())
         .join('\n');
     if (normalized.every((entry) => typeof entry.content === 'string')) {
@@ -72,7 +75,6 @@ export function mergeSteeringEntries(entries) {
             content: normalized.map((entry) => entry.content).filter(Boolean).join('\n'),
             text: displayText,
             count: normalized.length,
-            ...metadata,
         };
     }
     const parts = [];
@@ -82,16 +84,19 @@ export function mergeSteeringEntries(entries) {
         } else if (Array.isArray(entry.content)) {
             parts.push(...entry.content);
         } else {
-            const text = steeringContentText(entry.content);
+            const text = contentText(entry.content);
             if (text.trim()) parts.push({ type: 'text', text });
         }
         parts.push({ type: 'text', text: '\n' });
     }
     while (parts.length && parts[parts.length - 1]?.type === 'text' && parts[parts.length - 1]?.text === '\n') parts.pop();
-    return {
-        content: parts,
-        text: displayText || steeringContentText(parts),
-        count: normalized.length,
-        ...metadata,
-    };
+    return { content: parts, text: displayText || contentText(parts), count: normalized.length };
+}
+
+export function mergeSteeringEntries(entries) {
+    const normalized = (Array.isArray(entries) ? entries : [])
+        .map(normalizeSteeringEntry)
+        .filter(Boolean);
+    const merged = mergeNormalizedContentEntries(normalized, steeringContentText);
+    return merged ? { ...merged, ...mergeSteeringMetadata(normalized) } : null;
 }

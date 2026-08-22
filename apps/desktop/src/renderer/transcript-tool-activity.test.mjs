@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
 
 import {
   appendLiveTranscriptRows,
@@ -8,11 +11,50 @@ import {
 import {
   desktopToolActivityCategory,
   desktopToolActivityCategoryGroups,
-  desktopToolActivityCategorySummary,
   desktopToolActivityItemPresentation,
   flattenedToolActivityItems,
   formatTokenCount,
+  ToolActivityGroup,
 } from './TranscriptView.tsx';
+
+function installToolActivityDom(userAgent) {
+  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+    url: 'http://localhost/',
+  });
+  Object.defineProperty(dom.window.navigator, 'userAgent', {
+    configurable: true,
+    value: userAgent,
+  });
+  Object.defineProperty(dom.window.navigator, 'maxTouchPoints', {
+    configurable: true,
+    value: /Mobile/.test(userAgent) ? 5 : 0,
+  });
+  Object.defineProperty(dom.window.screen, 'width', {
+    configurable: true,
+    value: /Mobile/.test(userAgent) ? 390 : 1440,
+  });
+  Object.defineProperty(dom.window.screen, 'height', {
+    configurable: true,
+    value: /Mobile/.test(userAgent) ? 844 : 900,
+  });
+  const previous = new Map(['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT']
+    .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  return {
+    window: dom.window,
+    root: createRoot(dom.window.document.getElementById('root')),
+    close() {
+      dom.window.close();
+      for (const [key, descriptor] of previous) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+        else delete globalThis[key];
+      }
+    },
+  };
+}
 
 function project(items, turnKeys = items.map(() => 'turn')) {
   return projectSettledTranscriptRows({
@@ -22,6 +64,45 @@ function project(items, turnKeys = items.map(() => 'turn')) {
     failedTurns: new Set(),
   });
 }
+
+test('desktop and mobile tool groups share details and a static task icon', async () => {
+  const userAgents = [
+    'Mozilla/5.0 Electron/41.0.0',
+    'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140.0 Mobile Safari/537.36',
+  ];
+  for (const userAgent of userAgents) {
+    const dom = installToolActivityDom(userAgent);
+    try {
+      await act(async () => {
+        dom.root.render(React.createElement(ToolActivityGroup, {
+          disclosureScope: userAgent,
+          items: [{
+            kind: 'tool',
+            id: 'read',
+            name: 'read',
+            args: { file_path: 'src/a.ts' },
+            startedAt: Date.now(),
+          }],
+        }));
+      });
+      const group = document.querySelector('.tool-activity');
+      assert.equal(group?.dataset.surface, 'desktop');
+      assert.ok(group?.querySelector('.tool-activity-header .lucide-list-tree'));
+      assert.equal(group?.querySelector('.live-activity-glyph'), null);
+
+      await act(async () => {
+        group?.querySelector('.tool-activity-header')
+          ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      });
+      assert.equal(group?.querySelectorAll('.tool-activity-details').length, 1);
+      assert.equal(group?.querySelectorAll('.tool-activity-item').length, 1);
+      assert.equal(group?.querySelectorAll('.tool-card').length, 0);
+    } finally {
+      await act(async () => dom.root.unmount());
+      dom.close();
+    }
+  }
+});
 
 test('formats desktop token counts with compact uppercase units', () => {
   assert.equal(formatTokenCount(999), '999');
@@ -82,18 +163,6 @@ test('desktop activity expansion flattens aggregate members in call order', () =
   assert.deepEqual(flattenedToolActivityItems([aggregate, shell]), [read, search, shell]);
 });
 
-test('desktop activity summary merges work units into localized categories', () => {
-  const categories = {
-    'Read|Reading|Read|file|files': { category: 'Read', count: 2 },
-    'Search|Searching|Searched|pattern|patterns': { category: 'Search', count: 3 },
-    'unknown': { category: 'Custom', count: 1 },
-  };
-  assert.equal(
-    desktopToolActivityCategorySummary(categories, Object.keys(categories)),
-    'File reading 2 · Search 3 · External tools 1',
-  );
-});
-
 test('desktop activity drills through repeated categories but keeps singleton tools direct', () => {
   const groups = desktopToolActivityCategoryGroups([
     { kind: 'tool', id: 'git-1', name: 'git', args: { command: 'git status' }, result: 'clean' },
@@ -108,6 +177,26 @@ test('desktop activity drills through repeated categories but keeps singleton to
   })), [
     { category: 'Git', count: 2, ids: ['git-1', 'git-2'] },
     { category: 'Shell', count: 1, ids: ['shell-1'] },
+  ]);
+});
+
+test('desktop activity groups by work unit, not by shared category', () => {
+  const groups = desktopToolActivityCategoryGroups([
+    { kind: 'tool', id: 'git-1', name: 'git', args: { command: 'git status' }, result: 'clean' },
+    { kind: 'tool', id: 'stage-1', name: 'git_stage', args: { diff_id: 'd1', change_ids: ['c1'] }, result: 'staged' },
+    { kind: 'tool', id: 'graph-1', name: 'code_graph', args: { mode: 'overview', files: ['a.ts'] }, result: 'ok' },
+    { kind: 'tool', id: 'read-1', name: 'read', args: { file_path: 'a.ts' }, result: 'ok' },
+    // External MCP nouns carry the server name; the bucket must stay whole.
+    { kind: 'tool', id: 'mcp-1', name: 'mcp__srv__a', args: { q: 'x' }, result: 'ok' },
+    { kind: 'tool', id: 'mcp-2', name: 'mcp__other__b', args: { q: 'y' }, result: 'ok' },
+  ]);
+
+  assert.deepEqual(groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })), [
+    { unitKey: 'Git|Ran|Git command', category: 'Git', label: 'Git commands', count: 1 },
+    { unitKey: 'Git|Staged|change', category: 'Git', label: 'Git staging', count: 1 },
+    { unitKey: 'Read|Read|code map', category: 'Read', label: 'Code structure', count: 1 },
+    { unitKey: 'Read|Read|file', category: 'Read', label: 'File reading', count: 1 },
+    { unitKey: 'MCP', category: 'MCP', label: 'MCP tool use', count: 2 },
   ]);
 });
 

@@ -87,6 +87,12 @@ async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 }
     mkdirSync(dirname(lockFile), { recursive: true });
     const token = `${process.pid}.${randomBytes(8).toString('hex')}`;
     const deadline = Date.now() + timeoutMs;
+    let stalePostDeadlineRetryUsed = false;
+    const timeoutError = (holderPid) => {
+        const err = new Error(`advisory lock timeout: ${lockFile} held by pid ${holderPid}`);
+        err.code = 'EAGAIN';
+        return err;
+    };
     for (;;) {
         if (tryCreateLock(lockFile, token)) {
             return {
@@ -118,7 +124,12 @@ async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 }
             await new Promise((r) => setTimeout(r, 50));
             const second = readLockInfo(lockFile);
             if (second.pid !== holderPid || second.token !== holderToken) {
-                // Another contender already touched the lock; resync.
+                // Another contender already touched the lock; resync — but the
+                // deadline governs this branch too. Without the check a lock
+                // that keeps changing hands (or a holder that keeps failing the
+                // first liveness probe) spun here forever instead of raising
+                // the documented EAGAIN timeout.
+                if (Date.now() >= deadline) throw timeoutError(second.pid || holderPid);
                 continue;
             }
             if (!isPidAlive(holderPid)) {
@@ -126,14 +137,24 @@ async function acquireAdvisoryLock(targetPath, { timeoutMs = 5000, pollMs = 25 }
                 // Small jitter to avoid avalanche of contenders racing into
                 // tryCreateLock simultaneously after the unlink.
                 await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 5) + 1));
+                // The stale lock is gone: retry the create. Past the deadline
+                // exactly ONE such attempt is granted — a lock repeatedly taken
+                // and abandoned by dying holders would otherwise livelock here
+                // instead of raising the documented timeout.
+                if (Date.now() < deadline) continue;
+                if (!stalePostDeadlineRetryUsed) {
+                    stalePostDeadlineRetryUsed = true;
+                    continue;
+                }
+                throw timeoutError(holderPid);
             }
+            // Second probe says the holder is alive after all — fall through to
+            // the live-holder wait so the same deadline applies.
+            if (Date.now() >= deadline) throw timeoutError(holderPid);
+            await new Promise((r) => setTimeout(r, pollMs));
             continue;
         }
-        if (Date.now() >= deadline) {
-            const err = new Error(`advisory lock timeout: ${lockFile} held by pid ${holderPid}`);
-            err.code = 'EAGAIN';
-            throw err;
-        }
+        if (Date.now() >= deadline) throw timeoutError(holderPid);
         await new Promise((r) => setTimeout(r, pollMs));
     }
 }

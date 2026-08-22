@@ -1,31 +1,26 @@
 // /usage and /context panel builders, extracted from App.jsx. Follows the
 // createRoutePickers factory pattern: called each render with the current
-// store/state and panel setters; opening either surface closes every other
+// store/state and the panel surface; opening either surface closes every other
 // prompt/picker first so exactly one bottom surface owns the screen.
 export function createUsageContextPanels({
   store,
   state,
-  usageRequestRef,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
-  setContextPanel,
-  setUsagePanel,
   closeUsagePanel,
 }) {
   const openUsagePanel = (arg = '') => {
     const refresh = /(?:^|\s)(?:refresh|--refresh|-r|true)(?:\s|$)/i.test(String(arg || ''));
-    const requestId = usageRequestRef.current + 1;
-    usageRequestRef.current = requestId;
+    const own = surface.claim();
+    // The dashboard streams updates for seconds: they paint through a usage
+    // claim, which closeUsagePanel (Esc) and any newer /usage invalidate.
+    const dashboardOwn = surface.claimUsage();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker(null);
-    setContextPanel(null);
-    setUsagePanel({
+    own.paint(null);
+    own.context(null);
+    dashboardOwn.paint({
       title: 'Provider Quotas',
       subtitle: 'Statusline-style provider quota windows.',
       checking: true,
@@ -34,26 +29,24 @@ export function createUsageContextPanels({
       total: null,
     });
     setTimeout(() => {
-      if (usageRequestRef.current !== requestId) return;
+      if (!dashboardOwn.owns()) return;
       void store.getUsageDashboard?.({
         refresh,
         onUpdate: (dashboard) => {
-          if (usageRequestRef.current !== requestId) return;
-          if (!dashboard) return;
-          setUsagePanel(dashboard);
+          if (dashboard) dashboardOwn.paint(dashboard);
         },
       })
         .then((dashboard) => {
-          if (usageRequestRef.current !== requestId) return;
+          if (!dashboardOwn.owns()) return;
           if (!dashboard) {
             closeUsagePanel();
             store.pushNotice('usage dashboard unavailable', 'warn');
             return;
           }
-          setUsagePanel(dashboard);
+          dashboardOwn.paint(dashboard);
         })
         .catch((e) => {
-          if (usageRequestRef.current !== requestId) return;
+          if (!dashboardOwn.owns()) return;
           closeUsagePanel();
           store.pushNotice(`usage failed: ${e?.message || e}`, 'error');
         });
@@ -64,6 +57,10 @@ export function createUsageContextPanels({
   // wire: read synchronously they resolved to promises and the panel rendered
   // all-zero rows.
   const openContextPicker = async () => {
+    // Surface claim (panel-surface.mjs): five daemon reads run before the first
+    // paint, so Esc during the pending open must leave the surface (picker AND
+    // context panel) untouched.
+    const own = surface.claim();
     const [toolsStatus, mcpStatus, skillsStatus, pluginsStatus, contextStatusValue] = await Promise.all([
       Promise.resolve(store.toolsStatus?.()).catch(() => null),
       Promise.resolve(store.mcpStatus?.()).catch(() => null),
@@ -221,12 +218,11 @@ export function createUsageContextPanels({
         _action: 'extensions',
       },
     ];
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker(null);
-    setContextPanel({
+    own.paint(null);
+    own.context({
       kind: 'context',
       title: 'Context Usage',
       detail: {

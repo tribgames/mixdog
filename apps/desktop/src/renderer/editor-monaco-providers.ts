@@ -329,7 +329,8 @@ type WorkspaceEditGroup = {
 
 function workspaceEditGroups(value: unknown): Map<string, WorkspaceEditGroup> {
   const edit = recordOf(value);
-  if (!edit) throw new Error("Language server returned an invalid workspace edit.");
+  // User-facing product noun is Project; the LSP wire name stays internal.
+  if (!edit) throw new Error("Language server returned an invalid project edit.");
   const groups = new Map<string, WorkspaceEditGroup>();
   const append = (uri: string, edits: unknown, version: number | null = null) => {
     if (!Array.isArray(edits)) return;
@@ -350,7 +351,7 @@ function workspaceEditGroups(value: unknown): Map<string, WorkspaceEditGroup> {
       const record = recordOf(change);
       if (!record) continue;
       if (record.kind || record.oldUri || record.newUri) {
-        throw new Error("Create, rename, and delete workspace edits require explicit file confirmation.");
+        throw new Error("Create, rename, and delete project edits require explicit file confirmation.");
       }
       const document = recordOf(record.textDocument);
       if (typeof document?.uri === "string") {
@@ -361,7 +362,7 @@ function workspaceEditGroups(value: unknown): Map<string, WorkspaceEditGroup> {
   }
   if (groups.size > 100
     || [...groups.values()].reduce((sum, group) => sum + group.edits.length, 0) > 10_000) {
-    throw new Error("Language server workspace edit is too large.");
+    throw new Error("Language server project edit is too large.");
   }
   return groups;
 }
@@ -407,7 +408,7 @@ export async function applyLspWorkspaceEdit(
     }
     const loaded = await api.readProjectFile(context.projectPath, relPath);
     if (loaded.binary || loaded.tooLarge) {
-      throw new Error(`Workspace edit cannot safely change ${relPath}.`);
+      throw new Error(`Project edit cannot safely change ${relPath}.`);
     }
     writes.push({
       relPath,

@@ -12,6 +12,7 @@ import {
     isRetryableWireErrorEvent,
     isRetryableStreamErrorEvent,
     jitterDelayMs,
+    resetStallRetryBudget,
     resolveStallRetryBudget,
 } from '../providers/retry-classifier.mjs';
 import {
@@ -90,6 +91,13 @@ function transportRetryWaitMs(attemptIndex) {
     return jitterDelayMs(base, TRANSPORT_RETRY_JITTER_RATIO);
 }
 
+// Every loop-level replay is a NEW request, so it opens a new stall window.
+// Inheriting the spent one aborted healthy replacement responses mid-flight.
+function beginFreshTransportAttempt(opts) {
+    resetStallRetryBudget(opts);
+    return { action: 'retry_transport' };
+}
+
 export async function sendWithRecovery(ctx) {
     const {
         provider, messages, model, sendTools, tools, opts,
@@ -97,7 +105,10 @@ export async function sendWithRecovery(ctx) {
         sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
         transportRetriesUsed = 0, imageStripUsed = false, signal,
     } = ctx;
-    const transportRetryBudget = resolveStallRetryBudget(opts);
+    // Establishes the in-request stall window the provider layer shares through
+    // opts. A fresh replay below resets it: the loop's own TRANSPORT_RETRY_MAX
+    // is what bounds replays, not a window already spent detecting the stall.
+    resolveStallRetryBudget(opts);
     let response;
     // Bench-only turn timing (MIXDOG_TURN_TIMING=1): one stderr line per
     // provider request — TTFT (first visible model progress) and total stream
@@ -299,7 +310,6 @@ export async function sendWithRecovery(ctx) {
                 // because this guard demanded 'transient' and never fired).
                 if (
                     transportRetriesUsed < TRANSPORT_RETRY_MAX
-                    && transportRetryBudget.allowStallRetry()
                     && await retractExposedTextForReplay()
                 ) {
                     const waitMs = transportRetryWaitMs(transportRetriesUsed);
@@ -327,7 +337,7 @@ export async function sendWithRecovery(ctx) {
                         sendErr,
                     );
                     await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
-                    return { action: 'retry_transport' };
+                    return beginFreshTransportAttempt(opts);
                 }
                 try {
                     process.stderr.write(
@@ -417,7 +427,6 @@ export async function sendWithRecovery(ctx) {
             // send after a bounded wait instead of failing the turn.
             if (
                 transportRetriesUsed < TRANSPORT_RETRY_MAX
-                && transportRetryBudget.allowStallRetry()
                 && (
                     (outcome.replaySafe === true && classifyError(sendErr) === 'transient')
                     || (
@@ -468,7 +477,7 @@ export async function sendWithRecovery(ctx) {
                     sendErr,
                 );
                 await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
-                return { action: 'retry_transport' };
+                return beginFreshTransportAttempt(opts);
             } else
             // Grok Build RetryWithImageStrip: drop inline images and replay
             // once. Safe only when no tool was dispatched. Text exposure must

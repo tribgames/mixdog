@@ -17,8 +17,10 @@ import {
   completeTurnSnapshot,
   getTurnReviewDiff,
   recordTurnDiffChanges,
+  revertTurnReview,
   revertTurnReviewFile,
 } from '../src/runtime/shared/turn-snapshot.mjs';
+import { _setTurnSnapshotStoreRootForTest } from '../src/runtime/shared/turn-snapshot-store.mjs';
 
 function git(cwd, args) {
   execFileSync('git', args, { cwd, stdio: 'pipe' });
@@ -122,6 +124,79 @@ test('a worktree without a Git baseline keeps the tracked revert', async () => {
     assert.equal(await exists(join(root, 'note.txt')), false);
   } finally {
     _resetTurnSnapshotForTest();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// The two ways a review used to lose its revert while the baseline tree was
+// still on disk: the runtime dropped the tracker (next turn, cache eviction,
+// restart), and a shared worktree made the whole-tree diff unattributable.
+test('a completed review survives losing its in-memory tracker', async () => {
+  const root = await createRepository();
+  const store = await createDirectory('mixdog-turn-review-store-');
+  _resetTurnSnapshotForTest();
+  _setTurnSnapshotStoreRootForTest(store);
+  try {
+    await beginTurnSnapshot(root, 'restart-a');
+    await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
+    recordTurnDiffChanges('restart-a', [{
+      path: join(root, 'file.txt'),
+      displayPath: 'file.txt',
+      before: 'one\n',
+      after: 'one\ntwo\n',
+    }]);
+    await completeTurnSnapshot('restart-a');
+
+    // Everything the runtime held about this turn is gone.
+    _resetTurnSnapshotForTest();
+
+    const review = await getTurnReviewDiff(root, 'restart-a');
+    assert.equal(review.snapshotKind, 'scoped');
+    assert.equal(review.revertMode, 'scoped');
+    assert.deepEqual(review.files.map((file) => file.path), ['file.txt']);
+
+    await revertTurnReview(root, 'restart-a');
+    assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
+  } finally {
+    _resetTurnSnapshotForTest();
+    _setTurnSnapshotStoreRootForTest('');
+    await rm(store, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a shared worktree reverts only the session-owned paths', async () => {
+  const root = await createRepository();
+  const store = await createDirectory('mixdog-turn-review-store-');
+  _resetTurnSnapshotForTest();
+  _setTurnSnapshotStoreRootForTest(store);
+  try {
+    await beginTurnSnapshot(root, 'shared-a');
+    await beginTurnSnapshot(root, 'shared-b');
+    await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
+    await writeFile(join(root, 'sibling.txt'), 'sibling\n');
+    recordTurnDiffChanges('shared-a', [{
+      path: join(root, 'file.txt'),
+      displayPath: 'file.txt',
+      before: 'one\n',
+      after: 'one\ntwo\n',
+    }]);
+    await completeTurnSnapshot('shared-a');
+    _resetTurnSnapshotForTest();
+
+    const review = await getTurnReviewDiff(root, 'shared-a');
+    assert.equal(review.revertMode, 'scoped');
+    // sibling.txt lives in the same baseline and is deliberately absent: it is
+    // not this session's to review or to revert.
+    assert.deepEqual(review.files.map((file) => file.path), ['file.txt']);
+
+    await revertTurnReview(root, 'shared-a');
+    assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
+    assert.equal(await readFile(join(root, 'sibling.txt'), 'utf8'), 'sibling\n');
+  } finally {
+    _resetTurnSnapshotForTest();
+    _setTurnSnapshotStoreRootForTest('');
+    await rm(store, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }
 });

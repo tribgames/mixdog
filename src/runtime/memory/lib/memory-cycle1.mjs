@@ -1,4 +1,5 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
+import { createSemaphore } from './memory-cycle2-shared.mjs';
 
 import { cleanMemoryText } from './memory.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
@@ -276,24 +277,6 @@ function logCycle1Throttled(key, message, intervalMs = 60_000) {
   if (now - last < intervalMs) return
   _lastCycle1LogAt.set(key, now)
   __mixdogMemoryLog(message)
-}
-
-// Tiny inline semaphore — bounds cycle1 window fan-out.
-function createSemaphore(limit) {
-  const cap = Math.max(1, Number(limit) || 1)
-  let active = 0
-  const queue = []
-  const release = () => {
-    active -= 1
-    const next = queue.shift()
-    if (next) next()
-  }
-  return async (fn) => {
-    if (active >= cap) await new Promise(res => queue.push(res))
-    active += 1
-    try { return await fn() }
-    finally { release() }
-  }
 }
 
 export function packCycle1Windows(rowsBySession, packetSize = CYCLE1_PACKET_MAX_ROWS, maxPackets = CYCLE1_MAX_PACKETS) {

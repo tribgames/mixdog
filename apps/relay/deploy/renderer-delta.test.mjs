@@ -50,10 +50,13 @@ test('renderer delta copies only changed files and reconstructs the exact tree',
     manifest,
     outputDir: paths.output,
   });
-  assert.deepEqual(
-    await buildRendererManifest(paths.output),
-    validateRendererManifest(manifest),
-  );
+  const rebuilt = await buildRendererManifest(paths.output);
+  const expected = validateRendererManifest(manifest);
+  assert.equal(rebuilt.treeHash, expected.treeHash);
+  assert.deepEqual(rebuilt.files, expected.files);
+  // The manifest names the base it was computed against; apply refuses any
+  // other tree, so a stale cached delta cannot reconstruct an old renderer.
+  assert.match(expected.base, /^[a-f0-9]{64}$/);
   await assert.rejects(readFile(join(paths.output, 'removed.js')), /ENOENT/);
 });
 

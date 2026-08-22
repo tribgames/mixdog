@@ -80,6 +80,45 @@ export function createAgentJobFeed({
   const terminalExecutionNotificationKeys = new Set();
   const terminalExecutionResponseKeys = new Set();
   const executionNotificationKeys = new Map();
+  // Notification enqueue ordering. Image notifications must read their files
+  // before they can be enqueued; running each load as an independent detached
+  // task let a later (or image-free) notification reach the model queue first.
+  // Everything that has to wait goes through this single FIFO chain, and
+  // notifications that need no I/O only join it while the chain is busy.
+  let notificationEnqueueChain = Promise.resolve();
+  let pendingNotificationEnqueues = 0;
+  // Hard ceiling for ONE queued task. A never-settling image read (dead FS
+  // handle, network-backed path) would otherwise hold the FIFO forever and
+  // stall every later notification.
+  const NOTIFICATION_TASK_TIMEOUT_MS = 30_000;
+  const chainNotificationEnqueue = (task, onFailure = null) => {
+    // Abandon marker: a task that is timed out here keeps running (a pending
+    // read cannot be cancelled), so it re-checks this flag before enqueueing
+    // and can never land out of order behind the notifications that passed it.
+    const slot = { abandoned: false };
+    pendingNotificationEnqueues += 1;
+    notificationEnqueueChain = notificationEnqueueChain
+      .then(() => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          slot.abandoned = true;
+          reject(new Error(`notification task timed out after ${NOTIFICATION_TASK_TIMEOUT_MS}ms`));
+        }, NOTIFICATION_TASK_TIMEOUT_MS);
+        timer.unref?.();
+        Promise.resolve().then(() => task(slot)).then(
+          (value) => { clearTimeout(timer); resolve(value); },
+          (error) => { clearTimeout(timer); reject(error); },
+        );
+      }))
+      .catch((error) => {
+        slot.abandoned = true;
+        // A thrown/timed-out task must not silently DROP its notification:
+        // the fallback delivers what it can and the user is told either way.
+        try { onFailure?.(error); } catch { /* fallback delivery is best-effort */ }
+        try { pushNotice?.(`notification delivery failed: ${error?.message || error}`, 'warn'); } catch {}
+      })
+      .then(() => { pendingNotificationEnqueues -= 1; });
+    void notificationEnqueueChain;
+  };
   const AGENT_STATUS_COALESCE_MS = 16;
   let agentStatusRefreshTimer = null;
   let agentStatusRefreshForce = false;
@@ -98,12 +137,16 @@ export function createAgentJobFeed({
     if (terminal) terminalExecutionNotificationKeys.add(key);
     else terminalExecutionNotificationKeys.delete(key);
     while (displayedExecutionNotificationKeys.size >= executionDedupLimit) {
+      // Terminal keys are evicted FIRST (a finished execution can no longer
+      // emit), but the bound is absolute: with only nonterminal keys left the
+      // oldest one goes, otherwise the map grew for the whole session.
       const oldestTerminal = [...displayedExecutionNotificationKeys]
         .find((candidate) => terminalExecutionNotificationKeys.has(candidate));
-      if (oldestTerminal == null) break;
-      displayedExecutionNotificationKeys.delete(oldestTerminal);
-      terminalExecutionNotificationKeys.delete(oldestTerminal);
-      executionNotificationKeys.delete(oldestTerminal);
+      const evicted = oldestTerminal ?? displayedExecutionNotificationKeys.values().next().value;
+      if (evicted == null) break;
+      displayedExecutionNotificationKeys.delete(evicted);
+      terminalExecutionNotificationKeys.delete(evicted);
+      executionNotificationKeys.delete(evicted);
     }
     displayedExecutionNotificationKeys.add(key);
   };
@@ -126,11 +169,14 @@ export function createAgentJobFeed({
     if (terminal) terminalExecutionResponseKeys.add(key);
     else terminalExecutionResponseKeys.delete(key);
     while (displayedExecutionResponseStates.size >= executionDedupLimit) {
+      // Same absolute bound as the notification keys above: prefer terminal
+      // entries, fall back to the oldest entry so the map cannot grow forever.
       const oldestTerminal = [...displayedExecutionResponseStates.keys()]
         .find((candidate) => terminalExecutionResponseKeys.has(candidate));
-      if (oldestTerminal == null) break;
-      displayedExecutionResponseStates.delete(oldestTerminal);
-      terminalExecutionResponseKeys.delete(oldestTerminal);
+      const evicted = oldestTerminal ?? displayedExecutionResponseStates.keys().next().value;
+      if (evicted == null) break;
+      displayedExecutionResponseStates.delete(evicted);
+      terminalExecutionResponseKeys.delete(evicted);
     }
     displayedExecutionResponseStates.set(key, value);
   };
@@ -400,9 +446,10 @@ export function createAgentJobFeed({
       if (imagePaths.length > 0) {
         // Read each downloaded image into a real image content block so the
         // channel turn is vision-visible. Async, but the notification is
-        // already "handled" (return true) — the enqueue lands on resolve.
+        // already "handled" (return true) — the enqueue lands on resolve, in
+        // arrival order via the shared chain.
         // Any unreadable path is skipped; if none load, fall back to text.
-        void (async () => {
+        chainNotificationEnqueue(async (slot) => {
           if (getDisposed()) return;
           const parts = [];
           if (modelContent) parts.push({ type: 'text', text: modelContent });
@@ -417,11 +464,26 @@ export function createAgentJobFeed({
             if (att.metadataText) parts.push({ type: 'text', text: att.metadataText });
             parts.push({ type: 'image', data: att.content, mimeType: att.mediaType || 'image/png' });
           }
-          if (getDisposed()) return;
+          if (getDisposed() || slot.abandoned) return;
           const hasImage = parts.some((part) => part.type === 'image');
           if (!hasImage && !modelContent) return;
           enqueue(hasImage ? parts : modelContent, enqueueOpts);
-        })();
+        }, () => {
+          // Image load failed or overran its budget: still deliver the text
+          // body so the notification is never silently lost.
+          if (getDisposed() || !modelContent) return;
+          enqueue(modelContent, enqueueOpts);
+        });
+        return true;
+      }
+      if (pendingNotificationEnqueues > 0) {
+        // An earlier image notification is still loading: queue behind it so
+        // this text body cannot overtake it in the model queue.
+        chainNotificationEnqueue((slot) => {
+          if (!getDisposed() && !slot.abandoned) enqueue(modelContent, enqueueOpts);
+        }, () => {
+          if (!getDisposed()) enqueue(modelContent, enqueueOpts);
+        });
         return true;
       }
       enqueue(modelContent, enqueueOpts);

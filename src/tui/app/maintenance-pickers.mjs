@@ -2,25 +2,33 @@
  * maintenance-pickers.mjs — Update / Auto-clear / Profile picker cluster.
  *
  * Extracted from App.jsx behavior-preservingly as a dependency-injection
- * factory. These openers drive setPicker + setSettingsPrompt and read live
- * store state, so they can't be pure. Every function body is the original App
- * logic verbatim, with closure identifiers threaded through the factory
+ * factory. These openers drive the panel surface + setSettingsPrompt and read
+ * live store state, so they can't be pure. Every function body is the original
+ * App logic verbatim, with closure identifiers threaded through the factory
  * argument.
  */
 export function createMaintenancePickers({
   store,
   theme,
   formatDuration,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
-  setContextPanel,
   closeUsagePanel,
 }) {
   const openUpdatePicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    // Surface claim for this panel, taken at the user's open action — BEFORE
+    // the first daemon read. Every paint through it re-validates and re-arms,
+    // so a re-check or install settling after Esc cannot paint over whatever
+    // the user is looking at now.
+    const own = surface.claim();
+    const paintPanel = (panel) => {
+      if (!own.owns()) return false;
+      setProviderPrompt(null);
+      setSettingsPrompt(null);
+      return own.paint(panel);
+    };
     // Async: both reads are remote calls on a daemon-backed store, so the sync
     // versions rendered every row from an unresolved promise.
     const readSettings = async () => {
@@ -64,11 +72,7 @@ export function createMaintenancePickers({
           _action: 'auto-update',
         },
       ];
-      setProviderPrompt(null);
-      setChannelPrompt(null);
-      setHookPrompt(null);
-      setSettingsPrompt(null);
-      setPicker({
+      return paintPanel({
         title: 'Update',
         description: 'Check version and update mixdog.',
         help: '↑/↓ Select · Enter Open/Toggle · Esc Close',
@@ -101,31 +105,40 @@ export function createMaintenancePickers({
           }
         },
         onCancel: () => {
-          setPicker(null);
+          own.close();
           if (returnTo) returnTo();
         },
       });
     };
+    // Every render() is an async daemon read; a detached call would surface a
+    // failed read as an unhandled rejection (fatal for the TUI process).
+    const rerender = (opts = {}) => {
+      void Promise.resolve(render(opts))
+        .catch((e) => store.pushNotice(`update panel failed: ${e?.message || e}`, 'error'));
+    };
+    // Deferred repaint bound to the claim AT ACTION TIME: a check/install that
+    // settles after Esc must not re-open the Update panel.
+    const deferredRerender = (opts = {}) => own.defer(() => rerender(opts));
     const toggleAutoUpdate = (enabled) => {
-      try {
-        void Promise.resolve(store.setAutoUpdate?.(enabled)).finally(() => render());
-        store.pushNotice(`Auto-update ${enabled ? 'on' : 'off'}`, 'info');
-      } catch (e) {
-        store.pushNotice(`auto-update failed: ${e?.message || e}`, 'error');
-      }
-      render();
+      // Persisted by the daemon: only claim the new value once it is written.
+      void Promise.resolve(store.setAutoUpdate?.(enabled))
+        .then(() => store.pushNotice(`Auto-update ${enabled ? 'on' : 'off'}`, 'info'))
+        .catch((e) => store.pushNotice(`auto-update failed: ${e?.message || e}`, 'error'))
+        .finally(deferredRerender());
     };
     const recheck = () => {
-      render({ checking: true });
+      rerender({ checking: true });
+      const settled = deferredRerender();
       void Promise.resolve(store.checkForUpdate?.({ force: true }))
-        .then(() => render())
+        .then(() => settled())
         .catch((e) => {
           store.pushNotice(`update check failed: ${e?.message || e}`, 'error');
-          render();
+          settled();
         });
     };
     const runUpdate = () => {
       store.pushNotice('Updating…', 'info');
+      const settled = deferredRerender();
       void Promise.resolve(store.runUpdateNow?.())
         .then((result) => {
           if (result?.ok) {
@@ -133,21 +146,42 @@ export function createMaintenancePickers({
           } else {
             store.pushNotice(`Update failed: ${result?.error || 'unknown error'}`, 'error');
           }
-          render();
+          settled();
         })
         .catch((e) => {
           store.pushNotice(`Update failed: ${e?.message || e}`, 'error');
-          render();
+          settled();
         });
     };
-    render({ checking: true });
-    void Promise.resolve(store.checkForUpdate?.({}))
-      .then(() => render())
-      .catch(() => render());
+    // First paint, THEN the initial check. The repaint epoch is captured after
+    // this panel has taken the surface: capturing it before the first paint
+    // binds it to the previous owner's epoch, which the open transition (a
+    // panel identity change) supersedes — leaving "Latest version" stuck on
+    // "checking…". Esc after the paint still closes the panel for good.
+    void Promise.resolve(render({ checking: true }))
+      .catch((e) => {
+        store.pushNotice(`update panel failed: ${e?.message || e}`, 'error');
+        return false;
+      })
+      .then((painted) => {
+        // Open abandoned (Esc while the first read was pending): the panel
+        // never took the surface, so the check result must not paint it either.
+        if (!painted) return;
+        const initialChecked = deferredRerender();
+        void Promise.resolve(store.checkForUpdate?.({}))
+          .then(() => initialChecked())
+          .catch(() => initialChecked());
+      });
   };
 
   const openAutoClearPicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    // Surface claim, same rule as openUpdatePicker: every paint (render() and
+    // renderAdvanced()) re-validates and re-arms, so a readCurrent() settling
+    // after Esc — on open or on any later toggle — can never paint over the
+    // user's surface.
+    const own = surface.claim();
+    const paintPanel = (panel) => own.paint(panel);
     // Lead BP4 messages cache TTL follows autoClear (cache-strategy.mjs
     // resolveLeadMessagesTtl): off or idle>=1h -> 1h, shorter idle -> 5m.
     const HOUR_MS = 60 * 60 * 1000;
@@ -162,6 +196,12 @@ export function createMaintenancePickers({
       try { return (await store.getAutoClear?.()) || null; } catch { return null; }
     };
     const applyAutoClear = (patch = {}) => {
+      // Bound to the claim on this keypress: a write acking after Esc must not
+      // re-open the Auto-clear panel.
+      const settled = own.defer(() => {
+        void Promise.resolve(render())
+          .catch((e) => store.pushNotice(`auto-clear panel failed: ${e?.message || e}`, 'error'));
+      });
       void Promise.resolve(store.setAutoClear?.(patch))
         .then((next) => {
           if (!next) {
@@ -171,11 +211,11 @@ export function createMaintenancePickers({
           store.pushNotice(next.enabled ? `autoclear on · idle ${formatDuration(next.idleMs)}` : 'autoclear off', 'info');
         })
         .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'))
-        .finally(() => { void render(); });
+        .finally(settled);
     };
     const openProviderDurationEditor = (entry) => {
       if (!entry?.provider) return;
-      setPicker(null);
+      own.close();
       setSettingsPrompt({
         kind: 'autoclear-provider',
         label: `Auto-clear · ${entry.provider}`,
@@ -200,7 +240,7 @@ export function createMaintenancePickers({
         _action: 'provider-default',
         _entry: entry,
       }));
-      setPicker({
+      paintPanel({
         title: 'Auto-clear · Advanced',
         description: 'Provider default idle windows. Enter edits the duration text.',
         help: '↑/↓ Select · Enter Edit · Esc Back',
@@ -238,7 +278,7 @@ export function createMaintenancePickers({
           _action: 'advanced',
         },
       ];
-      setPicker({
+      paintPanel({
         title: 'Auto-clear',
         description: `Clear idle context after ${enabled ? formatDuration(idleMs) : 'never'} · lead cache TTL ${cacheTtlLabel}.`,
         help: '↑/↓ Select · ←/→ Toggle On/Off · Enter Open/Toggle · Esc Close',
@@ -259,16 +299,14 @@ export function createMaintenancePickers({
           }
         },
         onCancel: () => {
-          setPicker(null);
+          own.close();
           if (returnTo) returnTo();
         },
       });
     };
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
     if (options.advanced === true) renderAdvanced();
     else render();
@@ -276,6 +314,9 @@ export function createMaintenancePickers({
 
   const openProfilePicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    // Surface claim (panel-surface.mjs): getProfile() is a daemon read, so Esc
+    // can land before the first paint.
+    const own = surface.claim();
     let profile = null;
     try {
       profile = (await store.getProfile?.()) || null;
@@ -298,16 +339,22 @@ export function createMaintenancePickers({
     const currentExperienceLevelId = profile?.experienceLevel || '';
     const currentExperienceLevel = experienceLevels.find((level) => level.id === currentExperienceLevelId) || null;
     const titleValue = String(profile?.title || '').trim();
+    // setProfile is a daemon write: rebuild the panel only after it settles so
+    // the row cannot show a value the daemon rejected (and so a rejected write
+    // cannot escape as an unhandled rejection).
+    // Bound to the claim when the cycle keypress builds its chain: a setProfile
+    // that acks after Esc must not re-open the Profile panel.
+    const reopenProfile = () => own.defer(() => {
+      void Promise.resolve(openProfilePicker({ returnTo }))
+        .catch((e) => store.pushNotice(`profile panel failed: ${e?.message || e}`, 'error'));
+    });
     const cycleLanguage = (direction = 1) => {
       const idx = Math.max(0, languages.findIndex((lang) => lang.id === currentLangId));
       const next = languages[(idx + direction + languages.length) % languages.length];
-      try {
-        store.setProfile?.({ language: next.id });
-        store.pushNotice(`Language set to ${next.label}`, 'info');
-      } catch (e) {
-        store.pushNotice(`profile update failed: ${e?.message || e}`, 'error');
-      }
-      openProfilePicker({ returnTo });
+      void Promise.resolve(store.setProfile?.({ language: next.id }))
+        .then(() => store.pushNotice(`Language set to ${next.label}`, 'info'))
+        .catch((e) => store.pushNotice(`profile update failed: ${e?.message || e}`, 'error'))
+        .finally(reopenProfile());
     };
     const cycleExperienceLevel = (direction = 1) => {
       const idx = experienceLevels.findIndex((level) => level.id === currentExperienceLevelId);
@@ -315,21 +362,17 @@ export function createMaintenancePickers({
         ? (direction < 0 ? experienceLevels.length - 1 : 0)
         : (idx + direction + experienceLevels.length) % experienceLevels.length;
       const next = experienceLevels[nextIdx];
-      try {
-        store.setProfile?.({ experienceLevel: next.id });
-        store.pushNotice(`Experience level set to ${next.label}`, 'info');
-      } catch (e) {
-        store.pushNotice(`profile update failed: ${e?.message || e}`, 'error');
-      }
-      openProfilePicker({ returnTo });
+      void Promise.resolve(store.setProfile?.({ experienceLevel: next.id }))
+        .then(() => store.pushNotice(`Experience level set to ${next.label}`, 'info'))
+        .catch((e) => store.pushNotice(`profile update failed: ${e?.message || e}`, 'error'))
+        .finally(reopenProfile());
     };
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
-    setPicker({
+    own.paint({
       title: 'Profile',
       description: 'How the assistant addresses you, adapts terminology, and chooses its response language.',
       help: '↑/↓ Select · ←/→ Change · Enter Edit · Esc Close',
@@ -369,7 +412,7 @@ export function createMaintenancePickers({
       },
       onSelect: (_value, item) => {
         if (item?._action === 'title') {
-          setPicker(null);
+          own.close();
           setSettingsPrompt({
             kind: 'profile-title',
             label: 'Profile · Title',
@@ -382,7 +425,7 @@ export function createMaintenancePickers({
         }
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         if (returnTo) returnTo();
       },
     });

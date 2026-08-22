@@ -17,6 +17,7 @@ import {
     consumeCompatResponsesStream,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { useXaiResponsesWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
+import { deepseekReplaysReasoningContent, toOpenAIMessages } from '../src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs';
 import { classifyError } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import { GrokOAuthProvider } from '../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
 import { sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
@@ -754,8 +755,17 @@ test('provider-specific thinking fields do not leak across compat contracts', ()
     const deepseek = applyCompatProviderChatOptions({}, 'deepseek', { effort: 'low' });
     assert.deepEqual(deepseek, {
         thinking: { type: 'enabled' },
-        reasoning_effort: 'high',
+        reasoning_effort: 'low',
     });
+    // DeepSeek documents low/high/max; medium is its own alias for high.
+    assert.deepEqual(
+        applyCompatProviderChatOptions({}, 'deepseek', { effort: 'medium' }),
+        { thinking: { type: 'enabled' }, reasoning_effort: 'high' },
+    );
+    assert.deepEqual(
+        applyCompatProviderChatOptions({}, 'deepseek', { effort: 'xhigh' }),
+        { thinking: { type: 'enabled' }, reasoning_effort: 'max' },
+    );
     assert.deepEqual(
         applyCompatProviderChatOptions({}, 'deepseek', { effort: 'none' }),
         { thinking: { type: 'disabled' } },
@@ -787,6 +797,57 @@ test('provider-specific thinking fields do not leak across compat contracts', ()
         { reasoning_effort: 'xhigh' },
     );
     assert.deepEqual(applyCompatProviderChatOptions({}, 'deepseek'), {});
+});
+
+test('xai ships reasoning_effort only for the model families that accept it', () => {
+    // grok-3 / grok-4 / grok-4-fast answer with HTTP 400 "does not support
+    // parameter reasoningEffort", so the field must not leave the client.
+    for (const model of ['grok-4', 'grok-4-fast-reasoning', 'grok-4-1-fast', 'grok-3-mini']) {
+        assert.deepEqual(
+            applyCompatProviderChatOptions({ model }, 'xai', { effort: 'high' }),
+            { model },
+            `xai must omit reasoning_effort for ${model}`,
+        );
+    }
+    assert.deepEqual(
+        applyCompatProviderChatOptions({ model: 'grok-4.5' }, 'xai', { effort: 'high' }),
+        { model: 'grok-4.5', reasoning_effort: 'high' },
+    );
+    assert.deepEqual(
+        applyCompatProviderChatOptions({ model: 'grok-4.6' }, 'xai', { effort: 'xhigh' }),
+        { model: 'grok-4.6', reasoning_effort: 'xhigh' },
+    );
+    // A non-grok id on an xAI-compatible endpoint keeps the caller's choice.
+    assert.deepEqual(
+        applyCompatProviderChatOptions({ model: 'custom-reasoner' }, 'xai', { effort: 'low' }),
+        { model: 'custom-reasoner', reasoning_effort: 'low' },
+    );
+});
+
+test('deepseek reasoning_content replay follows the model, not the provider', () => {
+    // deepseek-reasoner rejects reasoning_content in the input messages (400);
+    // thinking-mode models require it back once tools are in play.
+    assert.equal(deepseekReplaysReasoningContent('deepseek-reasoner'), false);
+    assert.equal(deepseekReplaysReasoningContent('deepseek-chat'), true);
+    assert.equal(deepseekReplaysReasoningContent('deepseek-v4'), true);
+
+    const history = [
+        { role: 'user', content: 'hi' },
+        {
+            role: 'assistant',
+            content: 'calling',
+            reasoningContent: 'inner thought',
+            toolCalls: [{ id: 'c1', name: 'shell', arguments: { command: 'ls' } }],
+        },
+        { role: 'tool', toolCallId: 'c1', content: 'ok' },
+    ];
+    const reasonerWire = toOpenAIMessages(history, 'deepseek');
+    assert.equal(reasonerWire.find((m) => m.role === 'assistant').reasoning_content, undefined);
+    const thinkingWire = toOpenAIMessages(history, 'deepseek', { replaysReasoningContent: true });
+    assert.equal(thinkingWire.find((m) => m.role === 'assistant').reasoning_content, 'inner thought');
+    // xAI keeps replaying by provider: omitting it is the top cache-miss cause.
+    const xaiWire = toOpenAIMessages(history, 'xai');
+    assert.equal(xaiWire.find((m) => m.role === 'assistant').reasoning_content, 'inner thought');
 });
 
 test('compat chat stream preserves LM Studio reasoning alias without mixing it into answer text', async () => {

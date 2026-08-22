@@ -152,11 +152,16 @@ function mergeToolCallDelta(accByIndex, deltaCalls, bucketState) {
         } else if (tc.function?.name) {
             const anonId = ++bucketState._nextAnonId;
             key = `anon:${anonId}`;
-            bucketState._lastAnonKey = key;
         } else {
             key = bucketState._lastAnonKey;
             if (!key) continue;
         }
+        // Whatever bucket this chunk resolved to becomes the continuation
+        // target for later argument-only chunks (no index, no id, no name).
+        // Only the anonymous branch used to record it, so a provider that
+        // identifies a tool call by id alone and then streams bare argument
+        // deltas had every one of those deltas silently discarded.
+        bucketState._lastAnonKey = key;
         let prev = accByIndex.get(key);
         if (!prev) {
             prev = {
@@ -210,7 +215,7 @@ function emitCompatToolCallOnce(state, call, onToolCall) {
     // Fix 2: cross-path name+args dedupe. A synthesized text-leaked call and an
     // identical native tool_call must fire onToolCall exactly once. state._toolDedupe
     // is created per stream; when absent (older callers) behavior is unchanged.
-    if (state._toolDedupe && !state._toolDedupe.shouldDispatch(call.name, call.arguments)) {
+    if (state._toolDedupe && !state._toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) {
         // Still mark the id as emitted so later id-frames for the same native
         // call don't retry, but do NOT invoke onToolCall (already dispatched).
         state.emittedToolCallKeys.add(key);
@@ -556,6 +561,33 @@ export async function consumeCompatChatCompletionStream(stream, {
     };
 }
 
+// Reconcile a COMPLETED function_call item into state.toolCalls: fill in the
+// id/name a streamed call may still be missing, or adopt the item as a new
+// call. `response.output_item.done` and the `response.completed` sweep see the
+// same item shape and must land on the same single emit, so both route here.
+// Returns the item id the done-branch still needs for its pendingCalls /
+// tool-tracker bookkeeping.
+function reconcileCompatFunctionCallItem(state, item, label, onToolCall) {
+    const itemId = item.id || '';
+    const tc = state.toolCalls.find(t => t._pendingItemId === itemId)
+        || (item.call_id ? state.toolCalls.find(t => t.id === item.call_id) : null);
+    if (tc) {
+        if (!tc.id && item.call_id) tc.id = item.call_id;
+        if (!tc.name && item.name) tc.name = item.name;
+        if (tc.id && tc.name) delete tc._pendingItemId;
+        emitCompatToolCallOnce(state, tc, onToolCall);
+    } else if (item.call_id && item.name) {
+        const call = {
+            id: item.call_id,
+            name: item.name,
+            arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, { id: item.call_id, name: item.name, finishReason: 'done' }),
+        };
+        state.toolCalls.push(call);
+        emitCompatToolCallOnce(state, call, onToolCall);
+    }
+    return itemId;
+}
+
 function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesToolCalls, responseOutputText, onStreamDelta, onToolCall, onTextDelta, relayLeakText }) {
     if (!event || typeof event.type !== 'string') return;
     const pushToolSearchCall = (item) => {
@@ -671,23 +703,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
         case 'response.output_item.done': {
             const item = event.item || {};
             if (item.type === 'function_call') {
-                const itemId = item.id || '';
-                const tc = state.toolCalls.find(t => t._pendingItemId === itemId)
-                    || (item.call_id ? state.toolCalls.find(t => t.id === item.call_id) : null);
-                if (tc) {
-                    if (!tc.id && item.call_id) tc.id = item.call_id;
-                    if (!tc.name && item.name) tc.name = item.name;
-                    if (tc.id && tc.name) delete tc._pendingItemId;
-                    emitCompatToolCallOnce(state, tc, onToolCall);
-                } else if (item.call_id && item.name) {
-                    const call = {
-                        id: item.call_id,
-                        name: item.name,
-                        arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, { id: item.call_id, name: item.name, finishReason: 'done' }),
-                    };
-                    state.toolCalls.push(call);
-                    emitCompatToolCallOnce(state, call, onToolCall);
-                }
+                const itemId = reconcileCompatFunctionCallItem(state, item, label, onToolCall);
                 // Drop the resolved function item from pendingCalls before
                 // recomputing toolInFlight — otherwise a completed call keeps
                 // pendingCalls.size > 0 and the latch never clears, so a later
@@ -732,23 +748,7 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
             }
             for (const item of resp.output || []) {
                 if (item?.type === 'function_call') {
-                    const itemId = item.id || '';
-                    const tc = state.toolCalls.find(t => t._pendingItemId === itemId)
-                        || (item.call_id ? state.toolCalls.find(t => t.id === item.call_id) : null);
-                    if (tc) {
-                        if (!tc.id && item.call_id) tc.id = item.call_id;
-                        if (!tc.name && item.name) tc.name = item.name;
-                        if (tc.id && tc.name) delete tc._pendingItemId;
-                        emitCompatToolCallOnce(state, tc, onToolCall);
-                    } else if (item.call_id && item.name) {
-                        const call = {
-                            id: item.call_id,
-                            name: item.name,
-                            arguments: parseCompletedToolCallArgumentsJson(item.arguments, label, { id: item.call_id, name: item.name, finishReason: 'done' }),
-                        };
-                        state.toolCalls.push(call);
-                        emitCompatToolCallOnce(state, call, onToolCall);
-                    }
+                    reconcileCompatFunctionCallItem(state, item, label, onToolCall);
                     try { onStreamDelta?.('tool'); } catch {}
                     reportedBundleProgress = true;
                 } else if (item?.type === 'tool_search_call') {

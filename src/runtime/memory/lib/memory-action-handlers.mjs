@@ -21,6 +21,7 @@ import {
   CYCLE2_ACTIVE_TARGET_CAP,
 } from './memory-cycle.mjs'
 import { getInFlightCycle1 } from './memory-cycle1.mjs'
+import { isStoreFault } from './memory-cycle2-shared.mjs'
 import { pruneOldEntries } from './memory-maintenance-store.mjs'
 import { computeEntryScore } from './memory-score.mjs'
 import { runFullBackfill } from './memory-ops-policy.mjs'
@@ -869,7 +870,19 @@ export function createMemoryActionHandlers({
               }
               acted.add(targetId)
               filteredSources.forEach(s => acted.add(Number(s)))
-              const moved = await applyMerge(db, targetId, filteredSources)
+              // Same optimistic contract as the archived/update verbs above: the
+              // gate's verdict is only applied while target and sources still
+              // hold the state it judged.
+              const expectedBySource = {}
+              for (const sourceId of filteredSources.map(Number)) {
+                const sourceRow = rowById.get(sourceId)
+                if (sourceRow) expectedBySource[sourceId] = { status: sourceRow.status, summary: sourceRow.summary }
+              }
+              const targetRow = rowById.get(targetId)
+              const moved = await applyMerge(db, targetId, filteredSources, {
+                expectedBySource,
+                expectedTarget: targetRow ? { status: targetRow.status, summary: targetRow.summary } : null,
+              })
               if (moved > 0) {
                 merged += moved
                 if (typeof act.element === 'string' || typeof act.summary === 'string') {
@@ -883,6 +896,10 @@ export function createMemoryActionHandlers({
               }
             }
           } catch (err) {
+            // Same split as the cycle2 apply path: a store fault stops the run
+            // (the DB state is unknown), while a guard-rejected verdict stays an
+            // ordinary counted error.
+            if (isStoreFault(err)) throw err
             log(`[retro_eval_active] action error (id=${act?.entry_id}): ${err.message}\n`)
             errors += 1
           }

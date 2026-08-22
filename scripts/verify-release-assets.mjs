@@ -26,6 +26,14 @@ export const SPAWN_PLATFORMS = {
   'win32-x64': 'mixdog-spawn-win32-x64.exe',
 };
 
+export const TOKEN_PLATFORMS = {
+  'darwin-arm64': 'mixdog-token-darwin-arm64.node',
+  'darwin-x64': 'mixdog-token-darwin-x64.node',
+  'linux-arm64': 'mixdog-token-linux-arm64.node',
+  'linux-x64': 'mixdog-token-linux-x64.node',
+  'win32-x64': 'mixdog-token-win32-x64.node',
+};
+
 const RUNTIME_PLATFORMS = [
   'linux-x64',
   'linux-arm64',
@@ -43,6 +51,8 @@ const RUNTIME_MANIFEST_PATH = 'src/runtime/memory/data/runtime-manifest.json';
 const GRAPH_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/graph-manifest.json';
 const SPAWN_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/spawn-manifest.json';
 const SPAWN_CARGO_PATH = 'native/mixdog-spawn/Cargo.toml';
+const TOKEN_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/token-manifest.json';
+const TOKEN_CARGO_PATH = 'native/mixdog-token/Cargo.toml';
 const PACKAGE_PATH = 'package.json';
 
 function assertPlainObject(value, label) {
@@ -125,14 +135,43 @@ export function validatePatchManifest(manifest, cargoToml) {
 
 export function validateRuntimeManifest(manifest) {
   assertPlainObject(manifest, 'Runtime manifest');
-  if (!manifest.release_tag || !manifest.assets || typeof manifest.assets !== 'object') {
-    throw new Error(`${RUNTIME_MANIFEST_PATH} is missing release_tag or assets`);
+  assertExactKeys(
+    manifest,
+    ['schema_version', 'generated_at', 'release_tag', 'pg', 'pgvector', 'assets'],
+    'Runtime manifest',
+  );
+  if (manifest.schema_version !== 1) {
+    throw new Error('Runtime manifest schema_version must be 1');
+  }
+  if (typeof manifest.generated_at !== 'string' || !manifest.generated_at) {
+    throw new Error('Runtime manifest generated_at must be a non-empty string');
+  }
+  if (typeof manifest.release_tag !== 'string' || !/^runtime-v\d+\.\d+\.\d+$/.test(manifest.release_tag)) {
+    throw new Error(`Runtime manifest release_tag is invalid: ${manifest.release_tag}`);
+  }
+  assertPlainObject(manifest.pg, 'Runtime manifest pg');
+  assertExactKeys(manifest.pg, ['major', 'minor'], 'Runtime manifest pg');
+  if (!Number.isSafeInteger(manifest.pg.major) || manifest.pg.major < 1) {
+    throw new Error('Runtime manifest pg.major is invalid');
+  }
+  if (!Number.isSafeInteger(manifest.pg.minor) || manifest.pg.minor < 0) {
+    throw new Error('Runtime manifest pg.minor is invalid');
+  }
+  assertPlainObject(manifest.pgvector, 'Runtime manifest pgvector');
+  assertExactKeys(manifest.pgvector, ['version'], 'Runtime manifest pgvector');
+  if (typeof manifest.pgvector.version !== 'string' || !STRICT_VERSION.test(manifest.pgvector.version)) {
+    throw new Error(`Runtime manifest pgvector.version is invalid: ${manifest.pgvector.version}`);
   }
   assertPlainObject(manifest.assets, 'Runtime manifest assets');
   assertExactKeys(manifest.assets, RUNTIME_PLATFORMS, 'Runtime manifest assets');
-  for (const [platform, asset] of Object.entries(manifest.assets)) {
-    if (typeof asset?.url !== 'string' || new URL(asset.url).protocol !== 'https:') {
-      throw new Error(`${platform}: invalid HTTPS asset URL`);
+  for (const platform of RUNTIME_PLATFORMS) {
+    const asset = manifest.assets[platform];
+    assertPlainObject(asset, `Runtime asset ${platform}`);
+    assertExactKeys(asset, ['url', 'sha256', 'size'], `Runtime asset ${platform}`);
+    const filename = `mixdog-runtime-${platform}-pg${manifest.pg.major}.${manifest.pg.minor}-pgvector${manifest.pgvector.version}.tar.gz`;
+    const expected = `https://github.com/tribgames/mixdog/releases/download/${manifest.release_tag}/${filename}`;
+    if (asset.url !== expected) {
+      throw new Error(`${platform}: runtime asset URL must be ${expected}`);
     }
     if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
       throw new Error(`${platform}: invalid sha256`);
@@ -214,6 +253,50 @@ export function validateSpawnManifest(manifest, cargoToml) {
     if (asset.url !== expected) throw new Error(`${platform}: spawn asset URL must be ${expected}`);
     if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
       throw new Error(`${platform}: invalid spawn asset sha256`);
+    }
+  }
+  return manifest;
+}
+
+export function validateTokenManifest(manifest, cargoToml) {
+  assertPlainObject(manifest, 'Token manifest');
+  assertExactKeys(manifest, ['version', '_comment', 'assets'], 'Token manifest');
+  if (typeof manifest.version !== 'string' || !STRICT_VERSION.test(manifest.version)) {
+    throw new Error(`Token manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
+  }
+  if (typeof manifest._comment !== 'string' || !manifest._comment) {
+    throw new Error('Token manifest _comment must be a non-empty string');
+  }
+  let inPackage = false;
+  let cargoVersion;
+  for (const line of String(cargoToml).split(/\r?\n/)) {
+    const section = line.match(/^\s*\[([^\]]+)\]\s*$/)?.[1];
+    if (section) {
+      inPackage = section === 'package';
+      continue;
+    }
+    if (inPackage) {
+      const version = line.match(/^\s*version\s*=\s*"([^"]+)"\s*$/)?.[1];
+      if (version) {
+        cargoVersion = version;
+        break;
+      }
+    }
+  }
+  if (!cargoVersion) throw new Error('Could not read [package] version from native/mixdog-token/Cargo.toml');
+  if (cargoVersion !== manifest.version) {
+    throw new Error(`Token Cargo version ${cargoVersion} does not match manifest version ${manifest.version}`);
+  }
+  assertPlainObject(manifest.assets, 'Token manifest assets');
+  assertExactKeys(manifest.assets, Object.keys(TOKEN_PLATFORMS), 'Token manifest assets');
+  for (const [platform, filename] of Object.entries(TOKEN_PLATFORMS)) {
+    const asset = manifest.assets[platform];
+    assertPlainObject(asset, `Token asset ${platform}`);
+    assertExactKeys(asset, ['url', 'sha256'], `Token asset ${platform}`);
+    const expected = `https://github.com/tribgames/mixdog/releases/download/token-v${manifest.version}/${filename}`;
+    if (asset.url !== expected) throw new Error(`${platform}: token asset URL must be ${expected}`);
+    if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
+      throw new Error(`${platform}: invalid token asset sha256`);
     }
   }
   return manifest;
@@ -307,22 +390,37 @@ export async function verifyReleaseAssets({
   graphManifestPath = GRAPH_MANIFEST_PATH,
   spawnManifestPath = SPAWN_MANIFEST_PATH,
   spawnCargoPath = SPAWN_CARGO_PATH,
+  tokenManifestPath = TOKEN_MANIFEST_PATH,
+  tokenCargoPath = TOKEN_CARGO_PATH,
   packagePath = PACKAGE_PATH,
   downloadOptions,
 } = {}) {
-  const [patchSource, cargoToml, runtimeSource, graphSource, spawnSource, spawnCargo, packageSource] = await Promise.all([
+  const [
+    patchSource,
+    cargoToml,
+    runtimeSource,
+    graphSource,
+    spawnSource,
+    spawnCargo,
+    tokenSource,
+    tokenCargo,
+    packageSource,
+  ] = await Promise.all([
     readFile(patchManifestPath, 'utf8'),
     readFile(cargoPath, 'utf8'),
     readFile(runtimeManifestPath, 'utf8'),
     readFile(graphManifestPath, 'utf8'),
     readFile(spawnManifestPath, 'utf8'),
     readFile(spawnCargoPath, 'utf8'),
+    readFile(tokenManifestPath, 'utf8'),
+    readFile(tokenCargoPath, 'utf8'),
     readFile(packagePath, 'utf8'),
   ]);
   const patchManifest = validatePatchManifest(JSON.parse(patchSource), cargoToml);
   const runtimeManifest = validateRuntimeManifest(JSON.parse(runtimeSource));
   const graphManifest = validateGraphManifest(JSON.parse(graphSource), JSON.parse(packageSource));
   const spawnManifest = validateSpawnManifest(JSON.parse(spawnSource), spawnCargo);
+  const tokenManifest = validateTokenManifest(JSON.parse(tokenSource), tokenCargo);
   await verifyAssetDownloads(patchManifest.assets, downloadOptions);
   console.log(`Verified all bundled patch assets for patch-v${patchManifest.version}.`);
   await verifyAssetDownloads(runtimeManifest.assets, downloadOptions);
@@ -331,6 +429,8 @@ export async function verifyReleaseAssets({
   console.log(`Verified all bundled graph assets for graph-v${graphManifest.version}.`);
   await verifyAssetDownloads(spawnManifest.assets, downloadOptions);
   console.log(`Verified all bundled spawn assets for spawn-v${spawnManifest.version}.`);
+  await verifyAssetDownloads(tokenManifest.assets, downloadOptions);
+  console.log(`Verified all bundled token assets for token-v${tokenManifest.version}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

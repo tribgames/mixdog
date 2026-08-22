@@ -117,7 +117,7 @@ export function Picker({
 
   // Selection stability across owner-driven reopens: command pickers
   // (settings/hooks/skills/channels toggles) rebuild their item list and call
-  // setPicker() again on every ←/→ toggle. Follow the previously selected
+  // repaint the surface on every ←/→ toggle. Follow the previously selected
   // item's `value` into the new list instead of snapping back to row 0.
   // (useState-backed ref: mutation must never trigger a re-render.)
   const [selectionMemo] = useState(() => ({ value: null, initialIndex }));

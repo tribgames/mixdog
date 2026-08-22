@@ -10,11 +10,6 @@
 // `file_path` alias for read.path).
 
 import { coerceReadFamilyPathArg, coerceShapeFlex, hasGlobMagic } from './path-utils.mjs';
-import {
-    isValidShellMonitorIntervalMs,
-    SHELL_MONITOR_INTERVAL_MAX_MS,
-    SHELL_MONITOR_INTERVAL_MIN_MS,
-} from './shell-monitor.mjs';
 
 const MAX_INT = 100000;
 // Explicit grep context should be large enough to frame a function/block without
@@ -693,17 +688,17 @@ function guardTask(a) {
     if (!hasOwn(a, 'action')) {
         return 'Error: task requires explicit "action"';
     }
-    if (!['list', 'read', 'monitor', 'cancel'].includes(action)) {
-        return `Error: task arg "action" must be one of list|read|monitor|cancel (got ${JSON.stringify(a.action)})`;
+    if (!['list', 'read', 'wait', 'cancel'].includes(action)) {
+        return `Error: task arg "action" must be one of list|read|wait|cancel (got ${JSON.stringify(a.action)})`;
     }
-    const allowed = new Set(['action', 'task_id', 'monitor_interval_ms']);
+    const allowed = new Set(['action', 'task_id', 'timeout_ms']);
     const unsupported = Object.keys(a).find((key) => !allowed.has(key));
     if (unsupported) {
-        return `Error: task arg "${unsupported}" is unsupported; use only action, task_id, and monitor_interval_ms`;
+        return `Error: task arg "${unsupported}" is unsupported; use only action, task_id, and timeout_ms`;
     }
     if (action === 'list') {
-        return hasOwn(a, 'monitor_interval_ms')
-            ? 'Error: task arg "monitor_interval_ms" is only valid for action=monitor'
+        return hasOwn(a, 'timeout_ms')
+            ? 'Error: task arg "timeout_ms" is only valid for action=wait'
             : null;
     }
     if (!hasOwn(a, 'task_id')) {
@@ -712,15 +707,12 @@ function guardTask(a) {
     if (typeof a.task_id !== 'string' || a.task_id.trim().length === 0) {
         return `Error: task arg "task_id" must be a non-empty string (got ${describeType(a.task_id)})`;
     }
-    if (action === 'monitor') {
-        if (!hasOwn(a, 'monitor_interval_ms')) {
-            return 'Error: task action=monitor requires "monitor_interval_ms"';
+    if (hasOwn(a, 'timeout_ms')) {
+        if (action !== 'wait') return 'Error: task arg "timeout_ms" is only valid for action=wait';
+        // Out-of-range values are clamped by the wait path, so only a wrong type fails here.
+        if (!Number.isInteger(a.timeout_ms) || a.timeout_ms < 0) {
+            return `Error: task arg "timeout_ms" must be a non-negative integer (got ${describeType(a.timeout_ms)})`;
         }
-        if (!isValidShellMonitorIntervalMs(a.monitor_interval_ms)) {
-            return `Error: task arg "monitor_interval_ms" must be 0 or an integer from ${SHELL_MONITOR_INTERVAL_MIN_MS} to ${SHELL_MONITOR_INTERVAL_MAX_MS} ms`;
-        }
-    } else if (hasOwn(a, 'monitor_interval_ms')) {
-        return 'Error: task arg "monitor_interval_ms" is only valid for action=monitor';
     }
     return null;
 }
@@ -935,7 +927,7 @@ function normalizeTaskActionArgs(toolName, args) {
         ? args.action.trim().toLowerCase()
         : '';
     if (['list', 'read', 'cancel'].includes(action)) {
-        delete args.monitor_interval_ms;
+        delete args.timeout_ms;
     }
     if (action === 'list'
         && typeof args.task_id === 'string'

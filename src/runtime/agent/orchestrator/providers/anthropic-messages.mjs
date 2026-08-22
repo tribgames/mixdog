@@ -1,7 +1,6 @@
 // Anthropic model catalog + message conversion helpers, extracted from anthropic.mjs.
 import { createRequire } from 'node:module';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
-import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
 import {
     ANTHROPIC_RETRY_BACKOFF_MS,
     ANTHROPIC_RETRY_JITTER_RATIO,
@@ -32,7 +31,6 @@ import {
     effortValuesForModel,
     shouldIncludeEffortBeta,
 } from './anthropic-effort.mjs';
-import { normalizeContentForAnthropic } from './media-normalization.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
@@ -49,8 +47,12 @@ import {
     normalizeAnthropicNonStreamingResponse,
     resolveAnthropicCacheTtls as resolveCacheTtls,
     sanitizeAnthropicInputSchema,
+    toAnthropicMessages,
     toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
+// Message lowering lives in the shared request-utils lib (one implementation
+// for both Anthropic providers); re-exported here for existing importers.
+export { toAnthropicMessages };
 
 
 export const require = createRequire(import.meta.url);
@@ -235,86 +237,6 @@ export function deferredAnthropicTools(activeTools, messages, opts) {
 export function requestAnthropicTools(tools, messages, opts) {
     return sharedRequestAnthropicTools(tools, messages, opts, 'anthropic');
 }
-export function toAnthropicMessages(messages) {
-    // Marker-free lowering. cache_control is applied AFTER sanitization by
-    // applyAnthropicCacheMarkers() so that block drops/inserts/reorders
-    // performed by sanitizeAnthropicContentPairs cannot move or delete a
-    // marked block (the root cause of the sporadic COLD-turn cache miss:
-    // pre-sanitize markers landed on blocks the sanitizer then rewrote, so
-    // the provider-visible breakpoint diverged from the cached one).
-    const result = [];
-    for (let idx = 0; idx < messages.length; idx++) {
-        const m = messages[idx];
-        if (m.role === 'system') continue;
-        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
-            let content;
-            if (m.assistantBlocks?.length) {
-                content = m.assistantBlocks.slice();
-            } else {
-                content = [];
-                // Adaptive-thinking round-trip: prior-turn thinking blocks are
-                // REQUIRED back, unmodified (signature intact; empty thinking
-                // field allowed), and MUST precede tool_use blocks.
-                if (Array.isArray(m.thinkingBlocks)) {
-                    for (const tb of m.thinkingBlocks) {
-                        if (tb && typeof tb === 'object') content.push(tb);
-                    }
-                }
-                if (m.content) content.push({ type: 'text', text: m.content });
-                for (const tc of m.toolCalls || []) {
-                    content.push({
-                        type: 'tool_use',
-                        id: tc.id,
-                        name: tc.name,
-                        input: tc.arguments,
-                    });
-                }
-            }
-            result.push({ role: 'assistant', content });
-            continue;
-        }
-        if (m.role === 'tool') {
-            const last = result[result.length - 1];
-            const native = m.nativeToolSearch;
-            const nativeProvider = String(native?.provider || '').toLowerCase();
-            const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
-            const references = (!nativeProvider || anthropicNative.has(nativeProvider))
-                && Array.isArray(native?.toolReferences)
-                ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
-                : [];
-            const block = {
-                type: 'tool_result',
-                tool_use_id: m.toolCallId || '',
-                content: references.length
-                    ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
-                    : normalizeContentForAnthropic(m.content),
-                ...((m.toolKind === 'error' || m.isError === true) ? { is_error: true } : {}),
-            };
-            if (last?.role === 'user' && Array.isArray(last.content)) {
-                last.content.push(block);
-            }
-            else {
-                result.push({ role: 'user', content: [block] });
-            }
-            continue;
-        }
-        // First-party client parity: fold a user text turn that directly follows a
-        // tool_result turn into that tool_result's content (empty end_turn
-        // livelock prevention; see foldUserTextIntoToolResultTail).
-        //   EXCEPTION: steering-origin user messages (human/TUI interjections)
-        //   keep their own user turn so provenance survives — folding them would
-        //   disguise user input as tool output. Anthropic accepts a user text
-        //   message after a tool_result message, so the turn stays request-valid.
-        const isSteering = m.role === 'user' && m.meta?.source === 'steering';
-        if (m.role === 'user' && !isSteering
-            && foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))) {
-            continue;
-        }
-        result.push({ role: m.role, content: normalizeContentForAnthropic(m.content) });
-    }
-    return sanitizeAnthropicContentPairs(result);
-}
-
 // Test-only: expose the lowering so the steering-provenance test can assert
 // the API-key provider keeps steering-tagged user turns distinct (mirrors
 // anthropic-oauth._buildRequestBodyForCacheSmoke coverage).

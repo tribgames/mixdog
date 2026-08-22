@@ -11,7 +11,11 @@ export function normalizeToolTerminalStatus(value) {
   if (/^(running|pending|queued|in_progress|in-progress)$/.test(raw)) return 'running';
   if (/^(completed|complete|done|success|succeeded|ok)$/.test(raw)) return 'completed';
   if (/^(failed|fail|error|errored|timeout|timed_out|killed)$/.test(raw)) return 'failed';
-  if (/^(cancelled|canceled|cancel)$/.test(raw)) return 'cancelled';
+  // `cancel-unconfirmed` is task control's honest answer when a cancel was
+  // delivered but the process exit could not be confirmed. It is terminal for
+  // the tool call (the detail lives in the body), so it renders as cancelled
+  // rather than falling through to '' and leaving the surface with no status.
+  if (/^(cancelled|canceled|cancel|cancel[-_ ]unconfirmed|cancel[-_ ]pending|cancelling|canceling)$/.test(raw)) return 'cancelled';
   if (/^(denied|deny|refused|rejected)$/.test(raw)) return 'denied';
   return '';
 }

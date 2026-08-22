@@ -23,6 +23,91 @@ let _lastFailureAt = 0;
 const _tasks = new Map();
 const _taskEvents = new EventEmitter();
 
+// Retention of SETTLED tasks. A completed task stays queryable so a late
+// `task read` still answers, but the spawn server's `task_released` event is
+// the only thing that used to drop it — a server that never sends one (old
+// binary, crash, cancelled owner) grew _tasks without bound for the daemon's
+// whole life. Terminal entries now carry their own TTL plus a hard cap, and
+// releaseNativeTask() gives owners an explicit release.
+const RETAINED_TASK_TTL_MS = 10 * 60_000;
+const RETAINED_TASK_LIMIT = 256;
+const RETAINED_TASK_SWEEP_MS = 60_000;
+const _terminalAtMs = new Map();
+let _retentionSweepTimer = null;
+
+// The spawn server keeps its OWN retained-jobs map, so a client-side drop must
+// tell it to drop the same entry — otherwise the leak just moves one process
+// over. Older servers without the capability simply keep their cap-based
+// pruning.
+function _requestServerTaskRelease(jobId) {
+  const server = _server;
+  if (!server?.ready || server.caps?.releaseTask !== true) return false;
+  try {
+    server.child.stdin.write(`${JSON.stringify({ id: ++server.sequence, releaseTask: jobId })}\n`);
+    return true;
+  } catch { return false; }
+}
+
+function _stopRetentionSweep() {
+  if (!_retentionSweepTimer) return;
+  clearInterval(_retentionSweepTimer);
+  _retentionSweepTimer = null;
+}
+
+// Retention must not depend on new task events arriving: a daemon that goes
+// quiet right after its last command would otherwise hold that entry (and the
+// server's) forever. The sweep runs on its own unref'd cadence and stops
+// itself as soon as nothing is retained.
+function _startRetentionSweep() {
+  if (_retentionSweepTimer || _terminalAtMs.size === 0) return;
+  _retentionSweepTimer = setInterval(() => {
+    _sweepRetainedTasks();
+    if (_terminalAtMs.size === 0) _stopRetentionSweep();
+  }, RETAINED_TASK_SWEEP_MS);
+  _retentionSweepTimer.unref?.();
+}
+
+function _dropTaskEntry(jobId, { notifyServer = true } = {}) {
+  _tasks.delete(jobId);
+  _terminalAtMs.delete(jobId);
+  _startedAtOverrides.delete(jobId);
+  if (notifyServer) _requestServerTaskRelease(jobId);
+  if (_terminalAtMs.size === 0) _stopRetentionSweep();
+}
+
+function _sweepRetainedTasks(now = Date.now()) {
+  for (const [jobId, at] of _terminalAtMs) {
+    if (now - at >= RETAINED_TASK_TTL_MS) _dropTaskEntry(jobId);
+  }
+  // Insertion-ordered: the oldest terminal entries go first.
+  let overflow = _terminalAtMs.size - RETAINED_TASK_LIMIT;
+  if (overflow <= 0) return;
+  for (const jobId of [..._terminalAtMs.keys()]) {
+    if (overflow-- <= 0) break;
+    _dropTaskEntry(jobId);
+  }
+}
+
+function _markTerminalTask(jobId, status) {
+  if (status === 'running') {
+    _terminalAtMs.delete(jobId);
+    return;
+  }
+  if (!_terminalAtMs.has(jobId)) _terminalAtMs.set(jobId, Date.now());
+  _sweepRetainedTasks();
+  _startRetentionSweep();
+}
+
+/** Drop a settled task's retained state. Running tasks are never released
+ *  (cancel them first); returns true when an entry was actually dropped. */
+export function releaseNativeTask(jobId) {
+  const key = String(jobId || '').trim();
+  const task = key ? _tasks.get(key) : null;
+  if (!task || task.status === 'running') return false;
+  _dropTaskEntry(key);
+  return true;
+}
+
 function nativeSpawnCompatibilityError(server) {
   if (!server?.ready) return null;
   const missingCaps = REQUIRED_LIFECYCLE_CAPS.filter((cap) => server.caps?.[cap] !== true);
@@ -106,6 +191,7 @@ function acceptTask(message) {
   const task = normalizeTask(message?.task);
   if (!task) return null;
   _tasks.set(task.jobId, task);
+  _markTerminalTask(task.jobId, task.status);
   _taskEvents.emit(task.jobId, task);
   return task;
 }
@@ -249,7 +335,7 @@ export function setNativeSpawnRequestIdle(child, idle = true) {
   return true;
 }
 
-function _teardown(error) {
+function _teardown(error, { kill = true } = {}) {
   const server = _server;
   _server = null;
   _lastFailureAt = Date.now();
@@ -268,9 +354,12 @@ function _teardown(error) {
       finishedAt: new Date().toISOString(),
     };
     _tasks.set(jobId, failed);
+    _markTerminalTask(jobId, failed.status);
     _taskEvents.emit(jobId, { ...failed });
   }
-  try { server.child.kill(); } catch {}
+  if (kill) {
+    try { server.child.kill(); } catch {}
+  }
 }
 
 export async function shutdownNativeSpawnServer(reason = 'process-exit', timeoutMs = 1_000) {
@@ -281,8 +370,13 @@ export async function shutdownNativeSpawnServer(reason = 'process-exit', timeout
     child.once('exit', () => resolve(true));
     child.once('error', () => resolve(true));
   });
+  // Graceful stop first: detach the module handle and fail pending requests,
+  // but do NOT kill the server here. Closing stdin is its shutdown signal, and
+  // it needs that window to terminate the process GROUPS it owns (POSIX) —
+  // killing the server first preempted that cleanup and orphaned children.
+  // SIGKILL below is the fallback for a server that misses the window.
+  _teardown(new Error(`native spawn server shutdown (${reason})`), { kill: false });
   try { child.stdin?.end?.(); } catch {}
-  _teardown(new Error(`native spawn server shutdown (${reason})`));
   let timer;
   const stopped = await Promise.race([
     exited,
@@ -334,10 +428,7 @@ function _ensureServer() {
     const event = String(message?.event || '');
     if (event === 'task_released') {
       const jobId = String(message?.jobId || '');
-      if (jobId) {
-        _tasks.delete(jobId);
-        _startedAtOverrides.delete(jobId);
-      }
+      if (jobId) _dropTaskEntry(jobId, { notifyServer: false });
     } else if (event.startsWith('task_')) {
       acceptTask(message);
     }
@@ -532,45 +623,81 @@ export function cancelNativeTask(jobId) {
   return task;
 }
 
+/** Cancel every running task owned by one session.
+ *
+ *  Reports what the kill could actually prove:
+ *    cancelled    tasks that were running when the cancel was issued
+ *    unconfirmed  jobIds whose cancel reached NOTHING — no live spawn-server
+ *                 link, so the process stays observable but unaddressable from
+ *                 this host (the Windows survivor case)
+ *    confirmed    false while any unconfirmed entry exists
+ *  Delivery to the owning spawn server counts as confirmed (it holds the
+ *  handle and completes the kill); an undelivered signal never does. */
 export function cancelNativeTasks({ ownerSessionId = null } = {}) {
   const owner = String(ownerSessionId || '').trim();
-  if (!owner) return { cancelled: 0 };
+  if (!owner) return { cancelled: 0, unconfirmed: [], confirmed: true };
   const running = [..._tasks.values()].filter((task) =>
     task.status === 'running' && String(task.ownerSessionId || '') === owner);
   const server = _server;
+  let ownerCancelDelivered = false;
   if (server?.caps?.cancelOwner === true) {
     try {
       server.child.stdin.write(`${JSON.stringify({
         id: ++server.sequence,
         cancelOwnerSession: owner,
       })}\n`);
-    } catch {}
+      ownerCancelDelivered = true;
+    } catch { ownerCancelDelivered = false; }
   }
   // Also issue direct per-task cancellation for entries already visible in
   // this client so teardown does not wait on the owner-wide command round trip.
+  // A teardown never BOOTS a spawn server just to cancel: with the link gone
+  // there is nothing left for the signal to travel through, and pretending
+  // otherwise is what turned an unkillable survivor into a false `cancelled`.
+  const unconfirmed = [];
   for (const task of running) {
-    try { cancelNativeTask(task.jobId); } catch {}
+    let delivered = ownerCancelDelivered;
+    if (server) {
+      try { delivered = Boolean(cancelNativeTask(task.jobId)) || delivered; } catch { /* undelivered */ }
+    }
+    if (!delivered) unconfirmed.push(task.jobId);
   }
-  return { cancelled: running.length };
+  return { cancelled: running.length, unconfirmed, confirmed: unconfirmed.length === 0 };
 }
 
-export function waitNativeTask(jobId, timeoutMs = 30_000) {
+// Completion-event wait. Resolves the moment the task leaves `running`, so the
+// timeout is a ceiling and never a fixed delay. An abort signal resolves with
+// the CURRENT state instead of leaving the caller blocked: a cancelled turn
+// must return immediately, not serve out the remaining ceiling.
+export function waitNativeTask(jobId, timeoutMs = 30_000, signal = null) {
   const key = String(jobId || '');
   const current = getNativeTask(key);
   if (!current || current.status !== 'running') return Promise.resolve(current);
+  if (signal?.aborted) return Promise.resolve(current);
   return new Promise((resolve) => {
     let timer = null;
-    const done = (task) => {
-      if (task?.status === 'running') return;
+    let onAbort = null;
+    let settled = false;
+    const finish = (task) => {
+      if (settled) return;
+      settled = true;
       if (timer) clearTimeout(timer);
+      if (onAbort && signal) {
+        try { signal.removeEventListener('abort', onAbort); } catch {}
+      }
       unsubscribe();
       resolve(task ? { ...task } : null);
     };
+    const done = (task) => {
+      if (task?.status === 'running') return;
+      finish(task);
+    };
     const unsubscribe = subscribeNativeTask(key, done);
-    timer = setTimeout(() => {
-      unsubscribe();
-      resolve(getNativeTask(key));
-    }, Math.max(1, Number(timeoutMs) || 30_000));
+    if (signal) {
+      onAbort = () => finish(getNativeTask(key));
+      try { signal.addEventListener('abort', onAbort, { once: true }); } catch {}
+    }
+    timer = setTimeout(() => finish(getNativeTask(key)), Math.max(1, Number(timeoutMs) || 30_000));
     timer.unref?.();
   });
 }
@@ -735,7 +862,19 @@ export function _resetNativeSpawnClientForTest() {
   _binaryPath = undefined;
   _lastFailureAt = 0;
   _tasks.clear();
+  _terminalAtMs.clear();
+  _stopRetentionSweep();
+  _startedAtOverrides.clear();
   _taskEvents.removeAllListeners();
+}
+
+/** Test-only: seed a task record exactly as a spawn-server report would, so
+ *  cancellation/teardown paths can be exercised without a live server. */
+export function _seedNativeTaskForTest(task) {
+  const normalized = normalizeTask(task);
+  if (!normalized) return null;
+  _tasks.set(normalized.jobId, normalized);
+  return normalized;
 }
 
 export function _setNativeSpawnBinaryForTest(binaryPath) {

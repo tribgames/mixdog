@@ -27,7 +27,25 @@ import {
   type RelayE2EEChallenge,
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
-import { createRemotePaintProbeTracker } from '../shared/remote-performance';
+import {
+  createRemoteByteMeter,
+  createRemotePaintProbeTracker,
+  formatRemoteByteReport,
+} from '../shared/remote-performance';
+import {
+  RELAY_FRAME_TOO_LARGE,
+  RELAY_ROUTING_CAPS_EVENT,
+  readRelayPayloadRejection,
+  readRelayUplinkCeilings,
+  relayFrameByteLength,
+  relayFrameCallId,
+  relayFrameRefusal,
+  relayPayloadRejectedFrame,
+  relayUplinkCeilingFields,
+  relayUplinkContract,
+  resolveRelayFrameLimit,
+  type RelayUplinkCeilings,
+} from '../shared/remote-payload-limit';
 import { createKeyedListDeltaEncoder } from '../shared/list-delta';
 import { resolveMediaFileTarget } from './media-source';
 import {
@@ -46,7 +64,13 @@ import {
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
 import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
 
-const MAX_WS_PAYLOAD_BYTES = 64 * 1024 * 1024;
+// Transport cap for ONE message on this leg. It sits above the relay's 64 MiB
+// policy ceiling on purpose: a policy-sized phone frame arrives here wrapped in
+// the relay's fixed 42-byte routing header, and a transport that stopped at the
+// policy number would kill the socket (1009) over the wrapper alone. The text
+// flag keeps that wrapper fixed — JSON escaping is no longer in this path — so
+// a small, constant headroom is all it takes.
+const MAX_WS_PAYLOAD_BYTES = 68 * 1024 * 1024;
 const REVOKE_TIMEOUT_MS = 5_000;
 const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
 export const MAX_ACTIVE_REMOTE_CLIENTS = 32;
@@ -96,6 +120,10 @@ export interface RemoteRelayOptions extends RemoteMethodDependencies {
   userDataPath: string;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
   onClientCountChanged?: () => void;
+  /** The relay refused an oversize frame this desktop sent and could not say
+   *  which client it belonged to. Reported so the user sees it; it names no
+   *  call and reaches no phone, because either would blame the wrong one. */
+  onRelayPayloadRefused?: (detail: { bytes: number | null; limit: number | null }) => void;
   /** Ask the user to approve one credential-less container. Resolving false
    *  (or throwing) denies it; the relay never decides this. */
   onClientClaim?: (claim: RemoteClientClaim) => Promise<boolean>;
@@ -354,6 +382,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   let socket: WebSocket | null = null;
   let closed = false;
   let relayBinaryFrames = false;
+  // Echoed by the relay when it accepts this leg's `textFrames` request. Reset
+  // per connection with the capabilities frame that sets it.
+  let relayTextFrames = false;
   let retryMs = 1_000;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let drainingRevocations = false;
@@ -429,11 +460,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       try { socket.send(JSON.stringify(payload)); } catch { /* relay vanished */ }
     }
   };
-  const sendBinaryFrameAndWait = (
-    clientId: string,
-    data: Uint8Array,
-    droppable: boolean,
-  ): Promise<void> =>
+  /** Sends an ALREADY serialized frame, so callers that must know the exact
+   *  wire size the relay will measure can compute it once instead of
+   *  re-serializing a multi-megabyte payload to find out. */
+  const sendRawAndWait = (frame: string | Uint8Array): Promise<void> =>
     new Promise((resolve, reject) => {
       const target = socket;
       if (!target || target.readyState !== WebSocket.OPEN) {
@@ -441,23 +471,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         return;
       }
       try {
-        target.send(encodeRelayBinaryFrame({ clientId, data, droppable }), (error: Error | undefined) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      } catch (error) {
-        reject(error);
-      }
-    });
-  const sendEnvelopeAndWait = (payload: unknown): Promise<void> =>
-    new Promise((resolve, reject) => {
-      const target = socket;
-      if (!target || target.readyState !== WebSocket.OPEN) {
-        reject(new Error('Relay is not connected.'));
-        return;
-      }
-      try {
-        target.send(JSON.stringify(payload), (error) => {
+        target.send(frame, (error: Error | undefined) => {
           if (error) reject(error);
           else resolve();
         });
@@ -504,30 +518,158 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     if (removeClient(clientId)) notifyClientCount();
     sendEnvelope({ type: 'close-client', clientId, reason });
   };
-  const sendEncryptedFrame = async (
+  // The relay's per-frame ceiling as this desktop knows it. `relay-capabilities`
+  // declares it at handshake; a `frame-too-large` notice proves a smaller one.
+  // The effective limit is the smallest known value, so this leg's own check is
+  // never more permissive than the relay's.
+  let declaredFrameLimit: number | null = null;
+  let noticedFrameLimit: number | null = null;
+  const relayFrameLimit = (): number =>
+    resolveRelayFrameLimit(declaredFrameLimit, noticedFrameLimit);
+  /** The ceilings the relay PUBLISHED for this connection: the effective
+   *  capacity of this leg and the largest frame each wire form may carry to it
+   *  (server.mjs `relayCapabilities`). They are the relay's to know — it clamps
+   *  what this leg declared, discounts a receiver it has seen refuse, and wraps
+   *  a phone frame in a route id only it can see — so they are consumed, never
+   *  recomputed. null while no capabilities frame has carried them, and null
+   *  again on a relay that publishes none: per connection, like every other
+   *  learned cap. */
+  let relayPublishedCeilings: RelayUplinkCeilings | null = null;
+  /** Every cap here describes ONE connection. A relay leg that omits its
+   *  capabilities frame — or sends it after a phone has already been announced
+   *  — must find this leg holding NOTHING, not the previous connection's
+   *  ceilings: a stale 4400-byte capacity applied to a new 64 MiB relay
+   *  strands traffic, and a stale 64 MiB one applied to a new 4400-byte relay
+   *  promises a browser room that does not exist. Called on every open, so the
+   *  only thing that can populate these is a `relay-capabilities` frame on the
+   *  connection they belong to. */
+  const resetRelayConnectionCaps = (): void => {
+    relayBinaryFrames = false;
+    relayTextFrames = false;
+    relayPublishedCeilings = null;
+    declaredFrameLimit = null;
+    noticedFrameLimit = null;
+    advertisedRoutingCaps = '';
+  };
+  /** What a phone may put on the wire for this connection, as advertised to
+   *  the browser: the relay's published ceilings, bounded by any smaller
+   *  policy ceiling a refusal notice has proved since. */
+  const relayUplinkLimits = (): RelayUplinkCeilings => relayUplinkContract(
+    relayPublishedCeilings,
+    { policy: relayFrameLimit(), textFrames: relayTextFrames },
+  );
+  /** Everything a browser needs to admit exactly what this relay admits, in
+   *  ONE shape — handed over in the handshake, and re-issued unchanged
+   *  whenever the relay republishes different numbers, so both frames can
+   *  never drift apart:
+   *    maxFrameBytes  — the relay's policy ceiling, applied to the phone's OWN
+   *                     frame exactly as it is sent;
+   *    maxRoutedBytes — the relay's capacity for this leg. Legacy field, for a
+   *                     browser that predates the published ceilings and
+   *                     derives its own; never this desktop's transport
+   *                     constant, which belongs to no relay and is larger than
+   *                     every ceiling on this path;
+   *    uplink*        — the ceilings the relay published, forwarded verbatim;
+   *    textFrames     — only when the relay ECHOED the text envelope for this
+   *                     connection, so a text frame rides the fixed-size
+   *                     wrapper instead of being JSON-escaped. Without the
+   *                     echo the browser keeps JSON pricing. */
+  const relayRoutingCapsPayload = (
+    uplink: RelayUplinkCeilings,
+  ): Record<string, unknown> => ({
+    maxFrameBytes: relayFrameLimit(),
+    maxRoutedBytes: uplink.capacity,
+    ...relayUplinkCeilingFields(uplink),
+    ...(relayTextFrames ? { textFrames: 1 as const } : {}),
+  });
+  /** The last caps every attached phone has been told, so a republication that
+   *  changes nothing costs no frames. Connection-scoped like the caps
+   *  themselves. */
+  let advertisedRoutingCaps = '';
+  /** The relay republishes `relay-capabilities` whenever this leg's numbers
+   *  change. A phone that is ALREADY attached was told its ceilings once, in
+   *  its handshake: without this it goes on sending at the old ones, and the
+   *  first frame past the new ceiling is refused AT THE RELAY, where nothing
+   *  can say which call it belonged to — that call waits out its deadline and
+   *  closes the socket, and a fire-and-forget publish disappears with no error
+   *  at all. Re-issued to every established channel, and only when the numbers
+   *  really changed. */
+  const republishRoutingCaps = (): void => {
+    const payload = relayRoutingCapsPayload(relayUplinkLimits());
+    const signature = JSON.stringify(payload);
+    if (signature === advertisedRoutingCaps) return;
+    advertisedRoutingCaps = signature;
+    if (activeClients.size === 0) return;
+    // Never droppable: losing this frame IS the failure it exists to prevent.
+    broadcastEncrypted({ event: RELAY_ROUTING_CAPS_EVENT, payload }, false);
+  };
+  // Bandwidth attribution for this leg, in the relay's own billing unit. On by
+  // default: this daemon outlives every window and defers its own shutdown
+  // while a phone is attached, so a flag set when launching the app would
+  // almost never reach the process that actually relays. Two integer adds per
+  // frame and one log line a minute is not a cost worth gating behind that.
+  // MIXDOG_REMOTE_METER=0 opts out.
+  const relayByteMeter = createRemoteByteMeter({
+    enabled: process.env.MIXDOG_REMOTE_METER !== '0',
+  });
+  /** Refusing an oversize frame BEFORE it is sent is what makes attribution
+   *  structural: the frame in hand is the frame that fails, so the call it
+   *  answers is known exactly — no size matching, no log, nothing to evict or
+   *  confuse. The browser is told through the encrypted channel, carrying that
+   *  id (a push carries none and blames no call). */
+  const deliverEncryptedFrame = async (
     clientId: string,
     payload: unknown,
-    droppable = false,
+    droppable: boolean,
+    guardOversize: boolean,
   ): Promise<void> => {
     const state = activeClients.get(clientId);
     if (!state?.channel) return;
     try {
-      if (relayBinaryFrames && state.binaryFrames) {
-        const data = await state.channel.encryptBinary(payload);
-        await sendBinaryFrameAndWait(clientId, data, droppable);
-      } else {
-        const data = await state.channel.encryptJson(payload);
-        await sendEnvelopeAndWait({
+      const binary = relayBinaryFrames && state.binaryFrames;
+      const wire: string | Uint8Array = binary
+        ? encodeRelayBinaryFrame({
+          clientId,
+          data: await state.channel.encryptBinary(payload),
+          droppable,
+        })
+        : JSON.stringify({
           type: 'frame',
           clientId,
-          data,
+          data: await state.channel.encryptJson(payload),
           ...(droppable ? { droppable: true } : {}),
         });
+      // Measured exactly as the relay charges it: the declared payload length
+      // of the whole outgoing message (apps/relay/server.mjs frameBytes).
+      const bytes = relayFrameByteLength(wire);
+      const refusal = guardOversize
+        ? relayFrameRefusal(bytes, relayFrameLimit(), relayFrameCallId(payload))
+        : null;
+      if (refusal) {
+        // Never sent: the relay would refuse it, and nothing downstream could
+        // say whose frame it was. Answer the waiting call instead.
+        await deliverEncryptedFrame(
+          clientId,
+          relayPayloadRejectedFrame(refusal),
+          false,
+          false,
+        );
+        return;
       }
+      // Metered where the frame is committed, so a refused one never counts as
+      // traffic that was never sent.
+      const meterReport = relayByteMeter.record(payload, bytes);
+      if (meterReport) console.error(formatRemoteByteReport(meterReport));
+      await sendRawAndWait(wire);
     } catch {
       closeClient(clientId, 'relay encryption failed');
     }
   };
+  const sendEncryptedFrame = (
+    clientId: string,
+    payload: unknown,
+    droppable = false,
+  ): Promise<void> => deliverEncryptedFrame(clientId, payload, droppable, true);
   const broadcastEncryptedAsync = (
     payload: unknown,
     droppable: boolean,
@@ -814,6 +956,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     heartbeat.unref?.();
     ws.on('open', () => {
       retryMs = 1_000;
+      // Nothing the previous leg declared survives into this one.
+      resetRelayConnectionCaps();
       resetTransportDeltas();
       // A fresh desktop leg supersedes the old one and the relay closed its
       // phone legs; phones re-open and re-announce themselves.
@@ -826,7 +970,19 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // media to desktops that would never answer.
       // HTTP media is disabled until its byte protocol is encrypted. Remote
       // galleries fall back to the encrypted RPC payload.
-      sendEnvelope({ type: 'desktop-lanes', media: false, e2ee: 1 });
+      // `maxPayloadBytes` is the declaration that ends the version-skew outage:
+      // the relay clamps its uplink capacity for this leg to what this leg says
+      // it can receive (server.mjs `uplinkCapacityFor`, learned per connection
+      // and reset on attach and redial) instead of assuming a constant. Sent
+      // from the open handler, so a redial re-declares it before any frame.
+      // `textFrames` opts into the envelope that cannot inflate what it carries.
+      sendEnvelope({
+        type: 'desktop-lanes',
+        media: false,
+        e2ee: 1,
+        maxPayloadBytes: MAX_WS_PAYLOAD_BYTES,
+        textFrames: 1,
+      });
       // Register the phone pairing token before any client leg can bind.
       sendEnvelope({ type: 'set-client-token', token });
       // Unpair is local-first so it also works offline. Once any new relay leg
@@ -840,7 +996,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         if (isBinary) {
           const frame = decodeRelayBinaryFrame(raw);
           if (!frame) return;
-          envelope = { type: 'frame', clientId: frame.clientId, data: frame.data };
+          envelope = {
+            type: 'frame',
+            clientId: frame.clientId,
+            // A text-flagged frame carries UTF-8 that must be handed on as a
+            // STRING, exactly like a JSON envelope's `data` — the handshake and
+            // the E2EE box readers below distinguish the two by type. An old
+            // frame has no flag and stays bytes.
+            data: frame.text ? Buffer.from(frame.data).toString('utf8') : frame.data,
+          };
         } else {
           try {
             envelope = JSON.parse(String(raw)) as Record<string, unknown>;
@@ -850,6 +1014,27 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         }
         if (envelope.type === 'relay-capabilities') {
           relayBinaryFrames = envelope.binaryFrames === 1;
+          // ACKNOWLEDGEMENT, not inference: `desktop-lanes.textFrames` is only
+          // a request, and a binary-capable relay that predates the flag still
+          // JSON-wraps text. Pricing text as fixed without this echo promises a
+          // browser room the relay does not have.
+          relayTextFrames = envelope.textFrames === 1;
+          // The relay declares its per-frame ceiling here (server.mjs
+          // runDesktopLeg). Learning it is what lets this leg refuse an
+          // oversize frame itself instead of discovering it after the fact.
+          if (typeof envelope.maxFrameBytes === 'number') {
+            declaredFrameLimit = resolveRelayFrameLimit(envelope.maxFrameBytes);
+          }
+          // …and the authoritative ceilings that go with it, for THIS
+          // connection: the relay clamped its own capacity for this leg and
+          // priced the routing envelope with the id it actually wraps a phone
+          // frame in. Consuming them is what makes the browser refuse exactly
+          // what the relay refuses; a relay that publishes none reads as null
+          // and the conservative fallback stands in.
+          relayPublishedCeilings = readRelayUplinkCeilings(envelope);
+          // The relay republishes on change; a phone already attached is held
+          // to whatever it was told in its handshake until this reaches it.
+          republishRoutingCaps();
           return;
         }
         if (envelope.type === 'clients-list' || envelope.type === 'client-revoked') {
@@ -966,6 +1151,52 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           if (id) sendEnvelope({ type: 'media-error', id });
           return;
         }
+        // The relay REFUSED an oversize frame instead of dropping the leg, so
+        // the browser that sent it is waiting on a call that will never be
+        // answered. Forward the refusal to it (encrypted, like every other
+        // event) and let it fail that call with a real reason.
+        //
+        // The relay derives this clientId from the binary frame header or a
+        // bounded JSON scan — never from parsing the payload — so it is used
+        // here as a LOOKUP KEY only: an unknown id finds no client and an
+        // absent one means the refusal could not be attributed, which every
+        // active client has to consider. A malformed envelope yields no
+        // rejection and returns quietly; nothing here can throw or close.
+        if (envelope.type === RELAY_FRAME_TOO_LARGE) {
+          const rejection = readRelayPayloadRejection(envelope);
+          if (!rejection) return;
+          // A frame slipped past the pre-send check, so the ceiling this leg
+          // believed in was too generous: tighten it permanently. The notice
+          // itself names no call and NEVER selects one — the relay cannot know
+          // which frame it refused, and guessing by size blames innocents.
+          if (rejection.limit !== null) {
+            noticedFrameLimit = resolveRelayFrameLimit(rejection.limit, noticedFrameLimit);
+          }
+          const clientId = typeof envelope.clientId === 'string' ? envelope.clientId : '';
+          if (!clientId) {
+            // Unattributed. It concerns exactly ONE client and nothing can say
+            // which, so no client is told: a sibling would learn another
+            // client's refused size and see an error for traffic it never
+            // sent. The learned ceiling above is the repair that matters; the
+            // event itself is recorded on the leg it happened on.
+            console.error(
+              '[mixdog-remote] relay refused an oversize frame'
+              + ` bytes=${rejection.bytes ?? 'unknown'} limit=${rejection.limit ?? 'unknown'}`
+              + ' (no client attributed)',
+            );
+            options.onRelayPayloadRefused?.({
+              bytes: rejection.bytes,
+              limit: rejection.limit,
+            });
+            return;
+          }
+          // Named: only that leg hears about it, and never as a victim.
+          void sendEncryptedFrame(
+            clientId,
+            relayPayloadRejectedFrame({ ...rejection, callId: null, scope: 'unknown' }),
+          );
+          return;
+        }
         if (envelope.type !== 'frame' || typeof envelope.clientId !== 'string') return;
         const client = activeClients.get(envelope.clientId);
         if (!client) return;
@@ -1012,9 +1243,25 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               client.listDelta = hello.listDelta === 1;
               client.compactWire = hello.compactWire === 1;
               clearTimeout(client.handshakeTimer);
+              const uplink = relayUplinkLimits();
               await sendEncryptedFrame(
                 envelope.clientId as string,
-                { type: 'e2ee-ready', version: 1 },
+                // The browser cannot see `relay-capabilities` (that frame is on
+                // the desktop leg), so it is handed the very numbers the relay
+                // published for this connection:
+                //   maxFrameBytes — the relay's policy ceiling, applied to the
+                //                   phone's OWN frame exactly as it is sent;
+                //   uplink*       — this connection's effective capacity and
+                //                   the largest frame each wire form may carry
+                //                   once the relay has wrapped it for this leg.
+                // Forwarded, not recomputed: the relay's admission decision IS
+                // the browser's, so an oversize frame fails in the browser at
+                // the same byte the relay would have refused it at.
+                {
+                  type: 'e2ee-ready',
+                  version: 1,
+                  ...relayRoutingCapsPayload(uplink),
+                },
               );
               resetTransportDeltas();
               broadcastState(options.host.getSnapshot(), true);

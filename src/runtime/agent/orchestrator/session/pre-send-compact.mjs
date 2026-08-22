@@ -8,6 +8,7 @@ import {
     resolveWorkerCompactPolicy,
     compactionTelemetryPressureTokens,
     resolveGaugeContextTokens,
+    currentContextEstimateTokens,
     compactTargetBudget,
     shouldCompactForSession,
     countPrunedToolOutputs,
@@ -75,6 +76,15 @@ export async function runPreSendCompactPass(state) {
                 messages,
                 sessionRef,
             });
+            // Every reported context number is the SAME one the gauge shows
+            // (user: 게이지는 499k인데 압축 알림은 131k). The gauge anchors on
+            // the provider-billed prompt plus calibrated growth; a bare
+            // transcript estimate is a different, far smaller scale. Captured
+            // here, before compaction mutates `messages`.
+            const gaugeBeforeTokens = resolveGaugeContextTokens(messageTokensEst, compactPolicy, {
+                messages,
+                sessionRef,
+            }) || pressureTokens;
             const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
                 forceReactive: reactivePending,
                 messages,
@@ -114,8 +124,9 @@ export async function runPreSendCompactPass(state) {
             if (!shouldCompact) {
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'pre_send_check',
-                    beforeTokens: messageTokensEst,
-                    afterTokens: messageTokensEst,
+                    beforeTokens: gaugeBeforeTokens,
+                    afterTokens: gaugeBeforeTokens,
+                    messageTokensEst,
                     pressureTokens,
                 });
             } else {
@@ -147,8 +158,9 @@ export async function runPreSendCompactPass(state) {
                 }
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'compacting',
-                    beforeTokens: messageTokensEst,
-                    afterTokens: messageTokensEst,
+                    beforeTokens: gaugeBeforeTokens,
+                    afterTokens: gaugeBeforeTokens,
+                    messageTokensEst,
                     pressureTokens,
                     trigger: compactTrigger,
                 });
@@ -340,8 +352,9 @@ export async function runPreSendCompactPass(state) {
                         || 'compact_failed';
                     rememberCompactTelemetry(sessionRef, compactPolicy, {
                         stage: 'overflow_failed',
-                        beforeTokens: messageTokensEst,
-                        afterTokens: messageTokensEst,
+                        beforeTokens: gaugeBeforeTokens,
+                        afterTokens: gaugeBeforeTokens,
+                        messageTokensEst,
                         pressureTokens,
                         trigger: compactTrigger,
                         semanticError: semanticFailMsg,
@@ -389,8 +402,9 @@ export async function runPreSendCompactPass(state) {
                         trigger: compactTrigger,
                         status: 'failed',
                         compactType: compactEventType(compactPolicy),
-                        beforeTokens: messageTokensEst,
-                        afterTokens: messageTokensEst,
+                        beforeTokens: gaugeBeforeTokens,
+                        afterTokens: gaugeBeforeTokens,
+                        messageTokensEst,
                         beforeMessages: beforeCount,
                         afterMessages: messages.length,
                         pressureTokens,
@@ -463,12 +477,17 @@ export async function runPreSendCompactPass(state) {
                     // collide when iteration indices restart at 1 (incl. iter 1 → iter 1).
                     if (sessionRef) bumpUsageMetricsEpoch(sessionRef);
                 }
-                const afterTokens = estimateMessagesTokensSafe(messages);
+                const afterMessageTokensEst = estimateMessagesTokensSafe(messages);
+                // Same scale as gaugeBeforeTokens: compaction invalidated the
+                // provider baseline, so the post-compact gauge number is the
+                // calibrated transcript estimate plus the request reserve.
+                const afterTokens = currentContextEstimateTokens(afterMessageTokensEst, compactPolicy);
                 const compactDurationMs = Date.now() - compactStartedAt;
                 rememberCompactTelemetry(sessionRef, compactPolicy, {
                     stage: 'pre_send',
-                    beforeTokens: messageTokensEst,
+                    beforeTokens: gaugeBeforeTokens,
                     afterTokens,
+                    messageTokensEst,
                     pressureTokens,
                     compactChanged,
                     semanticCompact: semanticCompactResult?.semantic === true,
@@ -518,7 +537,7 @@ export async function runPreSendCompactPass(state) {
                     trigger: compactTrigger,
                     status: compactChanged || summaryChanged || pruneCount > 0 ? 'compacted' : 'no_change',
                     compactType: compactEventType(compactPolicy),
-                    beforeTokens: messageTokensEst,
+                    beforeTokens: gaugeBeforeTokens,
                     afterTokens,
                     beforeMessages: beforeCount,
                     afterMessages: messages.length,

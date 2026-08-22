@@ -6,7 +6,9 @@
 // mixdog-patch Rust engine via the persistent stdio server. There is NO JS
 // apply fallback: unsupported / unsafe input returns a clean Error string.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -75,6 +77,261 @@ function nativePatchPersistent() {
   return /^(1|true|yes|server|persistent)$/i.test(nativePatchMode());
 }
 
+// Engine-contract gate. The Rust engine embeds this exact marker string; an
+// artifact WITHOUT it predates the byte-fidelity contract this build requires
+// (line-span rewrites, per-line terminators, BOM as a file prefix), and using
+// it silently corrupts bytes — a stale installed binary in the field hits
+// exactly that. The check is a literal byte search over the artifact, keyed by
+// the digest of those bytes: deterministic, no spawn, no behaviour heuristics.
+// The engine contract is proven by the RUNNING SESSION, never by a separate
+// probe of a path: the process that will execute the work ANSWERS `CONTRACT`
+// over the real protocol — bytes that merely appear (a startup printer) are
+// not an answer, and the artifact judged is always the one about to run. A wrapper that prints the marker cannot serve the
+// protocol, a swapped artifact cannot change a process that is already
+// running, and one session means one verification for any number of callers.
+// The marker search below is only a negative pre-filter (skip spawning an
+// artifact that cannot possibly answer); it is never the proof.
+export const NATIVE_PATCH_ENGINE_CONTRACT = 'mixdog-patch-engine-contract:3';
+export const NATIVE_PATCH_CONTRACT_FAILED = 'ENATIVEPATCHCONTRACT';
+const ENGINE_CONTRACT_TIMEOUT_MS = 5_000;
+// Hard read bound for the handshake: a flood is cut off as it arrives instead
+// of being buffered until the timeout.
+const ENGINE_CONTRACT_MAX_BYTES = 4_096;
+
+// The handshake exchange itself, over any object that speaks the session
+// surface (the live server; a stub in tests). It is a TWO-STEP proof, because
+// arrival order proves nothing: a binary's startup output can be scheduled late
+// and land inside the post-request window, and a gate that trusts the window
+// accepts a printer that never read a byte.
+//
+//   1. CHALLENGE — a request whose answer can only be produced by READING it: a
+//      dry-run EDIT of a probe path carrying a fresh 128-bit nonce. The engine
+//      echoes that path back in its `stat` error, so the reply is derived from
+//      this request. Bytes printed unasked cannot contain a nonce invented
+//      microseconds earlier, whenever they happen to arrive.
+//   2. CONTRACT — answered by EXACTLY one `OK\t<marker>` frame.
+//
+// The challenge writes nothing anywhere: dry_run=1, and the probe path sits
+// inside a directory that does not exist, so even a hostile peer that "obeys"
+// it cannot create a file. Queued output, trailing bytes, an oversized flood or
+// a late frame all invalidate the session — leftover output must never become
+// the next command's response.
+export async function verifyContractOverSession(session, {
+  timeoutMs = ENGINE_CONTRACT_TIMEOUT_MS,
+  maxBytes = ENGINE_CONTRACT_MAX_BYTES,
+} = {}) {
+  _contractVerificationCount += 1;
+  try { session.assertAlive?.('contract'); } catch { return false; }
+  const expected = `OK\t${NATIVE_PATCH_ENGINE_CONTRACT}`;
+  let timer = null;
+  let onData = null;
+  let seen = 0;
+  let overflow = false;
+  let signalOverflow = null;
+  const overflowed = new Promise((resolve) => { signalOverflow = resolve; });
+  session.ref?.();
+  try {
+    onData = (chunk) => {
+      seen += chunk.length;
+      if (seen > maxBytes && !overflow) {
+        overflow = true;
+        signalOverflow(null);
+      }
+    };
+    session.child.stdout.on('data', onData);
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+      timer.unref?.();
+    });
+    // One request/response exchange. Output that is already queued was produced
+    // without being asked for, so it can never be an answer — refuse rather
+    // than consume it, and refuse again if anything trails the reply.
+    const ask = async (payload) => {
+      if (Array.isArray(session.lines) && session.lines.length > 0) return null;
+      const linePromise = session.nextLine();
+      linePromise.catch(() => {});
+      session.child.stdin.write(payload);
+      const line = await Promise.race([linePromise, overflowed, timeout]);
+      if (overflow || typeof line !== 'string') return null;
+      if (Array.isArray(session.lines) && session.lines.length > 0) return null;
+      return line;
+    };
+    const nonce = randomBytes(16).toString('hex');
+    const probePath = pathJoin(tmpdir(), `mixdog-engine-challenge-${nonce}`, 'probe');
+    const probeBuf = Buffer.from(probePath, 'utf8');
+    const challenge = await ask(Buffer.concat([
+      Buffer.from(`EDIT ${probeBuf.length} 1 0 0 1\n`, 'utf8'),
+      probeBuf,
+      Buffer.from('x', 'utf8'),
+    ]));
+    // Evidence, not timing: the answer carries the nonce this request invented.
+    if (typeof challenge !== 'string' || !challenge.includes(nonce)) return false;
+    const seenBeforeContract = seen;
+    const line = await ask('CONTRACT\n');
+    if (line !== expected) return false;
+    // Exactly one frame answered CONTRACT — no trailing bytes, no second line.
+    const contractBytes = seen - seenBeforeContract;
+    if (contractBytes < expected.length || contractBytes > expected.length + 2) return false;
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onData) { try { session.child.stdout.off('data', onData); } catch { /* detached */ } }
+    session.unref?.();
+  }
+}
+// Content-keyed NEGATIVE PRE-FILTER only: "these bytes do not carry the marker"
+// is a property of the bytes themselves, so remembering it is always true of
+// them and skips a pointless spawn. A session VERDICT is never keyed by
+// content — see verifiedSession().
+const _markerlessDigests = new Set();
+let _contractVerificationCount = 0;
+// What bounds a non-conforming artifact is this backoff, not a verdict cache:
+// after three consecutive failed handshakes, stop spawning for a while.
+const CONTRACT_FAILURE_LIMIT = 3;
+const CONTRACT_BACKOFF_MS = 30_000;
+let _contractFailures = 0;
+let _contractBackoffUntil = 0;
+let _beforeSpawnHook = null;
+
+export function _engineContractVerificationCountForTest() {
+  return _contractVerificationCount;
+}
+
+// Clears the CACHES — never the failure ledger. The three-failure bound is
+// absolute: only a proven session or the passage of real time reopens it, so no
+// exported hatch can turn a flapping artifact back into an unbounded respawn
+// loop. Tests that need a pristine ledger import a fresh module instance.
+export function _resetEngineContractCachesForTest() {
+  _markerlessDigests.clear();
+  _beforeSpawnHook = null;
+}
+
+/** Read-only: proves the bound is a finite cost, not a permanent lockout. */
+export function _contractBackoffRemainingMsForTest() {
+  return Math.max(0, _contractBackoffUntil - Date.now());
+}
+
+/** Test seam: runs between reading the artifact and spawning the session. */
+export function _setBeforeEngineSpawnHookForTest(hook) {
+  _beforeSpawnHook = typeof hook === 'function' ? hook : null;
+}
+
+function contractBackoffActive() {
+  if (_contractBackoffUntil === 0) return false;
+  if (Date.now() < _contractBackoffUntil) return true;
+  _contractBackoffUntil = 0;
+  _contractFailures = 0;
+  return false;
+}
+
+function noteContractFailure() {
+  _contractFailures += 1;
+  if (_contractFailures >= CONTRACT_FAILURE_LIMIT) {
+    _contractBackoffUntil = Date.now() + CONTRACT_BACKOFF_MS;
+  }
+}
+
+function clearContractFailures() {
+  _contractFailures = 0;
+  _contractBackoffUntil = 0;
+}
+
+function readArtifactOrNull(binPath) {
+  try {
+    return readFileSync(binPath);
+  } catch {
+    return null;
+  }
+}
+
+function digestOf(bytes) {
+  return bytes ? createHash('sha256').update(bytes).digest('hex') : null;
+}
+
+function contractFailure(action) {
+  const err = new Error(
+    `native patch engine did not state contract ${NATIVE_PATCH_ENGINE_CONTRACT} (${action})`,
+  );
+  err.code = NATIVE_PATCH_CONTRACT_FAILED;
+  return err;
+}
+
+function currentSession(kind) {
+  return kind === 'edit' ? _nativeEditServer : _nativePatchServer;
+}
+
+// The ONE binary resolution, for every kind. The gate hashes what this returns
+// and the session spawns exactly the same path, so "verified artifact" and
+// "executed artifact" cannot be two different files. The edit override is
+// resolved HERE and nowhere else: a second resolution inside the edit getter
+// let a markerless override run while the genuine engine took the exam.
+function nativeBinPathFor(kind) {
+  if (kind === 'edit' && process.env.MIXDOG_EDIT_NATIVE_BIN) {
+    return process.env.MIXDOG_EDIT_NATIVE_BIN;
+  }
+  return nativePatchBinPath();
+}
+
+function spawnSession(kind, binPath) {
+  return kind === 'edit' ? getNativeEditServer(binPath) : getNativePatchServer(binPath);
+}
+
+// A LIVE session that already proved itself IS the proof — no disk read and no
+// metadata are consulted while it lives. Only a cold start looks at the file.
+function liveVerifiedSession(kind) {
+  const server = currentSession(kind);
+  if (!server || server.exited || server.contractFailed) return null;
+  return server.contractVerified === true ? server : null;
+}
+
+// Shared by the apply and edit sessions: reuse a proven session, else read the
+// artifact ONCE, key the verdict on those exact bytes, and make the spawned
+// session prove itself. Returns a verified server or `null`.
+async function verifiedSession(kind) {
+  const live = liveVerifiedSession(kind);
+  if (live) return live;
+  if (contractBackoffActive()) return null;
+  const binPath = nativeBinPathFor(kind);
+  const bytes = readArtifactOrNull(binPath);
+  if (!bytes) return null; // missing / unreadable artifact — fail closed
+  // Pre-filter on the BYTES ACTUALLY READ from the artifact that will be
+  // spawned: a stat-keyed memo let a genuine engine that replaced a bad one at
+  // the same path/size/mtime inherit a stale `false` and never be re-verified.
+  const digest = digestOf(bytes);
+  if (_markerlessDigests.has(digest)) return null; // known markerless — no spawn
+  if (!bytes.includes(NATIVE_PATCH_ENGINE_CONTRACT)) {
+    _markerlessDigests.add(digest);
+    return null;
+  }
+  let server = null;
+  let ok = false;
+  try {
+    if (_beforeSpawnHook) await _beforeSpawnHook();
+    server = spawnSession(kind, binPath);
+    ok = await server.contract();
+  } catch {
+    ok = false;
+  }
+  // A session verdict is NEVER memoized by content. Re-hashing the path after
+  // the fact cannot prove which bytes the process loaded — an A→B→A swap-back
+  // hashes A while B ran, and A then carried B's failure forever. The bounded
+  // backoff, not a cache, is what stops a bad artifact from being respawned in
+  // a loop; every fresh session simply proves itself again.
+  if (ok) clearContractFailures();
+  else noteContractFailure();
+  return ok ? server : null;
+}
+
+export async function nativePatchSessionSatisfiesContract() {
+  return (await verifiedSession('patch')) !== null;
+}
+
+export async function nativeEditSessionSatisfiesContract() {
+  return (await verifiedSession('edit')) !== null;
+}
+
 export function nativePatchBinPath(options = {}) {
   if (process.env.MIXDOG_PATCH_NATIVE_BIN) return process.env.MIXDOG_PATCH_NATIVE_BIN;
   // Local cargo build first, then a fetched/cached prebuilt; absence is
@@ -136,13 +393,47 @@ function decodeNativeFailures(hexPayload) {
 // retry is safe.
 export const NATIVE_PATCH_TRANSPORT_DEAD = 'ENATIVEPATCHDEAD';
 
+// The child's pipes ARE the engine's protocol: a caller holding `stdin` can
+// speak APPLY/EDIT around every gate — after a bare PING, a direct
+// `child.stdin.write('EDIT …')` wrote a file on an unproven session. So the
+// exported view of the child is lifecycle-only (kill, pid, events); there is
+// nothing on it to write into.
+const CHILD_TRANSPORT_KEYS = new Set(['stdin', 'stdout', 'stderr', 'stdio', 'channel']);
+
+function lifecycleOnlyChild(child) {
+  return new Proxy(child, {
+    get(target, prop) {
+      if (CHILD_TRANSPORT_KEYS.has(prop)) return undefined;
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+    set() { return false; },
+    defineProperty() { return false; },
+    deleteProperty() { return false; },
+  });
+}
+
 class NativePatchServer {
+  // Private state. The transport is unreachable from outside, and the
+  // verification flag is not assignable: a public `_contractVerified = true`
+  // used to unlock a raw .edit() with no handshake at all.
+  #child;
+
+  #rl;
+
+  #lifecycleChild;
+
+  #contractVerified = false;
+
+  #contractPromise = null;
+
   constructor(binPath) {
     this.binPath = binPath;
     // windowsHide: mixdog-patch.exe is a console binary; without this each spawn
     // flashes an empty console window on Windows. Especially visible now that the
     // idle watchdog exits the server and it respawns on the next request.
-    this.child = spawn(binPath, ['--server'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    this.#child = spawn(binPath, ['--server'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    this.#lifecycleChild = lifecycleOnlyChild(this.#child);
     // No child guardian here. The server is self-terminating on BOTH orphan
     // paths: stdin EOF ends its request loop the moment this host's pipe handle
     // closes, and MIXDOG_PATCH_SERVER_IDLE_MS bounds the surviving-handle case
@@ -155,26 +446,55 @@ class NativePatchServer {
     this.waiters = [];
     this.exited = false;
     this.transportError = null;
-    this.child.stderr.setEncoding('utf8');
-    this.child.stderr.on('data', (chunk) => { this.stderr += chunk; });
-    this.rl = createInterface({ input: this.child.stdout });
-    this.rl.on('line', (line) => {
+    this.#child.stderr.setEncoding('utf8');
+    this.#child.stderr.on('data', (chunk) => { this.stderr += chunk; });
+    this.#rl = createInterface({ input: this.#child.stdout });
+    this.#rl.on('line', (line) => {
       const waiter = this.waiters.shift();
-      if (waiter) waiter.resolve(line);
-      else this.lines.push(line);
+      if (waiter) { waiter.resolve(line); return; }
+      // Unsolicited output. Every command registers its waiter BEFORE writing,
+      // so a line with no waiter is off-protocol chatter — queueing it would
+      // hand it to the NEXT command as that command's response. Abandon the
+      // session instead of letting stray bytes leak forward.
+      this.lines.push(line);
+      this.markProtocolViolation(line);
     });
     // A child that died mid-request turns every pending `stdin.write()` into an
     // UNHANDLED 'error' event (EPIPE) that takes the whole host process down —
     // a release validate job was lost exactly that way. Absorb it here: mark
     // the transport dead and reject the waiters so callers see an ordinary
     // rejection (and respawn) instead of a crash.
-    this.child.stdin.on('error', (err) => { this.failTransport(err); });
-    this.child.on('exit', (code, signal) => {
+    this.#child.stdin.on('error', (err) => { this.failTransport(err); });
+    this.#child.on('exit', (code, signal) => {
       this.exited = true;
       const err = new Error(`native patch server exited code=${code} signal=${signal} stderr=${this.stderr}`);
       for (const waiter of this.waiters.splice(0)) waiter.reject(err);
-      try { this.rl.close(); } catch {}
+      try { this.#rl.close(); } catch {}
     });
+  }
+
+  /** Lifecycle only: kill/pid/events. The pipes stay inside this class. */
+  get child() {
+    return this.#lifecycleChild;
+  }
+
+  /** Read-only; true only after a completed handshake on THIS process. */
+  get contractVerified() {
+    return this.#contractVerified === true;
+  }
+
+  // The handshake is the one thing that needs the raw pipes. This view is built
+  // inside the class body, handed straight to the verifier, and never returned
+  // to a caller.
+  #handshakeView() {
+    return {
+      child: this.#child,
+      lines: this.lines,
+      assertAlive: (action) => this.assertAlive(action),
+      nextLine: () => this.nextLine(),
+      ref: () => this.ref(),
+      unref: () => this.unref(),
+    };
   }
 
   // Idempotent death record: the stdin error and the child exit usually both
@@ -187,12 +507,54 @@ class NativePatchServer {
       this.transportError = err;
     }
     for (const waiter of this.waiters.splice(0)) waiter.reject(this.transportError);
-    try { this.rl.close(); } catch {}
+    try { this.#rl.close(); } catch {}
   }
 
   // Pre-flight for every request: refuse BEFORE a single byte is written, so
   // the caller may respawn and retry without any risk of double-applying.
+  // Contract handshake on THIS session, memoized per instance: N concurrent
+  // callers await one exchange, and a respawned session proves itself again.
+  contract() {
+    if (!this.#contractPromise) {
+      this.#contractPromise = verifyContractOverSession(this.#handshakeView()).then(
+        (ok) => {
+          this.#contractVerified = ok === true;
+          if (!ok) this.markContractFailed();
+          return ok;
+        },
+        () => { this.#contractVerified = false; this.markContractFailed(); return false; },
+      );
+    }
+    return this.#contractPromise;
+  }
+
+  // A session that cannot state the contract — or that emitted anything
+  // off-protocol — is abandoned outright: it never receives work, and the
+  // module slot is cleared so nothing reuses it.
+  markContractFailed() {
+    this.contractFailed = true;
+    this.#contractVerified = false;
+    if (_nativePatchServer === this) _nativePatchServer = null;
+    if (_nativeEditServer === this) _nativeEditServer = null;
+    try { this.#child.kill('SIGKILL'); } catch { /* already gone */ }
+  }
+
+  markProtocolViolation(detail) {
+    this.protocolViolation = String(detail ?? '').slice(0, 200);
+    this.markContractFailed();
+  }
+
+  // Every byte-writing command goes through here first. `_contractVerified` is
+  // set ONLY by a completed handshake on this very process, so no exported
+  // surface — including the raw session getNativePatchServer() hands out — can
+  // reach apply/edit on an unproven engine. (PING writes nothing and stays
+  // open, so prewarm can still warm a process before it is judged.)
+  assertContractVerified(action) {
+    if (this.#contractVerified !== true) throw contractFailure(action);
+  }
+
   assertAlive(action) {
+    if (this.contractFailed) throw contractFailure(action);
     if (!this.exited && !this.transportError) return;
     const reason = this.transportError?.message || this.stderr || 'exited';
     const err = new Error(`native patch server is not running (${action}): ${reason}`);
@@ -205,7 +567,7 @@ class NativePatchServer {
     err.name = 'AbortError';
     if (_nativePatchServer === this) _nativePatchServer = null;
     for (const waiter of this.waiters.splice(0)) waiter.reject(err);
-    try { this.child.kill('SIGTERM'); } catch {}
+    try { this.#child.kill('SIGTERM'); } catch {}
     return err;
   }
 
@@ -216,24 +578,24 @@ class NativePatchServer {
   }
 
   ref() {
-    try { this.child.ref(); } catch {}
-    try { this.child.stdin.ref?.(); } catch {}
-    try { this.child.stdout.ref?.(); } catch {}
-    try { this.child.stderr.ref?.(); } catch {}
+    try { this.#child.ref(); } catch {}
+    try { this.#child.stdin.ref?.(); } catch {}
+    try { this.#child.stdout.ref?.(); } catch {}
+    try { this.#child.stderr.ref?.(); } catch {}
   }
 
   unref() {
-    try { this.child.unref(); } catch {}
-    try { this.child.stdin.unref?.(); } catch {}
-    try { this.child.stdout.unref?.(); } catch {}
-    try { this.child.stderr.unref?.(); } catch {}
+    try { this.#child.unref(); } catch {}
+    try { this.#child.stdin.unref?.(); } catch {}
+    try { this.#child.stdout.unref?.(); } catch {}
+    try { this.#child.stderr.unref?.(); } catch {}
   }
 
   async ping() {
     this.ref();
     this.assertAlive('ping');
     const linePromise = this.nextLine();
-    this.child.stdin.write('PING\n');
+    this.#child.stdin.write('PING\n');
     const line = await linePromise;
     if (line !== 'OK\tPONG') {
       throw new Error(`native patch server ping failed: ${line || 'no native response'}`);
@@ -242,6 +604,7 @@ class NativePatchServer {
 
   async apply(basePath, patchText, { fuzz = 2, rejectPartial = true, dryRun = false, signal = null } = {}) {
     this.ref();
+    this.assertContractVerified('apply');
     this.assertAlive('apply');
     if (signal?.aborted) {
       const err = new Error(signal.reason?.message || signal.reason || 'native patch aborted');
@@ -268,9 +631,9 @@ class NativePatchServer {
     const fuzzTok = Number.isFinite(fuzz) && fuzz >= 0 ? Math.floor(fuzz) : 2;
     const rpTok = rejectPartial ? 1 : 0;
     const dryTok = dryRun ? 1 : 0;
-    this.child.stdin.write(`APPLY ${baseBuf.length} ${patchBuf.length} 1 ${dryTok} ${fuzzTok} ${rpTok}\n`);
-    this.child.stdin.write(baseBuf);
-    this.child.stdin.write(patchBuf);
+    this.#child.stdin.write(`APPLY ${baseBuf.length} ${patchBuf.length} 1 ${dryTok} ${fuzzTok} ${rpTok}\n`);
+    this.#child.stdin.write(baseBuf);
+    this.#child.stdin.write(patchBuf);
     let line;
     try {
       line = abortPromise ? await Promise.race([linePromise, abortPromise]) : await linePromise;
@@ -339,6 +702,7 @@ class NativePatchServer {
   // matched tier.
   async edit(fullPath, oldBuf, newBuf, { replaceAll = false, dryRun = false, signal = null } = {}) {
     this.ref();
+    this.assertContractVerified('edit');
     this.assertAlive('edit');
     if (signal?.aborted) {
       const err = new Error(signal.reason?.message || signal.reason || 'native edit aborted');
@@ -354,12 +718,12 @@ class NativePatchServer {
       abortListener = () => { reject(this.abort(signal)); };
       signal.addEventListener('abort', abortListener, { once: true });
     }) : null;
-    this.child.stdin.write(
+    this.#child.stdin.write(
       `EDIT ${pathBuf.length} ${oldBuf.length} ${newBuf.length} ${replaceAll ? 1 : 0} ${dryRun ? 1 : 0}\n`,
     );
-    this.child.stdin.write(pathBuf);
-    this.child.stdin.write(oldBuf);
-    this.child.stdin.write(newBuf);
+    this.#child.stdin.write(pathBuf);
+    this.#child.stdin.write(oldBuf);
+    this.#child.stdin.write(newBuf);
     let line;
     try {
       line = abortPromise ? await Promise.race([linePromise, abortPromise]) : await linePromise;
@@ -389,20 +753,19 @@ class NativePatchServer {
     if (this.exited) return;
     const waitForExit = options?.waitForExit !== false;
     if (!waitForExit) {
-      try { this.child.stdin.end('QUIT\n'); } catch {}
+      try { this.#child.stdin.end('QUIT\n'); } catch {}
       this.unref();
       return;
     }
     this.ref();
-    try { this.child.stdin.end('QUIT\n'); } catch {}
-    await new Promise((resolve) => this.child.once('exit', resolve));
-    try { this.rl.close(); } catch {}
+    try { this.#child.stdin.end('QUIT\n'); } catch {}
+    await new Promise((resolve) => this.#child.once('exit', resolve));
+    try { this.#rl.close(); } catch {}
   }
 }
 
-export function getNativePatchServer() {
+export function getNativePatchServer(binPath = nativeBinPathFor('patch')) {
   markNativePatchRuntimeTouched();
-  const binPath = nativePatchBinPath();
   if (!existsSync(binPath)) {
     throw new Error(`native patch binary not found: ${binPath}`);
   }
@@ -412,11 +775,11 @@ export function getNativePatchServer() {
   return _nativePatchServer;
 }
 
-function getNativeEditServer() {
+// The path comes from nativeBinPathFor('edit') — the same call the gate hashed.
+// This getter resolves nothing itself, so there is no second path a session
+// could be spawned from.
+function getNativeEditServer(binPath = nativeBinPathFor('edit')) {
   markNativePatchRuntimeTouched();
-  // Honor MIXDOG_EDIT_NATIVE_BIN (the same override the edit gating checks) so
-  // the gated binary and the spawned server binary cannot diverge.
-  const binPath = process.env.MIXDOG_EDIT_NATIVE_BIN || nativePatchBinPath();
   if (!existsSync(binPath)) {
     throw new Error(`native patch binary not found: ${binPath}`);
   }
@@ -431,12 +794,19 @@ function getNativeEditServer() {
 // patch requests never interleave their stdin framing on one stdout stream.
 export async function runServerEdit({ fullPath, oldBuf, newBuf, replaceAll = false, dryRun = false, signal = null }) {
   try {
-    return await getNativeEditServer().edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
+    // Defence in depth: no work is written to a session that has not proven
+    // its contract, even if a caller skipped the gate.
+    const verified = await verifiedSession('edit');
+    if (!verified) throw contractFailure('edit');
+    return await verified.edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
   } catch (err) {
     if (err?.code !== NATIVE_PATCH_TRANSPORT_DEAD) throw err;
     // The dead instance was refused before any byte went out; the getter
-    // respawns because the previous one is marked exited.
-    return getNativeEditServer().edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
+    // respawns because the previous one is marked exited — and the respawn
+    // must prove itself again.
+    const respawned = await verifiedSession('edit');
+    if (!respawned) throw contractFailure('edit');
+    return respawned.edit(fullPath, oldBuf, newBuf, { replaceAll, dryRun, signal });
   } finally {
     if (!nativePatchPersistent() && _nativeEditServer) {
       if (process.versions?.bun) {
@@ -454,10 +824,14 @@ export async function runServerEdit({ fullPath, oldBuf, newBuf, replaceAll = fal
 // between requests must cost a respawn, not the request.
 export async function runServerApply(basePath, patchText, options = {}) {
   try {
-    return await getNativePatchServer().apply(basePath, patchText, options);
+    const verified = await verifiedSession('patch');
+    if (!verified) throw contractFailure('apply');
+    return await verified.apply(basePath, patchText, options);
   } catch (err) {
     if (err?.code !== NATIVE_PATCH_TRANSPORT_DEAD) throw err;
-    return getNativePatchServer().apply(basePath, patchText, options);
+    const respawned = await verifiedSession('patch');
+    if (!respawned) throw contractFailure('apply');
+    return respawned.apply(basePath, patchText, options);
   }
 }
 

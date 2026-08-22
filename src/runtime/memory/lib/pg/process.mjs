@@ -14,6 +14,7 @@ import { join } from 'path'
 import { spawn, spawnSync } from 'child_process'
 import { createConnection } from 'net'
 import { createServer } from 'net'
+import { isPidAlive } from '../../../shared/pid-liveness.mjs'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,16 +53,6 @@ function isTcpPortFree(port) {
 
 const PG_PORT_MIN = 55432
 const PG_PORT_MAX = 55632
-
-function isPidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (err) {
-    return err?.code === 'EPERM'
-  }
-}
 
 function readPostmasterInfo(pgdataDir) {
   try {

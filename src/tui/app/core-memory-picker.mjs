@@ -2,16 +2,16 @@
  * core-memory-picker.mjs — the Core Memory picker + add/edit/delete flow.
  *
  * Extracted from App.jsx behavior-preservingly as a dependency-injection
- * factory: these openers drive setPicker + setSettingsPrompt and read live
- * store state, so they can't be pure. Every function body is the original App
- * logic verbatim, with closure identifiers threaded through the factory
+ * factory: these openers drive the panel surface + setSettingsPrompt and read
+ * live store state, so they can't be pure. Every function body is the original
+ * App logic verbatim, with closure identifiers threaded through the factory
  * argument. The Esc-return target is per-entry: the Settings row passes
  * { returnTo }, the standalone /memory command passes { returnTo: null },
  * and Esc either reopens the caller or simply closes the picker.
  */
 export function createCoreMemoryPicker({
   store,
-  setPicker,
+  surface,
   setSettingsPrompt,
   parseMemoryCoreRows,
 }) {
@@ -22,13 +22,19 @@ export function createCoreMemoryPicker({
   let escReturnTo = null;
   const closeMemoryCorePicker = () => {
     if (escReturnTo) escReturnTo();
-    else setPicker(null);
+    // Esc on the panel: this keypress owns the surface it clears.
+    else surface.claim().close();
   };
   const openMemoryCorePicker = (options = {}) => {
     if (options && Object.prototype.hasOwnProperty.call(options, 'returnTo')) {
       escReturnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     }
-    setPicker({
+    // Surface claim (panel-surface.mjs): every paint re-validates and re-arms
+    // it, so the loading frame can take the surface while a list (or failure
+    // close) landing after Esc cannot touch it.
+    const own = surface.claim();
+    const paintPanel = (panel) => own.paint(panel);
+    paintPanel({
       title: 'Memory',
       // Loading state lives in the header description row, not as a fake
       // selectable menu item.
@@ -53,7 +59,7 @@ export function createCoreMemoryPicker({
             _rows: coreRows,
           },
         ];
-        setPicker({
+        paintPanel({
           title: 'Memory',
           description: 'User-curated core memories across projects.',
           items: rows.length ? rows : [{ value: 'empty', label: 'Memory', description: 'empty' }],
@@ -71,14 +77,17 @@ export function createCoreMemoryPicker({
         });
       })
       .catch((e) => {
-        setPicker(null);
+        own.close();
         store.pushNotice(`core memory failed: ${e?.message || e}`, 'error');
       });
   };
 
   const openCoreMemoryListPicker = (rows = null) => {
+    // Same ownership rule as openMemoryCorePicker.
+    const own = surface.claim();
+    const paintPanel = (panel) => own.paint(panel);
     const renderList = (coreRows) => {
-      setPicker({
+      paintPanel({
         title: 'Memory · List',
         description: coreRows.length
           ? 'Select a memory to edit or delete.'
@@ -101,7 +110,7 @@ export function createCoreMemoryPicker({
       return;
     }
 
-    setPicker({
+    paintPanel({
       title: 'Memory · List',
       description: 'Loading memories…',
       items: [],
@@ -109,15 +118,19 @@ export function createCoreMemoryPicker({
       onCancel: () => openMemoryCorePicker(),
     });
     void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
-      .then((result) => renderList(parseMemoryCoreRows(result)))
+      .then((result) => {
+        renderList(parseMemoryCoreRows(result));
+      })
       .catch((e) => {
-        setPicker(null);
+        own.close();
         store.pushNotice(`core memory failed: ${e?.message || e}`, 'error');
       });
   };
 
   const openCoreEntryActionsPicker = (entryItem) => {
-    setPicker({
+    // Synchronous panel for an Enter on a list row: an ordinary claimed paint.
+    const own = surface.claim();
+    own.paint({
       title: `Memory · #${entryItem._id}`,
       description: entryItem._summary || entryItem._element || '',
       items: [
@@ -133,7 +146,7 @@ export function createCoreMemoryPicker({
   };
 
   const beginAddCoreMemory = () => {
-    setPicker(null);
+    surface.claim().close();
     setSettingsPrompt({
       kind: 'core-add',
       label: 'Add memory',
@@ -142,7 +155,7 @@ export function createCoreMemoryPicker({
   };
 
   const beginEditCoreMemory = (entryItem) => {
-    setPicker(null);
+    surface.claim().close();
     setSettingsPrompt({
       kind: 'core-edit',
       label: `Memory · Edit #${entryItem._id}`,
@@ -158,7 +171,7 @@ export function createCoreMemoryPicker({
   };
 
   const beginDeleteCoreMemory = (entryItem) => {
-    setPicker(null);
+    surface.claim().close();
     setSettingsPrompt({
       kind: 'core-delete-confirm',
       label: `Memory · Delete #${entryItem._id}?`,

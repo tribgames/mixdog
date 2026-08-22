@@ -84,6 +84,10 @@ class SessionRuntimeWorker {
 
   onMessage(message, child = this.child) {
     if (!message || typeof message !== 'object') return;
+    // A superseded child (recycled, crashed, or replaced) can still flush
+    // queued frames after its replacement is live. Its late state/response must
+    // never outrank the replacement's revision or settle its pending calls.
+    if (child !== this.child) return;
     if (message.type === 'token-native-prewarm') {
       if (child === this.child) prewarmNativeTokenCounter();
       return;
@@ -162,6 +166,12 @@ class SessionRuntimeWorker {
   handleChildFailure(child, error) {
     if (this.failedChildren.has(child)) return;
     this.failedChildren.add(child);
+    // Same identity rule for failures: a retired child's late exit/error must
+    // not reject the replacement's in-flight calls or start a second recovery.
+    if (this.child && this.child !== child) {
+      this.log(`session runtime worker superseded child failed (ignored): ${error?.message || error}`);
+      return;
+    }
     if (this.child === child) this.child = null;
     // A dead child cannot spawn: its machine-budget slots return immediately.
     this.releaseAllSpawnLeases();
@@ -331,9 +341,11 @@ class SessionRuntimeWorker {
     });
     try { await this.requestRaw('shutdown', { reason }, 8_000); } catch {}
     try { child.disconnect?.(); } catch {}
+    // The child drains its accepted-input writes before exiting; a hard kill
+    // inside that window is exactly what loses them.
     await Promise.race([
       exitPromise,
-      new Promise((resolve) => setTimeout(resolve, 500)),
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
     ]);
     if (!exited) {
       try { child.kill?.(); } catch {}

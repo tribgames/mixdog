@@ -1,6 +1,6 @@
 // Explorer name/sort grammar: name validation, well-formed name cleanup,
 // the default sort order, and paste-collision naming. Pure logic module:
-// unit-tested directly by renderer.test.mjs.
+// unit-tested directly by explorer-logic.test.mjs.
 
 export interface ExplorerNameProblem {
   content: string;

@@ -43,6 +43,29 @@ function optionValue(argv, name, fallback = '') {
   return index >= 0 && argv[index + 1] ? String(argv[index + 1]) : fallback;
 }
 
+function optionList(argv, name) {
+  const values = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === name && argv[index + 1]) {
+      values.push(String(argv[index + 1]));
+      index += 1;
+    }
+  }
+  return values;
+}
+
+function parseRouteOption(value) {
+  const match = String(value || '').match(/^([A-Za-z0-9_-]+)=([^/=]+)\/(.+)$/);
+  if (!match) {
+    throw new Error(`invalid --route ${value}; expected id=provider/model`);
+  }
+  return { id: match[1], provider: match[2], model: match[3] };
+}
+
+function routeSurfaceMode(routeId) {
+  return routeId === 'lead' || routeId === 'leadFallback' ? 'lead' : 'full';
+}
+
 function workflowDocument(repoRoot, workflowId) {
   const source = readFileSync(
     join(repoRoot, 'src', 'workflows', workflowId, 'WORKFLOW.md'),
@@ -168,7 +191,7 @@ async function routeToolContract(repoRoot, route) {
   };
   applyDeferredToolSurface(
     session,
-    'lead',
+    routeSurfaceMode(route.id),
     [TOOL_SEARCH_TOOL, CWD_TOOL],
     { provider: route.provider, model: route.model },
   );
@@ -266,12 +289,18 @@ function publicRouteContract(contract, prompt) {
 
 export async function buildContractDigest(repoRoot = REPO_ROOT, options = {}) {
   const workflowId = String(options.workflow || 'solo').trim() || 'solo';
+  const extraRoutes = Array.isArray(options.routes) ? options.routes : [];
   const routes = [
     {
       id: 'lead',
       provider: String(options.provider || '').trim(),
       model: String(options.model || '').trim(),
     },
+    ...extraRoutes.map((route) => ({
+      id: String(route?.id || '').trim(),
+      provider: String(route?.provider || '').trim(),
+      model: String(route?.model || '').trim(),
+    })).filter((route) => route.id && route.id !== 'lead'),
   ];
   if (options.fallbackProvider || options.fallbackModel) {
     routes.push({
@@ -329,6 +358,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
     workflow: optionValue(process.argv, '--workflow', 'solo'),
     fallbackProvider: optionValue(process.argv, '--fallback-provider'),
     fallbackModel: optionValue(process.argv, '--fallback-model'),
+    routes: optionList(process.argv, '--route').map(parseRouteOption),
   };
   process.stdout.write(`${JSON.stringify(await buildContractDigest(root, options))}\n`);
 }

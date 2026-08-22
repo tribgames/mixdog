@@ -9,6 +9,7 @@ import {
 } from "../../shared/webhooks-db.mjs";
 import {
   contentDeliveryId,
+  extractDeliveryId,
   buildHeadersSummary,
 } from "./webhook/deliveries.mjs";
 import { resolveHookRelayUrl, startHookTunnel } from "./webhook/relay-tunnel.mjs";
@@ -170,10 +171,17 @@ class WebhookServer {
       // Signature has accepted the raw bytes; decode to a UTF-8 string for
       // content-type / JSON / preview handling below.
       const body = rawBody.length === 0 ? "" : rawBody.toString("utf8");
-      // Signature schemes authenticate the body, not delivery-id headers.
-      // Claim by body digest so a captured valid body/signature cannot bypass
-      // dedup merely by changing x-request-id or x-github-delivery.
-      deliveryId = contentDeliveryId(rawBody);
+      // Claim identity = the sender's own delivery id BOUND to the digest of
+      // the authenticated body. Keying on the digest alone made dedup permanent
+      // per content: two legitimately distinct deliveries with an identical
+      // payload (a repeated ping, a re-run of the same job) were suppressed
+      // forever. Binding the id to the body still makes a replay of a captured
+      // body under its original delivery id a duplicate.
+      const bodyDigestId = contentDeliveryId(rawBody);
+      const sourceDeliveryId = extractDeliveryId(headers);
+      deliveryId = sourceDeliveryId
+        ? `${String(sourceDeliveryId).slice(0, 120)}:${bodyDigestId}`
+        : bodyDigestId;
       // Atomic claim + dedup in one step: INSERT ... ON CONFLICT DO NOTHING.
       // A concurrent duplicate POST of the same id loses the race
       // (claimed:false) and is rejected flat, so the first run is never
@@ -418,10 +426,16 @@ ${payload}
     // for the lifetime of the process and dedup keeps re-running
     // forever. 10 minutes covers the slowest handler run we ship.
     const DISPATCH_TIMEOUT_MS = 10 * 60 * 1000;
-    let timeoutHandle = null;
+    // Racing a bare timer against the dispatch promise reported failure while
+    // the run itself kept going: the delivery row was already `failed` when the
+    // late result arrived and flipped it again. The timeout now aborts the
+    // dispatch through a signal the dispatcher receives, and the first outcome
+    // to land is the only one that writes a terminal status.
+    const controller = new AbortController();
     const dispatchP = Promise.resolve(this.bridgeDispatch({
       model: model || null,
       prompt: fullPrompt,
+      signal: controller.signal,
       // Endpoint-scoped project/workflow (New-task parity): the webhook row's
       // cwd/workflow define the created session, not the worker's global cwd.
       cwd: extra.cwd || this.config?.cwd || null,
@@ -435,21 +449,26 @@ ${payload}
         event: headers["x-github-event"] || null,
       },
     }));
-    const timeoutP = new Promise((_, reject) => {
-      timeoutHandle = setTimeout(
-        () => reject(new Error(`bridge dispatch timed out after ${DISPATCH_TIMEOUT_MS}ms`)),
-        DISPATCH_TIMEOUT_MS,
-      );
-    });
-    Promise.race([dispatchP, timeoutP]).then(() => {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      void updateDeliveryStatus(name, deliveryId, "done").catch((e) => logWebhook(`${name}: delivery status update failed: ${e?.message || e}`));
-      logWebhook(`${name}: webhook session run dispatched (id=${deliveryId})`);
-    }).catch((err) => {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      void updateDeliveryStatus(name, deliveryId, "failed", { error: String(err?.message || err) }).catch(() => {});
-      logWebhook(`${name}: webhook session run failed: ${err?.message || err}`);
-    });
+    let settled = false;
+    const timeoutHandle = setTimeout(
+      () => controller.abort(new Error(`bridge dispatch timed out after ${DISPATCH_TIMEOUT_MS}ms`)),
+      DISPATCH_TIMEOUT_MS,
+    );
+    const finish = (status, fields, message) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
+      void updateDeliveryStatus(name, deliveryId, status, fields).catch((e) => logWebhook(`${name}: delivery status update failed: ${e?.message || e}`));
+      logWebhook(message);
+    };
+    controller.signal.addEventListener("abort", () => {
+      const reason = controller.signal.reason;
+      finish("failed", { error: String(reason?.message || reason) }, `${name}: webhook session run aborted: ${reason?.message || reason}`);
+    }, { once: true });
+    dispatchP.then(
+      () => finish("done", {}, `${name}: webhook session run dispatched (id=${deliveryId})`),
+      (err) => finish("failed", { error: String(err?.message || err) }, `${name}: webhook session run failed: ${err?.message || err}`),
+    );
     res.writeHead(202, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "accepted", handler: "session", id: deliveryId }));
   }

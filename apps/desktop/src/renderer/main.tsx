@@ -10,9 +10,11 @@ import "./process-shim";
 // Browser-served remote sessions install a WebSocket-backed DesktopApi before
 // any module reads window.mixdogDesktop; inside Electron the preload bridge
 // already exists and this is a no-op.
-await import("./remote-shim");
-
 const remoteBrowser = typeof navigator !== "undefined" && !/Electron/i.test(navigator.userAgent);
+// Start the remote transport immediately. On the installed web app, mobile
+// detection, language code and first-screen CSS overlap this fetch instead of
+// forming four relay round trips in a row.
+const remoteShimReady = import("./remote-shim");
 let launchApplication = true;
 if (remoteBrowser) {
   const {
@@ -32,7 +34,14 @@ if (remoteBrowser) {
 }
 
 if (launchApplication) {
-  const { initUiLanguage } = await import("./i18n");
-  await initUiLanguage();
+  const languageReady = import("./i18n")
+    .then((module) => module.initUiLanguage());
+  // Web-only early CSS fetch: bootstrap still imports this module and remains
+  // the readiness owner. The Electron path keeps its existing load order.
+  if (remoteBrowser) void import("./bootstrap-styles").catch(() => undefined);
+  await Promise.all([remoteShimReady, languageReady]);
   await import("./bootstrap");
+} else {
+  // The lightweight installation page is rendered by remote-shim itself.
+  await remoteShimReady;
 }

@@ -6,7 +6,7 @@
 // surface there, so today's single-focused-engine renderer keeps working
 // while the lanes already deliver concurrent live output.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 
 import { t } from "./i18n";
 import {
@@ -14,17 +14,7 @@ import {
   droppedLocalPaths,
 } from "./file-drag";
 import { isMobileRemoteSurface } from "./mobile-surface";
-import {
-  shouldCommitSwipe,
-  SWIPE_LOCK_AXIS_RATIO,
-  SWIPE_LOCK_DISTANCE,
-  SWIPE_VIEW_TRANSITION_READY_TIMEOUT_MS,
-  swipeGestureAllowed,
-  swipeIntent,
-  swipeProgress,
-  swipeTransitionFallbackCommits,
-  swipeTargetIndex,
-} from "./mobile-tab-swipe";
+import { installMobileTabSwipe } from "./mobile-tab-swipe-gesture";
 import { PaneSplitLayout } from "./PaneSplitLayout";
 import { PersistentPanePortal } from "./PaneSurfaceGate";
 import type { NavigationSelection, WorkspaceSelection } from "./nav-types";
@@ -101,9 +91,6 @@ type ConversationOwner = {
   key: string;
   leafId: string;
   selectionKey: string;
-  selection: Extract<NavigationSelection, { kind: "session" | "new" }>;
-  handoff: boolean;
-  parked: boolean;
 };
 
 type ConversationSurface = {
@@ -122,24 +109,41 @@ type PaneSurfaceSnapshot = {
 function paneSurfaceKey(leaf: PaneLeaf): string {
   const active = paneActiveSelection(leaf);
   if (!active) return "empty";
-  if (active.kind === "session" || active.kind === "new") return "conversation";
+  if (isConversationSelection(active)) return "conversation";
   return navigationKey(active);
 }
 
-function retainSurfaceForOneFrame(leaf: PaneLeaf): boolean {
-  const active = paneActiveSelection(leaf);
-  return active?.kind === "session" || active?.kind === "new"
-    || active?.kind === "file"
-    || active?.kind === "studio" || active?.kind === "terminal"
-    || active?.kind === "folder"
-    || active?.kind === "diff" || active?.kind === "pull-request";
+/** A phone renders exactly ONE leaf — the focused one — and pays the relay for
+ *  every session it registers, so only that leaf's active session is mirrored
+ *  (user: vps라 비용때문에). Every other leaf stays unregistered until it is
+ *  focused. */
+function mobileVisibleSessionIds(
+  leaves: readonly PaneLeaf[],
+  focusedLeafId: string,
+): string[] {
+  const leaf = leaves.find((entry) => entry.id === focusedLeafId) ?? leaves[0];
+  const active = leaf ? paneActiveSelection(leaf) : null;
+  return active?.kind === "session" ? [active.id] : [];
 }
 
+function isConversationSelection(
+  selection: WorkspaceSelection | null | undefined,
+): selection is Extract<NavigationSelection, { kind: "session" | "new" }> {
+  return selection?.kind === "session" || selection?.kind === "new";
+}
+
+/** Every selection that renders its own persistent surface behind the chat
+ *  layer: the conversation stays mounted and parked underneath it. */
 function parksConversationBehindSelection(selection: WorkspaceSelection | null): boolean {
   return selection?.kind === "file"
     || selection?.kind === "studio" || selection?.kind === "terminal"
     || selection?.kind === "folder"
     || selection?.kind === "diff" || selection?.kind === "pull-request";
+}
+
+function retainSurfaceForOneFrame(leaf: PaneLeaf): boolean {
+  const active = paneActiveSelection(leaf);
+  return isConversationSelection(active) || parksConversationBehindSelection(active);
 }
 
 function dropZoneStyle(preview: DropPreview): React.CSSProperties {
@@ -149,10 +153,9 @@ function dropZoneStyle(preview: DropPreview): React.CSSProperties {
     case "right": return { left: left + width / 2, top, width: width / 2, height };
     case "top": return { left, top, width, height: height / 2 };
     case "bottom": return { left, top: top + height / 2, width, height: height / 2 };
-  // Center merge highlights the whole target group.
-    case "center": return { left, top, width, height };
-    // Strip insertion caret: the rect IS the bar (tab drop index).
-    case "insert": return { left, top, width, height };
+    // Center merge highlights the whole target group; a strip insertion caret
+    // arrives with the bar (tab drop index) already as its rect.
+    case "center": case "insert": return { left, top, width, height };
   }
 }
 
@@ -227,47 +230,75 @@ export function PaneWorkspace({
   // the relay, so restored background tabs stay unregistered until opened
   // (user: vps라 비용때문에). Wide surfaces keep every pane tab observable.
   const paneSessionIds = isMobileRemoteSurface()
-    ? workspace.leaves.flatMap((leaf) => {
-      const active = paneActiveSelection(leaf);
-      return active?.kind === "session" ? [active.id] : [];
-    })
+    ? mobileVisibleSessionIds(workspace.leaves, workspace.focusedLeafId)
     : paneSessionTabIds(workspace.leaves, workspace.focusedLeafId);
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
   const visibleSessionIds = [...new Set([...observedSessionIds, ...paneSessionIds])];
   const visibleSessionKey = visibleSessionIds.join("\0");
+  // Registration is BOTH versioned and serialized. A retrying request that the
+  // next selection already replaced must never land after it: the version
+  // check retires it the moment a newer request exists, and the chain keeps
+  // two requests from being in flight at once, so the host's last write is
+  // always the newest set (a stale cancelled request used to resolve last and
+  // leave the visible session without updates).
+  const visibleSessionsVersion = useRef(0);
+  const visibleSessionsChain = useRef<Promise<void>>(Promise.resolve());
   useLayoutEffect(() => {
     const setVisibleSessions = window.mixdogDesktop?.setVisibleSessions;
     if (typeof setVisibleSessions !== "function") return;
+    const version = ++visibleSessionsVersion.current;
+    const sessionIds = visibleSessionIds;
     let cancelled = false;
     let retryTimer = 0;
-    let attempt = 0;
+    let releaseRetry: (() => void) | null = null;
+    const stale = (): boolean => cancelled || visibleSessionsVersion.current !== version;
     const register = async (): Promise<void> => {
-      let accepted = false;
-      try {
-        accepted = await setVisibleSessions(visibleSessionIds) === true;
-      } catch {
-        accepted = false;
+      let attempt = 0;
+      while (!stale()) {
+        let accepted = false;
+        try {
+          accepted = await setVisibleSessions(sessionIds) === true;
+        } catch {
+          accepted = false;
+        }
+        if (stale() || accepted) return;
+        const delay = Math.min(1_000, 80 * (2 ** Math.min(attempt, 4)));
+        attempt += 1;
+        await new Promise<void>((resolve) => {
+          retryTimer = window.setTimeout(() => {
+            retryTimer = 0;
+            resolve();
+          }, delay);
+          releaseRetry = () => {
+            if (retryTimer) window.clearTimeout(retryTimer);
+            retryTimer = 0;
+            resolve();
+          };
+        });
       }
-      if (cancelled || accepted) return;
-      const delay = Math.min(1_000, 80 * (2 ** Math.min(attempt, 4)));
-      attempt += 1;
-      retryTimer = window.setTimeout(() => {
-        retryTimer = 0;
-        void register();
-      }, delay);
     };
-    void register();
+    visibleSessionsChain.current = visibleSessionsChain.current
+      .catch(() => undefined)
+      .then(register)
+      .catch(() => undefined);
     return () => {
       cancelled = true;
+      // Releasing the pending backoff lets the chain advance to the request
+      // that replaced this one instead of waiting out its timer.
+      releaseRetry?.();
       if (retryTimer) window.clearTimeout(retryTimer);
     };
   }, [visibleSessionKey]);
   useEffect(() => () => {
     const setVisibleSessions = window.mixdogDesktop?.setVisibleSessions;
-    if (typeof setVisibleSessions === "function") {
-      void setVisibleSessions([]).catch(() => undefined);
-    }
+    if (typeof setVisibleSessions !== "function") return;
+    // Unmount retires every queued request before clearing the host.
+    visibleSessionsVersion.current += 1;
+    visibleSessionsChain.current = visibleSessionsChain.current
+      .catch(() => undefined)
+      .then(() => setVisibleSessions([]).then(() => undefined))
+      .catch(() => undefined);
   }, []);
   // Selection is ONE document-wide range, so a drag that starts in one pane
   // and travels over another painted every row in between (user: 왜 드래그가
@@ -313,373 +344,10 @@ export function PaneWorkspace({
   swipeFocusSelection.current = onFocusSelection;
   useEffect(() => {
     if (!isMobileRemoteSurface()) return undefined;
-    type SwipeViewTransition = {
-      ready: Promise<void>;
-      finished: Promise<void>;
-      skipTransition: () => void;
-    };
-    const transitionDocument = document as Document & {
-      startViewTransition?: (update: () => void) => SwipeViewTransition;
-    };
-    const root = document.documentElement;
-    const startViewTransition = transitionDocument.startViewTransition
-      ?.bind(transitionDocument);
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const scrubDuration = 1_000;
-    let startX = 0;
-    let startY = 0;
-    let leafId = "";
-    let gestureCell: HTMLElement | null = null;
-    let tracking = false;
-    let lastX = 0;
-    let lastTime = 0;
-    let velocityX = 0;
-    let lockedIntent: "previous" | "next" | null = null;
-    let dragProgress = 0;
-    let originalKey = "";
-    let originalSelection: WorkspaceSelection | null = null;
-    let transitionCell: HTMLElement | null = null;
-    let activeTransition: SwipeViewTransition | null = null;
-    let snapshotAnimations: Animation[] = [];
-    let pendingCommit: boolean | null = null;
-    let settling = false;
-    let transitionReadyTimer = 0;
-    let transitionSettleTimer = 0;
-    let interactiveTransitionAvailable = true;
-    let cancelPendingUpdate: (() => void) | null = null;
-    let activeTargetApplied = false;
-    const clearTransitionMarkers = (): void => {
-      delete root.dataset.mobileTabSwipe;
-      if (transitionCell) delete transitionCell.dataset.mobileTabSwipeSurface;
-      transitionCell = null;
-    };
-    const clearTransitionTimers = (): void => {
-      if (transitionReadyTimer) window.clearTimeout(transitionReadyTimer);
-      if (transitionSettleTimer) window.clearTimeout(transitionSettleTimer);
-      transitionReadyTimer = 0;
-      transitionSettleTimer = 0;
-    };
-    const restoreOriginalSelection = (): void => {
-      if (!originalSelection || !originalKey) return;
-      const current = swipeWorkspace.current;
-      const selection = originalSelection;
-      flushSync(() => {
-        current.activateTab(leafId, originalKey);
-        swipeFocusSelection.current(selection);
-      });
-    };
-    const clearTransitionState = (): void => {
-      clearTransitionTimers();
-      activeTransition = null;
-      snapshotAnimations = [];
-      pendingCommit = null;
-      settling = false;
-      cancelPendingUpdate = null;
-      activeTargetApplied = false;
-      originalKey = "";
-      originalSelection = null;
-      clearTransitionMarkers();
-    };
-    const updateVelocity = (x: number, time: number): void => {
-      const elapsed = time - lastTime;
-      if (elapsed > 0 && elapsed <= 100) {
-        const instantaneous = (x - lastX) / elapsed;
-        velocityX = velocityX === 0
-          ? instantaneous
-          : velocityX * 0.65 + instantaneous * 0.35;
-      } else if (elapsed > 100) {
-        velocityX = 0;
-      }
-      lastX = x;
-      lastTime = time;
-    };
-    const setSnapshotProgress = (progress: number): void => {
-      dragProgress = progress;
-      for (const animation of snapshotAnimations) {
-        animation.currentTime = progress * scrubDuration;
-      }
-    };
-    const finishTransition = (
-      transition: SwipeViewTransition,
-      commit: boolean,
-    ): void => {
-      if (activeTransition !== transition) return;
-      if (!commit) restoreOriginalSelection();
-      for (const animation of snapshotAnimations) animation.cancel();
-      try {
-        transition.skipTransition();
-      } catch { /* transition already finished */ }
-      clearTransitionState();
-    };
-    const settleTransition = (commit: boolean): void => {
-      pendingCommit = commit;
-      if (!activeTransition || snapshotAnimations.length === 0 || settling) return;
-      settling = true;
-      const transition = activeTransition;
-      const animations = [...snapshotAnimations];
-      const targetProgress = commit ? 1 : 0;
-      const remaining = Math.abs(targetProgress - dragProgress);
-      const settleDuration = Math.max(90, Math.round(240 * remaining));
-      const playbackRate = (commit ? 1 : -1) * (scrubDuration / settleDuration);
-      for (const animation of animations) {
-        animation.currentTime = dragProgress * scrubDuration;
-        animation.playbackRate = playbackRate;
-        animation.play();
-      }
-      void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
-        finishTransition(transition, commit);
-      });
-      transitionSettleTimer = window.setTimeout(
-        () => finishTransition(transition, commit),
-        settleDuration + 120,
-      );
-    };
-    const abortInteractiveTransition = (
-      transition: SwipeViewTransition,
-    ): void => {
-      if (activeTransition !== transition) return;
-      const commit = swipeTransitionFallbackCommits(pendingCommit);
-      const fallbackIntent = lockedIntent;
-      cancelPendingUpdate?.();
-      for (const animation of snapshotAnimations) animation.cancel();
-      try {
-        transition.skipTransition();
-      } catch { /* transition already finished */ }
-      if (commit) {
-        if (!activeTargetApplied && fallbackIntent) activateDiscreteTarget(fallbackIntent);
-      } else if (activeTargetApplied) {
-        restoreOriginalSelection();
-      }
-      tracking = false;
-      gestureCell = null;
-      lockedIntent = null;
-      interactiveTransitionAvailable = false;
-      clearTransitionState();
-    };
-    const createSnapshotAnimations = (
-      transition: SwipeViewTransition,
-      intent: "previous" | "next",
-    ): void => {
-      if (activeTransition !== transition) return;
-      const outgoingEnd = intent === "next"
-        ? "translate3d(-100%, 0, 0)"
-        : "translate3d(100%, 0, 0)";
-      const incomingStart = intent === "next"
-        ? "translate3d(100%, 0, 0)"
-        : "translate3d(-100%, 0, 0)";
-      const options = (pseudoElement: string): KeyframeAnimationOptions & {
-        pseudoElement: string;
-      } => ({
-        duration: scrubDuration,
-        easing: "linear",
-        fill: "both",
-        pseudoElement,
-      });
-      const created: Animation[] = [];
-      try {
-        created.push(root.animate(
-          [
-            { transform: "translate3d(0, 0, 0)" },
-            { transform: outgoingEnd },
-          ],
-          options("::view-transition-old(mobile-tab-surface)"),
-        ));
-        created.push(root.animate(
-          [
-            { transform: incomingStart },
-            { transform: "translate3d(0, 0, 0)" },
-          ],
-          options("::view-transition-new(mobile-tab-surface)"),
-        ));
-      } catch (error) {
-        for (const animation of created) animation.cancel();
-        throw error;
-      }
-      snapshotAnimations = created;
-      for (const animation of snapshotAnimations) animation.pause();
-      setSnapshotProgress(dragProgress);
-      if (pendingCommit !== null) settleTransition(pendingCommit);
-    };
-    const beginInteractiveTransition = (
-      intent: "previous" | "next",
-    ): boolean => {
-      if (!startViewTransition || reducedMotion || !interactiveTransitionAvailable
-        || !gestureCell || activeTransition) return false;
-      const current = swipeWorkspace.current;
-      const leaf = current.leaves.find((entry) => entry.id === leafId);
-      if (!leaf || leaf.tabs.length <= 1) return false;
-      const keys = leaf.tabs.map((tab) => navigationKey(tab));
-      const activeIndex = keys.indexOf(leaf.activeKey);
-      const targetIndex = swipeTargetIndex(activeIndex, keys.length, intent);
-      const targetSelection = leaf.tabs[targetIndex];
-      originalSelection = leaf.tabs[activeIndex] ?? null;
-      originalKey = keys[activeIndex] ?? "";
-      if (!targetSelection || !originalSelection || !originalKey) return false;
-      lockedIntent = intent;
-      pendingCommit = null;
-      settling = false;
-      transitionCell = gestureCell;
-      transitionCell.dataset.mobileTabSwipeSurface = "true";
-      root.dataset.mobileTabSwipe = intent;
-      try {
-        let cancelled = false;
-        const transition = startViewTransition(() => {
-          if (cancelled) return;
-          flushSync(() => {
-            current.activateTab(leaf.id, keys[targetIndex]);
-            swipeFocusSelection.current(targetSelection);
-          });
-          activeTargetApplied = true;
-        });
-        activeTransition = transition;
-        cancelPendingUpdate = () => {
-          cancelled = true;
-        };
-        transitionReadyTimer = window.setTimeout(
-          () => abortInteractiveTransition(transition),
-          SWIPE_VIEW_TRANSITION_READY_TIMEOUT_MS,
-        );
-        void transition.ready
-          .then(() => {
-            if (activeTransition !== transition) return;
-            if (transitionReadyTimer) window.clearTimeout(transitionReadyTimer);
-            transitionReadyTimer = 0;
-            createSnapshotAnimations(transition, intent);
-          })
-          .catch(() => abortInteractiveTransition(transition));
-        void transition.finished.catch(() => abortInteractiveTransition(transition));
-        return true;
-      } catch {
-        clearTransitionTimers();
-        cancelPendingUpdate?.();
-        cancelPendingUpdate = null;
-        lockedIntent = null;
-        originalKey = "";
-        originalSelection = null;
-        interactiveTransitionAvailable = false;
-        clearTransitionMarkers();
-        return false;
-      }
-    };
-    const activateDiscreteTarget = (intent: "previous" | "next"): void => {
-      const current = swipeWorkspace.current;
-      const leaf = current.leaves.find((entry) => entry.id === leafId);
-      if (!leaf || leaf.tabs.length <= 1) return;
-      const keys = leaf.tabs.map((tab) => navigationKey(tab));
-      const activeIndex = keys.indexOf(leaf.activeKey);
-      const targetIndex = swipeTargetIndex(activeIndex, keys.length, intent);
-      const selection = leaf.tabs[targetIndex];
-      if (!selection || targetIndex === activeIndex) return;
-      current.activateTab(leaf.id, keys[targetIndex]);
-      swipeFocusSelection.current(selection);
-    };
-    const onTouchStart = (event: TouchEvent): void => {
-      tracking = false;
-      gestureCell = null;
-      lockedIntent = null;
-      dragProgress = 0;
-      velocityX = 0;
-      if (activeTransition) return;
-      if (event.touches.length !== 1) return;
-      const target = event.target instanceof Element ? event.target : null;
-      if (!swipeGestureAllowed(target)) return;
-      const cell = target?.closest<HTMLElement>("[data-pane-id]") ?? null;
-      const id = cell?.dataset.paneId || "";
-      if (!id) return;
-      leafId = id;
-      gestureCell = cell;
-      startX = event.touches[0].clientX;
-      startY = event.touches[0].clientY;
-      lastX = startX;
-      lastTime = event.timeStamp;
-      tracking = true;
-    };
-    const onTouchMove = (event: TouchEvent): void => {
-      if (!tracking || event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      updateVelocity(touch.clientX, event.timeStamp);
-      const deltaX = touch.clientX - startX;
-      const deltaY = touch.clientY - startY;
-      if (!lockedIntent) {
-        const intent = swipeIntent(deltaX, deltaY, {
-          minDistance: SWIPE_LOCK_DISTANCE,
-          axisRatio: SWIPE_LOCK_AXIS_RATIO,
-        });
-        if (!intent) {
-          if (Math.abs(deltaY) >= SWIPE_LOCK_DISTANCE
-            && Math.abs(deltaY) > Math.abs(deltaX)) {
-            tracking = false;
-            gestureCell = null;
-          }
-          return;
-        }
-        if (!beginInteractiveTransition(intent)) return;
-      }
-      if (!lockedIntent || !activeTransition) return;
-      event.preventDefault();
-      const width = Math.max(1,
-        gestureCell?.getBoundingClientRect().width ?? window.innerWidth);
-      setSnapshotProgress(swipeProgress(deltaX, width, lockedIntent));
-    };
-    const onTouchEnd = (event: TouchEvent): void => {
-      if (!tracking) return;
-      tracking = false;
-      const touch = event.changedTouches[0];
-      if (!touch) return;
-      updateVelocity(touch.clientX, event.timeStamp);
-      const deltaX = touch.clientX - startX;
-      const deltaY = touch.clientY - startY;
-      if (activeTransition && lockedIntent) {
-        event.preventDefault();
-        const width = Math.max(1,
-          gestureCell?.getBoundingClientRect().width ?? window.innerWidth);
-        setSnapshotProgress(swipeProgress(deltaX, width, lockedIntent));
-        const commit = shouldCommitSwipe(
-          deltaX,
-          width,
-          velocityX,
-          lockedIntent,
-        );
-        gestureCell = null;
-        settleTransition(commit);
-        return;
-      }
-      const intent = swipeIntent(deltaX, deltaY);
-      if (!intent) return;
-      if (gestureCell && beginInteractiveTransition(intent)) {
-        gestureCell = null;
-        settleTransition(true);
-      } else {
-        gestureCell = null;
-        activateDiscreteTarget(intent);
-      }
-    };
-    const onTouchCancel = (): void => {
-      tracking = false;
-      gestureCell = null;
-      if (activeTransition) settleTransition(false);
-    };
-    document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
-    document.addEventListener("touchmove", onTouchMove, { passive: false, capture: true });
-    document.addEventListener("touchend", onTouchEnd, { passive: false, capture: true });
-    document.addEventListener("touchcancel", onTouchCancel, { passive: true, capture: true });
-    return () => {
-      document.removeEventListener("touchstart", onTouchStart, true);
-      document.removeEventListener("touchmove", onTouchMove, true);
-      document.removeEventListener("touchend", onTouchEnd, true);
-      document.removeEventListener("touchcancel", onTouchCancel, true);
-      const transition = activeTransition;
-      clearTransitionTimers();
-      cancelPendingUpdate?.();
-      cancelPendingUpdate = null;
-      activeTransition = null;
-      for (const animation of snapshotAnimations) animation.cancel();
-      snapshotAnimations = [];
-      try {
-        transition?.skipTransition();
-      } catch { /* transition already finished */ }
-      clearTransitionMarkers();
-    };
+    return installMobileTabSwipe({
+      workspace: () => swipeWorkspace.current,
+      onFocusSelection: (selection) => swipeFocusSelection.current(selection),
+    });
   }, []);
   // Drag-to-split: the titlebar strip publishes pointer frames
   // once a tab drag leaves the strip band; hit-test the pane under the
@@ -1132,31 +800,18 @@ export function PaneWorkspace({
   // session. When an active tab/group moves to another leaf, match its prior
   // selection first so the same owner follows the move; ordinary tab switches
   // then fall back to the existing leaf owner and never remount Conversation.
+  const conversationSurfaceFor = (leaf: PaneLeaf, handoff: boolean): ConversationSurface[] => {
+    const active = paneActiveSelection(leaf);
+    return isConversationSelection(active)
+      ? [{ leaf, active, selectionKey: navigationKey(active), handoff, parked: false }]
+      : [];
+  };
   const conversationLeaves: ConversationSurface[] = workspace.restorePending
     ? []
-    : workspace.leaves.flatMap((leaf) => {
-      const active = paneActiveSelection(leaf);
-      return active?.kind === "session" || active?.kind === "new"
-        ? [{
-          leaf,
-          active,
-          selectionKey: navigationKey(active),
-          handoff: false,
-          parked: false,
-        }]
-        : [];
-    }).concat([...paneSurfaceHandoffs.current.values()].flatMap((surface) => {
-      const active = paneActiveSelection(surface.leaf);
-      return active?.kind === "session" || active?.kind === "new"
-        ? [{
-          leaf: surface.leaf,
-          active,
-          selectionKey: navigationKey(active),
-          handoff: true,
-          parked: false,
-        }]
-        : [];
-    }));
+    : workspace.leaves
+      .flatMap((leaf) => conversationSurfaceFor(leaf, false))
+      .concat([...paneSurfaceHandoffs.current.values()]
+        .flatMap((surface) => conversationSurfaceFor(surface.leaf, true)));
   const previousConversationOwners = conversationOwners.current;
   const representedConversationLeaves = new Set(
     conversationLeaves.map((entry) => entry.leaf.id),
@@ -1170,7 +825,7 @@ export function PaneWorkspace({
     if (!leaf) continue;
     const selection = leaf.tabs.find((candidate) =>
       navigationKey(candidate) === owner.selectionKey);
-    if (selection?.kind !== "session" && selection?.kind !== "new") continue;
+    if (!isConversationSelection(selection)) continue;
     conversationLeaves.push({
       leaf,
       active: selection,
@@ -1202,9 +857,6 @@ export function PaneWorkspace({
     key: ownerByLeaf.get(entry.leaf.id)!,
     leafId: entry.leaf.id,
     selectionKey: entry.selectionKey,
-    selection: entry.active,
-    handoff: entry.handoff,
-    parked: entry.parked,
   }));
   const conversationPortals = renderConversation
     ? conversationLeaves.map(({ leaf, active, handoff, parked }) => {
@@ -1235,9 +887,7 @@ export function PaneWorkspace({
   const visualSurfaceHandoffFor = (leafId: string) => {
     const handoff = paneSurfaceHandoffs.current.get(leafId);
     const active = handoff ? paneActiveSelection(handoff.leaf) : null;
-    return active?.kind === "session" || active?.kind === "new"
-      ? undefined
-      : handoff;
+    return isConversationSelection(active) ? undefined : handoff;
   };
   const surfaceLayersFor = (leaf: PaneLeaf) => {
     const current = currentPaneSurfaces.get(leaf.id)!;
@@ -1273,21 +923,12 @@ export function PaneWorkspace({
     const utilityTabs = handoff || !activeHandoff
       ? renderUtilityTabs?.(surfaceLeaf, interactive, focusPane)
       : null;
-    if (active?.kind === "session" || active?.kind === "new") {
-      return <>
-        {fileEditors}
-        {utilityTabs}
-      </>;
-    }
-    if (active?.kind === "file" && renderFileEditors) {
-      return <>
-        {fileEditors}
-        {utilityTabs}
-      </>;
-    }
-    if (active?.kind === "studio" || active?.kind === "terminal"
-      || active?.kind === "folder"
-      || active?.kind === "diff" || active?.kind === "pull-request") {
+    // Chat, editors and the utility tabs all render themselves: the mounted
+    // layers below ARE the pane, so it needs no chrome of its own. A file tab
+    // only qualifies while the host actually renders editors.
+    if (isConversationSelection(active)
+      || (parksConversationBehindSelection(active)
+        && (active?.kind !== "file" || renderFileEditors))) {
       return <>
         {fileEditors}
         {utilityTabs}

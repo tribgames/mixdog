@@ -117,7 +117,12 @@ function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }) {
         get alive() { return !closed; },
         write(bytes) {
             if (closed) return;
-            resetTimeout();
+            // Deliberately NOT resetTimeout(): frames written here (client
+            // heartbeat every 5s, tool results) are OUR traffic and say nothing
+            // about the server still being alive. Refreshing the deadline on
+            // every write let a silent server hold the connection open
+            // indefinitely, defeating the 120s silence bound this transport
+            // owns. Only 'response'/'data' from the server re-arm it.
             request.write(bytes);
         },
         close,
@@ -382,6 +387,56 @@ function storeActiveRun(key, active) {
     active.expiryTimer.unref?.();
     activeRuns.set(key, active);
 }
+
+// Tear down one stored run: drop it from the registry, stop its 5s heartbeat
+// interval, and close the Cursor bridge it was holding open.
+function closeActiveRun(key, active, error) {
+    if (!forgetActiveRun(key, active)) return false;
+    clearInterval(active.heartbeat);
+    try { active.bridge.close(error); } catch { /* already closing */ }
+    return true;
+}
+
+// A pending tool batch deliberately outlives its HTTP response: the bridge and
+// heartbeat stay up so the next request can resume the same Cursor run. That
+// connection belongs to the session that opened it, so a session close / turn
+// abort must reclaim it instead of leaving it connected until MEMORY_TTL_MS
+// (30 minutes) expires.
+export function closeCursorRunsForSession(sessionId, reason = 'session_closed') {
+    const scope = String(sessionId || '').trim();
+    if (!scope) return 0;
+    let closed = 0;
+    for (const [key, active] of [...activeRuns]) {
+        if (String(active?.sessionId || '') !== scope) continue;
+        if (closeActiveRun(key, active, new Error(`Cursor run closed (${reason})`))) closed += 1;
+    }
+    return closed;
+}
+
+// Process-wide drain (shutdown / exit): no run may keep the daemon's Cursor
+// sockets and heartbeat intervals alive past teardown.
+export function drainCursorRuns(reason = 'shutdown') {
+    let closed = 0;
+    for (const [key, active] of [...activeRuns]) {
+        if (closeActiveRun(key, active, new Error(`Cursor run drained (${reason})`))) closed += 1;
+    }
+    return closed;
+}
+
+// Session-close / drain hooks. Both globals are shared with the openai WS pool,
+// so chain the previously registered handler instead of overwriting it: whoever
+// loads first stays reachable, in either import order.
+const _priorCursorSessionCloseHook = globalThis.__mixdogCloseProviderConnectionsForSession;
+globalThis.__mixdogCloseProviderConnectionsForSession = (sessionId, reason) => {
+    try { _priorCursorSessionCloseHook?.(sessionId, reason); } finally {
+        closeCursorRunsForSession(sessionId, reason);
+    }
+};
+const _priorCursorDrainHook = globalThis.__mixdogDrainProviderConnections;
+globalThis.__mixdogDrainProviderConnections = (reason) => {
+    try { _priorCursorDrainHook?.(reason); } finally { drainCursorRuns(reason); }
+};
+process.on('exit', () => { drainCursorRuns('process-exit'); });
 
 function conversationKey(messages, sessionId = '') {
     const scope = String(sessionId || '').trim();
@@ -889,6 +944,9 @@ function createStreamResponse({
     cloudRule,
     model,
     key,
+    // Owning session, carried into the stored run so a session close can find
+    // and tear down the pending batch's bridge/heartbeat.
+    sessionId = '',
     sawTurnEnded = false,
 }) {
     const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '').slice(0, 28)}`;
@@ -944,6 +1002,7 @@ function createStreamResponse({
                     conversation,
                     tools,
                     cloudRule,
+                    sessionId,
                     pending: state.pending,
                     sawTurnEnded: state.sawTurnEnded,
                 });
@@ -1183,6 +1242,7 @@ export async function handleChatCompletion(body, accessToken) {
         cloudRule: parsed.systems.join('\n\n') || undefined,
         model,
         key,
+        sessionId,
     });
 }
 

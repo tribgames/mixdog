@@ -105,6 +105,18 @@ function restoreStreamingTailEpoch(
   }
 }
 
+/** Whether a state field still carries the value the receiver already holds.
+ *  Reference equality is the fast path, not the answer: a snapshot rebuilt on
+ *  every publish hands back equal-but-new objects, and `agentWorkers`,
+ *  `agentJobs`, `shellJobs` and friends are exactly the fields that get rebuilt
+ *  while an agent runs. Treating those as changed re-sent whole arrays on every
+ *  streamed frame — the most expensive lane on the relay was mostly repeats. */
+function sameSnapshotField(before: unknown, after: unknown): boolean {
+  if (Object.is(before, after)) return true;
+  if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return false;
+  return JSON.stringify(before) === JSON.stringify(after);
+}
+
 function snapshotFieldsFrom(record: Record<string, unknown>): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
@@ -197,7 +209,8 @@ export function createSnapshotDeltaEncoder(
         const changed: Record<string, unknown> = {};
         const removed: string[] = [];
         for (const [key, value] of Object.entries(nextFields)) {
-          if (!Object.hasOwn(previousFields, key) || !Object.is(previousFields[key], value)) {
+          if (!Object.hasOwn(previousFields, key)
+            || !sameSnapshotField(previousFields[key], value)) {
             changed[key] = value;
           }
         }

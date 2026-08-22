@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 
 import {
   browsableFolderPath,
+  copyFolderEntriesAbs,
   listFolderDirAbs,
   moveFolderEntriesAbs,
   renameFolderEntryAbs,
@@ -74,6 +75,25 @@ test("ask move reports same-name sources before moving anything", async (t) => {
   assert.deepEqual(result, { conflicts: ["same.txt"], moved: [] });
   assert.deepEqual(await readdir(target), []);
   assert.deepEqual(await Promise.all([readdir(left), readdir(right)]), [["same.txt"], ["same.txt"]]);
+});
+
+test("self-nesting is refused across Windows case differences", {
+  skip: process.platform !== "win32",
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "mixdog-folder-nest-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const parent = join(root, "Parent");
+  const child = join(parent, "Child");
+  await mkdir(child, { recursive: true });
+
+  await assert.rejects(
+    moveFolderEntriesAbs([parent], child.toLowerCase(), "ask"),
+    /into itself/,
+  );
+  await assert.rejects(
+    copyFolderEntriesAbs([parent], child.toLowerCase()),
+    /into itself/,
+  );
 });
 
 test("Windows rename permits case-only name changes", {

@@ -18,11 +18,22 @@ import { acquireModalLayer } from "./modal-layer";
 import { acquireTitleBarDim } from "./titlebar-dim";
 
 import { type Toast } from "./desktop-types";
+import { relayPayloadTooLargeMessage } from "../shared/remote-payload-limit";
 
 export const DESKTOP_TOAST_EVENT = "mixdog:desktop-toast";
 export const DESKTOP_TOAST_DISMISS_EVENT = "mixdog:desktop-toast-dismiss";
 export type DesktopToastTone = "info" | "success" | "warn" | "error";
 let rendererToastSequence = 0;
+
+/** Host toasts, renderer toasts and the bridge banner all reduce to this one
+ *  shape before the region decides anything. */
+type ToastEntry = {
+  key: string; signature: string; text: string; tone: string; bridge: boolean;
+};
+
+/** Hosts send `text`, the relay bridge sends `message`; both are optional. */
+const toastText = (toast: { text?: unknown; message?: unknown } | undefined): string =>
+  String(toast?.text || toast?.message || "").trim();
 
 export function showDesktopToast(text: string, tone: DesktopToastTone = "info"): string | undefined {
   const message = String(text || "").trim();
@@ -138,18 +149,12 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
   });
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
   const [dismissedErrorSignatures, setDismissedErrorSignatures] = useState<Set<string>>(() => new Set());
-  const [retainedErrors, setRetainedErrors] = useState<Array<{
-    key: string;
-    signature: string;
-    text: string;
-    tone: string;
-    bridge: boolean;
-  }>>([]);
+  const [retainedErrors, setRetainedErrors] = useState<ToastEntry[]>([]);
   const [rendererToasts, setRendererToasts] = useState<Toast[]>([]);
   useLayoutEffect(() => {
     const receiveToast = (event: Event) => {
       const toast = (event as CustomEvent<Toast>).detail;
-      const text = String(toast?.text || toast?.message || "").trim();
+      const text = toastText(toast);
       if (!text) return;
       setRendererToasts((current) => [...current, { ...toast, text }].slice(-20));
     };
@@ -162,13 +167,29 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
     };
     window.addEventListener(DESKTOP_TOAST_EVENT, receiveToast);
     window.addEventListener(DESKTOP_TOAST_DISMISS_EVENT, dismissToast);
+    // A frame the relay refused with no client attributed. The desktop sent it,
+    // so the desktop says so — naming no call, because nothing can say which.
+    const unsubscribeRefusals = window.mixdogDesktop?.subscribeRelayPayloadRefused?.(
+      (detail) => {
+        showDesktopToast(
+          relayPayloadTooLargeMessage({
+            bytes: detail?.bytes ?? null,
+            limit: detail?.limit ?? null,
+            callId: null,
+            scope: "unknown",
+          }),
+          "error",
+        );
+      },
+    );
     return () => {
       window.removeEventListener(DESKTOP_TOAST_EVENT, receiveToast);
       window.removeEventListener(DESKTOP_TOAST_DISMISS_EVENT, dismissToast);
+      unsubscribeRefusals?.();
     };
   }, []);
-  const sourceEntries = [...toasts, ...rendererToasts].map((toast, index) => {
-    const text = String(toast.text || toast.message || '').trim();
+  const sourceEntries: ToastEntry[] = [...toasts, ...rendererToasts].map((toast, index) => {
+    const text = toastText(toast);
     const tone = String(toast.tone || 'info').toLowerCase();
     return {
       key: String(toast.id ?? `${toast.tone || 'info'}:${toast.text || toast.message || ''}:${index}`),
@@ -197,7 +218,7 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
   }, [sourceErrorToken]);
   const currentErrors = retainedErrors
     .filter((entry) => !dismissedErrorSignatures.has(entry.signature));
-  const candidates = [
+  const candidates: ToastEntry[] = [
     ...(bridgeError ? [{
       key: `bridge:${bridgeError}`,
       signature: `bridge:${bridgeError}`,

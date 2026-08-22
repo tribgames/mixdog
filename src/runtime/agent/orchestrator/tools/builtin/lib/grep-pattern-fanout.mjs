@@ -164,15 +164,41 @@ export async function runGrepPatternFanout({
         const adaptive = contextN > 0 && !(beforeN > 0) && !(afterN > 0);
         const byPattern = patterns.map(() => []);
         const residual = [];
+        // `path:line:text` is ambiguous exactly when the PATH itself contains
+        // `:<digits>:` — impossible on Windows/NTFS, legal on POSIX
+        // (`logs/2024:12:31/app.log:7:msg`). Enumerate EVERY candidate split:
+        // when they agree on which patterns matched, attribution is exact no
+        // matter which split is the real one. When they disagree this scope
+        // cannot be attributed from a single combined stream, so fall back to
+        // the per-pattern rescan (exact by construction) instead of emitting a
+        // false per-pattern no-match plus an "unattributed matches" bucket.
+        const candidateMatchTexts = (line) => {
+            const out = [];
+            const re = /:(\d+):/g;
+            let hit = null;
+            while ((hit = re.exec(line))) {
+                out.push(line.slice(hit.index + hit[0].length));
+                re.lastIndex = hit.index + 1;
+            }
+            if (out.length === 0) out.push(line);
+            return out;
+        };
+        let ambiguousAttribution = false;
         for (const line of streamed.lines) {
-            const m = /^(.*?):(\d+):(.*)$/.exec(line);
-            const text = m ? m[3] : line;
+            const texts = candidateMatchTexts(line);
             let hitAny = false;
             for (let i = 0; i < jsRegexps.length; i++) {
-                if (jsRegexps[i].test(text)) { byPattern[i].push(line); hitAny = true; }
+                const matched = jsRegexps[i].test(texts[0]);
+                for (let c = 1; c < texts.length; c++) {
+                    if (jsRegexps[i].test(texts[c]) !== matched) { ambiguousAttribution = true; break; }
+                }
+                if (ambiguousAttribution) break;
+                if (matched) { byPattern[i].push(line); hitAny = true; }
             }
+            if (ambiguousAttribution) break;
             if (!hitAny) residual.push(line);
         }
+        if (ambiguousAttribution) break combined;
         const seenCombined = new Set();
         const perBudget = Math.max(512, Math.floor(callContextCharBudget / patterns.length));
         const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';

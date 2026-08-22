@@ -22,17 +22,40 @@ import { ensureTokenAddon } from '../src/runtime/agent/orchestrator/tools/token-
 
 const DEFAULT_PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+export const NATIVE_ASSET_PLATFORMS = Object.freeze([
+  'darwin-arm64',
+  'darwin-x64',
+  'linux-arm64',
+  'linux-x64',
+  'win32-x64',
+]);
+
 export const REQUIRED_NATIVE_INSTALLERS = Object.freeze({
   graph: ensureGraphBinary,
   patch: ensurePatchBinary,
   spawn: ensureSpawnBinary,
+});
+
+export const OPTIONAL_NATIVE_INSTALLERS = Object.freeze({
   token: ensureTokenAddon,
 });
 
+export function nativeAssetPlatformKey(platform = process.platform, arch = process.arch) {
+  return `${platform}-${arch}`;
+}
+
 export async function prepareRequiredNativeAssets({
   packageRoot = DEFAULT_PACKAGE_ROOT,
-  installers = REQUIRED_NATIVE_INSTALLERS,
+  installers = { ...REQUIRED_NATIVE_INSTALLERS, ...OPTIONAL_NATIVE_INSTALLERS },
+  platform = process.platform,
+  arch = process.arch,
 } = {}) {
+  const platformKey = nativeAssetPlatformKey(platform, arch);
+  if (!NATIVE_ASSET_PLATFORMS.includes(platformKey)) {
+    throw new Error(
+      `native assets are not published for ${platformKey}; supported: ${NATIVE_ASSET_PLATFORMS.join(', ')}`,
+    );
+  }
   const root = resolve(String(packageRoot || ''));
   const target = packageNativeToolsDir(root);
   const stagingRoot = await mkdtemp(join(root, '.native-tools-install-'));
@@ -40,24 +63,42 @@ export async function prepareRequiredNativeAssets({
   const stagedToolsDir = join(stagingRoot, 'native-tools');
   try {
     await mkdir(stagedToolsDir, { recursive: true });
-    const entries = await Promise.all(
-      Object.entries(NATIVE_TOOL_FILENAMES).map(async ([name, fileName]) => {
-        const install = installers[name];
+    const installOne = async (name, fileName, { optional }) => {
+      const install = installers[name];
       if (typeof install !== 'function') {
+        if (optional) {
+          console.warn(`[native-assets] optional ${name} skipped: installer is invalid`);
+          return null;
+        }
         throw new Error(`native asset installer is invalid: ${name}`);
       }
+      try {
         const installedPath = await install(downloadDataDir);
-      if (typeof installedPath !== 'string' || installedPath.length === 0) {
-        throw new Error(`native asset installer returned no path: ${name}`);
-      }
+        if (typeof installedPath !== 'string' || installedPath.length === 0) {
+          throw new Error(`native asset installer returned no path: ${name}`);
+        }
         const destination = join(stagedToolsDir, fileName);
         await copyFile(installedPath, destination);
         if (process.platform !== 'win32' && name !== 'token') {
           await chmod(destination, 0o755);
         }
         return [name, join(target, fileName)];
-      }),
+      } catch (error) {
+        if (!optional) throw error;
+        console.warn(`[native-assets] optional ${name} skipped: ${error?.message || error}`);
+        return null;
+      }
+    };
+    const requiredEntries = await Promise.all(
+      Object.keys(REQUIRED_NATIVE_INSTALLERS).map((name) => (
+        installOne(name, NATIVE_TOOL_FILENAMES[name], { optional: false })
+      )),
     );
+    const optionalEntries = [];
+    for (const name of Object.keys(OPTIONAL_NATIVE_INSTALLERS)) {
+      const entry = await installOne(name, NATIVE_TOOL_FILENAMES[name], { optional: true });
+      if (entry) optionalEntries.push(entry);
+    }
     await rm(target, {
       recursive: true,
       force: true,
@@ -65,7 +106,7 @@ export async function prepareRequiredNativeAssets({
       retryDelay: 100,
     });
     await rename(stagedToolsDir, target);
-    return Object.fromEntries(entries);
+    return Object.fromEntries([...requiredEntries, ...optionalEntries]);
   } finally {
     // Antivirus and process scanners can briefly retain freshly copied .exe
     // handles on Windows. Cleanup must not replace the installer's real error

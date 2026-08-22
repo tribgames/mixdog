@@ -5,7 +5,8 @@
 import { loadSession, saveSessionAsync, setLiveSession, evictLiveSession, listStoredSessionSummaries } from '../store.mjs';
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE, SUMMARY_PREFIX } from '../compact.mjs';
-import { runSessionCompaction } from './compaction-runner.mjs';
+import { runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
+import { resolveGaugeContextTokens } from '../loop/compact-policy.mjs';
 import { hasUserConversationMessage, promptContentText, resetSessionBp3Environment } from './prompt-utils.mjs';
 import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
@@ -153,7 +154,13 @@ export async function clearSessionMessages(sessionId, options = {}) {
         }
     }
     const afterMessageTokens = estimateMessagesTokens(keep);
-    const beforeTokens = estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
+    // ONE scale with the context gauge: anchor the pre-clear number on the
+    // provider-billed prompt whenever a live baseline still covers this
+    // transcript, and fall back to the calibrated estimate otherwise.
+    const clearPolicy = resolveSessionCompactionPolicy(session);
+    const beforeTokens = (clearPolicy
+        ? resolveGaugeContextTokens(beforeMessageTokens, clearPolicy, { messages, sessionRef: session })
+        : 0) || estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
     const afterTokens = estimateTranscriptContextUsage(keep, session.tools || [], { provider: session.provider });
     const now = Date.now();
     // --- Fork the outgoing transcript to a separate resumable session BEFORE

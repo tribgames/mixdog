@@ -13,6 +13,7 @@
 import { readFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeJsonAtomicSync } from './atomic-file.mjs'
+import { isPidAlive } from './pid-liveness.mjs'
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from './runtime-root.mjs'
 
 function discoveryRoot() {
@@ -21,23 +22,6 @@ function discoveryRoot() {
 
 export function discoveryPath(service) {
   return join(discoveryRoot(), `${service}.json`)
-}
-
-function parsePid(value) {
-  const pid = Number(value)
-  return Number.isInteger(pid) && pid > 0 ? pid : null
-}
-
-export function isPidAlive(value) {
-  const pid = parsePid(value)
-  if (!pid) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    // EPERM: process exists but we lack permission → alive. ESRCH → dead.
-    return e?.code === 'EPERM'
-  }
 }
 
 // Per-process "unreachable port" distrust set: service → { port, updatedAt,

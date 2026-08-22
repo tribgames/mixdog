@@ -152,7 +152,12 @@
 .composer-mic.is-recording:hover,
 .composer-mic.is-recording:focus-visible {
   color: var(--mx-grey-100);
-  background: var(--mx-accent-bg);
+  /* LONGHAND on purpose: the phone paints this disc INSIDE a 44 touch target
+     with background-clip: content-box, and the `background` shorthand resets
+     that clip. A tap leaves :hover stuck on touch, which let the shorthand win
+     on specificity, spill the fill across the padding, and draw the recording
+     disc larger than the send disc beside it (user-flagged, phone). */
+  background-color: var(--mx-accent-bg);
 }
 .composer-mic.is-transcribing { color: var(--mx-text-muted); }
 .composer-mic-spinner { animation: composer-mic-spin 900ms linear infinite; }
@@ -281,11 +286,14 @@
 }
 .send-button {
   color: var(--mx-grey-100);
-  background: var(--mx-bg-contrast);
+  /* Longhand for the same clip reason as the recording mic above. */
+  background-color: var(--mx-bg-contrast);
+  background-image: none;
   box-shadow: none;
 }
 .send-button:hover:not(:disabled) {
-  background: linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover)), var(--mx-bg-contrast);
+  background-image: linear-gradient(var(--mx-contrast-hover), var(--mx-contrast-hover));
+  background-color: var(--mx-bg-contrast);
 }
 .send-button:focus-visible { outline: 0; box-shadow: 0 0 0 1px var(--mx-border-strong); }
 .send-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }

@@ -938,6 +938,24 @@ function _deleteHeartbeatUnlessNewer(id, options = {}) {
     }
 }
 
+// Cancellation truth, single rule: an UNCONFIRMED stop outranks a confirmed
+// one, in either direction (already on disk, or requested by this close). A
+// cancel whose kill was never proven must never be rewritten as a success —
+// not by a re-close, not by an idle sweep, not by a later tombstone rewrite.
+const _CANCEL_CLOSE_REASON = /^(?:cli-agent-close(?:-all)?|agent-task-cancel)$/i;
+const _CANCEL_UNCONFIRMED_STATUS = /^cancel[-_\s]?(?:unconfirmed|pending)$/i;
+
+function _cleanCancelStatus(value) {
+    return String(value || '').trim();
+}
+
+function _mergeCancelStatus(existing, requested) {
+    const prev = _cleanCancelStatus(existing);
+    const next = _cleanCancelStatus(requested);
+    if (_CANCEL_UNCONFIRMED_STATUS.test(next) || _CANCEL_UNCONFIRMED_STATUS.test(prev)) return 'cancel-unconfirmed';
+    return next || prev || 'cancelled';
+}
+
 export function markSessionClosed(id, reason = 'manual', options = {}) {
     // Only a fresh failure from THIS attempt may be observed by closeSession's
     // durable-barrier check — a veto must not surface a stale error.
@@ -1002,7 +1020,26 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
         ? base.updatedAt
         : Date.now();
     const newGen = (typeof base.generation === 'number' ? base.generation : 0) + (alreadyClosed ? 0 : 1);
-    const tombstone = { ...base, closed: true, closedReason: alreadyClosed ? (base.closedReason || reason) : reason, status: 'closed', generation: newGen, updatedAt: closeTime };
+    const tombstone = {
+        ...base,
+        closed: true,
+        closedReason: alreadyClosed ? (base.closedReason || reason) : reason,
+        status: 'closed',
+        generation: newGen,
+        updatedAt: closeTime,
+        // Agent cancel/close must survive the worker-index drop: the pool
+        // summary reads cancelStatus even when the row is already gone.
+        // `options.cancelStatus` is the close path's OWN answer about the kill
+        // (see closeSession): an unconfirmed stop must reach disk instead of the
+        // default confirmed `cancelled`, and a later re-stamp must never
+        // downgrade it.
+        ...((_CANCEL_CLOSE_REASON.test(String(reason || '').trim()) || _cleanCancelStatus(options.cancelStatus))
+            ? {
+                cancelStatus: _mergeCancelStatus(base.cancelStatus, options.cancelStatus),
+                cancelledAt: base.cancelledAt || closeTime,
+            }
+            : {}),
+    };
     // Bypass the queue + guard — this IS the tombstone write.
     const target = sessionPath(id);
     const tmp = _trackSaveTmp(target + '.' + randomBytes(6).toString('hex') + '.tmp');

@@ -394,14 +394,43 @@ export function toolCallFingerprint(name, args) {
     if (a === null || typeof a !== 'object' || Array.isArray(a)) a = {};
     return traceHash(stableTraceStringify({ name: name || '', args: a }));
 }
+// Ids minted locally when a call is recovered from text (`call_leaked_…`,
+// `toolu_leaked_…`, `gemini_leaked_…`). Such an id is not a server identity, so
+// a synthetic call can only be identified by its name+args fingerprint —
+// whereas a provider-assigned id IS the identity of a real call.
+export function isLeakedSyntheticToolCallId(id) {
+    return typeof id === 'string' && id.includes('_leaked_');
+}
 export function createToolCallDedupe() {
     const seen = new Set();
+    const leaked = new Set();
+    const dispatchedIds = new Set();
     return {
-        // True the first time this (name,args) fingerprint is seen; false on
-        // any later identical call (synthetic-then-native or vice-versa).
-        shouldDispatch(name, args) {
+        // True the first time this call should be dispatched.
+        //
+        // Identity depends on what the provider gave us:
+        //   - no id / a locally minted `_leaked_` id → the (name,args)
+        //     fingerprint, because that is all a text-recovered call has, and
+        //   - a provider-assigned id → the id itself. Parallel tool calls are
+        //     emitted with identical name+args and DIFFERENT ids; each one owns
+        //     a tool_result the next request must carry, so collapsing them by
+        //     fingerprint drops results and breaks the response chain.
+        // The cross-path guard survives: a native call whose fingerprint a
+        // synthetic leak already dispatched is still suppressed (once).
+        shouldDispatch(name, args, id = '') {
             const fp = toolCallFingerprint(name, args);
-            if (seen.has(fp)) return false;
+            const callId = typeof id === 'string' ? id : '';
+            if (!callId || isLeakedSyntheticToolCallId(callId)) {
+                if (seen.has(fp)) return false;
+                seen.add(fp);
+                leaked.add(fp);
+                return true;
+            }
+            if (dispatchedIds.has(callId)) return false;
+            dispatchedIds.add(callId);
+            // Claim (consume) one pending leak of the same shape: this native
+            // frame is that leak surfacing on the native path.
+            if (leaked.delete(fp)) return false;
             seen.add(fp);
             return true;
         },
@@ -410,26 +439,48 @@ export function createToolCallDedupe() {
 }
 
 /**
- * Drop duplicate tool calls from a RETURNED `toolCalls` array by name+args
- * fingerprint (Fix 2, array side). Dispatch-time dedupe (`createToolCallDedupe`)
- * only suppresses the second `onToolCall`; providers that also RETURN a
- * `toolCalls` array (which the agent loop executes) can still carry a
- * synthetic-leaked + identical-native duplicate. Run the final array through
- * this so the loop never executes a side-effecting tool twice. Order is
- * preserved; the FIRST occurrence of each fingerprint wins.
+ * Drop duplicate tool calls from a RETURNED `toolCalls` array (Fix 2, array
+ * side). Dispatch-time dedupe (`createToolCallDedupe`) only suppresses the
+ * second `onToolCall`; providers that also RETURN a `toolCalls` array (which
+ * the agent loop executes) can still carry a synthetic-leaked + identical-native
+ * duplicate. Run the final array through this so the loop never executes a
+ * side-effecting tool twice.
  *
- * @param {Array<{name?:string,arguments?:object}>} calls
- * @returns {Array} the array with later duplicate-fingerprint calls removed.
+ * Identity mirrors createToolCallDedupe: a provider-assigned id identifies a
+ * real call, so parallel calls sharing a name+args fingerprint but carrying
+ * distinct ids are ALL kept — collapsing them would leave the model waiting for
+ * tool_results that never arrive and break the next request's chain. Only a
+ * repeated id, a synthetic leak the native path already carries, or an id-less
+ * exact repeat is dropped. Order is preserved; the FIRST occurrence wins.
+ *
+ * @param {Array<{id?:string,name?:string,arguments?:object}>} calls
+ * @returns {Array} the array with genuine duplicates removed.
  */
 export function dedupeToolCallList(calls) {
     if (!Array.isArray(calls) || calls.length < 2) return calls;
-    const seen = new Set();
+    // Fingerprints that reached the array through a provider-assigned id: a
+    // synthetic leak matching one of these is the same call, recovered twice.
+    const nativeFingerprints = new Set();
+    for (const call of calls) {
+        if (!call || typeof call !== 'object') continue;
+        if (!call.id || isLeakedSyntheticToolCallId(call.id)) continue;
+        nativeFingerprints.add(toolCallFingerprint(call.name, call.arguments));
+    }
+    const seenIds = new Set();
+    const seenSyntheticFingerprints = new Set();
     const out = [];
     for (const call of calls) {
         if (!call || typeof call !== 'object') { out.push(call); continue; }
+        const id = typeof call.id === 'string' ? call.id : '';
+        if (id && !isLeakedSyntheticToolCallId(id)) {
+            if (seenIds.has(id)) continue;
+            seenIds.add(id);
+            out.push(call);
+            continue;
+        }
         const fp = toolCallFingerprint(call.name, call.arguments);
-        if (seen.has(fp)) continue;
-        seen.add(fp);
+        if (nativeFingerprints.has(fp) || seenSyntheticFingerprints.has(fp)) continue;
+        seenSyntheticFingerprints.add(fp);
         out.push(call);
     }
     return out.length === calls.length ? calls : out;

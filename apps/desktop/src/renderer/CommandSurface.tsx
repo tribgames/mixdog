@@ -275,20 +275,24 @@ export function CommandSurface({
           </div>
         </header>
         <div className="mixdog-settings__body">
-          <PaneSurfaceGate ready={!loading} label={t('Loading {{title}}…', { title })}>
+          {/* /inherit reads its facts from the snapshot it already holds, so it
+              paints complete at once and only waits on the context percentage
+              before unlocking the decision — never behind a loading cover. */}
+          <PaneSurfaceGate ready={!loading || surface === 'inherit'}
+            label={t('Loading {{title}}…', { title })}>
           <div className="command-surface-content">
           {/* The dialog heading already names the surface, so the old
               "/usage — Read-only …" restatement only pushed the content down
               (user decision). Keep the sentence for screen readers only. */}
           <p id="command-surface-description" className="sr-only">
             {t('{{title}} for the active Mixdog session.', { title })}</p>
-          {loading
+          {loading && surface !== 'inherit'
             ? surface === 'usage'
               ? <UsageSkeleton />
               : <p className="settings-loading" role="status">{t('Loading…')}</p>
             : <SurfaceBody surface={surface} data={data} snapshot={snapshot}
                 sessionId={sessionId} onInherit={onInherit}
-                pending={pending} run={run} />}
+                loading={loading} pending={pending} run={run} />}
           </div>
           </PaneSurfaceGate>
         </div>
@@ -299,12 +303,13 @@ export function CommandSurface({
 
 type SurfaceRun = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 
-function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, pending, run }: {
+function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, loading, pending, run }: {
   surface: CommandSurfaceName;
   data: Record<string, unknown>;
   snapshot?: unknown;
   sessionId?: string;
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  loading?: boolean;
   pending: string;
   run: SurfaceRun;
 }) {
@@ -315,7 +320,7 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, pending, r
   if (surface === 'inherit') {
     return <InheritBody status={data.contextStatus}
       snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
-      sessionId={sessionId ?? ''} onInherit={onInherit} />;
+      sessionId={sessionId ?? ''} loading={loading} onInherit={onInherit} />;
   }
   if (surface === 'doctor') {
     return <Group title={t('Diagnostic result')}>
@@ -331,10 +336,12 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, pending, r
  * whether it can happen at all. The heir is a NEW session on the currently
  * selected model holding this conversation; the source is left untouched.
  */
-function InheritBody({ status, snapshot, sessionId, onInherit }: {
+function InheritBody({ status, snapshot, sessionId, loading, onInherit }: {
   status: unknown;
   snapshot?: unknown;
   sessionId: string;
+  /** The context reading is still in flight; the decision stays locked. */
+  loading?: boolean;
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
 }) {
   const [running, setRunning] = useState(false);
@@ -363,30 +370,39 @@ function InheritBody({ status, snapshot, sessionId, onInherit }: {
           : fit.known && !fit.fits
             ? t('This conversation no longer fits the model context. Run /compact first.')
             : '';
-  return <Group title={t('Inherit session')}>
-    <p className="settings-hint">
-      {t('The conversation is copied into a new session that runs on the current model. This session stays exactly as it is.')}
-    </p>
-    <dl className="command-surface-facts">
-      <div><dt>{t('Messages')}</dt><dd>{spoken}</dd></div>
-      <div><dt>{t('Model')}</dt><dd>{model ? `${provider}/${model}` : t('Unknown')}</dd></div>
-      <div><dt>{t('Context')}</dt><dd>{fit.percent === null ? '—' : `${fit.percent}%`}</dd></div>
-    </dl>
-    {(blocked || failure) && <p className="settings-hint" role="status">{failure || blocked}</p>}
-    <button type="button" disabled={Boolean(blocked) || running}
-      onClick={() => {
-        if (blocked || !onInherit || !route || running) return;
-        setFailure('');
-        setRunning(true);
-        void onInherit(sessionId, route)
-          .catch((reason) => {
-            setFailure(reason instanceof Error ? reason.message : String(reason));
-          })
-          .finally(() => setRunning(false));
-      }}>
-      {running ? t('Inheriting…') : t('Inherit')}
-    </button>
-  </Group>;
+  // The dialog frame IS this surface's card: the header already names it, the
+  // readings fill the body, and the decision owns its own band under one
+  // hairline (user: 세션승계창 이상하다 — the old boxed group repeated the
+  // title and pushed its button straight through the card's bottom edge).
+  const waiting = Boolean(loading) && !fit.known;
+  return <div className="inherit-surface">
+    <div className="inherit-surface-body">
+      <p className="inherit-surface-lede">
+        {t('The conversation is copied into a new session that runs on the current model. This session stays exactly as it is.')}
+      </p>
+      <dl className="command-surface-facts">
+        <div><dt>{t('Messages')}</dt><dd>{spoken}</dd></div>
+        <div><dt>{t('Model')}</dt><dd>{model ? `${provider}/${model}` : t('Unknown')}</dd></div>
+        <div><dt>{t('Context')}</dt><dd>{fit.percent === null ? '—' : `${fit.percent}%`}</dd></div>
+      </dl>
+      {(blocked || failure) && <p className="inherit-surface-note" role="status">{failure || blocked}</p>}
+    </div>
+    <footer className="inherit-surface-actions">
+      <button type="button" disabled={Boolean(blocked) || waiting || running}
+        onClick={() => {
+          if (blocked || !onInherit || !route || running) return;
+          setFailure('');
+          setRunning(true);
+          void onInherit(sessionId, route)
+            .catch((reason) => {
+              setFailure(reason instanceof Error ? reason.message : String(reason));
+            })
+            .finally(() => setRunning(false));
+        }}>
+        {running ? t('Inheriting…') : t('Inherit')}
+      </button>
+    </footer>
+  </div>;
 }
 
 function usageNumber(value: unknown): number | null {

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import asyncio
 import copy
 import hashlib
@@ -12,7 +11,6 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import time
 import types
 import unittest
 from pathlib import Path
@@ -31,7 +29,6 @@ from harness.routing_profiles import (  # noqa: E402
     build_benchmark_config,
     format_resolved_routes,
     load_route_profile,
-    merge_route_profile,
     reject_profile_conflicts,
     validate_profile_document,
 )
@@ -118,290 +115,105 @@ class RoutingProfileTests(unittest.TestCase):
 
     def test_profile_schema_and_exact_routes(self) -> None:
         validate_profile_document(self.document)
-        profile = load_route_profile("fable-xhigh")
-        self.assertEqual(tuple(profile["routes"]), PROFILE_ROLES)
+        profile = load_route_profile('fable-xhigh')
+        self.assertEqual(tuple(profile['routes']), PROFILE_ROLES)
         self.assertEqual(
-            profile["leadFallback"],
+            profile['leadFallback'],
             {
-                "provider": "anthropic-oauth",
-                "model": "claude-opus-4-8",
-                "effort": "xhigh",
-                "fast": False,
+                'provider': 'anthropic-oauth',
+                'model': 'claude-opus-4-8',
+                'effort': 'xhigh',
+                'fast': False,
             },
         )
         self.assertEqual(
-            profile["routes"],
+            profile['routes'],
             {
-                "lead": {
-                    "provider": "anthropic-oauth",
-                    "model": "claude-fable-5",
-                    "effort": "xhigh",
-                    "fast": False,
+                'lead': {
+                    'provider': 'anthropic-oauth',
+                    'model': 'claude-fable-5',
+                    'effort': 'xhigh',
+                    'fast': False,
                 },
-                "worker": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-terra",
-                    "effort": "high",
-                    "fast": True,
+                'worker': {
+                    'provider': 'openai-oauth',
+                    'model': 'gpt-5.6-terra',
+                    'effort': 'high',
+                    'fast': True,
                 },
-                "heavy-worker": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
-                    "effort": "xhigh",
-                    "fast": True,
+                'heavy-worker': {
+                    'provider': 'openai-oauth',
+                    'model': 'gpt-5.6-sol',
+                    'effort': 'xhigh',
+                    'fast': True,
                 },
-                "reviewer": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
-                    "effort": "xhigh",
-                    "fast": True,
+                'reviewer': {
+                    'provider': 'openai-oauth',
+                    'model': 'gpt-5.6-sol',
+                    'effort': 'xhigh',
+                    'fast': True,
                 },
-                "debugger": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
-                    "effort": "xhigh",
-                    "fast": True,
+                'debugger': {
+                    'provider': 'openai-oauth',
+                    'model': 'gpt-5.6-sol',
+                    'effort': 'xhigh',
+                    'fast': True,
                 },
             },
         )
-        fable_opus_heavy_profile = load_route_profile("fable-opus-heavy-xhigh")
+        sol_profile = load_route_profile('sol-xhigh')
+        self.assertEqual(tuple(sol_profile['routes']), ('lead',))
+        self.assertNotIn('leadFallback', sol_profile)
         self.assertEqual(
-            fable_opus_heavy_profile,
+            sol_profile['routes'],
             {
-                **profile,
-                "routes": {
-                    **profile["routes"],
-                    "heavy-worker": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-opus-4-8",
-                        "effort": "xhigh",
-                        "fast": False,
-                    },
-                },
-            },
-        )
-        fable_sol_heavy_opus_reviewer_profile = load_route_profile(
-            "fable-sol-heavy-opus-reviewer-xhigh"
-        )
-        self.assertEqual(
-            fable_sol_heavy_opus_reviewer_profile,
-            {
-                **profile,
-                "routes": {
-                    **profile["routes"],
-                    "reviewer": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-opus-4-8",
-                        "effort": "xhigh",
-                        "fast": False,
-                    },
-                    "debugger": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-opus-4-8",
-                        "effort": "xhigh",
-                        "fast": False,
-                    },
-                },
-            },
-        )
-        fable_opus_heavy_sol_reviewer_profile = load_route_profile(
-            "fable-opus-heavy-sol-reviewer-xhigh"
-        )
-        self.assertEqual(
-            fable_opus_heavy_sol_reviewer_profile,
-            {
-                **profile,
-                "routes": {
-                    **profile["routes"],
-                    "heavy-worker": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-opus-4-8",
-                        "effort": "xhigh",
-                        "fast": False,
-                    },
-                },
-            },
-        )
-        opus_profile = load_route_profile("opus-xhigh")
-        self.assertEqual(
-            opus_profile,
-            {
-                "leadFallback": {
-                    "provider": "anthropic-oauth",
-                    "model": "claude-opus-4-8",
-                    "effort": "xhigh",
-                    "fast": False,
-                },
-                "routes": {
-                    "lead": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-opus-4-8",
-                        "effort": "xhigh",
-                        "fast": False,
-                    },
-                    "worker": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-terra",
-                        "effort": "high",
-                        "fast": True,
-                    },
-                    "heavy-worker": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    },
-                    "reviewer": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    },
-                    "debugger": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    },
-                },
-            },
-        )
-        fable_high_profile = load_route_profile("fable-high")
-        self.assertEqual(
-            fable_high_profile,
-            {
-                "leadFallback": {
-                    "provider": "anthropic-oauth",
-                    "model": "claude-opus-4-8",
-                    "effort": "xhigh",
-                    "fast": False,
-                },
-                "routes": {
-                    "lead": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-fable-5",
-                        "effort": "high",
-                        "fast": False,
-                    },
-                    "worker": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-terra",
-                        "effort": "high",
-                        "fast": True,
-                    },
-                    "heavy-worker": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "high",
-                        "fast": True,
-                    },
-                    "reviewer": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    },
-                    "debugger": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    },
-                },
-            },
-        )
-        fable_sol_workers_profile = load_route_profile("fable-sol-workers-xhigh")
-        self.assertEqual(
-            fable_sol_workers_profile,
-            {
-                **profile,
-                "routes": {
-                    **profile["routes"],
-                    "worker": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    },
-                    "heavy-worker": {
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    },
-                },
-            },
-        )
-        fable_opus_workers_profile = load_route_profile("fable-opus-workers-xhigh")
-        self.assertEqual(
-            fable_opus_workers_profile,
-            {
-                **profile,
-                "routes": {
-                    **profile["routes"],
-                    "worker": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-opus-4-8",
-                        "effort": "xhigh",
-                        "fast": False,
-                    },
-                    "heavy-worker": {
-                        "provider": "anthropic-oauth",
-                        "model": "claude-opus-4-8",
-                        "effort": "xhigh",
-                        "fast": False,
-                    },
-                },
-            },
-        )
-        # The two Worker-model comparison profiles differ ONLY in the worker
-        # and heavy-worker routes; every other route stays identical, and each
-        # profile drives its worker and heavy-worker with the same model.
-        self.assertEqual(
-            {
-                role: fable_sol_workers_profile["routes"][role]
-                for role in PROFILE_ROLES
-                if role not in ("worker", "heavy-worker")
-            },
-            {
-                role: fable_opus_workers_profile["routes"][role]
-                for role in PROFILE_ROLES
-                if role not in ("worker", "heavy-worker")
-            },
-        )
-        self.assertEqual(
-            fable_sol_workers_profile["routes"]["worker"],
-            fable_sol_workers_profile["routes"]["heavy-worker"],
-        )
-        self.assertEqual(
-            fable_opus_workers_profile["routes"]["worker"],
-            fable_opus_workers_profile["routes"]["heavy-worker"],
-        )
-        sol_profile = load_route_profile("sol-xhigh")
-        self.assertEqual(tuple(sol_profile["routes"]), ("lead",))
-        self.assertNotIn("leadFallback", sol_profile)
-        self.assertEqual(
-            sol_profile["routes"],
-            {
-                "lead": {
-                    "provider": "openai-oauth",
-                    "model": "gpt-5.6-sol",
-                    "effort": "xhigh",
-                    "fast": True,
+                'lead': {
+                    'provider': 'openai-oauth',
+                    'model': 'gpt-5.6-sol',
+                    'effort': 'xhigh',
+                    'fast': True,
                 },
             },
         )
         for profile_name in (
-            "sol-xhigh-nofast",
-            "grok46-xhigh",
-            "grok46-high",
-            "opus5-solo",
-            "grokbuild",
+            'sol-xhigh',
+            'sol-xhigh-nofast',
+            'grok46-xhigh',
+            'grok46-high',
+            'opus5-solo',
+            'grokbuild',
         ):
             with self.subTest(profile=profile_name):
                 self.assertEqual(
-                    tuple(load_route_profile(profile_name)["routes"]), ("lead",)
+                    tuple(load_route_profile(profile_name)['routes']), ('lead',)
                 )
+        sol_workers = load_route_profile('fable-sol-workers-xhigh')
+        opus_workers = load_route_profile('fable-opus-workers-xhigh')
+        shared = {
+            role: sol_workers['routes'][role]
+            for role in PROFILE_ROLES
+            if role not in ('worker', 'heavy-worker')
+        }
+        self.assertEqual(
+            shared,
+            {
+                role: opus_workers['routes'][role]
+                for role in PROFILE_ROLES
+                if role not in ('worker', 'heavy-worker')
+            },
+        )
+        self.assertEqual(
+            sol_workers['routes']['worker'],
+            sol_workers['routes']['heavy-worker'],
+        )
+        self.assertEqual(
+            opus_workers['routes']['worker'],
+            opus_workers['routes']['heavy-worker'],
+        )
+        self.assertNotEqual(
+            sol_workers['routes']['worker'],
+            opus_workers['routes']['worker'],
+        )
 
     def test_schema_rejects_malformed_documents(self) -> None:
         cases = []
@@ -445,91 +257,6 @@ class RoutingProfileTests(unittest.TestCase):
             ):
                 reject_profile_conflicts("fable-xhigh", **override)
         reject_profile_conflicts(None, provider="openai-oauth", model="gpt-5.6-sol")
-
-    def test_merge_replaces_exact_role_routes_without_mutating_host(self) -> None:
-        host = {
-            "agent": {
-                "workflowRoutes": {
-                    "lead": {"provider": "old", "model": "old", "extra": "stale"},
-                    "memory": {"provider": "keep", "model": "keep"},
-                },
-                "agents": {
-                    "worker": {"provider": "old", "model": "old"},
-                    "maintenance": {"provider": "keep", "model": "keep"},
-                },
-                "presets": [
-                    {
-                        "id": "host-lead",
-                        "name": "HOST LEAD",
-                        "provider": "host-provider",
-                        "model": "host-model",
-                        "effort": "high",
-                        "fast": True,
-                        "tools": "full",
-                        "custom": "preserve",
-                    },
-                    {
-                        "id": "unrelated",
-                        "name": "UNRELATED",
-                        "provider": "keep",
-                        "model": "keep",
-                    },
-                ],
-                "default": "host-lead",
-                "modelSettings": {
-                    "anthropic-oauth/claude-fable-5": {
-                        "effort": "high",
-                        "fast": True,
-                        "temperature": 0.2,
-                    },
-                    "keep/keep": {"effort": "low"},
-                },
-            },
-            "unrelated": {"keep": True},
-        }
-        original = copy.deepcopy(host)
-        profile = load_route_profile("fable-xhigh")
-        merged = merge_route_profile(host, profile)
-
-        self.assertEqual(host, original)
-        self.assertEqual(merged["agent"]["workflowRoutes"]["lead"], profile["routes"]["lead"])
-        self.assertEqual(
-            merged["agent"]["workflowRoutes"]["memory"],
-            original["agent"]["workflowRoutes"]["memory"],
-        )
-        role_keys = {
-            "worker": "worker",
-            "heavy-worker": "heavy-worker",
-            "reviewer": "reviewer",
-            "debugger": "debugger",
-        }
-        for role, key in role_keys.items():
-            self.assertEqual(merged["agent"]["agents"][key], profile["routes"][role])
-        self.assertEqual(
-            merged["agent"]["agents"]["maintenance"],
-            original["agent"]["agents"]["maintenance"],
-        )
-        self.assertEqual(merged["agent"]["default"], "host-lead")
-        self.assertEqual(
-            {
-                key: merged["agent"]["presets"][0][key]
-                for key in ("provider", "model", "effort", "fast")
-            },
-            profile["routes"]["lead"],
-        )
-        self.assertEqual(merged["agent"]["presets"][0]["custom"], "preserve")
-        self.assertEqual(
-            merged["agent"]["presets"][1], original["agent"]["presets"][1]
-        )
-        self.assertEqual(
-            merged["agent"]["modelSettings"]["anthropic-oauth/claude-fable-5"],
-            {"effort": "xhigh", "fast": False, "temperature": 0.2},
-        )
-        self.assertEqual(
-            merged["agent"]["modelSettings"]["keep/keep"],
-            original["agent"]["modelSettings"]["keep/keep"],
-        )
-        self.assertEqual(merged["unrelated"], original["unrelated"])
 
     def test_benchmark_config_contains_only_profile_routes_and_workflow(self) -> None:
         profile = load_route_profile("fable-xhigh")
@@ -579,77 +306,12 @@ class RoutingProfileTests(unittest.TestCase):
             "lead=openai-oauth/gpt-5.6-sol effort=xhigh fast=false",
         )
 
-        host = {
-            "agent": {
-                "workflowRoutes": {},
-                "agents": {
-                    "worker": {"provider": "old", "model": "old"},
-                    "maintenance": {"provider": "keep", "model": "keep"},
-                },
-                "presets": [],
-                "modelSettings": {},
-            }
-        }
-        merged = merge_route_profile(host, profile)
-        self.assertNotIn("worker", merged["agent"]["agents"])
-        self.assertEqual(
-            merged["agent"]["agents"]["maintenance"],
-            host["agent"]["agents"]["maintenance"],
-        )
-
-    def test_real_runtime_helpers_resolve_merged_lead_and_agent_routes(self) -> None:
+    def test_real_runtime_helpers_resolve_benchmark_config(self) -> None:
         if shutil.which("node") is None:
             self.skipTest("Node.js is not installed")
-        host = {
-            "agent": {
-                "providers": {
-                    "anthropic-oauth": {"enabled": True},
-                    "openai-oauth": {"enabled": True},
-                },
-                "presets": [
-                    {
-                        "id": "host-lead",
-                        "name": "HOST LEAD",
-                        "provider": "openai-oauth",
-                        "model": "host-lead-model",
-                        "effort": "high",
-                        "fast": True,
-                        "tools": "full",
-                    },
-                    {
-                        "id": "unrelated",
-                        "name": "UNRELATED",
-                        "provider": "keep",
-                        "model": "keep",
-                    },
-                ],
-                "default": "host-lead",
-                "workflowRoutes": {
-                    "lead": {
-                        "provider": "openai-oauth",
-                        "model": "host-lead-model",
-                        "effort": "high",
-                        "fast": True,
-                    },
-                    "memory": {"provider": "keep", "model": "keep"},
-                },
-                "agents": {
-                    role: {"provider": "host", "model": "host"}
-                    for role in ("worker", "heavy-worker", "reviewer", "debugger")
-                },
-                "modelSettings": {
-                    "anthropic-oauth/claude-fable-5": {
-                        "effort": "high",
-                        "fast": True,
-                    }
-                },
-            }
-        }
         profile = load_route_profile("fable-xhigh")
-        merged = merge_route_profile(host, profile)
-        self.assertEqual(host["agent"]["presets"][0]["model"], "host-lead-model")
-
-        resolved = resolve_with_real_runtime(merged)
+        config = build_benchmark_config(profile, "solo")
+        resolved = resolve_with_real_runtime(config)
         self.assertEqual(resolved["runtimeLead"], profile["routes"]["lead"])
         self.assertEqual(resolved["defaultPreset"], profile["routes"]["lead"])
         self.assertEqual(resolved["workflowLead"], profile["routes"]["lead"])
@@ -658,85 +320,9 @@ class RoutingProfileTests(unittest.TestCase):
             for role in ("worker", "heavy-worker", "reviewer", "debugger")
         })
 
-    def test_case_variant_id_name_collision_uses_runtime_first_match(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        host = {
-            "agent": {
-                "default": "HOST-LEAD",
-                "presets": [
-                    {
-                        "id": "alias-before-id",
-                        "name": "host-lead",
-                        "provider": "stale",
-                        "model": "stale-name-match",
-                    },
-                    {
-                        "id": "HoSt-LeAd",
-                        "name": "later-id-match",
-                        "provider": "keep",
-                        "model": "keep",
-                    },
-                ],
-            }
-        }
-        original = copy.deepcopy(host)
-        profile = load_route_profile("fable-xhigh")
-        merged = merge_route_profile(host, profile)
-
-        self.assertEqual(host, original)
-        self.assertEqual(merged["agent"]["default"], "HOST-LEAD")
-        self.assertEqual(merged["agent"]["presets"][0]["model"], "claude-fable-5")
-        self.assertEqual(merged["agent"]["presets"][1], original["agent"]["presets"][1])
-        resolved = resolve_with_real_runtime(merged)
-        self.assertEqual(resolved["runtimeLead"], profile["routes"]["lead"])
-
-    def test_unresolved_default_reuses_first_fallback_alias_without_shadowing(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        host = {
-            "agent": {
-                "default": "missing-host-default",
-                "presets": [
-                    {
-                        "id": "stale-alias",
-                        "name": "TERMINAL-BENCH-ROUTE-PROFILE-LEAD",
-                        "provider": "stale",
-                        "model": "stale-shadow",
-                    },
-                    {
-                        "id": "Terminal-Bench-Route-Profile-Lead",
-                        "name": "later-id-match",
-                        "provider": "keep",
-                        "model": "keep",
-                    },
-                ],
-            }
-        }
-        original = copy.deepcopy(host)
-        profile = load_route_profile("fable-xhigh")
-        merged = merge_route_profile(host, profile)
-
-        self.assertEqual(host, original)
-        self.assertEqual(
-            merged["agent"]["default"], "terminal-bench-route-profile-lead"
-        )
-        self.assertEqual(len(merged["agent"]["presets"]), 2)
-        self.assertEqual(merged["agent"]["presets"][0]["model"], "claude-fable-5")
-        self.assertEqual(merged["agent"]["presets"][1], original["agent"]["presets"][1])
-        resolved = resolve_with_real_runtime(merged)
-        self.assertEqual(resolved["runtimeLead"], profile["routes"]["lead"])
-
     def test_audit_log_is_stable_and_complete(self) -> None:
         line = format_resolved_routes("fable-xhigh", load_route_profile("fable-xhigh"))
         self.assertEqual(line, EXPECTED_AUDIT_LINE)
-
-    def test_python_sources_parse(self) -> None:
-        for path in (
-            HARNESS_ROOT / "routing_profiles.py",
-            HARNESS_ROOT / "mixdog_agent.py",
-        ):
-            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
     def test_solo_review_workflow_is_not_discovered_or_accepted(self) -> None:
         if shutil.which("node") is None:
@@ -807,6 +393,13 @@ console.log(JSON.stringify({
 
 class SrcSnapshotTests(unittest.TestCase):
     @staticmethod
+    def build(repo_src: Path, output: Path):
+        spawn = output.parent / "mixdog-spawn"
+        spawn.write_bytes(b"current native spawn")
+        spawn.chmod(0o755)
+        return build_src_snapshot(repo_src, output, spawn)
+
+    @staticmethod
     def extract(snapshot, destination: Path) -> Path:
         with tarfile.open(snapshot.archive_path, "r:") as archive:
             archive.extractall(destination)
@@ -821,7 +414,7 @@ class SrcSnapshotTests(unittest.TestCase):
             (repo_src / "committed" / "unchanged.mjs").write_bytes(b"committed")
             (repo_src / "modified.mjs").write_bytes(b"local modification")
             (repo_src / "untracked-addition.mjs").write_bytes(b"local addition")
-            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
+            snapshot = self.build(repo_src, root / "snapshot.tar")
 
             (repo_src / "modified.mjs").write_bytes(b"later mutation")
             (repo_src / "untracked-addition.mjs").unlink()
@@ -829,6 +422,10 @@ class SrcSnapshotTests(unittest.TestCase):
 
             loaded = load_src_snapshot(snapshot.archive_path)
             extracted = self.extract(loaded, root / "extracted")
+            self.assertEqual(
+                (root / "extracted" / "native-tools" / "mixdog-spawn").read_bytes(),
+                b"current native spawn",
+            )
             self.assertEqual(
                 {
                     path.relative_to(extracted).as_posix(): path.read_bytes()
@@ -852,7 +449,7 @@ class SrcSnapshotTests(unittest.TestCase):
             repo_src = root / "repo" / "src"
             repo_src.mkdir(parents=True)
             (repo_src / "kept.mjs").write_bytes(b"exact local bytes")
-            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
+            snapshot = self.build(repo_src, root / "snapshot.tar")
 
             package_src = root / "package" / "src"
             package_src.mkdir(parents=True)
@@ -901,7 +498,7 @@ class SrcSnapshotTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"symlinks unavailable: {exc}")
             with self.assertRaisesRegex(SrcOverlayError, "symlink"):
-                build_src_snapshot(repo_src, root / "rejected.tar")
+                self.build(repo_src, root / "rejected.tar")
 
     @unittest.skipIf(os.name == "nt", "Windows does not preserve POSIX execute bits")
     def test_snapshot_preserves_executable_mode(self) -> None:
@@ -912,7 +509,7 @@ class SrcSnapshotTests(unittest.TestCase):
             executable = repo_src / "tool.mjs"
             executable.write_bytes(b"#!/usr/bin/env node\n")
             executable.chmod(0o755)
-            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
+            snapshot = self.build(repo_src, root / "snapshot.tar")
             extracted = self.extract(snapshot, root / "extracted")
             self.assertEqual(os.lstat(extracted / "tool.mjs").st_mode & 0o777, 0o755)
 
@@ -940,7 +537,7 @@ class SrcSnapshotTests(unittest.TestCase):
                     "harness.src_overlay.subprocess.run", return_value=git_result
                 ) as git,
             ):
-                snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
+                snapshot = self.build(repo_src, root / "snapshot.tar")
 
             with tarfile.open(snapshot.archive_path, "r:") as archive:
                 members = {member.name: member for member in archive.getmembers()}
@@ -1011,9 +608,10 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertIn("fs.realpathSync", command)
         self.assertNotIn("mixdog --help", command)
 
-    def test_installer_uses_latest_dependency_shell_unless_explicitly_overridden(self) -> None:
+    def test_installer_pins_package_version_unless_explicitly_overridden(self) -> None:
         module = self.load_adapter_module()
         commands = []
+        pinned = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["version"]
 
         async def exec_as_root(environment, *, command, env=None):
             commands.append(command)
@@ -1025,13 +623,14 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         asyncio.run(default_agent.install(object()))
         asyncio.run(override_agent.install(object()))
 
-        self.assertEqual(default_agent._mixdog_version, "latest")
+        self.assertEqual(default_agent._mixdog_version, pinned)
+        self.assertNotEqual(pinned.lower(), "latest")
         self.assertEqual(override_agent._mixdog_version, "fixture")
         npm_commands = [
             command for command in commands if "npm install -g" in command
         ]
         self.assertEqual(len(npm_commands), 2)
-        self.assertIn("mixdog@latest", npm_commands[0])
+        self.assertIn(f"mixdog@{pinned}", npm_commands[0])
         self.assertIn("mixdog@fixture", npm_commands[1])
 
     @staticmethod
@@ -1102,7 +701,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertNotIn("MIXDOG_LEAD_FALLBACK", with_fallback)
         self.assertNotIn("MIXDOG_LEAD_FALLBACK", without_fallback)
 
-    def test_retry_attempt_selects_fallback_and_success_clears_marker(self) -> None:
+    def test_retry_attempt_keeps_configured_lead_route(self) -> None:
         module = self.load_adapter_module()
         fallback = {
             "provider": "openai-oauth",
@@ -1110,74 +709,38 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             "effort": "xhigh",
             "fast": True,
         }
-        with tempfile.TemporaryDirectory(prefix="mixdog-fallback-state-") as temp:
-            class Environment:
-                session_id = "collision-safe-trial__AbC123"
 
-            agent = module.MixdogAgent.__new__(module.MixdogAgent)
-            agent.model_name = None
-            agent._route_profile_name = "fixture"
-            agent._route_profile = {"routes": {}, "leadFallback": fallback}
-            agent._mode = "lead"
-            calls = []
+        class Environment:
+            session_id = "collision-safe-trial__AbC123"
 
-            async def inject(environment):
-                return None
+        agent = module.MixdogAgent.__new__(module.MixdogAgent)
+        agent.model_name = None
+        agent._route_profile_name = "fixture"
+        agent._route_profile = {"routes": {}, "leadFallback": fallback}
+        agent._mode = "lead"
+        calls = []
 
-            async def run_lead(
-                environment, instruction, model, base_env, *, lead_route=None
-            ):
-                calls.append(copy.deepcopy(lead_route))
-                if len(calls) == 1:
-                    raise module.NonZeroAgentExitCodeError(
-                        "Command failed (exit 86): fixture"
-                    )
+        async def inject(environment):
+            return None
 
-            agent._inject_credentials = inject
-            agent._run_lead = run_lead
-            agent._populate_usage_context = mock.AsyncMock()
-            with mock.patch.dict(
-                os.environ, {module.FALLBACK_STATE_ENV: temp}, clear=False
-            ):
-                with self.assertRaisesRegex(
-                    module.NonZeroAgentExitCodeError, "exit 86"
-                ):
-                    asyncio.run(agent.run("task", Environment(), None))
-                markers = list(Path(temp).glob("*.retry"))
-                self.assertEqual(len(markers), 1)
-                asyncio.run(agent.run("task", Environment(), None))
-                self.assertEqual(list(Path(temp).glob("*.retry")), [])
-
-        self.assertEqual(calls, [None, fallback])
-
-    def test_refusal_marker_requires_anchored_refusal_exit_exception(self) -> None:
-        module = self.load_adapter_module()
-        self.assertFalse(
-            module.MixdogAgent._is_refusal_fallback_exit(
-                RuntimeError("diagnostic mentions Command failed (exit 86): nested")
-            )
-        )
-        self.assertFalse(
-            module.MixdogAgent._is_refusal_fallback_exit(
-                module.NonZeroAgentExitCodeError(
-                    "Command failed (exit 186): unrelated"
+        async def run_lead(
+            environment, instruction, model, base_env, *, lead_route=None
+        ):
+            calls.append(copy.deepcopy(lead_route))
+            if len(calls) == 1:
+                raise module.NonZeroAgentExitCodeError(
+                    "Command failed (exit 86): fixture"
                 )
-            )
-        )
-        self.assertFalse(
-            module.MixdogAgent._is_refusal_fallback_exit(
-                module.NonZeroAgentExitCodeError(
-                    "Command failed (exit 87): transport stall"
-                )
-            )
-        )
-        self.assertTrue(
-            module.MixdogAgent._is_refusal_fallback_exit(
-                module.NonZeroAgentExitCodeError(
-                    "Command failed (exit 86): exact"
-                )
-            )
-        )
+
+        agent._inject_credentials = inject
+        agent._run_lead = run_lead
+        agent._populate_usage_context = mock.AsyncMock()
+        with self.assertRaisesRegex(
+            module.NonZeroAgentExitCodeError, "exit 86"
+        ):
+            asyncio.run(agent.run("task", Environment(), None))
+        asyncio.run(agent.run("task", Environment(), None))
+        self.assertEqual(calls, [None, None])
 
     def test_real_harbor_retry_queue_recreates_attempts_and_honors_exhaustion(
         self,
@@ -1323,14 +886,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 ),
             )
             config = types.SimpleNamespace(trial_name=session_id)
-            with (
-                mock.patch.object(Trial, "create", side_effect=create_trial),
-                mock.patch.dict(
-                    os.environ,
-                    {module.FALLBACK_STATE_ENV: str(state_root)},
-                    clear=False,
-                ),
-            ):
+            with mock.patch.object(Trial, "create", side_effect=create_trial):
                 result = await queue._execute_trial_with_retries(config)
             return result, routes, trial_objects, starting_budgets
 
@@ -1341,10 +897,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             )
             result, routes, trials, budgets = success
             self.assertIsNone(result.exception_info)
-            self.assertEqual(routes, [None, fallback])
+            self.assertEqual(routes, [None, None])
             self.assertEqual(len({id(trial) for trial in trials}), 2)
             self.assertEqual(budgets, [100, 100])
-            self.assertEqual(list((root / "success").glob("*.retry")), [])
 
             exhausted = asyncio.run(
                 exercise_queue(root / "exhausted", "queue-exhausted", 99, 2)
@@ -1354,12 +909,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 result.exception_info.exception_type,
                 "NonZeroAgentExitCodeError",
             )
-            self.assertEqual(routes, [None, fallback, fallback])
+            self.assertEqual(routes, [None, None, None])
             self.assertEqual(len(trials), 3)
             self.assertEqual(budgets, [100, 100, 100])
-            self.assertEqual(
-                len(list((root / "exhausted").glob("*.retry"))), 1
-            )
 
     def test_run_only_sets_credential_and_log_environment(self) -> None:
         module = self.load_adapter_module()
@@ -1695,6 +1247,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertTrue(
             any("MIXDOG_PREBAKE_UV_READY" in command for command in commands)
         )
+        self.assertTrue(
+            any("prebake mixdog version" in command for command in commands)
+        )
 
     def _run_uv_provision_fixture(
         self,
@@ -1914,9 +1469,8 @@ INSTALLER
         self.assertIn("mixdog exec --json --provider anthropic-oauth", command)
         self.assertIn("--model claude-sonnet-4-5", command)
         self.assertIn("/logs/agent/mixdog.stderr", command)
-        self.assertIn("termination_reason", command)
-        self.assertIn("refusal", command)
-        self.assertIn("exit(86)", command)
+        self.assertNotIn("termination_reason", command)
+        self.assertNotIn("exit(86)", command)
         self.assertLess(command.index("-- "), command.index("- fixture"))
         self.assertNotIn("MIXDOG_PROMPT", run_env)
         self.assertNotIn("MIXDOG_WORKFLOW", run_env)
@@ -1977,7 +1531,10 @@ INSTALLER
             repo_src = root / "src"
             repo_src.mkdir()
             (repo_src / "kept.mjs").write_bytes(b"local")
-            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar")
+            spawn = root / "mixdog-spawn"
+            spawn.write_bytes(b"current native spawn")
+            spawn.chmod(0o755)
+            snapshot = build_src_snapshot(repo_src, root / "snapshot.tar", spawn)
             uploads = []
             commands = []
 
@@ -2001,13 +1558,18 @@ INSTALLER
         self.assertEqual(len(commands), 1)
         self.assertIn('readlink -f "$(command -v mixdog)"', commands[0])
         self.assertNotIn("npm root -g", commands[0])
-        self.assertIn("trap cleanup_src_swap EXIT", commands[0])
+        self.assertIn("trap cleanup_runtime_swap EXIT", commands[0])
         self.assertIn("trap 'exit 1' HUP INT TERM", commands[0])
         self.assertIn('mv "$PACKAGE/src" "$BACKUP"', commands[0])
         self.assertIn('mv "$STAGING/src" "$PACKAGE/src"', commands[0])
         self.assertIn('mv "$BACKUP" "$PACKAGE/src"', commands[0])
+        self.assertIn('"$STAGING/native-tools/mixdog-spawn"', commands[0])
+        self.assertIn("trackedForeground promoteTask cancelOwner", commands[0])
         self.assertIn('rm -rf "$BACKUP" "$STAGING"', commands[0])
-        self.assertNotIn('rm -rf "$PACKAGE/src"', commands[0])
+        self.assertIn(
+            'rm -rf "$PACKAGE/src"; mv "$BACKUP" "$PACKAGE/src"',
+            commands[0],
+        )
         self.assertNotIn("manifest", commands[0])
         self.assertNotIn("src_overlay_apply", commands[0])
 
@@ -2032,1112 +1594,6 @@ INSTALLER
                 artifact.write_bytes(b"const mutated = true;\n")
                 with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
                     module._harness_snapshot_file(artifact.name)
-
-
-@unittest.skip(
-    "legacy lead driver removed; product behavior is covered by headless-exec tests"
-)
-class LeadDriverBehaviorTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls._prior_context_utils_url = os.environ.get("MIXDOG_CONTEXT_UTILS_URL")
-        os.environ["MIXDOG_CONTEXT_UTILS_URL"] = (
-            REPO_ROOT
-            / "src"
-            / "runtime"
-            / "agent"
-            / "orchestrator"
-            / "session"
-            / "context-utils.mjs"
-        ).as_uri()
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls._prior_context_utils_url is None:
-            os.environ.pop("MIXDOG_CONTEXT_UTILS_URL", None)
-        else:
-            os.environ["MIXDOG_CONTEXT_UTILS_URL"] = cls._prior_context_utils_url
-
-    def test_driver_deadline_bounds_the_initial_turn(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-
-        runtime_stub = """
-import { writeFileSync } from 'node:fs';
-let rejectAsk = null;
-export async function createMixdogSessionRuntime(options) {
-  writeFileSync(process.env.MIXDOG_DATA_DIR + '/runtime-options.json', JSON.stringify(options));
-  return {
-    sessionId: 'deadline-session',
-    session: { id: 'deadline-session', tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {
-      if (rejectAsk) rejectAsk(new Error('stub aborted'));
-    },
-    async close() {
-      writeFileSync(process.env.MIXDOG_DATA_DIR + '/deadline-closed', 'closed');
-    },
-    ask() {
-      return new Promise((resolve, reject) => { rejectAsk = reject; });
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-lead-deadline-test-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROVIDER": "anthropic-oauth",
-                    "MIXDOG_MODEL": "claude-fixture",
-                    "MIXDOG_PROMPT": "never completes",
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "50",
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-            self.assertEqual((data / "deadline-closed").read_text(), "closed")
-            runtime_options = json.loads(
-                (data / "runtime-options.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(runtime_options["approvalMode"], "implicit")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(
-            "run deadline exceeded during model ask after 50ms", result.stderr
-        )
-
-    def test_driver_rejects_before_start_when_deadline_is_exhausted(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-import { writeFileSync } from 'node:fs';
-export async function createMixdogSessionRuntime() {
-  writeFileSync(process.env.MIXDOG_DATA_DIR + '/runtime-started', 'unexpected');
-  throw new Error('runtime must not start');
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-lead-prestart-test-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROVIDER": "anthropic-oauth",
-                    "MIXDOG_MODEL": "claude-fixture",
-                    "MIXDOG_PROMPT": "must not start",
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "0",
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-            self.assertFalse((data / "runtime-started").exists())
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("run deadline exceeded before primary session", result.stderr)
-
-    def test_driver_exits_86_after_late_lead_refusal(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-import { readFileSync, writeFileSync } from 'node:fs';
-const countPath = process.env.MIXDOG_DATA_DIR + '/runtime-count';
-export async function createMixdogSessionRuntime() {
-  let count = 0;
-  try { count = Number(readFileSync(countPath, 'utf8')); } catch {}
-  count += 1;
-  writeFileSync(countPath, String(count));
-  return {
-    sessionId: 'late-fallback-primary',
-    session: { id: 'late-fallback-primary', tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async ask() {
-      process.stderr.write('[session] empty-final persisted sessionId=late-fallback-primary detail=fixture stopReason=refusal\\n');
-      return { result: { text: '' } };
-    },
-    async close() {
-      await new Promise((resolve) => setTimeout(resolve, 75));
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-late-fallback-test-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            audit_path = root / "refusal-brief-audit.json"
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROVIDER": "anthropic-oauth",
-                    "MIXDOG_MODEL": "claude-primary",
-                    "MIXDOG_PROMPT": "refuse",
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "40",
-                    "MIXDOG_BRIEF_AUDIT_LOG": str(audit_path),
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-            self.assertEqual((data / "runtime-count").read_text(), "1")
-            self.assertTrue(audit_path.exists())
-        self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn(
-            "lead_driver: lead session late-fallback-primary terminated on API refusal",
-            result.stderr,
-        )
-
-    def test_driver_never_relaunches_refused_lead_in_process(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-import { mkdirSync, writeFileSync } from 'node:fs';
-let runtimeCount = 0;
-export async function createMixdogSessionRuntime({ provider, model }) {
-  const count = ++runtimeCount;
-  const sessionId = `fallback-session-${count}`;
-  mkdirSync(process.env.MIXDOG_DATA_DIR + '/sessions', { recursive: true });
-  const route = { provider, model };
-  const persist = () => writeFileSync(
-    process.env.MIXDOG_DATA_DIR + `/sessions/${sessionId}.json`,
-    JSON.stringify({ id: sessionId, model, route, messages: [] }),
-  );
-  persist();
-  return {
-    sessionId,
-    session: { id: sessionId, tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort(effort) { route.effort = effort; persist(); },
-    async setFast(fast) { route.fast = fast; persist(); },
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask() {
-      if (count === 1) {
-        process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
-        return { result: { text: '' } };
-      }
-      return { result: { text: 'fallback completed' } };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-refusal-fallback-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(runtime_stub, encoding="utf-8")
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROVIDER": "anthropic-oauth",
-                    "MIXDOG_MODEL": "claude-primary",
-                    "MIXDOG_PROMPT": "fallback task",
-                    "MIXDOG_LEAD_FALLBACK": json.dumps({
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    }),
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "-1",
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-            primary_session = json.loads(
-                (data / "sessions" / "fallback-session-1.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual(
-                primary_session["route"],
-                {
-                    "provider": "anthropic-oauth",
-                    "model": "claude-primary",
-                },
-            )
-            self.assertFalse(
-                (data / "sessions" / "fallback-session-2.json").exists()
-            )
-        self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertNotIn("refusal-fallback:", result.stdout)
-
-    def test_driver_exits_86_when_fallback_also_refuses(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-let runtimeCount = 0;
-export async function createMixdogSessionRuntime() {
-  const sessionId = `double-refusal-${++runtimeCount}`;
-  return {
-    sessionId,
-    session: { id: sessionId, tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask() {
-      process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
-      return { result: { text: '' } };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-double-refusal-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(runtime_stub, encoding="utf-8")
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROMPT": "double refusal",
-                    "MIXDOG_LEAD_FALLBACK": json.dumps({
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    }),
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "-1",
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-        self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn(
-            "lead_driver: lead session double-refusal-1 terminated on API refusal",
-            result.stderr,
-        )
-
-    def test_driver_exits_86_when_fallback_starts_after_deadline(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-export async function createMixdogSessionRuntime() {
-  const sessionId = 'deadline-refusal-primary';
-  return {
-    sessionId,
-    session: { id: sessionId, tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask() {
-      process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
-      return { result: { text: '' } };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-fallback-deadline-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(runtime_stub, encoding="utf-8")
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROMPT": "deadline refusal",
-                    "MIXDOG_LEAD_FALLBACK": json.dumps({
-                        "provider": "openai-oauth",
-                        "model": "gpt-5.6-sol",
-                        "effort": "xhigh",
-                        "fast": True,
-                    }),
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "20",
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-        self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn("bench refusal fallback", result.stderr)
-
-    def test_periodic_mirror_snapshots_lazy_lead_session_before_external_kill(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        # Lazy session creation: rt.sessionId stays empty until the first ask,
-        # and that ask never settles — a Harbor-style external kill is the only
-        # exit, so no driver finalization path runs. The periodic mirror must
-        # still capture the live Lead transcript.
-        runtime_stub = """
-export async function createMixdogSessionRuntime() {
-  const session = { id: '', tools: [], messages: [] };
-  let activeSessionId = '';
-  return {
-    get sessionId() { return activeSessionId; },
-    get session() { return activeSessionId ? session : undefined; },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask() {
-      activeSessionId = 'lazy-lead-session';
-      session.id = activeSessionId;
-      session.messages.push({ role: 'user', content: 'stub task' });
-      await new Promise(() => {});
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-lazy-mirror-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            logs = root / "logs"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            logs.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            transcript = logs / "session-transcript.json"
-            proc = subprocess.Popen(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROMPT": "lazy mirror",
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_USAGE_MIRROR_MS": "50",
-                    "MIXDOG_USAGE_LOG": str(logs / "usage.json"),
-                    "MIXDOG_SESSION_TRANSCRIPT_LOG": str(transcript),
-                },
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            try:
-                deadline = time.monotonic() + 10.0
-                while time.monotonic() < deadline and not transcript.exists():
-                    time.sleep(0.05)
-            finally:
-                proc.kill()
-                proc.wait(timeout=5)
-            self.assertTrue(
-                transcript.exists(),
-                "periodic mirror never captured the lazily created Lead session",
-            )
-            document = json.loads(transcript.read_text(encoding="utf-8"))
-        self.assertEqual(document["id"], "lazy-lead-session")
-        self.assertEqual(document["messages"][0]["content"], "stub task")
-
-    def test_driver_exits_86_for_lead_refusal_with_streamed_narration(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-
-        runtime_stub = """
-import { writeFileSync } from 'node:fs';
-let runtimeCount = 0;
-const dataDir = process.env.MIXDOG_DATA_DIR;
-export async function createMixdogSessionRuntime() {
-  const sessionId = `stub-session-${++runtimeCount}`;
-  writeFileSync(dataDir + '/runtime-count', String(runtimeCount));
-  return {
-    sessionId,
-    session: { id: sessionId, tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask(_message, { onTextDelta }) {
-      onTextDelta('interim narration');
-      process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
-      return {
-        result: {
-          content: 'interim narration',
-          stopReason: 'refusal',
-          terminationReason: 'refusal',
-        },
-      };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-
-        with tempfile.TemporaryDirectory(prefix="mixdog-lead-driver-test-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            env = {
-                **os.environ,
-                "MIXDOG_SRC": str(src),
-                "MIXDOG_DATA_DIR": str(data),
-                "MIXDOG_PROVIDER": "anthropic-oauth",
-                "MIXDOG_MODEL": "claude-fable-5",
-                "MIXDOG_PROMPT": "stub task",
-                "MIXDOG_BOOT_JITTER_MS": "0",
-                "MIXDOG_DRIVER_DEADLINE_MS": "100",
-            }
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env=env,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-
-            self.assertEqual((data / "runtime-count").read_text(), "1")
-        self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn(
-            "lead_driver: lead session stub-session-1 terminated on API refusal",
-            result.stderr,
-        )
-
-    def test_driver_keeps_refusal_then_successful_resume(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-
-        runtime_stub = """
-let notify = null;
-let asks = 0;
-export async function createMixdogSessionRuntime() {
-  const sessionId = 'resume-after-refusal';
-  let activeSessionId = '';
-  return {
-    get sessionId() { return activeSessionId; },
-    get session() { return activeSessionId ? { id: activeSessionId, tools: [] } : undefined; },
-    onNotification(callback) { notify = callback; },
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask() {
-      asks += 1;
-      if (asks === 1) {
-        process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
-        notify();
-        return { result: { text: '' } };
-      }
-      activeSessionId = sessionId;
-      return { result: { text: 'resume completed' } };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-resume-after-refusal-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROVIDER": "anthropic-oauth",
-                    "MIXDOG_MODEL": "claude-fixture",
-                    "MIXDOG_PROMPT": "resume after refusal",
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "100",
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("refusal-restart:", result.stdout)
-        self.assertIn("resume completed", result.stdout)
-
-    def test_driver_exits_86_after_refusal_and_empty_resume(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-
-        runtime_stub = """
-let notify = null;
-let asks = 0;
-export async function createMixdogSessionRuntime() {
-  const sessionId = 'empty-resume-after-refusal';
-  return {
-    sessionId,
-    session: { id: sessionId, tools: [] },
-    onNotification(callback) { notify = callback; },
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask() {
-      asks += 1;
-      if (asks === 1) {
-        process.stderr.write(`[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`);
-        notify();
-      }
-      return { result: { text: '' } };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-empty-resume-refusal-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROVIDER": "anthropic-oauth",
-                    "MIXDOG_MODEL": "claude-fixture",
-                    "MIXDOG_PROMPT": "empty resume after refusal",
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "100",
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-        self.assertEqual(result.returncode, 86, result.stderr)
-        self.assertIn(
-            "lead_driver: lead session empty-resume-after-refusal "
-            "terminated on API refusal",
-            result.stderr,
-        )
-
-    def test_tiny_finals_retry_but_substantive_final_succeeds(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-export async function createMixdogSessionRuntime() {
-  const sessionId = 'final-size-fixture';
-  return {
-    sessionId,
-    session: { id: sessionId, tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask() { return { result: { text: process.env.FIXTURE_FINAL } }; },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-final-size-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            results = {}
-            for final in ("R", "!", "OK", "ordinary substantive final"):
-                results[final] = subprocess.run(
-                    ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                    cwd=BENCH_ROOT,
-                    env={
-                        **os.environ,
-                        "MIXDOG_SRC": str(src),
-                        "MIXDOG_DATA_DIR": str(data),
-                        "MIXDOG_PROMPT": "fixture",
-                        "MIXDOG_BOOT_JITTER_MS": "0",
-                        "MIXDOG_DRIVER_DEADLINE_MS": "-1",
-                        "FIXTURE_FINAL": final,
-                    },
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    timeout=5,
-                )
-        for final in ("R", "!", "OK"):
-            self.assertEqual(results[final].returncode, 86, results[final].stderr)
-            self.assertIn("tiny final public response", results[final].stdout)
-        self.assertEqual(
-            results["ordinary substantive final"].returncode,
-            0,
-            results["ordinary substantive final"].stderr,
-        )
-
-    def test_close_hang_or_reject_cannot_mask_final_outcome(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-export async function createMixdogSessionRuntime() {
-  const sessionId = `close-${process.env.FIXTURE_GATE}-${process.env.FIXTURE_CLOSE}`;
-  return {
-    sessionId,
-    session: { id: sessionId, tools: [] },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    close() {
-      if (process.env.FIXTURE_CLOSE === 'reject') {
-        return Promise.reject(new Error('fixture close rejected'));
-      }
-      return new Promise(() => {});
-    },
-    async ask() {
-      if (process.env.FIXTURE_GATE === 'refusal') {
-        process.stderr.write(
-          `[session] empty-final persisted sessionId=${sessionId} detail=fixture stopReason=refusal\\n`
-        );
-        return { result: { text: '' } };
-      }
-      if (process.env.FIXTURE_GATE === 'tiny') {
-        return { result: { text: 'OK' } };
-      }
-      return { result: { text: 'ordinary substantive final' } };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-close-outcome-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            results = {}
-            for gate in ("refusal", "tiny", "substantive"):
-                for close_behavior in ("hang", "reject"):
-                    results[(gate, close_behavior)] = subprocess.run(
-                        ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                        cwd=BENCH_ROOT,
-                        env={
-                            **os.environ,
-                            "MIXDOG_SRC": str(src),
-                            "MIXDOG_DATA_DIR": str(data),
-                            "MIXDOG_PROMPT": "fixture",
-                            "MIXDOG_BOOT_JITTER_MS": "0",
-                            "MIXDOG_DRIVER_DEADLINE_MS": "-1",
-                            "MIXDOG_CLOSE_GRACE_MS": "5",
-                            "FIXTURE_GATE": gate,
-                            "FIXTURE_CLOSE": close_behavior,
-                        },
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        timeout=5,
-                    )
-
-        for gate in ("refusal", "tiny"):
-            for close_behavior in ("hang", "reject"):
-                result = results[(gate, close_behavior)]
-                self.assertEqual(result.returncode, 86, result.stderr)
-                if gate == "refusal":
-                    self.assertIn(
-                        "lead_driver: lead session "
-                        f"close-refusal-{close_behavior} terminated on API refusal",
-                        result.stderr,
-                    )
-                else:
-                    self.assertIn(
-                        "refusal-restart: tiny final public response",
-                        result.stdout,
-                    )
-        for close_behavior in ("hang", "reject"):
-            result = results[("substantive", close_behavior)]
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("ordinary substantive final", result.stdout)
-
-    def test_driver_stall_exits_for_fresh_retry_without_second_runtime(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = """
-import { readFileSync, writeFileSync } from 'node:fs';
-const countPath = process.env.MIXDOG_DATA_DIR + '/runtime-count';
-let rejectAsk;
-let holdOpen;
-export async function createMixdogSessionRuntime() {
-  let count = 0;
-  try { count = Number(readFileSync(countPath, 'utf8')); } catch {}
-  writeFileSync(countPath, String(count + 1));
-  return {
-    sessionId: 'stall-fixture',
-    session: {
-      id: 'stall-fixture',
-      tools: [],
-      lastContextTokens: 12345,
-      lastIterationIndex: 7,
-    },
-    onNotification() {},
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() { return false; },
-    close() {
-      clearInterval(holdOpen);
-      return new Promise(() => {});
-    },
-    ask() {
-      holdOpen = setInterval(() => {}, 1000);
-      return new Promise((_resolve, reject) => { rejectAsk = reject; });
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        with tempfile.TemporaryDirectory(prefix="mixdog-stall-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            data = root / "data"
-            (src / "session-runtime").mkdir(parents=True)
-            data.mkdir()
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            audit_path = root / "stall-brief-audit.json"
-            transcript_path = root / "stall-session-transcript.json"
-            result = subprocess.run(
-                ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                cwd=BENCH_ROOT,
-                env={
-                    **os.environ,
-                    "MIXDOG_SRC": str(src),
-                    "MIXDOG_DATA_DIR": str(data),
-                    "MIXDOG_PROMPT": "stall",
-                    "MIXDOG_BOOT_JITTER_MS": "0",
-                    "MIXDOG_DRIVER_DEADLINE_MS": "-1",
-                    "MIXDOG_STALL_MS": "1",
-                    "MIXDOG_STALL_POLL_MS": "5",
-                    "MIXDOG_STALL_CLOSE_GRACE_MS": "5",
-                    "MIXDOG_BRIEF_AUDIT_LOG": str(audit_path),
-                    "MIXDOG_SESSION_TRANSCRIPT_LOG": str(transcript_path),
-                },
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=5,
-            )
-            self.assertEqual((data / "runtime-count").read_text(), "1")
-            self.assertTrue(audit_path.exists())
-            transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
-            self.assertEqual(transcript["lastContextTokens"], 12345)
-            self.assertEqual(transcript["lastIterationIndex"], 7)
-        self.assertEqual(result.returncode, 87, result.stderr)
-        self.assertIn("transport stall", result.stderr)
-        self.assertIn("same model", result.stderr)
-
-    def test_brief_audit_reports_structural_findings_without_failing(self) -> None:
-        if shutil.which("node") is None:
-            self.skipTest("Node.js is not installed")
-        runtime_stub = r"""
-const leadId = 'brief-audit-lead';
-const clean = process.env.FIXTURE_AUDIT === 'clean';
-const dirtyCalls = [
-  { agent: 'worker', tag: 'impl', prompt: 'Task: shared-secret-task\nVerify: secret-command' },
-  { agent: 'review', tag: 'review', prompt: '', message: 'Task: shared-secret-task\nDeliver: secret-review' },
-  { agent: 'debugger', tag: 'debug', prompt: 'Anchors: secret-debug' },
-  { agent: 'heavy', tag: 'heavy', cwd: 'worker', file: 'briefs/heavy.txt' },
-  { agent: 'worker', tag: 'scan', prompt: 'Task: secret-scan\nAnchors: Worker→Debugger→Reviewer' },
-  { agent: 'worker', tag: 'no-brief' },
-];
-const cleanCalls = [
-  { agent: 'review', tag: 'review-a', prompt: 'Task: secret-clean-review' },
-  { agent: 'reviewer', tag: 'review-b', prompt: 'Task: secret-clean-review' },
-];
-const calls = clean ? cleanCalls : dirtyCalls;
-const resumedCalls = clean
-  ? [{ agent: 'reviewer', tag: 'review-a', message: 'Task: secret-clean-followup' }]
-  : [{ agent: 'worker', tag: 'impl', message: 'Task: secret-resumed-impl' }];
-const lead = {
-  id: leadId,
-  cwd: process.env.FIXTURE_CWD,
-  tools: [{ name: 'agent' }],
-  messages: [],
-};
-export async function createMixdogSessionRuntime() {
-  let notify = () => {};
-  let askCount = 0;
-  return {
-    sessionId: leadId,
-    session: lead,
-    cwd: process.env.FIXTURE_CWD,
-    onNotification(callback) { notify = callback; },
-    async setWorkflow() {},
-    async setEffort() {},
-    async setFast() {},
-    agentStatus() { return { agentJobs: [] }; },
-    abort() {},
-    async close() {},
-    async ask(_message, options) {
-      const batch = askCount === 0 ? calls : resumedCalls;
-      const runtimeCalls = batch.map((call, index) => ({
-        id: `call-${askCount}-${index}`,
-        name: 'agent',
-        arguments: { type: 'spawn', ...call },
-      }));
-      await options.onToolCall?.(0, runtimeCalls);
-      for (const call of runtimeCalls) {
-        call.arguments.prompt = 'Task: post-event-compacted-brief';
-        delete call.arguments.message;
-        delete call.arguments.file;
-      }
-      askCount += 1;
-      if (askCount === 1) queueMicrotask(() => notify());
-      return { result: { text: 'ordinary substantive final' } };
-    },
-  };
-}
-"""
-        workflow_stub = "export const normalizeWorkflowId = (value) => value;\n"
-        results = {}
-        with tempfile.TemporaryDirectory(prefix="mixdog-brief-audit-") as temp:
-            root = Path(temp)
-            src = root / "src"
-            (src / "session-runtime").mkdir(parents=True)
-            (src / "mixdog-session-runtime.mjs").write_text(
-                runtime_stub, encoding="utf-8"
-            )
-            (src / "session-runtime" / "workflow.mjs").write_text(
-                workflow_stub, encoding="utf-8"
-            )
-            for fixture in ("clean", "findings"):
-                data = root / fixture
-                data.mkdir()
-                file_brief = (
-                    "Task: secret-heavy-file\n"
-                    "Deliver: secret-file-delivery\n"
-                )
-                (data / "worker" / "briefs").mkdir(parents=True)
-                (data / "worker" / "briefs" / "heavy.txt").write_bytes(
-                    file_brief.encode()
-                )
-                audit_path = root / f"{fixture}-brief-audit.json"
-                result = subprocess.run(
-                    ["node", str(HARNESS_ROOT / "lead_driver.mjs")],
-                    cwd=BENCH_ROOT,
-                    env={
-                        **os.environ,
-                        "MIXDOG_SRC": str(src),
-                        "MIXDOG_DATA_DIR": str(data),
-                        "MIXDOG_PROMPT": "fixture",
-                        "MIXDOG_BOOT_JITTER_MS": "0",
-                        "MIXDOG_DRIVER_DEADLINE_MS": "3000",
-                        "MIXDOG_BRIEF_AUDIT_LOG": str(audit_path),
-                        "FIXTURE_AUDIT": fixture,
-                        "FIXTURE_CWD": str(data),
-                    },
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    timeout=5,
-                )
-                results[fixture] = (result, json.loads(audit_path.read_text()))
-
-        clean_result, clean_audit = results["clean"]
-        self.assertEqual(clean_result.returncode, 0, clean_result.stderr)
-        self.assertEqual(clean_audit["schemaVersion"], 1)
-        self.assertEqual(clean_audit["findingCount"], 0)
-        self.assertEqual(clean_audit["leadAgentCallCount"], 3)
-        self.assertEqual(
-            [call["tag"] for call in clean_audit["calls"]].count("review-a"), 2
-        )
-        self.assertTrue(
-            all(len(call["callPromptSha256"]) == 64 for call in clean_audit["calls"])
-        )
-
-        findings_result, findings_audit = results["findings"]
-        self.assertEqual(findings_result.returncode, 0, findings_result.stderr)
-        self.assertEqual(
-            findings_audit["issueCounts"],
-            {
-                "task_omission": 1,
-                "verify_prescription": 1,
-                "legacy_role_lineage": 1,
-                "cross_role_task_reuse": 2,
-            },
-        )
-        self.assertEqual(findings_audit["findingCount"], 5)
-        self.assertEqual(findings_audit["leadAgentCallCount"], 6)
-        self.assertNotIn(
-            "no-brief", [call["tag"] for call in findings_audit["calls"]]
-        )
-        self.assertEqual(
-            [call["tag"] for call in findings_audit["calls"]].count("impl"), 2
-        )
-        heavy_call = next(
-            call for call in findings_audit["calls"] if call["tag"] == "heavy"
-        )
-        self.assertEqual(
-            heavy_call["callPromptSha256"],
-            __import__("hashlib").sha256(file_brief.encode()).hexdigest(),
-        )
-        self.assertIn("brief-audit v1 calls=6 findings=5", findings_result.stdout)
-        serialized = json.dumps(findings_audit) + findings_result.stdout
-        for raw_brief_fragment in (
-            "shared-secret-task",
-            "secret-command",
-            "secret-review",
-            "secret-debug",
-            "secret-heavy",
-            "secret-file-delivery",
-            "secret-scan",
-            "secret-resumed-impl",
-            "post-event-compacted-brief",
-        ):
-            self.assertNotIn(raw_brief_fragment, serialized)
 
 
 class LauncherDryRunTests(unittest.TestCase):
@@ -3229,10 +1685,8 @@ class LauncherDryRunTests(unittest.TestCase):
                 )
                 (bin_dir / "harbor.cmd").write_text(
                     "@mkdir \"%MIXDOG_TB_SRC_SNAPSHOT%\"\n"
-                    "@mkdir \"%MIXDOG_TB_FALLBACK_STATE_DIR%\"\n"
                     f"@echo %MIXDOG_TB_SRC_SNAPSHOT%>\"{capture}\"\n"
                     f"@echo %MIXDOG_TB_HARNESS_SNAPSHOT%>>\"{capture}\"\n"
-                    f"@echo %MIXDOG_TB_FALLBACK_STATE_DIR%>>\"{capture}\"\n"
                     "@exit /b 37\n",
                     encoding="utf-8",
                 )
@@ -3243,11 +1697,9 @@ class LauncherDryRunTests(unittest.TestCase):
                 (bin_dir / "harbor").write_text(
                     "#!/bin/sh\n"
                     'mkdir -p "$MIXDOG_TB_SRC_SNAPSHOT" '
-                    '"$MIXDOG_TB_HARNESS_SNAPSHOT" '
-                    '"$MIXDOG_TB_FALLBACK_STATE_DIR"\n'
-                    f'printf "%s\\n%s\\n%s\\n" "$MIXDOG_TB_SRC_SNAPSHOT" '
-                    '"$MIXDOG_TB_HARNESS_SNAPSHOT" '
-                    f'"$MIXDOG_TB_FALLBACK_STATE_DIR" > "{capture}"\n'
+                    '"$MIXDOG_TB_HARNESS_SNAPSHOT"\n'
+                    f'printf "%s\\n%s\\n" "$MIXDOG_TB_SRC_SNAPSHOT" '
+                    f'"$MIXDOG_TB_HARNESS_SNAPSHOT" > "{capture}"\n'
                     "exit 37\n",
                     encoding="utf-8",
                 )
@@ -3280,7 +1732,7 @@ class LauncherDryRunTests(unittest.TestCase):
             ]
 
         self.assertEqual(result.returncode, 37, result.stderr)
-        self.assertEqual(len(state_paths), 3)
+        self.assertEqual(len(state_paths), 2)
         self.assertTrue(all(not path.exists() for path in state_paths))
 
 

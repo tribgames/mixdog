@@ -14,15 +14,14 @@ import {
 import {
     completeBackgroundTask,
     getBackgroundTask,
-    notifyBackgroundTaskProgress,
 } from '../../../../shared/background-tasks.mjs';
 import {
     cancelNativeTask,
     getNativeTask,
     listNativeTasks,
     promoteNativeTask,
+    releaseNativeTask,
     setNativeTaskStartedAt,
-    startNativeTask,
     subscribeNativeTask,
     trackNativeForegroundTask,
     waitNativeTask,
@@ -30,7 +29,6 @@ import {
 import {
     attachJobInsights,
     shellJobPublicTaskResult,
-    SHELL_JOB_OUTPUT_DISK_CAP,
 } from './lib/shell-job-insights.mjs';
 import {
     completeShellJobRecord,
@@ -43,10 +41,6 @@ import {
     renderShellCompletionEnvelope,
     shellCompletionInstruction,
 } from '../../../../shared/task-notification-envelope.mjs';
-import {
-    resolveShellMonitorIntervalMs,
-    startShellMonitor,
-} from './shell-monitor.mjs';
 
 export { shellJobPublicTaskResult } from './lib/shell-job-insights.mjs';
 
@@ -82,7 +76,7 @@ function trackShellJobRecord(task, options) {
     const settle = (detail) => {
         if (!detail || detail.status === 'running') return;
         try { unsubscribe?.(); } catch {}
-        void completeShellJobRecord(jobId, detail);
+        void completeShellJobRecord(jobId, normalizeShellJobDetail(detail));
     };
     unsubscribe = subscribeNativeTask(jobId, settle);
     settle(getNativeTask(jobId) || task);
@@ -99,10 +93,64 @@ function releaseShellJobResourceLease(jobId) {
     return true;
 }
 
-function shellJobTaskStatus(status) {
+/** Native task status → background-task status. A non-zero exit is a COMMAND
+ *  result, not a task failure: the identical run in the foreground reports
+ *  `[exit code: N]` and stays a success, so crossing the promotion threshold
+ *  must not flip it to failed. Only control-plane outcomes (spawn/server
+ *  error, timeout kill, cancellation) are terminal failures. */
+export function shellJobTaskStatus(detail) {
+    const status = typeof detail === 'string' ? detail : String(detail?.status || '');
+    if (status === 'running') return 'running';
     if (status === 'completed') return 'completed';
     if (status === 'cancelled') return 'cancelled';
+    // ONLY a real numeric non-zero exit normalizes. A signal death / null exit
+    // (SIGSEGV, SIGKILL, a lost process) is a genuine failure and must never
+    // be reported as success — `Number(null)` is 0, so an integer test on the
+    // coerced value silently turned every crash into a completed task.
+    const exitCode = (detail && typeof detail === 'object') ? detail.exitCode : null;
+    if (
+        status === 'failed'
+        && detail && typeof detail === 'object'
+        && !detail.timedOut
+        && !detail.killed
+        && !detail.error
+        && !detail.signal
+        && typeof exitCode === 'number'
+        && Number.isInteger(exitCode)
+        && exitCode !== 0
+    ) return 'completed';
     return 'failed';
+}
+
+/** Canonical shell-job detail. Every surface — wrapper task status, completion
+ *  notification, public task result, disk record, insights summary — reads
+ *  `status` from this one mapping, so a promoted non-zero command can never be
+ *  reported completed by one surface and failed by another. The raw native
+ *  value is kept as `nativeStatus` for diagnostics. */
+export function normalizeShellJobDetail(detail) {
+    if (!detail || typeof detail !== 'object') return detail;
+    const nativeStatus = String(detail.status || '');
+    const status = shellJobTaskStatus(detail);
+    // `nativeStatus` belongs to the contract even when the mapping is identity
+    // (a signal death stays `failed`): every surface must be able to read the
+    // raw value the canonical status came from.
+    if (detail.status === status && detail.nativeStatus === nativeStatus) return detail;
+    return { ...detail, status, nativeStatus: detail.nativeStatus || nativeStatus };
+}
+
+/** Cause line for a failed job. The native side fills `error` only for its own
+ *  control-plane failures, so a signal death or a status-less exit arrived with
+ *  a null cause and the completion said "failed" while explaining nothing. */
+export function shellJobFailureCause(detail) {
+    const explicit = String(detail?.error || '').trim();
+    if (explicit) return explicit;
+    const exitCode = typeof detail?.exitCode === 'number' ? detail.exitCode : null;
+    const exitDetail = exitCode == null ? '' : ` (exit ${exitCode})`;
+    if (detail?.timedOut) return `timed out before completing${exitDetail}`;
+    if (detail?.signal) return `terminated by signal ${detail.signal}${exitDetail}`;
+    if (detail?.killed) return `terminated before completing${exitDetail}`;
+    if (exitCode == null) return 'ended without an exit status';
+    return `exited with code ${exitCode}`;
 }
 
 export function buildShellCompletion(jobId, detail) {
@@ -113,59 +161,34 @@ export function buildShellCompletion(jobId, detail) {
         : null;
     const exitCode = typeof detail?.exitCode === 'number' ? detail.exitCode : null;
     const status = detail?.status || 'unknown';
+    const taskStatus = shellJobTaskStatus(detail);
+    // A failure always carries its cause — including a signal death, where the
+    // native task has no `error` of its own.
+    const failureCause = taskStatus === 'failed' ? shellJobFailureCause(detail) : null;
+    const reported = (failureCause && !detail?.error) ? { ...detail, error: failureCause } : detail;
     const body = renderShellCompletionEnvelope({
         jobId,
         status,
         exitCode,
         elapsedMs,
         command: detail?.command,
-        summary: detail?.summary,
+        summary: detail?.summary || failureCause || null,
         stdoutPreview: detail?.stdoutPreview,
         stderrPreview: detail?.stderrPreview,
         mergeStderr: detail?.mergeStderr,
     });
-    const taskStatus = shellJobTaskStatus(status);
     return {
         taskStatus,
         body,
         instruction: shellCompletionInstruction({ jobId, status, exitCode }),
-        result: shellJobPublicTaskResult(detail),
-        error: taskStatus === 'failed' ? (detail?.error || null) : null,
+        result: shellJobPublicTaskResult(reported),
+        error: failureCause,
     };
 }
 
-function shellMonitorState(detail) {
-    return {
-        stdoutBytes: Math.max(0, Number(detail?.stdoutBytes) || 0),
-        stderrBytes: Math.max(0, Number(detail?.stderrBytes) || 0),
-        summary: String(detail?.summary || '').trim(),
-    };
-}
-
-function renderShellMonitorProgress(jobId, detail, previous) {
-    const current = shellMonitorState(detail);
-    const startedAtMs = Date.parse(detail?.startedAt || '');
-    const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : null;
-    const stdoutDelta = Math.max(0, current.stdoutBytes - previous.stdoutBytes);
-    const stderrDelta = Math.max(0, current.stderrBytes - previous.stderrBytes);
-    const latestChanged = current.summary && current.summary !== previous.summary;
-    const lines = [
-        'shell task progress',
-        `task_id: ${jobId}`,
-        'status: running',
-        elapsedMs == null ? null : `elapsed_ms: ${elapsedMs}`,
-        `stdout_bytes: ${current.stdoutBytes}`,
-        `stderr_bytes: ${current.stderrBytes}`,
-        stdoutDelta || stderrDelta ? `new_output_bytes: ${stdoutDelta + stderrDelta}` : null,
-        latestChanged ? '' : null,
-        latestChanged ? `latest: ${current.summary}` : null,
-    ];
-    return { text: lines.filter((line) => line !== null).join('\n'), state: current };
-}
-
-export async function waitForShellJob(jobId, { timeoutMs = 30_000 } = {}) {
+export async function waitForShellJob(jobId, { timeoutMs = 30_000, signal = null } = {}) {
     const started = Date.now();
-    const detail = await waitNativeTask(jobId, timeoutMs);
+    const detail = normalizeShellJobDetail(await waitNativeTask(jobId, timeoutMs, signal));
     const withInsights = attachJobInsights(detail);
     if (!withInsights) return null;
     withInsights.waitedMs = Date.now() - started;
@@ -174,52 +197,53 @@ export async function waitForShellJob(jobId, { timeoutMs = 30_000 } = {}) {
 }
 
 export function peekShellJob(jobId) {
-    return attachJobInsights(getNativeTask(jobId));
+    return attachJobInsights(normalizeShellJobDetail(getNativeTask(jobId)));
+}
+
+/** True while the job's process is still alive in this daemon. Owners of
+ *  in-use artifacts consult it before a fallback cleanup fires. */
+export function isShellJobRunning(jobId) {
+    return getNativeTask(String(jobId || ''))?.status === 'running';
+}
+
+/** Run `onSettled` once the job leaves 'running' (immediately when it already
+ *  has). Owners of per-command artifacts (hoisted script files, tee captures,
+ *  cache invalidation) use this instead of a fixed timer, which either fired
+ *  under a still-running command or never at all. Returns an unsubscribe, or
+ *  null when the job is unknown here — the caller then keeps its own fallback. */
+export function subscribeShellJobSettled(jobId, onSettled) {
+    const key = String(jobId || '').trim();
+    if (!key || typeof onSettled !== 'function') return null;
+    const current = getNativeTask(key);
+    if (!current) return null;
+    if (current.status !== 'running') {
+        queueMicrotask(() => { try { onSettled(current); } catch {} });
+        return () => {};
+    }
+    let done = false;
+    let unsubscribe = () => {};
+    const fire = (task) => {
+        if (done || !task || task.status === 'running') return;
+        done = true;
+        try { unsubscribe(); } catch {}
+        try { onSettled(task); } catch {}
+    };
+    unsubscribe = subscribeNativeTask(key, fire);
+    return () => {
+        done = true;
+        try { unsubscribe(); } catch {}
+    };
 }
 
 export function refreshShellJob(jobId) {
-    return getNativeTask(jobId);
+    return normalizeShellJobDetail(getNativeTask(jobId));
 }
 
 export function killShellJob(jobId) {
     const detail = cancelNativeTask(jobId);
     if (!detail) return null;
-    return { ...attachJobInsights(detail), killed: detail.status === 'running' };
-}
-
-export async function startBackgroundShellJob(options = {}) {
-    const {
-        command,
-        timeoutMs,
-        workDir,
-        mergeStderr,
-        spawnEnv,
-        shell,
-        shellArg,
-        shellArgs,
-        shellType,
-        clientHostPid,
-        ownerSessionId,
-    } = options;
-    const argv = [
-        ...(Array.isArray(shellArgs) && shellArgs.length > 0 ? shellArgs : [shellArg]),
-        command,
-    ].filter((value) => value != null && String(value).length > 0);
-    const task = await startNativeTask({
-        program: shell,
-        argv,
-        cwd: workDir,
-        env: spawnEnv,
-        timeoutMs,
-        mergeStderr,
-        command,
-        shellType,
-        clientHostPid,
-        ownerSessionId,
-        outputLimit: SHELL_JOB_OUTPUT_DISK_CAP,
-    });
-    trackShellJobRecord(task, { ownerSessionId, clientHostPid });
-    return task;
+    const wasRunning = detail.status === 'running';
+    return { ...attachJobInsights(normalizeShellJobDetail(detail)), killed: wasRunning };
 }
 
 export function attachShellJobResourceLease(jobId, lease) {
@@ -263,13 +287,7 @@ export function cancelBackgroundShellJobWatch(jobId) {
     return entry.notifyCtx || null;
 }
 
-export function configureBackgroundShellJobMonitor(jobId, intervalMs) {
-    const entry = backgroundShellJobWatchers.get(jobId);
-    if (!entry || typeof entry.setMonitor !== 'function') return null;
-    return entry.setMonitor(intervalMs);
-}
-
-export function watchBackgroundShellJob(jobId, notifyCtx, { monitorIntervalMs } = {}) {
+export function watchBackgroundShellJob(jobId, notifyCtx) {
     const ctx = notifyCtx && typeof notifyCtx.notifyFn === 'function'
         ? normalizeToolNotifyContext(notifyCtx)
         : jobNotifyCtxByJobId.get(jobId);
@@ -277,53 +295,20 @@ export function watchBackgroundShellJob(jobId, notifyCtx, { monitorIntervalMs } 
     if (ctx) jobNotifyCtxByJobId.set(jobId, ctx);
     let settled = false;
     let unsubscribe = () => {};
-    let stopMonitor = () => false;
-    let previousMonitorState = shellMonitorState(attachJobInsights(getNativeTask(jobId)));
-    const setMonitor = (value) => {
-        stopMonitor();
-        const nextIntervalMs = resolveShellMonitorIntervalMs(value);
-        previousMonitorState = shellMonitorState(attachJobInsights(getNativeTask(jobId)));
-        const task = getBackgroundTask(jobId);
-        if (task) {
-            task.meta = {
-                ...(task.meta && typeof task.meta === 'object' ? task.meta : {}),
-                monitor_interval_ms: nextIntervalMs,
-            };
-        }
-        stopMonitor = startShellMonitor({
-            intervalMs: nextIntervalMs,
-            onTick: () => {
-                const detail = attachJobInsights(getNativeTask(jobId));
-                if (!detail || detail.status !== 'running') return false;
-                const progress = renderShellMonitorProgress(jobId, detail, previousMonitorState);
-                const sent = notifyBackgroundTaskProgress(jobId, {
-                    text: progress.text,
-                    resultType: 'shell_task_progress',
-                    status: 'running',
-                    once: false,
-                });
-                if (sent) previousMonitorState = progress.state;
-                return true;
-            },
-        });
-        return nextIntervalMs;
-    };
     const cancel = () => {
         if (settled) return;
         settled = true;
-        stopMonitor();
         unsubscribe();
         backgroundShellJobWatchers.delete(jobId);
     };
     const finish = (detail) => {
         if (settled || !detail || detail.status === 'running') return;
         settled = true;
-        stopMonitor();
         unsubscribe();
         backgroundShellJobWatchers.delete(jobId);
         jobNotifyCtxByJobId.delete(jobId);
         releaseShellJobResourceLease(jobId);
-        const enriched = attachJobInsights(detail);
+        const enriched = attachJobInsights(normalizeShellJobDetail(detail));
         const completion = buildShellCompletion(jobId, enriched);
         const completedTask = completeBackgroundTask(jobId, {
             status: completion.taskStatus,
@@ -368,8 +353,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx, { monitorIntervalMs } 
     };
     unsubscribe = subscribeNativeTask(jobId, finish);
     if (!settled) {
-        setMonitor(monitorIntervalMs);
-        backgroundShellJobWatchers.set(jobId, { cancel, notifyCtx: ctx, setMonitor });
+        backgroundShellJobWatchers.set(jobId, { cancel, notifyCtx: ctx });
     }
     queueMicrotask(() => finish(getNativeTask(jobId)));
 }
@@ -531,6 +515,17 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
         jobs.map((task) => waitNativeTask(task.jobId, 1_200).catch(() => null)),
     );
     for (const task of jobs) releaseShellJobResourceLease(task.jobId);
+    if (scoped) {
+        // The owning session is gone: nothing can query its tasks again, so
+        // drop ALL of its retained state — not only the ones that happened to
+        // be running when shutdown began. releaseNativeTask refuses a task
+        // that is still alive, and disk records still serve a post-restart
+        // recovery read.
+        for (const task of listNativeTasks()) {
+            if (String(task.ownerSessionId || '') !== ownerSessionId) continue;
+            try { releaseNativeTask(task.jobId); } catch {}
+        }
+    }
     if (!scoped) {
         for (const jobId of [...shellJobResourceLeases.keys()]) {
             releaseShellJobResourceLease(jobId);

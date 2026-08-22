@@ -65,9 +65,13 @@ const rows = [
       const status = runtime.toolsStatus();
       const active = new Set(status.activeTools || []);
       const catalog = new Map((status.tools || []).map((tool) => [tool.name, tool]));
-      for (const name of ['read','code_graph','grep','find','glob','list','apply_patch','git','shell','task','recall','web_search','Skill','load_tool']) {
+      for (const name of ['read','code_graph','grep','find','glob','list','git','shell','task','recall','web_search','Skill','load_tool']) {
         if (!active.has(name)) throw new Error('missing ' + name + ' in ' + [...active].join(','));
       }
+      const hasEdit = active.has('edit');
+      const hasPatch = active.has('apply_patch');
+      if (!hasEdit && !hasPatch) throw new Error('missing edit/apply_patch in ' + [...active].join(','));
+      if (hasEdit && hasPatch) throw new Error('both edit dialects unexpectedly active: ' + [...active].join(','));
       for (const name of ['cwd','git_stage','web_fetch']) {
         if (!catalog.has(name)) throw new Error('missing deferred ' + name + ' in tool catalog');
         if (catalog.get(name)?.active === true) throw new Error('deferred tool unexpectedly active: ' + name);

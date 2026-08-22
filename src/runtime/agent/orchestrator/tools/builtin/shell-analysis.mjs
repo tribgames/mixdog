@@ -559,10 +559,6 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
     const name = String(shellName || '').toLowerCase();
     const isLegacyPS = /powershell/.test(name) && !/pwsh/.test(name);
     const violations = [];
-    // Violation kinds drive the bash auto-rescue: a command blocked ONLY for
-    // bash syntax can be run in bash unchanged, while a PowerShell-specific
-    // violation ($PID reassignment) must stay a hard block.
-    const kinds = [];
     // `$PID=` reassignment and `&&` connectors are judged on a quote-masked
     // copy so quoted literals (`echo "a && b"`, `Write-Output '$PID=1'`) and
     // regex/search args are never mistaken for real syntax.
@@ -578,17 +574,14 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
             const first = String(tokens[0] || '').toLowerCase().replace(/^.*[\\/]/, '');
             if (POWERSHELL_BASHISM_HINTS[first]) {
                 violations.push(`\`${first}\` is a Unix command: ${POWERSHELL_BASHISM_HINTS[first]}`);
-                kinds.push('bashism');
             }
         }
     }
     if (/\$PID\s*=(?!=)/i.test(masked)) {
         violations.push('`$PID` is a reserved PowerShell automatic variable — do not reassign it (use a different name).');
-        kinds.push('powershell-only');
     }
     if (isLegacyPS && /(?:^|[^&])&&(?:[^&]|$)/.test(masked)) {
         violations.push('`&&` is not supported in Windows PowerShell 5.1 — use `;` to sequence or issue separate calls.');
-        kinds.push('bashism');
     }
 
     if (violations.length > 0) {
@@ -596,22 +589,18 @@ export function preflightPowerShellHygiene(command, { shellType, shellName } = {
         return {
             command: rewritten,
             note,
-            // The MSYS path rewrite is a PowerShell-targeted normalisation, so
-            // a bash rescue must re-run the ORIGINAL text.
-            original,
-            bashOnly: kinds.length > 0 && kinds.every((kind) => kind === 'bashism'),
             block: `PowerShell preflight blocked this command (bash syntax on a PowerShell host). Fix and retry:\n- ${hints.join('\n- ')}`,
         };
     }
     return { command: rewritten, note, block: null };
 }
 
-// PowerShell-only constructs. Used to decide whether a command the PowerShell
-// preflight blocked for bash syntax can simply be RUN in bash: only a command
-// with zero PowerShell-specific syntax qualifies, so a mixed script (bash
-// pipes plus `$env:`/cmdlets/`2>$null`) stays a hard block instead of being
-// silently rerouted into a shell that would mangle it. Deliberately
-// over-inclusive — a false positive only declines the rescue.
+// PowerShell-only constructs. Used to decide whether a command carries syntax
+// that REQUIRES a PowerShell host: with zero PowerShell-specific syntax the
+// command can be spawned directly (see shell-direct-exe), while `$env:`,
+// cmdlets, `2>$null` and here-strings must keep their interpreter.
+// Deliberately over-inclusive — a false positive only declines the direct
+// spawn and falls back to the shell.
 const POWERSHELL_ONLY_SYNTAX = [
     /\$(?:null|true|false|env:|_\b|args\b|host\b|profile\b|pwd\b|psversiontable\b|psscriptroot\b|lastexitcode\b|erroractionpreference\b)/i,
     /\$[A-Za-z_]\w*\s*=/,
@@ -639,11 +628,15 @@ export function hasPowerShellOnlySyntax(command) {
 // The transform is refused whenever file semantics would differ from `-e`:
 //   - a body with $, backtick or a backslash escape (the shell WOULD rewrite it);
 //   - anything resolved relative to the script (relative require/import,
-//     import.meta, __dirname/__filename);
-//   - a body that reads process.argv[1] (undefined under -e, a path in a file).
+//     import.meta, __dirname/__filename, python __file__ / sys.path[0]);
+//   - a body that reads its own invocation identity: process.argv[1]
+//     (undefined under -e, a path in a file), sys.argv[0] ('-c' under -c, the
+//     script path in a file), require.main / module.filename (undefined vs the
+//     module record). Reading any of them makes the two forms observably
+//     different runs, not the same run with a different transport.
 const INLINE_SCRIPT_RE = /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+"((?:[^"\\]|\\.)*)"/;
 const INLINE_UNSAFE_BODY = /[$`\\]/;
-const INLINE_FILE_RELATIVE = /(?:require|import)\s*\(\s*['"]\.{1,2}\/|from\s+['"]\.{1,2}\/|import\.meta|__dirname|__filename|argv\s*\[\s*1\s*\]/;
+const INLINE_FILE_RELATIVE = /(?:require|import)\s*\(\s*['"]\.{1,2}\/|from\s+['"]\.{1,2}\/|import\.meta|__dirname|__filename|__file__|require\.main|module\.(?:filename|parent)|sys\.argv\s*\[\s*0\s*\]|sys\.path\s*\[\s*0\s*\]|argv\s*\[\s*1\s*\]/;
 const WINDOWS_INLINE_COMMAND_FILE_THRESHOLD = 24_000;
 const LONG_INLINE_SCRIPT_RE = /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')/i;
 const POWERSHELL_FILE_SEMANTIC_RE = /\$(?:PSScriptRoot|PSCommandPath|MyInvocation)\b|^\s*(?:param\s*\(|#requires\b)/im;
@@ -804,9 +797,17 @@ export async function analyzeShellCommandEffects(command, cwd) {
     let localCwd = resolve(cwd || process.cwd());
     if (!text) return { mutationMode: 'none', paths: [], finalCwd: localCwd };
     const hasRedirect = /(?:^|[^0-9&<>])>>?(?!\&)/.test(text) || /\btee\b/.test(text);
+    // Classification is per PIPELINE STAGE, never per segment. A segment's
+    // first command decided the whole segment before, so a read-only producer
+    // (`rg … | xargs rm`, `cat … | tee f`) hid every mutator behind it and the
+    // caches were left holding pre-command state.
+    const stages = [];
+    for (const segment of shellSplitSegments(text)) {
+        for (const stage of shellSplitPipelineSegments(segment)) stages.push(stage);
+    }
     if (!SHELL_MUTATION_PATTERN.test(text) && !hasRedirect) {
-        const readOnly = shellSplitSegments(text).every((segment) => {
-            const tokens = stripShellProbeWrappers(shellTokenize(segment) || []);
+        const readOnly = stages.every((stage) => {
+            const tokens = stripShellProbeWrappers(shellTokenize(stage) || []);
             if (tokens.length === 0) return true;
             const joined = tokens.join(' ');
             if (/^cd\b/i.test(joined)) {
@@ -821,8 +822,8 @@ export async function analyzeShellCommandEffects(command, cwd) {
     }
     const paths = new Set();
     let global = false;
-    for (const segment of shellSplitSegments(text)) {
-        const parsed = shellTokenize(segment);
+    for (const stage of stages) {
+        const parsed = shellTokenize(stage);
         if (!parsed) return { mutationMode: 'global', paths: [], finalCwd: localCwd };
         const tokens = stripShellProbeWrappers(parsed);
         if (tokens.length === 0) continue;

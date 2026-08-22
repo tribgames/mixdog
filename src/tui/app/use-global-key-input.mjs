@@ -12,7 +12,7 @@ export function useGlobalKeyInput({
   picker,
   usagePanel,
   contextPanel,
-  setContextPanel,
+  surface,
   closeUsagePanel,
   isRawModeSupported,
   resizeState,
@@ -118,7 +118,8 @@ export function useGlobalKeyInput({
       return;
     }
     if (key.escape && contextPanel && !picker) {
-      setContextPanel(null);
+      // Esc inside the key handler: this keypress owns what it closes.
+      surface.claim().context(null);
       return;
     }
     if (key.pageUp) {

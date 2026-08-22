@@ -4,6 +4,11 @@ export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
 export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
 // Main/user sessions default to full-window trigger (buffer 0): RFT compact
 // runs at the boundary. Agent sessions keep DEFAULT_COMPACTION_BUFFER_RATIO.
+// No standing reserve is carved out for the reply: the only hard limit is the
+// provider's own, it arrives as a clean rejection before inference (no token
+// cost), and the reactive overflow path already compacts and replays that
+// request. A fixed reserve would trade real working space for one saved round
+// trip that our estimate cannot reliably predict anyway.
 export const DEFAULT_MAIN_COMPACTION_BUFFER_RATIO = 0;
 export const MAX_COMPACTION_BUFFER_RATIO = 0.25;
 const MAX_BUFFER_INPUT_RATIO = 0.999_999;

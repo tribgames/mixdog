@@ -578,9 +578,11 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.chooseWorkspace, async () => {
     const result = await dialog.showOpenDialog(window, {
-      title: 'Open Workspace',
+      // User-facing product noun is Project; `.code-workspace` stays as the
+      // on-disk format name only.
+      title: 'Open Project File',
       properties: ['openFile'],
-      filters: [{ name: 'Workspace file', extensions: ['code-workspace'] }],
+      filters: [{ name: 'Project file', extensions: ['code-workspace'] }],
     });
     const file = result.canceled ? '' : result.filePaths[0] || '';
     if (!file) return null;
@@ -598,12 +600,12 @@ export function registerDesktopIpc(
       : '';
     if (!file) {
       if (typeof dialog.showSaveDialog !== 'function') {
-        throw new Error('Workspace save dialog is unavailable.');
+        throw new Error('The Project file save dialog is unavailable.');
       }
       const result = await dialog.showSaveDialog(window, {
-        title: 'Save Workspace As',
-        defaultPath: 'workspace.code-workspace',
-        filters: [{ name: 'Workspace file', extensions: ['code-workspace'] }],
+        title: 'Save Project File As',
+        defaultPath: 'project.code-workspace',
+        filters: [{ name: 'Project file', extensions: ['code-workspace'] }],
       });
       if (result.canceled || !result.filePath) return null;
       file = result.filePath;
@@ -1334,6 +1336,9 @@ export function registerDesktopIpc(
     if (name === 'folder-changed') window.webContents.send(DESKTOP_IPC.folderChanged, value);
     else if (name === 'lsp-diagnostics') window.webContents.send(DESKTOP_IPC.lspDiagnostics, value);
     else if (name === 'lsp-status') window.webContents.send(DESKTOP_IPC.lspStatus, value);
+    else if (name === 'relay-payload-refused') {
+      window.webContents.send(DESKTOP_IPC.relayPayloadRefused, value);
+    }
     else if (name === 'remote-client-claim') {
       // Keep delivery global so a live renderer can queue the request, but do
       // not reveal or restore the window: only Settings → Connection is armed

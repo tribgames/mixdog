@@ -86,6 +86,27 @@ function antigravityError(res, text, endpoint) {
     return err;
 }
 
+// Endpoint failover only makes sense when the HOST is the suspect. A
+// deterministic 4xx — malformed request, revoked/expired auth, permission
+// denial, unknown route — and a quota decision (429) are answers from the
+// account or the request itself: replaying them across every alternate host
+// repeats the identical rejection, hides the real error behind the last host's
+// message, and can duplicate an accepted-but-throttled generation. Only 5xx and
+// transport-level failures (status 0: DNS/connect/TLS/timeout) fail over.
+function antigravityFailoverEligible(err) {
+    if (err?.unsafeToRetry === true || err?.liveTextEmitted === true || err?.emittedToolCall === true) {
+        return false;
+    }
+    const status = Number(err?.status || err?.httpStatus || 0);
+    // Strictly 5xx or transport. status 0 means no HTTP response reached us at
+    // all (DNS/connect/TLS/first-byte timeout) — the only genuine "this host is
+    // the problem" evidence besides a server-side 5xx. ANY other answer,
+    // including a 3xx redirect the host chose to return, is that host's real
+    // reply and would be reproduced identically everywhere else.
+    if (status >= 500) return true;
+    return status === 0;
+}
+
 // A signed decimal derived from the first user turn, mirroring the real client.
 function deriveSessionId(contents) {
     const first = contents.find((c) => c?.role === 'user');
@@ -211,6 +232,9 @@ export class AntigravityOAuthProvider {
         const endpoints = this._endpointOrder();
         let lastErr = null;
         let response = null;
+        // One forced token refresh per send: a second 401 after a fresh token is
+        // a real authorization failure, not a stale bearer.
+        let refreshedAuth = false;
         try {
             for (let index = 0; index < endpoints.length; index += 1) {
                 const endpoint = endpoints[index];
@@ -275,10 +299,40 @@ export class AntigravityOAuthProvider {
                     break;
                 } catch (err) {
                     lastErr = err;
+                    const status = Number(err?.status || err?.httpStatus || 0);
+                    const emitted = err?.unsafeToRetry === true
+                        || err?.liveTextEmitted === true
+                        || err?.emittedToolCall === true;
+                    // A typed 401 says THIS access token is no longer accepted —
+                    // every host would reject it identically. Force one
+                    // credential refresh and replay the same endpoint instead of
+                    // failing over with the same dead token (and instead of
+                    // surfacing a re-login prompt for a token that only needed a
+                    // refresh). shouldRefresh() alone never covers this: a
+                    // server-side revocation/rotation happens while the local
+                    // expiry still looks valid.
+                    if (status === 401 && !emitted && !refreshedAuth) {
+                        refreshedAuth = true;
+                        let refreshed = null;
+                        try {
+                            refreshed = await this._ensureAuth({ fetchFn: this._fetch, force: true });
+                        } catch {
+                            // Refresh itself failed (revoked / no refresh token):
+                            // the original 401 is the actionable error.
+                            throw err;
+                        }
+                        // refreshTokens() preserves project_id/email, so only the
+                        // bearer changes; the already-serialized body stays valid.
+                        this._projectId = refreshed.projectId;
+                        headers.Authorization = `Bearer ${refreshed.accessToken}`;
+                        textLeakGuard = null;
+                        process.stderr.write('[antigravity] 401 — refreshed credentials and retrying once\n');
+                        index -= 1;
+                        continue;
+                    }
                     // Anything already streamed to the user must not be replayed on
                     // another endpoint, and a terminal decision is not transport luck.
-                    if (isLast || err?.unsafeToRetry === true || err?.liveTextEmitted === true
-                        || err?.emittedToolCall === true) {
+                    if (isLast || !antigravityFailoverEligible(err)) {
                         throw err;
                     }
                     process.stderr.write(`[antigravity] ${endpoint} failed (${err?.message || err}); trying next endpoint\n`);

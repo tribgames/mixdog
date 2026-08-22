@@ -6,28 +6,25 @@ import {
   SUPPORTED_HANDLER_TYPES,
   EXIT2_BLOCK_EVENTS,
   TOP_LEVEL_DECISION_EVENTS,
-  limitText,
 } from './hook-bus/constants.mjs';
 import {
   buildEventPayload,
   hookConfigEntries,
   hookRulesPath,
-  isStandardConfig,
   matchFieldFor,
   matcherFires,
   mergeEvents,
   normalizeRules,
   parseStandardConfig,
+  standardConfigReport,
 } from './hook-bus/config.mjs';
 import {
-  handlerTimeoutS,
   ifConditionPasses,
   parseHandlerOutput,
   runCommandHandler,
   runHttpHandler,
   runMcpToolHandler,
   runPromptHandler,
-  defaultShellKind,
 } from './hook-bus/handlers.mjs';
 import {
   compactValue,
@@ -57,6 +54,7 @@ export {
   mergeEvents,
   normalizeRules,
   parseStandardConfig,
+  standardConfigReport,
 } from './hook-bus/config.mjs';
 export {
   handlerTimeoutS,
@@ -84,7 +82,6 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
   const counts = new Map(DEFAULT_EVENTS.map((name) => [name, 0]));
   const rulesPath = hookRulesPath(dataDir);
   const pluginData = dataDir || null;
-  let rewakeHandler = null;
   let rulesCache = { mtimeMs: -1, rules: [] };
   let configCache = {
     key: '',
@@ -163,10 +160,27 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         disabled = parsed.disableAllHooks === true;
         disableSeen = true;
       }
-      if (isStandardConfig(parsed)) {
+      const report = standardConfigReport(parsed);
+      if (report.standard) {
+        // A malformed event no longer demotes the whole file to legacy (which
+        // silently disabled every standard handler in it): keep the valid
+        // events and report the broken ones.
+        if (report.invalidEvents.length > 0) {
+          errors.push({
+            file: filePath,
+            error: `ignored malformed hook event(s): ${report.invalidEvents.join(', ')}`,
+          });
+        }
         mergeEvents(events, parseStandardConfig(parsed, filePath, entry));
       } else {
-        legacyRules.push(...normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object'));
+        const fileRules = normalizeRules(parsed).filter((rule) => rule && typeof rule === 'object');
+        if (fileRules.length === 0 && report.invalidEvents.length > 0) {
+          errors.push({
+            file: filePath,
+            error: `no usable hooks: malformed event(s) under "hooks": ${report.invalidEvents.join(', ')}`,
+          });
+        }
+        legacyRules.push(...fileRules);
       }
     }
     configCache = {
@@ -230,16 +244,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
           error: `hook spawn failed: ${error?.message || error}`,
         });
       };
-      const reportRewake = ({ eventName: en, payload: pl, text }) => {
-        try {
-          if (typeof rewakeHandler === 'function') {
-            rewakeHandler({ eventName: en, payload: pl, text });
-          } else {
-            emit('hook:rewake', { name: pl?.tool_name || en, text: text || null });
-          }
-        } catch {}
-      };
-      return await runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError, reportRewake);
+      return await runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError);
     }
     if (type === 'http') {
       if (!handler.url) return null;
@@ -334,6 +339,8 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
   }
 
   function addRule(rule = {}) {
+    // Same index-safety rule as deleteRule: settle debounced toggles first.
+    flushRules();
     const action = String(rule.action || rule.decision || '').trim().toLowerCase();
     if (!action || !['allow', 'deny', 'block', 'modify', 'rewrite', 'ask'].includes(action)) {
       throw new Error('hook rule action must be allow, deny, block, modify, rewrite, or ask');
@@ -428,6 +435,10 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
   }
 
   function deleteRule(index) {
+    // Pending enabled-state patches are addressed by INDEX. Flushing them
+    // before the splice keeps a debounced toggle from landing on whatever rule
+    // shifted into that slot after the delete.
+    flushRules();
     const rules = [...loadRules()];
     if (!Number.isInteger(index) || index < 0 || index >= rules.length) throw new Error(`hook rule not found: ${index}`);
     rules.splice(index, 1);
@@ -564,10 +575,5 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     };
   }
 
-  function setRewakeHandler(fn) {
-    rewakeHandler = typeof fn === 'function' ? fn : null;
-    return rewakeHandler;
-  }
-
-  return { addRule, beforeTool, deleteRule, dispatch, emit, flushRules, listRules, setRewakeHandler, setRuleEnabled, status };
+  return { addRule, beforeTool, deleteRule, dispatch, emit, flushRules, listRules, setRuleEnabled, status };
 }

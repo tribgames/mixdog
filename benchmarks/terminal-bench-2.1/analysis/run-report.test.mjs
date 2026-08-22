@@ -3,7 +3,16 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { generateRunReport, writeRunReport } from './run-report.mjs';
+import { generateRunReport, pricedCost, rateFor, writeRunReport } from './run-report.mjs';
+
+function measuredContract(overrides = {}) {
+  return {
+    rulesHash: 'sha256:rules',
+    toolContractHash: 'sha256:tools',
+    promptSurfaceHash: 'sha256:prompt',
+    ...overrides,
+  };
+}
 
 function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
   const jobsDir = join(root, name);
@@ -25,6 +34,7 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
       attempts: 1,
     },
     comparison: options.comparison ?? null,
+    ...(options.contract === false ? {} : { contract: options.contract ?? measuredContract() }),
   }));
   const errorIndex = Number.isInteger(options.errorIndex) ? options.errorIndex : null;
   writeFileSync(join(runDir, 'result.json'), JSON.stringify({
@@ -212,12 +222,68 @@ test('loads explicitly registered legacy runs without mutating their artifacts',
     }));
     const currentDir = fixture(root, 'jobs-current', fingerprint, '2026-08-15T00:04:00.000Z', [15, 25]);
     const report = generateRunReport({ jobsDir: currentDir, historyRoot: root });
-    assert.equal(report.comparison.cohortSize, 2);
-    assert.equal(report.comparison.ranks.agentTotalSeconds.rank, 2);
-    assert.match(report.comparison.previous.jobsDir, /jobs-legacy/);
+    assert.equal(report.comparison.cohortSize, 1);
+    assert.equal(report.comparison.previous, null);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('historical runs missing a prompt surface hash do not enter the cohort', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-contractless-'));
+  try {
+    const fingerprint = 'sha256:contract';
+    const olderDir = fixture(root, 'jobs-old', fingerprint, '2026-08-15T00:00:00.000Z', [10, 20], {
+      contract: measuredContract({ promptSurfaceHash: undefined }),
+    });
+    const olderManifest = JSON.parse(readFileSync(join(olderDir, 'preset-run.json'), 'utf8'));
+    delete olderManifest.contract.promptSurfaceHash;
+    writeFileSync(join(olderDir, 'preset-run.json'), JSON.stringify(olderManifest));
+    writeRunReport(generateRunReport({ jobsDir: olderDir, historyRoot: root }));
+    const currentDir = fixture(root, 'jobs-current', fingerprint, '2026-08-15T00:04:00.000Z', [15, 25]);
+    const current = generateRunReport({ jobsDir: currentDir, historyRoot: root });
+    assert.equal(current.comparison.cohortSize, 1);
+    assert.equal(current.comparison.previous, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('historical runs with a different prompt surface hash do not enter the cohort', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-prompt-hash-'));
+  try {
+    const fingerprint = 'sha256:prompt-surface';
+    const olderDir = fixture(root, 'jobs-old', fingerprint, '2026-08-15T00:00:00.000Z', [10, 20], {
+      contract: measuredContract({ promptSurfaceHash: 'sha256:other-prompt' }),
+    });
+    writeRunReport(generateRunReport({ jobsDir: olderDir, historyRoot: root }));
+    const currentDir = fixture(root, 'jobs-current', fingerprint, '2026-08-15T00:04:00.000Z', [15, 25]);
+    const current = generateRunReport({ jobsDir: currentDir, historyRoot: root });
+    assert.equal(current.comparison.cohortSize, 1);
+    assert.equal(current.comparison.previous, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('unknown claude identifiers report unsupported cost instead of Opus rates', () => {
+  assert.equal(rateFor('claude-sonnet-4-5'), null);
+  assert.equal(rateFor('claude-unknown'), null);
+  assert.equal(rateFor('grok-4'), null);
+  assert.equal(rateFor('gpt-unknown'), null);
+  assert.equal(rateFor('constructor'), null);
+  assert.equal(rateFor('__proto__'), null);
+  assert.equal(pricedCost({ model: 'claude-sonnet-4-5', input: 1e6, output: 1e6 }), null);
+  assert.equal(pricedCost({ model: 'gpt-unknown', input: 1e6, output: 1e6 }), null);
+  assert.equal(pricedCost({ model: 'constructor', input: 1e6, output: 1e6 }), null);
+  assert.equal(pricedCost({ model: '__proto__', input: 1e6, output: 1e6 }), null);
+  assert.ok(rateFor('claude-opus-5'));
+  assert.ok(rateFor('claude-fable-5'));
+  assert.ok(rateFor('claude-haiku-4-5'));
+  assert.ok(rateFor('claude-sonnet-5'));
+  assert.ok(rateFor('gpt-5.6-sol'));
+  assert.equal(pricedCost({ model: 'claude-opus-5', input: 1e6, cached: 0, cacheWrite: 0, output: 0 }), 5);
+  assert.equal(pricedCost({ model: 'claude-sonnet-5', input: 1e6, cached: 0, cacheWrite: 0, output: 0 }), 2);
 });
 
 test('pairs a full preset with its pinned baseline on settled shared tasks', () => {

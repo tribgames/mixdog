@@ -10,6 +10,7 @@ import http from 'node:http'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs'
+import { isPidAlive } from '../../shared/pid-liveness.mjs'
 
 const brokerAgent = new http.Agent({
   keepAlive: true,
@@ -25,12 +26,6 @@ function nextCallId() {
 
 function runtimeRoot() {
   return resolveRuntimeRoot()
-}
-
-function isPidAlive(value) {
-  const pid = Number(value)
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try { process.kill(pid, 0); return true } catch (error) { return error?.code === 'EPERM' }
 }
 
 function readBrokerDiscovery() {

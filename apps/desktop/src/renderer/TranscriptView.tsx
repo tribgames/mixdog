@@ -7,7 +7,6 @@ import { t, tExisting } from "./i18n";
 import { DiffView } from "./lazy-widgets";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import { useMobileBack } from "./mobile-back";
-import { isMobileRemoteSurface } from "./mobile-surface";
 import { MxIcon } from "./MxIcon";
 import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
@@ -29,7 +28,7 @@ import {
 } from "./transcript-measure";
 import { imagePreviewCache, imagePreviewKey } from "./transcript-metrics";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { aggregateToolCategoryEntries, classifyToolCategory, formatAggregateHeader, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
+import { aggregateToolCategoryEntry, classifyToolCategory, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { deriveToolCardModel, deriveToolOutcomeTone, splitLineDeltaTokens } from "../../../../src/runtime/shared/tool-card-model.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
@@ -321,8 +320,20 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
       </svg>
     </button>
     {context && <div className="session-context-popover" id={descriptionId} role="tooltip">
-      <div><span>{t("Usage")}</span><b>{context.percent}%</b></div>
-      <div><span>{context.estimated ? t("Tokens (est.)") : t("Tokens")}</span><b
+      {/* Text only (user: 컨텍스트도 왼쪽에 아이콘 빼주고), matching the work
+          card's header next door. */}
+      <div className="context-popover-header">
+        <span>{t("Context")}</span>
+        <b>{context.percent}%</b>
+      </div>
+      {/* One published gauge number, provider-billed and baseline-anchored, so
+          the readout is no longer hedged as an estimate (user: 다 실제값으로
+          통일해야지 토큰 옆에 (추정)도 빼고). The header already names the card
+          컨텍스트 and carries its percentage, so the rows below name the two
+          measures they report — the same word on both lines read as two
+          unrelated readouts (user: 이름 두 개 같으니까 헤더 하나에 아이템 두
+          개로). */}
+      <div><span>{t("Usage")}</span><b
         title={context.limit > 0
           ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
           : context.used.toLocaleString()}>{context.limit > 0
@@ -1099,42 +1110,7 @@ function toolActivityItemTone(item: TranscriptItem): "error" | "warning" | "neut
   return tone === "error" ? "error" : tone === "warning" ? "warning" : "neutral";
 }
 
-function mergedToolActivityCategories(items: readonly TranscriptItem[]) {
-  const categories = new Map<string, Record<string, unknown>>();
-  const order: string[] = [];
-  const add = (key: string, value: unknown) => {
-    if (!key) return;
-    const record = value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : {};
-    const count = Math.max(0, Number(record.count ?? value) || 0);
-    if (count <= 0) return;
-    if (!categories.has(key)) order.push(key);
-    const previous = categories.get(key);
-    categories.set(key, {
-      ...record,
-      count: Number(previous?.count || 0) + count,
-    });
-  };
-
-  for (const item of items) {
-    const stored = item.categories && typeof item.categories === "object" && !Array.isArray(item.categories)
-      ? item.categories as Record<string, unknown>
-      : null;
-    if (stored && Object.keys(stored).length > 0) {
-      for (const [key, value] of Object.entries(stored)) add(key, value);
-      continue;
-    }
-    const surface = formatToolSurface(item.name, item.args);
-    const category = classifyToolCategory(item.name, surface.args);
-    for (const entry of aggregateToolCategoryEntries(item.name, surface.args, category)) {
-      add(String(entry.key || ""), entry);
-    }
-  }
-
-  return { categories: Object.fromEntries(categories), order };
-}
-
+/** Fallback only: the bare bucket word, used when a work unit is unknown. */
 function localizedToolActivityCategory(category: string): string {
   if (category === "Read") return t("File reading");
   if (category === "Search") return t("Search");
@@ -1148,39 +1124,68 @@ function localizedToolActivityCategory(category: string): string {
   if (category === "Shell") return t("Command execution");
   if (category === "Agent") return t("Agents");
   if (category === "Task") return t("Tasks");
-  if (category === "Schedule") return t("Schedules");
-  if (category === "Channel") return t("Messages");
   if (category === "Setup") return t("Setup");
   return t("External tools");
 }
 
-export function desktopToolActivityCategorySummary(
-  categories: Record<string, unknown>,
-  order: readonly string[] = [],
-): string {
-  const totals = new Map<string, number>();
-  const categoryOrder: string[] = [];
-  const seenEntries = new Set<string>();
-  for (const key of [...order, ...Object.keys(categories)]) {
-    if (!key || seenEntries.has(key)) continue;
-    seenEntries.add(key);
-    const value = categories[key];
-    const record = value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
-      : {};
-    const count = Math.max(0, Number(record.count ?? value) || 0);
-    if (count <= 0) continue;
-    const rawCategory = String(record.category || key.split("|")[0] || "Other");
-    const category = [
-      "Read", "Search", "Load", "MCP", "Skill", "Web Research", "Memory",
-      "Patch", "Git", "Shell", "Agent", "Task", "Schedule", "Channel", "Setup",
-    ].includes(rawCategory) ? rawCategory : "Other";
-    if (!totals.has(category)) categoryOrder.push(category);
-    totals.set(category, Number(totals.get(category) || 0) + count);
+/* An activity row names the WORK, not the tool bucket. The runtime already
+   ships one work unit per distinct activity — "Agent|Calling|Called|agent" and
+   "Agent|Finishing|Completed|agent" are separate entries — and folding them
+   back to the bare category is what merged agent calls and agent responses
+   into a single "Agents 9". Key on category|done|noun, and keep every label a
+   literal t() call so the extractor holds all catalogs in sync. */
+function toolActivityUnitKey(category: string, done: string, noun: string): string {
+  // External MCP calls carry the SERVER in their noun ("Sentry tool"), so a
+  // per-unit key would split one bucket per server and label them all alike.
+  // MCP stays one activity; the server name lives on the individual rows.
+  if (category === "MCP") return "MCP";
+  return `${category}|${done}|${noun}`;
+}
+
+function localizedToolActivityUnit(category: string, done: string, noun: string): string {
+  switch (toolActivityUnitKey(category, done, noun)) {
+    case "Read|Read|file": return t("File reading");
+    case "Read|Read|image": return t("Image viewing");
+    case "Read|Read|resource": return t("MCP resource reading");
+    case "Read|Read|code map": return t("Code structure");
+    case "Search|Searched|pattern": return t("Content search");
+    case "Search|Found|glob": return t("File lookup");
+    case "Search|Found|query": return t("Path lookup");
+    case "Search|Listed|directory": return t("Folder listing");
+    case "Search|Mapped|symbol": return t("Symbol lookup");
+    case "Patch|Created|file": return t("File creation");
+    case "Patch|Edited|file": return t("File editing");
+    case "Patch|Deleted|file": return t("File deletion");
+    case "Patch|Changed|file": return t("File changes");
+    case "Patch|Checked|file": return t("Patch check");
+    case "Load|Loaded|tool":
+    case "Load|Loaded|query": return t("Tool loading");
+    case "Skill|Loaded|skill": return t("Skills");
+    case "MCP": return t("MCP tool use");
+    case "Web Research|Researched|query": return t("Web search");
+    case "Web Research|Fetched|URL": return t("Page fetching");
+    case "Web Research|Fetched|message": return t("Message fetching");
+    case "Memory|Checked|memory item": return t("Memory lookup");
+    case "Memory|Wrote|memory item": return t("Memory saving");
+    case "Shell|Ran|command": return t("Command execution");
+    case "Git|Ran|Git command": return t("Git commands");
+    case "Git|Staged|change": return t("Git staging");
+    case "Agent|Called|agent": return t("Agent calls");
+    case "Agent|Completed|agent": return t("Agent responses");
+    case "Agent|Failed|agent": return t("Agent failures");
+    case "Agent|Cancelled|agent": return t("Agent cancellations");
+    case "Task|Checked|task": return t("Task status");
+    case "Task|Waited for|task": return t("Task waiting");
+    case "Task|Listed|task": return t("Task listing");
+    case "Task|Cancelled|task": return t("Task cancellation");
+    case "Setup|Set|working directory": return t("Project selection");
+    case "Setup|Checked|working directory": return t("Project check");
+    case "Setup|Asked|user": return t("User questions");
+    case "Setup|Updated|plan": return t("Plan updates");
+    case "Setup|Listed|MCP resource": return t("MCP resource listing");
+    case "Setup|Listed|MCP resource template": return t("MCP template listing");
+    default: return localizedToolActivityCategory(category);
   }
-  return categoryOrder
-    .map((category) => `${localizedToolActivityCategory(category)} ${totals.get(category)}`)
-    .join(" · ");
 }
 
 export function flattenedToolActivityItems(items: readonly TranscriptItem[]): TranscriptItem[] {
@@ -1227,25 +1232,45 @@ export function desktopToolActivityCategory(name: unknown, args: unknown): strin
   return String(classifyToolCategory(modeledName, surface.args) || "Other");
 }
 
+export function desktopToolActivityUnit(name: unknown, args: unknown): {
+  category: string;
+  done: string;
+  noun: string;
+  unitKey: string;
+} {
+  const modeledName = desktopToolActivityModeledName(name, args);
+  const surface = formatToolSurface(modeledName, args);
+  const category = String(classifyToolCategory(modeledName, surface.args) || "Other");
+  const entry = aggregateToolCategoryEntry(modeledName, surface.args, category) as {
+    done?: string;
+    noun?: string;
+  } | null;
+  const done = String(entry?.done || "");
+  const noun = String(entry?.noun || "");
+  return { category, done, noun, unitKey: toolActivityUnitKey(category, done, noun) };
+}
+
 export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem[]) {
   const groups = new Map<string, {
+    unitKey: string;
     category: string;
     label: string;
     count: number;
     items: TranscriptItem[];
   }>();
   for (const item of flattenedToolActivityItems(items)) {
-    const category = desktopToolActivityCategory(item.name, item.args);
+    const unit = desktopToolActivityUnit(item.name, item.args);
     const count = Math.max(1, Math.round(Number(item.count || 1)));
-    const previous = groups.get(category);
+    const previous = groups.get(unit.unitKey);
     if (previous) {
       previous.count += count;
       previous.items.push(item);
       continue;
     }
-    groups.set(category, {
-      category,
-      label: localizedToolActivityCategory(category),
+    groups.set(unit.unitKey, {
+      unitKey: unit.unitKey,
+      category: unit.category,
+      label: localizedToolActivityUnit(unit.category, unit.done, unit.noun),
       count,
       items: [item],
     });
@@ -1279,27 +1304,20 @@ export function ToolActivityGroup({
     requestTranscriptRowMeasure(groupRef.current);
   }, [open]);
   const contentId = useId();
-  const mobileSurface = isMobileRemoteSurface();
   const pending = items.some((item) => !toolItemDone(item));
-  const { categories, order } = useMemo(() => mergedToolActivityCategories(items), [items]);
-  const desktopCategoryGroups = useMemo(
+  const categoryGroups = useMemo(
     () => desktopToolActivityCategoryGroups(items),
     [items],
   );
-  const desktopCategorySummary = desktopCategoryGroups
+  const categorySummary = categoryGroups
     .map((group) => `${group.label} ${group.count}`)
     .join(" · ");
-  const label = mobileSurface
-    ? formatAggregateHeader(categories, { pending, order })
-    : desktopCategorySummary || t("Tool use");
-  const tones = items.map(toolActivityItemTone);
-  const failure = tones.includes("error");
-  const warning = !failure && tones.includes("warning");
+  const label = categorySummary || t("Tool use");
 
   return (
     <article ref={groupRef}
-      className={`tool-activity ${mobileSurface && failure ? "failed" : ""} ${mobileSurface && warning ? "warning" : ""}`}
-      data-surface={mobileSurface ? "mobile" : "desktop"}
+      className="tool-activity"
+      data-surface="desktop"
       data-open={open ? "true" : "false"}>
       <button className="tool-header tool-activity-header"
         onPointerDown={(event) => event.stopPropagation()}
@@ -1309,17 +1327,7 @@ export function ToolActivityGroup({
           return next;
         })}
         aria-expanded={open} aria-controls={contentId}>
-        <span className="tool-icon">
-          {mobileSurface ? <ListTree size={16} /> : pending ? (
-            <svg className="live-activity-glyph tool-activity-pending-glyph"
-              viewBox="0 0 12 12" aria-hidden="true">
-              <g className="live-activity-glyph-spin">
-                <path className="live-activity-glyph-ring" d="M6 .9 11.1 6 6 11.1.9 6Z" />
-                <path className="live-activity-glyph-core" d="M6 .9 11.1 6 6 11.1.9 6Z" />
-              </g>
-            </svg>
-          ) : <Layers3 size={16} />}
-        </span>
+        <span className="tool-icon"><ListTree size={16} /></span>
         <span className="tool-title tool-activity-title" title={label}>
           <b>{label}</b>
         </span>
@@ -1328,13 +1336,7 @@ export function ToolActivityGroup({
       </button>
       {open && (
         <div className="tool-activity-content" id={contentId}>
-          {mobileSurface
-            ? items.map((item, index) => (
-                <ToolCard key={String(item.id ?? index)} item={item}
-                  disclosureScope={disclosureScope} />
-              ))
-            : <DesktopToolActivityDetails groups={desktopCategoryGroups}
-                disclosureKey={disclosureKey} />}
+          <ToolActivityDetails groups={categoryGroups} disclosureKey={disclosureKey} />
         </div>
       )}
     </article>
@@ -1349,7 +1351,7 @@ function disclosureChildKey(parent: string, kind: "category" | "item", id: strin
   return parent ? `${parent}:${kind}:${id}` : "";
 }
 
-function DesktopToolActivityDetails({
+function ToolActivityDetails({
   groups,
   disclosureKey,
 }: {
@@ -1360,8 +1362,8 @@ function DesktopToolActivityDetails({
   const contentId = useId();
   const allItems = groups.flatMap((group) => group.items);
   const rememberedCategory = () => groups.find((group) =>
-    toolDisclosureStates.get(disclosureChildKey(disclosureKey, "category", group.category)) === true)
-    ?.category ?? null;
+    toolDisclosureStates.get(disclosureChildKey(disclosureKey, "category", group.unitKey)) === true)
+    ?.unitKey ?? null;
   const rememberedItem = () => allItems.find((item, index) =>
     toolDisclosureStates.get(disclosureChildKey(
       disclosureKey,
@@ -1382,18 +1384,24 @@ function DesktopToolActivityDetails({
     requestTranscriptRowMeasure(rootRef.current);
   }, [openCategory, openItem]);
 
-  const toggleCategory = (category: string) => {
-    const next = openCategory === category ? null : category;
-    if (openCategory) {
-      rememberToolDisclosure(
-        disclosureChildKey(disclosureKey, "category", openCategory),
-        false,
-      );
+  /** One disclosure open per level: persist BOTH sides of the move — the
+   *  sibling that closes and the row that opens — and report the new open id
+   *  (null when the row closed itself). */
+  const rememberToggledDisclosure = (
+    kind: "category" | "item",
+    id: string,
+    open: string | null,
+  ): string | null => {
+    const next = open === id ? null : id;
+    if (open) {
+      rememberToolDisclosure(disclosureChildKey(disclosureKey, kind, open), false);
     }
-    rememberToolDisclosure(
-      disclosureChildKey(disclosureKey, "category", category),
-      next !== null,
-    );
+    rememberToolDisclosure(disclosureChildKey(disclosureKey, kind, id), next !== null);
+    return next;
+  };
+
+  const toggleCategory = (category: string) => {
+    const next = rememberToggledDisclosure("category", category, openCategory);
     if (openItem) {
       rememberToolDisclosure(disclosureChildKey(disclosureKey, "item", openItem), false);
       setOpenItem(null);
@@ -1402,20 +1410,12 @@ function DesktopToolActivityDetails({
   };
 
   const toggleItem = (key: string) => {
-    const next = openItem === key ? null : key;
-    if (openItem) {
-      rememberToolDisclosure(disclosureChildKey(disclosureKey, "item", openItem), false);
-    }
-    rememberToolDisclosure(
-      disclosureChildKey(disclosureKey, "item", key),
-      next !== null,
-    );
-    setOpenItem(next);
+    setOpenItem(rememberToggledDisclosure("item", key, openItem));
   };
 
   let itemIndex = 0;
   return (
-    <div ref={rootRef} className="tool-activity-desktop-details">
+    <div ref={rootRef} className="tool-activity-details">
       {groups.map((group, groupIndex) => {
         const groupItems = group.items.map((item) => ({
           item,
@@ -1425,19 +1425,19 @@ function DesktopToolActivityDetails({
           const entry = groupItems[0];
           if (!entry) return null;
           const key = activityItemKey(entry.item, entry.index);
-          return <DesktopToolActivityItem key={key} item={entry.item}
+          return <ToolActivityItem key={key} item={entry.item}
             open={openItem === key} onToggle={() => toggleItem(key)}
             contentId={`${contentId}-item-${entry.index}`} />;
         }
-        const categoryOpen = openCategory === group.category;
+        const categoryOpen = openCategory === group.unitKey;
         const categoryPending = group.items.some((item) => !toolItemDone(item));
         const categoryContentId = `${contentId}-category-${groupIndex}`;
         return (
           <section className="tool-activity-category"
-            data-open={categoryOpen ? "true" : "false"} key={group.category}>
+            data-open={categoryOpen ? "true" : "false"} key={group.unitKey}>
             <button type="button" className="tool-header tool-activity-category-header"
               onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => toggleCategory(group.category)}
+              onClick={() => toggleCategory(group.unitKey)}
               aria-expanded={categoryOpen} aria-controls={categoryContentId}>
               <span className="tool-icon">{toolIcon(group.category)}</span>
               <span className="tool-title tool-activity-category-title">
@@ -1451,7 +1451,7 @@ function DesktopToolActivityDetails({
               <div className="tool-activity-category-items" id={categoryContentId}>
                 {groupItems.map(({ item, index }) => {
                   const key = activityItemKey(item, index);
-                  return <DesktopToolActivityItem key={key} item={item}
+                  return <ToolActivityItem key={key} item={item}
                     open={openItem === key} onToggle={() => toggleItem(key)}
                     contentId={`${contentId}-item-${index}`} />;
                 })}
@@ -1915,7 +1915,6 @@ function toolActivityFieldLabel(key: string): string {
   const labels: Record<string, string> = {
     api_key: "API key",
     include_noise: "Include ignored",
-    monitor_interval_ms: "Interval",
     timeout_ms: "Timeout",
   };
   if (labels[key]) return labels[key];
@@ -1928,7 +1927,7 @@ function toolActivityFieldLabel(key: string): string {
 
 function toolActivityFieldValue(key: string, value: unknown): string {
   if (TOOL_ACTIVITY_SECRET_ARG.test(key)) return "••••••";
-  if ((key === "timeout_ms" || key === "monitor_interval_ms") && Number(value) > 0) {
+  if (key === "timeout_ms" && Number(value) > 0) {
     return formatElapsed(Number(value));
   }
   if (typeof value === "boolean") return value ? "Yes" : "No";
@@ -2282,7 +2281,7 @@ export function desktopToolActivityItemPresentation(
       && !TOOL_ACTIVITY_INTERNAL_ARGS.has(key)
       && !TOOL_ACTIVITY_BULK_ARGS.has(key)
       // Defaults say nothing on screen. An unset flag and a zeroed budget
-      // (timeout_ms: 0, monitor_interval_ms: 0) only added rows to read past.
+      // (timeout_ms: 0) only added rows to read past.
       && value !== false
       && !(typeof value === "number" && value === 0)
     ))
@@ -2405,7 +2404,7 @@ export function desktopToolActivityItemPresentation(
   };
 }
 
-function DesktopToolActivityItem({
+function ToolActivityItem({
   item,
   open,
   onToggle,

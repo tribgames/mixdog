@@ -6,6 +6,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { isPidAlive } from './pid-liveness.mjs';
 
 let cachedDefaultRoot = '';
 
@@ -13,17 +14,6 @@ function currentUid() {
   if (typeof process.getuid !== 'function') return null;
   const uid = Number(process.getuid());
   return Number.isInteger(uid) && uid >= 0 ? uid : null;
-}
-
-function isPidAlive(value) {
-  const pid = Number(value);
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
 }
 
 function safeLiveLegacyRoot(root, uid) {

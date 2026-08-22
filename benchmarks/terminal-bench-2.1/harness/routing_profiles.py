@@ -37,24 +37,6 @@ def _nonempty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _runtime_preset_index(presets: list[Any], selector: Any) -> int | None:
-    """Mirror session-runtime/config-helpers.mjs findPreset() semantics."""
-    def clean(value: Any) -> str:
-        return str("" if value is None else value).strip().lower()
-
-    wanted = clean(selector)
-    if not wanted:
-        return None
-    for index, preset in enumerate(presets):
-        if not isinstance(preset, dict):
-            continue
-        preset_id = clean(preset.get("id"))
-        preset_name = clean(preset.get("name"))
-        if preset_id == wanted or preset_name == wanted:
-            return index
-    return None
-
-
 def _validate_route(profile_name: str, route_name: str, route: Any) -> None:
     if not isinstance(route, dict) or set(route) != ROUTE_FIELDS:
         raise RouteProfileError(
@@ -213,88 +195,6 @@ def reject_profile_conflicts(
         raise RouteProfileError(
             "route_profile cannot be combined with provider, model, or effort overrides"
         )
-
-
-def merge_route_profile(
-    host_config: Any, profile: dict[str, Any]
-) -> dict[str, Any]:
-    """Return a copied config with only the declared benchmark routes."""
-    if not isinstance(host_config, dict):
-        raise RouteProfileError("host mixdog config must be an object")
-    agent = host_config.get("agent")
-    if not isinstance(agent, dict):
-        raise RouteProfileError("host mixdog config has no agent object")
-
-    merged = copy.deepcopy(host_config)
-    merged_agent = merged["agent"]
-    workflow_routes = merged_agent.get("workflowRoutes")
-    if not isinstance(workflow_routes, dict):
-        workflow_routes = {}
-        merged_agent["workflowRoutes"] = workflow_routes
-    agent_routes = merged_agent.get("agents")
-    if not isinstance(agent_routes, dict):
-        agent_routes = {}
-        merged_agent["agents"] = agent_routes
-
-    routes = profile["routes"]
-    lead_route = copy.deepcopy(routes["lead"])
-    workflow_routes["lead"] = copy.deepcopy(lead_route)
-
-    # Runtime startup resolves config.default before workflow routing. Update
-    # that referenced preset in place (preserving its identity/metadata and all
-    # unrelated presets); if the host has no resolvable default, add one stable
-    # benchmark preset and point default at it.
-    presets = merged_agent.get("presets")
-    if not isinstance(presets, list):
-        presets = []
-        merged_agent["presets"] = presets
-    original_default = merged_agent.get("default")
-    default_index = _runtime_preset_index(presets, original_default)
-    if default_index is None:
-        # Resolve the fallback with the same first-match id-or-name semantics
-        # as startup. Reusing that first match prevents an earlier stale alias
-        # from shadowing a newly appended profile preset.
-        default_index = _runtime_preset_index(presets, PROFILE_LEAD_PRESET_ID)
-        merged_agent["default"] = PROFILE_LEAD_PRESET_ID
-    if default_index is None:
-        presets.append(
-            {
-                "id": PROFILE_LEAD_PRESET_ID,
-                "name": "TERMINAL BENCH ROUTE PROFILE LEAD",
-                "type": "agent",
-                "tools": "full",
-                **lead_route,
-            }
-        )
-        default_index = len(presets) - 1
-    else:
-        presets[default_index] = {**presets[default_index], **lead_route}
-    # A resolved host selector is intentionally retained byte-for-byte. Turning
-    # a name selector into the selected preset's id can make an earlier preset
-    # whose name equals that id shadow the preset startup originally selected.
-
-    # Saved model settings override preset effort/fast in the real startup
-    # resolver, so pin those authoritative values for the profiled Lead model.
-    model_settings = merged_agent.get("modelSettings")
-    if not isinstance(model_settings, dict):
-        model_settings = {}
-        merged_agent["modelSettings"] = model_settings
-    lead_settings_key = f"{lead_route['provider']}/{lead_route['model']}"
-    existing_lead_settings = model_settings.get(lead_settings_key)
-    if not isinstance(existing_lead_settings, dict):
-        existing_lead_settings = {}
-    model_settings[lead_settings_key] = {
-        **existing_lead_settings,
-        "effort": lead_route["effort"],
-        "fast": lead_route["fast"],
-    }
-
-    for role, config_key in AGENT_CONFIG_KEYS.items():
-        if role in routes:
-            agent_routes[config_key] = copy.deepcopy(routes[role])
-        else:
-            agent_routes.pop(config_key, None)
-    return merged
 
 
 def format_resolved_routes(profile_name: str, profile: dict[str, Any]) -> str:

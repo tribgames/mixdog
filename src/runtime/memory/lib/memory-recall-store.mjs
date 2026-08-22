@@ -46,7 +46,6 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   // page still needs a broad pool so the final decision can outrank them.
   const candidateWindow = Math.max(240, limit * 8)
   const includeMembers = Boolean(options.includeMembers)
-  const writeBackMemberHits = options.writeBackMemberHits !== false
   const rootOnly = options.rootOnly === true
   // Pre-filter knobs. Without them, FTS/vec rank the whole tree and a
   // post-filter time window can wipe the result set.
@@ -423,8 +422,11 @@ LEFT JOIN exact  x ON x.id = c.id`
       if (r.exact_rank != null) exactCount++
     }
   } catch (err) {
+    // A failing hybrid CTE is a DB/schema fault. Returning [] rendered it to the
+    // caller as "no memory found", so a broken index or a migration gap looked
+    // like an empty store instead of an error.
     __mixdogMemoryLog(`[recall] hybrid CTE failed: ${err.message}\n`)
-    return []
+    throw err
   }
 
   if (rawRows.length === 0) return []
@@ -739,27 +741,10 @@ LEFT JOIN exact  x ON x.id = c.id`
     if (rootIdsForReturn.length >= limit) break
   }
 
-  let writeBackCount = 0
-  if (writeBackMemberHits && memberHitRootIds.size > 0) {
-    // Batch UPDATE — single round-trip instead of N (one per member-hit root).
-    const validRootIds = []
-    for (const rootId of memberHitRootIds) {
-      const r = rootIdsForReturn.find(x => x.root.id === rootId)?.root ?? byId.get(rootId)
-      if (r) validRootIds.push(Number(rootId))
-    }
-    if (validRootIds.length > 0) {
-      try {
-        const { rowCount } = await db.query(
-          `UPDATE entries SET last_seen_at = $1::bigint WHERE id = ANY($2::bigint[]) AND is_root = 1
-           AND (last_seen_at IS NULL OR last_seen_at < $1::bigint - 3600000)`,
-          [String(nowMs), validRootIds],
-        )
-        writeBackCount = rowCount ?? validRootIds.length
-      } catch (err) {
-        __mixdogMemoryLog(`[recall] writeback batch failed (count=${validRootIds.length}): ${err.message}\n`)
-      }
-    }
-  }
+  // Recall is a read. The member-hit write-back that used to run here bumped
+  // last_seen_at, which feeds the stored score/freshness ranking — so merely
+  // searching reordered later results. Removed outright: every caller already
+  // passed writeBackMemberHits: false.
 
   // ── Final fetch: full row for each root by id = ANY(bigint[]) ────────────
   const topIds = rootIdsForReturn.map(x => Number(x.root.id))
@@ -929,7 +914,7 @@ LEFT JOIN exact  x ON x.id = c.id`
   }
 
   __mixdogMemoryLog(
-    `[recall] dense=${denseCount} sparse=${sparseCount} trgm=${trgmCount} exact=${exactCount} semantic_only_dropped=${semanticOnlyDropped} weak_text_dropped=${weakTextDropped} merged=${results.length} write_back=${writeBackCount}\n`,
+    `[recall] dense=${denseCount} sparse=${sparseCount} trgm=${trgmCount} exact=${exactCount} semantic_only_dropped=${semanticOnlyDropped} weak_text_dropped=${weakTextDropped} merged=${results.length}\n`,
   )
 
   return results

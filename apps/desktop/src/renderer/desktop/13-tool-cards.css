@@ -48,11 +48,6 @@
   color: var(--mx-text-faint);
   font-weight: var(--mx-weight-regular);
 }
-.tool-activity[data-surface="desktop"] .tool-activity-pending-glyph {
-  width: 12px;
-  height: 12px;
-  color: var(--mx-text-muted);
-}
 .tool-activity-content {
   min-width: 0;
   display: flex;

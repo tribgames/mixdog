@@ -53,6 +53,11 @@ export const WS_MAX_INCOMING_FRAME_BYTES = 16 * 1024 * 1024;
 // so the caller can discard the entry and reconnect before arming stream
 // watchdogs.
 const WS_SEND_TIMEOUT_MS = WS_ACQUIRE_TIMEOUT_MS;
+// Grace period between a graceful close() and a forced terminate() during
+// session close / drain. A wedged or half-open socket never completes the close
+// handshake, so without the follow-up terminate it keeps its FD (and the
+// process) alive well past teardown.
+const WS_CLOSE_TERMINATE_MS = 250;
 const WS_PING_INTERVAL_MS = PROVIDER_WS_PING_INTERVAL_MS;
 const WS_PONG_TIMEOUT_MS = PROVIDER_WS_PONG_TIMEOUT_MS;
 const WS_LIVENESS_STALE_MS = PROVIDER_WS_LIVENESS_STALE_MS;
@@ -172,6 +177,25 @@ function _getPoolArr(poolKey) {
         _wsPool.set(poolKey, arr);
     }
     return arr;
+}
+
+// Sockets this process owns that deliberately live OUTSIDE _wsPool: a
+// forceFresh acquire (never reusable), a caller with no poolKey, and the
+// cap-overflow ephemeral. They were invisible to per-session close and to the
+// global drain, so a wedged one survived both. Tracking them here keeps the
+// reuse map unchanged (nothing can select them) while making every owned socket
+// reachable by closeOpenaiWsPoolForSession/_closeAllPooledSockets.
+const _unpooledSockets = new Set();
+
+function _trackUnpooled(entry, poolKey) {
+    if (!entry) return;
+    entry.unpooled = true;
+    entry.poolKey = poolKey || null;
+    _unpooledSockets.add(entry);
+}
+
+function _untrackUnpooled(entry) {
+    if (entry) _unpooledSockets.delete(entry);
 }
 
 function _removeFromPool(poolKey, entry) {
@@ -411,15 +435,15 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
                 }
             }
         }
-        // Gate-only: the wire thread-id above is reshaped to a Codex UUIDv7
-        // (shapeId), but _codexWsCompatibilityHeaders derives
-        // x-codex-parent-thread-id from the RAW dashed thread_id, so the merged
-        // codexHeaders carry a parent-thread id that no longer matches the
-        // thread-id on the same handshake. Realign it to the reshaped thread-id
-        // (single source of truth: the pool owns the wire id shape) so the
-        // gate handshake is internally consistent. Non-gate / standalone
-        // parity paths keep codex's raw value untouched.
-        if (gate && headers['x-codex-parent-thread-id']) {
+        // Reshaped-id realignment: under wire parity the thread-id above becomes
+        // a Codex UUIDv7 (shapeId), while _codexWsCompatibilityHeaders derives
+        // x-codex-parent-thread-id from the RAW dashed thread_id — the merged
+        // codexHeaders would then carry a parent-thread id that no longer
+        // matches the thread-id on the same handshake. Realign it to the
+        // reshaped value (single source of truth: the pool owns the wire id
+        // shape). With no reshaping there is no mismatch, so codex's raw value
+        // stays untouched.
+        if (uuidIds && headers['x-codex-parent-thread-id']) {
             headers['x-codex-parent-thread-id'] = threadId;
         }
     } else {
@@ -694,7 +718,9 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
             entry.probing = false;
             socket.on('pong', () => { entry.lastAliveAt = Date.now(); });
             socket.on('message', () => { entry.lastAliveAt = Date.now(); });
-            socket.on('close', () => { entry.closing = true; });
+            socket.on('close', () => { entry.closing = true; _untrackUnpooled(entry); });
+            // Cap-overflow ephemeral: never pooled, still owned by this session.
+            _trackUnpooled(entry, poolKey);
             return { entry, reused: false };
         }
     }
@@ -744,9 +770,14 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
     entry.probing = false;
     socket.on('pong', () => { entry.lastAliveAt = Date.now(); });
     socket.on('message', () => { entry.lastAliveAt = Date.now(); });
+    // A forceFresh or poolKey-less socket is never inserted into the reuse map,
+    // but it is still this process's socket — register it as unpooled so
+    // session close and drain can reach it.
     if (poolKey && !forceFresh) _getPoolArr(poolKey).push(entry);
+    else _trackUnpooled(entry, poolKey);
     socket.on('close', () => {
         entry.closing = true;
+        _untrackUnpooled(entry);
         _removeFromPool(poolKey, entry);
     });
     return { entry, reused: false };
@@ -757,9 +788,18 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
     entry.busy = false;
     if (!keep || !_isOpen(entry) || !poolKey || entry.ephemeral) {
         try { entry.socket.close(1000, keep ? 'no_session' : 'release_no_keep'); } catch {}
+        // Ownership is NOT dropped here. close() only requests a close, so a
+        // socket that ignores it would become unreachable by session close and
+        // drain — exactly the wedged case forced termination exists for. The
+        // entry stays tracked until its own 'close' handler untracks it, and
+        // the bounded terminate below guarantees that handler runs.
+        _scheduleForcedTerminate(entry.socket);
         _removeFromPool(poolKey, entry);
         return;
     }
+    // A kept forceFresh socket likewise stays registered as unpooled (nothing
+    // may reuse it) until its 'close' handler fires, so drain still reaches it
+    // while it lingers under the idle timer.
     // Mark activity at release, then arm both the idle-close timer and the
     // periodic liveness ping so a socket that dies while pooled is evicted
     // before the next acquire can hand it out.
@@ -778,14 +818,54 @@ export function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') 
     // session that reuses the key. Clearing each entry's token before the
     // close() calls also keeps the async 'close' handlers from re-retaining it.
     _turnStateByPoolKey.delete(poolKey);
+    const closeReason = String(reason || 'session_closed');
     const entries = _wsPool.get(poolKey);
-    if (!entries) return;
-    _wsPool.delete(poolKey);
-    for (const entry of entries) {
-        entry.turnState = null;
-        _clearIdle(entry);
-        _clearLiveness(entry);
-        try { entry.socket.close(1000, reason); } catch {}
+    if (entries) {
+        _wsPool.delete(poolKey);
+        for (const entry of entries) {
+            _shutdownEntry(entry, closeReason);
+        }
+    }
+    // Force-fresh / cap-overflow sockets opened for this session are not in the
+    // reuse map but are just as much this session's connections.
+    for (const entry of [..._unpooledSockets]) {
+        if (entry.poolKey !== poolKey) continue;
+        _unpooledSockets.delete(entry);
+        _shutdownEntry(entry, closeReason);
+    }
+}
+
+// Close one entry for good: drop its shard pin and timers, request a graceful
+// close, then terminate if the socket does not actually finish closing. A
+// wedged/half-open socket ignores close() and would otherwise hold its FD (and
+// keep the transport referenced) until the process dies.
+function _shutdownEntry(entry, reason, { immediate = false } = {}) {
+    if (!entry) return;
+    entry.turnState = null;
+    _clearIdle(entry);
+    _clearLiveness(entry);
+    try { entry.socket.close(1000, reason); } catch {}
+    _scheduleForcedTerminate(entry.socket, { immediate });
+}
+
+// close() is a request, not a guarantee: a wedged/half-open socket never
+// completes the handshake. Follow every close with a bounded terminate so the
+// FD is released and the socket's own 'close' handler (which untracks it) runs.
+function _scheduleForcedTerminate(socket, { immediate = false } = {}) {
+    if (!socket) return;
+    if (immediate) {
+        try { socket.terminate?.(); } catch {}
+        return;
+    }
+    try {
+        const timer = setTimeout(() => {
+            try {
+                if (socket.readyState !== WebSocket.CLOSED) socket.terminate?.();
+            } catch {}
+        }, WS_CLOSE_TERMINATE_MS);
+        timer.unref?.();
+    } catch {
+        try { socket.terminate?.(); } catch {}
     }
 }
 
@@ -798,15 +878,6 @@ export function hasPooledWebSocket(poolKey) {
     return entries.some((entry) => _isOpen(entry) && !entry.closing);
 }
 
-// Focused pool lifecycle test seam. Entries still pass through the production
-// release/acquire code; this only avoids a live provider handshake.
-export function _seedWebSocketEntryForTest({ poolKey, auth, cacheKey, entry }) {
-    Object.assign(entry, _poolCompatibility(auth, cacheKey));
-    if (entry.releaseSequence === undefined) entry.releaseSequence = 0;
-    _getPoolArr(poolKey).push(entry);
-    return entry;
-}
-
 export function _clearWebSocketPoolForTest() {
     for (const arr of _wsPool.values()) {
         for (const entry of arr) {
@@ -816,6 +887,13 @@ export function _clearWebSocketPoolForTest() {
             try { entry.socket.close(1000, 'test_cleanup'); } catch {}
         }
     }
+    for (const entry of _unpooledSockets) {
+        entry.turnState = null;
+        _clearIdle(entry);
+        _clearLiveness(entry);
+        try { entry.socket.close(1000, 'test_cleanup'); } catch {}
+    }
+    _unpooledSockets.clear();
     _wsPool.clear();
     _turnStateByPoolKey.clear();
     _releaseSequence = 0;
@@ -823,11 +901,6 @@ export function _clearWebSocketPoolForTest() {
 
 export function _setOpenSocketForTest(fn) {
     _openSocketImpl = typeof fn === 'function' ? fn : _openSocket;
-}
-
-export function _resetOpenSocketDrainForTest() {
-    _openSocketImpl = _openSocket;
-    _drainComplete = false;
 }
 
 // Drain-complete fence — set true once _closeAllPooledSockets runs so any
@@ -839,20 +912,37 @@ let _drainComplete = false;
 // Force-closes pooled sockets and fences subsequent acquires.
 // `drainOpenaiWsPool` alias matches the registry's `drain*` naming convention;
 // `_closeAllPooledSockets` kept for backward compat with existing call sites.
-export function _closeAllPooledSockets(reason = 'shutdown') {
+export function _closeAllPooledSockets(reason = 'shutdown', { immediate = false } = {}) {
     _drainComplete = true;
     for (const arr of _wsPool.values()) {
-        for (const entry of arr) {
-            // Tear down per-entry timers before dropping the map, otherwise the
-            // idle-close and liveness-ping intervals outlive the drained pool.
-            _clearIdle(entry);
-            _clearLiveness(entry);
-            try { entry.socket.close(1000, reason); } catch {}
-        }
+        // _shutdownEntry tears down per-entry timers before the map is dropped
+        // (otherwise the idle-close and liveness-ping intervals outlive the
+        // drained pool) and follows close() with terminate() so a wedged socket
+        // that ignores the close handshake still releases its FD.
+        for (const entry of arr) _shutdownEntry(entry, String(reason || 'shutdown'), { immediate });
     }
+    // Force-fresh / poolKey-less / cap-overflow sockets live outside the map
+    // and must drain too.
+    for (const entry of _unpooledSockets) {
+        _shutdownEntry(entry, String(reason || 'shutdown'), { immediate });
+    }
+    _unpooledSockets.clear();
     _wsPool.clear();
 }
 export const drainOpenaiWsPool = _closeAllPooledSockets;
-globalThis.__mixdogCloseProviderConnectionsForSession = closeOpenaiWsPoolForSession;
-globalThis.__mixdogDrainProviderConnections = drainOpenaiWsPool;
-process.on('exit', drainOpenaiWsPool);
+// Session-close / drain hooks are shared across provider transports (cursor-wire
+// registers the same globals), so chain whatever is already installed instead of
+// replacing it — import order must not decide which transport gets torn down.
+const _priorPoolSessionCloseHook = globalThis.__mixdogCloseProviderConnectionsForSession;
+globalThis.__mixdogCloseProviderConnectionsForSession = (poolKey, reason) => {
+    try { _priorPoolSessionCloseHook?.(poolKey, reason); } finally {
+        closeOpenaiWsPoolForSession(poolKey, reason);
+    }
+};
+const _priorPoolDrainHook = globalThis.__mixdogDrainProviderConnections;
+globalThis.__mixdogDrainProviderConnections = (reason) => {
+    try { _priorPoolDrainHook?.(reason); } finally { drainOpenaiWsPool(reason); }
+};
+// 'exit' hands the listener an exit CODE, never a reason string, and no timer
+// can fire after it: terminate immediately instead of scheduling.
+process.on('exit', () => _closeAllPooledSockets('process-exit', { immediate: true }));

@@ -25,6 +25,17 @@ import { DesktopLoadingSurface } from "./RendererRecovery";
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 type WorkbenchWorkspace = ReturnType<typeof useWorkbenchWorkspace>;
 
+type UtilitySelection = Extract<WorkspaceSelection, {
+  kind: "studio" | "terminal" | "folder" | "diff" | "pull-request";
+}>;
+
+/** Tabs that own a persistent utility surface (one mounted pane each). */
+function isUtilitySelection(selection: WorkspaceSelection): selection is UtilitySelection {
+  return selection.kind === "studio" || selection.kind === "terminal"
+    || selection.kind === "folder"
+    || selection.kind === "diff" || selection.kind === "pull-request";
+}
+
 interface EditorNavigationLocation {
   project: string;
   rel: string;
@@ -57,7 +68,27 @@ export function useAppPersistentPaneSurfaces({
   sidebarOpen: boolean;
   toggleSidebar(): void;
 }) {
+  // An activation latch is WORKSPACE-wide, so it may only be pruned against
+  // every matching tab in every leaf, and only closing a tab releases it.
+  // Pruning against ONE leaf's tabs evicted the other panes' surfaces:
+  // Monaco instances remounted, LSP state churned, and unsaved-backup
+  // restoration raced the remount.
+  const pruneActivationLatch = (
+    latched: Set<string>,
+    owns: (selection: WorkspaceSelection) => boolean,
+  ): void => {
+    const openKeys = new Set<string>();
+    for (const leaf of paneWorkspace.leaves) {
+      for (const selection of leaf.tabs) {
+        if (owns(selection)) openKeys.add(navigationKey(selection));
+      }
+    }
+    for (const key of [...latched]) {
+      if (!openKeys.has(key)) latched.delete(key);
+    }
+  };
   const activatedFileKeys = useRef(new Set<string>());
+  pruneActivationLatch(activatedFileKeys.current, (selection) => selection.kind === "file");
   const paneFileEditors = (
     leaf: PaneLeaf,
     focused: boolean,
@@ -66,14 +97,6 @@ export function useAppPersistentPaneSurfaces({
     const active = paneActiveSelection(leaf);
     const paneActiveFileKey = active?.kind === "file" ? navigationKey(active) : "";
     if (paneActiveFileKey) activatedFileKeys.current.add(paneActiveFileKey);
-    const openFileKeys = new Set(
-      leaf.tabs
-        .filter((selection) => selection.kind === "file")
-        .map((selection) => navigationKey(selection)),
-    );
-    for (const key of [...activatedFileKeys.current]) {
-      if (!openFileKeys.has(key)) activatedFileKeys.current.delete(key);
-    }
     return leaf.tabs
       .filter((paneSelection): paneSelection is Extract<NavigationSelection, { kind: "file" }> => (
         paneSelection.kind === "file"
@@ -138,12 +161,7 @@ export function useAppPersistentPaneSurfaces({
   ) => {
     const active = paneActiveSelection(leaf);
     return leaf.tabs
-      .filter((selection): selection is Extract<WorkspaceSelection, {
-        kind: "studio" | "terminal" | "folder" | "diff" | "pull-request"
-      }> =>
-        (selection.kind === "studio" || selection.kind === "terminal"
-        || selection.kind === "folder"
-        || selection.kind === "diff" || selection.kind === "pull-request")
+      .filter((selection): selection is UtilitySelection => isUtilitySelection(selection)
         && (Boolean(active && navigationKey(active) === navigationKey(selection))
           || activatedUtilitySurfaceKeys.current.has(navigationKey(selection))))
       .map((utilitySelection) => {
@@ -166,16 +184,12 @@ export function useAppPersistentPaneSurfaces({
     leafId: string;
     focused: boolean;
     active: boolean;
-    selection: Extract<WorkspaceSelection, {
-      kind: "studio" | "terminal" | "folder" | "diff" | "pull-request"
-    }>;
+    selection: UtilitySelection;
   }>();
   for (const leaf of paneWorkspace.leaves) {
     const active = paneActiveSelection(leaf);
     for (const selection of leaf.tabs) {
-      if (selection.kind !== "studio" && selection.kind !== "terminal"
-        && selection.kind !== "folder"
-        && selection.kind !== "diff" && selection.kind !== "pull-request") continue;
+      if (!isUtilitySelection(selection)) continue;
       const key = navigationKey(selection);
       const selectionActive = Boolean(active && navigationKey(active) === key);
       // Idempotent render-time latch: by the time the user leaves this tab,
@@ -196,23 +210,7 @@ export function useAppPersistentPaneSurfaces({
       }
     }
   }
-  {
-    // Closing a tab must actually release its surface: drop latched keys whose
-    // tab no longer exists in any leaf.
-    const presentUtilityKeys = new Set<string>();
-    for (const leaf of paneWorkspace.leaves) {
-      for (const selection of leaf.tabs) {
-        if (selection.kind === "studio" || selection.kind === "terminal"
-          || selection.kind === "folder"
-          || selection.kind === "diff" || selection.kind === "pull-request") {
-          presentUtilityKeys.add(navigationKey(selection));
-        }
-      }
-    }
-    for (const key of [...activatedUtilitySurfaceKeys.current]) {
-      if (!presentUtilityKeys.has(key)) activatedUtilitySurfaceKeys.current.delete(key);
-    }
-  }
+  pruneActivationLatch(activatedUtilitySurfaceKeys.current, isUtilitySelection);
   const paneUtilitySurfacePortals = [...utilitySurfaceDescriptors.values()].map((descriptor) => {
     const { key, leafId, selection: utilitySelection } = descriptor;
     const utilityActive = descriptor.active;

@@ -95,7 +95,24 @@ export function closeSession(id, reason = 'manual', opts = {}) {
     // A session owns every shell process it started, including commands still
     // in the foreground. Cancel by immutable owner identity before the runtime
     // entry is cleared so a direct agent/session close cannot orphan a tree.
-    try { cancelNativeTasks({ ownerSessionId: id }); } catch { /* ignore */ }
+    //
+    // The kill's OWN answer decides what is recorded. A survivor this host can
+    // no longer signal (the Windows git-bash background child) was never proven
+    // stopped: the shell layer already answers `cancel-unconfirmed` for it, and
+    // overwriting that with the tombstone's default confirmed `cancelled` is a
+    // false success the pool and desktop then render as a clean cancellation.
+    // Carry the real confirmation through and re-stamp the durable tombstone
+    // with the unconfirmed outcome. The re-stamp is idempotent: markSessionClosed
+    // keeps the original close time and generation and only upgrades the cancel
+    // scalars (unconfirmed never downgrades back to cancelled).
+    let cancelConfirmed = true;
+    try {
+        cancelConfirmed = cancelNativeTasks({ ownerSessionId: id })?.confirmed !== false;
+    } catch {
+        // A cancel that threw proved nothing either.
+        cancelConfirmed = false;
+    }
+    if (tombstone && !cancelConfirmed) markSessionClosed(id, reason, { cancelStatus: 'cancel-unconfirmed' });
     // prepareCloseSnapshot was folded into the synchronous generation write
     // above. Only now is it safe to remove the crash fallback.
     clearTurnCheckpoint(id);

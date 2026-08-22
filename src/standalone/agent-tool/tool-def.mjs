@@ -22,14 +22,14 @@ export const AGENT_TOOL = {
     openWorldHint: true,
     agentHidden: true,
   },
-  description: 'Run scoped agent work as background tasks. spawn/send return task_id immediately; the same tag reuses its live session, while independent scopes need distinct tags. Wait for completion notifications; use status/read only for manual recovery.',
+  description: 'Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Wait for completion notifications; use status/read only for manual recovery.',
   inputSchema: {
     type: 'object',
     properties: {
       type: { type: 'string', enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'], description: 'Required action. New spawn requires agent and one of prompt/message/file; send requires tag and one of prompt/message/file; read/status/close/cancel require task_id or tag; list/cleanup require no target.' },
       task_id: { type: 'string', description: 'Task ID returned by spawn/send; target for read/status/close/cancel.' },
       agent: { type: 'string', description: 'Workflow agent id. Required for a new spawn; same-tag reuse can inherit it.' },
-      tag: { type: 'string', description: 'Stable scope handle. Reuse for the same scope; send requires it, while spawn can generate one when omitted.' },
+      tag: { type: 'string', description: 'Stable scope handle. Reuse the same tag for the same scope; never derive a variant by appending a number or suffix. send requires it, while spawn can generate one when omitted.' },
       prompt: { type: 'string', description: 'Spawn task brief; also accepted for send.' },
       message: { type: 'string', description: 'Send follow-up; also accepted for spawn.' },
       file: { type: 'string', description: 'Path to task text; alternative to prompt/message for spawn/send.' },

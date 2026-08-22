@@ -36,6 +36,29 @@ function finiteInt(value, { min, max, def }) {
   if (i > max) return max;
   return i;
 }
+// Belt-and-suspenders ownership guard shared by both tick paths: if this
+// process is not the active owner, do nothing. The runtime should only have
+// started this queue on the owner path, but an ownership hand-off can briefly
+// leave two processes both ticking — this short-circuits that window. This is
+// multi-process active-owner gating, not HTTP authentication.
+// Fail closed: a probe exception must NOT be treated as ownership.
+// Duplicate-owner queue ticks are exactly what this guard prevents.
+// Module-scope on purpose: both tick paths run this exact guard, never a
+// dispatched override.
+function ownerTickAllowed(queue, what) {
+  if (!queue.ownerGetter) return true;
+  let isOwner = false;
+  try { isOwner = !!queue.ownerGetter(); } catch { isOwner = false; }
+  if (!isOwner) {
+    if (!queue.ownerSkipLogged) {
+      logEvent(`queue: skipping ${what} — not owner`);
+      queue.ownerSkipLogged = true;
+    }
+    return false;
+  }
+  queue.ownerSkipLogged = false;
+  return true;
+}
 class EventQueue {
   config;
   channelId;
@@ -127,25 +150,7 @@ class EventQueue {
     if (this._processQueueRunning) return;
     this._processQueueRunning = true;
     try {
-      // Belt-and-suspenders ownership guard: if this process is not the
-      // active owner, do nothing. The runtime should only have started this
-      // queue on the owner path, but an ownership hand-off can briefly leave
-      // two processes both ticking — this short-circuits that window.
-      // This is multi-process active-owner gating, not HTTP authentication.
-      if (this.ownerGetter) {
-        // Fail closed: a probe exception must NOT be treated as ownership.
-        // Duplicate-owner queue ticks are exactly what this guard prevents.
-        let isOwner = false;
-        try { isOwner = !!this.ownerGetter(); } catch { isOwner = false; }
-        if (!isOwner) {
-          if (!this.ownerSkipLogged) {
-            logEvent("queue: skipping tick — not owner");
-            this.ownerSkipLogged = true;
-          }
-          return;
-        }
-        this.ownerSkipLogged = false;
-      }
+      if (!ownerTickAllowed(this, "tick")) return;
       const files = this.readQueueFiles();
       if (files.length === 0) return;
       for (const file of files) {
@@ -167,24 +172,7 @@ class EventQueue {
     }
   }
   processBatch() {
-    // Belt-and-suspenders ownership guard: if this process is not the
-    // active owner, do nothing. The runtime should only have started this
-    // queue on the owner path, but an ownership hand-off can briefly leave
-    // two processes both ticking — this short-circuits that window.
-    // This is multi-process active-owner gating, not HTTP authentication.
-    if (this.ownerGetter) {
-      // Fail closed: a probe exception must NOT be treated as ownership.
-      let isOwner = false;
-      try { isOwner = !!this.ownerGetter(); } catch { isOwner = false; }
-      if (!isOwner) {
-        if (!this.ownerSkipLogged) {
-          logEvent("queue: skipping batch tick — not owner");
-          this.ownerSkipLogged = true;
-        }
-        return;
-      }
-      this.ownerSkipLogged = false;
-    }
+    if (!ownerTickAllowed(this, "batch tick")) return;
     const files = this.readQueueFiles();
     const lowFiles = files.filter((f) => {
       const item = this.readItem(f);
@@ -312,14 +300,36 @@ ${p.item.prompt}`).join("\n\n")}`;
     }
   }
   readItem(file) {
+    let raw;
     try {
-      return JSON.parse(readFileSync(join(QUEUE_DIR, file), "utf8"));
+      raw = readFileSync(join(QUEUE_DIR, file), "utf8");
     } catch (err) {
-      if (err.code !== "ENOENT") {
-        logEvent(`queue: corrupt file ${file}`);
-      }
+      if (err?.code === "ENOENT") return null;
+      // An IO fault (EACCES/EBUSY/EMFILE/EIO…) says nothing about the record
+      // itself — the bytes may be perfectly valid. Leave it queued for the next
+      // tick instead of dead-lettering a live event.
+      logEvent(`queue: read failed for ${file}: ${err?.message ?? err}`);
       return null;
     }
+    let item;
+    try {
+      item = JSON.parse(raw);
+    } catch (err) {
+      // Corrupt bytes can never execute, and leaving them in queue/ made every
+      // tick re-read the same poison file forever. Quarantine under processed/
+      // so the payload stays inspectable and the queue moves on.
+      logEvent(`queue: corrupt file ${file} — quarantined: ${err?.message ?? err}`);
+      this.moveToProcessed(file, "corrupt");
+      return null;
+    }
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      // Parses, but is not an event record (null / scalar / array): the same
+      // dead end as corrupt bytes, so it is quarantined rather than retried.
+      logEvent(`queue: invalid record ${file} — quarantined`);
+      this.moveToProcessed(file, "corrupt");
+      return null;
+    }
+    return item;
   }
   // Atomically rename from queue/ to in-progress/. Returns the new
   // filename on success, or null if another worker already claimed it /

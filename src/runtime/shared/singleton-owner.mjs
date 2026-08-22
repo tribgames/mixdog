@@ -1,16 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-
-export function isPidAlive(pid) {
-  const n = Number(pid);
-  if (!Number.isInteger(n) || n <= 0) return false;
-  try {
-    process.kill(n, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
-}
+import { isPidAlive } from './pid-liveness.mjs';
 
 function readJson(path) {
   try {

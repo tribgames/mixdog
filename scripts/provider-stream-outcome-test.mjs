@@ -37,6 +37,7 @@ import {
     classifyHandshakeError,
     isContextOverflowError,
     createStallRetryBudget,
+    resetStallRetryBudget,
     resolveStallRetryBudget,
 } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import { parseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-sse.mjs';
@@ -1172,11 +1173,23 @@ test('send-with-recovery: no-tool stall with partial text stays an explicit fail
     await assert.rejects(sendWithRecovery(recoveryCtx(e)), (thrown) => thrown === e);
 });
 
-test('send-with-recovery: exhausted shared budget blocks a fresh transport replay', async () => {
+test('send-with-recovery: a spent stall window never blocks the bounded transport replay', async () => {
     const e = err('reset', { code: 'ECONNRESET' });
-    const ctx = recoveryCtx(e);
-    ctx.opts._stallRetryBudget = { allowStallRetry: () => false };
-    await assert.rejects(sendWithRecovery(ctx), (thrown) => thrown === e);
+    const spent = { allowStallRetry: () => false };
+
+    // The surviving bound is the replay COUNT, not a window already spent
+    // detecting the stall that the replay exists to recover from.
+    const capped = recoveryCtx(e);
+    capped.opts._stallRetryBudget = spent;
+    capped.transportRetriesUsed = 99;
+    await assert.rejects(sendWithRecovery(capped), (thrown) => thrown === e);
+
+    // A fresh request opens a new window instead of inheriting the spent one.
+    const opts = { _stallRetryBudget: spent };
+    const fresh = resetStallRetryBudget(opts);
+    assert.notEqual(fresh, spent);
+    assert.equal(opts._stallRetryBudget, fresh);
+    assert.equal(fresh.allowStallRetry(), true);
 });
 
 test('send-with-recovery: stall with COMPLETE tool calls recovers as a tool turn', async () => {

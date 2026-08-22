@@ -48,13 +48,20 @@ from .routing_profiles import (
 from .src_overlay import (
     SNAPSHOT_ENV,
     load_src_snapshot,
+    spawn_capability_shell,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 # The npm install is only a dependency shell — the src overlay replaces the
-# whole source tree — so always install the latest published package instead
-# of the local (possibly unpublished) package.json version.
-DEFAULT_MIXDOG_VERSION = "latest"
+# whole source tree — so pin the published package version. Prebake extracts
+# must match this same version or the trial is not comparable.
+DEFAULT_MIXDOG_VERSION = json.loads(
+    (_REPO_ROOT / "package.json").read_text(encoding="utf-8")
+)["version"]
+if not DEFAULT_MIXDOG_VERSION or str(DEFAULT_MIXDOG_VERSION).lower() == "latest":
+    raise RuntimeError(
+        "package.json version must pin the Terminal-Bench dependency shell"
+    )
 # Terminal-Bench always boots a benchmark-owned route profile and the shipped
 # default workflow (Solo) unless an explicit workflow is selected.
 
@@ -65,9 +72,7 @@ CONTAINER_DATA_DIR = "/opt/mixdog"
 CONTAINER_CREDS_PATH = f"{CONTAINER_DATA_DIR}/anthropic-oauth-credentials.json"
 HARNESS_SNAPSHOT_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT"
 HARNESS_SNAPSHOT_MANIFEST_ENV = "MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST"
-REFUSAL_FALLBACK_EXIT_CODE = 86
-FALLBACK_STATE_ENV = "MIXDOG_TB_FALLBACK_STATE_DIR"
-# Every trial receives the same full local src archive captured before Harbor.
+# Every trial receives the same local runtime bundle captured before Harbor.
 _REPO_SRC = _REPO_ROOT / "src"
 PRISTINE_CONTRACT = json.loads(
     (_REPO_SRC / "runtime/shared/pristine-execution-contract.json").read_text(
@@ -96,7 +101,6 @@ CONTAINER_PREBAKE_ZSTD = "/opt/mixdog-zstd"
 BENCH_DRIVER_DEADLINE_MS = 180 * 60 * 1000
 ANTHROPIC_REFRESH_SKEW_MS = 5 * 60 * 1000
 PROCESS_KILL_GRACE_S = 30
-LEAD_CLEANUP_GRACE_S = 60
 LEASE_STARTUP_CLEANUP_MARGIN_MS = 55 * 60 * 1000
 # Preflight precedes uploads/runtime boot. The lease covers the complete 3h
 # driver deadline, provider refresh skew, and 55m of startup/cleanup margin.
@@ -111,9 +115,6 @@ PROCESS_RUN_DEADLINE_S = (
     - LEASE_STARTUP_CLEANUP_MARGIN_MS
     - PROCESS_KILL_GRACE_S * 1000
 ) // 1000
-LEAD_INNER_DEADLINE_MS = (
-    PROCESS_RUN_DEADLINE_S - LEAD_CLEANUP_GRACE_S
-) * 1000
 
 # Exact allow-list for provider material. Host config and behavioral state are
 # never read, globbed, merged, or copied.
@@ -134,6 +135,16 @@ API_KEY_PROVIDER_ENV = {
 PERSONAL_STATE_AUDIT_NAME = "personal-state-audit.json"
 CONTAINER_PERSONAL_STATE_AUDIT = f"/logs/agent/{PERSONAL_STATE_AUDIT_NAME}"
 UV_BOOTSTRAP_ATTEMPTS = 3
+_TOOL_DEPS = ("rg", "node", "timeout", "tar", "grep")
+
+
+def _tool_dep_preflight_shell() -> str:
+    deps = " ".join(_TOOL_DEPS)
+    return (
+        f"for dep in {deps}; do "
+        "command -v \"$dep\" >/dev/null 2>&1 || { echo \"tool-dep missing: $dep\" >&2; exit 1; }; "
+        f"done; echo 'tool-dep preflight ok: {deps}'"
+    )
 
 
 def _host_data_dir() -> Path:
@@ -325,6 +336,33 @@ def _bounded_process_command(
     )
 
 
+def _mixdog_exec_command(
+    instruction: str,
+    provider: str,
+    model: str,
+    *,
+    effort: str | None = None,
+    fast: bool = False,
+    compile_cache: bool = False,
+    label: str,
+) -> str:
+    route_args = f" --effort {shlex.quote(effort)}" if effort else ""
+    if fast:
+        route_args += " --fast"
+    cache = (
+        "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; " if compile_cache else ""
+    )
+    pipeline = (
+        "mkdir -p /logs/agent; "
+        f"{cache}"
+        f"mixdog exec --json --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
+        f"{route_args} "
+        f"-- {shlex.quote(instruction)} "
+        "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"
+    )
+    return _bounded_process_command(pipeline, label)
+
+
 def _uv_provision_command(
     home: str = "/root", curl_command: str = "curl"
 ) -> str:
@@ -450,11 +488,7 @@ class MixdogAgent(BaseInstalledAgent):
         routes = self._route_profile["routes"]
         if self._mode == "worker":
             return {self._worker_route()["provider"]}
-        required = {route["provider"] for route in routes.values()}
-        fallback = self._route_profile.get("leadFallback")
-        if fallback:
-            required.add(fallback["provider"])
-        return required
+        return {route["provider"] for route in routes.values()}
 
     def _start_anthropic_preflight(self) -> None:
         """Kick the host-side lease refresh so it overlaps container install."""
@@ -525,9 +559,12 @@ class MixdogAgent(BaseInstalledAgent):
                             "cp /opt/static-curl/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt; fi; "
                             "timeout --version | grep -q 'GNU coreutils'; node --version; "
                             "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed (prebaked)'; "
-                            "for dep in rg node timeout tar grep; do "
-                            "command -v \"$dep\" >/dev/null 2>&1 || { echo \"tool-dep missing: $dep\" >&2; exit 1; }; "
-                            "done; echo 'tool-dep preflight ok: rg node timeout tar grep'; "
+                            f"expected={shlex.quote(self._mixdog_version)}; "
+                            "installed=$(node -p \"require('/usr/lib/node_modules/mixdog/package.json').version\"); "
+                            "if [ \"$installed\" != \"$expected\" ]; then "
+                            "echo \"prebake mixdog version $installed != $expected\" >&2; exit 1; "
+                            "fi; "
+                            f"{_tool_dep_preflight_shell()}; "
                             "if /root/.local/bin/uv --version 2>/dev/null | grep -q '^uv 0\\.9\\.5$' && "
                             "/root/.local/bin/uvx --version 2>/dev/null | grep -q '^uvx 0\\.9\\.5$'; then "
                             "echo MIXDOG_PREBAKE_UV_READY; else echo MIXDOG_PREBAKE_UV_MISSING; fi; "
@@ -558,6 +595,35 @@ class MixdogAgent(BaseInstalledAgent):
                         ),
                     )
 
+                async def _apt_index_refresh():
+                    # Every stock Harbor agent adapter starts its install
+                    # with `apt-get update`, so all of them hand the task a
+                    # container whose package index is populated. The
+                    # prebake fast path never touches apt, which left this
+                    # agent alone on an empty index ("Unable to locate
+                    # package" for anything not already in the image).
+                    # Restore the standard start state: uniform infra, no
+                    # task conditionals, best-effort, and overlapped with
+                    # staging so it stays off the critical path.
+                    try:
+                        await self.exec_as_root(
+                            environment,
+                            command=(
+                                "apt-get "
+                                "-o Acquire::Retries=1 "
+                                "-o Acquire::http::Timeout=25 "
+                                "-o Acquire::https::Timeout=25 "
+                                "update >/dev/null 2>&1 || true"
+                            ),
+                            env={"DEBIAN_FRONTEND": "noninteractive"},
+                        )
+                    except Exception:
+                        pass
+
+                apt_index_task = asyncio.create_task(
+                    _timed("apt-index", _apt_index_refresh())
+                )
+
                 stage_result = None
                 if prebake_tar_zst.is_file() and prebake_zstd_bin.is_file():
                     try:
@@ -568,6 +634,9 @@ class MixdogAgent(BaseInstalledAgent):
                         stage_result = None
                 if stage_result is None:
                     stage_result = await _timed("stage", _stage_leg())
+                # Join before any apt-using fallback below so the two
+                # never contend for the apt lists lock.
+                await apt_index_task
                 if "CURL_MISSING" in (getattr(stage_result, "stdout", "") or ""):
                     # Old tar without the static bundle: uniform network
                     # fallback (no task conditionals).
@@ -617,9 +686,7 @@ class MixdogAgent(BaseInstalledAgent):
                 # tool shells out to must exist NOW, or setup fails loudly —
                 # a missing binary must never surface as silent per-turn tool
                 # errors (the ripgrep incident).
-                "for dep in rg node timeout tar grep; do "
-                "command -v \"$dep\" >/dev/null 2>&1 || { echo \"tool-dep missing: $dep\" >&2; exit 1; }; "
-                "done; echo 'tool-dep preflight ok: rg node timeout tar grep'"
+                f"{_tool_dep_preflight_shell()}"
             ),
             env={"DEBIAN_FRONTEND": "noninteractive"},
         )
@@ -647,16 +714,7 @@ class MixdogAgent(BaseInstalledAgent):
             raise RuntimeError(
                 "Terminal-Bench pristine mode requires a selected route_profile"
             )
-        routes = self._route_profile["routes"]
-        if self._mode == "worker":
-            required_providers = {self._worker_route()["provider"]}
-        else:
-            required_providers = {
-                route["provider"] for route in routes.values()
-            }
-            fallback = self._route_profile.get("leadFallback")
-            if fallback:
-                required_providers.add(fallback["provider"])
+        required_providers = self._required_providers()
         boot_files = _collect_provider_files(required_providers)
         self._api_key_env = _collect_api_key_env(required_providers)
         credential_snapshot_dir = None
@@ -795,7 +853,7 @@ class MixdogAgent(BaseInstalledAgent):
 
     @staticmethod
     def _load_src_snapshot():
-        # The launcher captures this once before Harbor creates any trials.
+        # The launcher builds and captures this once before Harbor creates trials.
         snapshot_path = os.environ.get(SNAPSHOT_ENV)
         if not snapshot_path:
             raise RuntimeError(
@@ -820,25 +878,40 @@ class MixdogAgent(BaseInstalledAgent):
                 'test -f "$PACKAGE/package.json"; '
                 'STAGING="$PACKAGE/.src-local-snapshot"; '
                 'BACKUP="$PACKAGE/.src-installed-backup"; '
-                'cleanup_src_swap() { '
-                'rm -rf "$STAGING"; '
-                'if [ -e "$BACKUP" ]; then '
-                'if [ ! -e "$PACKAGE/src" ]; then mv "$BACKUP" "$PACKAGE/src"; '
-                'else rm -rf "$BACKUP"; fi; fi; }; '
-                'trap cleanup_src_swap EXIT; '
+                'SPAWN="$PACKAGE/native-tools/mixdog-spawn"; '
+                'SPAWN_BACKUP="$PACKAGE/native-tools/.mixdog-spawn-installed-backup"; '
+                'SRC_SWAPPED=0; SPAWN_SWAPPED=0; HAD_SPAWN=0; '
+                'restore_runtime_swap() { '
+                'if [ "$SRC_SWAPPED" -eq 1 ] && [ -e "$BACKUP" ]; then '
+                'rm -rf "$PACKAGE/src"; mv "$BACKUP" "$PACKAGE/src"; fi; '
+                'if [ "$SPAWN_SWAPPED" -eq 1 ]; then rm -f "$SPAWN"; '
+                'if [ "$HAD_SPAWN" -eq 1 ] && [ -e "$SPAWN_BACKUP" ]; then '
+                'mv "$SPAWN_BACKUP" "$SPAWN"; fi; fi; }; '
+                'cleanup_runtime_swap() { rm -rf "$STAGING"; restore_runtime_swap; }; '
+                'trap cleanup_runtime_swap EXIT; '
                 "trap 'exit 1' HUP INT TERM; "
                 'if [ -e "$BACKUP" ]; then '
                 'if [ ! -e "$PACKAGE/src" ]; then mv "$BACKUP" "$PACKAGE/src"; '
                 'else rm -rf "$BACKUP"; fi; fi; '
+                'mkdir -p "$PACKAGE/native-tools"; '
+                'if [ -e "$SPAWN_BACKUP" ]; then '
+                'if [ ! -e "$SPAWN" ]; then mv "$SPAWN_BACKUP" "$SPAWN"; '
+                'else rm -f "$SPAWN_BACKUP"; fi; fi; '
                 'rm -rf "$STAGING"; mkdir -p "$STAGING"; '
                 f"tar -xf {shlex.quote(CONTAINER_SRC_SNAPSHOT)} -C \"$STAGING\"; "
                 'test -d "$STAGING/src"; '
+                'test -x "$STAGING/native-tools/mixdog-spawn"; '
                 'mv "$PACKAGE/src" "$BACKUP"; '
-                'if ! mv "$STAGING/src" "$PACKAGE/src"; then '
-                'mv "$BACKUP" "$PACKAGE/src"; exit 1; fi; '
-                'rm -rf "$BACKUP" "$STAGING"; '
+                'SRC_SWAPPED=1; '
+                'if [ -e "$SPAWN" ]; then mv "$SPAWN" "$SPAWN_BACKUP"; HAD_SPAWN=1; fi; '
+                'if ! mv "$STAGING/src" "$PACKAGE/src"; then exit 1; fi; '
+                'if ! mv "$STAGING/native-tools/mixdog-spawn" "$SPAWN"; then exit 1; fi; '
+                'SPAWN_SWAPPED=1; chmod 0755 "$SPAWN"; '
+                + spawn_capability_shell('"$SPAWN"') + "; " +
+                'rm -rf "$BACKUP" "$STAGING"; rm -f "$SPAWN_BACKUP"; '
+                'SRC_SWAPPED=0; SPAWN_SWAPPED=0; '
                 'trap - EXIT HUP INT TERM; '
-                'echo "full local src snapshot installed"'
+                'echo "full local runtime bundle installed"'
             ),
         )
         # Warm the V8 module compile cache for the runtime's import graph so
@@ -886,17 +959,6 @@ class MixdogAgent(BaseInstalledAgent):
             "MIXDOG_SESSION_TRANSCRIPT_LOG": "/logs/agent/session-transcript.json",
             "MIXDOG_AGENT_TRACE_PATH": "/logs/agent/agent-trace.jsonl",
         }
-        fallback_route = (
-            self._route_profile.get("leadFallback")
-            if self._route_profile is not None
-            else None
-        )
-        fallback_marker = (
-            self._fallback_marker_path(environment, fallback_route)
-            if fallback_route is not None
-            else None
-        )
-        use_fallback = fallback_marker is not None and fallback_marker.is_file()
         try:
             if self._mode == "worker":
                 await self._run_worker(
@@ -907,25 +969,12 @@ class MixdogAgent(BaseInstalledAgent):
                     worker_route=self._worker_route(),
                 )
             else:
-                try:
-                    await self._run_lead(
-                        environment,
-                        instruction,
-                        model,
-                        base_env,
-                        lead_route=fallback_route if use_fallback else None,
-                    )
-                except Exception as exc:
-                    if (
-                        fallback_marker is not None
-                        and self._is_refusal_fallback_exit(exc)
-                        and not use_fallback
-                    ):
-                        self._create_fallback_marker(fallback_marker)
-                    raise
-                else:
-                    if fallback_marker is not None:
-                        fallback_marker.unlink(missing_ok=True)
+                await self._run_lead(
+                    environment,
+                    instruction,
+                    model,
+                    base_env,
+                )
         finally:
             # Best-effort even when the run raised or hit AgentTimeout: the
             # driver mirrors /logs/agent/usage.json every 30s, so the last
@@ -939,45 +988,6 @@ class MixdogAgent(BaseInstalledAgent):
                 )
             except BaseException:
                 pass
-
-    @staticmethod
-    def _is_refusal_fallback_exit(exc: Exception) -> bool:
-        return isinstance(exc, NonZeroAgentExitCodeError) and str(exc).startswith(
-            f"Command failed (exit {REFUSAL_FALLBACK_EXIT_CODE}):"
-        )
-
-    @staticmethod
-    def _fallback_marker_path(environment, route: dict) -> Path:
-        session_id = str(getattr(environment, "session_id", "") or "").strip()
-        if not session_id:
-            raise RuntimeError(
-                "Harbor environment has no session_id for fallback-attempt state"
-            )
-        root_value = os.environ.get(FALLBACK_STATE_ENV)
-        root = (
-            Path(root_value)
-            if root_value
-            else Path(tempfile.gettempdir()) / f"mixdog-tb-fallback-{os.getpid()}"
-        )
-        identity = json.dumps(
-            {"sessionId": session_id, "route": route},
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        name = hashlib.sha256(identity.encode("utf-8")).hexdigest() + ".retry"
-        return root / name
-
-    @staticmethod
-    def _create_fallback_marker(marker: Path) -> None:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            descriptor = os.open(
-                marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
-        except FileExistsError:
-            return
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            stream.write("refusal\n")
 
     async def _populate_usage_context(self, environment, context) -> None:
         """Best-effort copy of the driver's aggregate usage into Harbor."""
@@ -1005,38 +1015,39 @@ class MixdogAgent(BaseInstalledAgent):
             # failures are all intentionally non-fatal.
             return
 
+    def _exec_route(self, route, model):
+        if route is not None:
+            return (
+                route["provider"],
+                route["model"],
+                route.get("effort"),
+                bool(route.get("fast")),
+            )
+        return (
+            self._provider or "anthropic-oauth",
+            model or "claude-sonnet-4-5",
+            self._effort,
+            False,
+        )
+
     async def _run_worker(
         self, environment, instruction, model, base_env, *, worker_route=None
     ):
         # A selected profile owns the direct-worker route just as it owns every
         # Lead-spawned role route.
-        provider = (
-            worker_route["provider"]
-            if worker_route is not None
-            else self._provider or "anthropic-oauth"
-        )
-        model = (
-            worker_route["model"]
-            if worker_route is not None
-            else model or "claude-sonnet-4-5"
-        )
-        route_args = ""
-        if worker_route is not None:
-            route_args = (
-                f" --effort {shlex.quote(worker_route['effort'])}"
-                + (" --fast" if worker_route["fast"] else "")
-            )
-        escaped_instruction = shlex.quote(instruction)
-        worker_pipeline = (
-            "mkdir -p /logs/agent; "
-            f"mixdog exec --json --provider {shlex.quote(provider)} --model {shlex.quote(model)}"
-            f"{route_args} "
-            f"-- {escaped_instruction} "
-            "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt"
-        )
+        provider, selected_model, effort, fast = self._exec_route(worker_route, model)
+        if worker_route is None:
+            effort, fast = None, False
         await self.exec_as_agent(
             environment,
-            command=_bounded_process_command(worker_pipeline, "worker"),
+            command=_mixdog_exec_command(
+                instruction,
+                provider,
+                selected_model,
+                effort=effort,
+                fast=fast,
+                label="worker",
+            ),
             env=base_env,
         )
 
@@ -1046,38 +1057,19 @@ class MixdogAgent(BaseInstalledAgent):
         route = lead_route
         if route is None and self._route_profile is not None:
             route = self._route_profile.get("routes", {}).get("lead")
-        provider = route["provider"] if route is not None else self._provider or "anthropic-oauth"
-        selected_model = route["model"] if route is not None else model or "claude-sonnet-4-5"
-        effort = route["effort"] if route is not None else self._effort
-        fast = route["fast"] if route is not None else False
-        route_args = f" --effort {shlex.quote(effort)}" if effort else ""
-        if fast:
-            route_args += " --fast"
-        escaped_instruction = shlex.quote(instruction)
-        refusal_check = shlex.quote(
-            "const fs=require('node:fs');"
-            "let result=null;"
-            "for(const line of fs.readFileSync('/logs/agent/mixdog.txt','utf8').split(/\\r?\\n/)){"
-            "if(!line.trim())continue;"
-            "try{const event=JSON.parse(line);if(event?.type==='result')result=event;}catch{}"
-            "}"
-            "if(result?.termination_reason==='refusal')process.exit(86);"
-        )
-        lead_pipeline = (
-            "mkdir -p /logs/agent; "
-            "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; "
-            f"mixdog exec --json --provider {shlex.quote(provider)} "
-            f"--model {shlex.quote(selected_model)}{route_args} "
-            f"-- {escaped_instruction} "
-            "2> >(tee /logs/agent/mixdog.stderr >&2) | tee /logs/agent/mixdog.txt; "
-            "status=$?; "
-            'if [ "$status" -ne 0 ]; then exit "$status"; fi; '
-            f"node -e {refusal_check}"
-        )
+        provider, selected_model, effort, fast = self._exec_route(route, model)
         try:
             await self.exec_as_agent(
                 environment,
-                command=_bounded_process_command(lead_pipeline, "lead"),
+                command=_mixdog_exec_command(
+                    instruction,
+                    provider,
+                    selected_model,
+                    effort=effort,
+                    fast=fast,
+                    compile_cache=True,
+                    label="lead",
+                ),
                 env=base_env,
             )
         except Exception:

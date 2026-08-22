@@ -87,6 +87,27 @@ function validateCronExpression(time) {
   }
   if (!valid) throw new Error(`invalid cron expression "${time}": failed node-cron validation. Legacy formats (HH:MM, everyNm, hourly, daily) are no longer supported — use a cron expression instead.`);
 }
+// Scheduler teardown: stop ticking, destroy the cron jobs and release the
+// scheduler lock so a subsequent start() in the same process can re-acquire it.
+// Without the release, the wx-create in start() hits its own live lock
+// (matching INSTANCE_UUID + recent mtime) and refuses to register cron jobs,
+// leaving the scheduler silently idle after a reload/restart cycle.
+// Read-verify-then-unlink so we don't delete another live owner's lock file
+// (mirrors memory releaseLock and the exit handler). Module-scope on purpose:
+// stop() and restart() both run this exact teardown, never a dispatched
+// override.
+function releaseSchedulerRuntime(scheduler) {
+  if (scheduler.tickTimer) {
+    clearInterval(scheduler.tickTimer);
+    scheduler.tickTimer = null;
+  }
+  scheduler.destroyCronJobs();
+  try {
+    const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
+    const lockedPid = parseInt(content.split("\n")[0]);
+    if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
+  } catch {}
+}
 class Scheduler {
   nonInteractive;
   interactive;
@@ -417,22 +438,7 @@ ${Scheduler.INSTANCE_UUID}`;
     }
   }
   stop() {
-    if (this.tickTimer) {
-      clearInterval(this.tickTimer);
-      this.tickTimer = null;
-    }
-    this.destroyCronJobs();
-    // Release the scheduler lock so a subsequent start() in the same
-    // process can re-acquire it. Without this, the wx-create in start()
-    // hits its own live lock (matching INSTANCE_UUID + recent mtime) and
-    // refuses to register cron jobs, leaving the scheduler silently idle
-    // after a reload/restart cycle. Read-verify-then-unlink so we don't
-    // delete another live owner's lock file (mirrors memory releaseLock).
-    try {
-      const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
-      const lockedPid = parseInt(content.split("\n")[0]);
-      if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
-    } catch {}
+    releaseSchedulerRuntime(this);
   }
   destroyCronJobs() {
     for (const [, task] of this.cronJobs) {
@@ -542,18 +548,7 @@ ${Scheduler.INSTANCE_UUID}`;
     }
   }
   restart() {
-    if (this.tickTimer) {
-      clearInterval(this.tickTimer);
-      this.tickTimer = null;
-    }
-    this.destroyCronJobs();
-    // Read-verify-then-unlink so a non-owner reload can't delete the
-    // live owner's lock file (mirrors stop() and the exit handler).
-    try {
-      const content = readFileSync(Scheduler.SCHEDULER_LOCK, "utf8");
-      const lockedPid = parseInt(content.split("\n")[0]);
-      if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
-    } catch {}
+    releaseSchedulerRuntime(this);
     this.start();
   }
   reloadConfig(nonInteractive, interactive, channelId, options = {}) {

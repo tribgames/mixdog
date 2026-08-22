@@ -28,7 +28,14 @@ import {
   findLineSequence,
   findLineSequenceEscapeEquiv,
   splitTextLinesForPatch,
+  cloneTextLinesForPatch,
+  spliceTextLinesForPatch,
+  joinTextLinesForPatch,
+  terminatorsForUnifiedOps,
+  localTerminatorForWindow,
   decodeValidUtf8OrNull,
+  decodePatchTargetBuffer,
+  encodePatchTargetContent,
   assertSafeReplacementPlan,
 } from './matcher.mjs';
 import {
@@ -57,10 +64,14 @@ import {
   uniqueExactSequenceStart,
 } from './v4a-windows.mjs';
 
-function joinTextLinesForPatch(lines) {
-  const eol = lines?.eol || '\n';
-  const body = (lines || []).join(eol);
-  return lines?.hasFinalNewline !== false ? `${body}${eol}` : body;
+// The peeled-`+` window may only REFINE an already-resolved match, never
+// relocate it. Containment is half-open: `start + length` is the index one
+// PAST the window — a different location, not a refinement — so a genuine
+// addition whose text resembles an existing `+…` line cannot drag the hunk
+// there (which silently turned the edit into a no-op).
+export function plusWindowCoversMatch(windowStart, windowLength, oldStartIdx) {
+  if (oldStartIdx < 0) return true;
+  return oldStartIdx >= windowStart && oldStartIdx < windowStart + windowLength;
 }
 
 function emitUnifiedReplacement(oldLines, newLines) {
@@ -84,13 +95,6 @@ function emitUnifiedReplacement(oldLines, newLines) {
   for (let i = b; i <= newEnd; i++) body.push(`+${neu[i]}`);
   for (let i = oldEnd + 1; i < old.length; i++) body.push(` ${old[i]}`);
   return body;
-}
-
-function cloneTextLinesForPatch(sourceLines) {
-  const lines = [...(sourceLines || [])];
-  lines.hasFinalNewline = sourceLines?.hasFinalNewline !== false;
-  lines.eol = sourceLines?.eol || '\n';
-  return lines;
 }
 
 // V4A parity (compute_replacements): a chunk
@@ -218,9 +222,16 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
       if (eof) eofSignalIgnored = true;
     }
   }
+  // Recovery tier. A `+ TODO` line that IS a file line must be peeled back to
+  // context even when the rest of the hunk already matched exactly — but the
+  // peeled window may then only REFINE that match, never relocate it: a
+  // genuine addition whose text resembles an existing `+…` line elsewhere used
+  // to drag the hunk to that other place and silently no-op the edit.
   if (fuzzy) {
     const plusRestored = restorePlusAsContext(sourceLines, hunk);
-    if (plusRestored) {
+    const plusCoversMatch = plusRestored
+      && plusWindowCoversMatch(plusRestored.start, plusRestored.oldLines.length, oldStartIdx);
+    if (plusRestored && plusCoversMatch) {
       oldStartIdx = plusRestored.start;
       oldLinesPattern = plusRestored.oldLines;
       newLinesPattern = plusRestored.newLines;
@@ -383,6 +394,27 @@ function resolveV4AHunkPosition(sourceLines, hunk, nextSearchLine, options = {})
   };
 }
 
+// Op sequence of a V4A hunk, but ONLY when it still describes the window the
+// resolver actually matched. Recovery tiers can restructure that window (peeled
+// opcodes, trimmed outer context); there the splice falls back to its
+// conservative same-offset identity rule rather than guessing a mapping.
+function v4aOpsForResolvedHunk(hunk, loc) {
+  const ops = [];
+  for (const raw of hunk?.lines || []) {
+    if (typeof raw !== 'string' || raw.length === 0 || isV4AEndOfFileMarker(raw)) continue;
+    const tag = raw[0];
+    const line = raw.slice(1);
+    if (tag === '-') ops.push({ op: 'delete', line });
+    else if (tag === '+') ops.push({ op: 'add', line });
+    else ops.push({ op: 'context', line: tag === ' ' ? line : raw });
+  }
+  const oldCount = ops.reduce((n, entry) => n + (entry.op === 'add' ? 0 : 1), 0);
+  const newCount = ops.reduce((n, entry) => n + (entry.op === 'delete' ? 0 : 1), 0);
+  if (oldCount !== loc.matchLen) return null;
+  if (newCount !== (loc.newLines?.length || 0)) return null;
+  return ops;
+}
+
 export function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
   const lines = cloneTextLinesForPatch(sourceLines);
   const orderedHunks = orderV4AHunksByFilePosition(lines, hunks, options.fuzzy !== false);
@@ -393,6 +425,7 @@ export function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
     if (loc.skip) continue;
     if (loc.error) throw new Error(loc.error);
     replacements.push({
+      ops: v4aOpsForResolvedHunk(hunk, loc),
       oldStartIdx: loc.oldStartIdx,
       oldLen: loc.matchLen,
       newLines: loc.newLines,
@@ -407,7 +440,17 @@ export function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
   replacements.sort((a, b) => a.oldStartIdx - b.oldStartIdx);
   assertSafeReplacementPlan(replacements.map((rep) => ({ start: rep.oldStartIdx, oldLen: rep.oldLen })));
   for (const rep of replacements.reverse()) {
-    lines.splice(rep.oldStartIdx, rep.oldLen, ...rep.newLines);
+    const oldTerms = Array.isArray(lines.terminators)
+      ? lines.terminators.slice(rep.oldStartIdx, rep.oldStartIdx + rep.oldLen)
+      : [];
+    const newTerms = rep.ops
+      ? terminatorsForUnifiedOps(
+        rep.ops,
+        oldTerms,
+        localTerminatorForWindow(lines, rep.oldStartIdx, rep.oldLen),
+      )
+      : null;
+    spliceTextLinesForPatch(lines, rep.oldStartIdx, rep.oldLen, rep.newLines, newTerms);
   }
   return lines;
 }
@@ -584,7 +627,10 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
   } catch (err) {
     throw err;
   }
-  const newContent = joinTextLinesForPatch(updatedLines);
+  const newContent = encodePatchTargetContent(
+    joinTextLinesForPatch(updatedLines),
+    sourceLines.encoding,
+  );
   if (options.dryRun) {
     return {
       ok: true,
@@ -719,7 +765,11 @@ function v4aLinesCacheKey(fullPath) {
 function v4aConversionSourceLines(fullPath, linesCache) {
   const cacheKey = v4aLinesCacheKey(fullPath);
   if (linesCache.has(cacheKey)) return linesCache.get(cacheKey);
-  const lines = splitTextLinesForPatch(readRawBufForV4AConversion(fullPath).toString('utf-8'));
+  // BOM-driven decode + refusal for non-UTF-8/UTF-16 bytes: the rename path
+  // rewrites the WHOLE file from these lines.
+  const { text, enc } = decodePatchTargetBuffer(readRawBufForV4AConversion(fullPath), fullPath);
+  const lines = splitTextLinesForPatch(text);
+  lines.encoding = enc;
   linesCache.set(cacheKey, lines);
   return lines;
 }

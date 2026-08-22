@@ -31,10 +31,8 @@ const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 export function createModelPicker({
   store,
   getState,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
   providerModelsCacheRef,
   webSearchModelsCacheRef,
@@ -46,9 +44,14 @@ export function createModelPicker({
   let providerModelsTtlRefreshPromise = null;
   const openModelPicker = async (options = {}) => {
     const state = getState();
+    // Surface claim for this picker (panel-surface.mjs): every paint — the
+    // loading frame, the provider list, the per-provider model list — proves
+    // ownership through it, and each paint re-arms it because a paint can
+    // itself be the handover. modelPickerRequestRef only orders concurrent
+    // OPENS; it cannot see an Esc that closed this one, so a model load
+    // settling afterwards used to repaint the dismissed picker.
+    const own = surface.claim();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
     modelPickerRequestRef.current += 1;
     let modelPickerClosed = false;
@@ -59,8 +62,9 @@ export function createModelPicker({
     const cancelModelPicker = () => {
       modelPickerClosed = true;
       if (returnTo) returnTo();
-      else setPicker(null);
+      else own.close();
     };
+    const paintModelPicker = (panel) => own.paint(panel);
     const cacheRef = options.cacheRef === 'webSearch' ? webSearchModelsCacheRef : providerModelsCacheRef;
     const loadModels = typeof options.loadModels === 'function' ? options.loadModels : store.listProviderModels;
     let providerModels = Array.isArray(cacheRef.current.models)
@@ -69,7 +73,7 @@ export function createModelPicker({
     let refreshModelsPromise = null;
     let renderedQuickModels = false;
     if (!providerModels.length || options.refreshModels === true) {
-      setPicker({
+      paintModelPicker({
         title: options.title || 'Model',
         description: options.loadingDescription || 'Loading models...',
         help: returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back',
@@ -108,6 +112,9 @@ export function createModelPicker({
 
     if (!providerModels || providerModels.length === 0) {
       store.pushNotice(options.emptyNotice || 'no provider models available; open /providers to sign in', 'warn');
+      // Delegation is a paint by proxy: the empty-catalog fallback opens
+      // Providers, so it must prove ownership exactly like paintModelPicker.
+      if (!own.owns()) return;
       void openProviderSetupPicker({
         title: 'Providers',
         continueLabel: 'Back to model setup',
@@ -375,18 +382,28 @@ export function createModelPicker({
             if (typeof options.onImmediateSelect === 'function') {
               options.onImmediateSelect(routeInput, selected, effort);
             } else {
-              setPicker(null);
+              own.paint(null);
             }
+            // Post-ack delegation (return to the caller's panel), bound to the
+            // claim AFTER this keypress's own navigation: an Esc between the
+            // save and its ack must cancel the hop, not paint over the surface
+            // the user moved to.
+            const afterSelect = own.defer(() => {
+              if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
+            });
             void savePromise
               .then((result) => {
                 if (result) clearModelCaches('all');
-                if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
+                afterSelect();
                 return result;
               })
               .catch((e) => store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error'));
             return;
           }
-          setPicker(null);
+          own.paint(null);
+          const afterSelect = own.defer(() => {
+            if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
+          });
           void store.setRoute(routeInput)
             .then((ok) => {
               if (ok) clearModelCaches('provider');
@@ -396,7 +413,7 @@ export function createModelPicker({
                   : 'Model switch is already running',
                 ok ? 'info' : 'warn',
               );
-              if (ok && typeof options.onAfterSelect === 'function') options.onAfterSelect();
+              if (ok) afterSelect();
             })
             .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
         };
@@ -408,7 +425,7 @@ export function createModelPicker({
               (item) => item._provider === activeRoute?.provider && item._modelId === activeRoute?.model,
             ),
           );
-          setPicker({
+          paintModelPicker({
             title: providerDisplayName(provider),
             description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
             footer: (item) => modelFooter(item?._model),
@@ -460,7 +477,7 @@ export function createModelPicker({
         0,
         providerItems.findIndex((item) => item._provider === providerHighlight),
       );
-      setPicker({
+      paintModelPicker({
         title: options.title || 'Model',
         description: options.providerDescription || 'Choose a provider.',
         help: returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back',

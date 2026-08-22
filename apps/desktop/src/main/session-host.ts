@@ -91,6 +91,12 @@ type SessionProjection = {
 
 const READ_CAPABILITIES = new Set<string>(DESKTOP_READ_CAPABILITIES);
 
+// Cold-view (stored-projection) refresh cadence. Only sessions that publish no
+// live frames are re-read, and the worker runtime persists its in-progress
+// transcript on a 2s clock, so a 1s reader keeps a visible agent pane current
+// without adding a faster poll than there is new content to read.
+const COLD_VIEW_REFRESH_MS = 1_000;
+
 function statePatch(
   snapshot: SessionSnapshot,
   patch: Record<string, unknown>,
@@ -166,6 +172,7 @@ export class SessionHost implements DesktopService {
   private sessionCatalogPromise: Promise<DesktopSessionSummary[]> | null = null;
   private storeWatcher: FSWatcher | null = null;
   private storeRefreshTimer: NodeJS.Timeout | null = null;
+  private coldViewTimer: NodeJS.Timeout | null = null;
   private remoteSessionId = '';
   private disposed = false;
 
@@ -766,6 +773,7 @@ export class SessionHost implements DesktopService {
     for (const id of next) this.visibleSessionIds.add(id);
     await Promise.allSettled(removed.map((sessionId) =>
       this.sessionClient.unsubscribe({ sessionId }, this.callOptions())));
+    this.ensureColdViewRefresh();
     return true;
   }
 
@@ -1066,6 +1074,38 @@ export class SessionHost implements DesktopService {
     }
   }
 
+  /** Cold-view refresh.
+   *
+   *  A session served from its STORED projection carries revision 0 and
+   *  receives no live frames, because only a materialized daemon entry
+   *  publishes those. An agent worker session never materializes one: it runs
+   *  inside its Lead's runtime, so a pane opened on a working agent would sit
+   *  forever on whatever snapshot it happened to load first (user report:
+   *  위임한 세션이 pane에서 안 도는 것처럼 보인다).
+   *
+   *  Re-reading the visible cold views turns that pane into a live one. A
+   *  session that later materializes starts publishing live frames, its
+   *  revision leaves 0, and it drops out of this set on its own. */
+  private ensureColdViewRefresh(): void {
+    if (this.coldViewTimer || this.disposed) return;
+    this.coldViewTimer = setInterval(() => {
+      void this.refreshColdViews();
+    }, COLD_VIEW_REFRESH_MS);
+    this.coldViewTimer.unref?.();
+  }
+
+  private async refreshColdViews(): Promise<void> {
+    if (this.disposed) return;
+    const cold = [...this.visibleSessionIds]
+      .filter((sessionId) => this.sessionProjections.get(sessionId)?.revision === 0);
+    if (cold.length === 0) {
+      if (this.coldViewTimer) clearInterval(this.coldViewTimer);
+      this.coldViewTimer = null;
+      return;
+    }
+    await Promise.allSettled(cold.map((sessionId) => this.readSession(sessionId)));
+  }
+
   private ensureStoreWatcher(): void {
     if (this.storeWatcher || this.disposed) return;
     try {
@@ -1122,6 +1162,8 @@ export class SessionHost implements DesktopService {
     this.shellJobsPoller.stop();
     if (this.storeRefreshTimer) clearTimeout(this.storeRefreshTimer);
     this.storeRefreshTimer = null;
+    if (this.coldViewTimer) clearInterval(this.coldViewTimer);
+    this.coldViewTimer = null;
     try { this.storeWatcher?.close(); } catch {}
     this.storeWatcher = null;
     await this.sessionMetadata.flush();

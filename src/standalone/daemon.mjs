@@ -40,6 +40,7 @@ import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
 import { claimSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
+import { remoteIntentPath } from '../runtime/shared/remote-intent.mjs';
 import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
@@ -484,6 +485,19 @@ async function main() {
     handleCall,
     agentBroker: agentDispatchBroker,
     log,
+    // The durable channel link lives in this file. Without it a restart loses
+    // the pinned session (nothing to restore) and every catalog reports Remote
+    // disabled because no state ever reaches getRemoteSessionState().
+    remoteIntentPath: remoteIntentPath(RUNTIME_ROOT),
+    onRemoteStateChange: (state) => {
+      remoteSessionState = {
+        enabled: state?.enabled === true,
+        sessionId: state?.sessionId ?? null,
+        cwd: state?.cwd ?? null,
+        daemonPid: state?.daemonPid ?? process.pid,
+        updatedAt: state?.updatedAt ?? Date.now(),
+      };
+    },
     // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
     // registry as the liveness signal).
     onClientsEmpty: () => { maybeSelfShutdown('no live channel clients'); },
@@ -712,6 +726,17 @@ async function main() {
   // client — see the transport's onClientRegistered hook.
   if (process.env.MIXDOG_DAEMON_SPAWNED_FOR !== 'session') startChannels();
 
+  // A pinned channel session outlives the daemon that pinned it. Reactivate the
+  // durable intent AFTER the ready handshake (activation itself brings the
+  // messaging bridge up); with no intent on disk this is a no-op and the
+  // channels graph stays dormant.
+  if (transport.remoteIntentSessionId) {
+    void transport.restoreRemoteIntent()
+      .then((restored) => {
+        if (!restored) log('remote intent restore declined (session unavailable)');
+      })
+      .catch((error) => log(`remote intent restore failed: ${error?.message || error}`));
+  }
 }
 
 process.on('SIGTERM', () => { void shutdown('SIGTERM'); });

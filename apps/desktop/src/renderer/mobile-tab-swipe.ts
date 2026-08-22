@@ -74,9 +74,12 @@ export function shouldCommitSwipe(
     minVelocity = SWIPE_COMMIT_VELOCITY,
   }: { distanceRatio?: number; minVelocity?: number } = {},
 ): boolean {
-  if (!intent || !Number.isFinite(velocityX)) return false;
+  if (!intent || !Number.isFinite(deltaX) || !Number.isFinite(width) || width <= 0
+    || !Number.isFinite(velocityX)) return false;
+  const directionalDistance = intent === "next" ? -deltaX : deltaX;
   const directionalVelocity = intent === "next" ? -velocityX : velocityX;
-  return swipeProgress(deltaX, width, intent) >= distanceRatio
+  const distanceThreshold = Math.min(SWIPE_MIN_DISTANCE, width * distanceRatio);
+  return directionalDistance >= distanceThreshold
     || directionalVelocity >= minVelocity;
 }
 

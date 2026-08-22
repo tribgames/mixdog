@@ -38,7 +38,7 @@ export function usePromptHandlers({
   setPastedImages,
   setPastedTexts,
   setPromptDraftOverride,
-  setContextPanel,
+  surface,
   // derived / helper values + callbacks
   syncPromptLayoutRows,
   showPromptHint,
@@ -212,7 +212,8 @@ export function usePromptHandlers({
   //   opens the message selector (jump back to a previous prompt).
   const handlePromptEscape = useCallback((text = '', meta = {}) => {
     if (usagePanel) { closeUsagePanel(); return true; }
-    if (contextPanel) { setContextPanel(null); return true; }
+    // Esc from the prompt: this keypress owns the overlay it closes.
+    if (contextPanel) { surface.claim().context(null); return true; }
 
     if (meta.phase === 'clear-arm') {
       showPromptHint('Esc again to clear', 'plain', PROMPT_ESCAPE_HINT_TIMEOUT_MS);

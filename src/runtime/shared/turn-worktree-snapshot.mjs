@@ -10,14 +10,23 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 const COMMAND_TIMEOUT_MS = 30_000;
 const COMMAND_MAX_BYTES = 8 * 1024 * 1024;
 const PATCH_MAX_BYTES = 2 * 1024 * 1024;
 const MAX_UNTRACKED_FILE_BYTES = 2 * 1024 * 1024;
-const SNAPSHOT_ROOT = join(tmpdir(), 'mixdog-turn-worktree-snapshots-v1');
+// Baselines used to live in the OS temp directory, where a reboot or a disk
+// cleaner could remove the only copy of a turn's revert source. Keep them with
+// the rest of the runtime data (same resolution as
+// session-runtime/runtime-paths.mjs; shared code cannot import that layer).
+const DATA_DIR = process.env.MIXDOG_DATA_DIR
+  || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+const SNAPSHOT_ROOT = join(DATA_DIR, 'turn-worktree-snapshots-v1');
+// A baseline tree is unreachable by design (no commit, no ref), so collection
+// is what bounds how long a review stays revertible.
+const SHADOW_GC_PRUNE = '7.days.ago';
 const states = new Map();
 
 function clean(value) {
@@ -417,11 +426,14 @@ function parseNumstat(text) {
   return out;
 }
 
-async function diffTreesUnlocked(state, baselineTree, currentTree) {
+async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null) {
   if (!baselineTree || !currentTree || baselineTree === currentTree) {
     return { patch: '', files: [], patchTruncated: false, currentTree };
   }
-  const rangeArgs = ['--find-renames', baselineTree, currentTree, '--', '.'];
+  // A scoped review restricts the range to the paths its session owns: the
+  // baseline describes the whole worktree, concurrent sessions included.
+  const pathspec = Array.isArray(paths) && paths.length > 0 ? paths : ['.'];
+  const rangeArgs = ['--find-renames', baselineTree, currentTree, '--', ...pathspec];
   const [nameStatus, numstat] = await Promise.all([
     runGit(shadowArgs(state, ['diff', '--name-status', '-z', ...rangeArgs]), { cwd: state.root }),
     runGit(shadowArgs(state, ['diff', '--numstat', '-z', ...rangeArgs]), { cwd: state.root }),
@@ -462,6 +474,26 @@ async function diffTreesUnlocked(state, baselineTree, currentTree) {
   return { patch, files, patchTruncated, currentTree };
 }
 
+// One maintenance pass per shadow repository per process, off the turn's
+// critical path. `--auto` does nothing until the repository actually needs it,
+// so the common case costs a process spawn and nothing else.
+const maintainedShadowRepositories = new Set();
+
+function scheduleShadowGc(state) {
+  if (maintainedShadowRepositories.has(state.gitDir)) return;
+  maintainedShadowRepositories.add(state.gitDir);
+  const timer = setTimeout(() => {
+    // Deliberately outside the state lock: collection can run for minutes and
+    // git serializes itself through gc.lock, so a clash just retries later.
+    void runGit(shadowArgs(state, ['gc', '--auto', `--prune=${SHADOW_GC_PRUNE}`, '--quiet']), {
+      cwd: state.root,
+      allowFailure: true,
+      timeoutMs: 300_000,
+    }).catch(() => {});
+  }, 60_000);
+  timer.unref?.();
+}
+
 export async function createTurnWorktreeSnapshot(worktree) {
   const root = await repositoryRoot(worktree).catch(() => null);
   if (!root) return null;
@@ -469,6 +501,7 @@ export async function createTurnWorktreeSnapshot(worktree) {
   return await withStateLock(state, async () => {
     const baselineTree = await captureTreeUnlocked(state);
     if (!baselineTree) return null;
+    scheduleShadowGc(state);
     return {
       state,
       root,
@@ -477,7 +510,43 @@ export async function createTurnWorktreeSnapshot(worktree) {
       patch: '',
       files: [],
       patchTruncated: false,
+      scopePaths: null,
     };
+  });
+}
+
+/** Re-open a recorded baseline after the runtime lost its in-memory tracker.
+ *  The tree object is the durable half of a review; `paths` scopes both this
+ *  diff and any later revert to what the recording session actually owns. */
+export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths = null } = {}) {
+  const tree = clean(baselineTree);
+  if (!tree) return null;
+  const root = await repositoryRoot(worktree).catch(() => null);
+  if (!root) return null;
+  const state = stateForRoot(root);
+  return await withStateLock(state, async () => {
+    await ensureState(state);
+    // A collected or never-written baseline restores nothing. Report that as
+    // "no snapshot" instead of failing every later call made against it.
+    const kind = await runGit(shadowArgs(state, ['cat-file', '-t', tree]), {
+      cwd: state.root,
+      allowFailure: true,
+    });
+    if (kind.code !== 0 || clean(kind.stdout) !== 'tree') return null;
+    const scopePaths = Array.isArray(paths) && paths.length > 0 ? [...new Set(paths)] : null;
+    const snapshot = {
+      state,
+      root,
+      baselineTree: tree,
+      currentTree: tree,
+      patch: '',
+      files: [],
+      patchTruncated: false,
+      scopePaths,
+    };
+    const currentTree = await captureTreeUnlocked(state);
+    Object.assign(snapshot, await diffTreesUnlocked(state, tree, currentTree, scopePaths));
+    return snapshot;
   });
 }
 
@@ -486,7 +555,12 @@ export async function refreshTurnWorktreeSnapshot(snapshot) {
   return await withStateLock(snapshot.state, async () => {
     const currentTree = await captureTreeUnlocked(snapshot.state);
     if (currentTree === snapshot.currentTree) return snapshot;
-    const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree);
+    const review = await diffTreesUnlocked(
+      snapshot.state,
+      snapshot.baselineTree,
+      currentTree,
+      snapshot.scopePaths,
+    );
     Object.assign(snapshot, review);
     return snapshot;
   });
@@ -531,19 +605,29 @@ async function restorePathFromTree(snapshot, rel) {
   }
 }
 
+async function revertPathsUnlocked(snapshot, targets) {
+  for (const target of targets) {
+    await restorePathFromTree(snapshot, target);
+  }
+  const currentTree = await captureTreeUnlocked(snapshot.state);
+  Object.assign(snapshot, await diffTreesUnlocked(
+    snapshot.state,
+    snapshot.baselineTree,
+    currentTree,
+    snapshot.scopePaths,
+  ));
+  return snapshot;
+}
+
 export async function revertTurnWorktreeFile(snapshot, value) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
   return await withStateLock(snapshot.state, async () => {
     const rel = safeRelativePath(snapshot.root, value);
     const entry = snapshot.files.find((file) =>
       pathKey(file.path) === pathKey(rel) || pathKey(file.oldPath) === pathKey(rel));
-    const targets = [...new Set([entry?.path || rel, entry?.oldPath].filter(Boolean))];
-    for (const target of targets) {
-      await restorePathFromTree(snapshot, safeRelativePath(snapshot.root, target));
-    }
-    const currentTree = await captureTreeUnlocked(snapshot.state);
-    Object.assign(snapshot, await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree));
-    return snapshot;
+    const targets = [...new Set([entry?.path || rel, entry?.oldPath].filter(Boolean))]
+      .map((target) => safeRelativePath(snapshot.root, target));
+    return await revertPathsUnlocked(snapshot, targets);
   });
 }
 
@@ -557,12 +641,20 @@ export async function revertTurnWorktreeSnapshot(snapshot) {
       .flatMap((file) => [file.path, file.oldPath])
       .filter(Boolean))]
       .map((target) => safeRelativePath(snapshot.root, target));
-    for (const target of targets) {
-      await restorePathFromTree(snapshot, target);
-    }
-    const currentTree = await captureTreeUnlocked(snapshot.state);
-    Object.assign(snapshot, await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree));
-    return snapshot;
+    return await revertPathsUnlocked(snapshot, targets);
+  });
+}
+
+/** Restore only the listed paths. This is the session-owned revert: a shared
+ *  worktree cannot attribute the whole-tree diff, but the paths this session's
+ *  own tools wrote are exactly attributable. */
+export async function revertTurnWorktreePaths(snapshot, values) {
+  if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
+  const requested = (Array.isArray(values) ? values : []).filter(Boolean);
+  if (requested.length === 0) throw new Error('turn review revert has no restorable files');
+  return await withStateLock(snapshot.state, async () => {
+    const targets = [...new Set(requested.map((value) => safeRelativePath(snapshot.root, value)))];
+    return await revertPathsUnlocked(snapshot, targets);
   });
 }
 

@@ -5,9 +5,12 @@ import {
   _resetTurnWorktreeSnapshotsForTest,
   createTurnWorktreeSnapshot,
   refreshTurnWorktreeSnapshot,
+  resumeTurnWorktreeSnapshot,
   revertTurnWorktreeFile,
+  revertTurnWorktreePaths,
   revertTurnWorktreeSnapshot,
 } from './turn-worktree-snapshot.mjs';
+import { loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
 
 // Turn-scoped review registry.
 //
@@ -96,6 +99,9 @@ function createDiffTracker(meta = {}) {
     originByCurrentPath: new Map(),
     unifiedDiff: '',
     worktreeSnapshot: null,
+    // Session-owned relative paths. These outlive the before/after buffers on
+    // purpose: they are what scopes a revert once the exact content is gone.
+    ownedPaths: new Set(),
   };
 }
 
@@ -346,6 +352,13 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
     const before = contentBuffer(raw?.before);
     const after = contentBuffer(raw?.after);
     const destinationPath = clean(raw?.newPath);
+    // WHICH files this session wrote has to survive releasing their content —
+    // on turn completion, and on the tracked-size ceiling. That list is the
+    // attribution a shared worktree cannot otherwise reconstruct.
+    tracker.ownedPaths.add(sourceDisplay);
+    if (destinationPath) {
+      tracker.ownedPaths.add(displayPath(raw?.newDisplayPath || destinationPath));
+    }
     if (!destinationPath) {
       if (before === null && after !== null) {
         tracker.originByCurrentPath.delete(sourceKey);
@@ -549,14 +562,37 @@ export function completeAgentTurnReview(handle, patches = []) {
   }
 }
 
+/** Persist the durable half of a finished review: the baseline tree hash plus
+ *  the paths this session owns. Memory keeps the fast path; the record is what
+ *  survives the next turn, a cache eviction and a runtime restart. A CONTENDED
+ *  worktree is recorded too — the baseline is still exact, and the owned paths
+ *  are precisely the attribution that contention destroys. */
+async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
+  const snapshot = tracker?.worktreeSnapshot;
+  if (!ownerSessionId || !snapshot?.baselineTree || !snapshot.root) return;
+  const owned = [...tracker.ownedPaths];
+  if (owned.length === 0) return;
+  try {
+    await saveTurnSnapshotRecord(ownerSessionId, {
+      generation: _turnsBySession.get(ownerSessionId)?.generation || 0,
+      root: snapshot.root,
+      baselineTree: snapshot.baselineTree,
+      toolFiles: owned,
+      sealed: true,
+    });
+  } catch { /* the record adds to a review, it is never required by one */ }
+}
+
 /** Freeze a completed Lead turn while retaining only its bounded review data. */
 export async function completeTurnSnapshot(sessionId) {
-  const tracker = _diffTrackersBySession.get(clean(sessionId));
+  const ownerSessionId = clean(sessionId);
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (!tracker) return false;
   if (worktreeSnapshotUsable(tracker)) {
     try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
   }
   tracker.sealed = true;
+  await persistTurnSnapshotRecord(ownerSessionId, tracker);
   // Only a usable Git baseline can replace the exact apply_patch buffers. A
   // contended worktree — and a worktree with no Git baseline at all — retains
   // this session's bounded before/after content so Review can still undo its
@@ -590,6 +626,71 @@ function worktreeSnapshotUsable(tracker) {
   return Boolean(tracker && !tracker.worktreeContended && tracker.worktreeSnapshot);
 }
 
+/** Match a user-supplied file against a recorded session-owned path. */
+function recordedPathMatchesFile(owned, root, file) {
+  const target = clean(file);
+  if (!target) return false;
+  const normalizedRoot = pathKey(root);
+  const normalizedTarget = pathKey(target);
+  const relativeTarget = normalizedRoot && normalizedTarget.startsWith(`${normalizedRoot}/`)
+    ? normalizedTarget.slice(normalizedRoot.length + 1)
+    : normalizedTarget;
+  const normalizedOwned = pathKey(owned);
+  return normalizedOwned === relativeTarget || normalizedOwned === normalizedTarget;
+}
+
+/** Re-open the recorded baseline for a session whose tracker is gone. Returns
+ *  null when the record is missing or its tree object has been collected. */
+async function resumeRecordedSnapshot(ownerSessionId) {
+  if (!ownerSessionId) return null;
+  let record = null;
+  try {
+    record = await loadTurnSnapshotRecord(ownerSessionId);
+  } catch {
+    return null;
+  }
+  if (!record) return null;
+  const snapshot = await resumeTurnWorktreeSnapshot(record.root, record.baselineTree, {
+    paths: record.toolFiles,
+  }).catch(() => null);
+  if (!snapshot) return null;
+  return { record, snapshot };
+}
+
+/** A review rebuilt from the durable record. Same shape as the live one, but
+ *  scoped to the recording session's own paths so a worktree shared with other
+ *  sessions stays attributable instead of losing its revert entirely. */
+async function scopedReviewFromRecord(ownerSessionId) {
+  const resumed = await resumeRecordedSnapshot(ownerSessionId);
+  if (!resumed) return null;
+  return {
+    supported: true,
+    files: resumed.snapshot.files || [],
+    patch: resumed.snapshot.patch || '',
+    snapshotKind: 'scoped',
+    revertMode: 'scoped',
+    patchTruncated: resumed.snapshot.patchTruncated === true,
+    authoritative: true,
+    agents: publicAgentReviews(ownerSessionId),
+    reason: 'recorded',
+  };
+}
+
+/** Restore recorded paths — every one of them, or just the file the user picked. */
+async function revertFromRecord(worktree, ownerSessionId, file) {
+  const resumed = await resumeRecordedSnapshot(ownerSessionId);
+  if (!resumed) return null;
+  const owned = resumed.record.toolFiles;
+  const targets = file
+    ? owned.filter((path) => recordedPathMatchesFile(path, resumed.record.root, file))
+    : owned;
+  if (targets.length === 0) {
+    throw new Error('turn review revert cannot attribute this file to the session');
+  }
+  await revertTurnWorktreePaths(resumed.snapshot, targets);
+  return await getTurnReviewDiff(worktree, ownerSessionId);
+}
+
 /** Return the authoritative Lead net diff plus attributed child reviews. */
 export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   if (DISABLED) return { supported: false, files: [], patch: '', agents: [] };
@@ -609,6 +710,13 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
   const trackedRevertAvailable = !snapshot
     && tracker?.valid === true
     && trackedPairs(tracker).length > 0;
+  if (!snapshot && !trackedRevertAvailable) {
+    // Both in-memory sources are gone: the next turn replaced the tracker, the
+    // turn cache evicted it, or the runtime restarted. The recorded baseline is
+    // still on disk and still exact.
+    const recorded = await scopedReviewFromRecord(ownerSessionId);
+    if (recorded) return recorded;
+  }
   return {
     supported: true,
     files: snapshot?.files || [],
@@ -635,15 +743,23 @@ export async function revertTurnReviewFile(_worktree, sessionId, file) {
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
-    if (pairs.length === 0) throw new Error(unavailableTrackedRevertReason(tracker));
-    const pair = pairs.find((entry) => pairMatchesFile(entry, _worktree, file));
-    if (!pair) throw new Error('turn review tracked file snapshot is unavailable');
-    await revertTrackedPairs(tracker, _worktree, [pair]);
+    if (pairs.length > 0) {
+      const pair = pairs.find((entry) => pairMatchesFile(entry, _worktree, file));
+      if (!pair) throw new Error('turn review tracked file snapshot is unavailable');
+      await revertTrackedPairs(tracker, _worktree, [pair]);
+      return await getTurnReviewDiff(_worktree, ownerSessionId);
+    }
+    const recorded = await revertFromRecord(_worktree, ownerSessionId, file);
+    if (recorded) return recorded;
+    throw new Error(unavailableTrackedRevertReason(tracker));
+  }
+  if (tracker?.worktreeSnapshot) {
+    await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
     return await getTurnReviewDiff(_worktree, ownerSessionId);
   }
-  if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
-  await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
-  return await getTurnReviewDiff(_worktree, ownerSessionId);
+  const recorded = await revertFromRecord(_worktree, ownerSessionId, file);
+  if (recorded) return recorded;
+  throw new Error('turn worktree snapshot is unavailable');
 }
 
 /** Restore every file in the reviewed turn to its turn-start state. */
@@ -652,13 +768,21 @@ export async function revertTurnReview(_worktree, sessionId) {
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
-    if (pairs.length === 0) throw new Error(unavailableTrackedRevertReason(tracker));
-    await revertTrackedPairs(tracker, _worktree, pairs);
+    if (pairs.length > 0) {
+      await revertTrackedPairs(tracker, _worktree, pairs);
+      return await getTurnReviewDiff(_worktree, ownerSessionId);
+    }
+    const recorded = await revertFromRecord(_worktree, ownerSessionId, null);
+    if (recorded) return recorded;
+    throw new Error(unavailableTrackedRevertReason(tracker));
+  }
+  if (tracker?.worktreeSnapshot) {
+    await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot);
     return await getTurnReviewDiff(_worktree, ownerSessionId);
   }
-  if (!tracker?.worktreeSnapshot) throw new Error('turn worktree snapshot is unavailable');
-  await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot);
-  return await getTurnReviewDiff(_worktree, ownerSessionId);
+  const recorded = await revertFromRecord(_worktree, ownerSessionId, null);
+  if (recorded) return recorded;
+  throw new Error('turn worktree snapshot is unavailable');
 }
 
 export function _resetTurnSnapshotForTest() {

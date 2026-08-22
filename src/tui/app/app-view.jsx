@@ -18,9 +18,10 @@ import { SlashCommandPalette } from '../components/SlashCommandPalette.jsx';
 import { ContextPanel } from '../components/ContextPanel.jsx';
 import { UsagePanel } from '../components/UsagePanel.jsx';
 import { TextEntryPanel } from '../components/TextEntryPanel.jsx';
+import { textEntryClearsByEmpty } from './text-entry-policy.mjs';
 import { Item } from '../components/TranscriptItem.jsx';
 export function renderAppView(ctx) {
-  const { PANEL_MAX_VISIBLE, acceptSlashPalette, activeSlashQuery, activeTools, agentRevision, cancelChannelPrompt, cancelHookPrompt, cancelProviderPrompt, cancelSettingsPrompt, cancelSlashPalette, channelPrompt, clearPromptHint, completeSlashPalette, contextPanel, cycleWorkflowFromPrompt, exiting, expandedOptionPanel, floatingPanelRows, frameColumns, gridSelectionActiveRef, guardHintWidth, handlePromptEscape, handlePromptHistoryNavigate, handlePromptInterrupt, handlePromptPaste, hasUserMessages, hookPrompt, initialStatusLine, inputBoxHidden, inputHint, inputHintTone, liveSpinner, onPromptDraftChange, onSubmit, overlayHintAttachItemIndex, overlayHintBandRows, overlayHintFallbackRow, overlayHintOnLastItem, panelCloseMaskRows, panelInkMaskEpoch, panelTransitionClearRows, panelTransitionEpoch, picker, pickerOpenedFromEnterRef, pickerOpenedFromEnterTimerRef, pickerVisibleRows, promptBoxRectRef, promptBoxRows, promptDraft, promptDraftOverride, promptMetaVisible, promptMouseSelectionRef, promptSelectionRef, promptSpinnerColumns, promptValueRef, providerPrompt, queuedCompact, queuedVisible, renderedTranscriptItems, resizeEpoch, resizeState, restoreQueuedToPrompt, setPicker, setSlashIndex, setTextEntryLayoutRows, settingsPrompt, showWelcomeBanner, slashCommands, slashIndex, slashPaletteOpen, state, statuslineStats, store, toolApproval, toolOutputExpanded, transcriptContentHeight, transcriptGuardRows, transcriptMeasureRef, transcriptTailPinned, transcriptWindow, transientStatusWidth, tuiReady, usagePanel, viewportHeight, welcomePromptHintRows, welcomePromptHintText } = ctx; /* DESTRUCTURE */
+  const { PANEL_MAX_VISIBLE, acceptSlashPalette, activeSlashQuery, activeTools, agentRevision, cancelProviderPrompt, cancelSettingsPrompt, cancelSlashPalette, clearPromptHint, completeSlashPalette, contextPanel, cycleWorkflowFromPrompt, exiting, expandedOptionPanel, floatingPanelRows, frameColumns, gridSelectionActiveRef, guardHintWidth, handlePromptEscape, handlePromptHistoryNavigate, handlePromptInterrupt, handlePromptPaste, hasUserMessages, initialStatusLine, inputBoxHidden, inputHint, inputHintTone, liveSpinner, onPromptDraftChange, onSubmit, overlayHintAttachItemIndex, overlayHintBandRows, overlayHintFallbackRow, overlayHintOnLastItem, panelCloseMaskRows, panelInkMaskEpoch, panelTransitionClearRows, panelTransitionEpoch, picker, pickerOpenedFromEnterRef, pickerOpenedFromEnterTimerRef, pickerVisibleRows, promptBoxRectRef, promptBoxRows, promptDraft, promptDraftOverride, promptMetaVisible, promptMouseSelectionRef, promptSelectionRef, promptSpinnerColumns, promptValueRef, providerPrompt, queuedCompact, queuedVisible, renderedTranscriptItems, resizeEpoch, resizeState, restoreQueuedToPrompt, setSlashIndex, setTextEntryLayoutRows, settingsPrompt, showWelcomeBanner, slashCommands, slashIndex, slashPaletteOpen, state, statuslineStats, store, surface, toolApproval, toolOutputExpanded, transcriptContentHeight, transcriptGuardRows, transcriptMeasureRef, transcriptTailPinned, transcriptWindow, transientStatusWidth, tuiReady, usagePanel, viewportHeight, welcomePromptHintRows, welcomePromptHintText } = ctx; /* DESTRUCTURE */
   const promptInputControl = (
     <PromptInput
       onSubmit={onSubmit}
@@ -277,7 +278,9 @@ export function renderAppView(ctx) {
                 onCancel={() => {
                   if (picker.onCancel) picker.onCancel();
                   else {
-                    setPicker(null);
+                    // Esc with no owner-supplied handler: this keypress owns
+                    // the surface it clears (app/panel-surface.mjs).
+                    surface.claim().close();
                     clearPromptHint();
                   }
                 }}
@@ -326,6 +329,9 @@ export function renderAppView(ctx) {
               />
             ) : providerPrompt ? (
               <TextEntryPanel
+                // Remount on a restore so a repeated failed save re-seeds the
+                // editor even when the restored text is byte-identical.
+                key={`provider-prompt:${providerPrompt.restoreEpoch || 0}`}
                 title={providerPrompt.kind === 'api-key'
                   ? `${providerPrompt.mode === 'replace' ? 'Replace' : 'Set'} API key · ${providerPrompt.label}`
                   : providerPrompt.kind === 'oauth-code'
@@ -347,6 +353,9 @@ export function renderAppView(ctx) {
                 detail={providerPrompt.detail || ''}
                 mask={providerPrompt.kind === 'api-key' || providerPrompt.kind === 'openai-usage-session'}
                 columns={frameColumns}
+                // Restored after a REJECTED daemon save so the entered secret
+                // is not lost with the failed round-trip (normally empty).
+                initialValue={providerPrompt.initialValue || ''}
                 actionLabel={providerPrompt.kind === 'oauth-code' ? 'continue' : 'save'}
                 promptLabel={providerPrompt.kind === 'api-key'
                   ? 'API key > '
@@ -358,31 +367,15 @@ export function renderAppView(ctx) {
                 onSubmit={onSubmit}
                 onCancel={cancelProviderPrompt}
               />
-            ) : channelPrompt ? (
-              <TextEntryPanel
-                title={channelPrompt.label}
-                hint={channelPrompt.hint || 'Save channel setting.'}
-                mask={channelPrompt.kind === 'webhook-token'}
-                columns={frameColumns}
-                promptLabel="Value > "
-                onSubmit={onSubmit}
-                onCancel={cancelChannelPrompt}
-              />
-            ) : hookPrompt ? (
-              <TextEntryPanel
-                title={hookPrompt.label}
-                hint={hookPrompt.hint || 'Save hook setting.'}
-                columns={frameColumns}
-                promptLabel="Value > "
-                onSubmit={onSubmit}
-                onCancel={cancelHookPrompt}
-              />
             ) : settingsPrompt ? (
               <TextEntryPanel
+                key={`settings-prompt:${settingsPrompt.kind}:${settingsPrompt.restoreEpoch || 0}`}
                 title={settingsPrompt.label}
                 hint={settingsPrompt.hint || 'Save setting.'}
                 columns={frameColumns}
                 initialValue={settingsPrompt.initialValue || ''}
+                // Reset/clear prompts document an empty submit as the action.
+                allowEmpty={textEntryClearsByEmpty(settingsPrompt.kind)}
                 multiline={settingsPrompt.kind === 'core-add' || settingsPrompt.kind === 'core-edit'}
                 maxContentRows={PANEL_MAX_VISIBLE}
                 onContentRowsChange={setTextEntryLayoutRows}

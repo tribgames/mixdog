@@ -29,6 +29,7 @@ import {
   writeServiceAdvert as _writePgServiceAdvert,
 } from '../../../shared/service-discovery.mjs';
 import { withFileLockSync } from '../../../shared/atomic-file.mjs';
+import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
 
 // ── pg-process interface (Track A) ───────────────────────────────────────────
@@ -348,15 +349,6 @@ function readPostmasterInfo(pgdata) {
       port: Number.isFinite(port) && port > 0 ? port : null,
     };
   } catch { return { pid: null, port: null }; }
-}
-
-function isPidAlive(pid) {
-  try { process.kill(pid, 0); return true; }
-  catch (e) {
-    // EPERM: process exists but we lack permission → alive.
-    // ESRCH: no such process → dead.
-    return e.code === 'EPERM';
-  }
 }
 
 /**

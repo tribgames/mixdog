@@ -37,11 +37,14 @@ function webhookRoute(modelRef) {
   throw new Error('webhook run has no model: set one on the endpoint or configure maintenance.webhook');
 }
 
-export async function runWebhookSession({ name, model = null, prompt, cwd = null, workflow = null, attachments = null, delivery = null }) {
+export async function runWebhookSession({ name, model = null, prompt, cwd = null, workflow = null, attachments = null, delivery = null, signal = null }) {
   const endpoint = String(name || '').trim();
   const body = String(prompt || '').trim();
   if (!endpoint) throw new Error('runWebhookSession: endpoint name required');
   if (!body) throw new Error(`webhook "${endpoint}" has no prompt body`);
+  // The dispatcher's cancellation (delivery timeout) has to reach the run
+  // itself: an already-cancelled dispatch must not even create a session.
+  if (signal?.aborted) throw signal.reason ?? new Error('webhook dispatch aborted');
   const route = webhookRoute(model);
   const projectCwd = cwd ? String(cwd) : null;
   const session = createSession({
@@ -65,6 +68,17 @@ export async function runWebhookSession({ name, model = null, prompt, cwd = null
   // read as the user-authored intent rather than payload noise.
   // Stored attachments ride along as composer-style content parts.
   const content = automationPromptContent(body, attachments);
-  const result = await askSession(session.id, content, null, null, projectCwd || undefined);
+  // askOpts.signal is the parent-abort link: it is cascaded onto the turn
+  // controller, so aborting it stops the in-flight provider/tool work instead
+  // of leaving a timed-out delivery's session running with live side effects.
+  const result = await askSession(
+    session.id,
+    content,
+    null,
+    null,
+    projectCwd || undefined,
+    undefined,
+    signal ? { signal } : {},
+  );
   return { sessionId: session.id, result: String(result?.content || '') };
 }

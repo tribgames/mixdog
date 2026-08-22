@@ -101,6 +101,26 @@ struct AppliedFile {
     content_hash: String,
 }
 
+const UTF8_BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
+
+/// Contract marker embedded in the artifact. The JS side refuses to use a
+/// binary that does not carry the contract its build requires, so a stale
+/// installed engine falls back instead of corrupting bytes. `#[used]` keeps it
+/// in EVERY artifact of this source, whatever the linker garbage-collects.
+#[used]
+#[no_mangle]
+pub static MIXDOG_PATCH_ENGINE_CONTRACT: [u8; 30] = *b"mixdog-patch-engine-contract:3";
+
+const ENGINE_CONTRACT_MARKER: &str = "mixdog-patch-engine-contract:3";
+
+fn strip_utf8_bom(bytes: &[u8]) -> &[u8] {
+    if bytes.starts_with(UTF8_BOM) {
+        &bytes[UTF8_BOM.len()..]
+    } else {
+        bytes
+    }
+}
+
 #[derive(Debug)]
 struct ExactEditStats {
     replacements: usize,
@@ -673,7 +693,7 @@ fn plan_entry(
                 }
             } else {
                 let applied = apply_exact_bytes(&source, &entry, fuzz_factor)?;
-                if !applied.bytes.is_empty() {
+                if !strip_utf8_bom(&applied.bytes).is_empty() {
                     return Err(format!(
                         "delete patch leaves {} residual byte(s) in {}",
                         applied.bytes.len(),
@@ -750,6 +770,18 @@ fn run_server() -> Result<(), String> {
             stdout
                 .flush()
                 .map_err(|e| format!("server flush ping response: {e}"))?;
+            continue;
+        }
+        // Contract handshake. The RUNNING session states the engine contract it
+        // implements, so the proof belongs to the process that will execute the
+        // work: a wrapper that only prints the marker cannot answer here, and a
+        // swapped artifact cannot change what this process already is.
+        if header == "CONTRACT" {
+            writeln!(stdout, "OK\t{ENGINE_CONTRACT_MARKER}")
+                .map_err(|e| format!("server write contract response: {e}"))?;
+            stdout
+                .flush()
+                .map_err(|e| format!("server flush contract response: {e}"))?;
             continue;
         }
         // EDIT protocol: invariant-safe char-indexed edit over the persistent
@@ -1574,6 +1606,17 @@ fn apply_exact_bytes(
     entry: &Entry,
     fuzz_factor: usize,
 ) -> Result<AppliedFile, String> {
+    // A UTF-8 BOM is a FILE PREFIX, not line content (JS-route parity): the
+    // first line must match as `alpha`, not `<BOM>alpha`, and an insertion at
+    // the top must land AFTER the prefix. Peel it, apply, put it back.
+    if source.starts_with(UTF8_BOM) {
+        let mut applied = apply_exact_bytes(&source[UTF8_BOM.len()..], entry, fuzz_factor)?;
+        let mut bytes = UTF8_BOM.to_vec();
+        bytes.extend_from_slice(&applied.bytes);
+        applied.content_hash = sha256_hex(&bytes);
+        applied.bytes = bytes;
+        return Ok(applied);
+    }
     if entry.hunks.is_empty() {
         return Err(format!("{} has no hunks", entry.old_file));
     }
@@ -2106,28 +2149,172 @@ fn hunk_lines_to_bytes(lines: &[HunkLine], eol: &str) -> Vec<u8> {
     out
 }
 
-/// When the source file's last line has no trailing newline, unified-diff hunks
-/// still encode that line with the default `has_newline: true` unless a `\`
-/// no-newline marker is present. Allow that single-line EOF mismatch for the
-/// last old hunk line only.
-fn hunk_old_lines_eof_relaxed(parts: &HunkParts) -> Vec<HunkLine> {
-    if parts.old.is_empty() {
-        return Vec::new();
-    }
-    let mut lines = parts.old.clone();
-    let last = lines.len() - 1;
-    lines[last].has_newline = false;
-    lines
-}
-
-fn old_hunk_span_matches(parts: &HunkParts, span: &[u8]) -> Option<&'static str> {
-    for eol in ["\n", "\r\n", "\r"] {
-        if span == hunk_lines_to_bytes(&parts.old, eol).as_slice() {
-            return Some(eol);
+/// Render replacement lines so that each one inherits the terminator of the
+/// old line it replaces (a 1:1 replacement is byte-identical outside the line
+/// body); extra added lines fall back to the surrounding convention. A patch
+/// must never normalize a mixed-EOL file onto one anchor terminator.
+/// Render a hunk's new side OP-WISE, exactly like the fuzzy path: a context
+/// line keeps its source terminator verbatim, a delete contributes its
+/// terminator to the current run, and an add takes the terminator of the delete
+/// it replaces inside that run (falling back to the local convention when the
+/// run has none left). Content-similarity mapping cannot express interior
+/// context, several change runs, or a moved line, so it is not used at all.
+fn hunk_ops_to_bytes<'a>(
+    parts: &'a HunkParts,
+    old_eols: &[Option<&'a str>],
+    fallback_eol: &'a str,
+) -> Vec<u8> {
+    // Pre-pass: EVERY delete of the hunk with the terminator of the source
+    // line it consumes, tagged with its run. Filling the pool while walking
+    // only saw deletes already passed, so a BACKWARD move (the add precedes
+    // its delete) could not claim its own line and lost its terminator.
+    let mut pool: Vec<(&'a [u8], Option<&'a str>, bool, usize)> = Vec::new();
+    {
+        let mut cursor = 0usize;
+        let mut run = 0usize;
+        for op in &parts.ops {
+            match op.tag {
+                HunkTag::Context => {
+                    cursor += 1;
+                    run += 1;
+                }
+                HunkTag::Delete => {
+                    pool.push((
+                        op.body.as_slice(),
+                        old_eols.get(cursor).copied().flatten(),
+                        false,
+                        run,
+                    ));
+                    cursor += 1;
+                }
+                HunkTag::Add => {}
+            }
         }
     }
-    let relaxed = hunk_old_lines_eof_relaxed(parts);
-    ["\n", "\r\n", "\r"].into_iter().find(|&eol| span == hunk_lines_to_bytes(&relaxed, eol).as_slice()).map(|v| v as _)
+    let mut pieces: Vec<(&'a [u8], Option<&'a str>)> = Vec::new();
+    let mut old_cursor = 0usize;
+    let mut current_run = 0usize;
+    let mut last_claimed: isize = -1;
+    for op in &parts.ops {
+        match op.tag {
+            HunkTag::Context => {
+                let eol = old_eols.get(old_cursor).copied().flatten();
+                old_cursor += 1;
+                current_run += 1;
+                // Verbatim copy: no terminator in the source means none here.
+                pieces.push((op.body.as_slice(), eol));
+            }
+            HunkTag::Delete => {
+                old_cursor += 1;
+            }
+            HunkTag::Add => {
+                // 1) identity AFTER the previously claimed delete
+                //    (order-preserving, so duplicates go in sequence),
+                // 2) identity anywhere (a line moved backwards across context),
+                // 3) the next unclaimed delete OF THIS RUN.
+                let body = op.body.as_slice();
+                let mut index: Option<usize> = None;
+                for (position, (candidate, _, used, _)) in pool.iter().enumerate() {
+                    if !*used && *candidate == body && position as isize > last_claimed {
+                        index = Some(position);
+                        break;
+                    }
+                }
+                if index.is_none() {
+                    for (position, (candidate, _, used, _)) in pool.iter().enumerate() {
+                        if !*used && *candidate == body {
+                            index = Some(position);
+                            break;
+                        }
+                    }
+                }
+                if index.is_none() {
+                    for (position, (_, _, used, run)) in pool.iter().enumerate() {
+                        if !*used && *run == current_run {
+                            index = Some(position);
+                            break;
+                        }
+                    }
+                }
+                let mut inherited: Option<&'a str> = None;
+                if let Some(position) = index {
+                    pool[position].2 = true;
+                    last_claimed = position as isize;
+                    inherited = pool[position].1;
+                }
+                let eol = if op.new_has_newline {
+                    Some(inherited.unwrap_or(fallback_eol))
+                } else {
+                    None
+                };
+                pieces.push((body, eol));
+            }
+        }
+    }
+    // A line that ends up INTERIOR must be terminated even when its source line
+    // was the unterminated EOF line; only the final line may carry none.
+    let count = pieces.len();
+    let mut out = Vec::new();
+    for (index, (body, eol)) in pieces.into_iter().enumerate() {
+        out.extend_from_slice(body);
+        match eol {
+            Some(value) => out.extend_from_slice(value.as_bytes()),
+            None if index + 1 < count => out.extend_from_slice(fallback_eol.as_bytes()),
+            None => {}
+        }
+    }
+    out
+}
+
+/// Validate that `span` is exactly the hunk's old lines and return each line's
+/// terminator AS IT APPEARS IN THE SOURCE. This replaces the old
+/// "one matched eol for the whole span" check: it accepts a mixed-EOL span and
+/// preserves every terminator instead of folding them onto one.
+///
+/// When the source file's last line has no trailing newline, unified-diff hunks
+/// still encode that line with the default `has_newline: true` unless a `\`
+/// no-newline marker is present; that single-line EOF mismatch stays tolerated
+/// for the last old hunk line only.
+fn old_hunk_span_line_eols<'a>(parts: &HunkParts, span: &'a [u8]) -> Option<Vec<Option<&'a str>>> {
+    let mut eols: Vec<Option<&'a str>> = Vec::with_capacity(parts.old.len());
+    let mut pos = 0usize;
+    for (index, expected) in parts.old.iter().enumerate() {
+        let body_start = pos;
+        let mut cursor = body_start;
+        let mut body_end = span.len();
+        let mut eol: Option<&'a str> = None;
+        while cursor < span.len() {
+            if span[cursor] == b'\n' {
+                body_end = cursor;
+                eol = Some("\n");
+                break;
+            }
+            if span[cursor] == b'\r' {
+                body_end = cursor;
+                eol = Some(if span.get(cursor + 1) == Some(&b'\n') {
+                    "\r\n"
+                } else {
+                    "\r"
+                });
+                break;
+            }
+            cursor += 1;
+        }
+        if span[body_start..body_end] != expected.body[..] {
+            return None;
+        }
+        let is_last = index + 1 == parts.old.len();
+        let has_newline = eol.is_some();
+        if has_newline != expected.has_newline && !(is_last && !has_newline) {
+            return None;
+        }
+        eols.push(eol);
+        pos = body_end + eol.map(|value| value.len()).unwrap_or(0);
+    }
+    if pos != span.len() {
+        return None;
+    }
+    Some(eols)
 }
 
 fn newline_flags_compatible(
@@ -2213,12 +2400,19 @@ fn apply_declared_hunk(
         return None;
     }
     let span = &source[start_offset..end_offset];
-    let matched_eol = old_hunk_span_matches(parts, span)?;
+    // Per-line terminators, so a replacement inherits the ending of the line it
+    // replaces and a mixed-EOL span is never folded onto one anchor EOL.
+    let old_eols = old_hunk_span_line_eols(parts, span)?;
+    let fallback_eol = old_eols
+        .iter()
+        .rev()
+        .find_map(|entry| *entry)
+        .unwrap_or_else(|| insertion_line_ending_at(source, start_offset));
     *scan = local_scan;
     Some((
         start_offset,
         end_offset,
-        hunk_lines_to_bytes(&parts.new, matched_eol),
+        hunk_ops_to_bytes(parts, &old_eols, fallback_eol),
     ))
 }
 
@@ -2418,20 +2612,37 @@ fn evaluate_fuzzy_candidate(
         .unwrap_or_else(|| insertion_line_ending_at(source, anchor.start));
     let mut new_bytes = Vec::new();
     let mut old_offset = 0usize;
+    // Terminators of the lines the current run deletes. The k-th added line of
+    // a run inherits the k-th deleted line's ending, so a replacement inside a
+    // mixed-EOL file keeps that line's own terminator instead of the anchor's.
+    let mut replaced_eols: Vec<&str> = Vec::new();
+    let mut replaced_cursor = 0usize;
     for op in &parts.ops {
         match op.tag {
             HunkTag::Context => {
                 let src = lines.get(idx + old_offset)?;
                 new_bytes.extend_from_slice(&source[src.start..src.end]);
                 old_offset += 1;
+                replaced_eols.clear();
+                replaced_cursor = 0;
             }
             HunkTag::Delete => {
+                if let Some(src) = lines.get(idx + old_offset) {
+                    if let Some(eol) = source_line_eol(source, src) {
+                        replaced_eols.push(eol);
+                    }
+                }
                 old_offset += 1;
             }
             HunkTag::Add => {
                 new_bytes.extend_from_slice(&op.body);
                 if op.new_has_newline {
-                    new_bytes.extend_from_slice(fallback_eol.as_bytes());
+                    let eol = replaced_eols
+                        .get(replaced_cursor)
+                        .copied()
+                        .unwrap_or(fallback_eol);
+                    replaced_cursor += 1;
+                    new_bytes.extend_from_slice(eol.as_bytes());
                 }
             }
         }
@@ -2745,7 +2956,13 @@ fn preserve_eof_newline_state(
         // The patch explicitly declared the old EOF state; trust its new side.
         return (start, end, bytes);
     }
-    if parts.new.last().is_some_and(|line| line.has_newline) {
+    // Only a hunk whose LAST op ADDS the new EOF line may re-strip the
+    // terminator that the unified format implies. When the hunk deletes the
+    // unterminated EOF line (or ends on context), the new tail is a line the
+    // hunk did not write: its bytes — including the terminator that belongs to
+    // it — were copied verbatim and must not be rewritten.
+    let last_op_adds = matches!(parts.ops.last().map(|op| op.tag), Some(HunkTag::Add));
+    if last_op_adds && parts.new.last().is_some_and(|line| line.has_newline) {
         strip_trailing_eol(&mut bytes);
     }
     (start, end, bytes)
@@ -3050,6 +3267,204 @@ mod tests {
         };
         let applied = apply_exact_bytes(source, &entry, 2).expect("cr-only update");
         assert_eq!(&applied.bytes, b"hello\rWORLD\r");
+    }
+
+    #[test]
+    fn deleting_the_unterminated_eof_line_keeps_the_previous_terminator() {
+        // "a\r\nb" with no final newline: deleting `b` must leave "a\r\n".
+        // The CRLF belongs to the untouched line `a`.
+        for (source, expected) in [
+            (&b"a\r\nb"[..], &b"a\r\n"[..]),
+            (&b"a\nb"[..], &b"a\n"[..]),
+        ] {
+            let entry = Entry {
+                old_file: "f".to_string(),
+                new_file: "f".to_string(),
+                hunks: vec![hunk(1, &[" a", "-b"])],
+            };
+            let applied = apply_exact_bytes(source, &entry, 2).expect("tail delete");
+            assert_eq!(&applied.bytes, expected);
+        }
+    }
+
+    #[test]
+    fn replacement_keeps_the_replaced_line_terminator_in_a_mixed_eol_file() {
+        // Context is CRLF, the replaced line is LF: the rewrite must keep that
+        // line's own LF instead of folding the block onto one anchor EOL.
+        let source = b"ctx\r\nold\nkeep\r\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &[" ctx", "-old", "+NEW", " keep"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("mixed-eol update");
+        assert_eq!(&applied.bytes, b"ctx\r\nNEW\nkeep\r\n");
+    }
+
+    #[test]
+    fn the_engine_contract_marker_is_embedded_verbatim() {
+        assert_eq!(
+            std::str::from_utf8(&MIXDOG_PATCH_ENGINE_CONTRACT).expect("ascii marker"),
+            ENGINE_CONTRACT_MARKER,
+        );
+    }
+
+    #[test]
+    fn a_utf8_bom_is_a_file_prefix_not_line_content() {
+        // Updating the FIRST line must match `alpha`, and the BOM must survive.
+        let source = b"\xEF\xBB\xBFalpha\nkeep\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &["-alpha", "+omega", " keep"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("bom first-line update");
+        assert_eq!(&applied.bytes, b"\xEF\xBB\xBFomega\nkeep\n");
+    }
+
+    #[test]
+    fn an_insertion_lands_after_a_bom_only_prefix() {
+        let source = b"\xEF\xBB\xBFalpha\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(0, &["+first"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("insert at top of bom file");
+        assert_eq!(&applied.bytes, b"\xEF\xBB\xBFfirst\nalpha\n");
+    }
+
+    #[test]
+    fn duplicate_deletes_are_claimed_in_order() {
+        // D/X/D → X/D must take the FINAL D's LF, not the first D's CRLF.
+        let source = b"D\r\nX\nD\nT\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &["-D", "-X", "-D", "+X", "+D", " T"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("duplicate deletes");
+        assert_eq!(&applied.bytes, b"X\nD\nT\n");
+    }
+
+    #[test]
+    fn a_backward_move_across_two_contexts_keeps_its_own_terminator() {
+        // `+A` precedes its `-A`: the identity pool must span the whole hunk.
+        let source = b"C1\nC2\nA\r\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &["+A", " C1", " C2", "-A"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("backward move");
+        assert_eq!(&applied.bytes, b"A\r\nC1\nC2\n");
+    }
+
+    #[test]
+    fn a_move_across_context_keeps_its_own_terminator() {
+        // `-A`, ` MID`, `+A`: A is the same line, so it keeps its CRLF.
+        let source = b"A\r\nMID\nT\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &["-A", " MID", "+A", " T"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("move across context");
+        assert_eq!(&applied.bytes, b"MID\nA\r\nT\n");
+    }
+
+    #[test]
+    fn a_multi_run_hunk_keeps_every_untouched_terminator() {
+        // Two change runs around interior context: only op-wise mapping puts
+        // MID's CRLF and T's LF back where they belong.
+        let source = b"H\r\nA\nMID\r\nC\nT\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &[" H", "-A", "+A2", " MID", "-C", "+C2", " T"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("multi-run hunk");
+        assert_eq!(&applied.bytes, b"H\r\nA2\nMID\r\nC2\nT\n");
+    }
+
+    #[test]
+    fn a_moved_line_does_not_drag_a_neighbouring_terminator() {
+        let source = b"H\r\nA\nMID\r\nT\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &[" H", "-A", " MID", "+A", " T"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("moved line");
+        assert_eq!(&applied.bytes, b"H\r\nMID\r\nA\nT\n");
+    }
+
+    #[test]
+    fn the_exact_and_fuzzy_paths_agree_byte_for_byte() {
+        let source = b"H\r\nA\nMID\r\nC\nT\n";
+        let lines = [" H", "-A", "+A2", " MID", "-C", "+C2", " T"];
+        let exact = apply_exact_bytes(
+            source,
+            &Entry {
+                old_file: "f".to_string(),
+                new_file: "f".to_string(),
+                hunks: vec![hunk(1, &lines)],
+            },
+            2,
+        )
+        .expect("exact path");
+        // An out-of-range anchor forces the fuzzy seek for the same hunk.
+        let fuzzy = apply_exact_bytes(
+            source,
+            &Entry {
+                old_file: "f".to_string(),
+                new_file: "f".to_string(),
+                hunks: vec![hunk(99, &lines)],
+            },
+            2,
+        )
+        .expect("fuzzy path");
+
+        assert_eq!(exact.bytes, fuzzy.bytes);
+        assert_eq!(&exact.bytes, b"H\r\nA2\nMID\r\nC2\nT\n");
+    }
+
+    #[test]
+    fn a_shrinking_hunk_keeps_the_following_context_terminator() {
+        // Two mixed-EOL lines collapse into one: the trailing context `keep`
+        // must keep its own LF instead of inheriting a deleted line's CRLF.
+        let source = b"ctx\r\nold1\nold2\r\nkeep\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(1, &[" ctx", "-old1", "-old2", "+NEW", " keep"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("shrinking mixed-eol hunk");
+        assert_eq!(&applied.bytes, b"ctx\r\nNEW\nkeep\n");
+    }
+
+    #[test]
+    fn fuzzy_replacement_keeps_the_replaced_line_terminator() {
+        // An out-of-range anchor forces the fuzzy seek; the replaced line's LF
+        // must survive there too.
+        let source = b"ctx\r\nold\nkeep\r\n";
+        let entry = Entry {
+            old_file: "f".to_string(),
+            new_file: "f".to_string(),
+            hunks: vec![hunk(9, &[" ctx", "-old", "+NEW", " keep"])],
+        };
+
+        let applied = apply_exact_bytes(source, &entry, 2).expect("fuzzy mixed-eol update");
+        assert_eq!(&applied.bytes, b"ctx\r\nNEW\nkeep\r\n");
     }
 
     #[test]

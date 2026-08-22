@@ -148,6 +148,12 @@ export async function createDesktopService(
     onDesktopSettingsChanged: (value: unknown) => {
       emit({ kind: 'desktop-event', name: 'desktop-settings-changed', value });
     },
+    // An oversize frame the relay refused without naming a client. It reaches
+    // the desktop window as an event so the user is told; no phone is
+    // messaged and no call is blamed.
+    onRelayPayloadRefused: (value: { bytes: number | null; limit: number | null }) => {
+      emit({ kind: 'desktop-event', name: 'relay-payload-refused', value });
+    },
     terminals: operations.terminals,
     subscribeTerminalData: operations.subscribeTerminalData,
     userDataPath: options.userDataPath,

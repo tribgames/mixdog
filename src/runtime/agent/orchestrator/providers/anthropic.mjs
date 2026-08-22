@@ -31,6 +31,7 @@ import {
     stampAnthropicStreamOutcome,
 } from './anthropic-sse.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import { fastModeAvailable, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import {
     applyAnthropicEffortToBody,
     effortValuesForModel,
@@ -52,6 +53,7 @@ import {
     requestAnthropicTools as sharedRequestAnthropicTools,
     normalizeAnthropicNonStreamingResponse,
     resolveAnthropicCacheTtls as resolveCacheTtls,
+    resolveAnthropicMessageCacheSlots,
     sanitizeAnthropicInputSchema,
     toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
@@ -138,30 +140,16 @@ export class AnthropicProvider {
         // (cacheTier:'tier3') at ttls.tier3 — each its own system content block.
         const systemBlocks = buildSystemBlocks(systemMsgs, ttls.system, ttls.tier3);
 
-        // 4-BP budget: aligned with anthropic-oauth. tools BP is dropped —
-        // system BP covers the tools prefix via Anthropic prefix semantics
-        // (order: tools → system → messages). That frees 1 slot for
-        // messages-tail.
-        const toolsBpUsed = 0;
-        const systemBpUsed = systemBlocks.filter(b => b.cache_control).length;
-        const usedSlots = toolsBpUsed + systemBpUsed;
-        // Env override for BP strategy. ANTHROPIC_MSG_SLOTS=0 disables
-        // message caching entirely. Any value >=1 first marks the previous
-        // user text turn; a second free slot marks the tail.
-        const msgSlotsCap = Number.parseInt(process.env.ANTHROPIC_MSG_SLOTS, 10);
-        const defaultMsgSlots = Math.max(0, 4 - usedSlots);
-        const msgSlots = ttls.messages
-            ? (Number.isFinite(msgSlotsCap) && msgSlotsCap >= 0 ? Math.min(msgSlotsCap, defaultMsgSlots) : defaultMsgSlots)
-            : 0;
+        // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is
+        // shared with anthropic-oauth — see resolveAnthropicMessageCacheSlots.
+        const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls);
         // Build → sanitize (once, inside toAnthropicMessages) → mark. Markers
         // are applied to the FINAL sanitized array by invariant, so block
         // drops / inserts / reorders performed by the sanitizer can never move
         // or delete a marked block. NEVER sanitize again after this.
-        // msgSlots === 0 → message-tail disabled.
-        const tailTtl = msgSlots > 0 ? ttls.messages : null;
         const anthropicMessages = applyAnthropicCacheMarkers(
             toAnthropicMessages(chatMsgs),
-            { messageTtl: tailTtl, messageSlots: msgSlots },
+            messageCacheSlots,
         );
 
         const params = {
@@ -201,7 +189,8 @@ export class AnthropicProvider {
             logTag: this.name,
         });
         // Fast mode → speed: "fast" on models Anthropic marks as speed-capable.
-        if (opts.fast === true && supportsAnthropicFastMode(useModel)) {
+        // Suppressed while the fast capacity pool is cooling down.
+        if (opts.fast === true && supportsAnthropicFastMode(useModel) && fastModeAvailable()) {
             params.speed = 'fast';
             this.fastModeBetaHeaderLatched = true;
         }
@@ -480,6 +469,12 @@ export class AnthropicProvider {
                             model: useModel,
                             fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
                             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
+                                // Long/unknown fast-pool window: replay at
+                                // standard speed rather than waiting it out.
+                                if (params?.speed === 'fast'
+                                    && noteFastModeCapacityError(lastErr, { fast: true }) !== 'retry-fast') {
+                                    delete params.speed;
+                                }
                                 const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0);
                                 if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
                                 const delayLabel = Number.isFinite(Number(delayMs))

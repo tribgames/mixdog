@@ -36,6 +36,8 @@ import { assertPathReachable } from '../builtin/fs-reachability.mjs';
 import { findBySuffixStrip, findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { resolveReadPathRedirect } from '../builtin/snapshot-store.mjs';
 import { dispatchNativePatch, dispatchJsPatchEntries } from './dispatch.mjs';
+import { patchTargetUsesUtf16 } from './matcher.mjs';
+import { nativePatchSessionSatisfiesContract } from './native-server.mjs';
 import {
   planV4ARenameSections,
   applyV4ARenameSections,
@@ -184,15 +186,37 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
   // Create entries use the JS atomic writer even inside the base path. Its
   // expected-absent snapshot makes Add File create-only under external races;
   // the native patch engine intentionally supports overwrite-style additions.
+  // Route by the codec actually DETECTED, not by BOM presence: a BOM-less
+  // UTF-16 file reaching the UTF-8 native engine came back as mixed
+  // UTF-16/UTF-8 bytes. Any UTF-16 target (BOM or not) takes the JS writer,
+  // which decodes and re-encodes with that exact codec; undecidable files stay
+  // native, where the encoding gate refuses them before any write. Deletes
+  // touch no bytes and stay native.
+  //
+  // The engine-contract gate is the same protection for a STALE artifact: a
+  // binary that predates this build's byte-fidelity contract is not used at
+  // all — everything takes the JS writer instead.
+  const engineContractOk = await nativePatchSessionSatisfiesContract();
+  // Codec routing only concerns entries that REWRITE bytes; a delete does not.
+  // An unverified engine, however, must receive no work at all — deletes
+  // included — so the whole wave takes the JS writer.
+  const codecNeedsJs = (fullPath, kind) => kind !== 'create' && kind !== 'delete'
+    && patchTargetUsesUtf16(fullPath);
+  const needsJsCodec = (fullPath, kind) => !engineContractOk || codecNeedsJs(fullPath, kind);
   const nativeEntries = wentries.filter(
-    (entry) => entry.kind !== 'create' && !isResolvedPathOutsideBase(entry.fullPath, basePath),
+    (entry) => entry.kind !== 'create'
+      && !isResolvedPathOutsideBase(entry.fullPath, basePath)
+      && !needsJsCodec(entry.fullPath, entry.kind),
   );
   const jsEntries = wentries.filter(
-    (entry) => entry.kind === 'create' || isResolvedPathOutsideBase(entry.fullPath, basePath),
+    (entry) => entry.kind === 'create'
+      || isResolvedPathOutsideBase(entry.fullPath, basePath)
+      || needsJsCodec(entry.fullPath, entry.kind),
   );
   const parsedInside = (wparsed || []).filter(
     (entry) => classifyEntry(entry) !== 'create'
-      && !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath),
+      && !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath)
+      && !needsJsCodec(parsedEntryResolvedPath(entry, basePath), classifyEntry(entry)),
   );
   const executor = jsEntries.length > 0
     ? (nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch')

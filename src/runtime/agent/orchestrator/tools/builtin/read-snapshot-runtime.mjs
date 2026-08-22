@@ -4,6 +4,7 @@ import { mergeReadRanges } from './read-ranges.mjs';
 import {
     normaliseRangeHashEntry,
     snapshotCoversFullFile,
+    snapshotRangesCoverAllLines,
     statMatchesSnapshot,
     decodeRawBufferForSnapshotCheck,
 } from './snapshot-helpers.mjs';
@@ -91,7 +92,7 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
     // guard below (which excludes source==='read_batch_sliced'); otherwise a
     // caller passing fileLineCount with a batch source would leak it through
     // restMeta and bypass the fail-closed batch path.
-    const { ranges: _omitRanges, rangeHash: _omitRangeHash, rangeHashes: _omitRangeHashes, replaceExisting: _omitReplaceExisting, fileLineCount: _omitFileLineCount, ...restMeta } = meta;
+    const { ranges: _omitRanges, rangeHash: _omitRangeHash, rangeHashes: _omitRangeHashes, replaceExisting: _omitReplaceExisting, fileLineCount: _omitFileLineCount, preMutationStat: _omitPreMutationStat, ...restMeta } = meta;
     const next = { ...restMeta, mtimeMs, ctimeMs, size, ranges: merged };
     if (!next.contentHash && sameFile && existing.contentHash) {
         next.contentHash = existing.contentHash;
@@ -103,6 +104,35 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
     // replaceExisting.
     const incomingIsGrep = meta.source === 'grep';
     next.grepOnly = incomingIsGrep && (sameFile ? existing.grepOnly === true : true);
+    // Body-delivery provenance. An edit / apply_patch snapshot claims full-file
+    // coverage (it knows the bytes it wrote), which let a later Read answer
+    // "[file unchanged]" for a body this session had NEVER received. Full-file
+    // knowledge is inherited only from a prior full-file READ of the same path.
+    const priorSnapshot = readFiles.get(fullPath);
+    const incomingIsMutation = meta.source === 'edit'
+        || String(meta.source || '').startsWith('apply_patch_');
+    if (incomingIsMutation) {
+        const priorLineCount = Number(priorSnapshot?.fileLineCount);
+        const priorPagedFull = Number.isFinite(priorLineCount) && priorLineCount > 0
+            && snapshotRangesCoverAllLines(priorSnapshot, priorLineCount);
+        // The earlier read only describes THIS file if it still matched when
+        // the mutation ran: the caller passes the target's pre-write identity
+        // and it must equal the snapshot's. Missing evidence fails closed, so
+        // an external write landing between read and edit can never hide
+        // behind "[file unchanged]".
+        const priorStillCurrent = !!priorSnapshot
+            && !!meta.preMutationStat
+            && statMatchesSnapshot(meta.preMutationStat, priorSnapshot);
+        next.bodyDelivered = priorStillCurrent
+            && priorSnapshot.grepOnly !== true
+            && (priorSnapshot.bodyDelivered === true
+                || snapshotCoversFullFile(priorSnapshot)
+                || priorPagedFull);
+    } else if (!incomingIsGrep && snapshotCoversFullFile(next)) {
+        next.bodyDelivered = true;
+    } else if (priorSnapshot?.bodyDelivered === true) {
+        next.bodyDelivered = true;
+    }
     const rangeHashRows = [];
     if (sameFile && Array.isArray(existing.rangeHashes)) {
         for (const row of existing.rangeHashes) {

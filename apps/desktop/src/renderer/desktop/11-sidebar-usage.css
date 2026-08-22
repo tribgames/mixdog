@@ -14,7 +14,10 @@
   max-height: calc(100vh - 60px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px;
+  /* ONE frame (user: 사용량프레임도 원프레임으로): the popup's own border is
+     the only frame. The title band, the provider roster and the reset band
+     divide on full-bleed hairlines instead of nesting boxed cards inside it. */
+  padding: 0;
   border: 1px solid var(--mx-border-muted);
   border-radius: var(--mx-radius-lg);
   background: var(--mx-window-band);
@@ -37,8 +40,8 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  min-height: 30px;
-  padding: 1px 8px 7px;
+  min-height: 34px;
+  padding: 0 8px 0 12px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
 .sidebar-usage-heading > b {
@@ -77,8 +80,7 @@
   min-width: 0;
   overflow: hidden;
   padding: 0;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: var(--mx-radius-md);
+  border: 0;
 }
 .sidebar-usage > .pane-surface-gate {
   min-height: 180px;
@@ -90,8 +92,7 @@
 .sidebar-usage-content {
   min-width: 0;
   display: grid;
-  gap: 6px;
-  padding-top: 6px;
+  gap: 0;
 }
 /* One calm provider section: identity and reset on top, then strict
    period | meter | percentage columns underneath. */
@@ -100,7 +101,7 @@
   min-width: 0;
   display: grid;
   gap: 6px;
-  padding: 8px;
+  padding: 8px 12px;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
   border-radius: 0;
@@ -206,7 +207,7 @@
 .sidebar-usage-meter-empty > small { color: var(--mx-text-faint); }
 .sidebar-usage-error {
   margin: 0;
-  padding: 0 9px 6px;
+  padding: 0 12px 8px;
   color: var(--mx-danger);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-micro);
@@ -216,9 +217,9 @@
   display: grid;
   gap: 0;
   margin: 0;
-  padding: 8px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: var(--mx-radius-md);
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--mx-border-muted);
   background: transparent;
 }
 .sidebar-usage-reset-heading {
@@ -292,7 +293,11 @@
 .sidebar-usage-reset-actions { display: flex; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .sidebar-usage-reset-actions button:last-child { color: var(--mx-text-accent); background: var(--mx-pressed); }
 .sidebar-usage-reset-credit button:disabled { opacity: var(--mx-op-disabled); }
-.sidebar-usage-reset-notice { margin: 0 2px; padding: 2px 0; }
+.sidebar-usage-reset-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--mx-border-muted) 72%, transparent);
+}
 .sidebar-update-loader {
   position: relative;
   z-index: 1;

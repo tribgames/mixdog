@@ -61,6 +61,90 @@ function _maskJsRegexLiteral(src, out, start) {
   return j;
 }
 
+// Interpolation dialect of a string literal, decided when the literal opens:
+//   'dollar-brace' — `${expr}`  (JS/TS backticks, kotlin "…")
+//   'brace'        — `{expr}`   (python f-strings, C# $"…", `{{` = literal)
+//   'bash'         — `$(cmd)` / `${var}` inside double quotes
+// null = the whole literal is opaque text. Without this only JS backticks had
+// their interpolations analysed, so calls inside python/C#/kotlin/bash
+// interpolation were masked away entirely.
+function _stringLiteralPrefix(src, quoteIndex, allowed) {
+  let k = quoteIndex - 1;
+  let prefix = '';
+  while (k >= 0 && allowed.test(src[k]) && prefix.length < 2) {
+    prefix = src[k] + prefix;
+    k -= 1;
+  }
+  // A prefix glued to a longer identifier is not a string prefix.
+  if (prefix && k >= 0 && _isWordChar(src[k])) return '';
+  return prefix;
+}
+
+function _stringInterpKind(lang, delim, src, quoteIndex) {
+  const triple = delim === '"""' || delim === "'''";
+  if (delim === '`') return _isJsLike(lang) ? 'dollar-brace' : null;
+  // Kotlin templates work the same in "…" and in """…""" raw strings.
+  if (lang === 'kotlin' && (delim === '"' || triple)) return 'dollar-brace';
+  if (lang === 'bash' && delim === '"') return 'bash';
+  if (lang === 'python' && (triple || delim === '"' || delim === '\'')) {
+    const prefix = _stringLiteralPrefix(src, quoteIndex, /[fFrRbBuU]/);
+    return /[fF]/.test(prefix) ? 'brace' : null;
+  }
+  if (lang === 'csharp' && (delim === '"' || triple)) {
+    const prefix = _stringLiteralPrefix(src, quoteIndex, /[$@]/);
+    return prefix.includes('$') ? 'brace' : null;
+  }
+  return null;
+}
+
+// Interpolation handling shared by single- and triple-quoted frames. Returns
+// the next index when it consumed bytes, or -1 when the character is ordinary
+// string text.
+function _handleInterpolationInString(src, out, i, frame, stack) {
+  const kind = frame?.interp;
+  if (!kind) return -1;
+  if (kind === 'brace' && src[i] === '{' && src[i + 1] === '{') {
+    // `{{` is an escaped literal brace inside an f-string / $"…".
+    if (src[i] !== '\n') out[i] = ' ';
+    if (src[i + 1] !== '\n') out[i + 1] = ' ';
+    return i + 2;
+  }
+  const opened = _interpolationOpenerAt(src, i, kind);
+  if (opened) {
+    // Enter interpolation: the expression bytes stay intact.
+    stack.push({ kind: 'interp', depth: 1, open: opened.open, close: opened.close });
+    return i + opened.length;
+  }
+  // Bare `$name` (kotlin template, bash expansion) is a real reference, so its
+  // identifier bytes stay visible; only the `$` is masked. JS template literals
+  // have no bare form — `$foo` there is literal text.
+  if ((kind === 'bash' || (kind === 'dollar-brace' && frame.lang === 'kotlin'))
+      && src[i] === '$' && _isWordStartChar(src[i + 1])) {
+    if (src[i] !== '\n') out[i] = ' ';
+    let j = i + 1;
+    while (j < src.length && _isWordChar(src[j])) j += 1;
+    return j;
+  }
+  return -1;
+}
+
+// Interpolation opener at `i` for a frame of the given dialect.
+function _interpolationOpenerAt(src, i, kind) {
+  if (kind === 'dollar-brace') {
+    return src.startsWith('${', i) ? { length: 2, open: '{', close: '}' } : null;
+  }
+  if (kind === 'brace') {
+    // `{{` is an escaped literal brace — handled by the caller.
+    if (src[i] !== '{' || src[i + 1] === '{') return null;
+    return { length: 1, open: '{', close: '}' };
+  }
+  if (kind === 'bash') {
+    if (src.startsWith('$(', i)) return { length: 2, open: '(', close: ')' };
+    if (src.startsWith('${', i)) return { length: 2, open: '{', close: '}' };
+  }
+  return null;
+}
+
 export function _maskNonCodeText(text, lang) {
   const src = String(text || '');
   const out = src.split('');
@@ -69,9 +153,11 @@ export function _maskNonCodeText(text, lang) {
   // Stack of scanner frames. Top describes current state:
   //   { kind: 'string', delim }       — inside single-line string literal (mask body)
   //   { kind: 'triple', delim }       — inside triple-quote string (mask body)
-  //   { kind: 'interp', braceDepth }  — inside backtick `${...}` interpolation
-  //                                     (code mode; bytes preserved so callers
-  //                                     analysis can see fn-calls inside)
+  //   { kind: 'interp', depth, open, close }
+  //                                   — inside a string interpolation
+  //                                     (`${…}`, f-string `{…}`, bash `$( … )`;
+  //                                     code mode, bytes preserved so caller
+  //                                     analysis sees fn-calls inside)
   // Empty stack = top-level code.
   const stack = [];
   const top = () => (stack.length ? stack[stack.length - 1] : null);
@@ -104,6 +190,13 @@ export function _maskNonCodeText(text, lang) {
         prevToken = 'value';
         continue;
       }
+      // Triple-quoted literals interpolate too (python f"""…""", kotlin """…""").
+      const nextIndex = _handleInterpolationInString(src, out, i, t, stack);
+      if (nextIndex >= 0) {
+        i = nextIndex;
+        prevToken = 'expr';
+        continue;
+      }
       if (src[i] !== '\n') out[i] = ' ';
       i++;
       continue;
@@ -127,12 +220,13 @@ export function _maskNonCodeText(text, lang) {
     }
     if (t && t.kind === 'string') {
       const d = t.delim;
-      if (d === '`' && src.startsWith('${', i)) {
-        // Enter interpolation. `${` itself is code-relevant — leave bytes intact.
-        stack.push({ kind: 'interp', braceDepth: 1 });
-        i += 2;
-        prevToken = 'expr';
-        continue;
+      {
+        const nextIndex = _handleInterpolationInString(src, out, i, t, stack);
+        if (nextIndex >= 0) {
+          i = nextIndex;
+          prevToken = 'expr';
+          continue;
+        }
       }
       // In bash single-quotes `'...'`, backslash is literal (no escape) — the
       // string closes at the first `'`. Skip the escape consumption there so
@@ -165,23 +259,19 @@ export function _maskNonCodeText(text, lang) {
       continue;
     }
     if (t && t.kind === 'interp') {
-      // Code mode inside `${...}`. Bytes preserved; track brace depth and
-      // nested constructs so masking resumes once interpolation closes.
-      if (src[i] === '{') {
-        t.braceDepth++;
+      // Code mode inside the interpolation. Bytes preserved; track the frame's
+      // own delimiter depth so masking resumes once the expression closes.
+      if (src[i] === t.open) {
+        t.depth++;
         prevToken = 'expr';
         i++;
         continue;
       }
-      if (src[i] === '}') {
-        t.braceDepth--;
+      if (src[i] === t.close) {
+        t.depth--;
         i++;
-        if (t.braceDepth === 0) {
-          stack.pop();
-          prevToken = 'value';
-        } else {
-          prevToken = 'value';
-        }
+        if (t.depth === 0) stack.pop();
+        prevToken = 'value';
         continue;
       }
       if (_supportsSlashComments(lang) && src.startsWith('/*', i)) {
@@ -205,7 +295,7 @@ export function _maskNonCodeText(text, lang) {
       }
       if (src[i] === '"' || (_supportsSingleQuoteStrings(lang) && src[i] === '\'') || (_supportsBacktickStrings(lang) && src[i] === '`')) {
         if (src[i] !== '\n') out[i] = ' ';
-        stack.push({ kind: 'string', delim: src[i], lang });
+        stack.push({ kind: 'string', delim: src[i], lang, interp: _stringInterpKind(lang, src[i], src, i) });
         i++;
         continue;
       }
@@ -298,7 +388,7 @@ export function _maskNonCodeText(text, lang) {
       if (i + 1 < out.length) out[i + 1] = ' ';
       if (i + 2 < out.length) out[i + 2] = ' ';
       i += 3;
-      stack.push({ kind: 'triple', delim: "'''" });
+      stack.push({ kind: 'triple', delim: "'''", lang, interp: _stringInterpKind(lang, "'''", src, i - 3) });
       continue;
     }
     if (_supportsTripleDoubleQuoteStrings(lang) && src.startsWith('"""', i)) {
@@ -306,7 +396,7 @@ export function _maskNonCodeText(text, lang) {
       if (i + 1 < out.length) out[i + 1] = ' ';
       if (i + 2 < out.length) out[i + 2] = ' ';
       i += 3;
-      stack.push({ kind: 'triple', delim: '"""' });
+      stack.push({ kind: 'triple', delim: '"""', lang, interp: _stringInterpKind(lang, '"""', src, i - 3) });
       continue;
     }
     if (src[i] === '/' && _isJsLike(lang) && prevToken === 'expr') {
@@ -316,7 +406,7 @@ export function _maskNonCodeText(text, lang) {
     }
     if (src[i] === '"' || (_supportsSingleQuoteStrings(lang) && src[i] === '\'') || (_supportsBacktickStrings(lang) && src[i] === '`')) {
       if (src[i] !== '\n') out[i] = ' ';
-      stack.push({ kind: 'string', delim: src[i], lang });
+      stack.push({ kind: 'string', delim: src[i], lang, interp: _stringInterpKind(lang, src[i], src, i) });
       i++;
       continue;
     }

@@ -372,8 +372,8 @@ export function _formatCallerReferences(graph, symbol, referenceText, { limit = 
   ].filter(Boolean).join('\n');
 }
 
-function _callerNamesOf(graph, symbol, cwd, language) {
-  const refs = _cheapReferenceSearch(graph, symbol, cwd, { language });
+function _callerNamesOf(graph, symbol, cwd, language, { fileRel = null, scopeRelPrefix = null } = {}) {
+  const refs = _cheapReferenceSearch(graph, symbol, cwd, { language, fileRel, scopeRelPrefix });
   const byName = new Map();
   const leaves = new Map();
   for (const e of _collectCallerEntries(graph, symbol, refs)) {
@@ -393,7 +393,7 @@ function _callerNamesOf(graph, symbol, cwd, language) {
   return [...byName.values(), ...leafList];
 }
 
-export function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = null, depth = 2, pageSize = 100, page = 1, hardMax = 1000 } = {}) {
+export function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = null, depth = 2, pageSize = 100, page = 1, hardMax = 1000, fileRel = null, scopeRelPrefix = null } = {}) {
   const expanded = new Set();
   const collected = [];
   let overflow = false;
@@ -404,7 +404,7 @@ export function _formatTransitiveCallers(graph, rootSymbol, cwd, { language = nu
       return;
     }
     expanded.add(symbol);
-    for (const entry of _callerNamesOf(graph, symbol, cwd, language)) {
+    for (const entry of _callerNamesOf(graph, symbol, cwd, language, { fileRel, scopeRelPrefix })) {
       if (collected.length >= hardMax) { overflow = true; return; }
       collected.push({ indent: level + 1, label: `${entry.name}\t${entry.loc}` });
       if (!entry.leaf) walk(entry.name, level + 1);

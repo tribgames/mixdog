@@ -334,12 +334,12 @@ export function createSessionIngestRuntime({
       currentSnapshot.push({ key: snapshotKey, occurrence })
       if (i >= start) {
         considered += 1
-        prepared.push({ m, role, content, occurrence, index: i })
+        prepared.push({ m, role, content, occurrence, index: i, untimestamped })
       }
     }
     ordinalState.snapshot = currentSnapshot
     ordinalState.seeded = true
-    for (const { m, role, content, occurrence, index } of prepared) {
+    for (const { m, role, content, occurrence, index, untimestamped } of prepared) {
       const fallbackTs = Date.now() - (messages.length - index)
       const rawTimestamp = m.ts ?? m.timestamp
       const timeSource = untimestamped ? 'collected' : 'recorded'

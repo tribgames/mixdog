@@ -19,12 +19,9 @@ export const outputStyleNotice = (result) => {
 export function createRoutePickers({
   store,
   state,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
-  setContextPanel,
   closeUsagePanel,
   clean,
   routeLabel,
@@ -38,7 +35,11 @@ export function createRoutePickers({
   const openWebSearchPicker = async (options = {}) => {
     const routeOverride = options.routeOverride || null;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    // Surface claim (panel-surface.mjs) taken on this keypress: the route read
+    // below is a daemon round-trip, so Esc can land before anything paints.
+    const own = surface.claim();
     const currentWebSearchRoute = routeOverride || (await store.getWebSearchRoute?.()) || null;
+    if (!own.owns()) return;
     void openModelPicker({
       title: 'Web Search Model',
       loadingDescription: 'Loading web-search-capable models...',
@@ -53,7 +54,8 @@ export function createRoutePickers({
       returnOnNestedCancel: options.returnOnNestedCancel === true,
       onImmediateSelect: () => {
         if (returnTo) returnTo();
-        else setPicker(null);
+        // Enter inside the nested picker: that keypress owns what it clears.
+        else surface.claim().close();
       },
       onSelectRoute: async (routeInput) => {
         const result = await store.setWebSearchRoute?.(routeInput);
@@ -69,6 +71,7 @@ export function createRoutePickers({
   };
 
   const openAgentsPicker = async (options = {}) => {
+    const own = surface.claim();
     let agents = [];
     try {
       // Await: on a daemon-backed store this is a remote call, and the old sync
@@ -92,13 +95,12 @@ export function createRoutePickers({
       description: agent.description || agent.definition?.description || '',
       _agent: agent,
     }));
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
-    setPicker({
+    own.paint({
       title: 'Agents',
       description: 'Workflow agents available for agent tasks.',
       help: '↑/↓ Select · Enter Set Model · Esc Back',
@@ -130,7 +132,9 @@ export function createRoutePickers({
             store.pushNotice(`${agent.label} model set to ${agentModelProfile(result)}`, 'info');
           },
         });
-        setPicker({
+        // Nested panel for an Enter on an agent row: the same claim that
+        // painted the Agents list, re-armed by that paint.
+        own.paint({
           title: agent.label,
           description: 'Pick a model for this agent, or turn it off.',
           help: '↑/↓ Select · Enter Choose · Esc Back',
@@ -156,6 +160,9 @@ export function createRoutePickers({
               openAgentModelPicker();
               return;
             }
+            // Post-ack handover back to Agents, bound to THIS keypress: a late
+            // ack must not overwrite whatever replaced this panel meanwhile.
+            const reopenAgents = own.defer(() => { void openAgentsPicker(); });
             try {
               const result = await store.setAgentRoute?.(agent.id, { disabled: true });
               if (!result) {
@@ -166,7 +173,7 @@ export function createRoutePickers({
             } catch (e) {
               store.pushNotice(`could not turn off ${agent.label}: ${e?.message || e}`, 'error');
             }
-            void openAgentsPicker();
+            reopenAgents();
           },
           onCancel: () => {
             void openAgentsPicker();
@@ -174,13 +181,14 @@ export function createRoutePickers({
         });
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
       },
     });
   };
 
   const openWorkflowPicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const own = surface.claim();
     let workflows = [];
     try {
       workflows = (await store.listWorkflows?.()) || [];
@@ -200,13 +208,12 @@ export function createRoutePickers({
       description: workflow.description || `${workflow.source || 'workflow'} workflow`,
       _workflow: workflow,
     }));
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
-    setPicker({
+    own.paint({
       title: 'Workflow',
       description: 'Select active workflow.',
       help: returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back',
@@ -215,7 +222,11 @@ export function createRoutePickers({
       onSelect: (_value, item) => {
         const workflow = item?._workflow;
         if (!workflow) return;
-        setPicker(null);
+        // Clear-and-continue: the flow keeps the surface it just emptied, so
+        // the post-ack hop below is bound to THIS keypress. An Esc before the
+        // switch acks cancels the hop instead of re-opening Settings.
+        own.paint(null);
+        const returnAfterSwitch = own.defer(() => { if (returnTo) returnTo(); });
         void store.setWorkflow?.(workflow.id)
           .then((result) => {
             if (!result) {
@@ -223,12 +234,12 @@ export function createRoutePickers({
               return;
             }
             store.pushNotice(workflowSwitchNotice(result), 'info');
-            if (returnTo) returnTo();
+            returnAfterSwitch();
           })
           .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         if (returnTo) returnTo();
       },
     });
@@ -240,6 +251,7 @@ export function createRoutePickers({
     // the chosen style, then advance. `onboarding.onAdvance/onBack` drive the
     // wizard; the confirm bar is built here so both paths share `saveStyle`.
     const onboarding = options.onboarding || null;
+    const own = surface.claim();
     let status = null;
     try {
       status = (await store.listOutputStyles?.()) || null;
@@ -262,18 +274,24 @@ export function createRoutePickers({
       description: style.description || style.source || 'output style',
       _style: style,
     }));
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
     const saveStyle = (styleId, { advance = false } = {}) => {
       if (!styleId) return;
       // Onboarding advance: keep the current picker visible during the async
       // style switch so the screen never flashes empty between steps; the next
       // step (or finishOnboarding) replaces/clears the picker itself.
-      if (!(advance && onboarding)) setPicker(null);
+      if (!(advance && onboarding)) own.paint(null);
+      // Post-ack delegation (next onboarding step, or back to the caller):
+      // bound after this keypress's own navigation so an Esc while the switch
+      // is in flight cannot paint a panel over the new surface.
+      const advanceAfterSave = own.defer(() => {
+        if (advance && onboarding) onboarding.onAdvance?.();
+        else if (returnTo) returnTo();
+      });
       void store.setOutputStyle?.(styleId)
         .then((result) => {
           if (!result) {
@@ -281,12 +299,11 @@ export function createRoutePickers({
           } else {
             store.pushNotice(outputStyleNotice(result), 'info');
           }
-          if (advance && onboarding) onboarding.onAdvance?.();
-          else if (returnTo) returnTo();
+          advanceAfterSave();
         })
         .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
     };
-    setPicker({
+    own.paint({
       title: 'Output Style',
       description: 'Select response style.',
       // Onboarding uses a ConfirmBar (←/→ = Back/Next); let the Picker supply
@@ -301,7 +318,7 @@ export function createRoutePickers({
         ],
         onConfirm: (button) => {
           if (button.value === 'back') {
-            setPicker(null);
+            own.close();
             onboarding.onBack?.();
             return;
           }
@@ -317,7 +334,7 @@ export function createRoutePickers({
         saveStyle(style.id, { advance: Boolean(onboarding) });
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         if (onboarding) onboarding.onCancel?.();
         else if (returnTo) returnTo();
       },

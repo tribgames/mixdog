@@ -7,7 +7,7 @@ import { join } from 'path'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { listCore } from './core-memory-store.mjs'
-import { __mixdogMemoryLog, throwIfAborted, resourceDir } from './memory-cycle2-shared.mjs'
+import { __mixdogMemoryLog, throwIfAborted, resourceDir, createSemaphore } from './memory-cycle2-shared.mjs'
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
 const CYCLE2_PACKET_MATERIAL_CAP = 50
@@ -211,23 +211,6 @@ export function packUnifiedGatePackets(rows, candidates, options = {}) {
     current.materialCount += weight
   }
   return { packets, deferredIds }
-}
-
-function createSemaphore(limit) {
-  const cap = Math.max(1, Number(limit) || 1)
-  let active = 0
-  const queue = []
-  const release = () => {
-    active -= 1
-    const next = queue.shift()
-    if (next) next()
-  }
-  return async (fn) => {
-    if (active >= cap) await new Promise(resolve => queue.push(resolve))
-    active += 1
-    try { return await fn() }
-    finally { release() }
-  }
 }
 
 function formatLineageCandidates(rows, candidates) {

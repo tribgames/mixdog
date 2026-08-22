@@ -7,7 +7,7 @@ const ALWAYS_READ = new Set([
     'ls-remote', 'ls-tree', 'merge-base', 'merge-tree', 'name-rev',
     'range-diff', 'rev-list', 'rev-parse', 'shortlog', 'show', 'show-branch',
     'show-ref', 'status', 'verify-commit', 'verify-pack', 'verify-tag',
-    'whatchanged',
+    'version', 'whatchanged',
 ]);
 
 const SHELL_OPERATOR_CHARS = '|&;<>()';

@@ -71,8 +71,11 @@ function indexSignature(path) {
   try {
     const info = statSync(path);
     return `${info.mtimeMs}:${info.ctimeMs}:${info.size}`;
-  } catch {
-    return 'missing';
+  } catch (error) {
+    // Only an absent file is "missing". Reporting EACCES/EIO as missing let the
+    // read path cache an empty catalog for a store that is actually unreadable.
+    if (error?.code === 'ENOENT') return 'missing';
+    throw error;
   }
 }
 
@@ -91,20 +94,42 @@ function readIndex() {
     indexCacheHits += 1;
     return indexCacheAssets;
   }
+  let raw;
   try {
-    const raw = readFileSync(path, 'utf8');
-    const parsed = JSON.parse(raw);
-    indexDiskReads += 1;
-    return rememberIndex(path, signature, Array.isArray(parsed?.assets) ? parsed.assets : []);
-  } catch {
-    return rememberIndex(path, signature, []);
+    raw = readFileSync(path, 'utf8');
+  } catch (error) {
+    // A missing index file is a genuinely empty catalog (first run). Every
+    // OTHER read failure is not: answering with an empty list made the next
+    // save/delete write that emptiness back over every existing asset entry.
+    if (error?.code === 'ENOENT') return rememberIndex(path, signature, []);
+    throw error;
   }
+  const parsed = JSON.parse(raw);
+  if (!parsed || !Array.isArray(parsed.assets)) {
+    throw new Error(`media index is malformed: ${path}`);
+  }
+  indexDiskReads += 1;
+  return rememberIndex(path, signature, parsed.assets);
 }
 
 function writeIndex(assets) {
   const path = indexPath();
   writeJsonAtomicSync(path, { version: 2, assets });
   rememberIndex(path, indexSignature(path), assets);
+}
+
+/**
+ * The one catalog read-modify-write. Every mutation (migrate, save, duration
+ * backfill, delete) holds index.lock across a fresh readIndex() and writes back
+ * only what the callback returns, so a concurrent CLI/desktop generation can
+ * never lose an entry — and a read that FAILS (rather than being absent)
+ * propagates out of the lock instead of writing an empty catalog over it.
+ */
+function mutateIndex(mutate) {
+  withFileLockSync(indexLockPath(), () => {
+    const next = mutate(readIndex());
+    if (next) writeIndex(next);
+  });
 }
 
 export function mediaStoreCacheStats() {
@@ -158,8 +183,7 @@ function storedAssetPath(file) {
 
 /** Move flat v1 assets into kind/provider/model/date folders without losing old indexes. */
 function migrateAssetLayout() {
-  withFileLockSync(indexLockPath(), () => {
-    const current = readIndex();
+  mutateIndex((current) => {
     let changed = false;
     const assets = current.map((entry) => {
       const targetFile = organizedAssetFile(entry);
@@ -181,7 +205,7 @@ function migrateAssetLayout() {
         return entry;
       }
     });
-    if (changed) writeIndex(assets);
+    return changed ? assets : null;
   });
 }
 
@@ -213,9 +237,7 @@ export function saveMediaAsset({ kind, lane, model, prompt, options = {}, mime, 
   // The gallery is NOT capped (user). An entry-count trim used to unlink the
   // oldest files here, which is data loss nobody asked for: a generated asset
   // leaves this store only through an explicit delete.
-  withFileLockSync(indexLockPath(), () => {
-    writeIndex([entry, ...readIndex()]);
-  });
+  mutateIndex((assets) => [entry, ...assets]);
   // The first gallery paint after a generation would otherwise be the one that
   // pays for the tile rendition; build it now, off the caller's path.
   void ensureRendition({
@@ -248,12 +270,11 @@ function getMediaAsset(id) {
  *  survives a restart without decoding the clip again. */
 function rememberDuration(entry, durationSeconds) {
   if (!durationSeconds || entry.durationSeconds === durationSeconds) return;
-  withFileLockSync(indexLockPath(), () => {
-    const assets = readIndex();
+  mutateIndex((assets) => {
     const row = assets.find((item) => item.id === entry.id);
-    if (!row || row.durationSeconds === durationSeconds) return;
+    if (!row || row.durationSeconds === durationSeconds) return null;
     row.durationSeconds = durationSeconds;
-    writeIndex(assets);
+    return assets;
   });
   entry.durationSeconds = durationSeconds;
 }
@@ -406,15 +427,14 @@ function openWithOs(path) {
 export function deleteMediaAsset(id) {
   ensureDirs();
   let removed = false;
-  withFileLockSync(indexLockPath(), () => {
-    const assets = readIndex();
+  mutateIndex((assets) => {
     const entry = assets.find((row) => row.id === id);
-    if (!entry) return;
+    if (!entry) return null;
     const path = storedAssetPath(entry.file);
     try { if (path) unlinkSync(path); } catch {}
     removeRenditions(renditionsDir(), id);
-    writeIndex(assets.filter((row) => row.id !== id));
     removed = true;
+    return assets.filter((row) => row.id !== id);
   });
   return { id, removed };
 }

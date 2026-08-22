@@ -1,6 +1,7 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { tokenizeDirectArgv } from './shell-direct-exe.mjs';
 import { withBuiltinPathLocks } from './path-locks.mjs';
 import { withAdvisoryLocks } from './advisory-lock.mjs';
@@ -32,7 +33,19 @@ const SUPPORTED = new Set([
     'revert', 'rev-list', 'rev-parse', 'rm', 'shortlog', 'show', 'show-branch',
     'show-ref', 'sparse-checkout', 'stash', 'status', 'submodule', 'switch',
     'symbolic-ref', 'tag', 'update-ref', 'verify-commit', 'verify-pack',
-    'verify-tag', 'whatchanged', 'worktree', 'write-tree',
+    'verify-tag', 'version', 'whatchanged', 'worktree', 'write-tree',
+]);
+// `git --version` / `git --help` are the standard availability probes and
+// arrive in global-flag position, not as subcommands. Map them onto their
+// subcommand form so the probe answers instead of erroring out.
+// These answer anywhere: demanding a repository first turned an availability
+// probe into `git rev-parse exited 128` inside a plain directory.
+const REPO_FREE_OPERATIONS = new Set(['version', 'help']);
+const OPERATION_ALIASES = new Map([
+    ['--version', 'version'],
+    ['-v', 'version'],
+    ['--help', 'help'],
+    ['-h', 'help'],
 ]);
 const PUSH_NOISE = [
     'Enumerating objects:', 'Counting objects:', 'Compressing objects:',
@@ -181,8 +194,9 @@ function parseCommand(command, workDir) {
         }
         break;
     }
-    const operation = String(tokens[index] || '').toLowerCase();
-    if (!SUPPORTED.has(operation)) throw new Error(`unsupported git subcommand: ${operation || '(missing)'}`);
+    const rawOperation = String(tokens[index] || '').toLowerCase();
+    const operation = OPERATION_ALIASES.get(rawOperation) ?? rawOperation;
+    if (!SUPPORTED.has(operation)) throw new Error(`unsupported git subcommand: ${rawOperation || '(missing)'}`);
     return { command: String(command), cwd, globalArgs, operation, args: tokens.slice(index + 1) };
 }
 
@@ -561,9 +575,64 @@ function mutationData(plan, stdout, stderr, limit) {
     return { summary, ...(rows.lines.length ? { output: rows.lines } : {}), ...(rows.omitted ? { omittedOutputLines: rows.omitted } : {}) };
 }
 
+// Repo-root resolution used to spawn an extra `git rev-parse` on EVERY call —
+// on Windows that is half the cost of a git tool call (82ms for one process,
+// 180ms for two). The answer is cached per resolved cwd and re-validated with
+// a few stats: a cached root stays correct only while it is still the NEAREST
+// repository, so an init/clone/worktree that appears closer to cwd invalidates
+// it. Explicit --git-dir/--work-tree overrides re-point resolution entirely and
+// never read the cache.
+const repoRootCache = new Map();
+const REPO_ROOT_CACHE_MAX = 64;
+
+function repoRootCacheKey(plan) {
+    return plan.globalArgs.length ? null : resolve(plan.cwd);
+}
+
+function nearestGitDir(startDir) {
+    let dir = resolve(startDir);
+    for (;;) {
+        if (existsSync(join(dir, '.git'))) return dir;
+        const parent = dirname(dir);
+        if (parent === dir) return null;
+        dir = parent;
+    }
+}
+
+function cachedRepoRoot(key, plan) {
+    if (!key) return null;
+    const root = repoRootCache.get(key);
+    if (!root) return null;
+    const nearest = nearestGitDir(plan.cwd);
+    if (!nearest || resolve(nearest) !== resolve(root)) {
+        repoRootCache.delete(key);
+        return null;
+    }
+    repoRootCache.delete(key);
+    repoRootCache.set(key, root);
+    return root;
+}
+
+function rememberRepoRoot(key, root) {
+    if (!key || !root) return;
+    repoRootCache.delete(key);
+    repoRootCache.set(key, root);
+    while (repoRootCache.size > REPO_ROOT_CACHE_MAX) {
+        const oldest = repoRootCache.keys().next().value;
+        if (oldest === undefined) break;
+        repoRootCache.delete(oldest);
+    }
+}
+
 async function resolveRepo(plan, signal) {
+    const key = repoRootCacheKey(plan);
+    const hit = cachedRepoRoot(key, plan);
+    if (hit) return { root: hit, probe: null };
     const result = await runGit(plan, ['rev-parse', '--show-toplevel'], { signal });
-    return succeeded(result) ? cleanText(result.stdout) : null;
+    if (!succeeded(result)) return { root: null, probe: result };
+    const root = cleanText(result.stdout);
+    rememberRepoRoot(key, root);
+    return { root, probe: result };
 }
 
 function localizeConfigPlan(plan) {
@@ -720,10 +789,18 @@ export async function executeGitTool(input, workDir, options = {}) {
         const target = creationTarget(plan);
         return withGitRepoWriteLock(target, () => executeCreation(plan, target, limit, signal), { signal });
     }
-    const repo = await resolveRepo(plan, signal);
+    if (REPO_FREE_OPERATIONS.has(plan.operation)) {
+        const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
+        if (!succeeded(result)) return commandFailure(plan, result, limit);
+        return ok(mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit));
+    }
+    // Report the command the caller actually ran. Naming the internal probe
+    // ("git rev-parse exited 128") for a `git status` in a plain directory hid
+    // git's own "fatal: not a git repository" line behind a command the model
+    // never issued — and re-ran the probe just to build that message.
+    const { root: repo, probe } = await resolveRepo(plan, signal);
     if (!repo) {
-        const probe = await runGit(plan, ['rev-parse', '--show-toplevel'], { signal });
-        return commandFailure({ ...plan, operation: 'rev-parse' }, probe, limit);
+        return commandFailure(plan, probe ?? await runGit(plan, ['rev-parse', '--show-toplevel'], { signal }), limit);
     }
     const prepared = prepare(plan, limit);
     if (isReadOnly(plan)) {

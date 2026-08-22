@@ -9,8 +9,6 @@ import { promptContentRows, wrappedDetailRows, queuedBandRows } from './text-lay
 
 export function computeShellLayout({
   providerPrompt,
-  channelPrompt,
-  hookPrompt,
   settingsPrompt,
   panelTransitionEpoch,
   panelInkMaskEpoch,
@@ -64,7 +62,7 @@ export function computeShellLayout({
   //
   // Every sibling outside the viewport must be accounted for here; otherwise
   // the total tree height exceeds the terminal and the input box gets pushed.
-  const textEntryPrompt = providerPrompt || channelPrompt || hookPrompt || settingsPrompt;
+  const textEntryPrompt = providerPrompt || settingsPrompt;
   const hasTextEntryPrompt = !!textEntryPrompt;
   const hasFloatingPanel = !!(toolApproval || picker || contextPanel || usagePanel || slashPaletteOpen || hasTextEntryPrompt);
   const expandedOptionPanel = !!(toolApproval || picker || contextPanel || usagePanel || hasTextEntryPrompt);

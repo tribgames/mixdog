@@ -6,7 +6,16 @@
 // tool; cross-tool policy lives in rules/shared/*.md.
 // Platform-specific command syntax belongs next to the command argument.
 import { GIT_STAGE_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
-import { SHELL_MONITOR_INTERVAL_MAX_MS } from './shell-monitor.mjs';
+// action=wait ceiling, colocated with the schema that publishes it so the
+// documented bounds and the runtime clamp cannot drift. The wait returns the
+// instant the task settles, so the ceiling only bounds how long a STILL-running
+// task may hold the call. The floor is the load-bearing part: measured runs
+// show a caller with no wait primitive re-reading the same task every 2-3 s
+// (177 reads in one trial), and a caller that can pass a timeout occasionally
+// asks for 1 s. Both collapse into a busy loop without a floor.
+export const TASK_WAIT_TIMEOUT_DEFAULT_MS = 60_000;
+export const TASK_WAIT_TIMEOUT_MIN_MS = 10_000;
+export const TASK_WAIT_TIMEOUT_MAX_MS = 3_600_000;
 const _shellSyntaxCheat =
     process.platform === 'win32'
         ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved.'
@@ -81,7 +90,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic; do not call task read/monitor to wait or check progress. Continue independent work or end the turn. Use task read only when the user explicitly asks for current status, and task monitor only when they explicitly ask for periodic progress.'}`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic, so continue independent work or end the turn. When the next step needs the result, call task wait once—it returns the moment the task settles—instead of polling task read.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -101,18 +110,37 @@ export const BUILTIN_TOOLS = [
     {
         name: 'task',
         title: 'Task',
+        // destructiveHint is per TOOL, but destructiveness here is per ACTION:
+        // only `cancel` terminates a process tree, while list/read/wait are
+        // read-only. Declaring the tool destructive makes list/read/wait
+        // inherit that hint and drops `task` out of read-only-selectable
+        // surfaces, so the honest static shape is non-destructive; the cancel
+        // path states its own outcome in the result body.
+        //
+        // FUTURE (action-scoped destructiveness, not implemented here):
+        //   1. `task` would declare `destructiveHint: false` plus
+        //      `destructiveActions: ['cancel']` in these annotations.
+        //   2. Enforcement CANNOT live in catalog/selection code:
+        //      `isReadonlySelectable(tool)` (tool-catalog.mjs:262-268) receives
+        //      only the tool definition and runs while the surface is being
+        //      assembled — before any invocation exists, so no `action`
+        //      argument is available to match against the list.
+        //   3. It must therefore live in dispatch/approval, where validated
+        //      call arguments exist: that layer resolves destructiveness per
+        //      invocation (`destructiveActions.includes(args.action)`) and
+        //      gates approval on the result, while selection keeps treating the
+        //      tool as non-destructive.
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one current snapshot, change periodic monitoring, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion is automatic; do not call read/monitor to wait or check progress. Continue independent work or end the turn. Use read only when the user explicitly asks for current status, and monitor only when they explicitly ask for periodic progress.',
+        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion is automatic, so the default is to continue independent work or end the turn. Never repeat read to watch a task: use wait when the next step genuinely needs the result, and read when the user asks for current status.',
         inputSchema: {
             type: 'object',
             properties: {
-                task_id: { type: 'string', description: 'Shell task_id; required for read/monitor/cancel.' },
-                action: { type: 'string', enum: ['list', 'read', 'monitor', 'cancel'], description: 'list all; read snapshot; monitor changes periodic progress; cancel task.' },
-                monitor_interval_ms: {
+                task_id: { type: 'string', description: 'Shell task_id; required for read/wait/cancel.' },
+                action: { type: 'string', enum: ['list', 'read', 'wait', 'cancel'], description: 'list all; read snapshot; wait for completion; cancel task.' },
+                timeout_ms: {
                     type: 'integer',
                     minimum: 0,
-                    maximum: SHELL_MONITOR_INTERVAL_MAX_MS,
-                    description: 'Required for action=monitor. 0 disables periodic progress; use 300000 (5m) or longer to enable.',
+                    description: `Ceiling for action=wait; returns as soon as the task settles, and a still-running task comes back with its current output. Default ${TASK_WAIT_TIMEOUT_DEFAULT_MS}, clamped to ${TASK_WAIT_TIMEOUT_MIN_MS}-${TASK_WAIT_TIMEOUT_MAX_MS}.`,
                 },
             },
             required: ['action'],

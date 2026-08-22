@@ -22,7 +22,7 @@ export function createSlashDispatch({
   state,
   store,
   normalizeSlashCommandName,
-  setContextPanel,
+  surface,
   closeUsagePanel,
   openModelPicker,
   modelSwitchNotice,
@@ -58,7 +58,9 @@ export function createSlashDispatch({
   const runSlashCommand = (cmd, arg = '') => {
     const rawName = String(cmd || '').toLowerCase();
     cmd = normalizeSlashCommandName(cmd);
-    if (cmd !== 'context') setContextPanel(null);
+    // Synchronous dispatch of the command the user just submitted: this action
+    // owns the surface it clears.
+    if (cmd !== 'context') surface.claim().context(null);
     if (cmd !== 'usage') closeUsagePanel();
     switch (cmd) {
       case 'clear':

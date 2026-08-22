@@ -2,8 +2,9 @@
 // relay (apps/relay/server.mjs, plain node on the VPS). The MIME table,
 // path-escape guard, SPA fallback rule, gzip negotiation and pairing cookie
 // live here outside the server entrypoint.
+import { createHash } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createGzip } from 'node:zlib';
 
 export const MIME_TYPES = {
@@ -62,6 +63,27 @@ export const BROWSER_SECURITY_HEADERS = Object.freeze({
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
 });
+
+/** The production renderer inlines boot.js to remove a parser-blocking relay
+ *  round trip. Grant only that exact sibling source permission, and only when
+ *  the served document actually contains it; every other response keeps the
+ *  base self-only script policy. */
+function browserSecurityHeadersForTarget(target) {
+  if (!target.endsWith('index.html')) return BROWSER_SECURITY_HEADERS;
+  try {
+    const source = readFileSync(join(dirname(target), 'boot.js'), 'utf8');
+    const document = readFileSync(target, 'utf8');
+    if (!document.includes(`<script>${source}</script>`)) return BROWSER_SECURITY_HEADERS;
+    const hash = createHash('sha256').update(source).digest('base64');
+    return {
+      ...BROWSER_SECURITY_HEADERS,
+      'Content-Security-Policy': BROWSER_SECURITY_HEADERS['Content-Security-Policy']
+        .replace("script-src 'self'", `script-src 'self' 'sha256-${hash}'`),
+    };
+  } catch {
+    return BROWSER_SECURITY_HEADERS;
+  }
+}
 
 function parseCookieValue(header, name) {
   for (const part of String(header || '').split(';')) {
@@ -191,18 +213,63 @@ export function resolveStaticTarget(rootDir, pathname) {
   }
 }
 
+/** Accept-Encoding as a name -> quality table. q=0 is an explicit REFUSAL, not
+ *  a preference: `gzip;q=0` or `*;q=0` means the client cannot decode that
+ *  body, and answering it encoded anyway breaks the response outright. */
+export function parseAcceptEncoding(header) {
+  const table = new Map();
+  for (const part of String(header || '').split(',')) {
+    const [rawName, ...parameters] = part.split(';');
+    const name = rawName.trim().toLowerCase();
+    if (!name) continue;
+    let quality = 1;
+    for (const parameter of parameters) {
+      const match = /^\s*q\s*=\s*([0-9]*\.?[0-9]+)\s*$/i.exec(parameter);
+      if (match) quality = Number(match[1]);
+    }
+    table.set(name, Number.isFinite(quality) ? quality : 0);
+  }
+  return table;
+}
+
+/** True only when the client actually accepts `encoding`. */
+export function encodingAccepted(header, encoding) {
+  const table = parseAcceptEncoding(header);
+  const direct = table.get(encoding);
+  if (direct !== undefined) return direct > 0;
+  const wildcard = table.get('*');
+  return wildcard !== undefined && wildcard > 0;
+}
+
+/** A negotiated sibling never passes through resolveStaticTarget, so it repeats
+ *  that escape check here: the sibling's real path must be exactly the resolved
+ *  asset's real path plus the suffix. A symlinked `.br` beside a public file
+ *  would otherwise return bytes from outside the renderer root. */
+function precompressedSibling(target, suffix, fileExists) {
+  const path = `${target}${suffix}`;
+  if (!fileExists(path)) return '';
+  try {
+    if (realpathSync(path) !== `${realpathSync(target)}${suffix}`) return '';
+    if (!statSync(path).isFile()) return '';
+  } catch {
+    return '';
+  }
+  return path;
+}
+
 /** Pick the precompressed sibling (`.br`/`.gz`) the client accepts.
  *  `npm run stage:web` writes them beside each text asset, so the relay ships
  *  brotli — well under on-the-fly gzip on a phone link — without spending CPU
  *  per request. Returns null when nothing suitable was staged, leaving the
  *  live gzip path in charge (LAN/dev servers run straight off a raw build). */
 export function selectPrecompressed(target, acceptEncoding, fileExists = existsSync) {
-  const accept = String(acceptEncoding || '');
-  if (/\bbr\b/i.test(accept) && fileExists(`${target}.br`)) {
-    return { path: `${target}.br`, encoding: 'br' };
+  if (encodingAccepted(acceptEncoding, 'br')) {
+    const path = precompressedSibling(target, '.br', fileExists);
+    if (path) return { path, encoding: 'br' };
   }
-  if (/\bgzip\b/i.test(accept) && fileExists(`${target}.gz`)) {
-    return { path: `${target}.gz`, encoding: 'gzip' };
+  if (encodingAccepted(acceptEncoding, 'gzip')) {
+    const path = precompressedSibling(target, '.gz', fileExists);
+    if (path) return { path, encoding: 'gzip' };
   }
   return null;
 }
@@ -219,9 +286,9 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
   const gzip = !precompressed
     && COMPRESSIBLE_TYPE.test(type)
     && size > COMPRESS_MIN_BYTES
-    && /\bgzip\b/i.test(String(request.headers['accept-encoding'] || ''));
+    && encodingAccepted(request.headers['accept-encoding'], 'gzip');
   const headers = {
-    ...BROWSER_SECURITY_HEADERS,
+    ...browserSecurityHeadersForTarget(target),
     'Content-Type': type,
     // boot.js carries no content hash yet is version-locked to index.html (it
     // picks the viewport projection and the first-paint theme). Under the

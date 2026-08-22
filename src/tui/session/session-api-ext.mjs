@@ -701,11 +701,10 @@ export function createSessionApiB(bag) {
       return true;
     },
     saveOpenCodeGoUsageAuth: (opts) => {
-      const result = runtime.saveOpenCodeGoUsageAuth(opts);
-      pushNotice(result.workspaceId
-        ? `OpenCode Go usage auth saved: ${result.workspaceId}`
-        : 'OpenCode Go usage auth saved',
-        'info');
+      // User-facing notices never expose the raw workspace-derived `wrk_…`
+      // identifier (Project is the product vocabulary; "workspace" is not).
+      runtime.saveOpenCodeGoUsageAuth(opts);
+      pushNotice('OpenCode Go usage auth saved', 'info');
       return true;
     },
     loginOpenCodeGoUsage: async () => {

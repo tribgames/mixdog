@@ -120,53 +120,11 @@ export async function backfillCoreEmbeddings(dataDir, options = {}) {
   return await _backfillNullEmbeddings(db, options)
 }
 
-// Boot-time invariant restoration: core_entries.id must always be the
-// contiguous sequence 1..N. SERIAL only ever increments, so deleting a row
-// leaves a permanent gap (e.g. 1,2,4,5 after deleting 3). This closes those
-// gaps by resequencing every row globally (across all project_id pools) to
-// 1..N in id order, then realigns the serial so the next INSERT continues from
-// N+1. Deterministic invariant restore — no heuristic, no fallback branch.
-export async function compactCoreIds(dataDir) {
-  const db = _getDb(dataDir)
-  // Fast no-op guard: a contiguous 1..N table has COUNT == MAX(id). This also
-  // covers the empty table (n=0, mx=0) — return before any write.
-  const g = await db.query(`SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS mx FROM core_entries`)
-  const n = Number(g.rows[0].n)
-  const mx = Number(g.rows[0].mx)
-  if (n === mx) return 0
-
-  // BEGIN transaction on ONE checked-out client — the pool wrapper db.query
-  // releases the client per call, so BEGIN/COMMIT must run on one client
-  // (same pattern as addCore).
-  const client = await checkedConnect(db._pool, 'memory')
-  try {
-    await client.query('BEGIN')
-    // (a) Vacate the low range so shifted ids can't collide with the 1..N
-    // target. Offset by current MAX(id): every id becomes id+mx, which is
-    // strictly greater than N (N <= mx), so the resequence below is safe.
-    await client.query(`UPDATE core_entries SET id = id + $1`, [mx])
-    // (b) Resequence ALL rows globally to 1..N preserving id order.
-    await client.query(`
-      WITH ordered AS (
-        SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM core_entries
-      )
-      UPDATE core_entries c SET id = o.rn FROM ordered o WHERE c.id = o.id`)
-    // (c) Realign the serial so the next INSERT continues from N+1. Guarded by
-    // the n===mx return above, so MAX(id) is always > 0 here — setval(...,0,true)
-    // is invalid and is never reached.
-    await client.query(
-      `SELECT setval(pg_get_serial_sequence('core_entries','id'),
-         (SELECT COALESCE(MAX(id),0) FROM core_entries), true)`)
-    await client.query('COMMIT')
-  } catch (err) {
-    try { await client.query('ROLLBACK') } catch {}
-    throw err
-  } finally {
-    client.release()
-  }
-  __mixdogMemoryLog(`[core-memory] compacted ${n} core id(s)\n`)
-  return n
-}
+// NOTE: boot-time core id compaction was REMOVED. Resequencing core_entries.id
+// to 1..N rewrote primary keys that are handed out as stable `core:N`
+// references, so after a restart a retained reference pointed at a different
+// fact. Gaps left by deletes are the correct, permanent behavior of a surrogate
+// key.
 
 async function _findTopKCore(db, projectId, embedding, excludeId, { forUpdate = false } = {}) {
   if (!embedding) return []
@@ -351,10 +309,17 @@ export async function editCore(dataDir, id, patch) {
   const textChanged = newElement !== cur.element || newSummary !== cur.summary
   const projectChanged = newProjectId !== (cur.project_id ?? null)
   if (!textChanged && !projectChanged) {
-    await db.query(
-      `UPDATE core_entries SET category = $1, updated_at = $2 WHERE id = $3`,
-      [newCategory, now, numId],
+    // Optimistic guard on the snapshot this patch was computed against: a blind
+    // UPDATE by id overwrote whatever a concurrent edit had just written.
+    const res = await db.query(
+      `UPDATE core_entries SET category = $1, updated_at = $2
+       WHERE id = $3 AND element = $4 AND summary = $5
+         AND updated_at IS NOT DISTINCT FROM $6::bigint`,
+      [newCategory, now, numId, cur.element, cur.summary, cur.updated_at],
     )
+    if (Number(res.rowCount ?? 0) === 0) {
+      throw new Error(`core entry id=${numId} changed concurrently — re-read and retry`)
+    }
     return { ...cur, element: newElement, summary: newSummary, category: newCategory, updated_at: now }
   }
 
@@ -370,6 +335,19 @@ export async function editCore(dataDir, id, patch) {
     ].sort()
     for (const poolKey of new Set(poolKeys)) {
       await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey])
+    }
+    // Revalidate under the lock. `cur` (and the embedding derived from it) was
+    // read before any locking, so without this check two concurrent edits both
+    // computed a patch from the same snapshot and the slower one silently
+    // overwrote the newer content.
+    const fresh = (await client.query(`SELECT * FROM core_entries WHERE id = $1 FOR UPDATE`, [numId])).rows[0]
+    if (!fresh) throw new Error(`no entry with id=${numId}`)
+    if (fresh.element !== cur.element
+        || fresh.summary !== cur.summary
+        || fresh.category !== cur.category
+        || (fresh.project_id ?? null) !== (cur.project_id ?? null)
+        || Number(fresh.updated_at ?? 0) !== Number(cur.updated_at ?? 0)) {
+      throw new Error(`core entry id=${numId} changed concurrently — re-read and retry`)
     }
     const candidates = await _findTopKCore(client, newProjectId, embedding, numId, { forUpdate: true })
     const mergeTarget = await _resolveMergeTarget(candidates, { element: newElement, summary: newSummary })

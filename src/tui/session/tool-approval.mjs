@@ -28,6 +28,17 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       expiresAt: now + requestTimeoutMs,
     };
   }
+  // Every request expires from ITS OWN requestedAt, queued or active. Arming
+  // the timer only on presentation let a queued request sit past expiresAt
+  // (retaining its promise and surfacing an obsolete approval later).
+  function armToolApprovalTimeout(entry) {
+    if (!entry || entry.timer) return;
+    const remainingMs = Math.max(0, Number(entry.request?.expiresAt || 0) - Date.now());
+    entry.timer = setTimeout(() => {
+      finishToolApproval(entry.id, false, 'approval timed out');
+    }, remainingMs);
+    entry.timer.unref?.();
+  }
   function presentNextToolApproval() {
     if (activeToolApproval || getDisposed()) return;
     const entry = toolApprovalQueue.shift();
@@ -36,10 +47,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       return;
     }
     activeToolApproval = entry;
-    entry.timer = setTimeout(() => {
-      finishToolApproval(entry.id, false, 'approval timed out');
-    }, entry.request.timeoutMs);
-    entry.timer.unref?.();
+    armToolApprovalTimeout(entry);
     set({ toolApproval: entry.request });
   }
   function finishToolApproval(id, approved, reason = '') {
@@ -80,7 +88,9 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (getDisposed()) return Promise.resolve({ approved: false, reason: 'runtime disposed' });
     return new Promise((resolve) => {
       const id = nextId();
-      toolApprovalQueue.push({ id, request: normalizeToolApprovalRequest(input, id), resolve, timer: null });
+      const entry = { id, request: normalizeToolApprovalRequest(input, id), resolve, timer: null };
+      toolApprovalQueue.push(entry);
+      armToolApprovalTimeout(entry);
       presentNextToolApproval();
     });
   }

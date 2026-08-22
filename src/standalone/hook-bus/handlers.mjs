@@ -158,7 +158,7 @@ function hookEnv(projectDir, pluginData, payload, pluginRoot = null) {
   return env;
 }
 
-export function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null, onRewake = null) {
+export function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null) {
   const projectDir = payload.cwd || process.cwd();
   const effectivePluginData = handler._pluginData || pluginData || null;
   const stdin = JSON.stringify(payload);
@@ -170,55 +170,6 @@ export function runCommandHandler(handler, payload, eventName, pluginData, onSpa
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   };
-
-  if (handler.asyncRewake === true) {
-    try {
-      const child = spawn(spec.command, spec.args, withProcessGroup(baseOpts));
-      let bgStdout = '';
-      let bgStderr = '';
-      let bgStdoutBytes = 0;
-      let bgStderrBytes = 0;
-      let killed = false;
-      child.stdout?.on('data', (chunk) => {
-        bgStdoutBytes += chunk.length;
-        if (bgStdoutBytes <= MAX_BUFFER_BYTES) bgStdout += chunk.toString('utf8');
-      });
-      child.stderr?.on('data', (chunk) => {
-        bgStderrBytes += chunk.length;
-        if (bgStderrBytes <= MAX_BUFFER_BYTES) bgStderr += chunk.toString('utf8');
-      });
-      const killTimer = setTimeout(() => {
-        killed = true;
-        try { child.stdout?.removeAllListeners('data'); } catch {}
-        try { child.stderr?.removeAllListeners('data'); } catch {}
-        terminateTree(child);
-      }, timeoutMs);
-      killTimer.unref?.();
-      child.on('error', (error) => {
-        clearTimeout(killTimer);
-        if (typeof onSpawnError === 'function') onSpawnError(error);
-      });
-      child.on('close', (code) => {
-        clearTimeout(killTimer);
-        try {
-          if (!killed && code === 2 && typeof onRewake === 'function') {
-            const text = (bgStderr || '').trim() || (bgStdout || '').trim();
-            onRewake({ eventName, payload, text });
-          }
-        } catch {}
-      });
-      child.stdin?.end(stdin);
-      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', async: true });
-    } catch (error) {
-      return Promise.resolve({
-        exitCode: -1,
-        stdout: '',
-        stderr: error?.message || String(error),
-        timedOut: false,
-        spawnError: error,
-      });
-    }
-  }
 
   if (handler.async === true) {
     try {
@@ -448,12 +399,25 @@ export async function runMcpToolHandler(handler, payload, eventName, mcpToolRunn
     return { exitCode: -1, stdout: '', stderr: 'mcp_tool handler missing tool name', timedOut: false, spawnError: null };
   }
   let timer = null;
+  // Losing the race is not cancellation: without this signal the tool call kept
+  // running (and holding its MCP slot) long after the hook gave up on it.
+  const controller = new AbortController();
   try {
-    const runPromise = Promise.resolve(mcpToolRunner({ name, args: payload }));
+    const runPromise = Promise.resolve(mcpToolRunner({
+      name,
+      args: payload,
+      signal: controller.signal,
+      timeoutMs,
+    }));
+    // The abandoned call still settles somewhere; keep its rejection handled.
+    runPromise.catch(() => {});
     const text = await Promise.race([
       runPromise,
       new Promise((_r, reject) => {
-        timer = setTimeout(() => reject(new Error(`mcp_tool hook timed out: ${name}`)), timeoutMs);
+        timer = setTimeout(() => {
+          try { controller.abort(new Error(`mcp_tool hook timed out: ${name}`)); } catch {}
+          reject(new Error(`mcp_tool hook timed out: ${name}`));
+        }, timeoutMs);
         // No unref: this timer must keep the event loop alive so the race can
         // settle even when the runner promise never resolves. Cleared in finally.
       }),

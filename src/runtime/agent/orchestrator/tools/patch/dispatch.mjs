@@ -14,6 +14,9 @@ import {
 } from '../builtin.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
 import { isSpecialFileStat } from '../builtin/device-paths.mjs';
+import { getReadSnapshot } from '../builtin/read-snapshot-runtime.mjs';
+import { snapshotCoversFullFile } from '../builtin/snapshot-helpers.mjs';
+import { hashText } from '../builtin/hash-utils.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 import {
   classifyEntry,
@@ -37,6 +40,9 @@ import {
   findFirstFailingUnifiedHunk,
   findUnifiedHunkMatch,
   collectUnifiedNewLines,
+  collectUnifiedOpEntries,
+  terminatorsForUnifiedOps,
+  localTerminatorForWindow,
   assertSafeReplacementPlan,
   firstFailingUnifiedHunkLineDetail,
   firstMeaningfulUnifiedHunkLine,
@@ -47,6 +53,14 @@ import {
   normalizeTypographic,
   splitBufferLinesForPatch,
   splitTextLinesForPatch,
+  cloneTextLinesForPatch,
+  spliceTextLinesForPatch,
+  joinTextLinesForPatch,
+  setFinalNewlineForPatch,
+  patchTargetEncodingError,
+  detectDominantEol,
+  decodePatchTargetBuffer,
+  encodePatchTargetContent,
 } from './matcher.mjs';
 
 function formatNativeFailureContext(parsed, basePath, failedPath = '', options = {}) {
@@ -98,6 +112,50 @@ function formatNativeFailureContext(parsed, basePath, failedPath = '', options =
 // caller MUST surface throws as `Error: ...` strings.
 export async function dispatchNativePatch({ entries, basePath, nativePatchStr, fuzz, rejectPartial, dryRun, readStateScope, signal, parsed }) {
   const nativeStart = performance.now();
+  // Pre-write identity of every target. The read-snapshot recorder needs it to
+  // decide whether the session's earlier full read still described this file
+  // when the patch landed — otherwise an external change made before the patch
+  // would stay hidden behind "[file unchanged]".
+  const preMutationStats = new Map();
+  // Encoding gate, same rule as the JS writer: the native engine rewrites files
+  // as UTF-8, so a target that is not valid UTF-8 must be refused rather than
+  // silently transcoded. (UTF-16 targets are routed away before this point.)
+  for (const entry of entries || []) {
+    if (entry.kind === 'create' || entry.kind === 'delete') continue;
+    const encodingError = patchTargetEncodingError(entry.fullPath, entry.displayPath);
+    if (encodingError) return `Error: ${encodingError}`;
+  }
+  if (!dryRun) {
+    for (const entry of entries || []) {
+      try { preMutationStats.set(entry.fullPath, lstatSync(entry.fullPath)); } catch { /* absent target */ }
+    }
+  }
+  // Body-knowledge proof for the "[file unchanged]" fast path. A stat captured
+  // before the engine runs cannot vouch for the bytes it actually patched, so
+  // predict the post-apply content from bytes we verify against the session's
+  // read snapshot; after the apply, the engine's own content hash must equal
+  // that prediction. Only computed where the fast path could be inherited.
+  const bodyProofs = new Map();
+  if (!dryRun && readStateScope) {
+    for (const entry of entries || []) {
+      if (entry.kind === 'create' || entry.kind === 'delete') continue;
+      const prior = getReadSnapshot(entry.fullPath, readStateScope);
+      if (!prior?.contentHash) continue;
+      if (prior.bodyDelivered !== true && !snapshotCoversFullFile(prior)) continue;
+      try {
+        const { text } = decodePatchTargetBuffer(readFileSync(entry.fullPath), entry.displayPath);
+        if (hashText(text) !== prior.contentHash) continue; // already stale — claim nothing
+        const parsedEntry = findParsedForRow(entry, parsed, basePath);
+        if (!parsedEntry) continue;
+        const updated = applyUnifiedHunksToLines(splitTextLinesForPatch(text), parsedEntry.hunks || [], {
+          fuzz: Number.isFinite(fuzz) ? fuzz : 0,
+          displayPath: entry.displayPath,
+          eol: detectDominantEol(text),
+        });
+        bodyProofs.set(entry.fullPath, hashText(joinTextLinesForPatch(updated)));
+      } catch { /* no proof — the fast path stays off for this file */ }
+    }
+  }
   let stats;
   try {
     stats = await runServerApply(basePath, nativePatchStr, { fuzz, rejectPartial, dryRun, signal });
@@ -147,11 +205,33 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
       if (entry.kind === 'delete') {
         clearReadSnapshotForPath(entry.fullPath, readStateScope);
       } else {
+        const contentHash = stats.contentHashes?.[i] || null;
+        // Only a matching prediction proves the engine patched the bytes this
+        // session had read; otherwise the pre-mutation stat is not evidence.
+        const proof = bodyProofs.get(entry.fullPath);
+        const provenSameBytes = !!proof && !!contentHash && proof === contentHash;
+        // ONE consistent observation of the result, stat FIRST: a write that
+        // lands after the stat breaks the hash (claim dropped); one that lands
+        // after the read leaves the recorded stat older than the file, so the
+        // fast path fails closed at read time. Without that pairing an external
+        // write between the apply and this record could inherit bodyDelivered.
+        let observedStat = null;
+        let observationConsistent = false;
+        if (provenSameBytes) {
+          try {
+            observedStat = lstatSync(entry.fullPath);
+            const observed = decodePatchTargetBuffer(readFileSync(entry.fullPath), entry.displayPath);
+            observationConsistent = hashText(observed.text) === contentHash;
+          } catch {
+            observationConsistent = false;
+          }
+        }
         const snapshotMeta = {
           source: 'apply_patch_native',
           isPartialView: false,
+          preMutationStat: observationConsistent ? (preMutationStats.get(entry.fullPath) || null) : null,
         };
-        const contentHash = stats.contentHashes?.[i] || null;
+        if (observationConsistent && observedStat) snapshotMeta.st = observedStat;
         if (contentHash) snapshotMeta.contentHash = contentHash;
         recordReadSnapshotForPath(entry.fullPath, readStateScope, snapshotMeta);
       }
@@ -209,34 +289,6 @@ export async function dispatchNativePatch({ entries, basePath, nativePatchStr, f
 
 function entryPathKey(fullPath) {
   return process.platform === 'win32' ? String(fullPath || '').toLowerCase() : String(fullPath || '');
-}
-
-function joinTextLinesForPatch(lines) {
-  const eol = lines?.eol || '\n';
-  const body = (lines || []).join(eol);
-  return lines?.hasFinalNewline !== false ? `${body}${eol}` : body;
-}
-
-// The file's dominant line terminator. splitTextLinesForPatch() folds CRLF into
-// LF, so without this an out-of-base CRLF file would be rewritten as LF.
-function detectDominantEol(text) {
-  const body = String(text ?? '');
-  if (body.includes('\r') && !body.includes('\n')) return '\r';
-  let lf = 0;
-  let crlf = 0;
-  for (let i = 0; i < body.length; i++) {
-    if (body[i] !== '\n') continue;
-    lf++;
-    if (i > 0 && body[i - 1] === '\r') crlf++;
-  }
-  return lf > 0 && crlf * 2 >= lf ? '\r\n' : '\n';
-}
-
-function cloneTextLinesForPatch(sourceLines, eol) {
-  const lines = [...(sourceLines || [])];
-  lines.hasFinalNewline = sourceLines?.hasFinalNewline !== false;
-  lines.eol = eol || sourceLines?.eol || '\n';
-  return lines;
 }
 
 // Which side of the hunk, if any, carries an explicit
@@ -300,6 +352,10 @@ function applyUnifiedHunksToLines(sourceLines, hunks, { fuzz, displayPath, eol }
       start: match.start,
       oldLen: match.end - match.start,
       newLines,
+      // Op sequence of THIS hunk: the only sound source for terminator
+      // inheritance (context keeps its own, an add takes the delete it
+      // replaces). Content alignment cannot express interior context or moves.
+      ops: collectUnifiedOpEntries(hunk),
       intent,
       atEof: match.end >= lines.length,
     });
@@ -309,12 +365,20 @@ function applyUnifiedHunksToLines(sourceLines, hunks, { fuzz, displayPath, eol }
   assertSafeReplacementPlan(replacements, `apply_patch: ${displayPath}`);
   for (let i = replacements.length - 1; i >= 0; i--) {
     const rep = replacements[i];
-    lines.splice(rep.start, rep.oldLen, ...rep.newLines);
+    const oldTerms = Array.isArray(lines.terminators)
+      ? lines.terminators.slice(rep.start, rep.start + rep.oldLen)
+      : [];
+    const newTerms = terminatorsForUnifiedOps(
+      rep.ops,
+      oldTerms,
+      localTerminatorForWindow(lines, rep.start, rep.oldLen),
+    );
+    spliceTextLinesForPatch(lines, rep.start, rep.oldLen, rep.newLines, newTerms);
     // Explicit markers win in BOTH directions; a hunk that is silent about the
     // terminator leaves the file's existing state untouched (native parity).
     if (!rep.atEof) continue;
-    if (rep.intent.newNoNewline) lines.hasFinalNewline = false;
-    else if (rep.intent.oldNoNewline) lines.hasFinalNewline = true;
+    if (rep.intent.newNoNewline) setFinalNewlineForPatch(lines, false);
+    else if (rep.intent.oldNoNewline) setFinalNewlineForPatch(lines, true);
   }
   return lines;
 }
@@ -401,21 +465,46 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
     return { kind, fullPath, displayPath, added, removed };
   }
 
-  lstatRegularPatchFile(fullPath, displayPath);
-  const raw = readFileSync(fullPath);
-  const rawText = raw.toString('utf8');
+  const preMutationStat = lstatRegularPatchFile(fullPath, displayPath);
+  // Rewrite path: decode by BOM, re-encode into the same codec, and keep every
+  // untouched line's own terminator (spliceTextLinesForPatch).
+  // `toString('utf8')` here transcoded non-UTF-8 files and mangled UTF-16.
+  const { text: rawText, enc: rawEnc } = decodePatchTargetBuffer(readFileSync(fullPath), displayPath);
   const sourceLines = splitTextLinesForPatch(rawText);
   const updatedLines = applyUnifiedHunksToLines(sourceLines, entry.hunks || [], {
     fuzz: fuzzy ? 2 : 0,
     displayPath,
     eol: detectDominantEol(rawText),
   });
-  const content = joinTextLinesForPatch(updatedLines);
+  const content = encodePatchTargetContent(joinTextLinesForPatch(updatedLines), rawEnc);
   if (!dryRun) {
-    await atomicWrite(fullPath, content, { sessionId: readStateScope });
+    // The expected-target snapshot closes the read→write window: if anything
+    // rewrote this file after we read it, the write fails instead of silently
+    // clobbering it (and instead of inheriting a stale "body delivered" claim).
+    try {
+      await atomicWrite(fullPath, content, {
+        sessionId: readStateScope,
+        expectedTargetSnapshot: preMutationStat ? {
+          exists: true,
+          size: preMutationStat.size,
+          mtimeMs: preMutationStat.mtimeMs,
+          ctimeMs: preMutationStat.ctimeMs,
+          ino: preMutationStat.ino,
+        } : undefined,
+      });
+    } catch (err) {
+      if (err?.code === 'ESTALE_TARGET') {
+        throw new Error(`apply_patch: ${normalizeOutputPath(displayPath)} changed on disk during the patch; re-read it and retry`);
+      }
+      throw err;
+    }
     invalidateBuiltinResultCache([fullPath]);
     markCodeGraphDirtyPaths([fullPath]);
-    recordReadSnapshotForPath(fullPath, readStateScope, { source: 'apply_patch_js', isPartialView: false });
+    recordReadSnapshotForPath(fullPath, readStateScope, {
+      source: 'apply_patch_js',
+      isPartialView: false,
+      preMutationStat,
+    });
   }
   const { added, removed } = countHunkChanges(entry.hunks);
   return { kind, fullPath, displayPath, added, removed };

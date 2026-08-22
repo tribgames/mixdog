@@ -3,7 +3,7 @@
 // phone — whose projected 1040px viewport leaves no readable strip — uses it
 // as the primary tab switcher with device-scale compensation.
 import { Plus, X } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { DesktopSessionSummary } from "../shared/contract";
@@ -74,8 +74,27 @@ export function MobileTabOverview({
 }) {
   const [query, setQuery] = useState("");
   // iOS already exposes device-width layout pixels, including after rotation;
-  // only legacy projected Android surfaces need counter-scaling.
-  const scale = useMemo(() => mobileSurfaceScale(), []);
+  // only legacy projected Android surfaces need counter-scaling. The factor is
+  // derived from the CURRENT viewport, so it has to be re-read while the
+  // overview is open: memoizing it for the component's lifetime left the
+  // surface sized for the pre-rotation orientation.
+  const [scale, setScale] = useState(mobileSurfaceScale);
+  useEffect(() => {
+    const sync = (): void => setScale((current) => {
+      const next = mobileSurfaceScale();
+      return current === next ? current : next;
+    });
+    sync();
+    window.addEventListener("resize", sync);
+    window.addEventListener("orientationchange", sync);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", sync);
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("orientationchange", sync);
+      viewport?.removeEventListener("resize", sync);
+    };
+  }, []);
   const sessionRows = useMemo(
     () => new Map((sessions ?? []).map((session) => [session.id, session] as const)),
     [sessions],

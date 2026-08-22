@@ -303,6 +303,9 @@ export function ActivityRail({
               onDragEnd={() => setRailDrop(null)}
               onPointerEnter={onPrefetch}
               onFocus={onPrefetch}
+              onPointerDown={(event) => {
+                if (event.button === 0) onPrefetch?.();
+              }}
               onClick={selected ? onCloseActiveSurface : onOpen}>
               <span className={`codicon codicon-${icon}`} aria-hidden="true" />
             </button>
@@ -355,7 +358,11 @@ export function ActivityRail({
         className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
         aria-label={t("Open settings")} aria-current={activeSurface === "settings" ? "page" : undefined}
         data-tooltip={t("Settings")} onPointerEnter={onPrefetchSettings}
-        onFocus={onPrefetchSettings} onClick={onOpenSettings}>
+        onFocus={onPrefetchSettings}
+        onPointerDown={(event) => {
+          if (event.button === 0) onPrefetchSettings?.();
+        }}
+        onClick={onOpenSettings}>
         <span className="codicon codicon-settings-gear" aria-hidden="true" />
       </button>}
       {/* The flyout's bottom edge tracks the Usage button itself (user). */}

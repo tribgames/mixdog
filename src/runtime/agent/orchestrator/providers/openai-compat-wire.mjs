@@ -44,13 +44,15 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
     // strict providers (xai) reject unknown roles/types and would 400 the
     // request. Documented in v0.1.160 (GPT reasoning replay).
     //
-    // DeepSeek thinking models require the prior turn's `reasoning_content`
-    // string to be echoed back inside the assistant message, otherwise the API
-    // returns 400. xAI reasoning models also preserve their official multi-turn
-    // shape and cache prefix stability when prior assistant reasoning_content
-    // is replayed; reasoning_effort itself remains caller/user-selected.
+    // DeepSeek splits by model: thinking-mode models with tools REQUIRE the
+    // prior turn's `reasoning_content` echoed back (400 without it), while
+    // `deepseek-reasoner` REJECTS it with a 400. The caller decides per model
+    // through options.replaysReasoningContent — see
+    // deepseekReplaysReasoningContent below. xAI reasoning models preserve
+    // their official multi-turn shape and cache prefix stability when prior
+    // assistant reasoning_content is replayed; reasoning_effort itself remains
+    // caller/user-selected.
     const replaysReasoningContent = options.replaysReasoningContent === true
-        || providerName === 'deepseek'
         || providerName === 'xai';
     const out = [];
     const pendingToolMedia = [];
@@ -92,6 +94,14 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
     }
     flushToolMedia();
     return out;
+}
+
+// deepseek-reasoner returns 400 when `reasoning_content` appears in the input
+// messages; every other DeepSeek thinking model needs it back once tools are in
+// play. Unknown DeepSeek ids default to replaying: a missing echo breaks the
+// tool loop, while a stray field on a non-thinking model is ignored.
+export function deepseekReplaysReasoningContent(model) {
+    return !/reasoner/.test(String(model || '').trim().toLowerCase());
 }
 
 export function toOpenAITools(tools) {

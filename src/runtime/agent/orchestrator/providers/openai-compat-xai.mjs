@@ -2,10 +2,12 @@
  * openai-compat-xai.mjs — xAI/Grok Responses-API routing, prompt-cache lanes
  * and cache tracing for the OpenAI-compat provider.
  *
- * Extracted from openai-compat.mjs. Owns the xAI cache-lane singletons
- * (xaiResponsesCacheLanes) plus cache routing/fingerprint/trace helpers and
- * the compat cache trace writer shared by chat-completions and Responses
- * paths. openai-compat.mjs imports the routing/lane/trace entry points.
+ * Extracted from openai-compat.mjs. Owns the xAI prompt-cache lane RESOLUTION
+ * (shard/slot selection) plus cache routing/fingerprint/trace helpers and the
+ * compat cache trace writer shared by chat-completions and Responses paths.
+ * openai-compat.mjs imports the routing/lane/trace entry points. Admission is
+ * owned exclusively by the shared provider scheduler — there is no second
+ * cache-lane queue here.
  */
 import { createHash } from 'crypto';
 import { appendAgentTrace } from '../agent-trace.mjs';
@@ -14,6 +16,10 @@ import {
     resolveProviderPromptCacheLane,
 } from '../agent-runtime/cache-strategy.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
+import { envFlag as _envFlag } from './lib/env-utils.mjs';
+// Same named export as before the shared helper move: importers of this module
+// keep reading `_envFlag` from here.
+export { _envFlag };
 import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
 import { summarizeTraceMessages, extractCompatCachedTokens } from './openai-compat-trace.mjs';
 
@@ -92,7 +98,7 @@ export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
     // session per process, where round-robin degenerates to slot 0 for
     // everyone). Default stays a single shared key (lane disabled) —
     // identical seed/key to before.
-    const lane = xaiResponsesPromptCacheLane(opts, null, { prefixHash, ownerSessionHash: sessionId ? traceHash(sessionId) : null });
+    const lane = xaiResponsesPromptCacheLane(opts, { prefixHash, ownerSessionHash: sessionId ? traceHash(sessionId) : null });
     const laneEnabled = lane?.enabled === true;
     const laneShards = Number.isFinite(Number(lane?.shards)) && Number(lane.shards) > 0 ? Number(lane.shards) : 0;
     const explicitSlot = Number(opts?.promptCacheLaneSlot ?? opts?.xaiCacheLaneSlot);
@@ -126,6 +132,19 @@ export function normalizeXaiReasoningEffort(value) {
     // Grok 4.5: low/medium/high. Grok 4.6 adds xhigh (4.5 remaps xhigh→high).
     // Omit unsupported values (notably `none`) so xAI keeps its model default.
     return ['low', 'medium', 'high', 'xhigh'].includes(effort) ? effort : null;
+}
+
+// grok-3, grok-4 and grok-4-fast REJECT reasoning_effort outright (HTTP 400
+// "does not support parameter reasoningEffort"), so the parameter ships only
+// for the families that document it. An unknown/absent model id keeps the
+// parameter — a custom xAI-compatible deployment that never saw the 400 must
+// not silently lose the caller's effort choice.
+export function xaiModelSupportsReasoningEffort(model) {
+    const id = String(model || '').trim().toLowerCase();
+    if (!id) return true;
+    if (!id.startsWith('grok')) return true;
+    // grok-4.5 / grok-4.6 and anything newer in that line.
+    return /grok[-_]?4\.(?:[5-9]|\d{2,})/.test(id);
 }
 
 function opencodeGoReasoningEffortValues(modelInfo) {
@@ -170,12 +189,6 @@ export function useXaiResponsesWebSocket(opts, config) {
     return !['0', 'false', 'off', 'http', 'https', 'responses-http', 'sdk'].includes(transport);
 }
 
-export function _envFlag(name, fallback = true) {
-    const raw = process.env[name];
-    if (raw == null || raw === '') return fallback;
-    return !['0', 'false', 'off', 'no'].includes(String(raw).toLowerCase());
-}
-
 // xAI WS→HTTP transport fallback → shared shouldFallbackTransport
 // (retry-classifier.mjs). Identical deny-order + allow-list; the per-provider
 // env flag is computed here and passed via `enabled`.
@@ -186,7 +199,7 @@ export function _shouldFallbackXaiWsToHttp(err, signal) {
     });
 }
 
-export function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseId, instructions, rawTools }) {
+export function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseId }) {
     if (previousResponseId) return false;
     const raw = opts?.xaiResponsesWarmup
         ?? opts?.xaiWsWarmup
@@ -204,97 +217,36 @@ export function useXaiResponsesWebSocketWarmup(opts, config, { previousResponseI
     return false;
 }
 
-// Codex-aligned default: no compat cache lane/serialization. Keep the override
-// knobs so live probes can opt back into a bounded lane if a provider needs it.
-const XAI_RESPONSES_CACHE_LANE_DEFAULT_MAX_IN_FLIGHT = 0;
-const xaiResponsesCacheLanes = new Map();
-
-function parseXaiPositiveInt(value, fallback) {
-    if (value == null || value === '') return fallback;
-    const text = String(value).trim().toLowerCase();
-    if (['0', 'false', 'off', 'none', 'disabled', 'unlimited', 'unbounded', 'auto'].includes(text)) return 0;
-    const n = Number(text);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.max(0, Math.floor(n));
-}
-
-function xaiResponsesCacheLaneMaxInFlight(opts, config) {
-    return parseXaiPositiveInt(
-        opts?.xaiCacheMaxInFlight
-            ?? opts?.xaiResponsesCacheMaxInFlight
-            ?? opts?.grokCacheMaxInFlight
-            ?? opts?.grokResponsesCacheMaxInFlight
-            ?? config?.xaiCacheMaxInFlight
-            ?? config?.xaiResponsesCacheMaxInFlight
-            ?? config?.grokCacheMaxInFlight
-            ?? config?.grokResponsesCacheMaxInFlight
-            ?? process.env.MIXDOG_XAI_CACHE_MAX_INFLIGHT
-            ?? process.env.MIXDOG_XAI_RESPONSES_CACHE_MAX_INFLIGHT
-            ?? process.env.MIXDOG_GROK_CACHE_MAX_INFLIGHT
-            ?? process.env.MIXDOG_GROK_RESPONSES_CACHE_MAX_INFLIGHT
-            ?? process.env.MIXDOG_GROK_OAUTH_CACHE_MAX_INFLIGHT
-            ?? process.env.MIXDOG_GROK_OAUTH_RESPONSES_CACHE_MAX_INFLIGHT,
-        XAI_RESPONSES_CACHE_LANE_DEFAULT_MAX_IN_FLIGHT,
-    );
-}
-
-function xaiResponsesCacheLaneQueueTimeoutMs(opts, config) {
-    return parseXaiPositiveInt(
-        opts?.xaiCacheQueueTimeoutMs
-            ?? opts?.xaiResponsesCacheQueueTimeoutMs
-            ?? opts?.grokCacheQueueTimeoutMs
-            ?? opts?.grokResponsesCacheQueueTimeoutMs
-            ?? config?.xaiCacheQueueTimeoutMs
-            ?? config?.xaiResponsesCacheQueueTimeoutMs
-            ?? config?.grokCacheQueueTimeoutMs
-            ?? config?.grokResponsesCacheQueueTimeoutMs
-            ?? process.env.MIXDOG_XAI_CACHE_QUEUE_TIMEOUT_MS
-            ?? process.env.MIXDOG_XAI_RESPONSES_CACHE_QUEUE_TIMEOUT_MS
-            ?? process.env.MIXDOG_GROK_CACHE_QUEUE_TIMEOUT_MS
-            ?? process.env.MIXDOG_GROK_RESPONSES_CACHE_QUEUE_TIMEOUT_MS
-            ?? process.env.MIXDOG_GROK_OAUTH_CACHE_QUEUE_TIMEOUT_MS
-            ?? process.env.MIXDOG_GROK_OAUTH_RESPONSES_CACHE_QUEUE_TIMEOUT_MS,
-        0,
-    );
-}
-
-function xaiResponsesPromptCacheLane(opts, config, cacheRouting) {
+// No `config` argument: the single caller (xaiResponsesCacheRouting) never had
+// one to pass, so the provider-config lane aliases this used to read were dead
+// operands. Lane selection on this route is opts + env only.
+function xaiResponsesPromptCacheLane(opts, cacheRouting) {
+    // Lane SHARDS only, for xAI/Grok. The `*CacheMaxParallel` /
+    // *_CACHE_MAX_PARALLEL knobs that used to bound the lane's in-flight
+    // admission were removed with the lane queue itself (admission is the
+    // shared provider scheduler's job now). They are deliberately NOT accepted
+    // here as shard aliases — on this route they never selected shards, and a
+    // setting named "max parallel" silently deciding prompt-cache key fan-out
+    // is a different control with different consequences. An xAI operator who
+    // set one gets the documented default until they opt into
+    // `*CacheLaneShards` / MIXDOG_XAI_CACHE_LANE_SHARDS explicitly.
+    // promptCacheLaneIgnoreAliases scopes that refusal to this route only:
+    // OpenAI direct/OAuth keep honouring the aliases (cache-strategy.mjs).
     const shardOverride =
         opts?.xaiCacheLaneShards
             ?? opts?.xaiResponsesCacheLaneShards
-            ?? opts?.xaiCacheMaxParallel
-            ?? opts?.xaiResponsesCacheMaxParallel
             ?? opts?.grokCacheLaneShards
             ?? opts?.grokResponsesCacheLaneShards
-            ?? opts?.grokCacheMaxParallel
-            ?? opts?.grokResponsesCacheMaxParallel
-            ?? config?.xaiCacheLaneShards
-            ?? config?.xaiResponsesCacheLaneShards
-            ?? config?.xaiCacheMaxParallel
-            ?? config?.xaiResponsesCacheMaxParallel
-            ?? config?.grokCacheLaneShards
-            ?? config?.grokResponsesCacheLaneShards
-            ?? config?.grokCacheMaxParallel
-            ?? config?.grokResponsesCacheMaxParallel
-            ?? process.env.MIXDOG_XAI_RESPONSES_CACHE_MAX_PARALLEL
             ?? process.env.MIXDOG_XAI_RESPONSES_CACHE_LANE_SHARDS
-            ?? process.env.MIXDOG_GROK_CACHE_MAX_PARALLEL
             ?? process.env.MIXDOG_GROK_CACHE_LANE_SHARDS
-            ?? process.env.MIXDOG_GROK_RESPONSES_CACHE_MAX_PARALLEL
             ?? process.env.MIXDOG_GROK_RESPONSES_CACHE_LANE_SHARDS
-            ?? process.env.MIXDOG_GROK_OAUTH_CACHE_MAX_PARALLEL
             ?? process.env.MIXDOG_GROK_OAUTH_CACHE_LANE_SHARDS
-            ?? process.env.MIXDOG_GROK_OAUTH_RESPONSES_CACHE_MAX_PARALLEL
             ?? process.env.MIXDOG_GROK_OAUTH_RESPONSES_CACHE_LANE_SHARDS;
     const autoOverride =
         opts?.xaiCacheLaneAuto
             ?? opts?.xaiResponsesCacheLaneAuto
             ?? opts?.grokCacheLaneAuto
             ?? opts?.grokResponsesCacheLaneAuto
-            ?? config?.xaiCacheLaneAuto
-            ?? config?.xaiResponsesCacheLaneAuto
-            ?? config?.grokCacheLaneAuto
-            ?? config?.grokResponsesCacheLaneAuto
             ?? process.env.MIXDOG_XAI_RESPONSES_CACHE_LANE_AUTO
             ?? process.env.MIXDOG_GROK_CACHE_LANE_AUTO
             ?? process.env.MIXDOG_GROK_RESPONSES_CACHE_LANE_AUTO
@@ -319,137 +271,22 @@ function xaiResponsesPromptCacheLane(opts, config, cacheRouting) {
     );
     return resolveProviderPromptCacheLane('xai', {
         ...opts,
+        promptCacheLaneIgnoreAliases: true,
         ...(shardOverride !== undefined ? { promptCacheLaneShards: shardOverride } : {}),
         ...(autoOverride !== undefined ? { promptCacheLaneAuto: autoOverride } : {}),
         ...(slotOverride !== undefined ? { promptCacheLaneSlot: slotOverride } : {}),
         promptCacheLaneSeed: seed || 'xai-cache-lane',
-    }, config);
+    }, null);
 }
 
-function xaiResponsesCacheLaneKey({ model, cacheRouting, opts, config }) {
-    const prefix = cacheRouting?.prefixHash || cacheRouting?.seedHash || cacheRouting?.key || 'unknown-prefix';
-    const lane = xaiResponsesPromptCacheLane(opts, config, cacheRouting);
-    const shard = Number.isFinite(Number(lane?.slot)) ? Number(lane.slot) : 0;
-    return {
-        key: `xai-responses:${model || 'default'}:${prefix}:shard-${shard}`,
-        shard,
-        lane,
-    };
-}
-
-function getXaiResponsesCacheLaneState(key, maxInFlight) {
-    let state = xaiResponsesCacheLanes.get(key);
-    if (!state) {
-        state = { key, active: 0, queue: [], maxInFlight, nextId: 0 };
-        xaiResponsesCacheLanes.set(key, state);
-    }
-    state.maxInFlight = maxInFlight;
-    return state;
-}
-
-function cleanupXaiResponsesCacheLane(state) {
-    if (state.active === 0 && state.queue.length === 0) {
-        xaiResponsesCacheLanes.delete(state.key);
-    }
-}
-
-function removeQueuedXaiCacheLaneRequest(state, request) {
-    const index = state.queue.indexOf(request);
-    if (index >= 0) state.queue.splice(index, 1);
-    cleanupXaiResponsesCacheLane(state);
-}
-
-function makeXaiCacheLaneHandle(state, requestId, enqueuedAt) {
-    let released = false;
-    return {
-        requestId,
-        waitedMs: Date.now() - enqueuedAt,
-        activeCount: state.active,
-        queueDepth: state.queue.length,
-        release() {
-            if (released) return;
-            released = true;
-            releaseXaiResponsesCacheLane(state);
-        },
-    };
-}
-
-function releaseXaiResponsesCacheLane(state) {
-    state.active = Math.max(0, state.active - 1);
-    while (state.queue.length > 0 && state.active < state.maxInFlight) {
-        const next = state.queue.shift();
-        next.cleanup?.();
-        state.active += 1;
-        next.resolve(makeXaiCacheLaneHandle(state, next.requestId, next.enqueuedAt));
-    }
-    cleanupXaiResponsesCacheLane(state);
-}
-
-function acquireXaiResponsesCacheLane({ key, maxInFlight, signal, timeoutMs }) {
-    const state = getXaiResponsesCacheLaneState(key, maxInFlight);
-    const requestId = ++state.nextId;
-    const enqueuedAt = Date.now();
-    if (state.active < state.maxInFlight) {
-        state.active += 1;
-        return Promise.resolve(makeXaiCacheLaneHandle(state, requestId, enqueuedAt));
-    }
-    return new Promise((resolve, reject) => {
-        const request = {
-            requestId,
-            enqueuedAt,
-            resolve,
-            reject,
-            cleanup: null,
-        };
-        const cleanup = () => {
-            if (request.timer) clearTimeout(request.timer);
-            if (signal && request.abortListener) signal.removeEventListener('abort', request.abortListener);
-        };
-        request.cleanup = cleanup;
-        request.abortListener = () => {
-            cleanup();
-            removeQueuedXaiCacheLaneRequest(state, request);
-            const reason = signal?.reason;
-            reject(reason instanceof Error ? reason : new Error('xAI cache lane wait aborted'));
-        };
-        if (signal?.aborted) {
-            request.abortListener();
-            return;
-        }
-        if (signal) signal.addEventListener('abort', request.abortListener, { once: true });
-        if (timeoutMs > 0) {
-            request.timer = setTimeout(() => {
-                cleanup();
-                removeQueuedXaiCacheLaneRequest(state, request);
-                reject(new Error(`xAI cache lane wait timed out after ${timeoutMs}ms`));
-            }, timeoutMs);
-            request.timer.unref?.();
-        }
-        state.queue.push(request);
-    });
-}
-
-function traceXaiCacheLane(opts, payload) {
-    if (!compatCacheTraceEnabled('xai')) return;
-    try {
-        appendAgentTrace({
-            sessionId: opts?.sessionId || opts?.session?.id || null,
-            iteration: Number.isFinite(Number(opts?.iteration)) ? Number(opts.iteration) : null,
-            kind: 'cache_lane',
-            ...payload,
-            payload,
-        });
-    } catch {}
-}
-
-export async function withXaiResponsesCacheLane({ opts, config, cacheRouting, model, transport, previousResponseId, inputCount, signal }, fn) {
-    // Historical prompt-cache lanes formed a second admission queue and could
-    // time out while waiting. xAI is now governed exclusively by the common
-    // fixed-64 provider/account scheduler, regardless of legacy env/option
-    // knobs. Keep this wrapper only as a call-shape compatibility boundary.
-    const laneMeta = { enabled: false, maxInFlight: 0 };
-    return { value: await fn(laneMeta), laneMeta };
-}
+// Historical prompt-cache lanes formed a second admission queue and could time
+// out while waiting. xAI is now governed exclusively by the common fixed-64
+// provider/account scheduler, so no lane is ever taken: the queue/handle
+// machinery and its max-in-flight / queue-timeout knobs were dead code and have
+// been removed rather than left as settings that silently do nothing. The
+// cache-trace payload still reports the lane shape, so this frozen "no lane"
+// record is what the xAI Responses trace writers receive.
+export const XAI_CACHE_LANE_META = Object.freeze({ enabled: false, maxInFlight: 0 });
 
 function deterministicUuidFromKey(key) {
     const hex = createHash('sha256').update(String(key ?? '')).digest('hex');

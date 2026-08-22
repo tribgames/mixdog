@@ -2,7 +2,7 @@
  * theme-effort-pickers.mjs — the Theme picker + Effort picker cluster.
  *
  * Extracted from App.jsx behavior-preservingly as a dependency-injection
- * factory (these openers drive setPicker + the prompt/pane setters and read
+ * factory (these openers drive the panel surface + the prompt setters and read
  * live App state, so they can't be pure). Every function body is the original
  * App logic verbatim, with closure identifiers threaded through the factory
  * argument. themeNotice moves here alongside its sole external callers being
@@ -15,18 +15,16 @@ export const themeNotice = (applied) => `Theme set to ${applied?.label || applie
 export function createThemeEffortPickers({
   state,
   store,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
-  setContextPanel,
   closeUsagePanel,
   clean,
 }) {
   const openThemePicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const onboarding = options.onboarding || null;
+    const own = surface.claim();
     let themes = [];
     try {
       themes = store.listThemes?.() || [];
@@ -48,10 +46,8 @@ export function createThemeEffortPickers({
       _theme: entry,
     }));
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
     const applyTheme = (id, { persist = true } = {}) => {
       try {
@@ -64,13 +60,13 @@ export function createThemeEffortPickers({
     // Onboarding: Enter (row) and ConfirmBar Next both persist the highlighted
     // theme, then advance; Back restores the original palette then steps back.
     const saveTheme = (id, { advance = false } = {}) => {
-      setPicker(null);
+      own.close();
       const applied = applyTheme(id, { persist: true });
       store.pushNotice(themeNotice(applied || { id }), 'info');
       if (advance && onboarding) onboarding.onAdvance?.();
       else if (returnTo) returnTo();
     };
-    setPicker({
+    own.paint({
       title: 'Theme',
       description: 'Choose the color theme that looks best with your terminal.',
       help: onboarding ? undefined : (returnTo ? '↑/↓ Preview · Enter Choose · Esc Settings' : '↑/↓ Preview · Enter Choose · Esc Back'),
@@ -106,7 +102,7 @@ export function createThemeEffortPickers({
         saveTheme(entry.id, { advance: Boolean(onboarding) });
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         // Restore the theme that was active before the picker opened.
         if (currentId) applyTheme(currentId, { persist: false });
         if (onboarding) onboarding.onCancel?.();
@@ -116,9 +112,8 @@ export function createThemeEffortPickers({
   };
 
   const openEffortPicker = () => {
+    const own = surface.claim();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
     const items = Array.isArray(state.effortOptions) && state.effortOptions.length > 0
       ? state.effortOptions
@@ -134,12 +129,12 @@ export function createThemeEffortPickers({
       markerColor: theme.success,
       description: clean(item?.description).toLowerCase() === 'current' ? '' : item?.description,
     }));
-    setPicker({
+    own.paint({
       title: 'Effort',
       description: 'Reasoning effort for the current model.',
       items: pickerItems,
       onSelect: (value) => {
-        setPicker(null);
+        own.close();
         // Mid-turn picks are allowed; the running turn keeps its own effort.
         const pendingTurn = state.busy ? ' (applies from the next turn)' : '';
         void store.setEffort(value)
@@ -147,7 +142,7 @@ export function createThemeEffortPickers({
           .catch((e) => store.pushNotice(`Couldn’t switch effort: ${e?.message || e}`, 'error'));
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
       },
     });
   };

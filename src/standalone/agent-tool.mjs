@@ -5,7 +5,6 @@ import {
   cleanupBackgroundTasks,
   getBackgroundTask,
   listBackgroundTasks,
-  reconcileBackgroundTask,
   startBackgroundTask,
   sanitizeTaskMeta,
   taskIdFromArgs,
@@ -51,6 +50,12 @@ import { createProviderInit } from './agent-tool/provider-init.mjs';
 import { createNotify } from './agent-tool/notify.mjs';
 import { createTagRegistry } from './agent-tool/tag-registry.mjs';
 import { createJobViews } from './agent-tool/job-views.mjs';
+import {
+  reconcileJobFinally,
+  reconcileJobStreamStalled,
+  reconcileJobTerminalResult,
+  reconcileJobWatchdogPartial,
+} from './agent-tool/job-task-reconcile.mjs';
 import { createSpawnFlow } from './agent-tool/spawn-flow.mjs';
 import { resolveAgentSpawnPreset } from './agent-tool/spawn-preset.mjs';
 import {
@@ -203,6 +208,7 @@ export function createStandaloneAgent({
       progressWatchdogs,
       startProgressIdleWatchdog,
       turnStartStamper,
+      progressStamper,
       prepareSpawn,
       prepareSpawnInProcess,
       runSpawn,
@@ -259,6 +265,7 @@ export function createStandaloneAgent({
     // the watchdog sweep re-stamps turnStartedAt at each turn boundary.
     const watchdog = startProgressIdleWatchdog(sessionId, resolveAgentWatchdogPolicy(sendAgent), sendAgent, {
       onTurnStart: turnStartStamper(session, tag),
+      onProgress: progressStamper(session, tag),
     });
     const turnReview = createTurnReviewCollector(session, tag, sendAgent, notifyContext || {});
     let finalStatus = 'idle';
@@ -294,24 +301,7 @@ export function createStandaloneAgent({
             const value = completionValue(terminalResult);
             if (job) job._terminalResultValue = value;
             notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
-            // Mark terminal as soon as the worker's final result lands so a slow
-            // post-result save can't strand the task in `running`. Idempotent.
-            if (job?.taskId) {
-              try {
-                reconcileBackgroundTask(job.taskId, value.error
-                  ? {
-                      status: 'failed',
-                      result: value,
-                      error: value.error,
-                      terminalReason: 'agent-empty-final',
-                    }
-                  : {
-                      status: 'completed',
-                      result: value,
-                      terminalReason: 'agent-terminal-result',
-                    });
-              } catch {}
-            }
+            reconcileJobTerminalResult(job, value);
           },
         } : {}),
       });
@@ -338,30 +328,11 @@ export function createStandaloneAgent({
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;
-        if (job?.taskId) {
-          try {
-            reconcileBackgroundTask(job.taskId, {
-              status: 'completed',
-              result: value,
-              terminalReason: 'agent-watchdog-partial',
-            });
-          } catch {}
-        }
+        reconcileJobWatchdogPartial(job, value);
         return value;
       }
       finalStatus = 'error';
-      // Part C (send path mirror): a mid-stream stall throws with no terminal
-      // result — reconcile to `failed` so the owner is notified rather than the
-      // task hanging in `running`. Idempotent (see runSpawn note).
-      if (job?.taskId && job._terminalResultValue === undefined) {
-        try {
-          reconcileBackgroundTask(job.taskId, {
-            status: 'failed',
-            error,
-            terminalReason: 'agent-stream-stalled',
-          });
-        } catch {}
-      }
+      reconcileJobStreamStalled(job, error);
       throw error;
     } finally {
       turnReview.complete();
@@ -371,20 +342,7 @@ export function createStandaloneAgent({
         stage: finalStatus,
         finishedAt: new Date().toISOString(),
       });
-      // Safety net mirror of runSpawn: reconcile a stranded task if a post-result
-      // step hung/threw after a terminal result was already produced.
-      if (job && job._terminalResultValue !== undefined) {
-        try {
-          reconcileBackgroundTask(job.taskId, {
-            status: finalStatus === 'error' ? 'failed' : 'completed',
-            result: job._terminalResultValue,
-            ...(finalStatus === 'error' && job._terminalResultValue?.error
-              ? { error: job._terminalResultValue.error }
-              : {}),
-            terminalReason: 'agent-finally-reconcile',
-          });
-        } catch {}
-      }
+      reconcileJobFinally(job, finalStatus);
       scheduleReap(sessionId);
       // Same lifecycle as a fresh spawn: the transcript/tag stays resumable,
       // while heavy process-local runtime state is reclaimed immediately.
@@ -458,7 +416,6 @@ export function createStandaloneAgent({
     }
     cancelReap(sessionId);
     const tag = tagForSession(sessionId);
-    forgetTerminalSession(tag, sessionId);
     clearAgentStatuslineRoute(sessionId);
     // Cancel any running background task bound to this session BEFORE closing
     // the session. Otherwise closeSession rejects the in-flight runSpawn with
@@ -470,8 +427,12 @@ export function createStandaloneAgent({
       if (row.sessionId !== sessionId && row.tag !== target) continue;
       cancelBackgroundTask(row.task_id, 'cancelled by agent close');
     }
+    // Close (and stamp cancelStatus) BEFORE dropping the worker row. Removing
+    // the row first left the next pool read with only a leftover heartbeat,
+    // which republished the session as `running`.
     const ok = mgr.closeSession(sessionId, 'cli-agent-close');
     if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by agent close');
+    forgetTerminalSession(tag, sessionId);
     return { closed: ok, tag, sessionId, task_id: task?.taskId || null };
   }
 

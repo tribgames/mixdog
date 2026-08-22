@@ -2,20 +2,17 @@
  * project-picker.mjs — the project selector / create / rename / enter cluster.
  *
  * Extracted from App.jsx behavior-preservingly. This cluster is ref/state
- * coupled (it drives setPicker + a fan of prompt setters), so it's delivered as
- * a dependency-injection factory rather than pure functions. Project registry
- * and path operations are daemon calls on `store`; the TUI retains only the
- * OS-native folder chooser.
+ * coupled (it drives the panel surface + a fan of prompt setters), so it's
+ * delivered as a dependency-injection factory rather than pure functions.
+ * Project registry and path operations are daemon calls on `store`; the TUI
+ * retains only the OS-native folder chooser.
  */
 export function createProjectPicker({
   state,
   store,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
-  setContextPanel,
   closeUsagePanel,
   projectNameFromPath,
   pickFolder,
@@ -94,7 +91,8 @@ export function createProjectPicker({
         }
       },
       onCancel: () => {
-        setPicker(null);
+        // Esc on the list: this keypress owns the surface it clears.
+        surface.claim().close();
       },
     };
   };
@@ -103,11 +101,10 @@ export function createProjectPicker({
   // we register it (and offer to create it if missing). Used as a
   // fallback when no native folder dialog is available.
   const beginNewProjectManual = () => {
-    setPicker(null);
+    const own = surface.claim();
+    own.context(null);
+    own.close();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
-    setContextPanel(null);
     closeUsagePanel();
     setSettingsPrompt({
       kind: 'project-new',
@@ -123,14 +120,15 @@ export function createProjectPicker({
   // folder we register; on cancel we return to the project picker;
   // when no dialog tool exists we fall back to manual path typing.
   const beginNewProject = () => {
+    // The folder dialog can stay open for minutes: the claim taken here is what
+    // every branch below proves ownership with.
+    const own = surface.claim();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
     // Keep an overlay up (kind:'project' so the banner/height stay reserved) but
     // make it inert: no selectable items, navigation is a no-op until resolve.
-    setPicker({
+    own.paint({
       kind: 'project',
       title: 'Project',
       description: 'Opening folder picker… choose a folder in the dialog window.',
@@ -145,6 +143,7 @@ export function createProjectPicker({
       initialPath: String(state.cwd || process.cwd() || ''),
     })
       .then((result) => {
+        if (!own.owns()) return;
         if (!result || result.available === false) {
           // No native dialog on this system → manual typing.
           beginNewProjectManual();
@@ -158,7 +157,7 @@ export function createProjectPicker({
         void registerProject(result.path);
       })
       .catch(() => {
-        beginNewProjectManual();
+        if (own.owns()) beginNewProjectManual();
       });
   };
 
@@ -169,9 +168,13 @@ export function createProjectPicker({
       store.pushNotice('project path is required', 'warn');
       return false;
     }
+    // Post-write delegation: the project list reopen must still own the surface
+    // (the add can ack long after an Esc).
+    const own = surface.claim();
     try {
       const project = await serviceCall('addProject', path);
       if (project?.name) store.pushNotice(`project added: ${project.name}`, 'info');
+      if (!own.owns()) return true;
       await openProjectPicker();
       return true;
     } catch (e) {
@@ -187,7 +190,7 @@ export function createProjectPicker({
       store.pushNotice('project path is required', 'warn');
       return false;
     }
-    setPicker(null);
+    surface.claim().close();
     try {
       // Switch cwd first; only persist the project once the runtime accepts it,
       // so an invalid/missing path can never be written to projects.json.
@@ -208,11 +211,10 @@ export function createProjectPicker({
   // returns to the project picker. The path is never changed.
   const beginRenameProject = (project) => {
     if (!project?.path) return;
-    setPicker(null);
+    const own = surface.claim();
+    own.context(null);
+    own.close();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
-    setContextPanel(null);
     closeUsagePanel();
     setSettingsPrompt({
       kind: 'project-rename',
@@ -228,21 +230,20 @@ export function createProjectPicker({
   // lists registered projects first, then a trailing "Current Path" shortcut.
   // Creating a new project is available via the picker-level c shortcut.
   const openProjectPicker = async ({ initialEntry = false } = {}) => {
+    const own = surface.claim();
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setContextPanel(null);
+    own.context(null);
     closeUsagePanel();
     const requestId = Symbol('project-picker-request');
-    setPicker(buildProjectPickerState({
+    own.paint(buildProjectPickerState({
       initialEntry,
       loading: true,
       requestId,
     }));
     try {
       const projects = await serviceCall('listProjects');
-      setPicker((current) => current?._projectRequestId === requestId
+      own.paint((current) => current?._projectRequestId === requestId
         ? buildProjectPickerState({
           initialEntry,
           projects: Array.isArray(projects) ? projects : [],
@@ -251,7 +252,7 @@ export function createProjectPicker({
         : current);
       return projects;
     } catch (error) {
-      setPicker((current) => current?._projectRequestId === requestId
+      own.paint((current) => current?._projectRequestId === requestId
         ? buildProjectPickerState({ initialEntry, projects: [], requestId })
         : current);
       store.pushNotice(`project list failed: ${error?.message || error}`, 'error');

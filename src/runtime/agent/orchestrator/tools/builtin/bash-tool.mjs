@@ -4,30 +4,103 @@ import { constants as osConstants, tmpdir } from 'node:os';
 import { delimiter as pathDelimiter } from 'node:path';
 import { join as pathJoin } from 'node:path';
 import { makeToolEnvelope } from '../../session/tool-envelope.mjs';
-import { execShellCommand, stripAnsi } from '../shell-command.mjs';
+import {
+    execShellCommand,
+    stripAnsi,
+} from '../shell-command.mjs';
+import {
+    killShellDescendants,
+    waitForShellDescendants,
+} from '../lib/shell-descendants.mjs';
 import { wrapCommandWithSnapshot } from '../shell-snapshot.mjs';
 import { getDestructiveCommandWarning } from '../destructive-warning.mjs';
 import { maybeRewriteWmicProcessCommand } from '../shell-policy.mjs';
 import { buildBashPolicyScanTargets, checkExecPolicyMessage } from '../bash-policy-scan.mjs';
 import { markCodeGraphDirtyPaths, drainCodeGraphCache } from '../code-graph-state.mjs';
 import {
-    buildJobNotFoundMessage,
-    waitForShellJob,
-    peekShellJob,
+    isShellJobRunning,
     killShellJob,
+    subscribeShellJobSettled,
     watchBackgroundShellJob,
-    cancelBackgroundShellJobWatch,
-    beginShellJobWait,
-    endShellJobWait,
-    clearShellJobNotifyCtx,
-    shellJobPublicTaskResult,
 } from './shell-jobs.mjs';
+
+// A command that detaches work is never detected from its text — the text is
+// not read at all. After the shell exits, the runner observes whether the
+// command's process group / process tree still holds live processes and hands
+// them over as a tracked task, so nothing runs without a task_id.
+export const SURVIVING_DESCENDANTS_WARNING =
+    '⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.';
+// Same observation, but the survivors can no longer be addressed by pid:
+// Windows keeps a dangling parent id when an intermediate process exits, so a
+// process re-parented that way is visible but not signalable from here.
+export const SURVIVING_DESCENDANTS_UNREACHABLE_WARNING =
+    '⚠️ the command finished but left a descendant running that this process can no longer signal (its parent exited and Windows keeps no live link to it). It stays tracked as the task below and its completion is reported, but `task cancel` may not be able to terminate it.';
+
+/** Register the survivors a finished command left behind as a normal tracked
+ *  task. It uses the SAME task registry every other background shell task
+ *  uses, so task list/read/cancel need no special case: `run` settles the task
+ *  when the last observed survivor exits, `cancel` terminates them. */
+export function _trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs } = {}) {
+    if (!handle?.taskId) return null;
+    try {
+        return startBackgroundTask({
+            taskId: handle.taskId,
+            startedAtMs: startedAtMs || Date.now(),
+            surface: 'shell',
+            operation: 'shell',
+            label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+            input: { command, cwd },
+            context: {
+                notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+                callerSessionId: options?.callerSessionId || options?.sessionId || null,
+                routingSessionId: options?.routingSessionId || options?.sessionId || null,
+                clientHostPid: options?.clientHostPid,
+            },
+            meta: {
+                task_id: handle.taskId,
+                stdout: null,
+                stderr: null,
+                cwd,
+                timeoutMs: 0,
+            },
+            resultType: 'shell_task_result',
+            run: async () => {
+                await waitForShellDescendants(handle, { pollMs: 1_000 });
+                return {
+                    task_id: handle.taskId,
+                    status: 'completed',
+                    detail: 'every process the command left running has exited',
+                };
+            },
+            cancel: () => { void killShellDescendants(handle); },
+        });
+    } catch {
+        return null;
+    }
+}
+/** Result lines for a command that leaves through the BACKGROUND path. The
+ *  untracked-operator warning renders here too: every path a command can leave
+ *  through carries it, not just the normal-completion block. */
+export function _backgroundResultLines({
+    warning = null,
+    taskBlock = null,
+    message = '',
+    partialOutput = '',
+} = {}) {
+    return [
+        warning || null,
+        taskBlock,
+        '',
+        message,
+        partialOutput ? `\n${partialOutput}` : '',
+    ].filter((line) => line !== null && line !== '');
+}
+
 import {
     analyzeShellCommandEffects,
     buildPowerShellFilterTeePlan,
     consumeFilterTeeCapture,
     extractShellApplyPatchInvocation,
-    hasPowerShellOnlySyntax,
     planInlineScriptHoist,
     planLongInlineScriptFileTransport,
     planLongShellScriptFileTransport,
@@ -38,11 +111,9 @@ import {
     stripShellProbeWrappers,
 } from './shell-analysis.mjs';
 import {
-    completeBackgroundTask,
-    getBackgroundTask,
     registerBackgroundTask,
     renderBackgroundTask,
-    renderBackgroundTaskList,
+    startBackgroundTask,
 } from '../../../../shared/background-tasks.mjs';
 import { resolveShellFor } from './shell-runtime.mjs';
 import {
@@ -68,26 +139,6 @@ import { planDirectExeSpawn } from './shell-direct-exe.mjs';
 // Short commands therefore complete in the original tool turn, while longer
 // work returns partial output plus task_id and finishes by notification.
 export const DEFAULT_SHELL_AUTO_BACKGROUND_MS = 10_000;
-
-// Post-exec drift detection. After a foreground shell command, compare the
-// live mtime+size of files mixdog has already read this session against their
-// pre-command state (captured just before exec). Files this command changed
-// surface as ONE compact reminder so the model re-reads before editing —
-// closing the "external write -> stale old_string -> code 8" gap when shell is
-// routed through this tool. Bounded to the tracked-read set (capped) so cost
-// stays off the whole-cwd path; emits nothing when no read file changed.
-export function _captureTrackedMtimes(_scope) {
-    return new Map();
-}
-
-/**
- * Boot prewarm: build the EXACT spawn env/spec a real shell call uses and warm
- * the pwsh standby pool with it, so the first shell call of a session skips
- * the pwsh startup cost. No-op off Windows / non-pwsh. Best-effort.
- */
-export function _trackedDriftNoteAfter(_scope, _pre) {
-    return '';
-}
 
 // Search-style commands and `git diff --exit-code` use exit 1 as a SIGNAL
 // (no match / has diff), not a failure. Benign ONLY when exitCode===1, no
@@ -328,36 +379,99 @@ export function _composeShellFailure(statusMarker, errorPrefix, warningBlock, pa
     return `${errorPrefix}${statusMarker}${warningBlock ? `\n${warningBlock}` : ''}\n\n${payload}`;
 }
 
-const INLINE_HOIST_CLEANUP_PATHS = new Set();
-let inlineHoistExitHookInstalled = false;
-function scheduleInlineHoistCleanup(file) {
-    if (!file) return;
-    INLINE_HOIST_CLEANUP_PATHS.add(file);
-    if (!inlineHoistExitHookInstalled) {
-        inlineHoistExitHookInstalled = true;
-        process.once('exit', () => {
-            for (const pending of INLINE_HOIST_CLEANUP_PATHS) {
-                try { unlinkSync(pending); } catch {}
-            }
-            INLINE_HOIST_CLEANUP_PATHS.clear();
-        });
+// Per-command transport artifacts (hoisted inline script, PowerShell filter-tee
+// capture) stay in use by a command that was promoted to a background task, so
+// they are removed when that TASK SETTLES. A fixed 10 s timer deleted the
+// hoisted script out from under a still-running command; the ceiling below only
+// covers a job whose settlement event never arrives, and the exit hook prevents
+// one-shot CLI/test leftovers.
+// Rules:
+//   - a promoted command still USES its artifacts, so removal waits for the
+//     task to settle (a fixed timer deleted the script under a live command);
+//   - the fallback timer never deletes under a task that is still running: a
+//     missed settlement event and a live job are not the same thing, so it
+//     re-arms instead;
+//   - a failed removal is retried rather than abandoned — Windows keeps the
+//     file locked while a process that survived an unconfirmed kill holds it —
+//     with the process-exit hook as the last resort.
+const ARTIFACT_SETTLE_CEILING_MS = 30 * 60_000;
+const UNTRACKED_ARTIFACT_CLEANUP_MS = 10_000;
+const ARTIFACT_RETRY_MS = 30_000;
+const ARTIFACT_RETRY_ATTEMPTS = 10;
+const PENDING_ARTIFACT_PATHS = new Set();
+let artifactExitHookInstalled = false;
+
+function removeTransportFile(file) {
+    try {
+        unlinkSync(file);
+        return true;
+    } catch (err) {
+        return err?.code === 'ENOENT';
     }
-    // A long-lived pwsh standby can emit its completion marker just before a
-    // nested native process has opened the hoisted script. Keep the transport
-    // file briefly past marker settlement; normal daemon lifetime cleans it
-    // here, while the exit hook prevents one-shot CLI/test leftovers.
-    const timer = setTimeout(() => {
-        INLINE_HOIST_CLEANUP_PATHS.delete(file);
-        try { unlinkSync(file); } catch {}
-    }, 10_000);
-    timer.unref?.();
+}
+function consumeTeeArtifact(file) {
+    try { consumeFilterTeeCapture(file); } catch { /* best-effort */ }
+    return removeTransportFile(file);
+}
+function registerTransportArtifact(file) {
+    PENDING_ARTIFACT_PATHS.add(file);
+    if (artifactExitHookInstalled) return;
+    artifactExitHookInstalled = true;
+    process.once('exit', () => {
+        for (const pending of PENDING_ARTIFACT_PATHS) {
+            try { unlinkSync(pending); } catch {}
+        }
+        PENDING_ARTIFACT_PATHS.clear();
+    });
+}
+function finishTransportArtifact(file, remove, attempt = 0) {
+    if (!PENDING_ARTIFACT_PATHS.has(file)) return;
+    let removed = false;
+    try { removed = remove(file) !== false; } catch { removed = false; }
+    if (removed) {
+        PENDING_ARTIFACT_PATHS.delete(file);
+        return;
+    }
+    if (attempt >= ARTIFACT_RETRY_ATTEMPTS) return;
+    const retry = setTimeout(() => finishTransportArtifact(file, remove, attempt + 1), ARTIFACT_RETRY_MS);
+    retry.unref?.();
+}
+function removeTransportFileNow(file) {
+    if (!file) return;
+    registerTransportArtifact(file);
+    finishTransportArtifact(file, removeTransportFile);
+}
+function cleanupArtifactOnTaskSettled(file, jobId, remove = removeTransportFile) {
+    if (!file) return;
+    registerTransportArtifact(file);
+    let finished = false;
+    let unsubscribe = null;
+    const done = () => {
+        if (finished) return;
+        finished = true;
+        try { unsubscribe?.(); } catch { /* best-effort */ }
+        unsubscribe = null;
+        finishTransportArtifact(file, remove);
+    };
+    unsubscribe = jobId ? subscribeShellJobSettled(jobId, done) : null;
+    const armFallback = () => {
+        const timer = setTimeout(() => {
+            if (finished) return;
+            if (jobId && isShellJobRunning(jobId)) {
+                armFallback();
+                return;
+            }
+            done();
+        }, unsubscribe ? ARTIFACT_SETTLE_CEILING_MS : UNTRACKED_ARTIFACT_CLEANUP_MS);
+        timer.unref?.();
+    };
+    armFallback();
 }
 
 export async function executeBashTool(args, workDir, options = {}) {
     // Every call starts from the current Project root. A command-local `cd`
     // never creates a second session cwd authority beside the dedicated cwd tool.
     const bashWorkDir = workDir;
-    const _readStateScope = options?.readStateScope ?? options?.sessionId ?? null;
     // Run hard-block policy before any shell dispatch.
     const _rawCmd = String(args && args.command != null ? args.command : '');
     // `apply_patch` typed into the shell (heredoc/argument/bare
@@ -385,7 +499,7 @@ export async function executeBashTool(args, workDir, options = {}) {
 
     // Resolve the configured default shell up front so shell-type-specific
     // handling (PS-only wmic rewrite, PS UTF-8 prefix) can gate on it.
-    let resolvedSpec = resolveShellFor('default');
+    const resolvedSpec = resolveShellFor('default');
     if (!resolvedSpec) {
         return formatShellToolFailure('No supported system shell was found.');
     }
@@ -409,25 +523,15 @@ export async function executeBashTool(args, workDir, options = {}) {
         shellType: resolvedSpec.shellType,
         shellName: resolvedSpec.shell,
     });
-    let shellRescueNote = '';
-    if (psHygiene.block) {
-        // Auto-rescue: the block fired ONLY because the command is written in
-        // bash (unix filter heads, `&&`) and it carries no PowerShell-only
-        // construct — running it in Git Bash is exactly what the caller meant,
-        // byte-for-byte. A mixed command ($env:, cmdlets, `2>$null`) or a
-        // PowerShell-specific violation stays a hard block.
-        const bashSpec = psHygiene.bashOnly
-            && !hasPowerShellOnlySyntax(psHygiene.original ?? command)
-            ? resolveShellFor('bash')
-            : null;
-        if (!bashSpec) return formatShellToolFailure(psHygiene.block);
-        // The MSYS rewrite targets PowerShell; bash gets the original text.
-        command = psHygiene.original ?? command;
-        resolvedSpec = bashSpec;
-        shellRescueNote = 'note: bash-only syntax on a PowerShell host — ran it in Git Bash.';
-    } else {
-        command = psHygiene.command;
-    }
+    // A bash-shaped command on a PowerShell host stays a hard block carrying
+    // PowerShell-native hints, so the caller retries in the announced shell.
+    // Re-running it in Git Bash instead would contradict a fact the session
+    // already stated (shell=pwsh.exe) without saying so, leaving every later
+    // command reasoned about under the wrong interpreter — path form, quoting,
+    // and exit-code semantics all differ. The blocked filter pipelines
+    // (grep/sed/awk/tail) are also exactly what the grep/read tools own.
+    if (psHygiene.block) return formatShellToolFailure(psHygiene.block);
+    command = psHygiene.command;
 
     const _execPolicyBlock = checkExecPolicyMessage(command);
     if (_execPolicyBlock) {
@@ -437,9 +541,14 @@ export async function executeBashTool(args, workDir, options = {}) {
     // file run, so the host shell never has to carry the script through its
     // quoting layer. planInlineScriptHoist refuses every case where file
     // semantics would differ, so this is a transport change only.
+    // A trailing `&` (or anything else the shell treats as an operator) is
+    // NEVER detected, stripped or rewritten: the command reaches the shell
+    // byte for byte. Work that detaches is caught after the fact, from the
+    // process group / process tree the run leaves behind.
     const _analysisCommand = command;
     let _inlineHoistPath = null;
     let _inlineHoistBackgrounded = false;
+    let _backgroundJobId = null;
     const hoist = planInlineScriptHoist(command)
         || planLongInlineScriptFileTransport(command, {
             platform: process.platform,
@@ -490,6 +599,12 @@ export async function executeBashTool(args, workDir, options = {}) {
     const MAX_BASH_TIMEOUT_MS = _envMaxTimeout > 0 ? _envMaxTimeout : 120_000;
     const hasExplicitTimeout = typeof args.timeout_ms === 'number' && args.timeout_ms > 0;
     const timeoutMs = hasExplicitTimeout ? args.timeout_ms : 0;
+    // A rewrite-supplied cap (wmic → Get-CimInstance, 30 s) is a HARD deadline
+    // exactly like an explicit caller timeout. With an omitted timeout_ms the
+    // cap used to collapse to 0 = unlimited, so the command the rewrite note
+    // advertises as capped could run forever.
+    const wmicCapMs = Math.max(0, Math.floor(Number(wmicRewrite?.timeoutMs) || 0));
+    const hasHardDeadline = hasExplicitTimeout || wmicCapMs > 0;
     const backgroundOnTimeout = !_bgTasksDisabled;
     // Explicit caller timeout remains the total deadline. When promotion is
     // available, cap only its foreground blocking portion at MAX.
@@ -502,12 +617,12 @@ export async function executeBashTool(args, workDir, options = {}) {
     // timeoutMs <= 0 (omitted background default) means unlimited: pass it
     // through untouched — the min() clamps below must not turn 0 into a bound.
     const totalTimeout = timeoutMs <= 0
-        ? 0
-        : Math.min(timeoutMs, wmicRewrite?.timeoutMs || (hasExplicitTimeout ? TIMER_MAX_MS : MAX_BASH_TIMEOUT_MS));
-    const timeout = hasExplicitTimeout && backgroundOnTimeout
+        ? wmicCapMs
+        : Math.min(timeoutMs, wmicCapMs || (hasExplicitTimeout ? TIMER_MAX_MS : MAX_BASH_TIMEOUT_MS));
+    const timeout = hasHardDeadline && backgroundOnTimeout
         ? Math.min(totalTimeout, MAX_BASH_TIMEOUT_MS)
         : totalTimeout;
-    const promotedTimeoutMs = hasExplicitTimeout && backgroundOnTimeout
+    const promotedTimeoutMs = hasHardDeadline && backgroundOnTimeout
         ? Math.max(0, totalTimeout - timeout)
         : 0;
     // Background safety net. An omitted timeout_ms means "no caller deadline",
@@ -526,8 +641,7 @@ export async function executeBashTool(args, workDir, options = {}) {
     // budget to transfer. Let execShellCommand enforce that timeout instead of
     // promoting the child with timeoutMs=0, which means unlimited to shell-jobs.
     const promoteAtTimeout = backgroundOnTimeout
-        && (!hasExplicitTimeout || promotedTimeoutMs > 0);
-    const mergeStderr = true;
+        && (!hasHardDeadline || promotedTimeoutMs > 0);
     // Main-agent blocking budget. A timeout is the command's total deadline,
     // not permission to hold the conversation open for that whole duration:
     // after 10 s a still-running command becomes a tracked background task and
@@ -622,7 +736,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             // Soft/interrupt promotion happens before the foreground cap.
             // Preserve an explicit total deadline by passing it separately;
             // omitted-timeout promotions retain the existing unlimited job.
-            backgroundDeadlineMs: hasExplicitTimeout ? totalTimeout : backgroundMaxMs,
+            backgroundDeadlineMs: hasHardDeadline ? totalTimeout : backgroundMaxMs,
             // Threaded so an auto-backgrounded foreground job is stamped with
             // the dispatching terminal's claude.exe pid (per-terminal scope).
             clientHostPid: options?.clientHostPid,
@@ -638,6 +752,7 @@ export async function executeBashTool(args, workDir, options = {}) {
             onOutputTail: typeof options?.onOutputTail === 'function' ? options.onOutputTail : null,
         });
         _inlineHoistBackgrounded = result.backgrounded === true;
+        _backgroundJobId = result.backgrounded === true ? (result.jobId || null) : null;
         const stdout = stripAnsi(result.stdout || '');
         const stderr = stripAnsi(result.stderr || '');
         recordShellCaptureTelemetry(options?.resultTelemetry, result, stdout, stderr);
@@ -665,10 +780,11 @@ export async function executeBashTool(args, workDir, options = {}) {
                         meta: {
                             task_id: result.jobId,
                             stdout: result.stdoutPath ? normalizeOutputPath(result.stdoutPath) : null,
-                            stderr: (!mergeStderr && result.stderrPath) ? normalizeOutputPath(result.stderrPath) : null,
+                            // Both streams render as one body, so the task
+                            // record carries the stdout path only.
+                            stderr: null,
                             cwd: bashWorkDir,
                             timeoutMs: result.backgroundTimeoutMs || 0,
-                            monitor_interval_ms: 0,
                         },
                         resultType: 'shell_task_result',
                         cancel: () => killShellJob(result.jobId),
@@ -683,16 +799,21 @@ export async function executeBashTool(args, workDir, options = {}) {
                     });
                 } catch { /* best effort */ }
             }
+            // The promoted producer is still writing into the tee file, so it
+            // cannot be consumed here — but it must not survive the command
+            // either. Consume (and delete) it when the task settles.
+            if (_teePlan) {
+                cleanupArtifactOnTaskSettled(_teePlan.teePath, result.jobId, consumeTeeArtifact);
+            }
             const partialOutput = renderBackgroundPartialOutput(
                 stdout,
                 stderr,
             );
-            const lines = [
-                task ? renderBackgroundTask(task) : (result.jobId ? `[task_id: ${result.jobId}]` : null),
-                '',
-                result.backgroundMessage || 'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
-                partialOutput ? `\n${partialOutput}` : '',
-            ].filter((l) => l !== null && l !== '');
+            const lines = _backgroundResultLines({
+                taskBlock: task ? renderBackgroundTask(task) : (result.jobId ? `[task_id: ${result.jobId}]` : null),
+                message: result.backgroundMessage || 'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.',
+                partialOutput,
+            });
             return _prependDestructiveWarning(command, lines.join('\n'));
         }
         const failureStatus = _shellFailureStatus(result, timeout);
@@ -716,12 +837,16 @@ export async function executeBashTool(args, workDir, options = {}) {
         let _rescueNote = '';
         if (_teePlan) {
             const _rescueTail = consumeFilterTeeCapture(_teePlan.teePath);
+            // consumeFilterTeeCapture unlinks best-effort and swallows the
+            // failure; on Windows a process that survived an unconfirmed kill
+            // still holds the file. Route it through the same retry + exit-hook
+            // path the settlement branch uses instead of abandoning it.
+            removeTransportFileNow(_teePlan.teePath);
             const commandExitedNonzero = completedExit && exitCode !== 0 && !benignExit;
             if ((isReallyErrored || commandExitedNonzero) && _rescueTail && !stdout.trim() && !stderr.trim()) {
                 _rescueNote = `\n\n[filter-swallowed output rescue] the command failed but its trailing filter(s) matched nothing, so the visible output was empty. Unfiltered pipeline output (tail):\n${_rescueTail}`;
             }
         }
-        const _driftNote = '';
         // Distinct timeout marker so callers see "killed by timeout after Nms"
         // vs an external signal (e.g. user Ctrl-C, OOM kill). result.timedOut
         // is the runtime's own timeout escalation (SIGTERM → SIGKILL via
@@ -742,21 +867,33 @@ export async function executeBashTool(args, workDir, options = {}) {
             ? '\n[completed: shell executed the command; its non-zero exit code and output are command results, not a tool failure]'
             : '';
         const outcomeNote = benignExit ? '\n[outcome: no-match]' : '';
-        let spillBlock = '';
-        if (result.stdoutPath) {
-            const sizeKb = Math.round((result.stdoutFileSize || 0) / 1024);
-            spillBlock += `\n\n[stdout: ${normalizeOutputPath(result.stdoutPath)} (${sizeKb} KB)]`;
-        }
-        if (result.stderrPath && (result.stderrFileSize || 0) > 0) {
-            const sizeKb = Math.round((result.stderrFileSize || 0) / 1024);
-            spillBlock += `\n[stderr: ${normalizeOutputPath(result.stderrPath)} (${sizeKb} KB)]`;
-        }
-        if (result.outputCaptureError) {
-            spillBlock += `\n[tool capture error: ${normalizeErrorMessage(result.outputCaptureError?.message || String(result.outputCaptureError))}]`;
-        }
+        // No spill-path block: a truncated stream already carries its own
+        // "full output at <path>" marker from the head+tail renderer, an
+        // untruncated one is inline in full, and a capture error is reported
+        // by the status marker itself. Repeating any of it only added lines.
+        // The shell process is gone, but the runner observed live processes
+        // still in its process group / tree. Hand them to the task registry so
+        // the caller leaves with a task_id that reads, completes on its own
+        // when the last survivor exits, and cancels the whole set — instead of
+        // work running with no handle at all.
+        const _descendantTask = result.descendants
+            ? _trackSurvivingDescendants(result.descendants, {
+                command,
+                cwd: bashWorkDir,
+                options,
+                startedAtMs: foregroundStartedAtMs,
+            })
+            : null;
         const warningBlock = [
+            _descendantTask
+                ? [
+                    result.descendants?.reachable
+                        ? SURVIVING_DESCENDANTS_WARNING
+                        : SURVIVING_DESCENDANTS_UNREACHABLE_WARNING,
+                    renderBackgroundTask(_descendantTask),
+                ].join('\n')
+                : '',
             wmicRewrite?.note || '',
-            shellRescueNote,
         ].filter(Boolean).join('\n');
         const losslessCompaction = compactShellOutputLosslessly({
             command,
@@ -774,35 +911,43 @@ export async function executeBashTool(args, workDir, options = {}) {
         const visibleStdout = losslessCompaction?.stdout ?? stdout;
         const visibleStderr = losslessCompaction?.stderr ?? stderr;
         const compactHint = renderLosslessRecoveryHint(losslessCompaction, normalizeOutputPath);
-        if (mergeStderr) {
-            const merged = visibleStdout + visibleStderr;
-            const compactBlock = compactHint ? `\n\n${compactHint}` : '';
-            if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, errorPrefix + `${statusMarker}${outcomeNote}${completionNote}\n\n${merged || '(no output)'}` + compactBlock + _rescueNote + _driftNote));
-            return _prependDestructiveWarning(command, (merged || '(no output)') + compactBlock + _driftNote);
-        }
-        const compactedStdout = visibleStdout;
-        const compactedStderr = visibleStderr;
-        const compactedBody = compactedStdout || (compactedStderr ? '' : '(no output)');
-        const compactedStderrBlock = compactedStderr ? `\n\n[stderr]\n${compactedStderr}` : '';
+        // stdout and stderr are captured on separate fds and pasted as one
+        // body. Without a boundary a stdout tail with no trailing newline
+        // glued itself onto the first stderr line and corrupted both.
+        const streamGap = visibleStdout && visibleStderr && !visibleStdout.endsWith('\n') ? '\n' : '';
+        const body = `${visibleStdout}${streamGap}${visibleStderr}` || '(no output)';
         const compactBlock = compactHint ? `\n\n${compactHint}` : '';
-        const payload = `${compactedBody}${compactedStderrBlock}${spillBlock}${compactBlock}${_rescueNote}${_driftNote}`;
+        const payload = `${body}${compactBlock}${_rescueNote}`;
+        // warningBlock states that the text which RAN is not the text the
+        // caller sent (wmic → Get-CimInstance). It reached neither shape while
+        // the merged branch short-circuited above, so it now rides both.
         if (statusMarker) return _finalizeShellResult(completedExit, _placeDestructiveWarningsAfterStatus(command, _composeShellFailure(`${statusMarker}${outcomeNote}${completionNote}`, errorPrefix, warningBlock, payload)));
         return _prependDestructiveWarning(command, warningBlock ? `${warningBlock}\n${payload}` : payload);
     }
     finally {
         combinedBashAbort?.cleanup?.();
         if (_inlineHoistPath) {
-            if (_inlineHoistBackgrounded) scheduleInlineHoistCleanup(_inlineHoistPath);
-            else {
-                try { unlinkSync(_inlineHoistPath); } catch {}
-            }
+            if (_inlineHoistBackgrounded) cleanupArtifactOnTaskSettled(_inlineHoistPath, _backgroundJobId);
+            // Foreground: delete now, but an unconfirmed kill can leave the
+            // file locked by a process that outlived the call — retry instead
+            // of abandoning it.
+            else removeTransportFileNow(_inlineHoistPath);
         }
-        if (shellEffects.mutationMode === 'paths') {
-            invalidateBuiltinResultCache(shellEffects.paths);
-            markCodeGraphDirtyPaths(shellEffects.paths);
-        } else if (shellEffects.mutationMode === 'global') {
-            invalidateBuiltinResultCache();
-            drainCodeGraphCache();
+        const invalidateMutationCaches = () => {
+            if (shellEffects.mutationMode === 'paths') {
+                invalidateBuiltinResultCache(shellEffects.paths);
+                markCodeGraphDirtyPaths(shellEffects.paths);
+            } else if (shellEffects.mutationMode === 'global') {
+                invalidateBuiltinResultCache();
+                drainCodeGraphCache();
+            }
+        };
+        invalidateMutationCaches();
+        // A promoted command has barely started: invalidating only at
+        // promotion return lets every later read recache PRE-command state and
+        // never re-invalidate. Repeat it when the task actually settles.
+        if (_backgroundJobId && shellEffects.mutationMode !== 'none') {
+            subscribeShellJobSettled(_backgroundJobId, invalidateMutationCaches);
         }
     }
 }

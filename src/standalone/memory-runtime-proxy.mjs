@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { claimSingletonOwner, handoffSingletonOwner, readSingletonOwner, releaseSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { readLiveServiceAdvert } from '../runtime/shared/service-discovery.mjs';
+import { isPidAlive, parsePid } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { sleep as delay } from '../runtime/shared/sleep.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
@@ -38,22 +39,6 @@ function readActiveInstance() {
 function parsePort(value) {
   const port = Number(value);
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : null;
-}
-
-function parsePid(value) {
-  const pid = Number(value);
-  return Number.isInteger(pid) && pid > 0 ? pid : null;
-}
-
-function isPidAlive(pid) {
-  const n = parsePid(pid);
-  if (!n) return false;
-  try {
-    process.kill(n, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
 }
 
 const TRANSIENT_MEMORY_RPC_BACKOFF_MS = 400;

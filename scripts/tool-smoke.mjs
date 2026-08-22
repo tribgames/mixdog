@@ -1364,7 +1364,7 @@ const shellDescription = shellTool?.description || '';
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
     || !/10s foreground window.*not a timeout.*continues.*task_id/i.test(shellDescription)
-    || !/Completion is automatic.*do not call task read\/monitor to wait or check progress.*Continue independent work or end the turn.*Use task read only when the user explicitly asks for current status.*task monitor only when they explicitly ask for periodic progress/i.test(shellDescription)) {
+    || !/Completion is automatic.*continue independent work or end the turn.*call task wait once.*instead of polling task read/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
@@ -1405,54 +1405,62 @@ if (shellZeroTimeoutErr || !/non-negative number/.test(String(shellNegativeTimeo
 }
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
-if (!/Completion is automatic.*do not call read\/monitor to wait or check progress.*Continue independent work or end the turn.*Use read only when the user explicitly asks for current status.*monitor only when they explicitly ask for periodic progress/i.test(publicTaskTool?.description || '')) {
+if (!/Completion is automatic.*continue independent work or end the turn.*Never repeat read to watch a task.*use wait when the next step genuinely needs the result/i.test(publicTaskTool?.description || '')) {
   throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
 }
-if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'monitor', 'cancel'])
+if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'wait', 'cancel'])
   || publicTaskProps.task_id?.minLength !== undefined
-  || publicTaskProps.monitor_interval_ms?.minimum !== 0
-  || publicTaskProps.monitor_interval_ms?.maximum !== 2_147_483_647
-  || publicTaskProps.timeout_ms || publicTaskProps.after_ms || publicTaskProps.poll_ms) {
-  throw new Error('task schema must expose list/read/monitor/cancel with no wait or polling parameters');
+  || publicTaskProps.monitor_interval_ms
+  || publicTaskProps.timeout_ms?.minimum !== 0
+  || publicTaskProps.after_ms || publicTaskProps.poll_ms) {
+  throw new Error('task schema must expose list/read/wait/cancel with a wait ceiling and no polling parameters');
 }
 if (JSON.stringify(publicTaskTool?.inputSchema?.required) !== JSON.stringify(['action'])) {
   throw new Error('task schema must require an explicit action');
 }
-for (const [action, taskId, monitorInterval] of [
+for (const [action, taskId, waitCeiling] of [
   ['list', '', 0],
   ['read', 'task_action_shape_smoke', 0],
   ['cancel', 'task_action_shape_smoke', 300_000],
 ]) {
-  const args = { action, task_id: taskId, monitor_interval_ms: monitorInterval };
+  const args = { action, task_id: taskId, timeout_ms: waitCeiling };
   const err = validateBuiltinArgs('task', args);
   if (err
-    || Object.prototype.hasOwnProperty.call(args, 'monitor_interval_ms')
+    || Object.prototype.hasOwnProperty.call(args, 'timeout_ms')
     || (action === 'list' && Object.prototype.hasOwnProperty.call(args, 'task_id'))) {
     throw new Error(`task ${action} must discard fields owned by other actions: err=${err} args=${JSON.stringify(args)}`);
   }
 }
-const taskMonitorShapeArgs = {
-  action: 'monitor',
+const taskWaitShapeArgs = {
+  action: 'wait',
   task_id: 'task_action_shape_smoke',
-  monitor_interval_ms: 300_000,
+  timeout_ms: 300_000,
 };
-const taskMonitorShapeErr = validateBuiltinArgs('task', taskMonitorShapeArgs);
-if (taskMonitorShapeErr || taskMonitorShapeArgs.monitor_interval_ms !== 300_000) {
-  throw new Error(`task monitor must retain its interval: err=${taskMonitorShapeErr} args=${JSON.stringify(taskMonitorShapeArgs)}`);
+const taskWaitShapeErr = validateBuiltinArgs('task', taskWaitShapeArgs);
+if (taskWaitShapeErr || taskWaitShapeArgs.timeout_ms !== 300_000) {
+  throw new Error(`task wait must retain its ceiling: err=${taskWaitShapeErr} args=${JSON.stringify(taskWaitShapeArgs)}`);
 }
-const taskReadMissingIdArgs = { action: 'read', monitor_interval_ms: 0 };
+const taskWaitBadCeilingErr = validateBuiltinArgs('task', {
+  action: 'wait',
+  task_id: 'task_action_shape_smoke',
+  timeout_ms: 'soon',
+});
+if (!/non-negative integer/i.test(String(taskWaitBadCeilingErr))) {
+  throw new Error(`task wait must reject a non-integer ceiling: ${taskWaitBadCeilingErr}`);
+}
+const taskReadMissingIdArgs = { action: 'read', timeout_ms: 0 };
 const taskReadMissingIdErr = validateBuiltinArgs('task', taskReadMissingIdArgs);
 if (!/requires "task_id"/i.test(String(taskReadMissingIdErr))
-  || Object.prototype.hasOwnProperty.call(taskReadMissingIdArgs, 'monitor_interval_ms')) {
-  throw new Error(`task read must discard monitor defaults but retain task_id validation: err=${taskReadMissingIdErr} args=${JSON.stringify(taskReadMissingIdArgs)}`);
+  || Object.prototype.hasOwnProperty.call(taskReadMissingIdArgs, 'timeout_ms')) {
+  throw new Error(`task read must discard wait fields but retain task_id validation: err=${taskReadMissingIdErr} args=${JSON.stringify(taskReadMissingIdArgs)}`);
 }
-const taskWaitOut = await executeBuiltinTool('task', {
+const taskWaitMissingOut = await executeBuiltinTool('task', {
   action: 'wait',
-  task_id: 'task_hidden_wait_smoke',
-  timeout_ms: 1,
+  task_id: 'task_missing_wait_smoke',
+  timeout_ms: 10_000,
 }, root);
-if (!/^Error[\s:[]/.test(String(taskWaitOut)) || !/list\|read\|monitor\|cancel/i.test(String(taskWaitOut))) {
-  throw new Error(`task wait must be rejected by the runtime contract:\n${taskWaitOut}`);
+if (!/^Error[\s:[]/.test(String(taskWaitMissingOut)) || !/task not found/i.test(String(taskWaitMissingOut))) {
+  throw new Error(`task wait must report an unknown task instead of blocking:\n${taskWaitMissingOut}`);
 }
 const taskImplicitActionOut = await executeBuiltinTool('task', {
   task_id: 'task_implicit_action_smoke',
@@ -1541,12 +1549,12 @@ function assertBackgroundStart(label, output) {
 }
 async function assertSingleShellCompletion(events, taskId, label) {
   await waitForSmoke(
-    () => events.some((event) => event.text.includes(taskId) && event.meta?.type !== 'shell_task_progress'),
+    () => events.some((event) => event.text.includes(taskId)),
     `${label} completion notification`,
     5000,
   );
   await new Promise((resolveWait) => setTimeout(resolveWait, 100));
-  const matches = events.filter((event) => event.text.includes(taskId) && event.meta?.type !== 'shell_task_progress');
+  const matches = events.filter((event) => event.text.includes(taskId));
   if (matches.length !== 1) {
     throw new Error(`${label} must notify exactly once, got ${matches.length}: ${JSON.stringify(events)}`);
   }
@@ -1583,22 +1591,6 @@ try {
   else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorSnapshotAutoBg;
 }
 const shellCheckTaskId = assertBackgroundStart('shell snapshot-read start', shellCheckOut);
-const shellMonitorOn = await executeBuiltinTool('task', {
-  action: 'monitor',
-  task_id: shellCheckTaskId,
-  monitor_interval_ms: 300_000,
-}, root, shellCheckOptions);
-if (!/monitoring:\s*on/i.test(String(shellMonitorOn)) || !/monitor_interval_ms:\s*300000/i.test(String(shellMonitorOn))) {
-  throw new Error(`task monitor must enable five-minute shell progress:\n${shellMonitorOn}`);
-}
-const shellMonitorOff = await executeBuiltinTool('task', {
-  action: 'monitor',
-  task_id: shellCheckTaskId,
-  monitor_interval_ms: 0,
-}, root, shellCheckOptions);
-if (!/monitoring:\s*off/i.test(String(shellMonitorOff)) || !/monitor_interval_ms:\s*0/i.test(String(shellMonitorOff))) {
-  throw new Error(`task monitor must disable shell progress:\n${shellMonitorOff}`);
-}
 const shellSnapshotRead = await executeBuiltinTool('task', {
   action: 'read',
   task_id: shellCheckTaskId,
@@ -1606,6 +1598,16 @@ const shellSnapshotRead = await executeBuiltinTool('task', {
 if (!/status:\s*running/i.test(String(shellSnapshotRead))
   || !/"status":\s*"running"/i.test(String(shellSnapshotRead))) {
   throw new Error(`task read must return the current running snapshot:\n${shellSnapshotRead}`);
+}
+// wait replaces the polling loop: one call returns the settled task, so a
+// still-running status here would mean the wait handed back a bare snapshot.
+const shellWaitSettled = await executeBuiltinTool('task', {
+  action: 'wait',
+  task_id: shellCheckTaskId,
+  timeout_ms: 30_000,
+}, root, shellCheckOptions);
+if (/"status":\s*"running"/i.test(String(shellWaitSettled))) {
+  throw new Error(`task wait must return only after the task settles:\n${shellWaitSettled}`);
 }
 await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell snapshot read');
 
@@ -1626,7 +1628,7 @@ try {
   else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorAutoBgBudget;
 }
 if (!/auto-backgrounded/i.test(String(shellAutoPromoteOut))
-    || !/Completion is automatic; do not call task read\/monitor to wait or check progress.*Continue independent work or end the turn.*Use task read only when the user explicitly asks for current status.*task monitor only when they explicitly ask for periodic progress/i.test(String(shellAutoPromoteOut))) {
+    || !/Completion is automatic, so continue independent work or end the turn.*call task wait once.*instead of polling task read/i.test(String(shellAutoPromoteOut))) {
   throw new Error(`shell auto-promotion must return a tracked task with automatic-completion guidance:\n${shellAutoPromoteOut}`);
 }
 const shellAutoPromoteTaskId = assertBackgroundStart('shell auto-promotion', shellAutoPromoteOut);

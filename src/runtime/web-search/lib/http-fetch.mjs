@@ -303,16 +303,35 @@ function headersToCdpPairs(headers) {
  * Pinned fetch for a paused Chromium request: validate each hop, follow redirects,
  * return bytes for Fetch.fulfillRequest. Chromium never performs its own DNS/connect.
  */
+const ENTITY_HEADERS = new Set([
+  'content-type',
+  'content-length',
+  'content-encoding',
+  'content-language',
+  'content-location',
+])
+
+function withoutEntityHeaders(headers) {
+  const out = {}
+  for (const [name, value] of Object.entries(headers || {})) {
+    if (ENTITY_HEADERS.has(name.toLowerCase())) continue
+    out[name] = value
+  }
+  return out
+}
+
 export async function fetchPinnedForPausedRequest(url, { signal, method = 'GET', headers = {}, body } = {}) {
-  const upperMethod = (method || 'GET').toUpperCase()
+  let currentMethod = (method || 'GET').toUpperCase()
+  let currentHeaders = { ...headers }
+  let currentBody = body
   let currentUrl = url
   for (let hops = 0; ; hops++) {
     assertPublicUrl(currentUrl)
     const response = await pinnedFetch(currentUrl, {
       signal,
-      method: upperMethod,
-      headers,
-      body: hops === 0 ? body : undefined,
+      method: currentMethod,
+      headers: currentHeaders,
+      body: currentBody,
       redirect: 'manual',
     })
     if (REDIRECT_STATUSES.has(response.status)) {
@@ -325,6 +344,17 @@ export async function fetchPinnedForPausedRequest(url, { signal, method = 'GET',
         throw new Error(`Redirect ${response.status} without Location header`)
       }
       currentUrl = new URL(location, currentUrl).toString()
+      // Redirect method/body rewrite (fetch spec): 303 always, and 301/302 for
+      // anything other than GET/HEAD, become a bodyless GET. 307/308 preserve
+      // BOTH — so the body has to be replayed instead of dropped, which is what
+      // the previous `hops === 0` body gate did while keeping POST.
+      if (response.status === 303
+        || ((response.status === 301 || response.status === 302)
+          && currentMethod !== 'GET' && currentMethod !== 'HEAD')) {
+        currentMethod = 'GET'
+        currentBody = undefined
+        currentHeaders = withoutEntityHeaders(currentHeaders)
+      }
       continue
     }
     const respBody = await readBodyBytesWithCap(response, MAX_BODY_BYTES)

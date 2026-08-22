@@ -277,9 +277,6 @@ export function readStreamOutcome(...sources) {
   return _finalize(signals || EMPTY_SIGNALS)
 }
 
-/** Alias kept for callers that read a provider midState directly. */
-export const streamOutcomeFromState = readStreamOutcome
-
 /**
  * Attach the canonical record to `target` (usually a thrown error) and mirror
  * it onto the historical alias flags. Aliases are only ever SET, never

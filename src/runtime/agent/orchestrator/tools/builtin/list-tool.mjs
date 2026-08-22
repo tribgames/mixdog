@@ -52,7 +52,23 @@ import {
     reportRuntimeDirectoryReadFailure,
 } from '../../../../shared/session-runtime-health.mjs';
 
+function positiveTimeoutEnv(name, fallback) {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
 const FIND_WALK_TIMEOUT_MS = 20_000;
+// Fuzzy find is a locate-the-path probe, not an inventory: it must answer in
+// about a second even when the caller points it at `/`. The old 20s walk hit
+// the read-only deadline first and returned NOTHING (observed live: six
+// whole-filesystem probes across six benchmark tasks, each burning a turn for
+// an error). At this cap the native search returns its ranked partial instead.
+const FIND_FUZZY_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_FUZZY_TIMEOUT_MS', 1_500);
+// Same contract for name/glob find: bound the walk and the metadata pass, then
+// SAY the result is partial. The old 20s walk plus a 5s stat deadline silently
+// dropped every path whose stat missed the deadline, so a slow scope reported
+// fewer matches than it actually found.
+const FIND_FILES_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_FILES_TIMEOUT_MS', 2_000);
+const FIND_STAT_DEADLINE_MS = positiveTimeoutEnv('MIXDOG_FIND_STAT_DEADLINE_MS', 1_000);
 const LIST_WALK_TIMEOUT_MS = 20_000;
 const LIST_ABSOLUTE_CAP = 50_000;
 
@@ -200,7 +216,10 @@ async function tryNativeDeepListRows({
                 type,
                 size: Number(item.size) || 0,
                 mtimeMs: Number(item.mtimeMs) || 0,
-                mode: Number(item.mode) || 0,
+                // listMetadataForPaths stores permissions at item.stat.mode
+                // (both the native and the lstat fallback shape); reading
+                // item.mode made every recursive meta:true row print `?`.
+                mode: Number(item.stat?.mode ?? item.mode) || 0,
                 fullPath: path,
             };
         });
@@ -1070,7 +1089,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
                 exclude: includeNoise ? [] : DEFAULT_IGNORE_GLOBS,
             }, {
                 cwd: fullPath,
-                timeout: FIND_WALK_TIMEOUT_MS,
+                timeout: FIND_FUZZY_TIMEOUT_MS,
                 signal: options.signal,
             });
             if (served?.complete) {
@@ -1379,14 +1398,34 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     }
     inventoryArgs.push('.');
     let relPaths;
+    let walkIncomplete = false;
+    let walkTimedOut = false;
     try {
-        relPaths = parseRgFileList(await runRg(inventoryArgs, {
+        // runRg returns a plain string ONLY for a complete, cache-safe sweep;
+        // a timed-out / truncated / non-cache-safe one comes back as a String
+        // object carrying {partial,timeout,truncated,cacheSafe}. Discarding
+        // that metadata cached a half-finished walk as authoritative, so one
+        // slow enumeration became a persistent false negative.
+        const inventory = await runRg(inventoryArgs, {
             cwd: fullPath,
             signal: options.signal,
-            timeout: FIND_WALK_TIMEOUT_MS,
-        }));
+            timeout: FIND_FILES_TIMEOUT_MS,
+        });
+        if (inventory && typeof inventory === 'object') {
+            walkIncomplete = inventory.partial === true
+                || inventory.truncated === true
+                || inventory.cacheSafe === false;
+            walkTimedOut = inventory.timeout === true;
+        }
+        relPaths = parseRgFileList(String(inventory));
     } catch (error) {
-        return `Error: ${normalizeErrorMessage(error instanceof Error ? error.message : String(error))}`;
+        const message = normalizeErrorMessage(error instanceof Error ? error.message : String(error));
+        // The walk cap is the answer here, not a mystery failure: say which
+        // scope blew it, and how to widen the cap when the scope is intended.
+        if (/timed out/i.test(message)) {
+            return `Error: file enumeration under ${normalizeOutputPath(fullPath)} exceeded the ${FIND_FILES_TIMEOUT_MS}ms walk cap; narrow the scope (path/name/depth), or raise MIXDOG_FIND_FILES_TIMEOUT_MS when the whole tree is required.`;
+        }
+        return `Error: ${message}`;
     }
     const candidates = [];
     for (const rel of relPaths) {
@@ -1401,9 +1440,26 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     }
     const sizeFiltered = minSize !== null || maxSize !== null;
     const effectiveTypeFilter = sizeFiltered && typeFilter === 'any' ? 'file' : typeFilter;
-    const withStat = await statPathsForMtime(candidates, workDir, 64, { deadlineMs: 5000 });
-    for (const item of withStat) {
-        if (!item?.stat) continue;
+    const withStat = await statPathsForMtime(candidates, workDir, 64, { deadlineMs: FIND_STAT_DEADLINE_MS });
+    const filtersNeedStat = effectiveTypeFilter !== 'any'
+        || minSize !== null || maxSize !== null || after !== null || before !== null;
+    let unstatted = 0;
+    for (let index = 0; index < withStat.length; index++) {
+        const item = withStat[index];
+        if (!item?.stat) {
+            // A missed stat used to drop the path outright, so a time-bounded
+            // metadata pass silently reported fewer matches than the walk found.
+            // For a find the PATH is the answer; only an active size/type/date
+            // filter may legitimately exclude one whose metadata is unknown.
+            unstatted++;
+            if (filtersNeedStat) continue;
+            matches.push({ path: candidates[index], type: 'file', size: 0, mtimeMs: 0, unknownMeta: true });
+            if (matches.length >= FIND_ABSOLUTE_CAP) {
+                truncatedByCap = true;
+                break;
+            }
+            continue;
+        }
         const { stat, full: entPath, mtimeMs } = item;
         if (effectiveTypeFilter === 'file' && !stat.isFile()) continue;
         if (effectiveTypeFilter === 'dir' && !stat.isDirectory()) continue;
@@ -1432,18 +1488,28 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     });
     const windowed = offset > 0 ? matches.slice(offset) : matches;
     const sliced = headLimit > 0 ? windowed.slice(0, headLimit) : windowed;
-    const lines = sliced.map(m =>
-        `${displayRelPath(m.path, fullPath)}\t${formatListSize(m.type, m.size)}\t${formatMtime(m.mtimeMs)}`);
+    const lines = sliced.map(m => (m.unknownMeta
+        ? `${displayRelPath(m.path, fullPath)}\t-\t-`
+        : `${displayRelPath(m.path, fullPath)}\t${formatListSize(m.type, m.size)}\t${formatMtime(m.mtimeMs)}`));
     if (windowed.length > sliced.length) lines.push(`... [entries ${offset + 1}-${offset + sliced.length} of ${matches.length}; pass offset:${offset + sliced.length} to continue]`);
     if (truncatedByCap) lines.push(`... walk truncated at ${FIND_ABSOLUTE_CAP} matches; narrow the scope (path/name/modified_after) for accurate global sort`);
+    if (walkIncomplete) {
+        lines.push(`... walk INCOMPLETE (${walkTimedOut ? 'file enumeration timed out' : 'file enumeration returned partial results'}); matches are missing — narrow the scope (path/name/depth) and re-run`);
+    }
+    if (unstatted) {
+        lines.push(`... ${unstatted} path(s) had no metadata within ${FIND_STAT_DEADLINE_MS}ms; `
+            + (filtersNeedStat
+                ? 'excluded because a size/type/date filter is active'
+                : 'listed with "-" for size/date'));
+    }
     const out = lines.join('\n') || '(no matches)';
-    if (options?.scopedCacheOutcome && (truncatedByCap || windowed.length > sliced.length)) {
+    if (options?.scopedCacheOutcome && (truncatedByCap || walkIncomplete || unstatted || windowed.length > sliced.length)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
     // A bounded page is still an exact result because offset/limit are keyed
     // and watcher invalidation covers the scope. Only the absolute safety cap
-    // makes the computation incomplete.
-    if (!truncatedByCap) {
+    // or a known-incomplete walk makes the computation incomplete.
+    if (!truncatedByCap && !walkIncomplete && !unstatted) {
         cacheSet(cacheKey, out, { scopes: [fullPath] });
     }
     return out;

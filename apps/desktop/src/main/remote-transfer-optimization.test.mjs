@@ -245,3 +245,74 @@ test("catalog updates send only changed keyed rows", () => {
   assert.equal(wire.__listPatch.upsert.length, 1);
   assert.deepEqual(decoder.decode(wire).items, next);
 });
+
+test("a changed row sends only its changed fields", () => {
+  const encoder = createKeyedListDeltaEncoder((item) => item.id);
+  const decoder = createKeyedListDeltaDecoder();
+  const first = [{
+    id: "a",
+    preview: "x".repeat(400),
+    title: "Session A",
+    cwd: "C:/some/long/project/path",
+    working: false,
+  }];
+  assert.deepEqual(decoder.decode(encoder.encode(first)).items, first);
+
+  // A working heartbeat flips. The 400-byte preview must not ride along.
+  const next = [{ ...first[0], working: true }];
+  const wire = encoder.encode(next);
+  const entry = wire.__listPatch.upsert[0];
+  assert.equal(entry.length, 3);
+  assert.deepEqual(entry[1], { working: true });
+  assert.ok(JSON.stringify(wire).length < 200);
+  assert.deepEqual(decoder.decode(wire).items, next);
+});
+
+test("a field patch carries keys the row no longer has", () => {
+  const encoder = createKeyedListDeltaEncoder((item) => item.id);
+  const decoder = createKeyedListDeltaDecoder();
+  const first = [{ id: "a", title: "A", working: true }];
+  assert.deepEqual(decoder.decode(encoder.encode(first)).items, first);
+
+  const next = [{ id: "a", title: "A" }];
+  const decoded = decoder.decode(encoder.encode(next));
+  assert.equal(decoded.ok, true);
+  assert.deepEqual(decoded.items, next);
+});
+
+test("a field patch without its base row breaks the chain instead of guessing", () => {
+  const encoder = createKeyedListDeltaEncoder((item) => item.id);
+  const decoder = createKeyedListDeltaDecoder();
+  const first = [{ id: "a", title: "A", working: false }];
+  decoder.decode(encoder.encode(first));
+  const wire = encoder.encode([{ ...first[0], working: true }]);
+
+  // A receiver that missed the base row must resync, never merge onto nothing.
+  const fresh = createKeyedListDeltaDecoder();
+  assert.equal(fresh.decode(wire).ok, false);
+});
+
+test("state fields rebuilt with equal values do not travel again", () => {
+  const encoder = createSnapshotDeltaEncoder();
+  const decoder = createSnapshotDeltaDecoder();
+  const items = [{ id: 1, kind: "user", text: "hi" }];
+  const workers = () => [{ id: "w1", status: "running", model: "x".repeat(200) }];
+  const first = { items, agentWorkers: workers(), busy: true };
+  assert.equal(decoder.decode(encoder.encode(first)).ok, true);
+
+  // The publisher rebuilds its snapshot every frame: equal values, new objects.
+  const wire = encoder.encode({ items, agentWorkers: workers(), busy: true });
+  assert.deepEqual(wire.__statePatch.changed, {});
+  const decoded = decoder.decode(wire);
+  assert.equal(decoded.ok, true);
+  assert.deepEqual(decoded.snapshot.agentWorkers, first.agentWorkers);
+
+  // A real change still travels.
+  const moved = encoder.encode({
+    items,
+    agentWorkers: [{ id: "w1", status: "done", model: "x".repeat(200) }],
+    busy: true,
+  });
+  assert.ok(moved.__statePatch.changed.agentWorkers);
+  assert.equal(decoder.decode(moved).snapshot.agentWorkers[0].status, "done");
+});

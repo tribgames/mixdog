@@ -4,7 +4,7 @@
 import { deleteRootEmbedding, syncRootEmbedding } from './memory-embed.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
-import { __mixdogMemoryLog, throwIfAborted } from './memory-cycle2-shared.mjs'
+import { __mixdogMemoryLog, throwIfAborted, markStoreFault } from './memory-cycle2-shared.mjs'
 
 const TIER1_THRESHOLD = 0.78
 const TIER2_LOW = 0.65
@@ -268,74 +268,122 @@ export async function applyMerge(db, targetId, sourceIds, options = {}) {
   const signal = options?.signal
   throwIfAborted(signal)
   if (!Number.isFinite(targetId)) return 0
-  const targetRes = await db.query(
-    `SELECT id, project_id FROM entries WHERE id = $1 AND is_root = 1`,
-    [targetId],
-  )
-  throwIfAborted(signal)
-  const target = targetRes.rows[0]
-  if (!target) return 0
+  // Optimistic guards keyed by source id: { status, summary } as observed when
+  // the merge verdict was produced (same contract as applyUpdate's `expected`).
+  const expectedBySource = options?.expectedBySource ?? null
+  const readExpected = (sid) => (
+    typeof expectedBySource?.get === 'function' ? expectedBySource.get(sid) : expectedBySource?.[sid]
+  ) ?? null
+  // Snapshot of the merge TARGET as the verdict saw it. A merge is a statement
+  // about both rows, so the target has to be validated exactly like a source.
+  const expectedTarget = options?.expectedTarget ?? null
   let moved = 0
   for (const src of sourceIds) {
     throwIfAborted(signal)
     const sid = Number(src)
     if (!Number.isFinite(sid) || sid === targetId) continue
-    const srcRes = await db.query(
-      `SELECT id, project_id, status FROM entries WHERE id = $1 AND is_root = 1`,
-      [sid],
-    )
-    throwIfAborted(signal)
-    const srcRow = srcRes.rows[0]
-    if (!srcRow) continue
-    if (target.project_id !== srcRow.project_id) {
-      __mixdogMemoryLog(
-        `[cycle2] merge rejected: cross-pool (target=${targetId} project_id=${target.project_id ?? 'COMMON'} src=${sid} project_id=${srcRow.project_id ?? 'COMMON'})\n`,
-      )
-      continue
-    }
-    // Floor guard: archiving an active source row shrinks the active pool, so
-    // it must reserve from the shared floor budget. Over-budget merges are
-    // skipped (source stays active); pending sources never reserve.
-    const srcActive = srcRow.status === 'active'
-    if (srcActive && options.floorGuard && !options.floorGuard.reserve()) {
-      __mixdogMemoryLog(`[cycle2] merge source archive skipped (floor guard): target=${targetId} src=${sid}\n`)
-      continue
-    }
-    let archivedPrevStatus = null
+    let reserved = false
+    let archived = false
+    let skip = null
     try {
       // Archive is the guarded mutation unit: the reservation is only kept if
       // this transaction commits. Embedding cleanup is deliberately OUTSIDE
       // this try — a post-commit cleanup failure must NOT refund the budget,
       // since the active row is already archived.
       await db.transaction(async (tx) => {
+        // Target AND source are read inside the transaction and locked in id
+        // order (deterministic ordering, so two concurrent merges cannot
+        // deadlock). Reading them outside meant the verdict was applied to
+        // state that could already have changed content or status.
+        const { rows } = await tx.query(
+          `SELECT id, project_id, status, summary FROM entries
+           WHERE id = ANY($1::bigint[]) AND is_root = 1
+           ORDER BY id FOR UPDATE`,
+          [[targetId, sid]],
+        )
+        const target = rows.find((r) => Number(r.id) === Number(targetId))
+        const srcRow = rows.find((r) => Number(r.id) === sid)
+        if (!target) { skip = `target ${targetId} is not a root`; return }
+        if (!srcRow) { skip = `source ${sid} is not a root`; return }
+        if (target.project_id !== srcRow.project_id) {
+          skip = `cross-pool (target=${targetId} project_id=${target.project_id ?? 'COMMON'} src=${sid} project_id=${srcRow.project_id ?? 'COMMON'})`
+          return
+        }
+        // Target guards: folding a live source into a target that has since been
+        // archived (or rewritten) destroys the source without a surviving
+        // consolidated row.
+        if (target.status === 'archived') { skip = `target ${targetId} is archived`; return }
+        if (expectedTarget && typeof expectedTarget.status === 'string' && target.status !== expectedTarget.status) {
+          skip = `target ${targetId} status moved (${expectedTarget.status} → ${target.status})`
+          return
+        }
+        if (expectedTarget && typeof expectedTarget.summary === 'string' && target.summary !== expectedTarget.summary) {
+          skip = `target ${targetId} content changed since the verdict`
+          return
+        }
+        // Status guard: never re-archive an already archived source.
+        if (srcRow.status === 'archived') { skip = `source ${sid} already archived`; return }
+        // Content guard: the source must still say what the verdict judged.
+        const expected = readExpected(sid)
+        if (expected && typeof expected.status === 'string' && srcRow.status !== expected.status) {
+          skip = `source ${sid} status moved (${expected.status} → ${srcRow.status})`
+          return
+        }
+        if (expected && typeof expected.summary === 'string' && srcRow.summary !== expected.summary) {
+          skip = `source ${sid} content changed since the verdict`
+          return
+        }
+        // Floor guard: archiving an active source row shrinks the active pool,
+        // so it must reserve from the shared floor budget. Over-budget merges
+        // are skipped (source stays active); pending sources never reserve.
+        if (srcRow.status === 'active' && options.floorGuard) {
+          if (!options.floorGuard.reserve()) {
+            skip = `floor guard: target=${targetId} src=${sid}`
+            return
+          }
+          reserved = true
+        }
         await tx.query(
           `UPDATE entries SET chunk_root = $1, project_id = $2 WHERE chunk_root = $3 AND id != $4 AND is_root = 0`,
           [targetId, target.project_id, sid, sid],
         )
-        // Capture prev status in the same statement so a stale snapshot (the
-        // row was already archived by a concurrent write) can refund below.
         const ar = await tx.query(
-          `WITH pre AS (SELECT id, status AS prev FROM entries WHERE id = $1 AND is_root = 1)
-           UPDATE entries SET status = 'archived'
-           FROM pre WHERE entries.id = pre.id AND entries.is_root = 1
-           RETURNING pre.prev AS prev_status`,
-          [sid],
+          `UPDATE entries SET status = 'archived'
+           WHERE id = $1 AND is_root = 1 AND status IS NOT DISTINCT FROM $2::entry_status`,
+          [sid, srcRow.status],
         )
-        archivedPrevStatus = ar.rows?.[0]?.prev_status ?? null
+        archived = Number(ar.rowCount ?? ar.affectedRows ?? 0) > 0
       })
     } catch (err) {
-      if (srcActive && options.floorGuard) options.floorGuard.refund()
+      // Store fault: the transaction rolled back, or its COMMIT outcome is
+      // unknown. The reservation is deliberately NOT refunded — the source may
+      // in fact be archived, so returning the budget would let a later archive
+      // spend it twice and breach the active floor. Marked so callers can tell
+      // it apart from the guard rejections above, which return normally.
+      if (reserved && options.floorGuard) {
+        __mixdogMemoryLog(`[cycle2] merge floor reservation withheld after store fault: target=${targetId} src=${sid}\n`)
+      }
       __mixdogMemoryLog(`[cycle2] merge failed (target=${targetId} src=${sid}): ${err.message}\n`)
+      throw markStoreFault(err)
+    }
+    if (skip) __mixdogMemoryLog(`[cycle2] merge source skipped: ${skip}\n`)
+    if (!archived) {
+      if (reserved && options.floorGuard) options.floorGuard.refund()
       continue
     }
-    // Archive committed. If the source was no longer active at UPDATE time,
-    // the reservation did not cover a real active→archived transition — refund.
-    if (srcActive && options.floorGuard && archivedPrevStatus !== 'active') options.floorGuard.refund()
     // Archive committed — best-effort embedding cleanup only. The next abort
     // checkpoint is before the next source.
     moved += 1
-    try { await deleteRootEmbedding(db, sid) }
-    catch (err) { __mixdogMemoryLog(`[cycle2] merge embedding cleanup failed (target=${targetId} src=${sid}): ${err.message}\n`) }
+    try {
+      await deleteRootEmbedding(db, sid)
+    } catch (err) {
+      // The cleanup is a SECOND transaction, so its failure is a store fault of
+      // exactly the same kind — including the commit-ambiguous case. Absorbing
+      // it here kept archiving later sources against a store whose state is
+      // already unknown, which is the invariant the archive path enforces.
+      __mixdogMemoryLog(`[cycle2] merge embedding cleanup failed (target=${targetId} src=${sid}): ${err.message}\n`)
+      throw markStoreFault(err)
+    }
   }
   return moved
 }
@@ -432,7 +480,12 @@ export async function runPhaseMerge(db, options = {}) {
     const loser = keeper.id === a.id ? b : a
     // phase_merge only pairs active rows, so the loser archive is an active
     // demotion — thread the floor budget through applyMerge.
-    const moved = await applyMerge(db, keeper.id, [loser.id], { signal, floorGuard })
+    const moved = await applyMerge(db, keeper.id, [loser.id], {
+      signal,
+      floorGuard,
+      expectedBySource: { [loser.id]: { status: loser.status, summary: loser.summary } },
+      expectedTarget: { status: keeper.status, summary: keeper.summary },
+    })
     if (moved > 0) {
       merged += moved
       mergedIds.add(loser.id)

@@ -76,21 +76,32 @@ function normalizePendingStore(raw) {
     : {};
   const out = { version: 1, updatedAt: storeUpdatedAt, sessions: {}, sessionTouchedAt: {} };
   for (const [sid, value] of Object.entries(sessions)) {
-    if (!/^[A-Za-z0-9_-]+$/.test(sid) || !Array.isArray(value)) continue;
-    const q = sid.startsWith('tui_')
-      ? value.map(normalizeTuiSteeringQueueEntry).filter(Boolean)
-      : value
-        .map((entry) => {
-          if (typeof entry === 'string') return entry;
-          if (entry && typeof entry === 'object' && typeof entry.message === 'string') return entry.message;
-          return '';
-        })
-        .filter(Boolean);
-    if (q.length > 0) {
-      out.sessions[sid] = q;
-      const touched = Number(touchedRaw[sid]);
-      out.sessionTouchedAt[sid] = Number.isFinite(touched) && touched > 0 ? touched : storeUpdatedAt;
+    if (!Array.isArray(value) || value.length === 0) continue;
+    if (!sid.startsWith('tui_')) {
+      // FOREIGN bucket. This file is SHARED with the runtime/manager pending
+      // -message spool, and every TUI write passes the whole store through
+      // here. Flattening those rows to plain strings destroyed id,
+      // enqueuedAt, options, structured content, the notification markers —
+      // and the handoffAt/handoffPid parking stamp that is the only reason an
+      // accepted-but-undelivered user message survives an owner crash. Rows
+      // this process does not own are copied through UNCHANGED (array copy
+      // only, so nothing here can alias-mutate them either).
+      out.sessions[sid] = value.slice();
+      const foreignTouched = Number(touchedRaw[sid]);
+      // Carry an existing stamp only: inventing one would reset the runtime's
+      // own orphan aging for a session this process does not own.
+      if (Number.isFinite(foreignTouched) && foreignTouched > 0) {
+        out.sessionTouchedAt[sid] = foreignTouched;
+      }
+      continue;
     }
+    // TUI-owned bucket: the only rows this module may reshape.
+    if (!/^[A-Za-z0-9_-]+$/.test(sid)) continue;
+    const q = value.map(normalizeTuiSteeringQueueEntry).filter(Boolean);
+    if (q.length === 0) continue;
+    out.sessions[sid] = q;
+    const touched = Number(touchedRaw[sid]);
+    out.sessionTouchedAt[sid] = Number.isFinite(touched) && touched > 0 ? touched : storeUpdatedAt;
   }
   return out;
 }
@@ -236,13 +247,16 @@ export function drainTuiSteeringPersist(leadSessionId) {
           return !stale;
         });
         drained = fresh.map(drainedRowToRestore).filter(Boolean);
-        // Orphan cleanup: buckets of OTHER sessions whose every row already
-        // aged past the restore TTL can never be restored (restore is keyed
-        // by the live session id), so they only grow the file forever
+        // Orphan cleanup: TUI-owned buckets of OTHER lead sessions whose every
+        // row already aged past the restore TTL can never be restored (restore
+        // is keyed by the live session id), so they only grow the file forever
         // (observed live: queued rows from sessions closed days ago). Prune
-        // them under the same lock/write.
+        // them under the same lock/write. Foreign (runtime/manager spool)
+        // buckets are NEVER reaped here: their rows are owned by another
+        // process, age on a different TTL, and may be parked handoff rows that
+        // are the last copy of accepted user input.
         for (const otherKey of Object.keys(next.sessions)) {
-          if (otherKey === key) continue;
+          if (otherKey === key || !otherKey.startsWith('tui_')) continue;
           const rows = Array.isArray(next.sessions[otherKey]) ? next.sessions[otherKey] : [];
           const otherTouched = Number(next.sessionTouchedAt?.[otherKey]) || 0;
           const allStale = rows.every((row) => {

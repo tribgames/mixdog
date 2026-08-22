@@ -14,10 +14,6 @@ function now() {
 function defaultState() {
   return {
     providers: {},
-    routingCache: {
-      rawBySite: {},
-      scrapeByHost: {},
-    },
   }
 }
 
@@ -74,15 +70,15 @@ export function loadUsageState() {
   if (_instance) return _instance
   const raw = readJson(USAGE_PATH, null)
   const def = defaultState()
-  const state = raw && typeof raw === 'object' ? {
-    ...def,
-    ...raw,
-    providers: { ...(raw.providers || {}) },
-    routingCache: {
-      rawBySite: { ...(def.routingCache.rawBySite), ...(raw.routingCache?.rawBySite || {}) },
-      scrapeByHost: { ...(def.routingCache.scrapeByHost), ...(raw.routingCache?.scrapeByHost || {}) },
-    },
-  } : def
+  let state = def
+  if (raw && typeof raw === 'object') {
+    // Drop the legacy `routingCache` (rawBySite/scrapeByHost) instead of
+    // carrying it forward: it has no consumers, and a plain `...raw` kept
+    // rewriting it back to disk on every flush.
+    const { routingCache: legacyRoutingCache, ...rest } = raw
+    state = { ...def, ...rest, providers: { ...(raw.providers || {}) } }
+    if (legacyRoutingCache !== undefined) scheduleUsageFlush(state)
+  }
   _instance = state
   activeUsageState = state
   return state
@@ -157,13 +153,17 @@ const PROVIDER_DISABLE_TTL_MS = {
   unknown: 0,
 }
 
-export function noteProviderFailure(state, provider, errorMessage, errorKind) {
+// `siteScoped` marks a failure that the FETCHED SITE produced (its 400/401/403/
+// 429), not a fault of the provider/extractor itself. Those statuses say
+// nothing about provider health, so they must never install the provider-wide
+// cooldown that would disable the extractor for every other host for 24h.
+export function noteProviderFailure(state, provider, errorMessage, errorKind, { siteScoped = false } = {}) {
   const payload = {
     error: errorMessage,
     lastUsedAt: now(),
     lastFailureAt: now(),
   }
-  const ttl = PROVIDER_DISABLE_TTL_MS[errorKind] ?? 0
+  const ttl = siteScoped ? 0 : (PROVIDER_DISABLE_TTL_MS[errorKind] ?? 0)
   if (ttl > 0) {
     payload.cooldownUntil = new Date(Date.now() + ttl).toISOString()
   }

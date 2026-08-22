@@ -26,6 +26,22 @@ import {
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
 import { isRemotePaintProbe } from '../shared/remote-performance';
+import {
+  RELAY_PAYLOAD_TOO_LARGE_CODE,
+  RELAY_ROUTING_CAPS_EVENT,
+  readRelayPayloadRejection,
+  readRelayUplinkCeilings,
+  relayFrameByteLength,
+  relayFrameCallId,
+  relayFrameCapRefusal,
+  relayPayloadTooLargeMessage,
+  relayStrandedCallRefusals,
+  relayUplinkContract,
+  resolveRelayFrameLimit,
+  type RelayInflightFrame,
+  type RelayPayloadRejection,
+  type RelayUplinkCeilings,
+} from '../shared/remote-payload-limit';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
 import {
   REMOTE_PAIRING_STORAGE_KEYS,
@@ -126,7 +142,66 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let clientRegistered = false;
   let registrationInFlight: Promise<void> | null = null;
 
-  interface PendingCall { resolve: (value: unknown) => void; reject: (error: Error) => void }
+  interface PendingCall {
+    resolve: (value: unknown) => void;
+    reject: (error: Error) => void;
+    /** The frame this call actually sent. Recorded on the call itself so a
+     *  ceiling that drops while it is in flight can be applied to it by its
+     *  OWN size — never by matching a refusal's size to a list of recent
+     *  frames, which is what made attribution guesswork. */
+    frame?: RelayInflightFrame;
+  }
+  // The relay's per-frame ceiling as this browser knows it: handed over with
+  // the E2EE handshake, and tightened by any refusal notice that proves a
+  // smaller one. Until then the shared conservative default applies, so an
+  // oversize request is never sent on the assumption that it might fit.
+  let learnedFrameLimit: number | null = null;
+  /** Capacity of the leg that receives this frame once the relay has wrapped
+   *  it. Only a desktop that publishes no ceilings leaves this doing any work:
+   *  it is the input the conservative derivation is priced from. */
+  let learnedRoutedLimit: number | null = null;
+  /** The relay's own ceilings for this connection, forwarded by the desktop
+   *  from `relay-capabilities`. This is the contract: the relay published what
+   *  it will admit, so the browser refuses at exactly that byte instead of
+   *  deriving a second opinion from a capacity and an assumed envelope. */
+  let publishedCeilings: RelayUplinkCeilings | null = null;
+  // The desktop leg accepted the text-flagged binary envelope, so a text frame
+  // is wrapped at a FIXED cost there instead of being JSON-escaped. Only the
+  // fallback prices that itself; a published text ceiling already reflects it.
+  let relayTextEnvelope = false;
+  const relayFrameLimit = (): number => resolveRelayFrameLimit(learnedFrameLimit);
+  /** The ceilings this leg enforces before it sends anything: the relay's
+   *  published ones, bounded by any smaller ceiling a refusal notice has since
+   *  proved. A desktop that publishes none (an older build) falls back to the
+   *  conservative derivation, which is never the more permissive of the two. */
+  const relayUplinkLimits = (): RelayUplinkCeilings => relayUplinkContract(
+    publishedCeilings,
+    { policy: relayFrameLimit(), capacity: learnedRoutedLimit, textFrames: relayTextEnvelope },
+  );
+  const learnFrameLimit = (candidate: unknown): void => {
+    if (typeof candidate !== 'number') return;
+    learnedFrameLimit = resolveRelayFrameLimit(candidate, learnedFrameLimit);
+  };
+  /** Learned caps describe ONE connection: they only ever tighten, so carrying
+   *  them across a redial keeps a restarted relay's smaller ceiling forever and
+   *  refuses frames the new path accepts. Every connection starts unlearned. */
+  const resetLearnedCaps = (): void => {
+    learnedFrameLimit = null;
+    learnedRoutedLimit = null;
+    publishedCeilings = null;
+    relayTextEnvelope = false;
+  };
+  /** Everything the desktop declared when the secure channel opened: the
+   *  relay's policy ceiling, the ceilings it published for this connection,
+   *  and how a text frame will be wrapped. */
+  const learnRoutingCaps = (message: Record<string, unknown>): void => {
+    learnFrameLimit(message.maxFrameBytes);
+    if (typeof message.maxRoutedBytes === 'number') {
+      learnedRoutedLimit = resolveRelayFrameLimit(message.maxRoutedBytes, learnedRoutedLimit);
+    }
+    publishedCeilings = readRelayUplinkCeilings(message);
+    relayTextEnvelope = message.textFrames === 1;
+  };
   const pending = new Map<number, PendingCall>();
   const stateListeners = new Set<(snapshot: SessionSnapshot) => void>();
   const sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
@@ -648,28 +723,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     sessionsDecoder.reset();
     agentPoolDecoder.reset();
   };
-  // stateResync only restores the bound-session state lane. The sessions/
-  // agentPool/projection pushes and per-session sessionState lanes are
-  // droppable on both relay hops and have no patch stream to expose a gap,
-  // so a resync or reconnect refetches the catalog lanes here and tells the
-  // renderer to re-read its per-session transcript lanes.
+  // stateResync only restores the bound-session state lane, so this still has
+  // to tell the renderer to re-read its per-session transcript lanes.
+  //
+  // The catalog lanes are NOT refetched here. The desktop retains the last
+  // roster and re-sends it in full on join and on resync (remote-relay.ts
+  // sendClientLists), and those frames are not droppable, so asking for
+  // listSessions/listAgentPool on the same reconnect delivered the whole
+  // catalog twice — measured at ~283KB per copy, the largest single item on
+  // the RPC lane. A patch that cannot apply still reports it: the keyed decoder
+  // answers `ok: false` and that path already calls requestResync().
   const refreshBroadcastLanes = (): void => {
-    void call<DesktopSessionSummary[]>('listSessions')
-      .then((sessions) => {
-        const list = Array.isArray(sessions) ? sessions : [];
-        for (const listener of [...sessionListeners]) {
-          try { listener(list); } catch { /* renderer listener fault */ }
-        }
-      })
-      .catch(() => {});
-    void call<DesktopAgentPoolRow[]>('listAgentPool')
-      .then((agents) => {
-        const list = Array.isArray(agents) ? agents : [];
-        for (const listener of [...agentPoolListeners]) {
-          try { listener(list); } catch { /* renderer listener fault */ }
-        }
-      })
-      .catch(() => {});
     window.dispatchEvent(new Event('mixdog:remote-state-gap'));
   };
   // Unsolicited resync requests (relay drop hint, foreground wake) share one
@@ -751,7 +815,79 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     };
   };
 
-  const handleMessage = (frame: Record<string, unknown>): void => {
+  // Reaches the toast surface without importing it: notifications.tsx renders
+  // whatever arrives on DESKTOP_TOAST_EVENT, and this shim installs before the
+  // React app exists, so it must not pull a component module in.
+  const showRemoteToast = (text: string): void => {
+    try {
+      window.dispatchEvent(new CustomEvent('mixdog:desktop-toast', {
+        detail: { id: `relay-payload:${Date.now()}`, text, tone: 'error' },
+      }));
+    } catch { /* container without a toast surface */ }
+  };
+  /** A refusal fails EXACTLY the call it names and never guesses one. An id is
+   *  only ever present when the desktop itself declined to send that call's
+   *  answer, inside the encrypted channel; a relay-controlled signal carries
+   *  none and is reported to the user without blaming a call that may be
+   *  perfectly healthy. Either way the ceiling it reports is learned, so the
+   *  next oversize frame is refused before it is sent. */
+  /** The ceiling can drop while frames are already on their way: the relay
+   *  lowers it, and a frame sent a moment earlier — or concurrently, before
+   *  the desktop's update lands here — meets the NEW limit. That refusal can
+   *  name no call, so without this the call behind it waits out its 20-second
+   *  deadline and closes the socket, and a push vanishes with no error at all.
+   *  Every call whose own frame is past the ceiling now in force is settled at
+   *  once instead, carrying its size and that limit. Calls within the ceiling
+   *  are not touched, and no deadline anywhere is moved. */
+  const failStrandedCalls = (): void => {
+    const waiting: Array<readonly [number, RelayInflightFrame]> = [];
+    for (const [id, entry] of pending) {
+      if (entry.frame) waiting.push([id, entry.frame] as const);
+    }
+    if (waiting.length === 0) return;
+    for (const refusal of relayStrandedCallRefusals(waiting, relayUplinkLimits())) {
+      if (refusal.callId === null) continue;
+      const entry = pending.get(refusal.callId);
+      if (!entry) continue;
+      pending.delete(refusal.callId);
+      const failure: Error & { code?: string } = new Error(
+        relayPayloadTooLargeMessage(refusal),
+      );
+      failure.code = RELAY_PAYLOAD_TOO_LARGE_CODE;
+      entry.reject(failure);
+    }
+  };
+  const applyRelayPayloadRejection = (rejection: RelayPayloadRejection): void => {
+    learnFrameLimit(rejection.limit);
+    // The reported ceiling is now the one in force, so anything already sent
+    // past it is dead on arrival — including whatever this refusal was about.
+    failStrandedCalls();
+    const message = relayPayloadTooLargeMessage(rejection);
+    if (rejection.callId === null) {
+      // Unattributed or a push: the user is told, and NOTHING else happens.
+      // Touching in-flight calls here would fail healthy ones — the refusal
+      // names no call, so no call's fate may depend on it. Each keeps its own
+      // deadline, which is the only bound that belongs to it.
+      showRemoteToast(message);
+      return;
+    }
+    const entry = pending.get(rejection.callId);
+    // Already settled (its own deadline, a reconnect): nothing to say twice.
+    if (!entry) return;
+    pending.delete(rejection.callId);
+    const failure: Error & { code?: string } = new Error(message);
+    failure.code = RELAY_PAYLOAD_TOO_LARGE_CODE;
+    entry.reject(failure);
+  };
+
+  const handleMessage = (
+    frame: Record<string, unknown>,
+    /** Whether this frame arrived over an authenticated channel. Required, so
+     *  every call site states it: on a non-E2EE connection clear relay data
+     *  reaches this same handler and must not be trusted with victim
+     *  selection. */
+    authenticated: boolean,
+  ): void => {
     // Any inbound frame proves the socket is alive; pong frames carry
     // nothing else.
     awaitingPong = false;
@@ -799,6 +935,26 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           failure.code = message.errorCode;
         }
         entry.reject(failure);
+      }
+      return;
+    }
+    // The desktop declined to send a frame (or was told the relay refused
+    // one). Read AFTER the response branch above, so an ordinary call error can
+    // never be mistaken for one; it carries no state, so it never resyncs.
+    const rejectedPayload = readRelayPayloadRejection(message, authenticated);
+    if (rejectedPayload) {
+      applyRelayPayloadRejection(rejectedPayload);
+      return;
+    }
+    // The relay changed this leg's ceilings mid-connection and the desktop
+    // forwarded the new ones. Applied at once, so the very next frame is
+    // measured against the ceiling now in force and fails HERE, naming its own
+    // call, instead of being refused at the relay where nothing can attribute
+    // it. Authenticated only: what this leg may put on the wire is exactly the
+    // decision a cleartext frame must never be able to move.
+    if (message.event === RELAY_ROUTING_CAPS_EVENT) {
+      if (authenticated && message.payload && typeof message.payload === 'object') {
+        learnRoutingCaps(message.payload as Record<string, unknown>);
       }
       return;
     }
@@ -1166,6 +1322,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         connectionReady = false;
         secureChannel = null;
         relayBinaryFrames = false;
+        resetLearnedCaps();
         if (!e2eePairing) {
           finishOpen();
           return;
@@ -1185,11 +1342,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             if (!decrypted || typeof decrypted !== 'object') return;
             const message = decrypted as Record<string, unknown>;
             if (message.type === 'e2ee-ready' && message.version === 1) {
+              // The caps the desktop learned from the relay handshake; this leg
+              // never sees `relay-capabilities` itself.
+              learnRoutingCaps(message);
               finishOpen();
               return;
             }
             if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
-            handleMessage(message);
+            // Decrypted on this leg's own channel: authenticated.
+            handleMessage(message, true);
             return;
           }
           let parsed: unknown;
@@ -1200,11 +1361,21 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           clearWakePongTimer();
           if ('pong' in clear) return;
           if ('resync' in clear) {
+            // A relay refusal rides `resync` on purpose: it is the one
+            // cleartext key this browser acts on BEFORE decryption, so it can
+            // never reach decryptJson. It is also unauthenticated, so it may
+            // report a size and a ceiling but must never select a victim —
+            // it surfaces the error and tightens the pre-send check. An
+            // unrelated resync hint yields no rejection at all.
+            const rejected = readRelayPayloadRejection(clear, false);
+            if (rejected) applyRelayPayloadRejection(rejected);
             requestResync();
             return;
           }
           if (!e2eePairing) {
-            handleMessage(clear);
+            // Supported legacy mode: this frame is cleartext off the socket,
+            // so nothing in it may pick a victim.
+            handleMessage(clear, false);
             return;
           }
           if (isRelayE2EEChallenge(clear)) {
@@ -1223,6 +1394,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             }
             secureChannel = null;
             relayBinaryFrames = clear.binaryFrames === 1;
+            // A replacement desktop leg on the same browser socket: its caps
+            // are its own, and the previous leg's must not survive into it.
+            resetLearnedCaps();
             // Handles are per desktop leg; a new challenge starts a new map.
             compactSessionNames.clear();
             if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
@@ -1239,11 +1413,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           if (!decrypted || typeof decrypted !== 'object') return;
           const message = decrypted as Record<string, unknown>;
           if (message.type === 'e2ee-ready' && message.version === 1) {
+            learnRoutingCaps(message);
             finishOpen();
             return;
           }
           if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
-          handleMessage(message);
+          handleMessage(message, true);
         })().catch(() => {
           try { ws.close(); } catch { /* reconnect loop handles it */ }
         });
@@ -1301,14 +1476,54 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     ws: WebSocket,
     payload: Record<string, unknown>,
   ): Promise<void> => {
+    // Refuse an oversize frame HERE, while holding the very frame that would
+    // fail and knowing the call it carries. What must fit is the frame AS THE
+    // RELAY WILL ROUTE IT — wrapped for the desktop leg and charged again
+    // there — and the relay itself published that ceiling for this connection,
+    // per wire form. Judging the frame against the relay's own figure is what
+    // makes the refusal exact: no second derivation to disagree with it, and
+    // nothing content-dependent. Nothing is sent, so nothing has to be
+    // correlated afterwards and no call waits out its 20-second deadline for an
+    // answer that was never going to come.
+    const refuseOversize = (frame: string | Uint8Array): void => {
+      const refusal = relayFrameCapRefusal(
+        frame,
+        relayUplinkLimits(),
+        relayFrameCallId(payload),
+      );
+      if (!refusal) return;
+      const failure: Error & { code?: string } = new Error(
+        relayPayloadTooLargeMessage(refusal),
+      );
+      failure.code = RELAY_PAYLOAD_TOO_LARGE_CODE;
+      // A fire-and-forget publish has no caller to reject: say it once,
+      // visibly, instead of dropping it in silence.
+      if (refusal.callId === null) showRemoteToast(failure.message);
+      throw failure;
+    };
+    /** What this call put on the wire, kept on the call itself, so a ceiling
+     *  that drops after the send can be applied to that very frame. */
+    const noteSentFrame = (frame: string | Uint8Array): void => {
+      const callId = relayFrameCallId(payload);
+      if (callId === null) return;
+      const entry = pending.get(callId);
+      if (!entry) return;
+      entry.frame = { bytes: relayFrameByteLength(frame), binary: typeof frame !== 'string' };
+    };
     if (e2eePairing) {
       if (!secureChannel || !connectionReady) throw new Error('Relay encryption is not ready.');
-      ws.send(relayBinaryFrames
+      const frame = relayBinaryFrames
         ? await secureChannel.encryptBinary(payload)
-        : await secureChannel.encryptJson(payload));
+        : await secureChannel.encryptJson(payload);
+      refuseOversize(frame);
+      noteSentFrame(frame);
+      ws.send(frame);
       return;
     }
-    ws.send(JSON.stringify(payload));
+    const directFrame = JSON.stringify(payload);
+    refuseOversize(directFrame);
+    noteSentFrame(directFrame);
+    ws.send(directFrame);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1335,7 +1550,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       });
       void sendApplicationFrame(ws, { id, method, params }).catch((error) => {
         pending.delete(id);
-        reject(error instanceof Error ? error : new Error(String(error)));
+        const failure = error instanceof Error ? error : new Error(String(error));
+        window.clearTimeout(deadline);
+        reject(failure);
+        // A payload this leg refused to send is a bad request, not a broken
+        // socket: every other call on it stays alive.
+        if ((failure as { code?: string }).code === RELAY_PAYLOAD_TOO_LARGE_CODE) return;
         try { ws.close(); } catch { /* reconnect loop handles it */ }
       });
     });

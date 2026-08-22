@@ -447,7 +447,6 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
             }
             const { done, value } = chunk;
             if (done) break;
-            resetIdleTimer();
             buffer += decoder.decode(value, { stream: true });
             const payloads = [];
             let lineEnd;
@@ -483,6 +482,12 @@ export async function consumeGeminiRestStreamResponse(response, { signal, onStre
                     relayedText += relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
                 }
             }
+            // Re-arm on SEMANTIC progress only. A decoded SSE payload is real
+            // generation output; raw byte chunks (a partial data: line, blank
+            // keepalive lines, proxy padding) are not. Resetting on every read
+            // let a stalled generation that still dribbles bytes hold the idle
+            // watchdog off indefinitely.
+            if (parsedChunks.length) resetIdleTimer();
         }
         if (buffer.trim()) {
             const line = buffer.trim().replace(/\r$/, '');

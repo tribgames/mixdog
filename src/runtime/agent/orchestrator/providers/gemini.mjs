@@ -354,9 +354,40 @@ export class GeminiProvider {
             _attachGeminiCacheState(opts, globalCache, currentIter);
             return globalCache.cacheName;
         }
+        // Wait on a shared create while still honouring THIS caller's abort:
+        // the create itself is process-global and must outlive any single
+        // session, so the caller only stops waiting (resolving null) instead of
+        // cancelling the work for everyone.
+        const awaitSharedCreate = (task) => {
+            const signal = opts.signal;
+            if (!(signal instanceof AbortSignal)) return task.then((v) => v, () => null);
+            if (signal.aborted) return Promise.resolve(null);
+            return new Promise((resolve) => {
+                const onAbort = () => resolve(null);
+                signal.addEventListener('abort', onAbort, { once: true });
+                task.then(
+                    (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+                    () => { signal.removeEventListener('abort', onAbort); resolve(null); },
+                );
+            });
+        };
+        // Strict singleflight: a WAITER never inherits the creation duty.
+        //
+        // The earlier bounded wait loop still herded. When the shared create
+        // settles, its own cleanup removes the slot BEFORE the waiters resume,
+        // so every waiter saw an empty slot; and a waiter that exhausted its
+        // rounds fell through and created even while another create was in
+        // flight — 8 waiters over repeated failures produced ~4 concurrent
+        // cachedContents POSTs for one prefix.
+        //
+        // The rule is now unconditional: if a create is in flight we wait for
+        // exactly that one, and if it does not yield a cache we proceed
+        // UNCACHED (the cache is an optimization, and the next turn re-creates).
+        // Only the caller that finds an EMPTY slot creates, and it publishes its
+        // task synchronously below, so at most one create per key can exist.
         const inFlightCreate = geminiGlobalCacheCreates.get(globalCacheKey);
         if (inFlightCreate) {
-            const created = await inFlightCreate.catch(() => null);
+            const created = await awaitSharedCreate(inFlightCreate);
             if (created?.cacheName) {
                 try {
                     appendAgentTrace({
@@ -374,6 +405,14 @@ export class GeminiProvider {
                 _attachGeminiCacheState(opts, created, currentIter);
                 return created.cacheName;
             }
+            // Failed or abandoned wait: another caller may still have published
+            // a usable cache for this exact prefix meanwhile.
+            const raced = _getGeminiGlobalCache(globalCacheKey, Date.now());
+            if (raced) {
+                _attachGeminiCacheState(opts, raced, currentIter);
+                return raced.cacheName;
+            }
+            return canAttachState ? state.cacheName : null;
         }
         const createTask = (async () => {
             try {
@@ -398,12 +437,14 @@ export class GeminiProvider {
                 body.contents = cachePrefixContents;
             }
             const url = `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${encodeURIComponent(apiKey)}`;
-            // Honor the external session abort signal during cache creation, not
-            // only the 20s ceiling. Without merging opts.signal a session that is
-            // aborted (stall-watchdog / closeSession) mid-cache-create leaves this
-            // preflight request running until its own timeout fires.
+            // Deliberately NOT merged with opts.signal. This create is the
+            // process-global singleflight every concurrent session waits on, so
+            // the FIRST caller's abort (stall-watchdog / closeSession) must not
+            // cancel the cache every other session is waiting for — that is the
+            // herd trigger. The 20s ceiling still bounds the preflight request,
+            // and an aborting caller simply stops waiting (awaitSharedCreate).
             const createTotal = createTimeoutSignal(
-                opts.signal,
+                null,
                 PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS,
                 'Gemini cachedContents.create total',
             );
@@ -520,18 +561,23 @@ export class GeminiProvider {
             }
         })();
         geminiGlobalCacheCreates.set(globalCacheKey, createTask);
-        try {
-            const created = await createTask;
-            // A failed refresh must not silently retain a cache that may have
-            // expired or been evicted server-side. The caller proceeds uncached.
-            if (!created?.cacheName) return null;
-            _attachGeminiCacheState(opts, created, currentIter);
-            return created.cacheName;
-        } finally {
+        // Ownership is released by the TASK, never by the awaiting caller: a
+        // caller that walks away (abort) must not retract a still-running create
+        // from the map, or the next caller starts a duplicate POST for the same
+        // prefix — the herd this singleflight exists to prevent.
+        createTask.finally(() => {
             if (geminiGlobalCacheCreates.get(globalCacheKey) === createTask) {
                 geminiGlobalCacheCreates.delete(globalCacheKey);
             }
-        }
+        });
+        // Owner path: same abort semantics as the waiters — the shared create
+        // continues even if this caller stops waiting.
+        const created = await awaitSharedCreate(createTask);
+        // A failed refresh must not silently retain a cache that may have
+        // expired or been evicted server-side. The caller proceeds uncached.
+        if (!created?.cacheName) return null;
+        _attachGeminiCacheState(opts, created, currentIter);
+        return created.cacheName;
     }
 
     async send(messages, model, tools, sendOpts) {

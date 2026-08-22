@@ -4,6 +4,7 @@
 // palette.
 import { useCallback } from 'react';
 import { slashQuery, slashArgumentHint, slashCommandTokenForPaletteAccept } from './slash-commands.mjs';
+import { supersedePanelEpoch } from './panel-epoch.mjs';
 
 export function usePromptDraftFlow({
   dismissWelcomePromptHint,
@@ -20,12 +21,8 @@ export function usePromptDraftFlow({
   slashDismissedFor,
   setSlashDismissedFor,
   providerPrompt,
-  channelPrompt,
-  hookPrompt,
   settingsPrompt,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
   oauthSubmitRef,
   openProjectPicker,
@@ -85,6 +82,9 @@ export function usePromptDraftFlow({
   }, [clearPromptHint, dismissWelcomePromptHint, resetPromptHistoryNav, showPromptHint, slashDismissedFor, syncPromptLayoutRows]);
 
   const cancelProviderPrompt = useCallback(() => {
+    // Esc takes the surface back: an in-flight save that acks later must not
+    // reopen/replace whatever the user does next.
+    supersedePanelEpoch();
     try { providerPrompt?.login?.cancel?.(); } catch {}
     oauthSubmitRef.current = false;
     const onCancel = providerPrompt?.cancelReturn || providerPrompt?.onCancel;
@@ -94,19 +94,9 @@ export function usePromptDraftFlow({
     else if (afterSave) afterSave();
   }, [providerPrompt, showPromptHint]);
 
-  const cancelChannelPrompt = useCallback(() => {
-    const onCancel = channelPrompt?.onCancel;
-    const afterSave = channelPrompt?.afterSave;
-    setChannelPrompt(null);
-    if (typeof onCancel === 'function') onCancel();
-    else if (typeof afterSave === 'function') afterSave();
-  }, [channelPrompt, showPromptHint]);
-
-  const cancelHookPrompt = useCallback(() => {
-    setHookPrompt(null);
-  }, [showPromptHint]);
-
   const cancelSettingsPrompt = useCallback(() => {
+    // Esc supersedes every in-flight settings write for this surface.
+    supersedePanelEpoch();
     // The project entry prompts are reached from the project picker; backing out
     // (Esc) should return to that picker rather than dropping to a bare prompt.
     const kind = settingsPrompt?.kind;
@@ -155,8 +145,6 @@ export function usePromptDraftFlow({
   return {
     onPromptDraftChange,
     cancelProviderPrompt,
-    cancelChannelPrompt,
-    cancelHookPrompt,
     cancelSettingsPrompt,
     acceptSlashPalette,
     completeSlashPalette,

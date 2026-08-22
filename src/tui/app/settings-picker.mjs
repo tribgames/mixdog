@@ -14,12 +14,11 @@ import { isVoiceEnabled, toggleVoice, isVoiceInstallBusy } from '../lib/voice-se
 export function createSettingsPicker({
   store,
   state,
-  setPicker,
+  surface,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
   settingsHeavyCacheRef,
+  settingsRequestRef,
   formatDuration,
   displayModelName,
   routeModelLabel,
@@ -42,7 +41,24 @@ export function createSettingsPicker({
   openMemoryCorePicker,
   openUpdatePicker,
 }) {
-  const openSettingsPicker = async (opts = {}) => {
+  // Build generation guard. Every open/refresh takes a ticket and Esc bumps it,
+  // so a slow snapshot from a superseded (or already closed) build can never
+  // re-open Settings. The ref is owned by App so it survives this per-render
+  // factory; a missing ref degrades to "always current".
+  const nextSettingsRequest = () => {
+    if (!settingsRequestRef) return 0;
+    settingsRequestRef.current = (Number(settingsRequestRef.current) || 0) + 1;
+    return settingsRequestRef.current;
+  };
+  const isCurrentSettingsRequest = (requestId) => (
+    !settingsRequestRef || settingsRequestRef.current === requestId
+  );
+  const buildSettingsPicker = async (opts = {}, requestId = 0) => {
+    // Surface claim (panel-surface.mjs), taken before the snapshot await. The
+    // request ticket above only invalidates builds that Settings' own Esc
+    // bumped; a close/handover of ANOTHER surface while this open is pending is
+    // caught here instead.
+    const own = surface.claim();
     const light = opts.light === true;
     const overrides = opts.overrides || null;
     const heavyCache = light ? settingsHeavyCacheRef.current : null;
@@ -72,6 +88,12 @@ export function createSettingsPicker({
     const workflowLabel = workflowDisplayName(workflow);
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
     const compactTypeDescription = 'Uses Memory recall to rebuild context faster on large histories.';
+    // Post-write refresh, bound to the claim AT ACTION TIME. Esc only
+    // invalidates builds that already exist, so a write settling afterwards
+    // would otherwise take a fresh generation and re-open the panel the user
+    // just closed. Called while BUILDING each chain, so the binding happens on
+    // the user's keypress, not on the ack.
+    const deferredSettingsRefresh = () => own.defer(() => refreshSettings());
     const applyAutoClear = (patch = {}) => {
       void Promise.resolve(store.setAutoClear?.(patch))
         .then((next) => {
@@ -79,7 +101,7 @@ export function createSettingsPicker({
           else store.pushNotice(next.enabled ? `Auto-clear on · idle ${formatDuration(next.idleMs)}` : 'Auto-clear off', 'info');
         })
         .catch((e) => store.pushNotice(`autoclear failed: ${e?.message || e}`, 'error'))
-        .finally(() => { void openSettingsPicker({ light: true }); });
+        .finally(deferredSettingsRefresh());
     };
     // On/Off toggle only — idle-window override lives in the Advanced picker
     // (openAutoClearPicker), opened via Enter on this row.
@@ -95,7 +117,7 @@ export function createSettingsPicker({
           store.pushNotice(`Compaction ${next.auto !== false ? 'auto on' : 'auto off'} · ${next.compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default'}`, 'info');
         })
         .catch((e) => store.pushNotice(`compaction failed: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker({ light: true }));
+        .finally(deferredSettingsRefresh());
     };
     // Voice toggle (moved from the retired Channels cluster): enabling
     // installs the managed whisper/ffmpeg runtime first time, then flips
@@ -106,7 +128,8 @@ export function createSettingsPicker({
         return;
       }
       void Promise.resolve(toggleVoice({ pushNotice: store.pushNotice, setProgressHint: store.setProgressHint }))
-        .finally(() => { void openSettingsPicker({ light: true }); });
+        .catch((e) => store.pushNotice(`voice setup failed: ${e?.message || e}`, 'error'))
+        .finally(deferredSettingsRefresh());
     };
     const applyToolModule = (label, setter, enabled) => {
       void Promise.resolve(setter?.(enabled))
@@ -115,7 +138,7 @@ export function createSettingsPicker({
           else store.pushNotice(`${label} ${enabled ? 'on' : 'off'} · new sessions`, 'info');
         })
         .catch((e) => store.pushNotice(`${label} setting failed: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker({ light: true }));
+        .finally(deferredSettingsRefresh());
     };
     const toggleWebSearch = () => applyToolModule('Web search', store.setWebSearchEnabled, !webSearchOn);
     const toggleMemory = () => applyToolModule('Memory', store.setMemoryToolsEnabled, !memoryToolsOn);
@@ -127,9 +150,13 @@ export function createSettingsPicker({
           else store.pushNotice(`Memory cycles ${enabled ? 'on' : 'off'}`, 'info');
         })
         .catch((e) => store.pushNotice(`Memory cycles setting failed: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker({ light: true }));
+        .finally(deferredSettingsRefresh());
     };
     const cycleOutputStyle = async (direction = 1) => {
+      // Epoch captured on the KEYPRESS, BEFORE the listOutputStyles preflight:
+      // taking it after that await would bind to whatever surface the user
+      // moved to meanwhile, and the refresh would re-open Settings over it.
+      const settled = deferredSettingsRefresh();
       let status = null;
       try { status = (await store.listOutputStyles?.()) || null; } catch (e) {
         store.pushNotice(`could not list output styles: ${e?.message || e}`, 'error');
@@ -152,9 +179,12 @@ export function createSettingsPicker({
           store.pushNotice(outputStyleNotice(result), 'info');
         })
         .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker({ light: true }));
+        .finally(settled);
     };
     const cycleWorkflow = async (direction = 1) => {
+      // Same as cycleOutputStyle: the epoch belongs to the keypress, not to the
+      // listWorkflows ack that lands after the user may have closed Settings.
+      const settled = deferredSettingsRefresh();
       let workflows = [];
       try { workflows = (await store.listWorkflows?.()) || []; } catch (e) {
         store.pushNotice(`could not list workflows: ${e?.message || e}`, 'error');
@@ -176,7 +206,7 @@ export function createSettingsPicker({
           store.pushNotice(workflowSwitchNotice(result), 'info');
         })
         .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'))
-        .finally(() => openSettingsPicker({ light: true }));
+        .finally(settled);
     };
     const cycleTheme = (direction = 1) => {
       let themes = [];
@@ -197,7 +227,7 @@ export function createSettingsPicker({
       } catch (e) {
         store.pushNotice(`Couldn’t set theme: ${e?.message || e}`, 'error');
       }
-      openSettingsPicker({ light: true });
+      refreshSettings();
     };
     // Row order groups by concern — routing/model first, then session
     // behavior, integrations, voice, system — and must stay in
@@ -213,7 +243,10 @@ export function createSettingsPicker({
       {
         value: 'websearch',
         label: 'Web search model',
-        meta: routeModelLabel(store.getWebSearchRoute?.()),
+        // From the one-shot snapshot: a direct getWebSearchRoute() here is an
+        // unresolved promise on a daemon-backed store, so the row rendered
+        // its "(unset)" default for every configured route.
+        meta: routeModelLabel(snapshot.webSearchRoute || null),
         description: 'Native web-search model.',
         _action: 'websearch',
       },
@@ -370,11 +403,13 @@ export function createSettingsPicker({
         _action: 'update',
       },
     ];
+    // A superseded build (newer open/refresh) or one whose panel was already
+    // closed with Esc must never paint or clear prompts.
+    if (!isCurrentSettingsRequest(requestId)) return;
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker({
+    own.paint({
       title: 'Settings',
       description: 'Runtime, model, tools, and integrations.',
       help: '↑/↓ Select · ←/→ Change · Enter Open/Toggle · Esc Close',
@@ -439,7 +474,7 @@ export function createSettingsPicker({
         else if (item._action === 'skills') openSkillsPicker();
         else if (item._action === 'memory') openMemoryCorePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'system-shell') {
-          setPicker(null);
+          own.close();
           setSettingsPrompt({
             kind: 'system-shell',
             label: 'System shell',
@@ -450,10 +485,26 @@ export function createSettingsPicker({
         else if (item._action === 'update') openUpdatePicker({ returnTo: openSettingsPicker });
       },
       onCancel: () => {
-        setPicker(null);
+        // Invalidate in-flight builds: Esc must win over a slow snapshot.
+        nextSettingsRequest();
+        own.close();
       },
     });
   };
+
+  // Public entry point. NEVER rejects: callers fire it detached
+  // (`void openSettingsPicker({ light: true })`, returnTo/onCancel handlers),
+  // so a failed daemon read must surface as a notice, not as a fatal
+  // unhandled rejection.
+  const openSettingsPicker = async (opts = {}) => {
+    const requestId = nextSettingsRequest();
+    try {
+      await buildSettingsPicker(opts, requestId);
+    } catch (error) {
+      store.pushNotice(`settings unavailable: ${error?.message || error}`, 'error');
+    }
+  };
+  const refreshSettings = () => { void openSettingsPicker({ light: true }); };
 
   return { openSettingsPicker };
 }

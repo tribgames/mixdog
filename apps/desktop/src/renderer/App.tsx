@@ -198,8 +198,7 @@ const OnboardingWizard = lazy(() => loadOnboardingWizardModule()
   .then((module) => ({ default: module.OnboardingWizard })));
 const CommandSurface = lazy(() => loadCommandSurfaceModule()
   .then((module) => ({ default: module.CommandSurface })));
-// Startup chunk warm-up (markdown now, diff on idle) lives in
-// app-idle-warmup.ts; importing it arms the schedule.
+// Route chunk warm-up is scheduled after startup settles below.
 import {
   DraftConversation,
   preloadUtilityDock,
@@ -233,6 +232,7 @@ import {
 import {
   WorkbenchSideIconBar,
   WorkbenchSidePanel,
+  initialActiveWorkbenchSideViews,
   useWorkbenchSideViewLayout,
   type WorkbenchSide,
   type WorkbenchSideTitleDragProps,
@@ -339,10 +339,10 @@ export function App() {
   const workbenchSideLayout = useWorkbenchSideViewLayout(availableSideViews);
   const [activeSideViews, setActiveSideViews] = useState<
     Record<WorkbenchSide, WorkbenchSideViewId | null>
-  >({
+  >(() => initialActiveWorkbenchSideViews(workbenchSideLayout.layout, {
     left: desktopFeatureEnabled("sessions") ? "sessions" : enabledSidebarViews[0] ?? null,
     right: desktopUtilityDockTabEnabled(dockTab) ? dockTab : null,
-  });
+  }));
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
@@ -555,19 +555,31 @@ export function App() {
     window.addEventListener("keydown", focusComposerForTyping, true);
     return () => window.removeEventListener("keydown", focusComposerForTyping, true);
   }, [focusedPaneSelection?.kind, paneWorkspace.focusedLeafId]);
-  // Studio's module chunk is heavy; entering a Studio tab cold paid the whole
-  // import at click time (user: 스튜디오 로딩이 너무 오래 걸린다). Prefetch it
-  // once the shell has settled and the main thread is idle.
+  // Warm route CODE as soon as startup settles, before the stricter desktop
+  // boot gate waits on every catalog. Hidden mounting and reference DATA still
+  // stay behind desktopBootReady below, so this removes click-time downloads
+  // without competing RPC hydration with the opening conversation.
   useEffect(() => {
     if (!startupSettled) return undefined;
-    const run = () => { void loadStudioViewModule().catch(() => {}); };
+    const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
+    const run = () => {
+      void loadStudioViewModule().catch(() => {});
+      if (nativeWindow) return;
+      void loadCommandSurfaceModule().catch(() => {});
+      if (connectionQuality() !== "normal") return;
+      void preloadUtilityDock().catch(() => {});
+      for (const panel of DEFAULT_SIDEBAR_VIEW_ORDER) {
+        if (!desktopSidebarDestinationEnabled(panel)) continue;
+        trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+      }
+    };
     if (typeof window.requestIdleCallback === "function") {
-      const handle = window.requestIdleCallback(run, { timeout: 5_000 });
+      const handle = window.requestIdleCallback(run, { timeout: nativeWindow ? 5_000 : 1_000 });
       return () => window.cancelIdleCallback?.(handle);
     }
-    const timer = window.setTimeout(run, 1_500);
+    const timer = window.setTimeout(run, nativeWindow ? 1_500 : 100);
     return () => window.clearTimeout(timer);
-  }, [startupSettled]);
+  }, [startupSettled, trackSidebarPanelModule]);
   // Callback-safe view of the active selection for tab-promotion decisions.
   const startupMeasured = useRef(false);
   useEffect(() => {
@@ -1150,7 +1162,16 @@ export function App() {
     // into the selection so pane moves and catalog refreshes cannot swap the
     // label for the child session's auto-generated title (user: 이동했다 오면
     // 네이밍이 이상해진다).
-    const pinnedTitle = fallbackTitle.trim();
+    // Re-entering an ALREADY OPEN tab (strip click, Ctrl+Tab, close fallback,
+    // resume-on-restart) calls in without a title. The pin the opener stored on
+    // that tab's selection is recovered here, so a worker label survives every
+    // return trip instead of degrading to the catalog placeholder.
+    const openedTab = tabs.find((tab) => tab.selection.kind === "session"
+      && tab.selection.id === sessionId);
+    const openedPinnedTitle = openedTab && openedTab.selection.kind === "session"
+      ? String(openedTab.selection.title || "").trim()
+      : "";
+    const pinnedTitle = fallbackTitle.trim() || openedPinnedTitle;
     void laneReady.finally(() => {
       if (navigationEpoch.current === navigationToken) setRequestedSessionId("");
     });
@@ -1876,30 +1897,47 @@ export function App() {
     applyDockOpen(false);
     bottomPanel.setOpen(false, "instant");
   }, [applyDockOpen, applySidebarOpen, bottomPanel]);
+  const prefetchWorkbenchSideView = useCallback((id: WorkbenchSideViewId) => {
+    if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
+      const panel = id as SidebarPanelKey;
+      trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+      return;
+    }
+    if (id !== "sessions") void preloadUtilityDock().catch(() => {});
+  }, [trackSidebarPanelModule]);
   const sideViewDescriptors = useMemo(() => new Map<
     WorkbenchSideViewId,
     WorkbenchSideViewDescriptor
   >([
     ["sessions", { id: "sessions", label: "Sessions", icon: MessageSquare }],
-    ["projects", { id: "projects", label: "Projects", icon: PanelsTopLeft }],
-    ["workflows", { id: "workflows", label: "Workflows", icon: Layers3 }],
-    ["schedules", { id: "schedules", label: "Schedules", icon: Clock }],
-    ["webhooks", { id: "webhooks", label: "Webhooks", icon: Webhook }],
-    ["utilities", { id: "utilities", label: "Utilities", icon: WandSparkles }],
-    ["agents", { id: "agents", label: "Agents", icon: Bot }],
-    ["search", { id: "search", label: "Search", icon: Search }],
+    ["projects", { id: "projects", label: "Projects", icon: PanelsTopLeft,
+      onPrefetch: () => prefetchWorkbenchSideView("projects") }],
+    ["workflows", { id: "workflows", label: "Workflows", icon: Layers3,
+      onPrefetch: () => prefetchWorkbenchSideView("workflows") }],
+    ["schedules", { id: "schedules", label: "Schedules", icon: Clock,
+      onPrefetch: () => prefetchWorkbenchSideView("schedules") }],
+    ["webhooks", { id: "webhooks", label: "Webhooks", icon: Webhook,
+      onPrefetch: () => prefetchWorkbenchSideView("webhooks") }],
+    ["utilities", { id: "utilities", label: "Utilities", icon: WandSparkles,
+      onPrefetch: () => prefetchWorkbenchSideView("utilities") }],
+    ["agents", { id: "agents", label: "Agents", icon: Bot,
+      onPrefetch: () => prefetchWorkbenchSideView("agents") }],
+    ["search", { id: "search", label: "Search", icon: Search,
+      onPrefetch: () => prefetchWorkbenchSideView("search") }],
     ["source-control", {
       id: "source-control",
       label: "Source Control",
       icon: GitCompare,
+      onPrefetch: () => prefetchWorkbenchSideView("source-control"),
     }],
     ["pull-requests", {
       id: "pull-requests",
       label: "Pull Requests",
       tooltip: "GitHub Pull Requests",
       icon: Github,
+      onPrefetch: () => prefetchWorkbenchSideView("pull-requests"),
     }],
-  ]), []);
+  ]), [prefetchWorkbenchSideView]);
   const setSideOpen = useCallback((side: WorkbenchSide, open: boolean) => {
     if (side === "left") applySidebarOpen(open);
     else applyDockOpen(open);
@@ -2088,12 +2126,17 @@ export function App() {
       ? registeredProjectPath(sessionRow?.projectPath || "")
       : prefs.projectPath;
     const paneProjectLabel = projectChromeLabel(paneProjectPath);
+    // An agent worker session is deliberately absent from the session catalog
+    // (owner === 'agent' is filtered out), so `sessionRow` is undefined and a
+    // catalog-derived title degrades to the "Untitled session" placeholder.
+    // The title its opener pinned — the worker tag from the Agents panel — is
+    // the authoritative label here, so it outranks the catalog lookup.
+    const pinnedPaneTitle = presentedSelection.kind === "session"
+      ? String(presentedSelection.title || "").trim()
+      : "";
     const paneTitle = paneSessionId
-      ? sessionRow
-        ? sessionSummaryTitle(sessionRow)
-        : presentedSelection.kind === "session" && presentedSelection.title
-          ? presentedSelection.title
-          : "Untitled session"
+      ? pinnedPaneTitle
+        || (sessionRow ? sessionSummaryTitle(sessionRow) : "Untitled session")
       : "New task";
     const focusedDraft = focused && Boolean(draftKey);
     const focusedSession = focused && Boolean(paneSessionId);

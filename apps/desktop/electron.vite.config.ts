@@ -1,6 +1,5 @@
 // electron-vite configuration for the desktop app.
 // Third-party derivation notices: NOTICE.md at the repository root.
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -45,21 +44,80 @@ const localFontDisplayFallback: Plugin = {
   },
 };
 
-// boot.js lives in publicDir, so it ships WITHOUT a content hash even though
-// it decides the viewport projection for the whole document and is version-
-// locked to the bundle index.html loads. A phone that had cached an older copy
-// kept pairing it with a fresh bundle: the stale script pinned the 1040px
-// desktop projection while the new bundle marked the phone, so the ≤760px
-// grammar never fired and settings/model/task rows rendered half-projected
-// (user: 모바일 분기 안 타는 것처럼). index.html is served no-cache, so
-// stamping the reference with the file's own hash gives every revision a fresh
-// URL and retires the cached copy on the next load.
-const bootScriptVersion: Plugin = {
-  name: 'mixdog-boot-script-version',
+// This tiny first-paint script must run before CSS or the renderer, but an
+// external classic script blocks HTML parsing for a full relay round trip.
+// Inline the public source into the no-cache document; the relay derives the
+// matching CSP hash from the copied boot.js beside index.html.
+const inlineBootScript: Plugin = {
+  name: 'mixdog-inline-boot-script',
   transformIndexHtml(html) {
-    const source = readFileSync(resolve(__dirname, 'src/renderer/public/boot.js'));
-    const version = createHash('sha256').update(source).digest('hex').slice(0, 8);
-    return html.replace('src="./boot.js"', `src="./boot.js?v=${version}"`);
+    const source = readFileSync(
+      resolve(__dirname, 'src/renderer/public/boot.js'),
+      'utf8',
+    );
+    return html.replace(
+      '<script src="./boot.js"></script>',
+      `<script>${source}</script>`,
+    );
+  },
+};
+
+// The built document names only the 2 KB entry chunk. Everything the first
+// screen needs — the stylesheet, React, the language catalog and the app
+// bundle — is discovered by RUNNING that chunk, so a phone pays four relay
+// round trips in a row before anything can paint (user: 늦게 생성되기도 한다).
+// Name them in the document instead, inside an INERT <template>: a browser tab
+// renders only the install guide, and boot.js moves the hints into the head
+// exactly when the installed app is the surface that will use them.
+const FIRST_SCREEN_CHUNK_NAMES = new Set([
+  'remote-shim',
+  'mobile-surface',
+  'i18n',
+  'react-vendor',
+  'ui-vendor',
+  'bootstrap',
+]);
+const FIRST_SCREEN_STYLE_NAMES = new Set(['bootstrap-styles.css']);
+
+const firstScreenHints: Plugin = {
+  name: 'mixdog-first-screen-hints',
+  enforce: 'post',
+  transformIndexHtml: {
+    order: 'post',
+    handler(html, context) {
+      const placeholder = '<!--mixdog-first-screen-->';
+      if (!html.includes(placeholder)) return html;
+      // The dev server has no bundle: the entry is served unhashed and the
+      // hints would name files that do not exist yet.
+      if (!context.bundle) return html.replace(placeholder, '');
+      const styles: string[] = [];
+      const modules: string[] = [];
+      for (const output of Object.values(context.bundle)) {
+        const name = output.name ?? '';
+        if (output.type === 'asset') {
+          if (FIRST_SCREEN_STYLE_NAMES.has(name)) {
+            styles.push(`<link rel="stylesheet" href="./${output.fileName}">`);
+          }
+        } else if (FIRST_SCREEN_CHUNK_NAMES.has(name)) {
+          modules.push(`<link rel="modulepreload" crossorigin href="./${output.fileName}">`);
+        }
+      }
+      // Renaming a first-screen module is not an error, but silently losing the
+      // hint would put the serial boot back without anyone noticing.
+      if (styles.length !== FIRST_SCREEN_STYLE_NAMES.size
+        || modules.length !== FIRST_SCREEN_CHUNK_NAMES.size) {
+        console.warn(
+          `[mixdog] first-screen hints matched ${styles.length}/${FIRST_SCREEN_STYLE_NAMES.size}`
+          + ` styles and ${modules.length}/${FIRST_SCREEN_CHUNK_NAMES.size} modules;`
+          + ' the web app boots the missing ones serially.',
+        );
+      }
+      const hints = [...styles, ...modules].join('');
+      return html.replace(
+        placeholder,
+        hints ? `<template id="mixdog-first-screen">${hints}</template>` : '',
+      );
+    },
   },
 };
 
@@ -168,7 +226,7 @@ export default defineConfig({
         },
       },
     },
-    plugins: [localFontDisplayFallback, bootScriptVersion, react()],
+    plugins: [localFontDisplayFallback, inlineBootScript, firstScreenHints, react()],
     server: {
       host: '127.0.0.1',
     },

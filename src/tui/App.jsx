@@ -73,6 +73,8 @@ import {
   memoryCoreResultErrorText,
 } from './app/input-parsers.mjs';
 import { copyToClipboard } from './app/clipboard.mjs';
+import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './app/panel-epoch.mjs';
+import { createPanelSurface } from './app/panel-surface.mjs';
 import { wrappedTextRows, promptContentRows, wrappedDetailRows, textEntryReservedRows, queuedBandRows } from './app/text-layout.mjs';
 import stringWidth from 'string-width';
 import { useMouseInput } from './app/use-mouse-input.mjs';
@@ -348,7 +350,17 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const setPicker = useCallback((next) => {
     // Synchronous ref update so out-of-band setPicker(null/other) is visible to
     // in-flight async guards immediately, before React commits the next render.
-    livePickerRef.current = typeof next === 'function' ? next(livePickerRef.current) : next;
+    const previousPicker = livePickerRef.current;
+    livePickerRef.current = typeof next === 'function' ? next(previousPicker) : next;
+    // A real handover — closing the panel (open → null) OR replacing it with a
+    // different panel — gives the surface to what the user is looking at now:
+    // supersede every deferred paint issued before this point so a daemon write
+    // settling afterwards cannot resurrect the dismissed panel or clobber the
+    // panel that replaced it. Rebuilding the SAME panel keeps ownership (its
+    // own refresh must land), and a redundant null → null (or a first open) is
+    // not a handover and must not invalidate the in-flight write of a
+    // text-entry prompt that is currently on screen.
+    if (shouldSupersedePanelEpoch(previousPicker, livePickerRef.current)) supersedePanelEpoch();
     setPickerState((prev) => {
       const resolved = typeof next === 'function' ? next(prev) : next;
       if (resolved && typeof resolved === 'object' && pickerOpenedFromEnterRef.current) {
@@ -377,35 +389,40 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   livePickerRef.current = picker;
   const [contextPanel, setContextPanel] = useState(null);
   const [usagePanel, setUsagePanel] = useState(null);
-  const usageRequestRef = useRef(0);
+  // OWNING LAYER (app/panel-surface.mjs): the three sinks above are handed over
+  // exactly once and never leave that module. Every panel factory below gets
+  // `surface` instead, so painting or delegating without a claim that proves
+  // ownership is not expressible outside this file. Stable across renders — the
+  // usage generation lives inside it.
+  const surfaceRef = useRef(null);
+  if (!surfaceRef.current) {
+    surfaceRef.current = createPanelSurface({ setPicker, setContextPanel, setUsagePanel });
+  }
+  const surface = surfaceRef.current;
   // Cache of the last computed heavy settings-picker status objects (MCP,
   // hooks, plugins, skills, channel provider). ←/→ cycle/toggle handlers in
   // openSettingsPicker() pass { light: true } to reuse this cache instead of
   // re-querying these heavy getters on every keystroke; only a full open
   // (initial /config or Esc-return) recomputes them.
   const settingsHeavyCacheRef = useRef(null);
-  const closeUsagePanel = useCallback(() => {
-    usageRequestRef.current += 1;
-    setUsagePanel(null);
-  }, []);
+  // Settings build generation: every open/refresh takes a ticket and Esc bumps
+  // it, so a slow (daemon) snapshot from a superseded build cannot re-open the
+  // panel after it was closed.
+  const settingsRequestRef = useRef(0);
+  const closeUsagePanel = useCallback(() => surface.closeUsage(), [surface]);
   const [providerPrompt, setProviderPrompt] = useState(null);
   const oauthSubmitRef = useRef(false);
-  const [channelPrompt, setChannelPrompt] = useState(null);
-  const [hookPrompt, setHookPrompt] = useState(null);
   const [settingsPrompt, setSettingsPrompt] = useState(null);
-  // Instantiate the project-picker cluster now that setPicker + every prompt
+  // Instantiate the project-picker cluster now that the surface + every prompt
   // setter and the usage-panel closer exist. projectPickerRef (declared above,
   // before the picker useState) is populated here so first-mount build and all
   // later callers resolve the same set of builders.
   const projectPicker = createProjectPicker({
     state,
     store,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
-    setContextPanel,
     closeUsagePanel,
     projectNameFromPath,
     pickFolder,
@@ -609,12 +626,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   } = createAppPickers({
     state,
     store,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
-    setContextPanel,
     setOnboardingActive,
     closeUsagePanel,
     oauthSubmitRef,
@@ -625,6 +639,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     modelPickerRequestRef,
     onboardingPrefetchSeqRef,
     settingsHeavyCacheRef,
+    settingsRequestRef,
     livePickerRef,
     disabledSkills,
     setDisabledSkills,
@@ -823,7 +838,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const { hasUserMessages, openMessageSelector } = useMessageSelector({
     store,
     state,
-    setPicker,
+    surface,
     setPromptDraftOverride,
     syncPromptLayoutRows,
     showPromptHint,
@@ -849,7 +864,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setPastedImages,
     setPastedTexts,
     setPromptDraftOverride,
-    setContextPanel,
+    surface,
     syncPromptLayoutRows,
     showPromptHint,
     clearPromptHint,
@@ -883,7 +898,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     picker,
     usagePanel,
     contextPanel,
-    setContextPanel,
+    surface,
     closeUsagePanel,
     isRawModeSupported,
     resizeState,
@@ -906,14 +921,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const { openUsagePanel, openContextPicker } = createUsageContextPanels({
     store,
     state,
-    usageRequestRef,
-    setPicker,
+    surface,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
-    setContextPanel,
-    setUsagePanel,
     closeUsagePanel,
   });
 
@@ -960,17 +970,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     store,
     state,
     providerPrompt,
-    channelPrompt,
-    hookPrompt,
     settingsPrompt,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
     oauthSubmitRef,
     clearModelCaches,
     openProviderSetupPicker,
-    openHooksPicker,
     openSettingsPicker,
     openProjectPicker,
     openAutoClearPicker,
@@ -988,7 +993,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     pastedTextsRef,
   });
 
-  const activeSlashQuery = providerPrompt || channelPrompt || hookPrompt || settingsPrompt || toolApproval || contextPanel || usagePanel ? null : slashQuery(promptDraft);
+  const activeSlashQuery = providerPrompt || settingsPrompt || toolApproval || contextPanel || usagePanel ? null : slashQuery(promptDraft);
   // "Slash mode" is live whenever a /token is being edited and no other
   // surface owns the floating area. The palette stays OPEN for the whole
   // slash session — including 0-match frames — so its 14-row layout never
@@ -1009,8 +1014,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     contextPanel: !!contextPanel,
     usagePanel: !!usagePanel,
     providerPrompt: !!providerPrompt,
-    channelPrompt: !!channelPrompt,
-    hookPrompt: !!hookPrompt,
     settingsPrompt: !!settingsPrompt,
   };
 
@@ -1023,8 +1026,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const {
     onPromptDraftChange,
     cancelProviderPrompt,
-    cancelChannelPrompt,
-    cancelHookPrompt,
     cancelSettingsPrompt,
     acceptSlashPalette,
     completeSlashPalette,
@@ -1044,12 +1045,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     slashDismissedFor,
     setSlashDismissedFor,
     providerPrompt,
-    channelPrompt,
-    hookPrompt,
     settingsPrompt,
     setProviderPrompt,
-    setChannelPrompt,
-    setHookPrompt,
     setSettingsPrompt,
     oauthSubmitRef,
     openProjectPicker,
@@ -1070,8 +1067,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // Transcript viewport + bottom-cluster row budget: app/shell-layout.mjs.
   const layout = computeShellLayout({
     providerPrompt,
-    channelPrompt,
-    hookPrompt,
     settingsPrompt,
     panelTransitionEpoch,
     panelInkMaskEpoch,
@@ -1194,7 +1189,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setMeasuredRowsVersion,
   });
   const cycleWorkflowFromPrompt = useCallback(() => {
-    if (slashPaletteOpen || toolApproval || picker || settingsPrompt || providerPrompt || channelPrompt || hookPrompt || contextPanel || usagePanel) return true;
+    if (slashPaletteOpen || toolApproval || picker || settingsPrompt || providerPrompt || contextPanel || usagePanel) return true;
     const repeatGuardMs = 300;
     const cycleGuard = workflowTabCycleRef.current;
     const now = Date.now();
@@ -1236,7 +1231,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
         cycleGuard.lastAt = Date.now();
       });
     return true;
-  }, [slashPaletteOpen, toolApproval, picker, settingsPrompt, providerPrompt, channelPrompt, hookPrompt, contextPanel, usagePanel, state.commandBusy, state.workflow, store]);
+  }, [slashPaletteOpen, toolApproval, picker, settingsPrompt, providerPrompt, contextPanel, usagePanel, state.commandBusy, state.workflow, store]);
   // The hardware/IME caret is parked by PromptInput from its OWN measured box
   // position (ink useCursor + useBoxMetrics) — correct now that the transcript
   // is a live column, so the live-frame line count ink relies on is accurate.
@@ -1247,12 +1242,9 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     activeSlashQuery,
     activeTools,
     agentRevision,
-    cancelChannelPrompt,
-    cancelHookPrompt,
     cancelProviderPrompt,
     cancelSettingsPrompt,
     cancelSlashPalette,
-    channelPrompt,
     clearPromptHint,
     completeSlashPalette,
     contextPanel,
@@ -1265,7 +1257,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     handlePromptInterrupt,
     handlePromptPaste,
     hasUserMessages,
-    hookPrompt,
     initialStatusLine,
     onPromptDraftChange,
     onSubmit,
@@ -1288,7 +1279,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     resizeEpoch,
     resizeState,
     restoreQueuedToPrompt,
-    setPicker,
     setSlashIndex,
     setTextEntryLayoutRows,
     settingsPrompt,
@@ -1298,6 +1288,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     state,
     statuslineStats,
     store,
+    surface,
     toolApproval,
     toolOutputExpanded,
     transcriptMeasureRef,

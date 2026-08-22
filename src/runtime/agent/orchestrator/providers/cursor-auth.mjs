@@ -10,7 +10,29 @@ const LOGIN_URL = 'https://cursor.com/loginDeepControl';
 const POLL_URL = 'https://api2.cursor.sh/auth/poll';
 const REFRESH_URL = 'https://api2.cursor.sh/auth/exchange_user_api_key';
 const REFRESH_SKEW_MS = 5 * 60_000;
+// Upper bound for the SHARED token exchange. It replaces the first caller's
+// abort signal, which must never govern work every other waiter depends on.
+const REFRESH_TIMEOUT_MS = 30_000;
 let refreshInFlight = null;
+
+// Wait on the shared refresh while still honouring THIS caller's abort signal.
+// Aborting only ends this caller's wait; the exchange keeps running for the
+// remaining waiters and still publishes its result.
+function awaitSharedRefresh(promise, signal) {
+    if (!(signal instanceof AbortSignal)) return promise;
+    const abortError = () => (signal.reason instanceof Error
+        ? signal.reason
+        : new Error('Cursor token refresh wait aborted'));
+    if (signal.aborted) return Promise.reject(abortError());
+    return new Promise((resolve, reject) => {
+        const onAbort = () => reject(abortError());
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            (value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+            (err) => { signal.removeEventListener('abort', onAbort); reject(err); },
+        );
+    });
+}
 
 function credentialsPath() {
     const bound = boundProviderAuthPath('cursor-oauth');
@@ -231,7 +253,15 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
             if (!latest.refresh_token) {
                 throw new Error('Cursor OAuth refresh token is unavailable. Open /providers in Mixdog to sign in again.');
             }
-            const next = await exchangeCursorToken(latest.refresh_token, { fetchFn, signal });
+            // Deliberately NOT the caller's signal: this exchange is shared by
+            // every concurrent waiter, so letting the first caller's abort
+            // (turn cancel / session close) kill it would fail the refresh for
+            // all of them and leave the process without a usable token. Its own
+            // timeout bounds the request instead.
+            const next = await exchangeCursorToken(latest.refresh_token, {
+                fetchFn,
+                signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+            });
             if (!process.env.CURSOR_ACCESS_TOKEN) {
                 saveCredentials(next);
             }
@@ -242,7 +272,9 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
             secret: true,
         })
             .finally(() => { refreshInFlight = null; });
+        // Every waiter may abandon its wait; keep the shared rejection observed.
+        refreshInFlight.catch(() => {});
     }
-    tokens = await refreshInFlight;
+    tokens = await awaitSharedRefresh(refreshInFlight, signal);
     return tokens.access_token;
 }

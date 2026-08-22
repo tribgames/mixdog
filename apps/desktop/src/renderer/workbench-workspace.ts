@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type {
   DesktopWorkspace,
@@ -56,24 +56,6 @@ export function normalizedWorkspace(value: unknown): DesktopWorkspace | null {
   };
 }
 
-export function workspaceWithFolder(
-  workspace: DesktopWorkspace,
-  folder: DesktopWorkspaceFolder,
-): DesktopWorkspace {
-  const folders = [...workspace.folders];
-  const existing = folders.findIndex((entry) => pathKey(entry.path) === pathKey(folder.path));
-  if (existing >= 0) folders[existing] = { ...folders[existing], ...folder };
-  else folders.push(folder);
-  return {
-    ...workspace,
-    kind: workspace.workspaceFile || folders.length > 1 ? 'workspace' : 'folder',
-    name: workspace.workspaceFile
-      ? workspace.name
-      : folders.length === 1 ? folders[0].name || folderName(folders[0].path) : 'Untitled Project',
-    folders,
-  };
-}
-
 function readStoredWorkspace(): DesktopWorkspace | null {
   try {
     const raw = window.localStorage.getItem(WORKBENCH_WORKSPACE_KEY);
@@ -83,24 +65,17 @@ function readStoredWorkspace(): DesktopWorkspace | null {
   }
 }
 
+/**
+ * The multi-root Project model consumed by the shell (editor settings scope,
+ * dock search roots). It is READ-ONLY here on purpose: this build ships no
+ * Project open/add/remove/save/close surface, so the mutators — and the
+ * write-back that only ever rewrote what it had just read — were removed
+ * instead of being left consumerless. An explicit Project persisted by an
+ * older build still restores; the entry points return together with the
+ * multi-root UI that can address individual folders.
+ */
 export function useWorkbenchWorkspace(fallbackFolder: string) {
-  const [explicitWorkspace, setExplicitWorkspace] = useState<DesktopWorkspace | null>(
-    readStoredWorkspace,
-  );
-  useEffect(() => {
-    try {
-      if (explicitWorkspace) {
-        window.localStorage.setItem(
-          WORKBENCH_WORKSPACE_KEY,
-          JSON.stringify(explicitWorkspace),
-        );
-      } else {
-        window.localStorage.removeItem(WORKBENCH_WORKSPACE_KEY);
-      }
-    } catch {
-      // Workspace persistence is a convenience only.
-    }
-  }, [explicitWorkspace]);
+  const [explicitWorkspace] = useState<DesktopWorkspace | null>(readStoredWorkspace);
 
   const workspace = useMemo<DesktopWorkspace>(() => {
     if (explicitWorkspace) return explicitWorkspace;
@@ -118,73 +93,5 @@ export function useWorkbenchWorkspace(fallbackFolder: string) {
       };
   }, [explicitWorkspace, fallbackFolder]);
 
-  const openFolder = useCallback(async () => {
-    const api = window.mixdogDesktop;
-    const path = await api?.chooseProject();
-    if (!path) return;
-    await api?.addProject(path);
-    setExplicitWorkspace({
-      kind: 'folder',
-      name: folderName(path),
-      folders: [{ path }],
-    });
-  }, []);
-
-  const openWorkspace = useCallback(async () => {
-    const next = await window.mixdogDesktop?.chooseWorkspace?.();
-    if (next) setExplicitWorkspace(next);
-  }, []);
-
-  const addFolder = useCallback(async () => {
-    const api = window.mixdogDesktop;
-    const path = await api?.chooseProject();
-    if (!path) return;
-    await api?.addProject(path);
-    setExplicitWorkspace((current) => workspaceWithFolder(
-      current ?? workspace,
-      { path },
-    ));
-  }, [workspace]);
-
-  const removeFolder = useCallback((path: string) => {
-    setExplicitWorkspace((current) => {
-      const source = current ?? workspace;
-      const folders = source.folders.filter((folder) => pathKey(folder.path) !== pathKey(path));
-      return {
-        ...source,
-        kind: source.workspaceFile || folders.length > 1 ? 'workspace'
-          : folders.length === 1 ? 'folder' : 'empty',
-        name: source.workspaceFile
-          ? source.name
-          : folders.length === 1 ? folders[0].name || folderName(folders[0].path) : 'Project',
-        folders,
-      };
-    });
-  }, [workspace]);
-
-  const saveWorkspace = useCallback(async () => {
-    const saved = await window.mixdogDesktop?.saveWorkspace?.(
-      workspace.workspaceFile ?? null,
-      workspace.folders,
-    );
-    if (saved) setExplicitWorkspace(saved);
-  }, [workspace]);
-
-  const closeWorkspace = useCallback(() => {
-    setExplicitWorkspace({
-      kind: 'empty',
-      name: 'Project',
-      folders: [],
-    });
-  }, []);
-
-  return {
-    workspace,
-    openFolder,
-    openWorkspace,
-    addFolder,
-    removeFolder,
-    saveWorkspace,
-    closeWorkspace,
-  };
+  return { workspace };
 }

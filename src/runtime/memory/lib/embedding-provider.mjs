@@ -151,12 +151,16 @@ function sendToWorker(action, extra = {}, timeoutMs = EMBED_WORKER_TIMEOUT_MS) {
     const timer = setTimeout(() => {
       _pending.delete(id)
       __mixdogMemoryLog(`[embed] worker ${action} timed out — terminating worker\n`)
-      if (worker) {
-        const stuck = worker
+      // Retire the worker this request was actually posted to. Reading the
+      // module-level `worker` here killed whatever worker happened to be
+      // current — after a restart that is a healthy replacement, so one stuck
+      // request cascaded into terminating its successor.
+      if (worker === w) {
         worker = null
+        _modelReady = false
         _restartCount++
-        stuck.terminate().catch(() => {})
       }
+      w.terminate().catch(() => {})
       reject(new Error(`embed worker ${action} timed out after ${timeoutMs}ms`))
     }, timeoutMs)
     _pending.set(id, {

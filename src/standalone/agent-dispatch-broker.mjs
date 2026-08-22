@@ -1,4 +1,5 @@
 import { createFairCallScheduler } from './fair-call-scheduler.mjs';
+import { hashStructuredValue } from '../runtime/shared/json-metrics.mjs';
 
 const MEMORY_AGENTS = Object.freeze([
   'cycle1-agent',
@@ -11,6 +12,20 @@ function abortError(signal) {
   return signal?.reason instanceof Error
     ? signal.reason
     : new Error(String(signal?.reason || 'agent dispatch canceled'));
+}
+
+/** Identity of a dispatch PAYLOAD. A retry repeats it exactly; a caller that
+ *  reuses a callId for different work is issuing a different call. */
+function dispatchSignature(agent, params) {
+  try {
+    return hashStructuredValue({
+      agent,
+      prompt: String(params?.prompt ?? ''),
+      preset: params?.preset ?? null,
+      cwd: typeof params?.cwd === 'string' ? params.cwd : null,
+      timeout: Number.isFinite(Number(params?.timeout)) ? Number(params.timeout) : null,
+    });
+  } catch { return null; }
 }
 
 function awaitSharedPreparation(promise, signal) {
@@ -113,8 +128,24 @@ export function createAgentDispatchBroker({
     if (!prompt) return Promise.reject(new Error(`agent dispatch prompt required for "${agent}"`));
 
     const id = String(callId || `broker-${process.pid}-${++nextCallId}`);
+    const signature = dispatchSignature(agent, params);
     const existing = inFlight.get(id);
-    if (existing) return existing.promise;
+    if (existing) {
+      // Scope note: a broker callId dedupes CONCURRENT duplicates only. The
+      // memory client mints a fresh id per dispatch and cancels instead of
+      // replaying (runtime/memory/lib/agent-ipc.mjs callAgentDispatch), so a
+      // settled id carries no promise and needs no retained result.
+      // Within that window a callId is still an idempotency key, not an
+      // overwrite slot: answering a different payload from an unrelated
+      // in-flight run is silent data loss.
+      if (signature && existing.signature && existing.signature !== signature) {
+        return Promise.reject(Object.assign(
+          new Error(`agent dispatch callId '${id}' was reused with a different payload`),
+          { code: 'ECALLIDCONFLICT' },
+        ));
+      }
+      return existing.promise;
+    }
 
     const controller = new AbortController();
     const abortFromCaller = () => {
@@ -146,7 +177,7 @@ export function createAgentDispatchBroker({
       if (inFlight.get(id) === record) inFlight.delete(id);
       try { onActivityChanged?.(snapshot()); } catch {}
     });
-    record = { controller, promise: tracked };
+    record = { controller, promise: tracked, signature };
     inFlight.set(id, record);
     try { onActivityChanged?.(snapshot()); } catch {}
     return tracked;

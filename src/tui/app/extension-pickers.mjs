@@ -2,9 +2,9 @@
  * extension-pickers.mjs — MCP / Skills / Plugins / Hooks picker cluster.
  *
  * Extracted from App.jsx behavior-preservingly as a dependency-injection
- * factory. These openers drive setPicker + setSettingsPrompt and read live
- * store state, so they can't be pure. Every function body is the original App
- * logic verbatim, with closure identifiers threaded through the factory
+ * factory. These openers drive the panel surface + setSettingsPrompt and read
+ * live store state, so they can't be pure. Every function body is the original
+ * App logic verbatim, with closure identifiers threaded through the factory
  * argument. `disabledSkills` is read fresh via getDisabledSkills() so toggles
  * observe the latest state at call time. openMcpPicker is exposed for the
  * plugin-detail enable-mcp path (also aliased on the App body).
@@ -14,11 +14,9 @@ export function createExtensionPickers({
   theme,
   clean,
   copyToClipboard,
-  setPicker,
+  surface,
   getPicker,
   setProviderPrompt,
-  setChannelPrompt,
-  setHookPrompt,
   setSettingsPrompt,
   getDisabledSkills,
   setDisabledSkills,
@@ -43,6 +41,9 @@ export function createExtensionPickers({
   };
 
   const openMcpServersPicker = async (options = {}) => {
+    // Surface claim (panel-surface.mjs): the status read below is a daemon
+    // round-trip, so Esc can land before this panel ever paints.
+    const own = surface.claim();
     const status = await mcpStatus();
     if (!status) return;
     const servers = status.servers || [];
@@ -72,9 +73,8 @@ export function createExtensionPickers({
         _enabled: enabled,
       });
     }
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
     const toggleServer = (item) => {
       if (item._action !== 'server' || !item._server?.name) return;
@@ -101,7 +101,7 @@ export function createExtensionPickers({
           settle(() => openMcpServersPicker({ highlightValue }));
         });
     };
-    setPicker({
+    own.paint({
       _kind: 'mcp-servers',
       title: 'MCP servers',
       description: 'Enable or disable configured MCP servers.',
@@ -114,7 +114,7 @@ export function createExtensionPickers({
         // Leaving the picker invalidates any in-flight settle.
         mcpActive = false;
         mcpEpoch++;
-        setPicker(null);
+        own.close();
       },
     });
     mcpActive = true;
@@ -136,6 +136,7 @@ export function createExtensionPickers({
   };
 
   const openProjectSkillsPicker = async () => {
+    const own = surface.claim();
     const status = await skillsStatus();
     if (!status) return;
     const skills = status.skills || [];
@@ -157,27 +158,27 @@ export function createExtensionPickers({
         _skill: skill,
       });
     }
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker({
+    own.paint({
       title: 'Project skills',
       description: 'Skills bundled with this project.',
       items,
       onSelect: (_value, item) => {
-        setPicker(null);
+        own.close();
         if (item._action !== 'view') return;
         openSkillDetailPicker(item._skill);
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         void openSkillsPicker();
       },
     });
   };
 
   const openSkillsPicker = async (options = {}) => {
+    const own = surface.claim();
     // Reuse the skills list already fetched by the opening call when a toggle
     // reopens the picker: avoids a store.skillsStatus() round-trip per keypress.
     let skills;
@@ -211,9 +212,8 @@ export function createExtensionPickers({
         _enabled: enabled,
       });
     }
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
     const toggleSkill = (item) => {
       if (item._action !== 'skill' || !item._skill?.name) return;
@@ -227,7 +227,7 @@ export function createExtensionPickers({
       );
       openSkillsPicker({ highlightValue: name, disabledOverride: next, skills });
     };
-    setPicker({
+    own.paint({
       _kind: 'skills',
       title: 'Skills',
       description: 'Enable or disable project skills.',
@@ -237,14 +237,17 @@ export function createExtensionPickers({
       onLeft: (item) => toggleSkill(item),
       onRight: (item) => toggleSkill(item),
       onCancel: () => {
-        setPicker(null);
+        own.close();
       },
     });
   };
 
   const openSkillDetailPicker = (skill) => {
+    // Synchronous detail panel for an Enter on a skill row: an ordinary claimed
+    // paint — nothing async precedes it, and the claim proves it anyway.
+    const own = surface.claim();
     const disabled = getDisabledSkills().has(skill.name);
-    setPicker({
+    own.paint({
       title: `Skill · ${skill.name}`,
       description: clean(skill.description) || 'Enable, disable, or run this skill.',
       items: [
@@ -262,7 +265,7 @@ export function createExtensionPickers({
         },
       ],
       onSelect: (_value, item) => {
-        setPicker(null);
+        own.close();
         if (item._action === 'enable') {
           setDisabledSkills((current) => {
             const next = new Set(current);
@@ -294,7 +297,7 @@ export function createExtensionPickers({
         }
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         void openSkillsPicker();
       },
     });
@@ -312,12 +315,15 @@ export function createExtensionPickers({
   };
 
   const beginAddPlugin = () => {
-    setPicker(null);
+    surface.claim().close();
     setSettingsPrompt({ kind: 'plugin-add', label: 'Plugin URL', hint: 'Git URL, owner/repo, or local path' });
   };
 
   const openPluginDetailPicker = (p) => {
-    setPicker({
+    // Synchronous detail panel for an Enter on a plugin row: an ordinary
+    // claimed paint — the data is already in hand.
+    const own = surface.claim();
+    own.paint({
       title: p.title || p.name,
       description: clean(p.description) || 'Update, MCP, or uninstall this plugin.',
       items: [
@@ -359,7 +365,8 @@ export function createExtensionPickers({
         },
       ],
       onSelect: (_detailValue, detail) => {
-        setPicker(null);
+        // Clear-and-continue: the reopens below are bound to this keypress.
+        own.paint(null);
         if (detail._action === 'info') {
           store.pushNotice([
             `${p.title || p.name}${p.version ? ` ${p.version}` : ''}`,
@@ -372,14 +379,16 @@ export function createExtensionPickers({
           return;
         }
         if (detail._action === 'update') {
+          // Post-write delegation: the reopen is bound to the claim of this
+          // keypress, so an ack after Esc cannot re-open the plugin list.
           void store.updatePlugin?.(p)
-            .then(() => openInstalledPluginsPicker())
+            .then(own.defer(() => openInstalledPluginsPicker()))
             .catch((e) => store.pushNotice(`plugin update failed: ${e?.message || e}`, 'error'));
           return;
         }
         if (detail._action === 'enable-mcp') {
           void store.enablePluginMcp?.(p)
-            .then(() => openMcpPicker())
+            .then(own.defer(() => openMcpPicker()))
             .catch((e) => store.pushNotice(`plugin MCP enable failed: ${e?.message || e}`, 'error'));
           return;
         }
@@ -397,18 +406,19 @@ export function createExtensionPickers({
         }
         if (detail._action === 'uninstall') {
           void store.removePlugin?.(p)
-            .then(() => openInstalledPluginsPicker())
+            .then(own.defer(() => openInstalledPluginsPicker()))
             .catch((e) => store.pushNotice(`plugin uninstall failed: ${e?.message || e}`, 'error'));
         }
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         void openInstalledPluginsPicker();
       },
     });
   };
 
   const openInstalledPluginsPicker = async () => {
+    const own = surface.claim();
     const status = await pluginStatus();
     if (!status) return;
     const plugins = status.plugins || [];
@@ -430,34 +440,33 @@ export function createExtensionPickers({
         _plugin: plugin,
       });
     }
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker({
+    own.paint({
       title: 'Installed plugins',
       description: 'Open an installed plugin to manage it.',
       items,
       onSelect: (_value, item) => {
-        setPicker(null);
+        own.close();
         if (item._action !== 'plugin') return;
         openPluginDetailPicker(item._plugin);
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
         void openPluginsPicker();
       },
     });
   };
 
   const openPluginsPicker = async () => {
+    const own = surface.claim();
     const status = await pluginStatus();
     if (!status) return;
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
-    setPicker({
+    own.paint({
       title: 'Plugins',
       description: 'Add or manage local plugin integrations.',
       items: [
@@ -475,7 +484,7 @@ export function createExtensionPickers({
         },
       ],
       onSelect: (_value, item) => {
-        setPicker(null);
+        own.close();
         if (item._action === 'installed') {
           openInstalledPluginsPicker();
           return;
@@ -483,12 +492,13 @@ export function createExtensionPickers({
         if (item._action === 'add') beginAddPlugin();
       },
       onCancel: () => {
-        setPicker(null);
+        own.close();
       },
     });
   };
 
   const openHooksPicker = async () => {
+    const own = surface.claim();
     let status;
     try {
       status = (await store.hooksStatus?.()) || { events: [], recent: [] };
@@ -513,20 +523,21 @@ export function createExtensionPickers({
         _action: 'noop',
       }]),
     ];
+    if (!own.owns()) return;
     setProviderPrompt(null);
-    setChannelPrompt(null);
-    setHookPrompt(null);
     setSettingsPrompt(null);
     const toggleRule = (item) => {
       if (item._action !== 'rule') return;
-      try {
-        store.setHookRuleEnabled?.(item._rule.index, !item._rule.enabled);
-        void openHooksPicker();
-      } catch (e) {
-        store.pushNotice(`hook toggle failed: ${e?.message || e}`, 'error');
-      }
+      // setHookRuleEnabled is a daemon write: reloading before it resolves
+      // re-rendered the OLD rule state (toggle looked ineffective) and a
+      // rejection escaped as an unhandled rejection. The reload is bound to
+      // the claim of this keypress, so a write acking after Esc cannot re-open
+      // the Hooks picker the user just closed.
+      void Promise.resolve(store.setHookRuleEnabled?.(item._rule.index, !item._rule.enabled))
+        .then(own.defer(() => openHooksPicker()))
+        .catch((e) => store.pushNotice(`hook toggle failed: ${e?.message || e}`, 'error'));
     };
-    setPicker({
+    own.paint({
       _kind: 'hooks',
       title: 'Hooks',
       description: 'Before-tool hook rules; Enter toggles a rule.',
@@ -535,7 +546,7 @@ export function createExtensionPickers({
       onLeft: (item) => toggleRule(item),
       onRight: (item) => toggleRule(item),
       onCancel: () => {
-        setPicker(null);
+        own.close();
       },
     });
   };
