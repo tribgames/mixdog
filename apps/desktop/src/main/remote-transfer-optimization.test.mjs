@@ -5,10 +5,15 @@ import { createLatestStateMailbox } from "./desktop-service-protocol.ts";
 import {
   createSnapshotDeltaDecoder,
   createSnapshotDeltaEncoder,
+  isNoDelta,
   markCompactWire,
+  reconcileSessionProjection,
 } from "./state-delta.ts";
 import { clientReadsLane, encodeRelayClientSessionState } from "./remote-relay.ts";
-import { createRemotePaintProbeTracker } from "../shared/remote-performance.ts";
+import {
+  createRemotePaintProbeTracker,
+  remoteFrameLane,
+} from "../shared/remote-performance.ts";
 import {
   createKeyedListDeltaDecoder,
   createKeyedListDeltaEncoder,
@@ -200,9 +205,19 @@ test("different browsers retain independent transcript lane baselines", () => {
     decoderA.decode(encodeRelayClientSessionState(browserA, "session-a", nextA)).snapshot,
     nextA,
   );
+  // B's baseline is untouched by A's frame: nothing moved for B, so B is sent
+  // nothing — and its own next change still decodes onto the right baseline.
+  assert.equal(
+    isNoDelta(encodeRelayClientSessionState(browserB, "session-b", sessionB)),
+    true,
+  );
+  const nextB = {
+    ...sessionB,
+    items: [...sessionB.items, { id: "b2", kind: "assistant", text: "second" }],
+  };
   assert.deepEqual(
-    decoderB.decode(encodeRelayClientSessionState(browserB, "session-b", sessionB)).snapshot,
-    sessionB,
+    decoderB.decode(encodeRelayClientSessionState(browserB, "session-b", nextB)).snapshot,
+    nextB,
   );
 });
 
@@ -301,11 +316,11 @@ test("state fields rebuilt with equal values do not travel again", () => {
   assert.equal(decoder.decode(encoder.encode(first)).ok, true);
 
   // The publisher rebuilds its snapshot every frame: equal values, new objects.
-  const wire = encoder.encode({ items, agentWorkers: workers(), busy: true });
-  assert.deepEqual(wire.__statePatch.changed, {});
-  const decoded = decoder.decode(wire);
-  assert.equal(decoded.ok, true);
-  assert.deepEqual(decoded.snapshot.agentWorkers, first.agentWorkers);
+  // Nothing moved, so the frame never leaves.
+  assert.equal(
+    isNoDelta(encoder.encode({ items, agentWorkers: workers(), busy: true })),
+    true,
+  );
 
   // A real change still travels.
   const moved = encoder.encode({
@@ -315,4 +330,118 @@ test("state fields rebuilt with equal values do not travel again", () => {
   });
   assert.ok(moved.__statePatch.changed.agentWorkers);
   assert.equal(decoder.decode(moved).snapshot.agentWorkers[0].status, "done");
+});
+
+/** A payload is marked compact by the receiving transport, never on the wire. */
+function receiveCompact(wire) {
+  if (wire && typeof wire === "object" && !Object.hasOwn(wire, "__itemsRevision")) {
+    markCompactWire(wire);
+  }
+  return wire;
+}
+
+test("a cold view re-read from disk does not re-send the transcript", () => {
+  const items = Array.from({ length: 120 }, (unused, id) => ({
+    id,
+    kind: id % 2 ? "assistant" : "user",
+    text: "settled turn ".repeat(60),
+  }));
+  const stored = { sessionId: "cold", items, status: "idle", queued: [] };
+  const encoder = createSnapshotDeltaEncoder({ compact: true });
+  const decoder = createSnapshotDeltaDecoder();
+  assert.equal(decoder.decode(receiveCompact(encoder.encode(stored))).ok, true);
+
+  // The one second cold-view clock re-reads the store: same content, new graph.
+  const reread = JSON.parse(JSON.stringify(stored));
+  assert.equal(
+    reconcileSessionProjection(stored, reread),
+    stored,
+    "an unchanged read must collapse onto the retained projection",
+  );
+
+  // One settled turn arrives; only that item may travel.
+  const grown = JSON.parse(JSON.stringify(stored));
+  grown.items.push({ id: 120, kind: "assistant", text: "new answer" });
+  const next = reconcileSessionProjection(stored, grown);
+  assert.notEqual(next, stored);
+  const wire = encoder.encode(next);
+  assert.ok(
+    JSON.stringify(wire).length < JSON.stringify(grown).length / 50,
+    "a one-item change must not carry the whole transcript",
+  );
+  const decoded = decoder.decode(receiveCompact(wire));
+  assert.equal(decoded.ok, true);
+  assert.deepEqual(decoded.snapshot.items, grown.items);
+  assert.equal(decoded.snapshot.status, "idle");
+});
+
+test("a snapshot that did not move produces no frame at all", () => {
+  const items = [{ id: 1, kind: "user", text: "hi" }];
+  const snapshot = () => ({ sessionId: "quiet", items, status: "idle", tokens: 12 });
+  for (const compact of [true, false]) {
+    const encoder = createSnapshotDeltaEncoder({ compact });
+    const decoder = createSnapshotDeltaDecoder();
+    // Only a compact peer marks its payloads; a v1 wire must reach the decoder
+    // exactly as it was sent.
+    const receive = (wire) => (compact ? receiveCompact(wire) : wire);
+    assert.equal(decoder.decode(receive(encoder.encode(snapshot()))).ok, true);
+
+    // The publisher republishes on its own clock: equal values, new objects.
+    assert.equal(isNoDelta(encoder.encode(snapshot())), true);
+    assert.equal(isNoDelta(encoder.encode(snapshot())), true);
+
+    // Holding the revision keeps the chain intact for the next real change.
+    const moved = encoder.encode({ ...snapshot(), status: "running" });
+    assert.equal(isNoDelta(moved), false);
+    const decoded = decoder.decode(receive(moved));
+    assert.equal(decoded.ok, true, `chain survived suppressed frames (compact=${compact})`);
+    assert.equal(decoded.snapshot.status, "running");
+    assert.deepEqual(decoded.snapshot.items, items);
+  }
+});
+
+test("an idle transcript frame is named for what it carries", () => {
+  assert.equal(remoteFrameLane({ e: "T", s: 1, w: { r: 7 } }), "compact:T:idle");
+  assert.equal(remoteFrameLane({ e: "T", s: 1, w: { r: 7, ta: "hello" } }), "compact:T:ta");
+  assert.equal(
+    remoteFrameLane({ e: "T", s: 1, w: { r: 7, sc: { agentWorkers: [], stats: {} } } }),
+    "compact:T:sc(agentWorkers,stats)",
+  );
+});
+
+test("streamed text appends without the in-process epoch marker", () => {
+  const items = [{ id: 1, kind: "user", text: "go" }];
+  const opening = "a".repeat(40_000);
+  const first = {
+    sessionId: "session",
+    items,
+    streamingTail: { id: "tail", kind: "assistant", text: opening },
+  };
+  const encoder = createSnapshotDeltaEncoder({ compact: true });
+  const decoder = createSnapshotDeltaDecoder();
+  assert.equal(decoder.decode(receiveCompact(encoder.encode(first))).ok, true);
+
+  // The snapshot crossed a hop, so it carries no epoch symbol — the frame must
+  // still be the appended suffix, not the whole streamed text.
+  const next = {
+    ...first,
+    streamingTail: { ...first.streamingTail, text: `${opening}+more` },
+  };
+  const wire = encoder.encode(next);
+  assert.ok(JSON.stringify(wire).length < 200, "an append must not carry the text");
+  const decoded = decoder.decode(receiveCompact(wire));
+  assert.equal(decoded.ok, true);
+  assert.equal(decoded.snapshot.streamingTail.text, next.streamingTail.text);
+
+  // A replaced tail is not an append and still travels whole.
+  const replaced = {
+    ...first,
+    streamingTail: { ...first.streamingTail, text: "b".repeat(40_000) },
+  };
+  const replacedWire = encoder.encode(replaced);
+  assert.ok(JSON.stringify(replacedWire).length > 40_000);
+  assert.equal(
+    decoder.decode(receiveCompact(replacedWire)).snapshot.streamingTail.text,
+    replaced.streamingTail.text,
+  );
 });

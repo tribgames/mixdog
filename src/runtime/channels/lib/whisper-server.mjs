@@ -53,6 +53,16 @@ const READY_POLL_MS = 250;          // TCP probe cadence
 const PROBE_CONNECT_MS = 1_000;     // per TCP-connect attempt
 const STOP_GRACE_MS = 5_000;        // SIGTERM → SIGKILL escalation window
 const INFERENCE_PATH = '/inference'; // whisper-server default --inference-path
+// Idle release. Without it ONE transcription pins the loaded model for the whole
+// host-process lifetime (measured: ~325 MB working set, ~2.1 GB commit with the
+// CUDA build) even when voice is never used again. Reclaim after an idle window;
+// the next ensureReady() rebuilds the SAME contract, so the only cost is one
+// model load. Mirrors the embedding worker's 5-minute window.
+// MIXDOG_WHISPER_IDLE_TIMEOUT_MS overrides; 0 disables the release entirely.
+const IDLE_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.MIXDOG_WHISPER_IDLE_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 300_000;
+})();
 
 const STATE = Object.freeze({
   STOPPED: 'STOPPED',
@@ -73,6 +83,7 @@ const mgr = {
   startPromise: null,   // in-flight ensureReady() start
   inflight: new Set(),  // active transcribe AbortControllers
   logTail: '',          // recent stdout/stderr for diagnostics
+  idleTimer: null,      // armed only while READY with nothing in flight
 };
 
 function runtimeKeyOf({ serverCmd, modelPath, threadCount, host }) {
@@ -244,9 +255,35 @@ function detachChildHandlers() {
   try { mgr.child.stderr?.removeAllListeners(); } catch {}
 }
 
+function clearIdleTimer() {
+  if (!mgr.idleTimer) return;
+  clearTimeout(mgr.idleTimer);
+  mgr.idleTimer = null;
+}
+
+// Arm ONLY from a resting READY state with nothing in flight, and re-check that
+// same condition when the timer fires: a transcription accepted in between must
+// never have the model pulled out from under it. The timer is unref'd — an idle
+// whisper-server can never keep its host process alive.
+function armIdleTimer() {
+  clearIdleTimer();
+  if (!IDLE_TIMEOUT_MS) return;
+  if (mgr.state !== STATE.READY || !mgr.child || mgr.inflight.size > 0) return;
+  mgr.idleTimer = setTimeout(() => {
+    mgr.idleTimer = null;
+    if (mgr.state !== STATE.READY || !mgr.child || mgr.inflight.size > 0) return;
+    mgr.state = STATE.STOPPING;
+    void teardown('idle-timeout')
+      .catch(() => {})
+      .finally(() => { mgr.state = STATE.STOPPED; });
+  }, IDLE_TIMEOUT_MS);
+  mgr.idleTimer.unref?.();
+}
+
 // Deterministic teardown of the current child. Used both for STOPPING and for a
 // contract change. Escalates SIGTERM → SIGKILL after a grace window.
 async function teardown(reason) {
+  clearIdleTimer();
   const child = mgr.child;
   const pid = child?.pid;
   // Abort all in-flight transcribe requests first.
@@ -386,9 +423,11 @@ export async function ensureReady({ serverCmd, modelPath, threadCount, host = '1
   }
   const contract = { serverCmd, modelPath, threadCount, host };
   const key = runtimeKeyOf(contract);
+  clearIdleTimer();
 
   // Already READY on the same contract with a live child → done.
   if (mgr.state === STATE.READY && mgr.runtimeKey === key && mgr.child) {
+    armIdleTimer();
     return;
   }
   // A start is already in flight for the SAME contract → await it.
@@ -402,7 +441,11 @@ export async function ensureReady({ serverCmd, modelPath, threadCount, host = '1
     mgr.state = STATE.STOPPED;
   }
 
-  mgr.startPromise = startServer(contract).finally(() => { mgr.startPromise = null; });
+  mgr.startPromise = startServer(contract).finally(() => {
+    mgr.startPromise = null;
+    // A start that no transcription ever follows must not pin the model either.
+    armIdleTimer();
+  });
   return mgr.startPromise;
 }
 
@@ -418,6 +461,7 @@ export async function transcribe(wavPath, { language } = {}) {
   const host = mgr.host;
   const port = mgr.port;
   const ctrl = new AbortController();
+  clearIdleTimer();
   mgr.inflight.add(ctrl);
   try {
     const data = await fs.promises.readFile(wavPath);
@@ -463,6 +507,7 @@ export async function transcribe(wavPath, { language } = {}) {
     throw err;
   } finally {
     mgr.inflight.delete(ctrl);
+    armIdleTimer();
   }
 }
 

@@ -26,7 +26,7 @@ import {
   retireForegroundShellRecord,
   trackForegroundShellJob,
 } from './builtin/shell-jobs.mjs';
-import { setNativeTaskStartedAt } from './lib/native-spawn-client.mjs';
+import { nativeSpawnFileCaptureReady, setNativeTaskStartedAt } from './lib/native-spawn-client.mjs';
 import {
   _maybeEncodePowerShellCommand,
   extractPowerShellCommandInner,
@@ -255,6 +255,12 @@ export function execShellCommand({
   backgroundDeadlineMs = 0,
   admission = resourceAdmission,
   directArgv = null,
+  // What the shell PARSES, when that must differ from what the caller shows.
+  // `command` stays the display/record text (job labels, telemetry, shell-job
+  // rows); `execScript` is the argv payload. They diverge only when a caller
+  // hands the script to the shell out-of-band — see the POSIX env+eval path in
+  // bash-tool.mjs, which keeps the command body out of the child's argv.
+  execScript = null,
 }) {
   return new Promise(async (resolve) => {
     let resultResolved = false;
@@ -420,7 +426,12 @@ export function execShellCommand({
         return;
       }
       const _useDirectArgv = Array.isArray(directArgv);
-      const _spawnCommand = _useDirectArgv ? String(command ?? '') : _maybeEncodePowerShellCommand(command);
+      // Direct-exe spawns already bypass the shell, so they keep using the
+      // command verbatim; only the shell-parsed form honours execScript.
+      const _shellScript = (!_useDirectArgv && typeof execScript === 'string' && execScript)
+        ? execScript
+        : command;
+      const _spawnCommand = _useDirectArgv ? String(command ?? '') : _maybeEncodePowerShellCommand(_shellScript);
       const argv = _useDirectArgv
         ? [...directArgv]
         : (Array.isArray(shellArgs) && shellArgs.length > 0
@@ -480,6 +491,12 @@ export function execShellCommand({
           try { _releaseSpawnSlot(); } catch { /* idempotent */ }
           throw abortSignal.reason || new Error('aborted');
         }
+        // CC parity (ShellCommand.ts): give the child its OWN fds on the
+        // capture files so its output never depends on a reader living in this
+        // process. A job the caller deliberately leaves running — a task's
+        // server — then keeps writing after we exit; on a pipe it dies on its
+        // next write the moment our reader is gone.
+        const _capture = nativeSpawnFileCaptureReady() ? taskOutput.openDirectCapture() : null;
         try {
           spawned = await _spawnShellWithRetry({
             shell,
@@ -495,6 +512,10 @@ export function execShellCommand({
               command,
               ownerSessionId,
               clientHostPid,
+              ...(_capture ? {
+                stdoutPath: taskOutput.stdoutPath,
+                stderrPath: taskOutput.stderrPath,
+              } : {}),
               // NOTE (child-spawn-gate): the full command lifetime is intentionally
               // NOT gated — bash/pwsh commands can run for minutes and would starve
               // rg/code_graph. Only the spawn window above holds a slot.
@@ -945,7 +966,7 @@ export function execShellCommand({
           jobId,
           backgroundTimeoutMs: remainingBackgroundTimeoutMs,
           backgroundMessage: jobId
-            ? `${_verb}; still running. Completion is automatic, so continue independent work or end the turn. When the next step needs the result, call task wait once—it returns the moment the task settles—instead of polling task read.`
+            ? `${_verb}; still running. Completion is automatic; unless periodic task reports were requested, continue independent work or end the turn. When the next step needs the result or the next report interval, call task wait instead of polling task read: it returns the moment the task settles, or hands back the current output at its ceiling so you can re-decide.`
             : `${_verb}; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.`,
         }),
       );

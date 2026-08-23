@@ -8,7 +8,7 @@ import { randomBytes } from 'crypto';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
-    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
+    PROVIDER_SSE_IDLE_TIMEOUT_MS,
     streamStalledError,
 } from '../stall-policy.mjs';
 import {
@@ -25,6 +25,10 @@ import {
 } from './lib/anthropic-native-blocks.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS, STREAM_OUTCOME_VERSION } from './lib/stream-outcome.mjs';
+import {
+    anthropicFallbackProviderMetadata,
+    parseAnthropicFallbackBlock,
+} from './anthropic-server-fallback.mjs';
 
 /** Bounded mid-stream SSE retries (transient stream loss); shared with anthropic.mjs.
  *  Sourced from the single shared retry-budget table (MIDSTREAM_RETRY_POLICY.sse). */
@@ -132,20 +136,23 @@ function cloneNativeBlock(block) {
 }
 
 export async function parseSSEStream(response, signal, abortStream, onStreamDelta, onToolCall, state, onTextDelta, knownToolNames) {
-    // onStreamDelta is a semantic-progress callback. HTTP headers and raw SSE
-    // bytes prove transport health but must not refresh semantic watchdogs.
+    // Anthropic/Claude parity: every received SSE byte proves transport
+    // activity, including comment and named ping keepalives. Content kinds
+    // remain distinct on onStreamDelta so TTFT and visible-progress accounting
+    // do not mistake transport heartbeats for model output.
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    // SEMANTIC idle window: reset only by real model events (message/content/
-    // tool deltas), NOT by raw keepalive bytes. A ping-only wedge therefore
-    // trips this within the window instead of hanging until the 30-min agent
-    // watchdog. See resetIdleTimer + the per-event reset in the loop below.
-    // state.semanticIdleTimeoutMs is a test/override seam (same shape as
-    // firstMessageTimeoutMs); production uses the shared env-backed default.
-    const SSE_IDLE_TIMEOUT_MS = Number.isFinite(Number(state?.semanticIdleTimeoutMs))
-        && Number(state.semanticIdleTimeoutMs) > 0
-        ? Number(state.semanticIdleTimeoutMs)
-        : PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS;
+    // Transport-idle window. The legacy semanticIdleTimeoutMs seam remains as
+    // a fallback for existing tests/callers, but production uses the shared
+    // byte/event inactivity policy.
+    const configuredIdleTimeoutMs = state?.transportIdleTimeoutMs ?? state?.semanticIdleTimeoutMs;
+    const SSE_IDLE_TIMEOUT_MS = Number.isFinite(Number(configuredIdleTimeoutMs))
+        && Number(configuredIdleTimeoutMs) > 0
+        ? Number(configuredIdleTimeoutMs)
+        : PROVIDER_SSE_IDLE_TIMEOUT_MS;
+    const idleWatchdogEnabled = typeof state?.transportIdleWatchdogEnabled === 'boolean'
+        ? state.transportIdleWatchdogEnabled
+        : PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
     const SSE_FIRST_MESSAGE_TIMEOUT_MS = Number.isFinite(Number(state?.firstMessageTimeoutMs))
         && Number(state.firstMessageTimeoutMs) > 0
         ? Number(state.firstMessageTimeoutMs)
@@ -215,6 +222,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
     let usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, raw: null };
     let stopReason = null;
     let stopDetails;
+    const fallbackEvents = [];
     let buffer = '';
     let idleTimedOut = false;
     let firstMessageTimedOut = false;
@@ -389,10 +397,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
     };
 
     const resetIdleTimer = () => {
-        // OFF by default. When disabled the
-        // idle timer never arms, so the stream is never killed on inactivity;
-        // the agent stall watchdog (600s) remains the dead-stream backstop.
-        if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED) return;
+        if (!idleWatchdogEnabled) return;
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
             idleTimedOut = true;
@@ -413,9 +418,8 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                 const e = _attachStallPartial(streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS, { emittedToolCall: !!state?.emittedToolCall }));
                 const r = idleReject; idleReject = null; r(e);
             }
-        // Shared provider policy: short SEMANTIC-event inactivity catches the
-        // ping-only wedge where SSE starts, emits some deltas, then goes silent
-        // while `:ping` keepalives keep the transport socket warm.
+        // Only actual transport silence trips this. Anthropic keepalives prove
+        // that the generation connection is still alive.
         }, SSE_IDLE_TIMEOUT_MS);
         try { idleTimer.unref?.(); } catch {}
     };
@@ -438,11 +442,11 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             }
             signal.addEventListener('abort', onAbort, { once: true });
         }
-        // Part A / reviewer fix: do NOT arm the SEMANTIC idle timer before the
+        // Do not arm the transport-idle timer before the
         // stream has produced its first event. A slow first response is governed
         // by armFirstMessageTimer() (first-byte window) alone; arming the
-        // semantic idle here could let it win and mis-abort a legitimately slow
-        // first response as a stall. The semantic idle is first armed at
+        // transport idle here could let it win and mis-abort a legitimately slow
+        // first response as a stall. The transport idle is first armed at
         // `message_start` (see below), so it only ever guards MID-stream silence.
         armFirstMessageTimer();
         streamLoop: while (true) {
@@ -471,18 +475,17 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             }
             const { done, value } = chunk;
             if (done) break;
+            if (state?.sawMessageStart) resetIdleTimer();
+            try { onStreamDelta?.('transport'); } catch {}
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
             for (const line of lines) {
                 if (line.startsWith(':')) {
-                    // SSE comment frame (Anthropic `:ping` keepalive). Keep it
-                    // at transport level only: comments must not refresh the
-                    // agent's semantic progress timestamp, or a ping-only 200
-                    // can look alive forever without message_start/content.
-                    // Crucially it also does NOT reset the SEMANTIC idle timer
-                    // below — a ping-only wedge must trip the idle abort.
+                    // SSE comment frame (Anthropic `:ping` keepalive). The raw
+                    // chunk already refreshed transport activity above; it is
+                    // intentionally not counted as visible model progress.
                     continue;
                 }
                 // Blank lines are SSE record separators — emitted after EVERY
@@ -504,18 +507,6 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                     // cancellation after this frame is relayed.
                     const [event] = await parseProviderJsonBatch([data]);
 
-                    // SEMANTIC idle reset (Part A): reset the idle timer ONLY for
-                    // real progress events, NOT for Anthropic keepalives. Anthropic
-                    // sends pings as a NAMED event (`event: ping` /
-                    // `data: {"type":"ping"}`), not just `:` comment frames, so a
-                    // named ping must be excluded here or a ping-only wedge keeps
-                    // the timer alive forever. Everything that is not a ping is a
-                    // genuine server event (message_start/content/tool/thinking
-                    // deltas, message_delta/stop, errors) and counts as progress.
-                    if (currentEvent !== 'ping' && event?.type !== 'ping') {
-                        resetIdleTimer();
-                    }
-
                     if (currentEvent === 'error' || event?.type === 'error' || event?.error) {
                         throw _anthropicSseError(event);
                     }
@@ -523,12 +514,9 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                     if (event.type === 'message_start' && event.message) {
                         clearFirstMessageTimer();
                         if (state) state.sawMessageStart = true;
-                        // The first protocol event proves the response transport
-                        // is live. Report it only here (never for raw bytes,
-                        // comments, or ping events), then separately report the
-                        // semantic message boundary. Content kinds remain
-                        // reasoning/text/tool-specific below.
-                        try { onStreamDelta?.('transport'); } catch {}
+                        resetIdleTimer();
+                        // Transport activity was already reported for the raw
+                        // chunk; this reports the semantic message boundary.
                         try { onStreamDelta?.('semantic'); } catch {}
                         if (event.message.model) model = event.message.model;
                         if (event.message.usage) {
@@ -541,6 +529,13 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
 
                     if (event.type === 'content_block_start') {
                         const block = event.content_block;
+                        const fallback = parseAnthropicFallbackBlock(block);
+                        if (fallback) {
+                            fallbackEvents.push(fallback);
+                            model = fallback.fallbackModel;
+                            contentBlockTypes.add('fallback');
+                            try { onStreamDelta?.('semantic'); } catch {}
+                        }
                         if (block?.type === 'tool_use') {
                             if (state) state.partialToolCall = true;
                             pendingToolInputs.set(event.index, {
@@ -947,6 +942,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             // assistantBlocks branch). Absent for every ordinary turn, which
             // keeps the existing text/thinking/tool_use lowering untouched.
             assistantBlocks: _orderedAssistantBlocks(),
+            providerMetadata: anthropicFallbackProviderMetadata(fallbackEvents),
         };
     } finally {
         if (idleTimer) clearTimeout(idleTimer);

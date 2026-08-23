@@ -7,17 +7,14 @@ import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { updateJsonAtomicSync } from '../../runtime/shared/atomic-file.mjs';
-import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
 import { WORKER_INDEX_FILE } from './tool-def.mjs';
 import { agentTagOf, clean, positiveInt, rowMatchesContext } from './helpers.mjs';
 import {
   applyWorkerRowUpsert,
-  isDeadWorkerStatus,
   isLeadPoolAgent,
   normalizeTagTombstones,
   tagTombstoneKey,
   workerRowKey,
-  workerRowTime,
 } from './worker-rows.mjs';
 
 export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds }) {
@@ -33,15 +30,11 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     return dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
   }
 
-  // A terminal row ages out after the configured reap window so the index does
-  // not grow without bound; live rows are always kept.
+  // Reaping is an explicit lifecycle mutation owned by tag-registry. Silently
+  // filtering an expired row here would skip its tombstone and make persisted
+  // state disagree with the reusable-tag lease.
   function keepWorkerRow(row = {}) {
-    if (!clean(row.tag) || !clean(row.sessionId)) return false;
-    const t = workerRowTime(row);
-    if (!t) return true;
-    if (!isDeadWorkerStatus(row.status || row.stage)) return true;
-    const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row.provider);
-    return reapMs == null || Date.now() - t < reapMs;
+    return Boolean(clean(row.tag) && clean(row.sessionId));
   }
 
   function normalizeWorkerRows(value) {
@@ -69,6 +62,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
         lastUsedAt: clean(row.lastUsedAt) || null,
         finishedAt: clean(row.finishedAt) || null,
         turnStartedAt: clean(row.turnStartedAt) || null,
+        reapAt: clean(row.reapAt) || null,
         clientHostPid: positiveInt(row.clientHostPid),
         cwd: clean(row.cwd) || null,
         task_id: clean(row.task_id || row.taskId) || null,
@@ -221,6 +215,9 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       // Turn dispatch stamps this; terminal upserts leave it null and the
       // merge in applyWorkerRowUpsert preserves the running turn's value.
       turnStartedAt: clean(extra.turnStartedAt) || null,
+      // Active/new work clears the previous lease. Terminal settlement writes
+      // the new absolute deadline immediately afterwards via scheduleReap().
+      reapAt: clean(extra.reapAt) || null,
       clientHostPid: positiveInt(extra.clientHostPid) || positiveInt(session?.clientHostPid),
       cwd: clean(session?.cwd) || clean(extra.cwd) || null,
       task_id: clean(extra.task_id || extra.taskId) || null,

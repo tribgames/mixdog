@@ -140,14 +140,66 @@ function Start-FastDirectWorker {
   return [int]$created.ProcessId
 }
 
+# Windows stamps a shortcut's AppUserModelID onto the process it launches and
+# every descendant inherits it. That identity — not the parent PID — is what
+# Task Manager groups by, so a shortcut launch keeps the app, the daemon, the
+# session worker and whisper folded into one Mixdog row. Starting Mixdog.exe
+# directly drops it and scatters the node-mode children across the list.
+$script:mixdogShortcutResolved = $false
+$script:mixdogShortcutPath = ''
+function Get-MixdogShortcutPath {
+  if ($script:mixdogShortcutResolved) { return $script:mixdogShortcutPath }
+  $script:mixdogShortcutResolved = $true
+  $candidates = @(
+    (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Mixdog.lnk'),
+    (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Mixdog.lnk'),
+    (Join-Path $env:PUBLIC 'Desktop\Mixdog.lnk'),
+    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mixdog.lnk')
+  )
+  $shell = $null
+  try { $shell = New-Object -ComObject WScript.Shell } catch { return '' }
+  try {
+    $wanted = [System.IO.Path]::GetFullPath($installedExe)
+    foreach ($candidate in $candidates) {
+      if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+      $target = ''
+      try { $target = $shell.CreateShortcut($candidate).TargetPath } catch { continue }
+      if ([string]::IsNullOrWhiteSpace($target)) { continue }
+      # Only a shortcut pointing at THIS install carries the right identity; a
+      # stale one from another install dir would launch the wrong build.
+      if ([string]::Equals([System.IO.Path]::GetFullPath($target), $wanted, [StringComparison]::OrdinalIgnoreCase)) {
+        $script:mixdogShortcutPath = $candidate
+        break
+      }
+    }
+  } catch {
+    $script:mixdogShortcutPath = ''
+  } finally {
+    if ($shell) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
+  }
+  return $script:mixdogShortcutPath
+}
+
+function Start-InstalledMixdogApp {
+  param([string]$Exe = '')
+  if ([string]::IsNullOrWhiteSpace($Exe)) { $Exe = $installedExe }
+  $shortcut = Get-MixdogShortcutPath
+  # No shortcut (fresh dev box, uninstalled Start Menu entry) still has to
+  # launch; it only loses the Task Manager grouping.
+  if ($shortcut) { Start-Process -FilePath $shortcut | Out-Null }
+  else { Start-Process -FilePath $Exe | Out-Null }
+}
+
 function Start-DetachedMixdogApp {
   if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
     throw "Installed app is missing: $installedExe"
   }
   # Explorer performs the GUI launch outside the deployment worker's console
   # and process tree. Closing that shell can no longer close the new app.
+  $launchTarget = Get-MixdogShortcutPath
+  if (-not $launchTarget) { $launchTarget = $installedExe }
   Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') `
-    -ArgumentList @($installedExe) | Out-Null
+    -ArgumentList @($launchTarget) | Out-Null
 }
 
 function Install-LocalTokenAddon {
@@ -351,7 +403,7 @@ function Wait-ForFreshDaemon {
       if ($DetachedRelaunch) {
         Start-DetachedMixdogApp
       } else {
-        Start-Process -FilePath $RelaunchExe | Out-Null
+        Start-InstalledMixdogApp -Exe $RelaunchExe
       }
       $nextRelaunchAt = [DateTime]::UtcNow.AddSeconds(15)
     }
@@ -975,7 +1027,7 @@ if ($ViaUpdater) {
     if (-not $KeepDaemon) { Stop-Daemon }
     $env:MIXDOG_UPDATER_DEV_FEED = "http://127.0.0.1:$FeedPort"
     $env:MIXDOG_UPDATER_DEV_AUTO_INSTALL = '1'
-    Start-Process -FilePath $installedExe | Out-Null
+    Start-InstalledMixdogApp
     Write-Step "waiting for the app's own updater to install $targetVersion"
     $deadline = [DateTime]::UtcNow.AddMinutes(6)
     while ((Get-InstalledVersion) -ne $targetVersion -and [DateTime]::UtcNow -lt $deadline) {
@@ -1032,7 +1084,7 @@ if ($ViaUpdater) {
   # did not, so a single-instance lock never turns into a second window.
   if (-not (Wait-ForApp -TimeoutSeconds 20) -and -not $NoLaunch) {
     Write-Step 'starting the installed app'
-    Start-Process -FilePath $installedExe | Out-Null
+    Start-InstalledMixdogApp
   }
 }
 
@@ -1048,7 +1100,7 @@ if ($NoLaunch) {
     # again either creates the missing app or activates the primary instance
     # through Electron's second-instance handler.
     Write-Step 'activating the installed app window'
-    Start-Process -FilePath $installedExe | Out-Null
+    Start-InstalledMixdogApp
     if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
       throw 'Mixdog restarted without a visible application window.'
     }

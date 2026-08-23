@@ -43,27 +43,44 @@ function parseArgs(argv) {
   }).filter(([name]) => name));
 }
 
-async function pathExists(path) {
-  try {
-    await stat(path);
-    return true;
-  } catch (error) {
-    if (error?.code === 'ENOENT') return false;
-    throw error;
+async function walkFiles(input, files = [], knownType = '') {
+  if (ignoredSource.test(input)) return files;
+  let type = knownType;
+  if (!type) {
+    try {
+      const metadata = await stat(input);
+      type = metadata.isDirectory() ? 'directory' : metadata.isFile() ? 'file' : 'other';
+    } catch (error) {
+      if (error?.code === 'ENOENT') return files;
+      throw error;
+    }
   }
-}
-
-async function walkFiles(input, files = []) {
-  if (!(await pathExists(input)) || ignoredSource.test(input)) return files;
-  const metadata = await stat(input);
-  if (metadata.isFile()) {
+  if (type === 'file') {
     files.push(input);
     return files;
   }
+  if (type !== 'directory') return files;
   const entries = await readdir(input, { withFileTypes: true });
   entries.sort((left, right) => left.name.localeCompare(right.name));
-  for (const entry of entries) await walkFiles(join(input, entry.name), files);
+  for (const entry of entries) {
+    const path = join(input, entry.name);
+    if (entry.isFile()) files.push(path);
+    else if (entry.isDirectory()) await walkFiles(path, files, 'directory');
+    else await walkFiles(path, files);
+  }
   return files;
+}
+
+async function mapPool(items, limit, run) {
+  let cursor = 0;
+  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await run(items[index], index);
+    }
+  });
+  await Promise.all(lanes);
 }
 
 export function rendererManifestForFingerprint(manifest) {
@@ -76,17 +93,23 @@ export async function fingerprint(inputs) {
   const files = [];
   for (const input of inputs) await walkFiles(input, files);
   files.sort((left, right) => left.localeCompare(right));
+  const details = new Array(files.length);
+  await mapPool(files, 16, async (file, index) => {
+    const [metadata, contents] = await Promise.all([stat(file), readFile(file)]);
+    details[index] = {
+      file,
+      metadata,
+      contents: resolve(file) === desktopPackageManifest
+        ? Buffer.from(JSON.stringify(
+          rendererManifestForFingerprint(JSON.parse(contents.toString('utf8'))),
+        ))
+        : contents,
+    };
+  });
   const hash = createHash('sha256');
   let newestMtimeMs = 0;
-  for (const file of files) {
-    const metadata = await stat(file);
+  for (const { file, metadata, contents } of details) {
     newestMtimeMs = Math.max(newestMtimeMs, metadata.mtimeMs);
-    let contents = await readFile(file);
-    if (resolve(file) === desktopPackageManifest) {
-      contents = Buffer.from(JSON.stringify(
-        rendererManifestForFingerprint(JSON.parse(contents.toString('utf8'))),
-      ));
-    }
     hash.update(relative(repoRoot, file).replaceAll(sep, '/'));
     hash.update('\0');
     hash.update(contents);

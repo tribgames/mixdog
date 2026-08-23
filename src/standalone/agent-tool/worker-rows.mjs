@@ -21,7 +21,9 @@ export function workerRowTime(row = {}) {
 }
 
 export function isTerminalWorkerStatus(status) {
-  return /^(idle|closed|completed|failed|error|cancelled|canceled|killed|timeout)$/i.test(clean(status));
+  return /^(idle|closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$/i.test(
+    clean(status),
+  );
 }
 
 /** Finished / gone. Idle is living and must stay in the process-global pool. */
@@ -100,6 +102,7 @@ export function workerRowToSession(row = {}) {
     createdAt: row.createdAt || null,
     updatedAt: row.updatedAt || null,
     lastUsedAt: row.lastUsedAt || null,
+    reapAt: row.reapAt || null,
     clientHostPid: row.clientHostPid || null,
     cwd: row.cwd || null,
     permission: row.permission || null,

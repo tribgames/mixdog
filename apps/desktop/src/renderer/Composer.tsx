@@ -72,8 +72,12 @@ import {
   composerDraftAfterScopeChange,
   insertComposerToken,
   nextComposerSubmissionId,
+  rejectComposerSubmissionRecovery,
+  resolveComposerSubmissionRecovery,
+  retainComposerSubmissionRecovery,
   shouldPreserveComposerDraftOnScopeChange,
   submissionRetryKey,
+  takeRejectedComposerSubmissionRecoveries,
 } from "./composer-draft";
 import { useComposerDictation } from "./use-composer-dictation";
 export {
@@ -134,6 +138,7 @@ export const Composer = memo(function Composer({
   transitioning,
   focusRequest,
   historyScope,
+  recoveryScope,
   projectScope,
   sessionId,
   hasConversation,
@@ -171,6 +176,7 @@ export const Composer = memo(function Composer({
   transitioning: boolean;
   focusRequest: number;
   historyScope: string;
+  recoveryScope: string;
   projectScope: string;
   /** This pane's session, so route changes address it instead of whatever the
    *  window happens to be focused on. */
@@ -210,7 +216,9 @@ export const Composer = memo(function Composer({
 }) {
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submissionRecoveryVersion, setSubmissionRecoveryVersion] = useState(0);
   const submittingRef = useRef(false);
+  const mountedRef = useRef(true);
   // A failed transport acknowledgement may still have landed in the session.
   // Reuse the same id when the exact restored payload is retried so daemon-side
   // idempotency acknowledges it instead of posting a duplicate user message.
@@ -228,7 +236,13 @@ export const Composer = memo(function Composer({
       composerNoticeTimer.current = window.setTimeout(() => setComposerNotice(''), durationMs);
     }
   }, []);
-  useEffect(() => () => window.clearTimeout(composerNoticeTimer.current), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      window.clearTimeout(composerNoticeTimer.current);
+    };
+  }, []);
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
   const [composerFocused, setComposerFocused] = useState(false);
@@ -899,6 +913,18 @@ export const Composer = memo(function Composer({
     setAttachments(next);
     return nextText;
   }, [attachmentPolicyError]);
+  useLayoutEffect(() => {
+    const recoveries = takeRejectedComposerSubmissionRecoveries(recoveryScope);
+    if (!recoveries.length) return;
+    const restoredTexts = recoveries.map((recovery) =>
+      mergeRestoredAttachments(recovery.attachments, recovery.text));
+    setDraft((current) => {
+      const next = [...restoredTexts, current].filter(Boolean).join('\n');
+      draftRef.current = next;
+      return next;
+    });
+    historyNavigation.current = { index: -1, seed: '' };
+  }, [mergeRestoredAttachments, recoveryScope, submissionRecoveryVersion]);
 
   const restoreQueue = async (
     queuedId = '',
@@ -1412,15 +1438,18 @@ export const Composer = memo(function Composer({
       const submissionId = priorRetry?.key === retryKey
         ? priorRetry.id
         : nextComposerSubmissionId();
+      retainComposerSubmissionRecovery({
+        id: submissionId,
+        scope: recoveryScope,
+        text: submittedDraft,
+        attachments: committedAttachments,
+      });
       setDraft((current) => current === submittedDraft ? '' : current);
       removeAttachments(new Set(committedAttachments.map((attachment) => attachment.id)));
       historyNavigation.current = { index: -1, seed: '' };
       const restoreSubmitted = () => {
-        const restoredText = mergeRestoredAttachments(committedAttachments, submittedDraft);
-        setDraft((current) => {
-          if (!current || current === submittedDraft) return restoredText;
-          return [restoredText, current].filter(Boolean).join('\n');
-        });
+        rejectComposerSubmissionRecovery(submissionId);
+        if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
       };
       let accepted: unknown;
       try {
@@ -1436,6 +1465,7 @@ export const Composer = memo(function Composer({
         throw error;
       }
       if (accepted === true) {
+        resolveComposerSubmissionRecovery(submissionId);
         if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;
         rememberPrompt(expandedText, committedAttachments);
       } else {

@@ -580,7 +580,11 @@ async function main() {
   };
   let sessionRuntimePrewarmStarted = false;
   let sessionRuntimePrewarmPromise = null;
-  sessionRuntimeHost = createSessionRuntimeHost({ cwd: CWD, log });
+  sessionRuntimeHost = createSessionRuntimeHost({
+    cwd: CWD,
+    log,
+    canRecycle: () => (sessionService?.busyCount ?? 1) === 0,
+  });
   function prewarmSessionRuntime() {
     if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;
     sessionRuntimePrewarmStarted = true;
@@ -589,7 +593,7 @@ async function main() {
       .catch((error) => log(`image pipeline prewarm failed (non-fatal): ${error?.message || error}`));
     sessionRuntimePrewarmPromise = sessionRuntimeHost.prewarm()
       .then(() => {
-        log('session runtime worker/agent-loop/keychain/provider prewarm ready');
+        log('session runtime worker/agent-loop/keychain/memory prewarm ready');
         return true;
       })
       .catch((error) => {

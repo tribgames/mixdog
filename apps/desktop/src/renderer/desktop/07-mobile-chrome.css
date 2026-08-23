@@ -322,19 +322,11 @@ html[data-mixdog-mobile-tabs] .session-work-indicator > button {
   min-width: calc(36px * var(--mx-device-scale, 2.5));
   flex-basis: calc(36px * var(--mx-device-scale, 2.5));
 }
-/* The CAPSULE is the frame here. Each desktop slot wears its own plate — a
-   54% tint over a .5px inset hairline on a --mx-radius-md corner — and
-   neither the hairline nor that radius scales with the device, so at 2.5x the
-   two slots read as hard SQUARE frames drawn inside a round island
-   (user-flagged, phone only). The slots keep their ink and their tap target;
-   the plate goes back to the island. Hover/open states are covered too: the
-   popover they open IS the feedback, and a repainted plate would bring the
-   same square back. */
+/* The capsule alone frames this readout. Keep the scaled touch targets round
+   while the shared desktop rules leave each slot transparent. */
 html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator > button,
 html[data-mixdog-mobile-tabs] .session-status-island .session-work-indicator > button {
   border-radius: 999px;
-  background: transparent;
-  box-shadow: none;
 }
 /* Desktop draws a 20 ring and an 18 activity glyph inside its 28 slot. */
 html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator svg {

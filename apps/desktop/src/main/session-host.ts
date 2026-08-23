@@ -18,6 +18,7 @@ import type {
   DesktopNewTaskSubmitResult,
   DesktopProjectSummary,
   DesktopPromptContent,
+  DesktopSessionFrameSource,
   DesktopSessionStateUpdate,
   DesktopSessionSummary,
   DesktopSubmitOptions,
@@ -42,6 +43,7 @@ import {
 import { DesktopProjectRegistry } from './desktop-project-registry';
 import { DesktopSessionMetadata } from './desktop-session-metadata';
 import { createShellJobsPoller } from './shell-jobs-poller';
+import { reconcileSessionProjection } from './state-delta';
 import { searchProjectDirectory } from './project-file-search';
 import {
   codeGraphQueryIn,
@@ -131,6 +133,48 @@ function sessionIdOf(value: unknown): string {
   const id = String(value || '');
   if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new TypeError('session id is invalid.');
   return id;
+}
+
+function sameTranscriptItem(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  if (a.id != null && b.id != null) return String(a.id) === String(b.id);
+  return String(a.kind || '') === String(b.kind || '')
+    && String(a.text ?? '') === String(b.text ?? '');
+}
+
+/** Add a larger durable history head without replacing live work fields or
+ * the identity-stable tail currently owned by the runtime. */
+export function mergeSessionHistorySnapshot(
+  sessionId: string,
+  live: SessionSnapshot,
+  stored: Record<string, unknown>,
+): SessionSnapshot {
+  const historyItems = Array.isArray(stored.items) ? stored.items : [];
+  if (!live || !Array.isArray(live.items) || live.items.length === 0) {
+    return { ...stored, sessionId, queued: Array.isArray(stored.queued) ? stored.queued : [] };
+  }
+  const liveItems = live.items;
+  let overlap = -1;
+  for (let index = 0; index < historyItems.length; index += 1) {
+    if (sameTranscriptItem(historyItems[index], liveItems[0])) {
+      overlap = index;
+      break;
+    }
+  }
+  if (overlap < 0) return live;
+  const shared = Math.min(historyItems.length - overlap, liveItems.length);
+  for (let index = 1; index < shared; index += 1) {
+    if (!sameTranscriptItem(historyItems[overlap + index], liveItems[index])) return live;
+  }
+  return {
+    ...stored,
+    ...live,
+    sessionId,
+    items: [...historyItems.slice(0, overlap), ...liveItems],
+  };
 }
 
 /**
@@ -318,13 +362,17 @@ export class SessionHost implements DesktopService {
     }
   }
 
-  private publishSession(sessionId: string, snapshot: SessionSnapshot): void {
+  private publishSession(
+    sessionId: string,
+    snapshot: SessionSnapshot,
+    frameSource: DesktopSessionFrameSource = 'live',
+  ): void {
     const visibleSnapshot = this.snapshotWithRemoteSession(
       this.snapshotWithShellJobs(sessionId, snapshot),
     );
     for (const listener of [...this.sessionStateListeners]) {
       try {
-        listener({ sessionId, snapshot: visibleSnapshot, frameSource: 'live' });
+        listener({ sessionId, snapshot: visibleSnapshot, frameSource });
       } catch {
         // A visual client cannot affect service execution.
       }
@@ -342,18 +390,30 @@ export class SessionHost implements DesktopService {
     let snapshot = prior?.snapshot ?? null;
     if (value && Object.prototype.hasOwnProperty.call(value, 'full')) {
       const full = value.full;
-      snapshot = full && typeof full === 'object'
+      const rebuilt = full && typeof full === 'object'
         ? { ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot
         : { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+      // A stored read carries no baseline, so it always answers FULL — and a
+      // visible cold view is re-read on a one second clock. Folding the fresh
+      // parse onto the retained projection keeps the object identity that every
+      // delta encoder downstream reads as "already sent".
+      snapshot = prior?.snapshot
+        ? reconcileSessionProjection(prior.snapshot, rebuilt)
+        : rebuilt;
     } else if (value?.patch && typeof value.patch === 'object'
       && prior && Number(value.baseRevision) === prior.revision) {
       snapshot = statePatch(prior.snapshot, value.patch as Record<string, unknown>);
     }
     if (!snapshot) snapshot = { sessionId: id, items: [], queued: [] } as SessionSnapshot;
     const nextRevision = Number.isFinite(revision) ? revision : (prior?.revision ?? 0);
+    // Publishing a projection that did not move repaints nothing and costs a
+    // whole transcript on the relay leg: the reader already holds this frame.
+    const unmoved = prior !== undefined
+      && prior.snapshot === snapshot
+      && prior.revision === nextRevision;
     this.sessionProjections.set(id, { revision: nextRevision, snapshot });
     this.trackShellJobsEngineState(snapshot);
-    if (publish && id !== this.controlSessionId) this.publishSession(id, snapshot);
+    if (publish && !unmoved && id !== this.controlSessionId) this.publishSession(id, snapshot);
     return this.snapshotWithRemoteSession(snapshot);
   }
 
@@ -728,8 +788,26 @@ export class SessionHost implements DesktopService {
     return null;
   }
 
-  async prefetchSession(sessionId: string): Promise<boolean> {
-    await this.readSession(sessionId);
+  async prefetchSession(
+    sessionId: string,
+    transcriptItemLimit = DESKTOP_TRANSCRIPT_ITEM_LIMIT,
+  ): Promise<boolean> {
+    const id = sessionIdOf(sessionId);
+    const limit = Math.max(
+      1,
+      Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT)),
+    );
+    if (limit <= DESKTOP_TRANSCRIPT_ITEM_LIMIT) {
+      await this.readSession(id);
+      return true;
+    }
+    const store = await this.runtime.loadSessionStore();
+    const stored = await store.readStoredSessionTranscript?.(id, {
+      transcriptItemLimit: limit,
+    });
+    if (!stored || typeof stored !== 'object') return false;
+    const live = this.sessionProjections.get(id)?.snapshot ?? null;
+    this.publishSession(id, mergeSessionHistorySnapshot(id, live, stored), 'replay');
     return true;
   }
 

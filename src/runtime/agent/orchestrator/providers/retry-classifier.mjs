@@ -1029,6 +1029,24 @@ export function classifyHandshakeError(err, { retry429 = true } = {}) {
  * Returns whatever `fn()` resolves to. Throws the last error if every retry
  * is exhausted, or the first error if it's classified non-transient.
  */
+export function markProviderRecoveryExhausted(error, {
+  owner = 'provider',
+  attempts = null,
+} = {}) {
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return error
+  try {
+    error.providerRecoveryExhausted = true
+    if (owner) error.providerRecoveryOwner = String(owner)
+    const count = Number(attempts)
+    if (Number.isFinite(count) && count > 0) error.providerRecoveryAttempts = Math.floor(count)
+  } catch { /* best-effort terminal ownership stamp */ }
+  return error
+}
+
+export function isProviderRecoveryExhausted(error) {
+  return error?.providerRecoveryExhausted === true
+}
+
 export async function withRetry(fn, opts = {}) {
   const maxAttempts = Number(opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS)
   const backoffMs = Array.isArray(opts.backoffMs) ? opts.backoffMs : DEFAULT_BACKOFF_MS
@@ -1081,6 +1099,15 @@ export async function withRetry(fn, opts = {}) {
         throw reason instanceof Error ? reason : new Error('withRetry: aborted')
       }
       lastErr = caught
+      const exhaustedError = () => maxAttempts > 1
+        ? markProviderRecoveryExhausted(caught, {
+            owner: opts.recoveryOwner || 'withRetry',
+            attempts: maxAttempts,
+          })
+        : caught
+      // A nested provider layer already spent its complete recovery budget.
+      // Never multiply that budget by replaying it from an outer withRetry.
+      if (isProviderRecoveryExhausted(caught)) throw caught
       const status = Number(caught?.httpStatus || caught?.status || caught?.response?.status || 0)
       const kind = classifyError(caught)
       // Hard replay boundary: a retry RE-ISSUES the request, so it is denied
@@ -1110,7 +1137,7 @@ export async function withRetry(fn, opts = {}) {
       if (opts.provider === 'anthropic'
         && String(shouldRetryHeader || '').toLowerCase() === 'true'
         && !(status === 429 && opts.retry429 === false)) {
-        if (attempt === maxAttempts - 1) throw caught
+        if (attempt === maxAttempts - 1) throw exhaustedError()
         const retryAfterMs = retryAfterMsFromError(caught)
         if (retryAfterMs != null) {
           nextDelayMs = Math.max(0, retryAfterMs)
@@ -1139,7 +1166,7 @@ export async function withRetry(fn, opts = {}) {
         // reduced by rate limits. Respect Retry-After when present; otherwise
         // use the ordinary jittered backoff. Output/tool stamps above remain a
         // hard replay boundary.
-        if (attempt === maxAttempts - 1) throw caught
+        if (attempt === maxAttempts - 1) throw exhaustedError()
         if (ra != null) {
           nextDelayMs = Math.max(0, ra)
           nextDelayReason = 'retry-after'
@@ -1148,7 +1175,7 @@ export async function withRetry(fn, opts = {}) {
       }
       if (kind !== 'transient') throw caught
       // Last attempt failed transiently — propagate to caller.
-      if (attempt === maxAttempts - 1) throw caught
+      if (attempt === maxAttempts - 1) throw exhaustedError()
       const retryAfterMs = retryAfterMsFromError(caught)
       if (retryAfterMs != null) {
         nextDelayMs = Math.max(0, retryAfterMs)

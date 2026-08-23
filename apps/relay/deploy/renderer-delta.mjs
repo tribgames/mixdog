@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
   cp,
+  copyFile,
+  link,
   mkdir,
   readFile,
   readdir,
@@ -133,6 +135,33 @@ async function readManifest(path) {
   return validateRendererManifest(JSON.parse(await readFile(path, 'utf8')));
 }
 
+async function cloneTreeWithHardlinks(sourceRoot, outputRoot) {
+  const resolvedSource = resolve(sourceRoot);
+  const resolvedOutput = resolve(outputRoot);
+  await mkdir(resolvedOutput, { recursive: true });
+  for (const path of await walk(resolvedSource)) {
+    const relativePath = safeRelativePath(relative(resolvedSource, path).split(sep).join('/'));
+    const destination = join(resolvedOutput, ...relativePath.split('/'));
+    await mkdir(dirname(destination), { recursive: true });
+    await link(path, destination);
+  }
+}
+
+async function replaceHardlinkedFile(source, destination) {
+  await mkdir(dirname(destination), { recursive: true });
+  const temporary = `${destination}.${process.pid}.tmp`;
+  await rm(temporary, { force: true });
+  try {
+    await copyFile(source, temporary);
+    // Replacing through a temporary file breaks the hardlink instead of
+    // truncating the installed base file that rollback still depends on.
+    await rm(destination, { force: true });
+    await rename(temporary, destination);
+  } finally {
+    await rm(temporary, { force: true });
+  }
+}
+
 export async function createRendererDelta({
   root,
   baseManifest,
@@ -180,6 +209,7 @@ export async function applyRendererDelta({
   deltaDir,
   manifest,
   outputDir,
+  hardlinkBase = false,
 }) {
   const target = validateRendererManifest(manifest);
   // A delta reconstructs its target tree ONLY on top of the base it was built
@@ -197,7 +227,8 @@ export async function applyRendererDelta({
   const targetFiles = new Map(target.files.map((file) => [file.path, file]));
   await rm(outputDir, { recursive: true, force: true });
   if (await pathType(baseDir) === 'directory') {
-    await cp(baseDir, outputDir, { recursive: true });
+    if (hardlinkBase) await cloneTreeWithHardlinks(baseDir, outputDir);
+    else await cp(baseDir, outputDir, { recursive: true });
   } else {
     await mkdir(outputDir, { recursive: true });
   }
@@ -216,8 +247,11 @@ export async function applyRendererDelta({
       throw new Error(`Renderer delta file failed verification: ${relativePath}`);
     }
     const destination = join(resolve(outputDir), ...relativePath.split('/'));
-    await mkdir(dirname(destination), { recursive: true });
-    await cp(path, destination);
+    if (hardlinkBase) await replaceHardlinkedFile(path, destination);
+    else {
+      await mkdir(dirname(destination), { recursive: true });
+      await cp(path, destination);
+    }
   }
 
   const applied = await buildRendererManifest(outputDir);
@@ -256,6 +290,7 @@ async function main() {
       deltaDir: resolve(args.delta),
       manifest: await readManifest(resolve(args.manifest)),
       outputDir: resolve(args.output),
+      hardlinkBase: String(args['hardlink-base']).toLowerCase() === 'true',
     });
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;

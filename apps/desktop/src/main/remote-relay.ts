@@ -55,7 +55,7 @@ import {
 } from './remote-methods';
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee';
 import { readSecretFile, writeSecretFile } from './secret-file';
-import { createSnapshotDeltaEncoder, isStateResyncFrame } from './state-delta';
+import { createSnapshotDeltaEncoder, isNoDelta, isStateResyncFrame } from './state-delta';
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import {
   createLatestStateMailbox,
@@ -696,16 +696,20 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     // client that reads it is actually attached.
     let legacyFrame: unknown;
     let compactFrame: unknown;
+    let legacyWire: unknown;
+    let compactWire: unknown;
     void Promise.all([...activeClients].map(([clientId, state]) => {
       if (!state.channel) return Promise.resolve();
       if (state.compactWire) {
-        compactFrame ??= { e: 'S', w: compactDeltaEncoder.encode(publication.snapshot) };
+        compactWire ??= compactDeltaEncoder.encode(publication.snapshot);
+        // A publication that moved nothing this client holds is not a frame.
+        if (isNoDelta(compactWire)) return Promise.resolve();
+        compactFrame ??= { e: 'S', w: compactWire };
         return sendEncryptedFrame(clientId, compactFrame, !publication.critical);
       }
-      legacyFrame ??= {
-        event: 'state',
-        payload: deltaEncoder.encode(publication.snapshot),
-      };
+      legacyWire ??= deltaEncoder.encode(publication.snapshot);
+      if (isNoDelta(legacyWire)) return Promise.resolve();
+      legacyFrame ??= { event: 'state', payload: legacyWire };
       return sendEncryptedFrame(clientId, legacyFrame, !publication.critical);
     })).finally(() => stateMailbox.acknowledge(sequence));
   });
@@ -731,6 +735,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           update.snapshot,
           state.compactWire,
         );
+        // This client's baseline already matches the snapshot: the frame would
+        // carry a revision number and nothing else.
+        if (isNoDelta(wire)) return Promise.resolve();
         if (!state.compactWire) {
           return sendEncryptedFrame(clientId, {
             event: 'sessionState',

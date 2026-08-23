@@ -720,33 +720,15 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
   </div>;
 });
 
-const transcriptItemSignatures = new WeakMap<object, string>();
-
-export function transcriptItemSignature(item: TranscriptItem | undefined): string {
-  if (!item) return "";
-  const cached = transcriptItemSignatures.get(item);
-  if (cached !== undefined) return cached;
-  let signature: string;
-  try {
-    signature = JSON.stringify(item);
-  } catch {
-    return "";
-  }
-  transcriptItemSignatures.set(item, signature);
-  return signature;
-}
-
 export function transcriptItemsEqual(
   previous: TranscriptItem | undefined,
   next: TranscriptItem | undefined,
 ): boolean {
-  if (previous === next) return true;
-  if (!previous || !next) return false;
-  // The live tail must render whenever its object changes. Serializing its
-  // entire growing text merely to prove that it changed made a long response
-  // pay O(total streamed text) before every React commit.
-  if (previous.streaming || next.streaming) return false;
-  return transcriptItemSignature(previous) === transcriptItemSignature(next);
+  // Every snapshot delta preserves unchanged item identity. A new object is
+  // therefore a real render boundary even when its current values happen to
+  // match. This also avoids retaining one JSON string copy of every transcript
+  // item (including full tool output) for as long as the snapshot stays live.
+  return previous === next;
 }
 
 export function messageMetadata(item: TranscriptItem) {
@@ -1046,11 +1028,8 @@ export const TranscriptRow = memo(function TranscriptRow({
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}
         </div>
-        {/* "Queued" only for prompts genuinely waiting behind an active turn
-            (TUI parity): an in-flight idle submit is not a queue state. */}
-        {user && item.pending === true && item.queuedBehindTurn === true
-          && <span className="message-pending-status" role="status">
-          Queued
+        {user && item.pending === true && <span className="message-pending-status" role="status">
+          {item.queuedBehindTurn === true ? t("Queued") : t("Sending…")}
         </span>}
         {/* No user footer. The send time + copy row rode under every prompt,
             and the phone surface forced hover-revealed chrome permanently

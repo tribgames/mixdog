@@ -18,7 +18,7 @@ export const VALID_CATEGORY = new Set([
   'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
 ])
 
-export async function init(db, dims) {
+export async function init(db, dims, embeddingIdentity = null) {
   const dimCount = Number(dims)
   if (!Number.isInteger(dimCount) || dimCount <= 0) {
     throw new Error(`init: dims must be a positive integer, got ${dims}`)
@@ -266,6 +266,13 @@ export async function init(db, dims) {
      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
     ['embedding.current_dims', JSON.stringify(dimCount)],
   )
+  if (embeddingIdentity != null) {
+    await db.query(
+      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+      ['embedding.current_model', JSON.stringify(embeddingIdentity)],
+    )
+  }
   await db.query(
     `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
@@ -343,15 +350,24 @@ export async function refreshHotActive(db) {
   }
 }
 
-async function resetEmbeddingColumnsForDims(db, dimCount) {
+export async function resetEmbeddingColumnsForModel(db, dimCount, embeddingIdentity = null) {
   const entriesDims = await getEmbeddingColumnDims(db, 'entries')
   const coreDims = await getEmbeddingColumnDims(db, 'core_entries')
-  const needsEntriesReset = entriesDims != null && entriesDims !== dimCount
-  const needsCoreReset = coreDims != null && coreDims !== dimCount
+  const normalizedIdentity = embeddingIdentity == null ? null : JSON.stringify(embeddingIdentity)
+  let identityChanged = false
+  if (normalizedIdentity != null) {
+    const identity = await db.query(
+      `SELECT value = $2::jsonb AS matches FROM meta WHERE key = $1`,
+      ['embedding.current_model', normalizedIdentity],
+    )
+    identityChanged = identity.rows.length === 0 || identity.rows[0].matches !== true
+  }
+  const needsEntriesReset = entriesDims != null && (entriesDims !== dimCount || identityChanged)
+  const needsCoreReset = coreDims != null && (coreDims !== dimCount || identityChanged)
   if (!needsEntriesReset && !needsCoreReset) return false
 
   __mixdogMemoryLog(
-    `[memory] embedding dimension changed; resetting vectors for halfvec(${dimCount}) ` +
+    `[memory] embedding model changed; resetting vectors for halfvec(${dimCount}) ` +
     `(entries=${entriesDims ?? 'missing'}, core_entries=${coreDims ?? 'missing'})\n`,
   )
 
@@ -360,11 +376,19 @@ async function resetEmbeddingColumnsForDims(db, dimCount) {
   await db.exec(`DROP INDEX IF EXISTS core_entries_embedding_hnsw`)
 
   if (needsEntriesReset) {
-    await db.exec(`ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`)
+    if (entriesDims !== dimCount) {
+      await db.exec(`ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`)
+    } else {
+      await db.exec(`UPDATE entries SET embedding = NULL WHERE embedding IS NOT NULL`)
+    }
     await db.exec(`UPDATE entries SET summary_hash = NULL WHERE summary_hash IS NOT NULL`)
   }
   if (needsCoreReset) {
-    await db.exec(`ALTER TABLE core_entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`)
+    if (coreDims !== dimCount) {
+      await db.exec(`ALTER TABLE core_entries ALTER COLUMN embedding TYPE halfvec(${dimCount}) USING NULL::halfvec(${dimCount})`)
+    } else {
+      await db.exec(`UPDATE core_entries SET embedding = NULL WHERE embedding IS NOT NULL`)
+    }
   }
 
   await db.exec(`DROP TABLE IF EXISTS memory.embedding_cache`)
@@ -373,6 +397,13 @@ async function resetEmbeddingColumnsForDims(db, dimCount) {
      ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
     ['embedding.current_dims', JSON.stringify(dimCount)],
   )
+  if (normalizedIdentity != null) {
+    await db.query(
+      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+      ['embedding.current_model', normalizedIdentity],
+    )
+  }
   return true
 }
 
@@ -430,7 +461,7 @@ async function _migrateRecallIndexesIfStale(db) {
   }
 }
 
-export async function ensureCurrentSchemaExtensions(db, dims) {
+export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity = null) {
   // One-time cleanup: attachment-only placeholder rows ('(attachment)' user
   // content, e.g. Discord provider discord.mjs:724) predate the
   // shouldExcludeIngestMessage() ingest-time filter (session-ingest.mjs).
@@ -607,11 +638,18 @@ export async function ensureCurrentSchemaExtensions(db, dims) {
       ['embedding.current_dims', JSON.stringify(dims)],
     )
   }
+  if (embeddingIdentity != null) {
+    await db.query(
+      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
+      ['embedding.current_model', JSON.stringify(embeddingIdentity)],
+    )
+  }
 
   await ensureHotActiveSearchObjects(db)
 }
 
-export async function openDatabase(dataDir, dims) {
+export async function openDatabase(dataDir, dims, embeddingIdentity = null) {
   const key = resolve(dataDir)
 
   // Fast path — already resolved.
@@ -632,14 +670,14 @@ export async function openDatabase(dataDir, dims) {
       // race skips the redundant DDL instead of re-running init().
       await withSchemaBootstrapLock(pool, async () => {
         if (!(await isBootstrapComplete(db))) {
-          await init(db, dims)
+          await init(db, dims, embeddingIdentity)
         }
       })
     }
     if (await isBootstrapComplete(db)) {
-      await resetEmbeddingColumnsForDims(db, Number(dims))
+      await resetEmbeddingColumnsForModel(db, Number(dims), embeddingIdentity)
     }
-    await ensureCurrentSchemaExtensions(db, Number(dims))
+    await ensureCurrentSchemaExtensions(db, Number(dims), embeddingIdentity)
     await validateEmbeddingDims(db, Number(dims))
 
     dbs.set(key, db)

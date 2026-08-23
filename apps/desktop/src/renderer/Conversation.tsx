@@ -53,6 +53,10 @@ import {
   readTranscriptVirtualSnapshot,
   transcriptRowNamespace,
 } from "./transcript-virtual-cache";
+import {
+  nextTranscriptHistoryLimit,
+  TRANSCRIPT_HISTORY_PAGE_ITEMS,
+} from "./transcript-history";
 import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
 import { useTranscriptFollow } from "./use-transcript-follow";
@@ -416,6 +420,54 @@ export function Conversation({
   const transcriptSessionKey = draftMode
     ? 'new-task'
     : String(routeSnapshot.sessionId || 'new-task');
+  const settledItemCountRef = useRef(settledItems.length);
+  settledItemCountRef.current = settledItems.length;
+  const historyPagingRef = useRef({
+    sessionId: transcriptSessionKey,
+    limit: Math.max(TRANSCRIPT_HISTORY_PAGE_ITEMS, settledItems.length),
+    pending: false,
+    exhausted: settledItems.length < TRANSCRIPT_HISTORY_PAGE_ITEMS,
+  });
+  if (historyPagingRef.current.sessionId !== transcriptSessionKey) {
+    historyPagingRef.current = {
+      sessionId: transcriptSessionKey,
+      limit: Math.max(TRANSCRIPT_HISTORY_PAGE_ITEMS, settledItems.length),
+      pending: false,
+      exhausted: settledItems.length < TRANSCRIPT_HISTORY_PAGE_ITEMS,
+    };
+  }
+  const requestEarlierTranscript = useCallback(() => {
+    const sessionId = String(routeSnapshot.sessionId || '');
+    const prefetch = window.mixdogDesktop?.prefetchSession;
+    const paging = historyPagingRef.current;
+    if (!sessionId || typeof prefetch !== 'function' || paging.pending || paging.exhausted) return;
+    const nextLimit = nextTranscriptHistoryLimit(
+      settledItemCountRef.current,
+      paging.limit,
+    );
+    if (nextLimit == null) {
+      paging.exhausted = true;
+      return;
+    }
+    const beforeCount = settledItemCountRef.current;
+    paging.pending = true;
+    void Promise.resolve(prefetch(sessionId, nextLimit)).then((accepted) => {
+      window.requestAnimationFrame(() => {
+        const current = historyPagingRef.current;
+        if (current.sessionId !== transcriptSessionKey) return;
+        current.pending = false;
+        current.limit = Math.max(current.limit, nextLimit);
+        const afterCount = settledItemCountRef.current;
+        if (accepted !== true || afterCount <= beforeCount || afterCount < nextLimit) {
+          current.exhausted = true;
+        }
+      });
+    }).catch(() => {
+      if (historyPagingRef.current.sessionId === transcriptSessionKey) {
+        historyPagingRef.current.pending = false;
+      }
+    });
+  }, [routeSnapshot.sessionId, transcriptSessionKey]);
   const previousTranscriptSessionKey = useRef(transcriptSessionKey);
   // A pane's OWN draft -> session promotion must NOT rebuild the timeline. The
   // virtual list AND its row keys are namespaced by this identity, which
@@ -975,7 +1027,10 @@ export function Conversation({
           const selection = window.getSelection();
           if (selection && !selection.isCollapsed) selection.removeAllRanges();
         }}
-        onScroll={handleTranscriptScroll}
+        onScroll={(event) => {
+          handleTranscriptScroll();
+          if (event.currentTarget.scrollTop <= 320) requestEarlierTranscript();
+        }}
         onWheel={handleTranscriptWheel}
         onPointerDown={handleTranscriptPointerDown}
         onPointerMove={handleTranscriptPointerMove}
@@ -1085,6 +1140,7 @@ export function Conversation({
           historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}`
             : String(routeSnapshot.sessionId || routeSnapshot.currentProject ||
               routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
+          recoveryScope={transcriptIdentity.current}
           projectScope={draftMode ? activeProjectPath
             : String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || '')}
           sessionId={draftMode ? '' : String(routeSnapshot.sessionId || '')}

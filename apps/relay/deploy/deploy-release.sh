@@ -90,12 +90,13 @@ if [[ "$RENDERER_MODE" = "delta" ]]; then
     "--base=$INSTALL_DIR/renderer" \
     "--delta=$RENDERER_DELTA_DIR" \
     "--manifest=$RENDERER_MANIFEST" \
-    "--output=$NEXT_DIR/renderer"
+    "--output=$NEXT_DIR/renderer" \
+    --hardlink-base
 elif [[ "$RENDERER_MODE" = "full" ]]; then
   cp -r "$SRC_DIR/renderer" "$NEXT_DIR/"
 else
   test -f "$INSTALL_DIR/renderer/index.html"
-  cp -r "$INSTALL_DIR/renderer" "$NEXT_DIR/"
+  cp -al "$INSTALL_DIR/renderer" "$NEXT_DIR/"
 fi
 LOCAL_HASH="$(sha256sum "$NEXT_DIR/renderer/index.html" | awk '{print $1}')"
 cd "$NEXT_DIR"
@@ -105,11 +106,11 @@ cd "$NEXT_DIR"
 LOCK_HASH="$(sha256sum "$NEXT_DIR/package-lock.json" | awk '{print $1}')"
 if [[ -f "$INSTALL_DIR/node_modules/.mixdog-lock-hash" \
   && "$(cat "$INSTALL_DIR/node_modules/.mixdog-lock-hash")" = "$LOCK_HASH" ]]; then
-  cp -r "$INSTALL_DIR/node_modules" "$NEXT_DIR/node_modules"
+  cp -al "$INSTALL_DIR/node_modules" "$NEXT_DIR/node_modules"
 else
   npm ci --omit=dev --no-audit --no-fund
+  printf '%s' "$LOCK_HASH" > "$NEXT_DIR/node_modules/.mixdog-lock-hash"
 fi
-printf '%s' "$LOCK_HASH" > "$NEXT_DIR/node_modules/.mixdog-lock-hash"
 
 mv "$INSTALL_DIR" "$BACKUP_DIR"
 mv "$NEXT_DIR" "$INSTALL_DIR"

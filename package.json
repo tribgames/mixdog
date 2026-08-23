@@ -62,7 +62,7 @@
     "test:shellhardening": "npm run build:spawn:test && node --test scripts/suite-shellhardening-test.mjs scripts/suite-shell-direct-exe-test.mjs",
     "test:providers": "node --test scripts/provider-toolcall-test.mjs scripts/provider-contract-test.mjs scripts/provider-stream-outcome-test.mjs scripts/cursor-provider-test.mjs src/runtime/agent/orchestrator/providers/openai-codex-identity.test.mjs src/runtime/agent/orchestrator/providers/openai-ws-delta-parity.test.mjs",
     "test:embedding-runtime:warmup": "node scripts/verify-embedding-runtime.mjs --warmup",
-    "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --check scripts/prepare-native-assets.mjs && node --test scripts/release-gate-test.mjs scripts/prepare-native-assets-test.mjs",
+    "test:release-assets": "node --check scripts/verify-release-assets.mjs && node --check scripts/release-gate-test.mjs && node --check scripts/prepare-native-assets.mjs && node --test scripts/release-gate-test.mjs scripts/prepare-native-assets-test.mjs scripts/generate-voice-runtime-manifest.test.mjs",
     "test:native-edit-wire": "node scripts/native-edit-wire-test.mjs",
     "test:release-critical": "npm run test:release-assets && npm run smoke:patch && npm run test:providers",
     "test:spec-advisory": "node scripts/advisory-spec-test.mjs && npm run test:spec-advisory --prefix apps/desktop",
@@ -92,6 +92,10 @@
     "audit:models": "node scripts/model-catalog-audit.mjs",
     "patch:replay": "node scripts/patch-replay.mjs",
     "build:tui": "node scripts/build-tui.mjs",
+    "build:local": "npm run build:fast --prefix apps/desktop",
+    "deploy:local": "npm run update:dev:fast --prefix apps/desktop",
+    "deploy:vps": "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1",
+    "deploy:fast": "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-remote.ps1 -FastDirect",
     "release:patch": "gh workflow run deploy.yml --ref main -f bump=patch -f native=auto",
     "release:minor": "gh workflow run deploy.yml --ref main -f bump=minor -f native=auto",
     "release:major": "gh workflow run deploy.yml --ref main -f bump=major -f native=auto"
@@ -122,6 +126,7 @@
     "kiwi-nlp": "^0.21.0",
     "marked": "^14.1.4",
     "node-cron": "^4.5.0",
+    "onnxruntime-node": "1.27.0",
     "openai": "^6.44.0",
     "pg": "^8.22.0",
     "puppeteer-core": "^25.2.0",
@@ -138,6 +143,7 @@
   },
   "overrides": {
     "onnxruntime-node": {
+      ".": "1.27.0",
       "global-agent": "^4.1.3"
     },
     "sharp": "^0.35.3"
@@ -149,5 +155,10 @@
   },
   "optionalDependencies": {
     "@vscode/ripgrep": "^1.18.0"
-  }
+  },
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "author": ""
 }

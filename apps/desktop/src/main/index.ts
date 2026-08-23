@@ -261,6 +261,16 @@ const serviceClient = new DesktopServiceClient({
     );
     console.error(`[mixdog] ${event}`, data);
   },
+  onServiceReady: ({ generation }) => {
+    // The FIRST attachment belongs to the deferred scheduler, so no early
+    // interaction pays for relay startup. Every later one follows a daemon
+    // replacement that dropped the relay leg with the old process, and
+    // nothing else would ever dial it again: the deferred schedule runs once
+    // per window, and this window is already open.
+    if (generation <= 1) return;
+    diagnostics?.write('relay-redial-after-daemon-restart', { generation });
+    void startDeferredDesktopServices();
+  },
 });
 const host: DesktopService = serviceClient;
 let daemonServiceBootReported = false;

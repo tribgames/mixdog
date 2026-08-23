@@ -14,6 +14,7 @@ import {
   getDefaultEmbeddingDtype,
   getKnownEmbeddingDims,
   normalizeEmbeddingDtype,
+  normalizeEmbeddingInputType,
 } from './embedding-model-config.mjs'
 
 const MODEL_ID = getConfiguredEmbeddingModelId()
@@ -49,6 +50,10 @@ function cacheEmbedding(key, vector) {
 
 function getCachedEmbedding(key) {
   return queryEmbeddingCache.get(key)
+}
+
+function embeddingCacheKey(text, inputType) {
+  return `${MODEL_ID}\n${normalizeEmbeddingInputType(inputType)}\n${text}`
 }
 
 function ensureWorker() {
@@ -250,13 +255,18 @@ export function warmupEmbeddingProvider() {
 export async function embedText(text, options = {}) {
   const clean = String(text ?? '').trim()
   if (!clean) return []
-  const cacheKey = `${MODEL_ID}\n${clean}`
+  const inputType = normalizeEmbeddingInputType(options?.inputType)
+  const cacheKey = embeddingCacheKey(clean, inputType)
   const cached = getCachedEmbedding(cacheKey)
   if (cached) return [...cached]
 
   // Interactive query embeds pass { priority: true } so the worker can
   // queue-jump them ahead of background flush embed-batch work.
-  const result = await sendToWorker('embed', { text: clean, priority: options?.priority === true })
+  const result = await sendToWorker('embed', {
+    text: clean,
+    inputType,
+    priority: options?.priority === true,
+  })
   if (!result.dims) throw new Error(`embed result missing dims (model=${MODEL_ID})`)
   const resultDims = result.dims
   if (cachedDims && resultDims !== cachedDims) {
@@ -292,20 +302,21 @@ export async function embedText(text, options = {}) {
  * single or batch path. Worker still serializes the single ONNX run, but
  * one batched run replaces N sequential runs.
  */
-export async function embedTexts(texts) {
+export async function embedTexts(texts, options = {}) {
   if (!Array.isArray(texts)) throw new Error('embedTexts requires an array')
+  const inputType = normalizeEmbeddingInputType(options?.inputType)
   const cleaned = texts.map(t => String(t ?? '').trim())
   const missing = []
   for (const t of cleaned) {
     if (!t) continue
-    const key = `${MODEL_ID}\n${t}`
+    const key = embeddingCacheKey(t, inputType)
     if (!queryEmbeddingCache.has(key)) missing.push(t)
   }
   if (missing.length === 0) return cleaned.map(t => {
     if (!t) return []
-    return [...queryEmbeddingCache.get(`${MODEL_ID}\n${t}`)]
+    return [...queryEmbeddingCache.get(embeddingCacheKey(t, inputType))]
   })
-  const result = await sendToWorker('embed-batch', { texts: missing })
+  const result = await sendToWorker('embed-batch', { texts: missing, inputType })
   if (!result.dims) throw new Error(`embed-batch result missing dims (model=${MODEL_ID})`)
   const resultDims = result.dims
   if (cachedDims && resultDims !== cachedDims) {
@@ -322,12 +333,12 @@ export async function embedTexts(texts) {
     if (!Array.isArray(vec) || vec.length !== cachedDims) {
       throw new Error(`embed-batch vector length mismatch at idx ${i}: expected ${cachedDims}, got ${vec?.length}`)
     }
-    cacheEmbedding(`${MODEL_ID}\n${missing[i]}`, vec)
+    cacheEmbedding(embeddingCacheKey(missing[i], inputType), vec)
   }
   _embedCallCount += missing.length
   return cleaned.map(t => {
     if (!t) return []
-    const cached = queryEmbeddingCache.get(`${MODEL_ID}\n${t}`)
+    const cached = queryEmbeddingCache.get(embeddingCacheKey(t, inputType))
     return cached ? [...cached] : []
   })
 }

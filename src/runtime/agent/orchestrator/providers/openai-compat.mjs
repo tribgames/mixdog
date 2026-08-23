@@ -1,6 +1,10 @@
 import { createRequire } from 'node:module';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
-import { canFallbackNonStreaming, withRetry } from './retry-classifier.mjs';
+import {
+    canFallbackNonStreaming,
+    markProviderRecoveryExhausted,
+    withRetry,
+} from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
@@ -468,18 +472,29 @@ export class OpenAICompatProvider {
                             },
                         );
                         try { opts.onStageChange?.('streaming'); } catch { /* heartbeat best-effort */ }
-                        return consumeCompatChatCompletionStream(stream, {
-                            signal: attemptSignal,
-                            label: this.name,
-                            onStreamDelta: opts.onStreamDelta,
-                            onToolCall: opts.onToolCall,
-                            onTextDelta: opts.onTextDelta,
-                            parseToolCalls,
-                            // Known tool names for the leaked-tool-call guard:
-                            // recovered leaked calls only synthesize when they name
-                            // a tool actually offered to this request.
-                            knownToolNames: knownToolNamesFromOpenAITools(params.tools),
-                        });
+                        try {
+                            return await consumeCompatChatCompletionStream(stream, {
+                                signal: attemptSignal,
+                                label: this.name,
+                                onStreamDelta: opts.onStreamDelta,
+                                onToolCall: opts.onToolCall,
+                                onTextDelta: opts.onTextDelta,
+                                parseToolCalls,
+                                // Known tool names for the leaked-tool-call guard:
+                                // recovered leaked calls only synthesize when they name
+                                // a tool actually offered to this request.
+                                knownToolNames: knownToolNamesFromOpenAITools(params.tools),
+                            });
+                        } catch (error) {
+                            // Grok's reference sampler treats content-idle as a
+                            // terminal sampling decision, not a resample signal.
+                            if (this.name === 'xai' && error?.streamStalled === true) {
+                                throw markProviderRecoveryExhausted(error, {
+                                    owner: 'xai-content-idle-policy',
+                                });
+                            }
+                            throw error;
+                        }
                     },
                     {
                         signal: totalSignal.signal,
@@ -764,16 +779,25 @@ export class OpenAICompatProvider {
                         },
                     );
                     try { opts.onStageChange?.('streaming'); } catch { /* heartbeat best-effort */ }
-                    return consumeCompatResponsesStream(stream, {
-                        signal: attemptSignal,
-                        label: 'xai:responses',
-                        onStreamDelta: opts.onStreamDelta,
-                        onToolCall: opts.onToolCall,
-                        onTextDelta: opts.onTextDelta,
-                        parseResponsesToolCalls,
-                        responseOutputText,
-                        knownToolNames: knownToolNamesFromResponsesTools(params.tools),
-                    });
+                    try {
+                        return await consumeCompatResponsesStream(stream, {
+                            signal: attemptSignal,
+                            label: 'xai:responses',
+                            onStreamDelta: opts.onStreamDelta,
+                            onToolCall: opts.onToolCall,
+                            onTextDelta: opts.onTextDelta,
+                            parseResponsesToolCalls,
+                            responseOutputText,
+                            knownToolNames: knownToolNamesFromResponsesTools(params.tools),
+                        });
+                    } catch (error) {
+                        if (error?.streamStalled === true) {
+                            throw markProviderRecoveryExhausted(error, {
+                                owner: 'xai-content-idle-policy',
+                            });
+                        }
+                        throw error;
+                    }
                 },
                 {
                     signal: totalSignal.signal,

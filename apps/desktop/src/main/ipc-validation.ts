@@ -149,6 +149,14 @@ export function requiredFileSearchLimit(value: unknown): number {
   return value as number;
 }
 
+export function requiredTranscriptItemLimit(value: unknown): number {
+  if (value === undefined) return 512;
+  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 8_192) {
+    throw new TypeError('transcript item limit is invalid.');
+  }
+  return value as number;
+}
+
 export function requiredWorkspaceSearchLimit(value: unknown): number {
   if (value === undefined) return 2_000;
   if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 5_000) {

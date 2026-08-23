@@ -14,6 +14,7 @@ import {
   desktopToolActivityItemPresentation,
   flattenedToolActivityItems,
   formatTokenCount,
+  transcriptItemsEqual,
   ToolActivityGroup,
 } from './TranscriptView.tsx';
 
@@ -64,6 +65,12 @@ function project(items, turnKeys = items.map(() => 'turn')) {
     failedTurns: new Set(),
   });
 }
+
+test('transcript row memoization retains no value-copy signature', () => {
+  const item = { kind: 'assistant', text: 'large tool output' };
+  assert.equal(transcriptItemsEqual(item, item), true);
+  assert.equal(transcriptItemsEqual(item, { ...item }), false);
+});
 
 test('desktop and mobile tool groups share details and a static task icon', async () => {
   const userAgents = [

@@ -275,6 +275,7 @@ async function _initStore() {
     provider: embeddingConfig?.provider ?? null,
     model: getEmbeddingModelId(),
     dtype: getEmbeddingDtype(),
+    format: 'mixdog-embedding-v2',
   }
   let dimsResolved = null
   try {
@@ -300,7 +301,7 @@ async function _initStore() {
     // model and the ~560 MB Kiwi analyzer completely off the boot path; the
     // first relevant query starts them on demand without blocking startup.
     const openStartedAt = performance.now()
-    db = await openDatabase(DATA_DIR, dimsResolved)
+    db = await openDatabase(DATA_DIR, dimsResolved, metaKey)
     memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved })
   } else {
     if (!embeddingWarmupCanStart()) {
@@ -314,7 +315,7 @@ async function _initStore() {
     dimsResolved = Number(getEmbeddingDims())
     assertSecondaryPgAttachable()
     const openStartedAt = performance.now()
-    db = await openDatabase(DATA_DIR, dimsResolved)
+    db = await openDatabase(DATA_DIR, dimsResolved, metaKey)
     memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved })
     try {
       writeJsonAtomicSync(EMBEDDING_META_PATH, { ...metaKey, dims: dimsResolved }, { lock: true })

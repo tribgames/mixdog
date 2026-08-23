@@ -527,7 +527,7 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
       const scope = core.project_id ? String(core.project_id) : 'common'
       let queryVector = null
       try {
-        queryVector = await embedText(queryText)
+        queryVector = await embedText(queryText, { inputType: 'query' })
       } catch (err) {
         if (signal?.aborted) throw signal.reason ?? err
         __mixdogMemoryLog(`[cycle3] embedding failed for core id=${core.id}: ${err.message}\n`)

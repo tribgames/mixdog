@@ -158,6 +158,30 @@ export function paneSessionTabIds(
   return ids;
 }
 
+/** Session lanes that are actually painted: one active session per pane.
+ * Background tabs stay cold until selected instead of retaining a live
+ * transcript in the renderer, daemon, and runtime worker. */
+export function paneActiveSessionIds(
+  leaves: readonly PaneLeaf[],
+  focusedLeafId = "",
+): string[] {
+  const orderedLeaves = focusedLeafId
+    ? [
+      ...leaves.filter((leaf) => leaf.id === focusedLeafId),
+      ...leaves.filter((leaf) => leaf.id !== focusedLeafId),
+    ]
+    : [...leaves];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const leaf of orderedLeaves) {
+    const selection = paneActiveSelection(leaf);
+    if (selection?.kind !== "session" || seen.has(selection.id)) continue;
+    seen.add(selection.id);
+    ids.push(selection.id);
+  }
+  return ids;
+}
+
 /** Authorize persisted session tabs against the durable startup catalog before
  * any pane mounts. Empty orphan-only groups collapse exactly like closed
  * editor groups; non-session tabs retain their original layout. */

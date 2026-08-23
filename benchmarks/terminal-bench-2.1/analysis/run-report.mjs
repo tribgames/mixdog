@@ -477,6 +477,7 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
           agentSeconds: ours.agentSeconds,
           tokens: ours.tokens,
           costUsd: ours.costUsd,
+          costUnsupported: ours.costUnsupported,
           finalContextTokens: ours.finalContextTokens,
         },
         baseline: {
@@ -484,6 +485,7 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
           agentSeconds: baseline.agentSeconds,
           tokens: baseline.tokens,
           costUsd: baseline.costUsd,
+          costUnsupported: baseline.costUnsupported,
           finalContextTokens: baseline.finalContextTokens,
         },
       };
@@ -492,6 +494,13 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
   const baselineRows = pairs.map((pair) => ({ ...pair.baseline, task: pair.task }));
   const oursCost = knownCost(oursRows);
   const baselineCost = knownCost(baselineRows);
+  const comparableCostPairs = pairs.filter((pair) =>
+    !pair.ours.costUnsupported
+    && !pair.baseline.costUnsupported
+    && Number.isFinite(pair.ours.costUsd)
+    && Number.isFinite(pair.baseline.costUsd));
+  const comparableOursCost = sum(comparableCostPairs, (pair) => pair.ours.costUsd);
+  const comparableBaselineCost = sum(comparableCostPairs, (pair) => pair.baseline.costUsd);
   const oursAgent = sum(oursRows, (row) => row.agentSeconds);
   const baselineAgent = sum(baselineRows, (row) => row.agentSeconds);
   const complete = current.result.total > 0 && current.result.completed === current.result.total;
@@ -541,9 +550,18 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
       costLowerBound: config.costLowerBound === true,
       finalContextMedianTokens: baselineContext,
     },
+    costComparison: {
+      comparableTasks: comparableCostPairs.length,
+      totalTasks: pairs.length,
+      complete: comparableCostPairs.length === pairs.length,
+      oursUsd: comparableCostPairs.length ? comparableOursCost : null,
+      baselineUsd: comparableCostPairs.length ? comparableBaselineCost : null,
+    },
     ratios: {
       speedup: oursAgent > 0 ? baselineAgent / oursAgent : null,
-      cost: oursCost.usd > 0 && baselineCost.usd != null ? oursCost.usd / baselineCost.usd : null,
+      cost: comparableOursCost > 0 && comparableBaselineCost > 0
+        ? comparableOursCost / comparableBaselineCost
+        : null,
       inputTokens: tokenTotals(baselineRows).input > 0
         ? tokenTotals(oursRows).input / tokenTotals(baselineRows).input
         : null,
@@ -748,6 +766,11 @@ export function formatRunReport(report) {
   }
   if (report.pair && !report.pair.error) {
     const pair = report.pair;
+    const costComparison = pair.costComparison || {
+      comparableTasks: pair.sharedTasks,
+      totalTasks: pair.sharedTasks,
+      complete: true,
+    };
     lines.push(
       '',
       `## Pair: ${pair.label}${pair.provisional ? ' (provisional)' : ''}`,
@@ -756,7 +779,7 @@ export function formatRunReport(report) {
       `- Score: **${pair.ours.passed}/${pair.ours.total} vs ${pair.baseline.passed}/${pair.baseline.total}**`,
       `- Outcomes: ours-only ${pair.outcomes.oursOnly}, baseline-only ${pair.outcomes.baselineOnly}, both-pass ${pair.outcomes.bothPass}, both-fail ${pair.outcomes.bothFail}`,
       `- Agent speedup: **${number(pair.ratios.speedup, 2)}x**`,
-      `- Cost ratio (ours/baseline): **${number(pair.ratios.cost, 2)}x**`,
+      `- Cost ratio (ours/baseline, ${costComparison.comparableTasks}/${costComparison.totalTasks} cost-comparable tasks${costComparison.complete ? '' : '; partial coverage'}): **${number(pair.ratios.cost, 2)}x**`,
       `- Input-token ratio (ours/baseline): **${number(pair.ratios.inputTokens, 2)}x**`,
       `- Final-context reduction: **${percent(pair.ratios.finalContextReduction)}**`,
     );

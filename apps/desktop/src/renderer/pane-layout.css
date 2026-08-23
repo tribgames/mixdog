@@ -589,12 +589,26 @@
   min-height: 0;
   overflow: hidden;
 }
+.pane-conversation-slot > .conversation-persistent-surface {
+  /* A newly split draft mounts through a movable portal host. Pin that host to
+     the slot's used box instead of relying on percentage height propagation:
+     during a split Chromium could resolve the fresh host at intrinsic height,
+     collapse .transcript-shell to zero, and leave the composer at the top. */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
 .pane-conversation-slot[data-conversation-parked="true"] {
   z-index: 0;
   pointer-events: none;
 }
 .pane-conversation-slot > .conversation-persistent-surface > .workspace {
-  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  flex: 1 1 0%;
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;

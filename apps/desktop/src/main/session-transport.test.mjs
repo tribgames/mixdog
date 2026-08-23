@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { SessionHost } from './session-host.ts';
+import { mergeSessionHistorySnapshot, SessionHost } from './session-host.ts';
 import { SessionTransport } from './session-transport.ts';
 
 const options = {
@@ -480,6 +480,31 @@ test('an agent tab loads its transcript through the normal session read path', a
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });
   }
+});
+
+test('history replay prepends stored rows while retaining the live tail and work state', () => {
+  const liveTail = [
+    { id: 'user-1', kind: 'user', text: 'worker brief' },
+    { id: 'assistant-1', kind: 'assistant', text: 'worker handoff' },
+  ];
+  const merged = mergeSessionHistorySnapshot('agent_child', {
+    sessionId: 'agent_child',
+    items: liveTail,
+    queued: [{ id: 'queued' }],
+    busy: true,
+  }, {
+    sessionId: 'agent_child',
+    items: [
+      { id: 'older', kind: 'assistant', text: 'older context' },
+      ...liveTail.map((item) => ({ ...item })),
+    ],
+    queued: [],
+  });
+  assert.deepEqual(merged.items.map((item) => item.id), ['older', 'user-1', 'assistant-1']);
+  assert.equal(merged.items[1], liveTail[0]);
+  assert.equal(merged.items[2], liveTail[1]);
+  assert.equal(merged.busy, true);
+  assert.deepEqual(merged.queued, [{ id: 'queued' }]);
 });
 
 test('new-task route trusts its authoritative result over a stale projected snapshot', async () => {

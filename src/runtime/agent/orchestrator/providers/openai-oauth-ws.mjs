@@ -36,6 +36,7 @@ import {
     classifyHandshakeError,
     classifyMidstreamError,
     createStreamSafetyStamps,
+    markProviderRecoveryExhausted,
     resolveStallRetryBudget,
     jitterDelayMs,
     MIDSTREAM_RETRY_POLICY,
@@ -1137,9 +1138,11 @@ export async function sendViaWebSocket({
                 ? null
                 : _classifyMidstreamError(err, midState);
             if (classifier === 'stream_stalled' && !stallRetryBudget.allowStallRetry()) {
-                try { process.stderr.write(`[openai-oauth] stall retry budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first stall) — surfacing for fresh-request retry\n`); } catch {}
+                try { process.stderr.write(`[openai-oauth] stall retry budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first stall) — surfacing provider-terminal failure\n`); } catch {}
                 emitSendSpan('error');
-                throw _stampTool(_stampLiveText(err));
+                throw _stampTool(_stampLiveText(markProviderRecoveryExhausted(err, {
+                    owner: 'openai-oauth-ws-stall-budget',
+                })));
             }
             const retryLimit = classifier ? _midstreamRetryLimit(classifier) : 0;
             if (classifier && attemptIndex < retryLimit) {
@@ -1185,6 +1188,10 @@ export async function sendViaWebSocket({
                 try { firstAttemptError.midstreamClassifier = firstAttemptClassifier; } catch {}
                 if (attemptIndex >= _midstreamRetryLimit(firstAttemptClassifier)) {
                     try { firstAttemptError.wsRetriesExhausted = true; } catch {}
+                    markProviderRecoveryExhausted(firstAttemptError, {
+                        owner: 'openai-oauth-ws-midstream',
+                        attempts: attemptIndex + 1,
+                    });
                 }
                 // Attach the retry attempt's error so post-mortem diagnostics
                 // can see WHY the retry also failed instead of silently

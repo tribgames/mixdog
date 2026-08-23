@@ -798,6 +798,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     iterationIndex: iterations,
                     usageMetricsTurnId: loopUsageMetricsTurnId(),
                     source: 'provider_send',
+                    requestedModel: model,
+                    model: response.model || model,
                     usageMetricsEpoch: loopUsageMetricsEpoch(),
                     deltaInput: response.usage.inputTokens || 0,
                     deltaOutput: response.usage.outputTokens || 0,

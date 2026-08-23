@@ -117,6 +117,57 @@ function sameSnapshotField(before: unknown, after: unknown): boolean {
   return JSON.stringify(before) === JSON.stringify(after);
 }
 
+/** Item-by-item reuse. Transcript items are appended and settled in place, so
+ *  an unchanged prefix is the norm, and its identity is exactly what the delta
+ *  encoders read to mean "the receiver already holds this". */
+function reconcileProjectionItems(
+  before: readonly unknown[],
+  after: readonly unknown[],
+): readonly unknown[] {
+  let reusedAll = before.length === after.length;
+  const items = after.map((item, index) => {
+    const prior = index < before.length ? before[index] : undefined;
+    if (index < before.length && sameSnapshotField(prior, item)) return prior;
+    reusedAll = false;
+    return item;
+  });
+  return reusedAll ? before : items;
+}
+
+/** Fold a freshly read stored projection onto the one already held.
+ *
+ *  A stored read has no baseline to diff against, so it always answers with a
+ *  FULL snapshot — and a cold view that is merely VISIBLE is re-read on a one
+ *  second clock. Each read parses a brand-new object graph, which the encoders
+ *  below can only read as "every item changed": a phone watching a session
+ *  whose screen never moved was receiving the whole transcript once a second.
+ *
+ *  Returns the previous snapshot itself when nothing differs, so the caller can
+ *  compare by reference and publish nothing at all. */
+export function reconcileSessionProjection<T>(previous: T, next: T): T {
+  if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return next;
+  if (Array.isArray(previous) || Array.isArray(next)) return next;
+  const before = previous as Record<string, unknown>;
+  const after = next as Record<string, unknown>;
+  const merged: Record<string, unknown> = {};
+  let identical = Object.keys(before).length === Object.keys(after).length;
+  for (const [key, value] of Object.entries(after)) {
+    if (key === 'items' && Array.isArray(value) && Array.isArray(before.items)) {
+      const items = reconcileProjectionItems(before.items, value);
+      merged.items = items;
+      if (items !== before.items) identical = false;
+      continue;
+    }
+    if (Object.hasOwn(before, key) && sameSnapshotField(before[key], value)) {
+      merged[key] = before[key];
+      continue;
+    }
+    merged[key] = value;
+    identical = false;
+  }
+  return identical ? previous : merged as T;
+}
+
 function snapshotFieldsFrom(record: Record<string, unknown>): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
@@ -141,6 +192,17 @@ function streamingTailFrom(record: Record<string, unknown> | null): Record<strin
  *  change". The marker keeps that reading away from v1 frames, where a missing
  *  state patch means an older peer sent whole fields instead. */
 const COMPACT_WIRE_VERSION = 2;
+
+/** Returned by an encoder instead of a wire when the snapshot did not move.
+ *  The caller must send NOTHING: a frame that says "nothing changed" pays for
+ *  a whole E2EE envelope — box, nonce and base64 — to deliver what the
+ *  receiver already holds. The encoder keeps its revision, so the next real
+ *  patch still chains onto the baseline the receiver has. */
+export const REMOTE_NO_DELTA = Symbol.for('mixdog.remote-no-delta');
+
+export function isNoDelta(wire: unknown): boolean {
+  return wire === REMOTE_NO_DELTA;
+}
 
 export interface SnapshotDeltaEncoderOptions {
   /** Only for a peer that announced it understands the compact shape. */
@@ -190,6 +252,9 @@ export function createSnapshotDeltaEncoder(
         }
         const wire: Record<string, unknown> = {};
         const append = items.slice(prefix);
+        // Ordering fields alone are not news. Anything that gives the receiver
+        // something it does not already hold sets this.
+        let carriesNews = append.length > 0 || prefix !== items.length;
         if (compact) {
           // `r` alone orders the stream: base is always the previous revision,
           // so the receiver derives it rather than reading it. Item movement
@@ -217,6 +282,7 @@ export function createSnapshotDeltaEncoder(
         for (const key of Object.keys(previousFields)) {
           if (!Object.hasOwn(nextFields, key)) removed.push(key);
         }
+        if (Object.keys(changed).length > 0 || removed.length > 0) carriesNews = true;
         if (!compact) {
           wire.__statePatch = { base, revision, changed, removed };
         } else if (Object.keys(changed).length > 0 || removed.length > 0) {
@@ -230,13 +296,20 @@ export function createSnapshotDeltaEncoder(
         if (previousTail !== streamingTail) {
           const previousText = typeof previousTail?.text === 'string' ? previousTail.text : '';
           const nextText = typeof streamingTail?.text === 'string' ? streamingTail.text : '';
+          // The epoch marker proves an append without reading the text, but it
+          // is non-enumerable and every desktop hop rebuilds the snapshot, so
+          // it survives only in-process. Where it does not, one prefix compare
+          // proves the same thing; refusing to prove it ships the entire
+          // streamed text again on every frame of the turn.
+          const appendProven = streamingTailEpoch !== null
+            ? streamingTailEpoch === sentStreamingTailEpoch
+            : sentStreamingTailEpoch === null && nextText.startsWith(previousText);
           if (
             previousTail
             && streamingTail
             && previousTail.id != null
             && previousTail.id === streamingTail.id
-            && streamingTailEpoch !== null
-            && streamingTailEpoch === sentStreamingTailEpoch
+            && appendProven
             && nextText.length >= previousText.length
           ) {
             const tail = { ...streamingTail };
@@ -245,23 +318,27 @@ export function createSnapshotDeltaEncoder(
             // every frame of a turn. A compact frame sends it once and then
             // only when something in it actually changes.
             const identity = JSON.stringify(tail);
-            const repeatedIdentity = compact && identity === sentTailIdentity;
+            const sameIdentity = identity === sentTailIdentity;
+            const repeatedIdentity = compact && sameIdentity;
             sentTailIdentity = identity;
+            const appended = nextText.slice(previousText.length);
+            if (appended !== '' || !sameIdentity) carriesNews = true;
             if (compact) {
               // The splice point is the receiver's own tail length on an
               // append-only stream, so only the appended text travels.
-              wire.ta = nextText.slice(previousText.length);
+              wire.ta = appended;
               if (!repeatedIdentity) wire.tt = tail;
             } else {
               wire.__streamingTailPatch = {
                 prefix: previousText.length,
-                append: nextText.slice(previousText.length),
+                append: appended,
                 tail,
               };
             }
           } else {
             wire.streamingTail = streamingTail;
             sentTailIdentity = null;
+            carriesNews = true;
           }
         }
         if (compact) {
@@ -270,6 +347,7 @@ export function createSnapshotDeltaEncoder(
           if (streamingTailEpoch !== null && streamingTailEpoch !== sentWireEpoch) {
             wire.x = streamingTailEpoch;
             sentWireEpoch = streamingTailEpoch;
+            carriesNews = true;
           }
         } else {
           carryStreamingTailEpoch(record, wire);
@@ -278,6 +356,12 @@ export function createSnapshotDeltaEncoder(
         sentStreamingTail = streamingTail;
         sentStreamingTailEpoch = streamingTailEpoch;
         sentStateFields = nextFields;
+        if (!carriesNews) {
+          // Hold the revision: the receiver's baseline never moved, so the next
+          // real patch has to chain onto the one it already holds.
+          revision -= 1;
+          return REMOTE_NO_DELTA;
+        }
         return wire;
       }
       sentItems = items;

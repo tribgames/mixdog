@@ -225,7 +225,7 @@ export class CaptureService implements DesktopService {
   async renameSession(): Promise<void> {}
   async setSessionArchived(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> { return null; }
-  async prefetchSession(): Promise<boolean> { return true; }
+  async prefetchSession(_sessionId?: string, _transcriptItemLimit?: number): Promise<boolean> { return true; }
   async setVisibleSessions(): Promise<boolean> { return true; }
   async searchProjectFiles(): Promise<string[]> { return []; }
   async submitToSession(): Promise<boolean> { return true; }

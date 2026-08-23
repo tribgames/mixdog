@@ -39,6 +39,7 @@ import {
   requiredPromptContent,
   requiredString,
   requiredSubmitOptions,
+  requiredTranscriptItemLimit,
   requiredToolApprovalDecision,
   sessionDisplayName,
 } from './ipc';
@@ -281,8 +282,11 @@ export function createRemoteMethods(
     deleteSession: ([sessionId]) => host.deleteSession(requiredSessionId(sessionId)),
     // Cold-lane fill for the remote surface: a canonical session.read whose
     // replay frame returns through the broadcast sessionState lane.
-    prefetchSession: ([sessionId]) =>
-      host.prefetchSession?.(requiredSessionId(sessionId)) ?? false,
+    prefetchSession: ([sessionId, itemLimit]) =>
+      host.prefetchSession?.(
+        requiredSessionId(sessionId),
+        requiredTranscriptItemLimit(itemLimit),
+      ) ?? false,
     searchProjectFiles: ([projectIdOrWorkspaceId, query, limit]) => {
       if (typeof query !== 'string' || query.length > 1_024) {
         throw new TypeError('query is invalid.');

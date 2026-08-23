@@ -1,6 +1,56 @@
 import type { ComposerAttachment } from "./composer-support";
 
 let submissionSequence = 0;
+let recoverySequence = 0;
+
+export type ComposerSubmissionRecovery = {
+  id: string;
+  scope: string;
+  text: string;
+  attachments: ComposerAttachment[];
+};
+
+type StoredComposerSubmissionRecovery = ComposerSubmissionRecovery & {
+  rejected: boolean;
+  sequence: number;
+};
+
+const composerSubmissionRecoveries = new Map<string, StoredComposerSubmissionRecovery>();
+
+export function retainComposerSubmissionRecovery(
+  recovery: ComposerSubmissionRecovery,
+): void {
+  composerSubmissionRecoveries.set(recovery.id, {
+    ...recovery,
+    attachments: [...recovery.attachments],
+    rejected: false,
+    sequence: ++recoverySequence,
+  });
+}
+
+export function rejectComposerSubmissionRecovery(id: string): void {
+  const recovery = composerSubmissionRecoveries.get(id);
+  if (recovery) recovery.rejected = true;
+}
+
+export function resolveComposerSubmissionRecovery(id: string): void {
+  composerSubmissionRecoveries.delete(id);
+}
+
+export function takeRejectedComposerSubmissionRecoveries(
+  scope: string,
+): ComposerSubmissionRecovery[] {
+  const recoveries = [...composerSubmissionRecoveries.values()]
+    .filter((recovery) => recovery.rejected && recovery.scope === scope)
+    .sort((left, right) => left.sequence - right.sequence);
+  for (const recovery of recoveries) composerSubmissionRecoveries.delete(recovery.id);
+  return recoveries.map(({ id, scope: recoveryScope, text, attachments }) => ({
+    id,
+    scope: recoveryScope,
+    text,
+    attachments: [...attachments],
+  }));
+}
 
 export function shouldPreserveComposerDraftOnScopeChange(
   previousScope: string,

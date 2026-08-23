@@ -703,7 +703,7 @@ if (!/must be a boolean/.test(String(findNoiseTypeErr))) {
 }
 
 {
-  let broadEnumerationCalls = 0;
+  let targetedEnumerationCalls = 0;
   const timeout = Object.assign(
     new Error('native fuzzy search timed out after 20000ms. Fuzzy ranking requires a complete file inventory; narrow cwd or set max depth.'),
     { code: 'NATIVE_SEARCH_TIMEOUT' },
@@ -713,14 +713,21 @@ if (!/must be a boolean/.test(String(findNoiseTypeErr))) {
     root,
     {
       __tryServeFuzzySearch: async () => { throw timeout; },
-      __runRg: async () => {
-        broadEnumerationCalls += 1;
-        return 'scripts/tool-smoke.mjs\n';
+      __runRg: async (args) => {
+        targetedEnumerationCalls += 1;
+        if (!args.includes('--iglob')) throw new Error(`timeout recovery must use a targeted path scan: ${JSON.stringify(args)}`);
+        return 'scripts/tool-smoke-timeout.mjs\n';
       },
     },
   );
-  if (broadEnumerationCalls !== 0 || !/complete file inventory/.test(String(out))) {
-    throw new Error(`find fuzzy timeout must not repeat the same broad inventory walk:\n${out}`);
+  // A deadline before any fuzzy response must not repeat the complete
+  // inventory. It performs one query-targeted path scan and returns its real
+  // candidate in the same tool call.
+  if (targetedEnumerationCalls !== 1
+      || /^Error[\s:[]/.test(String(out).trimStart())
+      || !/scripts\/tool-smoke-timeout\.mjs/.test(String(out))
+      || !/targeted path matches shown/.test(String(out))) {
+    throw new Error(`find fuzzy timeout must recover through one targeted path scan:\n${out}`);
   }
 }
 
@@ -1364,7 +1371,7 @@ const shellDescription = shellTool?.description || '';
 if (!/Run programs, runtime\/state operations/i.test(shellDescription)
     || !/calculations, transformations, file generation/i.test(shellDescription)
     || !/10s foreground window.*not a timeout.*continues.*task_id/i.test(shellDescription)
-    || !/Completion is automatic.*continue independent work or end the turn.*call task wait once.*instead of polling task read/i.test(shellDescription)) {
+    || !/Completion is automatic.*continue independent work or end the turn.*call task wait instead of polling task read/i.test(shellDescription)) {
   throw new Error(`shell description must use ordinary execution/computation/file-role concepts: ${shellDescription}`);
 }
 const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
@@ -1405,7 +1412,7 @@ if (shellZeroTimeoutErr || !/non-negative number/.test(String(shellNegativeTimeo
 }
 const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
 const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
-if (!/Completion is automatic.*continue independent work or end the turn.*Never repeat read to watch a task.*use wait when the next step genuinely needs the result/i.test(publicTaskTool?.description || '')) {
+if (!/Completion is automatic.*unless periodic task reports were requested.*continue independent work or end the turn.*Never repeat read to watch a task.*next report interval.*one-shot current status/i.test(publicTaskTool?.description || '')) {
   throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
 }
 if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'wait', 'cancel'])
@@ -1628,7 +1635,7 @@ try {
   else process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = _priorAutoBgBudget;
 }
 if (!/auto-backgrounded/i.test(String(shellAutoPromoteOut))
-    || !/Completion is automatic, so continue independent work or end the turn.*call task wait once.*instead of polling task read/i.test(String(shellAutoPromoteOut))) {
+    || !/Completion is automatic.*unless periodic task reports were requested.*continue independent work or end the turn.*next report interval.*call task wait instead of polling task read/i.test(String(shellAutoPromoteOut))) {
   throw new Error(`shell auto-promotion must return a tracked task with automatic-completion guidance:\n${shellAutoPromoteOut}`);
 }
 const shellAutoPromoteTaskId = assertBackgroundStart('shell auto-promotion', shellAutoPromoteOut);
@@ -1987,7 +1994,7 @@ if (AGENT_TOOL.inputSchema?.additionalProperties !== false) {
     throw new Error(`legacy role shorthand must not enter headless exec: ${JSON.stringify(legacyRole)}`);
   }
 }
-if (!/background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags?/i.test(AGENT_TOOL.description || '') || !/same tag reuses/i.test(AGENT_TOOL.description || '') || !/spawn\/send return task_id immediately/i.test(AGENT_TOOL.description || '') || !/completion notifications/i.test(AGENT_TOOL.description || '') || !/status\/read only for manual recovery/i.test(AGENT_TOOL.description || '')) {
+if (!/background tasks/i.test(AGENT_TOOL.description || '') || !/distinct tags?/i.test(AGENT_TOOL.description || '') || !/same-tag spawn respawns/i.test(AGENT_TOOL.description || '') || !/full brief/i.test(AGENT_TOOL.description || '') || !/spawn\/send return task_id immediately/i.test(AGENT_TOOL.description || '') || !/completion notifications/i.test(AGENT_TOOL.description || '') || !/status\/read only for manual recovery/i.test(AGENT_TOOL.description || '')) {
   throw new Error('agent description must preserve async tagged delegation contract');
 }
 const agentSmoke = createStandaloneAgent({
@@ -2776,7 +2783,8 @@ if (codeGraphSymbolSearchErr) {
 // enumerate modes, but must not drift into web-search territory.
 if (!/Source-file structure/i.test(codeGraphDescription)
   || !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) => codeGraphDescription.includes(mode))
-  || !/overview and mode:symbols return file summaries/i.test(codeGraphDescription)
+  || !/mode:symbols with files\[\] is the cheap direct outline/i.test(codeGraphDescription)
+  || !/no file body/i.test(codeGraphDescription)
   || !/Exact identifiers route directly to find_symbol\/references\/callers\/callees/i.test(codeGraphDescription)
   || !/symbol-name keywords use symbol_search\/search/i.test(codeGraphDescription)
   || !/Text, literals, and regex belong to grep/i.test(codeGraphDescription)) {
@@ -2785,8 +2793,8 @@ if (!/Source-file structure/i.test(codeGraphDescription)
 if (!/File modes use files\[\]/i.test(codeGraphDescription) || !/symbol modes use symbols\[\]/i.test(codeGraphDescription)) {
   throw new Error('code_graph description must keep its per-mode files[]/symbols[] target contract');
 }
-if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative source path/i.test(codeGraphProps.files?.description || '')) {
-  throw new Error('code_graph schema must keep compact, repo-local field descriptions');
+if (!/files\[\]/i.test(codeGraphProps.mode?.description || '') || !/project-relative or absolute/i.test(codeGraphProps.files?.description || '')) {
+  throw new Error('code_graph schema must keep compact relative/absolute path descriptions');
 }
 if (!/Explicit root outside the project/i.test(codeGraphProps.cwd?.description || '') || !/omit for project root/i.test(codeGraphProps.cwd?.description || '')) {
   throw new Error('code_graph schema must expose its explicit outside-cwd root');

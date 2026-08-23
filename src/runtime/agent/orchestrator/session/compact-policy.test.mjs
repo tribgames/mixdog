@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+    compactionTelemetryPressureTokens,
     currentContextEstimateTokens,
     rememberCompactTelemetry,
+    resolveCompactionPressureTokens,
+    resolveContextTokens,
     resolveGaugeContextTokens,
     resolveWorkerCompactPolicy,
+    shouldCompactForSession,
 } from './loop/compact-policy.mjs';
 import { contextMessagesSignature, estimateMessagesTokens } from './context-utils.mjs';
 
@@ -93,5 +97,80 @@ test('gauge and post-compact estimate are one scale', () => {
 
     const gauged = resolveGaugeContextTokens(messageTokensEst, policy, { messages, sessionRef: session });
     assert.equal(gauged, 499_000);
+    assert.equal(
+        resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef: session }),
+        gauged,
+    );
+    assert.equal(
+        shouldCompactForSession(messageTokensEst, policy, { messages, sessionRef: session }),
+        false,
+    );
     assert.ok(gauged > currentContextEstimateTokens(messageTokensEst, policy) * 10);
+});
+
+test('provider baseline plus trailing growth is the only display and compaction value', () => {
+    const prefix = [
+        { role: 'user', content: 'large provider-aligned prefix '.repeat(5_000) },
+    ];
+    const trailing = { role: 'user', content: 'new trailing message' };
+    const messages = [...prefix, trailing];
+    const session = {
+        provider: 'anthropic-oauth',
+        model: 'claude-opus-5',
+        contextWindow: 500_000,
+        compactBoundaryTokens: 500_000,
+        compaction: { auto: true },
+        tools: [],
+    };
+    const policy = resolveWorkerCompactPolicy(session, []);
+    const messageTokensEst = estimateMessagesTokens(messages);
+    const providerTokens = 1_000;
+    Object.assign(session, {
+        contextPressureBaselineTokens: providerTokens,
+        contextPressureBaselineOutputTokens: 0,
+        contextPressureBaselineMessageCount: prefix.length,
+        contextPressureBaselinePrefixSignature: contextMessagesSignature(messages, prefix.length),
+        contextPressureBaselineProvider: session.provider,
+        contextPressureBaselineModel: session.model,
+        contextPressureBaselineToolSignature: policy.toolSchemaSignature,
+        contextPressureBaselineBoundary: 'complete',
+        contextPressureBaselineUpdatedAt: Date.now(),
+        lastContextTokensStaleAfterCompact: false,
+    });
+
+    const expected = providerTokens + Math.round(
+        estimateMessagesTokens([trailing]) * policy.tokenCalibration,
+    );
+    const contextTokens = resolveContextTokens(messageTokensEst, policy, { messages, sessionRef: session });
+    assert.equal(contextTokens, expected);
+    assert.equal(
+        resolveGaugeContextTokens(messageTokensEst, policy, { messages, sessionRef: session }),
+        contextTokens,
+    );
+    assert.equal(
+        resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef: session }),
+        contextTokens,
+    );
+    assert.ok(currentContextEstimateTokens(messageTokensEst, policy) > contextTokens * 2);
+
+    const decisionPolicy = { ...policy, triggerTokens: contextTokens + 1 };
+    assert.equal(
+        shouldCompactForSession(messageTokensEst, decisionPolicy, { messages, sessionRef: session }),
+        false,
+    );
+    assert.equal(
+        compactionTelemetryPressureTokens(messageTokensEst, decisionPolicy, {
+            messages,
+            sessionRef: session,
+        }),
+        contextTokens,
+    );
+    assert.equal(
+        compactionTelemetryPressureTokens(messageTokensEst, decisionPolicy, {
+            reactivePending: true,
+            messages,
+            sessionRef: session,
+        }),
+        decisionPolicy.triggerTokens,
+    );
 });

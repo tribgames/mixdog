@@ -149,28 +149,6 @@ export function preloadAgentLoopRuntime() {
   return agentLoopPrewarmPromise;
 }
 
-// Provider init (SDK graph + stored credentials) used to start inside the
-// FIRST session create, so a cold runtime worker paid keychain + provider init serially
-// right in front of provider.send (measured: a 13.5s first turn whose title
-// sibling call timed out at 10s). Hosts warm the same registry the create and
-// title paths use; initProviders dedupes repeat calls, so the authoritative
-// create path simply finds it ready.
-let providerRuntimePrewarmPromise = null;
-export function preloadProviderRuntime() {
-  providerRuntimePrewarmPromise ??= (async () => {
-    const [{ loadConfig }, { initProviders }] = await Promise.all([
-      import('../runtime/agent/orchestrator/config.mjs'),
-      import('../runtime/agent/orchestrator/providers/registry.mjs'),
-    ]);
-    await initProviders(loadConfig().providers || {});
-  })();
-  void providerRuntimePrewarmPromise.catch(() => {
-    // Opportunistic: the create path retries provider init on its own.
-    providerRuntimePrewarmPromise = null;
-  });
-  return providerRuntimePrewarmPromise;
-}
-
 // Memory-runtime attach (PG proxy + embed warmup) measured ~6.5s cold and is
 // the largest first-turn blocker: loadCoreMemoryContext races it with a 2s
 // cap, but a cold attach stalls the event loop hard enough that even that

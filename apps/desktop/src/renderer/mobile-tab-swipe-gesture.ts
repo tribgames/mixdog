@@ -60,6 +60,7 @@ export function installMobileTabSwipe({
   let startY = 0;
   let leafId = "";
   let gestureCell: HTMLElement | null = null;
+  let gestureTarget: Element | null = null;
   let tracking = false;
   let lastX = 0;
   let lastTime = 0;
@@ -78,6 +79,29 @@ export function installMobileTabSwipe({
   let interactiveTransitionAvailable = true;
   let cancelPendingUpdate: (() => void) | null = null;
   let activeTargetApplied = false;
+  const onGestureTargetTouchMove: EventListener = (event) =>
+    onTouchMove(event as TouchEvent);
+  const onGestureTargetTouchEnd: EventListener = (event) =>
+    onTouchEnd(event as TouchEvent);
+  const onGestureTargetTouchCancel: EventListener = () => onTouchCancel();
+  /** React may replace the touched tab surface inside the view-transition
+   *  update. Touch Events keep targeting that now-detached element, so they no
+   *  longer bubble to document. Listen on the original target as well until
+   *  release; document capture handles the normal attached path first. */
+  const clearGestureTargetListeners = (): void => {
+    if (!gestureTarget) return;
+    gestureTarget.removeEventListener("touchmove", onGestureTargetTouchMove);
+    gestureTarget.removeEventListener("touchend", onGestureTargetTouchEnd);
+    gestureTarget.removeEventListener("touchcancel", onGestureTargetTouchCancel);
+    gestureTarget = null;
+  };
+  const retainGestureTargetListeners = (target: Element): void => {
+    clearGestureTargetListeners();
+    gestureTarget = target;
+    target.addEventListener("touchmove", onGestureTargetTouchMove, { passive: false });
+    target.addEventListener("touchend", onGestureTargetTouchEnd, { passive: false });
+    target.addEventListener("touchcancel", onGestureTargetTouchCancel, { passive: true });
+  };
   const clearTransitionMarkers = (): void => {
     delete root.dataset.mobileTabSwipe;
     if (transitionCell) delete transitionCell.dataset.mobileTabSwipeSurface;
@@ -100,6 +124,7 @@ export function installMobileTabSwipe({
   };
   const clearTransitionState = (): void => {
     clearTransitionTimers();
+    clearGestureTargetListeners();
     activeTransition = null;
     snapshotAnimations = [];
     pendingCommit = null;
@@ -324,16 +349,16 @@ export function installMobileTabSwipe({
     current.activateTab(leaf.id, keys[targetIndex]);
     onFocusSelection(selection);
   };
-  const onTouchStart = (event: TouchEvent): void => {
+  function onTouchStart(event: TouchEvent): void {
+    if (activeTransition || tracking) return;
     tracking = false;
     gestureCell = null;
     lockedIntent = null;
     dragProgress = 0;
     velocityX = 0;
-    if (activeTransition) return;
     if (event.touches.length !== 1) return;
     const target = event.target instanceof Element ? event.target : null;
-    if (!swipeGestureAllowed(target)) return;
+    if (!target || !swipeGestureAllowed(target)) return;
     const cell = target?.closest<HTMLElement>("[data-pane-id]") ?? null;
     const id = cell?.dataset.paneId || "";
     if (!id) return;
@@ -344,8 +369,9 @@ export function installMobileTabSwipe({
     lastX = startX;
     lastTime = event.timeStamp;
     tracking = true;
-  };
-  const onTouchMove = (event: TouchEvent): void => {
+    retainGestureTargetListeners(target);
+  }
+  function onTouchMove(event: TouchEvent): void {
     if (!tracking || event.touches.length !== 1) return;
     const touch = event.touches[0];
     updateVelocity(touch.clientX, event.timeStamp);
@@ -361,6 +387,7 @@ export function installMobileTabSwipe({
           && Math.abs(deltaY) > Math.abs(deltaX)) {
           tracking = false;
           gestureCell = null;
+          clearGestureTargetListeners();
         }
         return;
       }
@@ -371,12 +398,17 @@ export function installMobileTabSwipe({
     const width = Math.max(1,
       gestureCell?.getBoundingClientRect().width ?? window.innerWidth);
     setSnapshotProgress(swipeProgress(deltaX, width, lockedIntent));
-  };
-  const onTouchEnd = (event: TouchEvent): void => {
+  }
+  function onTouchEnd(event: TouchEvent): void {
     if (!tracking) return;
     tracking = false;
     const touch = event.changedTouches[0];
-    if (!touch) return;
+    if (!touch) {
+      gestureCell = null;
+      clearGestureTargetListeners();
+      if (activeTransition) settleTransition(false);
+      return;
+    }
     updateVelocity(touch.clientX, event.timeStamp);
     const deltaX = touch.clientX - startX;
     const deltaY = touch.clientY - startY;
@@ -392,24 +424,32 @@ export function installMobileTabSwipe({
         lockedIntent,
       );
       gestureCell = null;
+      clearGestureTargetListeners();
       settleTransition(commit);
       return;
     }
     const intent = swipeIntent(deltaX, deltaY);
-    if (!intent) return;
+    if (!intent) {
+      gestureCell = null;
+      clearGestureTargetListeners();
+      return;
+    }
     if (gestureCell && beginInteractiveTransition(intent)) {
       gestureCell = null;
+      clearGestureTargetListeners();
       settleTransition(true);
     } else {
       gestureCell = null;
+      clearGestureTargetListeners();
       activateDiscreteTarget(intent);
     }
-  };
-  const onTouchCancel = (): void => {
+  }
+  function onTouchCancel(): void {
     tracking = false;
     gestureCell = null;
+    clearGestureTargetListeners();
     if (activeTransition) settleTransition(false);
-  };
+  }
   /** A page that is going away (or already hidden) cannot animate, and its
    *  touchcancel may never arrive or arrive late. Finalize on the decision the
    *  reader had already made — none means roll back — so nothing survives the
@@ -419,6 +459,7 @@ export function installMobileTabSwipe({
     const transition = activeTransition;
     tracking = false;
     gestureCell = null;
+    clearGestureTargetListeners();
     // lockedIntent is cleared AFTER the release: it is the direction a pending
     // (now invalidated) update would have applied for an already-decided commit.
     if (transition) finishTransition(transition, swipeTransitionFallbackCommits(pendingCommit));
@@ -442,6 +483,7 @@ export function installMobileTabSwipe({
     window.removeEventListener("pagehide", releaseForLifecycle);
     const transition = activeTransition;
     clearTransitionTimers();
+    clearGestureTargetListeners();
     cancelPendingUpdate?.();
     cancelPendingUpdate = null;
     activeTransition = null;

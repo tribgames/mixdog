@@ -49,9 +49,9 @@ import {
 } from "./navigation";
 import {
   canSplitPaneSize,
+  paneActiveSessionIds,
   paneActiveSelection,
   paneLeafIdInVerticalDirection,
-  paneSessionTabIds,
   paneTabAcrossVisualBoundary,
 } from "./pane-layout";
 import { usePaneWorkspace } from "./pane-workspace-state";
@@ -2232,7 +2232,7 @@ export function App() {
     // shows one tab, so restored background tabs stay cold until opened
     // (user: vps라 비용때문에).
     if (isMobileRemoteSurface()) return undefined;
-    const sessionIds = paneSessionTabIds(
+    const sessionIds = paneActiveSessionIds(
       paneWorkspace.leaves,
       paneWorkspace.focusedLeafId,
     );

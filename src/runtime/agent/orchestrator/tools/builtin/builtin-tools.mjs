@@ -13,9 +13,18 @@ import { GIT_STAGE_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
 // show a caller with no wait primitive re-reading the same task every 2-3 s
 // (177 reads in one trial), and a caller that can pass a timeout occasionally
 // asks for 1 s. Both collapse into a busy loop without a floor.
+//
+// The ceiling is bounded at 10 min for the mirror-image failure: a single wait
+// holding the ONLY decision point for longer than the caller's whole remaining
+// budget. Measured run: one `wait` with timeout_ms 2_400_000 blocked 1_611 s of
+// an 1_800 s budget and the caller never got another turn — no partial result,
+// no alternative path. A still-running task returns its current output at the
+// ceiling, so the caller re-decides and may wait again; nothing is lost except
+// the unbounded block. 10 min also matches the reference agent's equivalent
+// wait primitive, which caps at 600_000 ms.
 export const TASK_WAIT_TIMEOUT_DEFAULT_MS = 60_000;
 export const TASK_WAIT_TIMEOUT_MIN_MS = 10_000;
-export const TASK_WAIT_TIMEOUT_MAX_MS = 3_600_000;
+export const TASK_WAIT_TIMEOUT_MAX_MS = 600_000;
 const _shellSyntaxCheat =
     process.platform === 'win32'
         ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved.'
@@ -90,7 +99,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic, so continue independent work or end the turn. When the next step needs the result, call task wait once—it returns the moment the task settles—instead of polling task read.'}`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic; unless periodic task reports were requested, continue independent work or end the turn. When the next step needs the result or the next report interval, call task wait instead of polling task read: it returns the moment the task settles, or hands back the current output at its ceiling so you can re-decide.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -131,7 +140,7 @@ export const BUILTIN_TOOLS = [
         //      gates approval on the result, while selection keeps treating the
         //      tool as non-destructive.
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion is automatic, so the default is to continue independent work or end the turn. Never repeat read to watch a task: use wait when the next step genuinely needs the result, and read when the user asks for current status.',
+        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion is automatic; unless periodic task reports were requested, continue independent work or end the turn. Never repeat read to watch a task: use wait when the next step needs the result or the next report interval, and read for a one-shot current status.',
         inputSchema: {
             type: 'object',
             properties: {

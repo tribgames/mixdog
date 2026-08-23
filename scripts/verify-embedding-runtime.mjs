@@ -34,7 +34,7 @@ async function packageRoot(entry, expectedName) {
 }
 
 const ortRoot = await packageRoot(ortEntry, 'onnxruntime-node')
-const nativeDir = join(ortRoot, 'bin', 'napi-v3', process.platform, process.arch)
+const nativeDir = join(ortRoot, 'bin', 'napi-v6', process.platform, process.arch)
 await access(join(nativeDir, 'onnxruntime_binding.node'))
 
 const transformers = transformersRequire(transformersEntry)

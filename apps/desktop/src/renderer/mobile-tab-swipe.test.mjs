@@ -244,6 +244,34 @@ test("an early lock starts the interactive transition and scrubs its snapshots",
   }
 });
 
+test("a tab surface detached during the transition still tracks and releases the swipe", async () => {
+  const view = installViewTransitionStub();
+  const { activations, uninstall } = swipeHarness();
+  try {
+    touch(surface, "touchstart", 300, 200, 0);
+    touch(surface, "touchmove", 280, 202, 16);
+    await settled();
+
+    // React can replace the active tab subtree inside the transition update.
+    // The browser keeps targeting this original node, but its events no longer
+    // bubble to document once detached.
+    surface.remove();
+    touch(surface, "touchmove", 180, 204, 32);
+    assert.equal(view.state.animations.every((animation) => animation.currentTime === 300), true);
+    touch(surface, "touchend", 160, 204, 48);
+    await settled();
+
+    assert.equal(view.state.skipped, 1);
+    assert.equal(root.dataset.mobileTabSwipe, undefined);
+    assert.equal(cell.dataset.mobileTabSwipeSurface, undefined);
+    assert.deepEqual(activations, [["leaf-1", "session:b"]]);
+  } finally {
+    uninstall();
+    if (!surface.isConnected) cell.insertBefore(surface, codeBlock);
+    view.remove();
+  }
+});
+
 test("an abandoned interactive swipe restores the original tab", async () => {
   const view = installViewTransitionStub();
   const { activations, focused, uninstall } = swipeHarness();

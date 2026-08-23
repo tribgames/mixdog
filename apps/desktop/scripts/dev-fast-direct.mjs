@@ -33,6 +33,7 @@ const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(desktopDir, '../..');
 const schemaVersion = 2;
 const desktopPackageManifest = join(desktopDir, 'package.json');
+const repoPackageManifest = join(repoRoot, 'package.json');
 // electron-builder keeps this package unpacked (asarUnpack). The daemon runs
 // from app.asar.unpacked and resolves it through the real file system, and a
 // native binding cannot be dlopen'd from inside the archive, so an incremental
@@ -40,6 +41,7 @@ const desktopPackageManifest = join(desktopDir, 'package.json');
 const ptyPackageSegments = ['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'];
 const ignoredSource = /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
 const fileContents = new Map();
+const fileMetadata = new Map();
 const inputFiles = new Map();
 
 const targetInputs = {
@@ -108,17 +110,30 @@ async function pathExists(path) {
   }
 }
 
-async function walkFiles(input, files = []) {
-  if (!(await pathExists(input)) || ignoredSource.test(input)) return files;
-  const metadata = await stat(input);
-  if (metadata.isFile()) {
+async function walkFiles(input, files = [], knownType = '') {
+  if (ignoredSource.test(input)) return files;
+  let type = knownType;
+  if (!type) {
+    try {
+      const metadata = await stat(input);
+      type = metadata.isDirectory() ? 'directory' : metadata.isFile() ? 'file' : 'other';
+    } catch (error) {
+      if (error?.code === 'ENOENT') return files;
+      throw error;
+    }
+  }
+  if (type === 'file') {
     files.push(input);
     return files;
   }
+  if (type !== 'directory') return files;
   const entries = await readdir(input, { withFileTypes: true });
   entries.sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
-    await walkFiles(join(input, entry.name), files);
+    const path = join(input, entry.name);
+    if (entry.isFile()) files.push(path);
+    else if (entry.isDirectory()) await walkFiles(path, files, 'directory');
+    else await walkFiles(path, files);
   }
   return files;
 }
@@ -141,6 +156,27 @@ async function contentsForFile(path) {
   return pending;
 }
 
+async function metadataForFile(path) {
+  let pending = fileMetadata.get(path);
+  if (!pending) {
+    pending = stat(path);
+    fileMetadata.set(path, pending);
+  }
+  return pending;
+}
+
+async function mapPool(items, limit, run) {
+  let cursor = 0;
+  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await run(items[index], index);
+    }
+  });
+  await Promise.all(lanes);
+}
+
 /** Commands and test-list edits do not change the packaged application.
  * Keep runtime/package metadata while excluding the scripts object that made
  * harmless developer workflow edits trigger a complete win-unpacked build. */
@@ -152,7 +188,10 @@ export function packagingManifestForFingerprint(manifest) {
 
 async function contentsForFingerprint(path) {
   const contents = await contentsForFile(path);
-  if (resolve(path) !== desktopPackageManifest) return contents;
+  const resolvedPath = resolve(path);
+  if (resolvedPath !== desktopPackageManifest && resolvedPath !== repoPackageManifest) {
+    return contents;
+  }
   return Buffer.from(JSON.stringify(
     packagingManifestForFingerprint(JSON.parse(contents.toString('utf8'))),
   ));
@@ -169,11 +208,17 @@ async function fingerprint(inputs) {
   const files = [];
   for (const input of inputs) files.push(...await filesForInput(input));
   files.sort((left, right) => left.localeCompare(right));
+  const details = new Array(files.length);
+  await mapPool(files, 12, async (file, index) => {
+    const [metadata, contents] = await Promise.all([
+      metadataForFile(file),
+      contentsForFingerprint(file),
+    ]);
+    details[index] = { file, metadata, contents };
+  });
   const hash = createHash('sha256');
   let newestMtimeMs = 0;
-  for (const file of files) {
-    const metadata = await stat(file);
-    const contents = await contentsForFingerprint(file);
+  for (const { file, metadata, contents } of details) {
     newestMtimeMs = Math.max(newestMtimeMs, metadata.mtimeMs);
     hash.update(relative(repoRoot, file).replaceAll(sep, '/'));
     hash.update('\0');

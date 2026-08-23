@@ -20,7 +20,7 @@ SNAPSHOT_ENV = "MIXDOG_TB_SRC_SNAPSHOT"
 ARCHIVE_ROOT = "src"
 NATIVE_ROOT = "native-tools"
 SPAWN_MEMBER = f"{NATIVE_ROOT}/mixdog-spawn"
-REQUIRED_SPAWN_CAPS = ("trackedForeground", "promoteTask", "cancelOwner")
+REQUIRED_SPAWN_CAPS = ("trackedForeground", "promoteTask", "cancelOwner", "fileCapture")
 SPAWN_BUILD_IMAGE = "rust:1.89-alpine3.22"
 SPAWN_PROBE_IMAGE = "alpine:3.20"
 

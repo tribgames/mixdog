@@ -72,15 +72,16 @@ test('an unhealthy runtime worker is replaced and every runtime is recovered', a
     const originalPid = host.status.worker.pid;
     assert.equal((await first.submitAsync('trigger')).pid, originalPid);
     await waitFor(
-      () => host.status.worker.pid && host.status.worker.pid !== originalPid,
-      'replacement runtime worker',
+      () => host.status.worker.pid
+        && host.status.worker.pid !== originalPid
+        && logs.some((line) => /recycling.*unhealthy/.test(line))
+        && logs.some((line) => /recovered 2 runtime/.test(line)),
+      'replacement runtime worker recovery',
     );
     const healthyFirst = await first.submitAsync('healthy');
     const healthySecond = await second.submitAsync('healthy');
     assert.notEqual(healthyFirst.pid, originalPid);
     assert.equal(healthySecond.pid, healthyFirst.pid);
-    assert.ok(logs.some((line) => /unhealthy; recycling/.test(line)));
-    assert.ok(logs.some((line) => /recovered 2 runtime/.test(line)));
   } finally {
     await host.close('test complete');
     await rm(dir, { recursive: true, force: true });

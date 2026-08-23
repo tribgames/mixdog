@@ -672,6 +672,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         scrubRuntimeRootVars(spawnEnv);
         applyShellEgressPolicy(spawnEnv);
         let wrappedCommand;
+        let execScript = null;
         let _teePlan = null;
         let execShell = shell;
         let execShellArg = shellArg;
@@ -706,6 +707,22 @@ export async function executeBashTool(args, workDir, options = {}) {
             } catch (wrapErr) {
                 return formatShellToolFailure(`shell snapshot wrapper failed — ${normalizeErrorMessage(wrapErr instanceof Error ? wrapErr.message : String(wrapErr))}`);
             }
+            // Deliver the script through the environment, not argv. `bash -c
+            // '<script>'` publishes the entire command text in the child's
+            // /proc/<pid>/cmdline, so any `-f` (full-cmdline) process matcher
+            // built from that same text matches the wrapper running it.
+            // Measured: `pkill -f "sshd -D"` SIGTERM'd its own shell 7 ms in,
+            // and `while pgrep -f install_rstan.R; do sleep 15; done` could
+            // never exit because pgrep kept finding the loop's own wrapper —
+            // a silent infinite wait, not an error.
+            //
+            // `eval` is the same parser on the same shell: quoting, heredocs,
+            // `set -e`, traps, exit status and stdin all behave as under -c.
+            // Only the argv exposure changes. `?` (not `:?`) fires solely when
+            // the variable never arrived, so an empty command stays the no-op
+            // it is today instead of turning into an error.
+            spawnEnv.MIXDOG_SHELL_SCRIPT = wrappedCommand;
+            execScript = 'eval "${MIXDOG_SHELL_SCRIPT?mixdog: shell script was not delivered to the child}"';
         } else {
             wrappedCommand = command;
         }
@@ -722,6 +739,7 @@ export async function executeBashTool(args, workDir, options = {}) {
         const result = await execShellCommand({
             shell: execShell, shellArg: execShellArg, shellArgs: execShellArgs,
             command: wrappedCommand,
+            execScript,
             directArgv,
             env: spawnEnv,
             cwd: bashWorkDir,

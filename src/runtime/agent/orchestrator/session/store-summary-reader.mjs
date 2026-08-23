@@ -324,6 +324,7 @@ export function listStoredAgentWorkers() {
                 WORKING_AGENT_STATUS.test(cleanValue(row.stage || row.status)),
                 row.finishedAt || row.updatedAt || session?.updatedAt || null,
             ),
+            reapAt: row.reapAt || null,
             cwd: cleanValue(row.cwd || session?.cwd) || null,
             clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
             taskId: cleanValue(row.task_id || row.taskId) || null,

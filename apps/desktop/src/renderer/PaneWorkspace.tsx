@@ -27,11 +27,11 @@ import {
 import {
   canSplitPaneSize,
   movePaneTabToNodeEdge,
+  paneActiveSessionIds,
   paneActiveSelection,
   paneLeafRelativeRect,
   paneLeavesInVisualOrder,
   paneNodeMinimumSize,
-  paneSessionTabIds,
   type PaneLeaf,
 } from "./pane-layout";
 import type { PaneDropZone, usePaneWorkspace } from "./pane-workspace-state";
@@ -231,7 +231,7 @@ export function PaneWorkspace({
   // (user: vps라 비용때문에). Wide surfaces keep every pane tab observable.
   const paneSessionIds = isMobileRemoteSurface()
     ? mobileVisibleSessionIds(workspace.leaves, workspace.focusedLeafId)
-    : paneSessionTabIds(workspace.leaves, workspace.focusedLeafId);
+    : paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
   // The Agents surface observes working background sessions even when none of
   // them owns an editor tab, so include those ids with every pane session.
   const visibleSessionIds = [...new Set([...observedSessionIds, ...paneSessionIds])];

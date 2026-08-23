@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { nextTranscriptHistoryLimit } from "./transcript-history.ts";
 import { shouldDeferTranscriptScrollAdjustment } from "./TranscriptList.tsx";
 import {
   boundaryGestureReached,
@@ -21,6 +22,13 @@ function wheelReleases({ delta, nested }) {
     releases: wheelShouldReleaseFollow({ delta, transcriptReached }),
   };
 }
+
+test("transcript history grows in bounded pages only at a full window", () => {
+  assert.equal(nextTranscriptHistoryLimit(120, 512), null);
+  assert.equal(nextTranscriptHistoryLimit(512, 512), 1024);
+  assert.equal(nextTranscriptHistoryLimit(1300, 1024), 1812);
+  assert.equal(nextTranscriptHistoryLimit(8192, 8192), null);
+});
 
 test("every active reader gesture defers corrective transcript scroll writes", () => {
   assert.equal(shouldDeferTranscriptScrollAdjustment(true), true);

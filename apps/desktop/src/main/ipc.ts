@@ -103,6 +103,7 @@ import {
   requiredSubmitOptions,
   requiredTextFileContent,
   requiredTextFileEncoding,
+  requiredTranscriptItemLimit,
   requiredToolApprovalDecision,
   requiredWorkspaceFolders,
   requiredWorkspaceSearchOptions,
@@ -133,6 +134,7 @@ export {
   requiredPromptContent,
   requiredString,
   requiredSubmitOptions,
+  requiredTranscriptItemLimit,
   requiredToolApprovalDecision,
   requiredWorkspaceSearchLimit,
   sessionDisplayName,
@@ -907,8 +909,11 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.deleteSession, (_event, sessionId) =>
     host.deleteSession(requiredSessionId(sessionId)));
-  handle(DESKTOP_IPC.prefetchSession, (_event, sessionId) =>
-    host.prefetchSession(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.prefetchSession, (_event, sessionId, itemLimit) =>
+    host.prefetchSession(
+      requiredSessionId(sessionId),
+      requiredTranscriptItemLimit(itemLimit),
+    ));
   const visibleSessionStateIds = new Set<string>();
   handle(DESKTOP_IPC.setVisibleSessions, async (_event, sessionIds) => {
     if (!Array.isArray(sessionIds) || sessionIds.length > 256) {

@@ -22,6 +22,8 @@ process.env.MIXDOG_CHANNEL_ACTIVE_CALLS = '8';
 
 const { createSessionTransport } = await import('../src/standalone/session-transport.mjs');
 const { createSessionService } = await import('../src/standalone/session-service.mjs');
+const { shouldRecycleSessionRuntimeWorker } =
+  await import('../src/standalone/session-runtime-host.mjs');
 const { SESSION_READ_ACTIONS } = await import('../src/standalone/session-protocol.mjs');
 const { createChannelTransport } = await import('../src/standalone/channel-transport.mjs');
 const {
@@ -188,6 +190,56 @@ test('Windows Desktop daemon stays in one Mixdog process tree while CLI daemons 
   assert.equal(daemonShouldDetach({ platform: 'win32', processType: 'browser' }), false);
   assert.equal(daemonShouldDetach({ platform: 'win32', processType: undefined }), true);
   assert.equal(daemonShouldDetach({ platform: 'linux', processType: 'browser' }), true);
+});
+
+test('wire-safe runtime state crosses the daemon without a transcript clone', async () => {
+  const state = {
+    sessionId: 'wire-safe-retention',
+    items: [{ id: 'answer', kind: 'assistant', text: 'x'.repeat(64 * 1024) }],
+    queued: [],
+  };
+  const runtime = {
+    isWireSafe: true,
+    getState: () => state,
+    subscribe: () => () => {},
+    dispose: async () => {},
+  };
+  const service = createSessionService({
+    createSessionRuntime: async () => runtime,
+  });
+  try {
+    const result = await service.handleCall(
+      'session.create',
+      { sessionId: state.sessionId },
+      { clientToken: 'memory-retention-test' },
+    );
+    assert.equal(result.full, state);
+    assert.equal(result.full.items, state.items);
+    assert.equal(result.full.items[0], state.items[0]);
+  } finally {
+    await service.stop('memory retention test');
+  }
+});
+
+test('session worker memory recycling requires a fully idle cooldown edge', () => {
+  const ready = {
+    rssBytes: 512 * 1024 * 1024,
+    thresholdBytes: 384 * 1024 * 1024,
+    daemonBusy: 0,
+    pending: 0,
+    activeResources: 0,
+    now: 20 * 60_000,
+    lastRecycleAt: 0,
+    cooldownMs: 15 * 60_000,
+  };
+  assert.equal(shouldRecycleSessionRuntimeWorker(ready), true);
+  assert.equal(shouldRecycleSessionRuntimeWorker({ ...ready, daemonBusy: 1 }), false);
+  assert.equal(shouldRecycleSessionRuntimeWorker({ ...ready, pending: 1 }), false);
+  assert.equal(shouldRecycleSessionRuntimeWorker({ ...ready, activeResources: 1 }), false);
+  assert.equal(shouldRecycleSessionRuntimeWorker({
+    ...ready,
+    now: 10 * 60_000,
+  }), false);
 });
 
 test('a 2k-item tool-card update sends only the changed transcript suffix', () => {

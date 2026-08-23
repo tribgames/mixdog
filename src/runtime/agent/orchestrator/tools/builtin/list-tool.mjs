@@ -63,6 +63,10 @@ const FIND_WALK_TIMEOUT_MS = 20_000;
 // whole-filesystem probes across six benchmark tasks, each burning a turn for
 // an error). At this cap the native search returns its ranked partial instead.
 const FIND_FUZZY_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_FUZZY_TIMEOUT_MS', 1_500);
+// If the fast fuzzy window sees no usable candidate, spend the remainder of
+// the outer 20s read-only budget on a literal query-targeted path scan. This
+// finds real paths without repeating the complete fuzzy inventory.
+const FIND_TARGETED_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_TARGETED_TIMEOUT_MS', 17_000);
 // Same contract for name/glob find: bound the walk and the metadata pass, then
 // SAY the result is partial. The old 20s walk plus a 5s stat deadline silently
 // dropped every path whose stat missed the deadline, so a slow scope reported
@@ -916,6 +920,7 @@ async function getTargetedFindEnumeration({
     includeNoise,
     runRgImpl,
     signal,
+    timeoutMs = null,
 }) {
     const terms = [...new Set((queries || []).map((query) => String(query || '').trim()).filter(Boolean))];
     // Reuse a WARM broad inventory only (cache peek). A cold cache goes
@@ -971,6 +976,9 @@ async function getTargetedFindEnumeration({
                 const stdout = await runRgImpl(rgArgs, {
                     cwd: root,
                     signal: batch.controller.signal,
+                    ...(Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+                        ? { timeout: Math.floor(Number(timeoutMs)) }
+                        : {}),
                 });
                 const paths = parseRgFileList(stdout).filter((path) =>
                     includeNoise || !path.split('/').some((segment) => NOISE_DIR_NAMES.has(segment)));
@@ -1067,6 +1075,8 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     const nativeFuzzyImpl = typeof options?.__tryServeFuzzySearch === 'function'
         ? options.__tryServeFuzzySearch
         : tryServeFuzzySearch;
+    const runRgImpl = (options && typeof options.__runRg === 'function') ? options.__runRg : runRg;
+    let nativeEmptyPartial = null;
     // Space-separated fragments AND-match one path. The native matcher handles
     // every token independently and sums exact per-token scores.
     const queryTokens = splitFuzzyQueryTokens(query);
@@ -1111,30 +1121,104 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
             }
             if (served?.partial) {
                 recordNativeSearchTiming(served);
-                recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'hit');
+                recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'partial');
                 const matches = served.matches.slice(0, headLimit);
-                const lines = matches.length === 0
-                    ? [`(no fuzzy match yet for "${query}")`]
-                    : matches;
-                lines.push(served.scanErrors > 0
-                    ? `... [warning] ${served.scanErrors} path(s) could not be enumerated; partial results shown`
-                        + (served.walkErrorDetails?.length ? `: ${served.walkErrorDetails.join('; ')}` : '')
-                    : '... [search timed out; partial results shown — narrow path/query for a complete result]');
-                if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
-                return capFindResult(lines.join('\n'));
+                if (matches.length > 0) {
+                    const lines = [...matches];
+                    lines.push(served.scanErrors > 0
+                        ? `... [warning] ${served.scanErrors} path(s) could not be enumerated; partial results shown`
+                            + (served.walkErrorDetails?.length ? `: ${served.walkErrorDetails.join('; ')}` : '')
+                        : '... [search timed out; partial results shown — narrow path/query for a complete result]');
+                    if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+                    return capFindResult(lines.join('\n'));
+                }
+                nativeEmptyPartial = served;
+            } else {
+                recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'miss');
             }
-            recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'miss');
         } catch (error) {
-            recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'error');
             if (options.signal?.aborted) throw error;
             // Native fuzzy and broad enumeration use the same complete
             // inventory. Retrying the broad pass after a fuzzy timeout repeats
             // the same expensive walk and used to turn one Find call into two
             // consecutive timeouts that killed the shared search server.
-            if (error?.code !== 'NATIVE_SEARCH_UNSUPPORTED') {
-                return capFindResult(`Error: ${normalizeErrorMessage(error instanceof Error ? error.message : String(error))}`);
+            // A deadline that expires before ANY response is the same outcome
+            // as the served-partial path below: the scope was too large to
+            // rank inside the budget. Reporting it as a tool failure cost the
+            // caller a whole turn for something that is a bounded, expected
+            // answer, so it returns the empty partial plus the same recovery
+            // guidance instead. Every other native error still surfaces.
+            if (error?.code === 'NATIVE_SEARCH_TIMEOUT') {
+                recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'partial');
+                nativeEmptyPartial = {
+                    matches: [],
+                    partial: true,
+                    timeout: true,
+                    scanErrors: 0,
+                    walkErrorDetails: [],
+                };
+            } else {
+                recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'error');
+                if (error?.code !== 'NATIVE_SEARCH_UNSUPPORTED') {
+                    return capFindResult(`Error: ${normalizeErrorMessage(error instanceof Error ? error.message : String(error))}`);
+                }
             }
         }
+    }
+    if (nativeEmptyPartial) {
+        const targetedStartedAt = performance.now();
+        let targeted;
+        try {
+            targeted = await getTargetedFindEnumeration({
+                queries: queryTokens.length > 0 ? queryTokens : [query],
+                root: fullPath,
+                hidden,
+                depth,
+                includeNoise,
+                runRgImpl,
+                signal: options.signal,
+                timeoutMs: FIND_TARGETED_TIMEOUT_MS,
+            });
+        } catch (error) {
+            if (options.signal?.aborted) throw findEnumerationAbortError(options.signal);
+            recordLocalSearchBackend('native_fuzzy_targeted', performance.now() - targetedStartedAt, 'error');
+            if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+            return capFindResult([
+                `(no fuzzy match yet for "${query}")`,
+                '... [native fuzzy ranking was partial and the targeted path scan could not complete; narrow path and retry]',
+            ].join('\n'));
+        }
+        const queryTokensLower = queryTokens.map((token) => token.toLowerCase());
+        const targetedPaths = targeted.files.filter((path) => {
+            const lower = path.toLowerCase();
+            return queryTokensLower.every((token) => lower.includes(token));
+        });
+        const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
+        const rankedRaw = fuzzyRankMulti(query, prepareFuzzyItems(targetedPaths), rankLimit);
+        const hasMore = headLimit > 0 && rankedRaw.length > headLimit;
+        const ranked = hasMore ? rankedRaw.slice(0, headLimit) : rankedRaw;
+        recordLocalSearchBackend(
+            'native_fuzzy_targeted',
+            performance.now() - targetedStartedAt,
+            ranked.length > 0 ? 'hit' : 'miss',
+        );
+        if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+        const lines = ranked.length > 0
+            ? ranked.map((entry) => entry.item.path)
+            : [`(no fuzzy match yet for "${query}")`];
+        if (hasMore) lines.push(`... (top ${headLimit}; raise limit for more)`);
+        if (ranked.length > 0) {
+            lines.push('... [native fuzzy ranking was partial; query-targeted path matches shown]');
+        } else {
+            lines.push('... [native fuzzy ranking was partial and the query-targeted path scan found no candidate; narrow path for a complete result]');
+        }
+        if (targeted.truncated || targeted.partial) {
+            lines.push('... [warning] targeted path scan was partial; returned candidates may be incomplete');
+        }
+        if (typeof options?.onProgress === 'function') {
+            try { options.onProgress(`${ranked.length} targeted candidates`); } catch {}
+        }
+        return capFindResult(lines.join('\n'));
     }
     // Common discovery respects .gitignore even outside a Git repository.
     // include_noise deliberately retains the old hardened --no-ignore behavior.
@@ -1160,7 +1244,6 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     // Test-only seam: allow a caller to inject a runRg stand-in (e.g. to
     // simulate a truncated broad pass) without touching the production path.
     // Never set on the real tool-execution options object.
-    const runRgImpl = (options && typeof options.__runRg === 'function') ? options.__runRg : runRg;
     const parseRgFiles = (stdout) => String(stdout)
         .split('\n')
         // Strip only the trailing CR from rg's line split — do NOT trim, or a

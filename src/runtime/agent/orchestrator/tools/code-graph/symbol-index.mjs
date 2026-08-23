@@ -190,7 +190,16 @@ export function _collectCheapSymbols(text, lang) {
     if (lang === 'typescript' || lang === 'javascript') {
       if ((m = /\b(class|interface|type|enum)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push(m[1], m[2], i);
       else if ((m = /\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/.exec(line))) push('function', m[1], i);
-      else if ((m = /\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line))) push('binding', m[1], i);
+      // Module-level only. A function-local `const`/`let`, or the head of a
+      // `for (const x of …)`, is not file structure: on a measured outline of
+      // a 90-line module the local bindings outnumbered the real declarations
+      // (11 noise rows vs 6 functions), which is enough for a caller to
+      // distrust the outline and go back to reading the whole file. Class
+      // fields never use const/let/var, so indentation is a sound test here —
+      // this matcher is line-based and has no scope information.
+      else if ((m = /\b(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b/.exec(line))) {
+        if (/^(?:export\s+)?(?:const|let|var)\s/.test(line)) push('binding', m[1], i);
+      }
       else if ((m = /^\s*(?:static\s+)?(?:async\s+)?(?:get\s+|set\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^;]*\)\s*\{?$/.exec(line))) push('method', m[1], i);
     } else if (lang === 'python') {
       if ((m = /^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line))) push('class', m[1], i);

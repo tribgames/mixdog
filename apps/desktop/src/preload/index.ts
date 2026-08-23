@@ -224,7 +224,8 @@ const api: DesktopApi = {
   listRemoteClientClaims: () => ipcRenderer.invoke(DESKTOP_IPC.listRemoteClientClaims),
   resolveRemoteClientClaim: (claimId, approved) =>
     ipcRenderer.invoke(DESKTOP_IPC.resolveRemoteClientClaim, claimId, approved),
-  prefetchSession: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId),
+  prefetchSession: (sessionId, transcriptItemLimit) =>
+    ipcRenderer.invoke(DESKTOP_IPC.prefetchSession, sessionId, transcriptItemLimit),
   setVisibleSessions: (sessionIds) =>
     ipcRenderer.invoke(DESKTOP_IPC.setVisibleSessions, sessionIds),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>

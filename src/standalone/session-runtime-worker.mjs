@@ -83,57 +83,21 @@ function errorBody(error) {
   };
 }
 
-function projectState(record, raw) {
-  if (!raw || typeof raw !== 'object') return sanitizeForWire(raw);
-  if (record.source === raw) return record.projected;
-  const fields = record.fields;
-  const items = record.items;
-  const nextItems = new Map();
-  const out = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (key === 'items' && Array.isArray(value)) {
-      out.items = value.map((item) => {
-        const cached = items.get(item);
-        if (cached !== undefined) {
-          nextItems.set(item, cached);
-          return cached;
-        }
-        const cloned = sanitizeForWire(item);
-        nextItems.set(item, cloned);
-        return cloned;
-      });
-      continue;
-    }
-    const cached = fields.get(key);
-    if (cached && cached.source === value) {
-      out[key] = cached.value;
-      continue;
-    }
-    const cloned = sanitizeForWire(value);
-    if (cloned === undefined) continue;
-    fields.set(key, { source: value, value: cloned });
-    out[key] = cloned;
-  }
-  record.items = nextItems;
-  record.source = raw;
-  record.projected = out;
-  return out;
-}
-
 function publish(record, forceFull = false) {
   if (!record || record.disposed) return;
-  const projected = projectState(record, record.runtime.getState?.() || {});
-  const previous = record.published;
-  if (!forceFull && projected === previous) return;
-  record.published = projected;
+  const source = record.runtime.getState?.() || {};
+  const previous = record.publishedSource;
+  if (!forceFull && source === previous) return;
+  const body = forceFull || !previous
+    ? { full: sanitizeForWire(source) }
+    : { patch: sanitizeForWire(diffSessionState(previous, source)) };
+  record.publishedSource = source;
   record.revision += 1;
   send({
     type: 'state',
     runtimeId: record.id,
     revision: record.revision,
-    ...(forceFull || !previous
-      ? { full: projected }
-      : { patch: diffSessionState(previous, projected) }),
+    ...body,
   });
 }
 
@@ -145,11 +109,7 @@ async function createRuntime(message) {
     runtime,
     unsubscribe: null,
     disposed: false,
-    source: null,
-    projected: null,
-    published: null,
-    fields: new Map(),
-    items: new Map(),
+    publishedSource: null,
     revision: 0,
   };
   records.set(record.id, record);
@@ -179,7 +139,6 @@ async function prewarm() {
     () => module.preloadSessionRuntimeModule?.(),
     () => module.preloadAgentLoopRuntime?.(),
     () => module.preloadKeychainSecrets?.(),
-    () => module.preloadProviderRuntime?.(),
     () => module.preloadMemoryRuntime?.(),
   ].map((start) => Promise.resolve().then(start)));
   return { ready: true };
@@ -194,8 +153,16 @@ async function workloadSnapshot() {
     import('../runtime/shared/tool-workload-gates.mjs'),
     import('../runtime/shared/resource-admission.mjs'),
   ]);
+  const memory = process.memoryUsage();
   return {
     runtimes: records.size,
+    memory: {
+      rssBytes: memory.rss,
+      heapTotalBytes: memory.heapTotal,
+      heapUsedBytes: memory.heapUsed,
+      externalBytes: memory.external,
+      arrayBufferBytes: memory.arrayBuffers,
+    },
     childSpawns: gate.snapshot(),
     toolIo: workload.toolWorkloadSnapshot(),
     resources: resources.resourceAdmission.snapshot(),

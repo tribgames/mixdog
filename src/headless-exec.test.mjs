@@ -5,9 +5,27 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { classifyCliInvocation } from './headless-command.mjs';
-import { runHeadlessExec } from './headless-exec.mjs';
+import { prewarmHeadlessSearch, runHeadlessExec } from './headless-exec.mjs';
 import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
+
+test('headless search prewarm starts the native server and Project inventory together', async () => {
+  const calls = [];
+  await prewarmHeadlessSearch('/app/project', {
+    loadNativeSearch: async () => ({
+      async warmNativeSearchServer() {
+        calls.push('server');
+        return true;
+      },
+    }),
+    loadListTool: async () => ({
+      async prewarmFindEnumeration(root) {
+        calls.push(`index:${root}`);
+      },
+    }),
+  });
+  assert.deepEqual(calls.sort(), ['index:/app/project', 'server']);
+});
 
 test('pristine headless execution binds Cursor OAuth credentials in process', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-cursor-auth-test-'));
@@ -71,6 +89,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
           clientHostPid: 123,
           ask: async (_prompt, optionsForAsk) => {
             optionsForAsk.onUsageDelta({
+              model: 'gpt-fallback',
               deltaInput: 11,
               deltaCachedRead: 7,
               deltaCacheWrite: 3,
@@ -110,6 +129,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     assert.equal(runtimeClosed, true);
     assert.deepEqual(cleanupOrder, ['runtime', 'memory', 'boundary']);
     const usage = JSON.parse(readFileSync(usageLogPath, 'utf8'));
+    assert.deepEqual(usage.sessions[0].models, ['gpt-test', 'gpt-fallback']);
     assert.deepEqual(usage.totals, {
       inputTokens: 11,
       cacheTokens: 7,
@@ -122,18 +142,17 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   }
 });
 
-test('headless exec drains tracked work and returns the completion follow-up answer', async () => {
+test('headless exec answers an arrived completion and exits without waiting on live work', async () => {
   const output = [];
   const errors = [];
   const prompts = [];
-  let active = true;
+  let closeOptions = null;
   let notificationListener = null;
   const code = await runHeadlessExec({
     message: 'start the long task',
     provider: 'openai-oauth',
     model: 'gpt-test',
     usageLogPath: '',
-    idlePollMs: 1,
     write: (text) => output.push(text),
     writeErr: (text) => errors.push(text),
     boundaryFactory: () => ({
@@ -151,20 +170,20 @@ test('headless exec drains tracked work and returns the completion follow-up ans
       async ask(prompt) {
         prompts.push(prompt);
         if (prompts.length === 1) {
-          setTimeout(() => {
-            active = false;
-            notificationListener?.({
-              content: 'background task completed',
-              meta: { status: 'completed', execution_id: 'job_drain' },
-            });
-          }, 10);
+          notificationListener?.({
+            content: 'background task completed',
+            meta: { status: 'completed', execution_id: 'job_drain' },
+          });
           return { result: { content: 'task started' } };
         }
         return { result: { content: 'final result' } };
       },
-      async close() {},
+      async close(reason, options) { closeOptions = options ?? null; },
     }),
-    hasActiveTasks: () => active,
+    // The job the model left running never ends — a server it was asked to
+    // keep up. Exit must not wait for it, and must not reap it either: this
+    // test hangs on a regression instead of failing slowly.
+    hasActiveTasks: () => true,
     installSignalCleanupFn: () => ({ uninstall() {} }),
   });
 
@@ -172,6 +191,7 @@ test('headless exec drains tracked work and returns the completion follow-up ans
   assert.deepEqual(errors, []);
   assert.deepEqual(prompts, ['start the long task', '']);
   assert.deepEqual(output, ['final result\n']);
+  assert.deepEqual(closeOptions, { keepBackgroundWork: true });
 });
 
 test('headless exec emits a timestamped JSONL lifecycle and exact tool count', async () => {

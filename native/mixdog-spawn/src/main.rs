@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::io::{BufRead, Read, Write};
+use std::fs::{metadata, File, OpenOptions};
+use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -45,6 +46,10 @@ fn close_inherited_file_descriptors() {
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const DEFAULT_OUTPUT_LIMIT: usize = 100 * 1024 * 1024;
 const TAIL_LIMIT: usize = 64 * 1024;
+// File capture has no pump thread counting bytes, so the output cap is
+// enforced by polling file sizes. Short enough to catch a runaway writer in
+// seconds, long enough that two stat calls per interval cost nothing.
+const SIZE_WATCHDOG_INTERVAL_MS: u64 = 5_000;
 
 #[cfg(unix)]
 fn signal_name(signal: i32) -> String {
@@ -93,6 +98,15 @@ struct SpawnRequest {
     merge_stderr: bool,
     #[serde(default)]
     raw_output: bool,
+    // File capture. When BOTH paths are supplied the child's stdout/stderr are
+    // opened here and handed over as fds: no pipe, no pump thread, no reader
+    // that can disappear. A child the caller deliberately leaves running (a
+    // task's server) then keeps writing to disk after this server exits,
+    // instead of dying on its next write to a reader-less pipe.
+    #[serde(default)]
+    stdout_path: Option<String>,
+    #[serde(default)]
+    stderr_path: Option<String>,
     // Keep the child's stdin as a writable pipe (warm shell standby feeds the
     // script text after spawn). Default false preserves Stdio::null().
     #[serde(default)]
@@ -607,17 +621,109 @@ fn spawn_io_error(id: u64, error: std::io::Error) {
     }));
 }
 
+// Open the caller's capture files in append mode. BOTH must open for file
+// capture to engage; a half-open pair falls back to pipes so a command never
+// fails over capture plumbing alone.
+fn open_capture_files(stdout_path: Option<&str>, stderr_path: Option<&str>) -> Option<(File, File)> {
+    let out_path = stdout_path.filter(|path| !path.is_empty())?;
+    let err_path = stderr_path.filter(|path| !path.is_empty())?;
+    let out = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out_path)
+        .ok()?;
+    let err = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(err_path)
+        .ok()?;
+    Some((out, err))
+}
+
+// Last `limit` bytes of a capture file, with its current size. Errors read as
+// "nothing yet": a capture file that cannot be stat'd or opened must never
+// take down the command it belongs to.
+fn read_capture_tail(path: &str, limit: usize) -> (u64, Vec<u8>) {
+    let size = match metadata(path) {
+        Ok(meta) => meta.len(),
+        Err(_) => return (0, Vec::new()),
+    };
+    if size == 0 {
+        return (0, Vec::new());
+    }
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return (size, Vec::new()),
+    };
+    let want = limit as u64;
+    let start = size.saturating_sub(want);
+    if start > 0 && file.seek(SeekFrom::Start(start)).is_err() {
+        return (size, Vec::new());
+    }
+    let mut buf = Vec::new();
+    if file.take(want).read_to_end(&mut buf).is_err() {
+        return (size, Vec::new());
+    }
+    (size, buf)
+}
+
+// File capture has no pump thread, so byte counts and the preview tails that
+// completion envelopes render come from the files themselves. Returns true
+// when the output cap is now exceeded — the same verdict pump_pipe reaches
+// per chunk on the pipe path.
+fn refresh_capture_state(managed: &ManagedProcess, stdout_path: &str, stderr_path: &str) -> bool {
+    let (out_bytes, out_tail) = read_capture_tail(stdout_path, TAIL_LIMIT);
+    let (err_bytes, err_tail) = read_capture_tail(stderr_path, TAIL_LIMIT);
+    match managed.state.lock() {
+        Ok(mut state) => {
+            state.stdout_bytes = out_bytes;
+            state.stderr_bytes = err_bytes;
+            state.stdout_tail = out_tail;
+            state.stderr_tail = err_tail;
+            let limit = state.output_limit as u64;
+            if out_bytes.saturating_add(err_bytes) > limit && state.status == "running" {
+                state.killed = true;
+                state.error = Some(format!("output exceeded {} byte cap", state.output_limit));
+                return true;
+            }
+            false
+        }
+        Err(_) => false,
+    }
+}
+
+fn arm_output_size_watchdog(managed: Arc<ManagedProcess>, stdout_path: String, stderr_path: String) {
+    thread::spawn(move || loop {
+        if managed.done.load(Ordering::Acquire) {
+            return;
+        }
+        if refresh_capture_state(&managed, &stdout_path, &stderr_path) {
+            managed.terminate();
+            return;
+        }
+        thread::sleep(Duration::from_millis(SIZE_WATCHDOG_INTERVAL_MS));
+    });
+}
+
 fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     let id = req.id;
+    let capture_files = open_capture_files(req.stdout_path.as_deref(), req.stderr_path.as_deref());
+    let file_capture = capture_files.is_some();
     let mut cmd = Command::new(&req.program);
-    cmd.args(&req.args)
-        .stdin(if req.stdin_pipe {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args(&req.args).stdin(if req.stdin_pipe {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    });
+    match capture_files {
+        Some((out_file, err_file)) => {
+            cmd.stdout(Stdio::from(out_file))
+                .stderr(Stdio::from(err_file));
+        }
+        None => {
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        }
+    }
     if let Some(cwd) = req.cwd.as_deref().filter(|cwd| !cwd.is_empty()) {
         cmd.current_dir(cwd);
     }
@@ -721,7 +827,16 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         emit_task(id, "task_started", &managed);
     }
     arm_timeout(Arc::clone(&managed), req.timeout_ms);
+    if file_capture {
+        arm_output_size_watchdog(
+            Arc::clone(&managed),
+            req.stdout_path.clone().unwrap_or_default(),
+            req.stderr_path.clone().unwrap_or_default(),
+        );
+    }
 
+    // File capture leaves both handles None, so the pump threads below are
+    // skipped and out_done/err_done start already satisfied.
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stream = !req.background;
@@ -746,6 +861,16 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     });
 
     let status = child.wait();
+    // Final sizes and preview tails before the terminal snapshot: the watchdog
+    // polls on an interval, so everything written since its last tick would
+    // otherwise be missing from the completion envelope.
+    if file_capture {
+        refresh_capture_state(
+            &managed,
+            req.stdout_path.as_deref().unwrap_or(""),
+            req.stderr_path.as_deref().unwrap_or(""),
+        );
+    }
     if let Ok(state) = managed.state.lock() {
         managed.done.store(true, Ordering::Release);
         if status.is_ok() && !state.killed && !state.timed_out && state.status == "running" {
@@ -953,7 +1078,8 @@ fn main() {
             "trackedForeground": true,
             "promoteTask": true,
             "cancelOwner": true,
-            "releaseTask": true
+            "releaseTask": true,
+            "fileCapture": true
         }
     }));
     let manager = Arc::new(Manager::new());
@@ -1128,6 +1254,13 @@ fn main() {
             Err(error) => spawn_error(0, format!("bad request: {error}")),
         }
     }
+    // Shutdown reap, on client EOF. A child still bound to a FOREGROUND call
+    // dies here: its caller is gone and nothing will ever read its result.
+    // A RETAINED task is the opposite — the client promoted it on purpose and
+    // owns cancelTask / cancelOwnerSession to end it deliberately. Killing
+    // those here destroyed the very artifact the caller asked for: a server a
+    // task required, left running by design, died the instant the agent
+    // process exited (2026-08-23, pypi-server).
     let live: Vec<Arc<ManagedProcess>> = manager
         .live
         .lock()
@@ -1136,6 +1269,9 @@ fn main() {
         .cloned()
         .collect();
     for managed in live {
+        if managed.retained.load(Ordering::Acquire) {
+            continue;
+        }
         managed.terminate();
     }
 }

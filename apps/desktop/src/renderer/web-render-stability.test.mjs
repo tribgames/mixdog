@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { composerDraftAfterScopeChange } from "./composer-draft.ts";
+import {
+  composerDraftAfterScopeChange,
+  rejectComposerSubmissionRecovery,
+  resolveComposerSubmissionRecovery,
+  retainComposerSubmissionRecovery,
+  takeRejectedComposerSubmissionRecoveries,
+} from "./composer-draft.ts";
 import { isRemoteBrowserRenderer } from "./remote-ui-projection.ts";
 
 test("focused web composer keeps the native value across a scope snapshot", () => {
@@ -20,6 +26,36 @@ test("inactive composer still clears a draft when its scope changes", () => {
     preserveDraft: false,
     typingLive: false,
   }), "");
+});
+
+test("a rejected web submission survives a composer remount until its pane restores it", () => {
+  retainComposerSubmissionRecovery({
+    id: "rejected-submit",
+    scope: "pane-a",
+    text: "사라지면 안 되는 입력",
+    attachments: [],
+  });
+  assert.deepEqual(takeRejectedComposerSubmissionRecoveries("pane-a"), []);
+  rejectComposerSubmissionRecovery("rejected-submit");
+  assert.deepEqual(takeRejectedComposerSubmissionRecoveries("pane-a"), [{
+    id: "rejected-submit",
+    scope: "pane-a",
+    text: "사라지면 안 되는 입력",
+    attachments: [],
+  }]);
+  assert.deepEqual(takeRejectedComposerSubmissionRecoveries("pane-a"), []);
+});
+
+test("an accepted web submission discards its recovery copy", () => {
+  retainComposerSubmissionRecovery({
+    id: "accepted-submit",
+    scope: "pane-b",
+    text: "전송 완료",
+    attachments: [],
+  });
+  resolveComposerSubmissionRecovery("accepted-submit");
+  rejectComposerSubmissionRecovery("accepted-submit");
+  assert.deepEqual(takeRejectedComposerSubmissionRecoveries("pane-b"), []);
 });
 
 test("browser and Electron renderers select distinct transcript update paths", () => {

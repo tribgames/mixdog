@@ -1,0 +1,270 @@
+name: Build Voice Runtime
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Expected release tag; blank uses the configured tag"
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Expected release tag; blank uses the configured tag"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: voice-runtime-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: plan-immutable-release
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      commit: ${{ steps.plan.outputs.commit }}
+      vulkan_sdk_version: ${{ steps.plan.outputs.vulkan_sdk_version }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      build_needed: ${{ steps.plan.outputs.build_needed }}
+      sync_needed: ${{ steps.plan.outputs.sync_needed }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+
+      - name: Resolve config and existing release state
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: node scripts/plan-voice-runtime-release.mjs
+
+  prepare-release:
+    name: prepare-hidden-release
+    needs: plan
+    if: ${{ needs.plan.outputs.build_needed == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Create or resume hidden draft
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ needs.plan.outputs.tag }}
+          target_commitish: ${{ github.event.repository.default_branch }}
+          name: Voice Runtime ${{ needs.plan.outputs.version }}
+          draft: true
+          prerelease: false
+          make_latest: false
+
+  build:
+    name: build-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.backend }}
+    needs: [plan, prepare-release]
+    if: ${{ needs.plan.outputs.build_needed == 'true' }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Install Vulkan SDK
+        if: matrix.os == 'win32'
+        uses: humbletim/install-vulkan-sdk@30ba978f977e81b72d091fc8888feb1fb26f9aff # v1.2
+        with:
+          version: ${{ needs.plan.outputs.vulkan_sdk_version }}
+          cache: true
+          quiet: true
+
+      - name: Install Linux Vulkan build tools
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc libvulkan-dev spirv-headers spirv-tools
+
+      - name: Build Windows runtime
+        if: matrix.os == 'win32'
+        env:
+          WHISPER_VERSION: ${{ needs.plan.outputs.version }}
+          WHISPER_COMMIT: ${{ needs.plan.outputs.commit }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        shell: pwsh
+        run: ./scripts/build-voice-runtime-windows.ps1
+
+      - name: Build Unix runtime
+        if: matrix.os != 'win32'
+        env:
+          WHISPER_VERSION: ${{ needs.plan.outputs.version }}
+          WHISPER_COMMIT: ${{ needs.plan.outputs.commit }}
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+          BACKEND: ${{ matrix.backend }}
+        run: bash scripts/build-voice-runtime-unix.sh
+
+      - name: Upload runtime asset
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ needs.plan.outputs.tag }}
+          draft: true
+          make_latest: false
+          files: |
+            dist/whisper-server-*.zip
+            dist/whisper-server-*.zip.sha256
+
+  manifest:
+    name: generate-and-verify-manifest
+    needs: [plan, build]
+    if: ${{ needs.plan.outputs.build_needed == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+
+      - name: Generate bundled manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+        run: node scripts/generate-voice-runtime-manifest.mjs
+
+      - name: Upload generated manifest
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ needs.plan.outputs.tag }}
+          draft: true
+          make_latest: false
+          files: src/runtime/channels/data/voice-runtime-manifest.json
+
+      - name: Verify complete hidden release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/verify-voice-runtime-release.mjs
+
+      - name: Stage verified manifest
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp src/runtime/channels/data/voice-runtime-manifest.json dist/voice-runtime-manifest.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: voice-runtime-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/voice-runtime-manifest.json
+          if-no-files-found: error
+
+  recover-manifest:
+    name: recover-published-manifest
+    needs: plan
+    if: ${{ needs.plan.outputs.build_needed == 'false' && needs.plan.outputs.sync_needed == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Download published manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" --pattern voice-runtime-manifest.json --dir dist --clobber
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: voice-runtime-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/voice-runtime-manifest.json
+          if-no-files-found: error
+
+  publish:
+    name: publish-verified-release
+    needs: [plan, manifest]
+    if: ${{ needs.plan.outputs.build_needed == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Publish without replacing the application latest release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: ${{ needs.plan.outputs.tag }}
+          draft: false
+          prerelease: false
+          make_latest: false
+
+  sync:
+    name: sync-bundled-manifest
+    needs: [plan, manifest, recover-manifest, publish]
+    if: >-
+      ${{
+        always()
+        && needs.plan.result == 'success'
+        && needs.plan.outputs.sync_needed == 'true'
+        && (
+          (
+            needs.plan.outputs.build_needed == 'true'
+            && needs.manifest.result == 'success'
+            && needs.publish.result == 'success'
+          )
+          || (
+            needs.plan.outputs.build_needed == 'false'
+            && needs.recover-manifest.result == 'success'
+          )
+        )
+      }}
+    runs-on: ubuntu-22.04
+    concurrency:
+      group: runtime-manifest-sync
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: voice-runtime-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+
+      - name: Merge voice runtime fields without overwriting model metadata
+        run: node scripts/sync-voice-runtime-manifest.mjs
+
+      - name: Commit synchronized manifest
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          MANIFEST=src/runtime/channels/data/voice-runtime-manifest.json
+          if git diff --quiet -- "$MANIFEST"; then
+            echo "Bundled voice runtime manifest is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          git commit -m "chore(voice): sync runtime manifest for ${RELEASE_TAG}"
+          git pull --rebase origin "$DEFAULT_BRANCH"
+          git push origin "HEAD:${DEFAULT_BRANCH}"

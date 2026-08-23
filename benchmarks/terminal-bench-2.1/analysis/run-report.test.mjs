@@ -82,9 +82,28 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
         cost_usd: options.costs?.[index] ?? 1,
       } } : {}),
     }));
+    if (options.usageModels?.[index]) {
+      const agentDir = join(trialDir, 'agent');
+      mkdirSync(agentDir, { recursive: true });
+      writeFileSync(join(agentDir, 'usage.json'), JSON.stringify({
+        sessions: [{
+          models: [options.usageModels[index]],
+          inputTokens: 50,
+          cacheTokens: 25,
+          cacheWriteTokens: 0,
+          outputTokens: 10,
+        }],
+        totals: {
+          inputTokens: 50,
+          cacheTokens: 25,
+          cacheWriteTokens: 0,
+          outputTokens: 10,
+        },
+      }));
+    }
     if (failed && Array.isArray(options.traceRows)) {
       const agentDir = join(trialDir, 'agent');
-      mkdirSync(agentDir);
+      mkdirSync(agentDir, { recursive: true });
       writeFileSync(
         join(agentDir, 'agent-trace.jsonl'),
         `${options.traceRows.map((row) => JSON.stringify(row)).join('\n')}\n`,
@@ -314,7 +333,50 @@ test('pairs a full preset with its pinned baseline on settled shared tasks', () 
     });
     assert.equal(report.pair.ratios.speedup, 1.5);
     assert.equal(report.pair.ratios.cost, 0.5);
+    assert.deepEqual(report.pair.costComparison, {
+      comparableTasks: 2,
+      totalTasks: 2,
+      complete: true,
+      oursUsd: 2,
+      baselineUsd: 4,
+    });
     assert.match(formatReport(report), /Pair: Fixture baseline/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pair cost ratio uses only tasks priced on both sides and reports partial coverage', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-pair-cost-coverage-'));
+  try {
+    fixture(root, 'jobs-baseline', 'sha256:baseline', '2026-08-15T00:00:00.000Z', [20, 40], {
+      costs: [2, 100],
+    });
+    const currentDir = fixture(root, 'jobs-current', 'sha256:current', '2026-08-15T00:04:00.000Z', [15, 900], {
+      errorIndex: 1,
+      rewards: [1, 0],
+      costs: [1, 999],
+      usageModels: [null, 'unknown-model'],
+      comparison: {
+        name: 'fixture-baseline',
+        baseline: {
+          label: 'Fixture baseline',
+          jobsDir: 'jobs-baseline',
+        },
+      },
+    });
+    const report = generateRunReport({ jobsDir: currentDir, historyRoot: root });
+    assert.deepEqual(report.pair.ours.cost, { usd: null, trials: 0, unsupported: true });
+    assert.equal(report.pair.baseline.cost.usd, 102);
+    assert.equal(report.pair.ratios.cost, 0.5);
+    assert.deepEqual(report.pair.costComparison, {
+      comparableTasks: 1,
+      totalTasks: 2,
+      complete: false,
+      oursUsd: 1,
+      baselineUsd: 2,
+    });
+    assert.match(formatReport(report), /1\/2 cost-comparable tasks; partial coverage/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

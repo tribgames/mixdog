@@ -6,10 +6,30 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
-import { _extractTar, _verifyKiwiModelArchive } from './ko-morph.mjs'
+import {
+  _extractTar,
+  _kiwiBuildArgs,
+  _resolveKoMorphIdleTimeout,
+  _verifyKiwiModelArchive,
+} from './ko-morph.mjs'
 import { _validateRuntimeTarEntries } from './runtime-fetcher.mjs'
 
 const REQUIRED = ['combiningRule.txt', 'default.dict', 'extract.mdl', 'sj.knlm', 'sj.morph']
+
+test('Kiwi recall build excludes optional dictionaries and releases after two minutes', () => {
+  const modelFiles = { 'sj.knlm': new Uint8Array([1]) }
+  assert.deepEqual(_kiwiBuildArgs(modelFiles), {
+    modelFiles,
+    modelType: 'knlm',
+    loadDefaultDict: true,
+    loadMultiDict: false,
+    loadTypoDict: false,
+    typos: 'none',
+  })
+  assert.equal(_resolveKoMorphIdleTimeout(undefined), 120_000)
+  assert.equal(_resolveKoMorphIdleTimeout('0'), 0)
+  assert.equal(_resolveKoMorphIdleTimeout('45000'), 45_000)
+})
 
 function tarEntry(name, body = Buffer.alloc(0), type = '0') {
   const bytes = Buffer.from(body)

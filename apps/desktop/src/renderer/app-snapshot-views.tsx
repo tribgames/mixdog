@@ -312,7 +312,9 @@ export const PaneConversation = memo(function PaneConversation({
         sessionId={sessionId}
         hidden={hidden} />}
       {...props}
-      statusIsland={<SessionStatusIsland snapshot={paneSnapshot}
+      statusIsland={<PaneStatusIsland
+        sessionId={presentedSessionId}
+        hidden={hidden}
         onInherit={() => props.onOpenCommandSurface("inherit")} />}
     />
     <PaneSurfaceCover ready={surfaceReady} label={t("Loading conversation…")}
@@ -398,9 +400,10 @@ if (typeof window !== "undefined") {
  *  reads its own lane through a single subscription — the gauge and the chips
  *  share the same header-scoped comparator, so one lane read now feeds both.
  *  Focus never changes data ownership. */
-export function PaneStatusIsland({ sessionId, hidden }: {
+export function PaneStatusIsland({ sessionId, hidden, onInherit }: {
   sessionId: string;
   hidden: boolean;
+  onInherit?: () => void;
 }) {
   const lane = useSessionLane(
     sessionId,
@@ -411,7 +414,7 @@ export function PaneStatusIsland({ sessionId, hidden }: {
   const visibleSnapshot = hidden || !sessionId
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
-  return <SessionStatusIsland snapshot={visibleSnapshot} />;
+  return <SessionStatusIsland snapshot={visibleSnapshot} onInherit={onInherit} />;
 }
 
 

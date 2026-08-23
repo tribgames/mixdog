@@ -13,9 +13,10 @@
   apply one analysis to many targets as one parameterized call when supported.
 - Route each evidence facet once to its primary owner, preferring the operation
   that directly returns the evidence needed for the next decision. A summary,
-  overview, or enumeration is not a prerequisite when that operation's complete
-  inputs are already known; if independently required, batch it with the
-  detailed operation.
+  overview, or enumeration is not a prerequisite to an operation whose complete
+  inputs are already known, and is itself that operation when structure is the
+  evidence sought; if independently required, batch it with the detailed
+  operation.
 - Known state — system guarantees, supplied facts, visible tool returns,
   applied patches, and passed checks — is never re-found, re-derived, or
   re-verified at any granularity: no re-query call, no confirmation subcommand
@@ -27,7 +28,9 @@
   necessary.
 - Evidence that determines the answer, edit, or deliverable ends retrieval.
 - Treat failure as new evidence and re-enter that loop only for the affected
-  facets. Report a blocker when no deterministic next action remains.
+  facets. Do not abandon a viable approach after one failure or leave the
+  required deliverable half-finished. Report a blocker when no deterministic
+  next action remains.
 - Use only named tools present in the current tool surface; deferred tools
   auto-load on a direct call, and when their exact arguments are not visible,
   call `load_tool` first and read the surfaced schema.

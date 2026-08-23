@@ -126,9 +126,9 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     const reserveTokens = requestReserve + configuredReserve;
     const compactTargetTokens = resolveCompactTargetTokens(compactBoundaryTokens, cfg) || compactBoundaryTokens;
     const legacyTargetBudget = legacyCompactTargetBudget(compactBoundaryTokens, compactTargetTokens, reserveTokens);
-    // Reserve is included in every next-send pressure calculation, so its
-    // relationship to the actual trigger (not the raw boundary) determines
-    // whether a post-compact transcript can ever fall below the trigger.
+    // Request reserve is provider-visible and belongs in the canonical context
+    // value. Operator reserve is local headroom, so preserve its early-compact
+    // effect by lowering the threshold instead of inflating displayed usage.
     const singleShot = reserveTokens >= policy.triggerTokens;
     // Main/user recall-fasttrack must not compact into its next trigger. Keep a
     // 1%-of-boundary (up to 1,024-token) gap above the effective post-compact
@@ -138,9 +138,10 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         compactBoundaryTokens,
         (legacyTargetBudget || 0) + compactTriggerMarginTokens(compactBoundaryTokens),
     );
-    const triggerTokens = !singleShot && !isAgentOwner(sessionRef) && !explicitAutoCompactTokenLimit
+    const baseTriggerTokens = !singleShot && !isAgentOwner(sessionRef) && !explicitAutoCompactTokenLimit
         ? Math.max(policy.triggerTokens, minMainTrigger)
         : policy.triggerTokens;
+    const triggerTokens = Math.max(1, baseTriggerTokens - configuredReserve);
     const bufferTokens = Math.max(0, compactBoundaryTokens - triggerTokens);
     const bufferRatio = bufferTokens / compactBoundaryTokens;
     const keepTokens = resolveCompactKeepTokens(cfg);
@@ -330,48 +331,34 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
     }
 }
 
-function preferAlignedBaseline(baseline, estimate) {
-    if (baseline == null) return estimate;
-    if (Number.isFinite(estimate) && estimate > 0 && baseline * 2 < estimate) return estimate;
-    return baseline;
-}
-
-export function resolveCurrentContextTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
+/**
+ * Canonical active-context value for display, proactive compaction, and
+ * telemetry. Once provider usage exists it is authoritative; only messages
+ * appended after that aligned prefix are estimated. The whole-transcript
+ * estimate is used only before the first provider reading or after compaction
+ * invalidates that reading.
+ */
+export function resolveContextTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
     const baseline = providerBaselinePressureTokens(messages, sessionRef, policy, {
         includeConfiguredReserve: false,
     });
-    return preferAlignedBaseline(baseline, currentContextEstimateTokens(messageTokensEst, policy));
+    return baseline ?? currentContextEstimateTokens(messageTokensEst, policy);
+}
+
+export function resolveCurrentContextTokens(messageTokensEst, policy, options = {}) {
+    return resolveContextTokens(messageTokensEst, policy, options);
 }
 
 /**
- * The number the user-facing context gauge must show. shouldCompactForSession
- * fires on the MAX of the baseline-aligned pressure and the raw transcript
- * estimate, so a gauge reading only the baseline-aligned value could sit well
- * below the trigger at the exact moment auto-compact ran (user: 좀 남아
- * 보였는데 바로 컴팩트). Mirror that decision here so 100% and "compaction
- * fires" are the same instant. The operator-only configured reserve stays out:
- * it is local headroom, not context the provider ever sees.
+ * Compatibility names kept for callers while both paths resolve the exact same
+ * canonical value.
  */
 export function resolveGaugeContextTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
-    return Math.max(
-        Number(resolveCurrentContextTokens(messageTokensEst, policy, { messages, sessionRef })) || 0,
-        currentContextEstimateTokens(messageTokensEst, policy),
-    );
+    return resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
 }
 
 export function resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
-    const baseline = providerBaselinePressureTokens(messages, sessionRef, policy);
-    const estimate = compactPressureTokens(messageTokensEst, policy);
-    // Sanity band: the baseline exists to correct OVER-counting estimates
-    // (dense-data floors can inflate the estimate up to ~2x real usage), so a
-    // lower baseline is normally preferred. But a corrupt/stale baseline below
-    // HALF the estimate is no longer plausible as an overcount correction —
-    // a live session showed ~70% on the gauge while the provider was billing
-    // 111% of a 1M window. Beyond that band, trust the transcript estimate for
-    // both the gauge and the compaction decision. Erring toward the estimate
-    // may compact somewhat early; erring toward a rotten baseline blows past
-    // the context window at full token cost.
-    return preferAlignedBaseline(baseline, estimate);
+    return resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
 }
 
 /** Telemetry pressure when a reactive overflow retry forces the next compact. */
@@ -380,7 +367,7 @@ export function compactionTelemetryPressureTokens(messageTokensEst, policy, {
     messages,
     sessionRef,
 } = {}) {
-    const base = resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef });
+    const base = resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
     if (!reactivePending) return base;
     const floor = positiveTokenInt(policy?.triggerTokens) || positiveTokenInt(policy?.boundaryTokens) || 0;
     return floor ? Math.max(base, floor) : base;
@@ -422,17 +409,9 @@ export function shouldCompactForSession(messageTokensEst, policy, {
     if (messageTokensEst === null) return true;
     const pressure = Number.isFinite(Number(pressureTokens))
         ? Number(pressureTokens)
-        : resolveCompactionPressureTokens(messageTokensEst, policy, { messages, sessionRef });
+        : resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
     const trigger = policy.triggerTokens || policy.boundaryTokens;
-    if (pressure >= trigger) return true;
-    // Safety net: the provider-usage baseline exists to correct OVER-counting
-    // transcript estimates, so a lower baseline-derived pressure is normally
-    // preferred. But a stale/wrong baseline must never SUPPRESS compaction
-    // once the raw transcript estimate itself has crossed the trigger — that
-    // failure mode let a live session sail past a 950k trigger to 1.1M+ real
-    // tokens without a single auto compact. The trigger decision (not the
-    // gauge) therefore takes the max of both pressure sources.
-    return compactPressureTokens(messageTokensEst, policy) >= trigger;
+    return pressure >= trigger;
 }
 export function countPrunedToolOutputs(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return 0;

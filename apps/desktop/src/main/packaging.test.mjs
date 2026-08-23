@@ -517,7 +517,7 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   const stagedSidecar = fileURLToPath(new URL('../../.runtime/runtime.asar.unpacked', import.meta.url));
   await access(runtimeArchive);
 
-  const targetBinding = `/bin/napi-v3/${process.platform}/${process.arch}/onnxruntime_binding.node`;
+  const targetBinding = `/bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node`;
   const candidates = await findRuntimeArchives(
     fileURLToPath(new URL('../../dist', import.meta.url)),
   );
@@ -545,7 +545,7 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   const ortPackage = entries.find((entry) => /\/onnxruntime-node\/package\.json$/.test(entry));
   assert.ok(ortPackage, 'runtime archive is missing onnxruntime-node');
   const ortRoot = ortPackage.slice(0, -'/package.json'.length);
-  const embeddingNapiRoot = `${ortRoot}/bin/napi-v3`;
+  const embeddingNapiRoot = `${ortRoot}/bin/napi-v6`;
   const embeddingPlatformRoot = `${embeddingNapiRoot}/${process.platform}`;
   const embeddingBinaryRoot = `${embeddingPlatformRoot}/${process.arch}`;
   assert.ok(

@@ -12,7 +12,6 @@ import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mj
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
   resolveGaugeContextTokens,
-  resolveCompactionPressureTokens,
   resolveWorkerCompactPolicy,
 } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
 import {
@@ -269,15 +268,8 @@ export function createContextStatus({
         ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
         tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
       };
-    // Keep the user-facing gauge aligned to provider-visible context. The
-    // compaction branch retains its stricter pressure numerator separately.
-    const compactionPressureTokens = resolveCompactionPressureTokens(
-      messageSummary.estimatedTokens,
-      compactPolicy,
-      { messages, sessionRef: session },
-    );
-    // Same numerator the auto-compact trigger decides on, so the gauge reaches
-    // 100% exactly when compaction fires instead of still showing headroom.
+    // One canonical numerator drives the gauge, proactive compaction, and
+    // telemetry: provider usage plus only the growth after its aligned prefix.
     const usedTokens = resolveGaugeContextTokens(
       messageSummary.estimatedTokens,
       compactPolicy,
@@ -313,8 +305,8 @@ export function createContextStatus({
         triggerTokens: compactTriggerTokens || null,
         bufferTokens: Number.isFinite(compactBufferTokens) ? compactBufferTokens : null,
         bufferRatio: compactBufferRatio,
-        currentEstimatedTokens: compactionPressureTokens,
-        pressureTokens: compactionPressureTokens,
+        currentEstimatedTokens: usedTokens,
+        pressureTokens: usedTokens,
         reserveTokens: Math.max(0, Number(compactPolicy.configuredReserveTokens) || 0),
         lastApiRequestTokens: lastContextTokens || 0,
         lastApiRequestStale: lastUsageStale,

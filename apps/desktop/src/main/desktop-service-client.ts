@@ -46,6 +46,11 @@ export interface DesktopServiceClientOptions {
   restartStableMs?: number;
   failureNoticeDelayMs?: number;
   onDiagnostic?(event: string, data: Record<string, unknown>): void;
+  /** The daemon leg is ready to serve. `generation` counts attachments made by
+   *  this process: 1 is the first, and anything above it followed a daemon
+   *  REPLACEMENT, whose predecessor took every service it hosted — the relay
+   *  leg included — down with its process. */
+  onServiceReady?(context: { generation: number }): void;
 }
 
 interface PendingRequest {
@@ -251,6 +256,7 @@ export class DesktopServiceClient implements DesktopService {
       this.readyResolve = null;
       this.readyReject = null;
       resolve?.();
+      this.options.onServiceReady?.({ generation: this.generation });
       if (this.visibleSessionIds.length > 0) {
         void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds])
           .catch(() => { /* renderer registration remains cached for the next restart */ });
@@ -655,8 +661,8 @@ export class DesktopServiceClient implements DesktopService {
   deleteSession(sessionId: string): Promise<unknown> {
     return this.invoke('deleteSession', [sessionId]);
   }
-  prefetchSession(sessionId: string): Promise<boolean> {
-    return this.invokeRead('prefetchSession', [sessionId]);
+  prefetchSession(sessionId: string, transcriptItemLimit?: number): Promise<boolean> {
+    return this.invokeRead('prefetchSession', [sessionId, transcriptItemLimit]);
   }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     this.visibleSessionIds = [...new Set(sessionIds

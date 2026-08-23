@@ -318,7 +318,10 @@ export function createSessionService({
     // so identity is a sound cache key. Without this the whole transcript was
     // re-sanitized on every call AND every published frame.
     if (raw && entry.snapshotSource === raw) return entry.snapshotCache;
-    const cloned = projectState(entry, raw);
+    // Runtime-worker IPC has already produced a wire-safe graph. Reusing it
+    // removes the daemon's second full transcript clone; in-process runtimes
+    // keep the sanitizer boundary below.
+    const cloned = entry.runtime?.isWireSafe === true ? raw : projectState(entry, raw);
     entry.snapshotSource = raw;
     entry.snapshotCache = cloned;
     return cloned;

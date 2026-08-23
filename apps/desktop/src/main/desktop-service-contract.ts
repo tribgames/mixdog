@@ -53,7 +53,7 @@ export interface DesktopService {
   renameSession(sessionId: string, title: string): unknown;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   deleteSession(sessionId: string): unknown;
-  prefetchSession(sessionId: string): Promise<boolean>;
+  prefetchSession(sessionId: string, transcriptItemLimit?: number): Promise<boolean>;
   /** Keep every currently visible pane attached to its external live owner. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;

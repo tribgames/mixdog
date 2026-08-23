@@ -460,9 +460,9 @@ async function prepareRuntime(manifest, fingerprint) {
       listPackage(runtimeArchive, { isPack: false }).map((entry) => entry.replaceAll('\\', '/')),
     );
     const ortArchiveRoot = relative(stagingDir, prunedEmbedding.ortRoot).replaceAll(sep, '/');
-    const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v3`;
+    const embeddingNapiRoot = `/${ortArchiveRoot}/bin/napi-v6`;
     const embeddingPlatformRoot = `${embeddingNapiRoot}/${embeddingTarget.platform}`;
-    const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v3/${embeddingTarget.platform}/${embeddingTarget.arch}`;
+    const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v6/${embeddingTarget.platform}/${embeddingTarget.arch}`;
     for (const required of [
       '/package.json',
       '/node_modules/mixdog/package.json',

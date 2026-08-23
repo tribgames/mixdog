@@ -108,14 +108,12 @@ export function describeShellStartupPolicy({
 } = {}) {
     const { available, unavailable } = detectPathCapabilities(pathOptions);
     const resolvedShell = shell || basename(String(resolveShellFor('default')?.shell || 'unknown'));
-    // Session-variable capability line: when the process-level egress block
-    // is active (mixdog exec default pins MIXDOG_FEATURE_WEB_SEARCH=0 and
-    // shell children get a dead proxy), say so here — the model must not
-    // spend calls attempting web access that is guaranteed to fail.
-    const network = String(process.env.MIXDOG_FEATURE_WEB_SEARCH || '') === '0'
-        ? ' network=offline (external egress blocked for every command — curl/wget/pip/apt/git included; only loopback services are reachable; never attempt web access).'
-        : '';
-    return `- Shell startup environment: OS=${os}; shell=${resolvedShell}; available=${available.join(', ') || 'none'}; unavailable=${unavailable.join(', ') || 'none'}.${network} For shell commands, treat every unavailable entry as absent. Invoke one only if the same command first installs it or exposes it on PATH.`;
+    // Shell networking is independent from the web-search tool surface:
+    // applyShellEgressPolicy leaves the spawn env untouched, so package
+    // managers, source-control clients, and proxies keep working even with
+    // MIXDOG_FEATURE_WEB_SEARCH=0. This line therefore never claims an
+    // egress block the runtime does not enforce.
+    return `- Shell startup environment: OS=${os}; shell=${resolvedShell}; available=${available.join(', ') || 'none'}; unavailable=${unavailable.join(', ') || 'none'}. For shell commands, treat every unavailable entry as absent. Invoke one only if the same command first installs it or exposes it on PATH.`;
 }
 
 export function appendShellStartupPolicy(rules, tools, options = {}) {

@@ -30,25 +30,44 @@ jobs:
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from 'node:fs/promises';
 
-          const manifestPath = 'src/runtime/memory/data/runtime-manifest.json';
+          const manifestPaths = [
+            'src/runtime/memory/data/runtime-manifest.json',
+            'src/runtime/channels/data/voice-runtime-manifest.json',
+          ];
           const failures = [];
-          let manifest = {};
-          try {
-            manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-          } catch (error) {
-            failures.push(`Manifest could not be read: ${error.message}`);
+          const assets = [];
+          const releaseTags = [];
+
+          function collectAssets(value, path, output) {
+            if (!value || typeof value !== 'object') return;
+            if (typeof value.url === 'string' && 'size' in value) output.push([path, value]);
+            for (const [key, child] of Object.entries(value)) {
+              collectAssets(child, path ? `${path}.${key}` : key, output);
+            }
           }
-          const assets = Object.entries(manifest.assets ?? {});
 
-          if (!manifest.release_tag) failures.push('Manifest has no release_tag.');
-          if (assets.length === 0) failures.push('Manifest has no assets.');
+          for (const manifestPath of manifestPaths) {
+            try {
+              const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+              const declared = [];
+              collectAssets(manifest, '', declared);
+              if (declared.length === 0) failures.push(`${manifestPath}: manifest has no assets.`);
+              assets.push(...declared.map(([name, asset]) => [`${manifestPath}:${name}`, asset]));
+              releaseTags.push(`${manifestPath}: ${manifest.release_tag ?? manifest.version ?? 'missing'}`);
+            } catch (error) {
+              failures.push(`${manifestPath}: manifest could not be read: ${error.message}`);
+            }
+          }
 
-          async function probe(platform, asset) {
+          async function probe(label, asset) {
             if (typeof asset?.url !== 'string' || new URL(asset.url).protocol !== 'https:') {
               throw new Error('invalid HTTPS URL');
             }
             if (!Number.isSafeInteger(asset.size) || asset.size <= 0) {
               throw new Error(`invalid declared size: ${asset.size}`);
+            }
+            if (!/^[a-f0-9]{64}$/i.test(String(asset.sha256 || ''))) {
+              throw new Error('invalid SHA256');
             }
 
             const response = await fetch(asset.url, {
@@ -78,14 +97,14 @@ jobs:
             if (remoteSize !== asset.size) {
               throw new Error(`size mismatch: manifest=${asset.size}, remote=${remoteSize}`);
             }
-            console.log(`${platform}: OK (${remoteSize} bytes)`);
+            console.log(`${label}: OK (${remoteSize} bytes)`);
           }
 
-          for (const [platform, asset] of assets) {
+          for (const [label, asset] of assets) {
             let lastError;
             for (let attempt = 1; attempt <= 3; attempt++) {
               try {
-                await probe(platform, asset);
+                await probe(label, asset);
                 lastError = undefined;
                 break;
               } catch (error) {
@@ -93,7 +112,7 @@ jobs:
                 if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 2_000));
               }
             }
-            if (lastError) failures.push(`${platform}: ${lastError.message} (${asset?.url ?? 'no URL'})`);
+            if (lastError) failures.push(`${label}: ${lastError.message} (${asset?.url ?? 'no URL'})`);
           }
 
           if (failures.length > 0) {
@@ -101,8 +120,7 @@ jobs:
             const report = [
               '# Runtime release asset health check failed',
               '',
-              `Manifest: \`${manifestPath}\``,
-              `Release tag: \`${manifest.release_tag ?? 'missing'}\``,
+              ...releaseTags.map(value => `Manifest: \`${value}\``),
               `Checked: ${new Date().toISOString()}`,
               `Workflow run: ${runUrl}`,
               '',

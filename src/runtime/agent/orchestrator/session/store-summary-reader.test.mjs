@@ -149,6 +149,132 @@ test('agent pool drops reaped Leads and does not revive historical Lead sessions
   }
 });
 
+test('child terminal leases persist provider deadlines across registry recreation', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-persist-'));
+  const sessions = new Map([
+    ['openai-child', {
+      id: 'openai-child',
+      agentTag: 'openai-review',
+      ownerSessionId: 'lead-a',
+      agent: 'reviewer',
+      provider: 'openai-oauth',
+    }],
+    ['anthropic-child', {
+      id: 'anthropic-child',
+      agentTag: 'anthropic-review',
+      ownerSessionId: 'lead-a',
+      agent: 'reviewer',
+      provider: 'anthropic-oauth',
+    }],
+  ]);
+  const manager = {
+    getSession: (sessionId) => sessions.get(sessionId) || null,
+    listSessions: () => [...sessions.values()],
+  };
+  try {
+    const registry = createTagRegistry({
+      dataDir: root,
+      cfgMod: { loadConfig: () => ({}) },
+      mgr: manager,
+      emitSubagentEvent: () => {},
+    });
+    const startedAt = Date.now();
+    for (const session of sessions.values()) {
+      registry.upsertWorkerSession(session, session.agentTag, {
+        status: 'idle',
+        stage: 'idle',
+        finishedAt: new Date(startedAt).toISOString(),
+      });
+      assert.equal(registry.scheduleReap(session.id), true);
+    }
+    let stored = JSON.parse(readFileSync(join(root, 'agent-workers.json'), 'utf8'));
+    const rows = Object.values(stored.workers);
+    const openaiDeadline = Date.parse(rows.find((row) => row.sessionId === 'openai-child').reapAt);
+    const anthropicDeadline = Date.parse(rows.find((row) => row.sessionId === 'anthropic-child').reapAt);
+    assert.ok(openaiDeadline - startedAt >= 29 * 60_000);
+    assert.ok(openaiDeadline - startedAt <= 31 * 60_000);
+    assert.ok(anthropicDeadline - startedAt >= 59 * 60_000);
+    assert.ok(anthropicDeadline - startedAt <= 61 * 60_000);
+    registry.cancelReap('openai-child');
+    registry.cancelReap('anthropic-child');
+
+    const restarted = createTagRegistry({
+      dataDir: root,
+      cfgMod: { loadConfig: () => ({}) },
+      mgr: manager,
+      emitSubagentEvent: () => {},
+    });
+    stored = JSON.parse(readFileSync(join(root, 'agent-workers.json'), 'utf8'));
+    const restartedRows = Object.values(stored.workers);
+    assert.equal(
+      restartedRows.find((row) => row.sessionId === 'openai-child').reapAt,
+      new Date(openaiDeadline).toISOString(),
+    );
+    assert.equal(
+      restartedRows.find((row) => row.sessionId === 'anthropic-child').reapAt,
+      new Date(anthropicDeadline).toISOString(),
+    );
+    assert.equal(restarted.reapTimers.has('openai-child'), true);
+    assert.equal(restarted.reapTimers.has('anthropic-child'), true);
+    restarted.cancelReap('openai-child');
+    restarted.cancelReap('anthropic-child');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('child boot recovery reaps expired legacy idle rows and preserves remaining lease time', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-recover-'));
+  const now = Date.now();
+  try {
+    writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({
+      version: 2,
+      workers: {
+        expired: {
+          tag: 'old-review',
+          sessionId: 'expired-child',
+          ownerSessionId: 'lead-a',
+          agent: 'reviewer',
+          provider: 'anthropic-oauth',
+          status: 'idle',
+          stage: 'idle',
+          updatedAt: new Date(now - 2 * 60 * 60_000).toISOString(),
+        },
+        remaining: {
+          tag: 'recent-review',
+          sessionId: 'remaining-child',
+          ownerSessionId: 'lead-a',
+          agent: 'reviewer',
+          provider: 'openai-oauth',
+          status: 'idle',
+          stage: 'idle',
+          updatedAt: new Date(now - 10 * 60_000).toISOString(),
+        },
+      },
+    }));
+    const registry = createTagRegistry({
+      dataDir: root,
+      cfgMod: { loadConfig: () => ({}) },
+      mgr: { getSession: () => null, listSessions: () => [] },
+      emitSubagentEvent: () => {},
+    });
+    const stored = JSON.parse(readFileSync(join(root, 'agent-workers.json'), 'utf8'));
+    const rows = Object.values(stored.workers);
+    assert.equal(rows.some((row) => row.sessionId === 'expired-child'), false);
+    const remaining = rows.find((row) => row.sessionId === 'remaining-child');
+    assert.ok(remaining);
+    const remainingDeadline = Date.parse(remaining.reapAt);
+    assert.ok(remainingDeadline - now >= 19 * 60_000);
+    assert.ok(remainingDeadline - now <= 21 * 60_000);
+    assert.equal(registry.reapTimers.has('remaining-child'), true);
+    assert.ok(Object.values(stored.tombstones)
+      .some((row) => row.tag === 'old-review' && row.reapedAt));
+    registry.cancelReap('remaining-child');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Lead lifecycle uses only lead-workers.json and removes the idle lease on reap', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-lead-lifecycle-'));
   try {

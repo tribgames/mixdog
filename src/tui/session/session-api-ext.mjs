@@ -541,7 +541,7 @@ export function createSessionApiB(bag) {
     // Desktop push-to-talk dictation: accept a recorded audio payload
     // (base64), stage it as a temp file, and run it through the SAME managed
     // whisper.cpp pipeline the channels use (ffmpeg convert -> whisper server,
-    // model selected per voice.model/system language). Returns the transcript
+    // standard multilingual Q8 model). Returns the transcript
     // text or throws a user-actionable error (e.g. runtime not installed).
     transcribeAudio: async ({ data, mimeType = 'audio/webm' } = {}) => {
       const base64 = String(data || '');

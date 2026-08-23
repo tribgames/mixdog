@@ -37,6 +37,10 @@
     ],
     "regex-chess": [
       "regex-chess"
+    ],
+    "server-tasks": [
+      "kv-store-grpc",
+      "pypi-server"
     ]
   },
   "baselines": {
@@ -97,6 +101,12 @@
       "suite": "regex-chess",
       "routeProfile": "opus5-solo",
       "concurrent": 1
+    },
+    "servertasks-sol-xhigh": {
+      "suite": "server-tasks",
+      "routeProfile": "sol-xhigh-nofast",
+      "compareTo": "codex-gpt56-sol",
+      "concurrent": 2
     },
     "retry15-opus5-solo": {
       "suite": "retry15",

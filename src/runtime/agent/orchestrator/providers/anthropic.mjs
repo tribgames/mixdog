@@ -8,6 +8,7 @@ import {
     anthropicMaxAttempts,
     anthropicRequestTimeoutMs,
     classifyError,
+    markProviderRecoveryExhausted,
     resolveStallRetryBudget,
     midstreamBackoffFor,
     sleepWithAbort,
@@ -31,6 +32,7 @@ import {
     stampAnthropicStreamOutcome,
 } from './anthropic-sse.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import {
     applyAnthropicEffortToBody,
@@ -158,6 +160,9 @@ export class AnthropicProvider {
             system: systemBlocks.length ? systemBlocks : undefined,
             messages: anthropicMessages,
         };
+        applyAnthropicServerFallback(params, useModel, {
+            enabled: this.config?.disableBetaHeaders !== true && opts.serverFallback !== false,
+        });
         const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
         if (requestTools.length) {
             // No cache_control on tools — the system BP covers tools via
@@ -235,6 +240,7 @@ export class AnthropicProvider {
                     fastMode: this.fastModeBetaHeaderLatched,
                     toolSearch: hasDeferredTools,
                     effort: shouldIncludeEffortBeta(useModel, opts),
+                    serverFallback: params.fallbacks === 'default',
                 }),
             };
 
@@ -252,7 +258,9 @@ export class AnthropicProvider {
                 );
             } catch {}
             try { controller?.abort?.(error); } catch {}
-            throw error;
+            throw markProviderRecoveryExhausted(error, {
+                owner: `${this.name}-transport-budget`,
+            });
         };
 
         const buildReturnFromParse = (parseResult) => {
@@ -310,6 +318,9 @@ export class AnthropicProvider {
                 assistantBlocks: Array.isArray(parseResult.assistantBlocks) && parseResult.assistantBlocks.length
                     ? parseResult.assistantBlocks
                     : undefined,
+                ...(parseResult.providerMetadata && typeof parseResult.providerMetadata === 'object'
+                    ? { providerMetadata: parseResult.providerMetadata }
+                    : {}),
                 usage: {
                     inputTokens: input,
                     outputTokens: output,
@@ -355,6 +366,11 @@ export class AnthropicProvider {
                     },
                 );
                 return buildReturnFromParse(normalizeAnthropicNonStreamingResponse(message, useModel));
+            } catch (error) {
+                if (error instanceof AnthropicFallbackTriggeredError || totalSignal?.aborted) throw error;
+                throw markProviderRecoveryExhausted(error, {
+                    owner: `${this.name}-nonstreaming-fallback`,
+                });
             } finally {
                 lifetime.cleanup();
             }
@@ -664,6 +680,12 @@ export class AnthropicProvider {
                             totalSignal,
                         );
                         continue;
+                    }
+                    if (classifier && attemptIndex >= MAX_MIDSTREAM_RETRIES) {
+                        markProviderRecoveryExhausted(err, {
+                            owner: `${this.name}-midstream`,
+                            attempts: attemptIndex + 1,
+                        });
                     }
                     if (attemptIndex > 0 && firstAttemptError) {
                         try { err.midstreamRetries = attemptIndex; } catch {}

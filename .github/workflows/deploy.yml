@@ -51,6 +51,7 @@ jobs:
       runtime_tag: ${{ steps.plan.outputs.runtime_tag }}
       native_changed: ${{ steps.plan.outputs.native_changed }}
       runtime_needed: ${{ steps.plan.outputs.runtime_needed }}
+      voice_runtime_needed: ${{ steps.plan.outputs.voice_runtime_needed }}
       critical_changed: ${{ steps.plan.outputs.critical_changed }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -197,6 +198,16 @@ jobs:
             'scripts/generate-runtime-manifest.mjs',
             'src/runtime/memory/data/runtime-manifest.json',
           ]));
+          const voiceRuntimeNeeded = mode !== 'skip' && (mode === 'force' || changedSince(currentTag, [
+            '.github/workflows/build-voice-runtime.yml',
+            'scripts/voice-runtime-config.json',
+            'scripts/build-voice-runtime-unix.sh',
+            'scripts/build-voice-runtime-windows.ps1',
+            'scripts/generate-voice-runtime-manifest.mjs',
+            'scripts/plan-voice-runtime-release.mjs',
+            'scripts/verify-voice-runtime-release.mjs',
+            'scripts/sync-voice-runtime-manifest.mjs',
+          ]));
           const criticalChanged = changedSince(currentTag, [
             'native',
             'src/runtime/agent/orchestrator',
@@ -236,6 +247,7 @@ jobs:
             runtime_tag: runtimeTag,
             native_changed: String(nativeChanged),
             runtime_needed: String(runtimeNeeded),
+            voice_runtime_needed: String(voiceRuntimeNeeded),
             critical_changed: String(criticalChanged),
           };
           for (const [key, value] of Object.entries(values)) appendFileSync(output, `${key}=${value}\n`);
@@ -355,6 +367,13 @@ jobs:
       refresh_manifest: false
     secrets: inherit
 
+  voice:
+    name: incremental-voice-runtime
+    needs: plan
+    if: ${{ needs.plan.outputs.voice_runtime_needed == 'true' }}
+    uses: ./.github/workflows/build-voice-runtime.yml
+    secrets: inherit
+
   patch:
     name: incremental-patch
     needs: [plan, prepare-native]
@@ -393,13 +412,14 @@ jobs:
 
   prepare-app:
     name: prepare-app-release
-    needs: [plan, prepare-native, runtime, patch, graph, spawn, token]
+    needs: [plan, prepare-native, runtime, voice, patch, graph, spawn, token]
     if: >-
       ${{
         always()
         && needs.plan.result == 'success'
         && (needs.prepare-native.result == 'success' || needs.prepare-native.result == 'skipped')
         && (needs.runtime.result == 'success' || needs.runtime.result == 'skipped')
+        && (needs.voice.result == 'success' || needs.voice.result == 'skipped')
         && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
         && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
         && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')

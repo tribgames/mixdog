@@ -13,12 +13,26 @@ import {
 } from './runtime/shared/pristine-execution.mjs';
 import { hasActiveBackgroundTasks } from './runtime/shared/background-tasks.mjs';
 import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
-import { sleep } from './runtime/shared/sleep.mjs';
 import { stopStandaloneMemoryRuntimesForProcess } from './standalone/memory-runtime-proxy.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
 
 function clean(value) {
   return String(value ?? '').trim();
+}
+
+export async function prewarmHeadlessSearch(cwd, {
+  loadNativeSearch = () => import('./runtime/agent/orchestrator/tools/builtin/native-search-client.mjs'),
+  loadListTool = () => import('./runtime/agent/orchestrator/tools/builtin/list-tool.mjs'),
+} = {}) {
+  const root = clean(cwd) || process.cwd();
+  const [nativeSearch, listTool] = await Promise.all([
+    loadNativeSearch(),
+    loadListTool(),
+  ]);
+  await Promise.all([
+    nativeSearch.warmNativeSearchServer(),
+    listTool.prewarmFindEnumeration(root),
+  ]);
 }
 
 function nonNegativeNumber(value) {
@@ -494,28 +508,17 @@ function createJsonLifecycle({
   };
 }
 
-export async function waitForTrackedTasks({
-  sessionId,
-  clientHostPid = process.pid,
-  hasActiveTasks = hasActiveBackgroundTasks,
-  pollMs = 100,
-} = {}) {
-  const scope = {
-    ...(clean(sessionId) ? { callerSessionId: clean(sessionId) } : {}),
-    clientHostPid,
-  };
-  while (hasActiveTasks(scope)) {
-    await sleep(Math.max(10, Number(pollMs) || 100));
-  }
-}
-
-function writeUsageDocument(path, stats, runtime, toolCallCount = 0) {
+function writeUsageDocument(path, stats, runtime, toolCallCount = 0, observedModels = []) {
   const target = clean(path);
   if (!target) return;
+  const models = [
+    clean(runtime?.model),
+    ...Array.from(observedModels || [], clean),
+  ].filter((value, index, values) => value && values.indexOf(value) === index);
   const session = {
     sessionId: clean(runtime?.id),
     agentRole: 'primary',
-    models: [clean(runtime?.model)].filter(Boolean),
+    models,
     inputTokens: stats.inputTokens,
     cacheTokens: stats.cachedTokens,
     cacheWriteTokens: stats.cacheWriteTokens,
@@ -557,7 +560,6 @@ export async function runHeadlessExec({
   memoryRuntimeCleanup = stopStandaloneMemoryRuntimesForProcess,
   hasActiveTasks = hasActiveBackgroundTasks,
   installSignalCleanupFn = installProcessSignalCleanup,
-  idlePollMs = 100,
 } = {}) {
   const prompt = clean(message);
   if (!prompt) {
@@ -571,6 +573,7 @@ export async function runHeadlessExec({
   }
 
   const stats = createSessionStats();
+  const observedModels = new Set();
   const lifecycle = json ? createJsonLifecycle({
     write,
     stats,
@@ -592,11 +595,24 @@ export async function runHeadlessExec({
   let resultText = '';
   let executionError = null;
   let code = 1;
+  const taskScopeFor = (session) => ({
+    ...(clean(session?.id) ? { callerSessionId: clean(session.id) } : {}),
+    clientHostPid: session?.clientHostPid,
+  });
   const cleanup = (reason = 'exec-exit') => {
     cleanupPromise ??= (async () => {
       const errors = [];
       try {
-        if (runtime) await runtime.close(reason);
+        // Background jobs the model left running ON PURPOSE (a task's required
+        // server) must outlive this process: reaping them at exit destroys the
+        // very artifact the caller asked for. Detach instead of reap. cli.mjs
+        // exits explicitly, so surviving children cannot hold the process open.
+        if (runtime) {
+          await runtime.close(
+            reason,
+            hasActiveTasks(taskScopeFor(runtime)) ? { keepBackgroundWork: true } : {},
+          );
+        }
       } catch (error) {
         errors.push(error);
       }
@@ -627,6 +643,13 @@ export async function runHeadlessExec({
 
   try {
     boundary = boundaryFactory({ provider, model, effort, fast });
+    // Fire-and-forget search prewarm, matching the long-lived host. Warm both
+    // the resident server and this Project's complete path inventory so the
+    // first normal find/glob does real indexed work instead of paying startup
+    // or a cold tree walk. Non-fatal by construction.
+    if (!/^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_DISABLE_TOOL_PREWARM || '').trim())) {
+      void prewarmHeadlessSearch(cwd).catch(() => {});
+    }
     signalCleanup = installSignalCleanupFn({
       name: 'mixdog-exec',
       timeoutMs: 20_000,
@@ -669,6 +692,8 @@ export async function runHeadlessExec({
     const askOptions = {
       onTextReset: () => true,
       onUsageDelta: (delta) => {
+        const observedModel = clean(delta?.model);
+        if (observedModel) observedModels.add(observedModel);
         applyUsageDelta(stats, delta);
         lifecycle?.onUsageDelta(delta);
       },
@@ -685,17 +710,14 @@ export async function runHeadlessExec({
       } : {}),
     };
     ({ result } = await runtime.ask(prompt, askOptions));
-    const taskScope = {
-      ...(clean(runtime.id) ? { callerSessionId: clean(runtime.id) } : {}),
-      clientHostPid: runtime.clientHostPid,
-    };
-    while (completionPending || hasActiveTasks(taskScope)) {
-      await waitForTrackedTasks({
-        sessionId: runtime.id,
-        clientHostPid: runtime.clientHostPid,
-        hasActiveTasks,
-        pollMs: idlePollMs,
-      });
+    // Exit NEVER waits on running background work. A job the model left
+    // running on purpose (a task's server) has no end, so waiting for it spent
+    // the whole remaining budget on an already-finished turn — 2026-08-23 full
+    // run: two trials, ~85s of real work each, 900s burned. Claude Code and
+    // Codex both leave the moment the turn ends. Completions that ALREADY
+    // arrived still get their follow-up turn below: that is a queued message,
+    // not a wait, so no result the model can act on is dropped.
+    while (completionPending) {
       completionPending = false;
       ({ result } = await runtime.ask('', askOptions));
     }
@@ -719,6 +741,7 @@ export async function runHeadlessExec({
         stats,
         runtime,
         lifecycle?.toolCallCount || 0,
+        observedModels,
       );
     } catch (error) {
       writeErr(`mixdog: usage log write failed: ${error?.message || error}\n`);

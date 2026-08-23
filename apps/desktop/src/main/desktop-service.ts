@@ -122,6 +122,11 @@ export async function createDesktopService(
   }) as unknown as DesktopService;
   let remoteRelay: RemoteRelayHandle | null = null;
   let remoteServicesPromise: Promise<void> | null = null;
+  // A relay leg that fails to come up must not stay down until someone opens
+  // the remote-access window: the phone that needs it is, by definition, not
+  // in front of this machine. Backoff is per failure and resets on success.
+  let relayRetryTimer: NodeJS.Timeout | null = null;
+  let relayRetryMs = 0;
   // claimId -> settle(approved). One entry lives only as long as the approval
   // dialog it belongs to.
   const pendingClaims = new Map<string, {
@@ -198,6 +203,21 @@ export async function createDesktopService(
       return promise;
     },
   };
+  const RELAY_RETRY_BASE_MS = 5_000;
+  const RELAY_RETRY_MAX_MS = 5 * 60_000;
+  /** One pending retry at a time. Never scheduled once a leg is up: the relay
+   *  handle owns its own reconnect loop from that point on. */
+  const scheduleRelayRetry = (): void => {
+    if (relayRetryTimer || remoteRelay) return;
+    relayRetryMs = relayRetryMs > 0
+      ? Math.min(RELAY_RETRY_MAX_MS, relayRetryMs * 2)
+      : RELAY_RETRY_BASE_MS;
+    relayRetryTimer = setTimeout(() => {
+      relayRetryTimer = null;
+      void startRemoteServices();
+    }, relayRetryMs);
+    relayRetryTimer.unref?.();
+  };
   const startRemoteServices = async (): Promise<void> => {
     if (remoteServicesPromise) return remoteServicesPromise;
     remoteServicesPromise = (async () => {
@@ -206,14 +226,24 @@ export async function createDesktopService(
         const relayUrl = resolveRelayUrl(process.env);
         if (!relayUrl) return;
         remoteRelay = await startRemoteRelay({ ...remoteOptions, relayUrl });
+        if (relayRetryTimer) {
+          clearTimeout(relayRetryTimer);
+          relayRetryTimer = null;
+        }
+        relayRetryMs = 0;
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Logged where the daemon's own failures are read. Without this the
+        // remote leg could stay down for hours leaving no trace anywhere.
+        console.error(`[mixdog-relay] start failed: ${message}`);
+        scheduleRelayRetry();
         emit({
           kind: 'desktop-event',
           name: 'remote-access-status',
           value: {
             leg: 'relay',
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: message,
           },
         });
       }
@@ -397,6 +427,10 @@ export async function createDesktopService(
       latestSessionProvenance.clear();
       visibleSessionIds.clear();
       desktopEventListeners.clear();
+      if (relayRetryTimer) {
+        clearTimeout(relayRetryTimer);
+        relayRetryTimer = null;
+      }
       try { await remoteRelay?.close(); } catch {}
       remoteRelay = null;
       await operations.dispose();

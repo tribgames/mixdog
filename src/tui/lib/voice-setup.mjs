@@ -115,8 +115,7 @@ function makeThrottledProgressNotice({ pushNotice, setProgressHint } = {}, inter
  */
 async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice, setProgressHint } = {}) {
   const fetcher = await loadVoiceRuntimeFetcher();
-  // System-language default: Korean devices install the Korean fine-tune,
-  // everything else the standard multilingual Q8. voice.model overrides.
+  // Every device installs the same standard multilingual Q8 model.
   const modelId = fetcher.selectVoiceModelId(readSection('voice'));
   let runtime = fetcher.resolveVoiceRuntime(dataDir, { modelId });
   if (runtime.installed) return runtime;

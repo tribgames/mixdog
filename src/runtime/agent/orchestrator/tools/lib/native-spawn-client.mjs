@@ -513,6 +513,12 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
       return true;
     } catch { return false; }
   });
+  // File capture engages only when the RUNNING server advertises it and the
+  // caller supplied both paths. An older server would ignore the unknown
+  // fields and keep piping, so the capability gate decides rather than hope.
+  const _fileCapture = server.caps?.fileCapture === true
+    && Boolean(spawnOptions.stdoutPath)
+    && Boolean(spawnOptions.stderrPath);
   const request = {
     id,
     program: String(shell || ''),
@@ -525,6 +531,10 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
     outputLimit: Math.max(0, Number(spawnOptions.outputLimit) || 0),
     mergeStderr: spawnOptions.mergeStderr === true,
     rawOutput: spawnOptions.rawOutput === true,
+    ...(_fileCapture ? {
+      stdoutPath: String(spawnOptions.stdoutPath),
+      stderrPath: String(spawnOptions.stderrPath),
+    } : {}),
     ...(spawnOptions.stdinPipe === true ? { stdinPipe: true } : {}),
     command: spawnOptions.command || undefined,
     shellType: spawnOptions.shellType || undefined,
@@ -592,6 +602,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
   }
   return {
     child: fake,
+    fileCapture: _fileCapture,
     attachErrorHandler(handler) {
       fake.on('error', handler);
     },
@@ -601,6 +612,20 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
 export function getNativeTask(jobId) {
   const task = _tasks.get(String(jobId || ''));
   return task ? { ...task } : null;
+}
+
+/** Whether the live server can hand a child its own capture-file fds.
+ *  Callers ask BEFORE opening those files so a server without the capability
+ *  never leaves an empty pair behind.
+ *
+ *  win32 EXCEPTION: there is no process group to interrogate there, so a
+ *  command's surviving descendants are observed by the stdout/stderr pipes
+ *  they INHERITED still being held after the shell itself exited (see
+ *  lib/shell-descendants.mjs). File capture removes exactly that evidence.
+ *  POSIX loses nothing — its survivor check reads the process group. */
+export function nativeSpawnFileCaptureReady() {
+  if (process.platform === 'win32') return false;
+  return _server?.ready === true && _server?.caps?.fileCapture === true;
 }
 
 export function listNativeTasks() {

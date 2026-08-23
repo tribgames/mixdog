@@ -432,7 +432,7 @@ export function createQueryHandlers({
           // Race against the same deadline as the fan-out itself: a stuck
           // embedding worker would previously park here indefinitely because
           // the timer hadn't been started yet from the fan-out's perspective.
-          await Promise.race([embedTexts(queries), deadlineRace])
+          await Promise.race([embedTexts(queries, { inputType: 'query' }), deadlineRace])
         } else if (embeddingWarmupCanStart()) {
           void warmupEmbeddingProvider().catch((err) => {
             log(`[memory-service] embedding warmup after cold fan-out skipped dense search: ${err?.message || err}\n`)
@@ -569,7 +569,7 @@ export function createQueryHandlers({
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
       let queryVector = null
       if (isEmbeddingModelReady()) {
-        queryVector = await embedText(retrievalQuery, { priority: true })
+        queryVector = await embedText(retrievalQuery, { priority: true, inputType: 'query' })
       } else if (embeddingWarmupCanStart()) {
         // Never turn a cold model into an 8-second foreground lock. Start the
         // isolated worker and return lexical results now; the next recall gets

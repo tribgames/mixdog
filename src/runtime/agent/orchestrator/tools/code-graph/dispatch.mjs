@@ -1,7 +1,7 @@
 // Tool dispatch layer: codeGraph (mode router), findSymbolTool,
 // executeCodeGraphTool (entry with cwd re-rooting + batch fan-out + abort
 // race), isCodeGraphTool. Extracted verbatim from code-graph.mjs.
-import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, extname } from 'node:path';
+import { resolve as pathResolve, isAbsolute, relative as pathRelative, basename as pathBasename, dirname as pathDirname, extname } from 'node:path';
 import { homedir as osHomedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
@@ -285,7 +285,7 @@ function _aggregateAnchorsAreCwd(args, baseCwd) {
 // An invalid caller cwd may be recovered for an explicit files aggregate only
 // when every supplied anchor points at the same detectable project. Do not use
 // the batch cap here: an omitted anchor could belong to another project.
-function _resolveAggregateFileProjectRoot(args, baseCwd) {
+function _resolveAggregateFileProjectRoot(args, baseCwd, { stopAtUserBoundary = false } = {}) {
   if (!_hasAggregateFileArgs(args)) return null;
   // Comma-delimited strings are parsed for normal batch dispatch, but are not
   // unambiguous enough to select a project root. JSON array strings have
@@ -301,7 +301,9 @@ function _resolveAggregateFileProjectRoot(args, baseCwd) {
     if (!existsSync(abs)) return null;
     let isDirectory = false;
     try { isDirectory = statSync(abs).isDirectory(); } catch { return null; }
-    const root = isDirectory ? _findDirProjectRoot(abs) : _resolveFileProjectRoot(abs);
+    const root = isDirectory
+      ? _findDirProjectRoot(abs, { stopAtUserBoundary })
+      : _resolveFileProjectRoot(abs, { stopAtUserBoundary });
     if (!root) return null;
     roots.add(pathResolve(root));
   }
@@ -314,6 +316,53 @@ function _resolveAggregateFileProjectRoot(args, baseCwd) {
   // that outermost root IS the single detectable project — adopt it instead of
   // refusing. Genuinely unrelated trees share no such candidate and still fail.
   return _outermostContainingRoot([...roots]);
+}
+
+// An exact absolute FILE is a complete target on its own: the caller named the
+// file, so no tree has to be walked to discover it. When that file sits in no
+// detectable project — a scratch copy under /tmp, a loose source file outside
+// every repo — its own directory is the bounded root to index, the same
+// treatment a sentinel-free cwd already gets. A DIRECTORY anchor never
+// qualifies: it names a tree to walk rather than a target.
+function _boundedExactFileRoot(absFile) {
+  let resolved;
+  try {
+    resolved = pathResolve(pathDirname(String(absFile || '')));
+  } catch {
+    return null;
+  }
+  if (!resolved) return null;
+  if (_isFilesystemRootPath(resolved) || resolved === pathResolve(osHomedir())) return null;
+  try {
+    if (!statSync(resolved).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return resolved;
+}
+
+// Same rule for an aggregate call: every anchor must be an existing FILE and
+// they must share exactly one bounded directory, so the adopted root stays as
+// narrow as the named targets.
+function _boundedExactFileAggregateRoot(args, baseCwd) {
+  if (!_hasAggregateFileArgs(args)) return null;
+  if (typeof args?.files === 'string' && args.files.includes(',')) return null;
+  const files = _collectGraphFileList(args);
+  if (files.length === 0) return null;
+  const roots = new Set();
+  for (const file of files) {
+    if (_AGGREGATE_FILE_WILDCARD_RE.test(file)) return null;
+    const abs = isAbsolute(file) ? pathResolve(file) : pathResolve(baseCwd, file);
+    try {
+      if (!statSync(abs).isFile()) return null;
+    } catch {
+      return null;
+    }
+    const root = _boundedExactFileRoot(abs);
+    if (!root) return null;
+    roots.add(root);
+  }
+  return roots.size === 1 ? [...roots][0] : null;
 }
 
 export function _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd) {
@@ -981,8 +1030,21 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     }
   }
   if (hasAggregateFileArgs && !baseProjectRoot) {
-    const aggregateRoot = _resolveAggregateFileProjectRoot(args, baseCwd)
-      || (explicitCwdArg ? _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd) : null);
+    // The bounded sentinel-free fallback is NOT conditioned on an explicit
+    // `cwd` argument. The directory path below already adopts a sentinel-free
+    // SINGLE tree as its own root under exactly these bounds (not a filesystem
+    // root, not home, no child project roots), so gating the files[] path on
+    // how the cwd arrived made the stricter branch the one callers hit first:
+    // a working tree that is not a repo (measured: `/app`) refused every
+    // files[]-anchored call while the same tree indexed fine without anchors.
+    // The fallback itself still verifies every anchor exists inside the base.
+    // An implicit cwd walks under the same home/temp boundary the base-root
+    // resolution above already uses; only an explicit `cwd` may adopt a
+    // sentinel found there.
+    const aggregateRoot = _resolveAggregateFileProjectRoot(args, baseCwd, {
+      stopAtUserBoundary: !explicitCwdArg,
+    }) || _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd)
+      || _boundedExactFileAggregateRoot(args, baseCwd);
     if (!aggregateRoot) {
       throw new Error(
         `${name}: cwd '${baseCwd}' is not inside a project and aggregate file anchors do not all `
@@ -1008,7 +1070,13 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
     if (!insideCwd) {
       const hasExplicitCwd = args && typeof args.cwd === 'string' && args.cwd.trim();
       if (!hasExplicitCwd) {
-        const fileRoot = fileArgIsDirectory ? _findDirProjectRoot(abs) : _resolveFileProjectRoot(abs);
+        // Implicit walk, so it stops at the home/temp boundary like every other
+        // guessed root: without that, a loose file under %TEMP% adopts a stray
+        // home-directory package.json and indexes the whole user profile.
+        const fileRoot = (fileArgIsDirectory
+          ? _findDirProjectRoot(abs, { stopAtUserBoundary: true })
+          : _resolveFileProjectRoot(abs, { stopAtUserBoundary: true }))
+          || (fileArgIsDirectory ? null : _boundedExactFileRoot(abs));
         if (!fileRoot) {
           throw new Error(`find_symbol: file '${fileArg}' is outside cwd '${baseCwd}' and has no detectable project root (no package.json/.git ancestor). Provide an explicit cwd.`);
         }

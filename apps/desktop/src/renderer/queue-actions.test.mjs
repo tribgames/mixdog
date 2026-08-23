@@ -15,7 +15,7 @@ import {
   shouldNavigatePromptHistory,
   shouldStopComposerGeneration,
 } from "./renderer-logic.mjs";
-import { paneSessionTabIds } from "./pane-layout.ts";
+import { paneActiveSessionIds, paneSessionTabIds } from "./pane-layout.ts";
 import { usePromptQueueHistory } from "../../../../src/tui/app/use-prompt-queue-history.mjs";
 import { classifyPromptEscape } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import {
@@ -299,6 +299,10 @@ test("PANE prewarm includes restored inactive session tabs with active sessions 
     "right-active",
     "left-active",
     "left-inactive",
+  ]);
+  assert.deepEqual(paneActiveSessionIds(leaves, "right"), [
+    "right-active",
+    "left-active",
   ]);
 });
 

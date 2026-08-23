@@ -430,13 +430,29 @@ export class TaskOutput {
           try { closeSync(fd); } catch {}
         }
       };
-      return merge(
+      const merged = merge(
         readTail(this.stdoutPath, this.stdoutFileSize),
         readTail(this.stderrPath, this.stderrFileSize),
       );
+      // Display-only path: scrub escape codes in direct mode, but never record
+      // a binary verdict from an arbitrary tail slice.
+      return this.direct ? inspectShellTextChunk(merged, 'stdout').text : merged;
     } catch {
       return '';
     }
+  }
+
+  // Direct capture has NO JS write path, so the per-chunk ANSI/binary scrub
+  // writeStdout applies never runs. Doing it at read time keeps what the
+  // caller sees identical across both capture modes.
+  _sanitizeDirect(text, channel) {
+    if (!text) return text;
+    const inspected = inspectShellTextChunk(text, channel);
+    if (inspected.binary && !this.binaryOutput) {
+      this.binaryOutput = { channel, bytes: inspected.bytes };
+      return `[binary output on ${channel} sanitized; non-printable bytes removed]\n${inspected.text}`;
+    }
+    return inspected.text;
   }
 
   async getStdout() {
@@ -448,7 +464,8 @@ export class TaskOutput {
         this._lastStdoutFsyncMs = now;
       }
       try {
-        return _readHeadTail(this.stdoutPath, this.stdoutFileSize);
+        const text = _readHeadTail(this.stdoutPath, this.stdoutFileSize);
+        return this.direct ? this._sanitizeDirect(text, 'stdout') : text;
       } catch (err) {
         throw new Error(`[shell-command] spilled stdout read failed (${this.stdoutPath}): ${err.message}`);
       }
@@ -465,7 +482,8 @@ export class TaskOutput {
         this._lastStderrFsyncMs = now;
       }
       try {
-        return _readHeadTail(this.stderrPath, this.stderrFileSize);
+        const text = _readHeadTail(this.stderrPath, this.stderrFileSize);
+        return this.direct ? this._sanitizeDirect(text, 'stderr') : text;
       } catch {
         return '';
       }

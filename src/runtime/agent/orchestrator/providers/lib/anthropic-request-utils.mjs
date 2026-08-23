@@ -2,6 +2,10 @@ import { providerNativeToolPrefixCount } from '../../../../../session-runtime/pr
 import { isNativeServerToolBlockType } from './anthropic-native-blocks.mjs';
 import { sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../../session/context-utils.mjs';
 import { normalizeContentForAnthropic } from '../media-normalization.mjs';
+import {
+    anthropicFallbackProviderMetadata,
+    parseAnthropicFallbackBlock,
+} from '../anthropic-server-fallback.mjs';
 
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 export const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
@@ -176,6 +180,7 @@ const REPLAYABLE_ASSISTANT_BLOCK_TYPES = new Set(['thinking', 'redacted_thinking
 
 export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = '') {
     const blocks = Array.isArray(message?.content) ? message.content : [];
+    const fallbackEvents = blocks.map(parseAnthropicFallbackBlock).filter(Boolean);
     const text = blocks
         .filter((block) => block?.type === 'text')
         .map((block) => String(block.text || ''))
@@ -212,13 +217,14 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
     const cacheWrite = Number(usage.cache_creation_input_tokens) || 0;
     return {
         content: text,
-        model: message?.model || fallbackModel,
+        model: fallbackEvents.at(-1)?.fallbackModel || message?.model || fallbackModel,
         toolCalls: toolCalls.length ? toolCalls : undefined,
         stopReason: message?.stop_reason || null,
         hasThinkingContent: thinkingBlocks.length > 0,
         contentBlockTypes: blocks.map((block) => block?.type).filter(Boolean),
         thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
         assistantBlocks: nativeAssistantBlocks.length ? nativeAssistantBlocks : undefined,
+        providerMetadata: anthropicFallbackProviderMetadata(fallbackEvents),
         usage: {
             inputTokens: input,
             outputTokens: Number(usage.output_tokens) || 0,

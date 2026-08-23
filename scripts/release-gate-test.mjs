@@ -365,6 +365,7 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.match(deploy, /git fetch --tags --force origin[\s\S]*node --test scripts\/release-gate-test\.mjs/);
   assert.match(deploy, /options:\s*\[auto,\s*force,\s*skip\]/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/build-runtime\.yml/);
+  assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/build-voice-runtime\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/patch-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/graph-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/spawn-release\.yml/);
@@ -373,6 +374,7 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.match(deploy, /const preBumped = !currentTagExists && !currentReleaseExists/);
   assert.match(deploy, /const appVersion = resume \|\| preBumped/);
   assert.match(deploy, /needs\.runtime\.result == 'success' \|\| needs\.runtime\.result == 'skipped'/);
+  assert.match(deploy, /needs\.voice\.result == 'success' \|\| needs\.voice\.result == 'skipped'/);
   assert.match(deploy,
     /always\(\) && needs\.plan\.result == 'success' && needs\.prepare-app\.result == 'success'/);
   assert.match(deploy,
@@ -530,6 +532,8 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(relayDeploy, /sha256sum "\$INSTALL_DIR\/renderer\/index\.html"/);
   assert.match(relayDeploy, /package-lock\.json/);
   assert.match(relayDeploy, /npm ci --omit=dev/);
+  assert.match(relayDeploy, /--hardlink-base/);
+  assert.match(relayDeploy, /cp -al "\$INSTALL_DIR\/renderer"/);
   for (const worker of [release, desktopRuntime, desktopPackage]) {
     assert.doesNotMatch(worker, /actions\/(?:upload|download)-artifact@v4/);
   }
@@ -578,17 +582,24 @@ advisoryTest('desktop production dependencies contain only main-process runtime 
 });
 
 test('native release workflows are reusable and unchanged runtime platforms stay skipped', async () => {
-  const [runtime, patch, graph, spawn, token] = await Promise.all([
+  const voiceConfig = JSON.parse(
+    await readFile(new URL('./voice-runtime-config.json', import.meta.url), 'utf8'),
+  );
+  const [runtime, voice, patch, graph, spawn, token] = await Promise.all([
     workflow('build-runtime.yml'),
+    workflow('build-voice-runtime.yml'),
     workflow('patch-release.yml'),
     workflow('graph-release.yml'),
     workflow('spawn-release.yml'),
     workflow('token-release.yml'),
   ]);
-  for (const worker of [runtime, patch, graph, spawn, token]) assert.match(worker, /workflow_call:/);
+  for (const worker of [runtime, voice, patch, graph, spawn, token]) assert.match(worker, /workflow_call:/);
   assert.match(runtime, /needs\.build\.result == 'skipped' && inputs\.refresh_manifest/);
   assert.doesNotMatch(runtime,
     /needs\.build\.result == 'success' \|\| needs\.build\.result == 'skipped'\)\s*\}\}/);
+  assert.ok(voiceConfig.platforms.some(platform => platform.key === 'linux-arm64'));
+  assert.match(voice, /draft:\s*true[\s\S]*Verify complete hidden release[\s\S]*draft:\s*false/);
+  assert.match(voice, /make_latest:\s*false/);
   assert.match(patch, /ref:\s*refs\/tags\/\$\{\{ inputs\.tag \|\| github\.ref_name \}\}/);
   assert.match(patch,
     /test:[\s\S]*cargo build --release --locked --target x86_64-unknown-linux-gnu/);

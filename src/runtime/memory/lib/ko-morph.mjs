@@ -56,17 +56,22 @@ let _kiwi = null
 let _log = () => {}
 let _initMs = 0
 let _idleTimer = null
+const _stemCache = new Map()
+const STEM_CACHE_LIMIT = 256
 // Idle window before the analyzer is released. A cold rebuild costs ~1.5-1.8s
 // and BLOCKS the recall path (buildFtsQuery awaits it for Hangul queries), so a
-// 60s window expired between ordinary conversational turns and made nearly
-// every interactive recall pay that rebuild. 5 minutes keeps the analyzer alive
-// across a normal back-and-forth while still reclaiming its ~560MB once the
-// session genuinely goes quiet. MIXDOG_KO_MORPH_IDLE_TIMEOUT_MS overrides;
+// 60s expired between ordinary conversational turns and made nearly every
+// interactive recall pay that rebuild. Two minutes covers a normal follow-up
+// while returning the analyzer's native memory promptly once recall goes quiet.
+// MIXDOG_KO_MORPH_IDLE_TIMEOUT_MS overrides;
 // 0 disables the release entirely.
-const _envIdleMs = Number(process.env.MIXDOG_KO_MORPH_IDLE_TIMEOUT_MS)
-const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0
-  ? _envIdleMs
-  : 300_000
+export function _resolveKoMorphIdleTimeout(value) {
+  const configured = Number(value)
+  return Number.isFinite(configured) && configured >= 0 ? configured : 120_000
+}
+const IDLE_TIMEOUT_MS = _resolveKoMorphIdleTimeout(
+  process.env.MIXDOG_KO_MORPH_IDLE_TIMEOUT_MS,
+)
 
 export function isReady() { return _state === 'ready' && _kiwi != null }
 export function state() { return _state }
@@ -80,6 +85,7 @@ function releaseLoaded(reason = '') {
   _state = 'idle'
   _initPromise = null
   _initMs = 0
+  _stemCache.clear()
   try { current?.dispose?.() } catch {}
   if (current && reason) _log(`[memory-service] kiwi morph ${reason} — analyzer released\n`)
 }
@@ -200,11 +206,18 @@ function readModelFiles(dir) {
   for (const f of REQUIRED_MODEL_FILES) {
     modelFiles[f] = new Uint8Array(fs.readFileSync(path.join(dir, f)))
   }
-  for (const f of OPTIONAL_MODEL_FILES) {
-    const p = path.join(dir, f)
-    if (fs.existsSync(p)) modelFiles[f] = new Uint8Array(fs.readFileSync(p))
-  }
   return modelFiles
+}
+
+export function _kiwiBuildArgs(modelFiles) {
+  return {
+    modelFiles,
+    modelType: 'knlm',
+    loadDefaultDict: true,
+    loadMultiDict: false,
+    loadTypoDict: false,
+    typos: 'none',
+  }
 }
 
 // Lazy, idempotent, never-throwing init. Fire-and-forget at boot.
@@ -232,9 +245,10 @@ export async function init(dataDir, log = () => {}) {
     const dir = await downloadAndExtractModel(dataDir)
     const modelFiles = readModelFiles(dir)
     const builder = await KiwiBuilder.create(wasmPath)
-    // modelType 'knlm' = fast KnLM (sj.knlm); loadMultiDict/loadTypoDict only
-    // engage if the optional files were present.
-    _kiwi = await builder.build({ modelFiles, modelType: 'knlm' })
+    // Recall needs content stems, not typo correction or the 12 MB polysemous
+    // proper-noun dictionary. Keep the KNLM and default dictionary for Korean
+    // accuracy while leaving every optional model out of WASM memory.
+    _kiwi = await builder.build(_kiwiBuildArgs(modelFiles))
     _state = 'ready'
     _initMs = Date.now() - t0
     _log(`[memory-service] kiwi morph ready in ${_initMs}ms (model ${KIWI_MODEL_VERSION}, rss≈${Math.round(process.memoryUsage().rss / 1e6)}MB)\n`)
@@ -266,6 +280,15 @@ export function analyze(text) {
 // Content-morpheme stem forms for a Korean phrase. null when not ready.
 // Example: an inflected Korean noun/verb phrase is reduced to content stems.
 export function stems(text) {
+  const source = String(text ?? '')
+  if (!source) return null
+  const cached = _stemCache.get(source)
+  if (cached) {
+    _stemCache.delete(source)
+    _stemCache.set(source, cached)
+    touchIdleTimer()
+    return cached
+  }
   const tokens = analyze(text)
   if (!tokens) return null
   const out = []
@@ -273,6 +296,14 @@ export function stems(text) {
     if (!t || !CONTENT_TAGS.has(t.tag)) continue
     const form = String(t.str || '').trim()
     if (form.length >= 1) out.push(form)
+  }
+  if (source.length <= 4_096) {
+    _stemCache.set(source, out)
+    while (_stemCache.size > STEM_CACHE_LIMIT) {
+      const oldest = _stemCache.keys().next().value
+      if (oldest === undefined) break
+      _stemCache.delete(oldest)
+    }
   }
   return out
 }

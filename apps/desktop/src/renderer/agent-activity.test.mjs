@@ -512,6 +512,24 @@ test("new task header ignores the previous session lane cache", async () => {
     }));
     assert.match(document.body.textContent, /51%/);
 
+    // A compact completion can change only the header stats while the
+    // transcript frame stays identical. The pane-owned status subscription
+    // must repaint from the post-compact estimate without waiting for another
+    // transcript item.
+    await act(async () => {
+      defaultSessionLaneStore.apply({
+        sessionId: "session-context",
+        frameSource: "live",
+        snapshot: {
+          sessionId: "session-context",
+          stats: { currentEstimatedContextTokens: 18_000 },
+          displayContextWindow: 384_000,
+        },
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+    });
+    assert.match(document.body.textContent, /4%/);
+
     await act(async () => {
       dom.root.render(React.createElement(PaneStatusIsland, {
         ...props,

@@ -1,8 +1,8 @@
 <#
   One-command web deploy (user: CI/CD 단축).
 
-    pwsh scripts/deploy-remote.ps1              # changed renderer/relay -> VPS swap
-    pwsh scripts/deploy-remote.ps1 -FastDirect  # ...then installed-app update
+    npm run deploy:vps   # changed renderer/relay -> VPS swap
+    npm run deploy:fast  # ...while staging the installed-app update
 
   Renderer and relay fingerprints are independent:
     - unchanged inputs skip build, stage, and upload
@@ -24,9 +24,14 @@ trap {
   exit 1
 }
 $repo = Split-Path -Parent $PSScriptRoot
-function Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
+$deployClock = [Diagnostics.Stopwatch]::StartNew()
+function Step([string]$Message) {
+  Write-Host ("==> [{0,6:N1}s] {1}" -f $deployClock.Elapsed.TotalSeconds, $Message) `
+    -ForegroundColor Cyan
+}
 $desktopDir = Join-Path $repo 'apps\desktop'
 $relayDir = Join-Path $repo 'apps\relay'
+$pwshExe = Join-Path $PSHOME 'pwsh.exe'
 $desktopVersion = [string]((Get-Content (Join-Path $desktopDir 'package.json') -Raw | ConvertFrom-Json).version)
 $deployPlanner = Join-Path $relayDir 'scripts\deploy-plan.mjs'
 $deployPlanPath = Join-Path $relayDir '.cache\deploy-plan.json'
@@ -62,12 +67,8 @@ if ($deployPlan.stageRenderer) {
   if ($LASTEXITCODE -ne 0) { throw "stage:web exited with $LASTEXITCODE" }
 }
 
-$uploadJob = $null
-if ($deployPlan.deploy) {
-  Step 'pack + upload + atomic VPS swap (background job)'
-  $version = (Get-Content (Join-Path $relayDir 'package.json') -Raw | ConvertFrom-Json).version
-  $uploadJob = Start-Job -ScriptBlock {
-    param($relayDir, $SshHost, $Domain, $version, $includeRenderer)
+$vpsDeployScript = {
+  param($relayDir, $SshHost, $Domain, $version, $includeRenderer)
     $ErrorActionPreference = 'Stop'
     $tgz = Join-Path $env:TEMP 'mixdog-relay-upload.tgz'
     Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
@@ -120,7 +121,25 @@ if ($deployPlan.deploy) {
     }
     "[health] https://$Domain/healthz -> $health"
     if ($code -ne '200') { throw "public VPS health check failed: $health" }
-  } -ArgumentList $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged)
+}
+
+$uploadJob = $null
+$vpsDeploySucceeded = $false
+if ($deployPlan.deploy) {
+  $version = (Get-Content (Join-Path $relayDir 'package.json') -Raw | ConvertFrom-Json).version
+  $vpsDeployArgs = @(
+    $relayDir, $SshHost, $Domain, $version, ([bool]$deployPlan.rendererChanged)
+  )
+  if ($FastDirect) {
+    Step 'pack + upload + atomic VPS swap (background job)'
+    $uploadJob = Start-Job -ScriptBlock $vpsDeployScript -ArgumentList $vpsDeployArgs
+  } else {
+    # VPS-only runs have no local work to overlap. Avoid a second PowerShell
+    # process and its serialization overhead.
+    Step 'pack + upload + atomic VPS swap'
+    & $vpsDeployScript @vpsDeployArgs
+    $vpsDeploySucceeded = $true
+  }
 } else {
   Step 'VPS inputs unchanged; skipping renderer build, stage, and upload'
 }
@@ -129,7 +148,7 @@ $devUpdate = Join-Path $desktopDir 'scripts\dev-update-windows.ps1'
 $fastBuildFailed = $false
 if ($FastDirect) {
   Step 'FastDirect staging while the VPS upload runs'
-  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -BuildOnly `
+  & $pwshExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -BuildOnly `
     -Version $desktopVersion
   if ($LASTEXITCODE -ne 0) { $fastBuildFailed = $true }
 }
@@ -142,18 +161,24 @@ if ($uploadJob) {
       if ($reason) { throw "VPS deploy job failed: $($reason.Message)" }
       throw "VPS deploy job failed with state $($uploadJob.State)"
     }
-    & node $deployPlanner --action=commit "--state=$deployStatePath" "--plan=$deployPlanPath"
-    if ($LASTEXITCODE -ne 0) { throw "live deploy state commit exited with $LASTEXITCODE" }
+    $vpsDeploySucceeded = $true
   } finally {
     Remove-Job -Job $uploadJob -Force -ErrorAction SilentlyContinue
   }
+}
+if ($vpsDeploySucceeded) {
+  & node $deployPlanner --action=commit "--state=$deployStatePath" "--plan=$deployPlanPath"
+  if ($LASTEXITCODE -ne 0) { throw "live deploy state commit exited with $LASTEXITCODE" }
 }
 Write-Host ''
 if ($fastBuildFailed) { exit 1 }
 
 if ($FastDirect) {
   Step 'FastDirect installed-app swap (app restarts once)'
-  powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -SkipBuild `
+  & $pwshExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $devUpdate -FastDirect -SkipBuild `
     -Version $desktopVersion
-  exit $LASTEXITCODE
+  $localExitCode = $LASTEXITCODE
+  if ($localExitCode -eq 0) { Step 'FastDirect swap handed off successfully' }
+  exit $localExitCode
 }
+Step 'VPS deployment workflow complete'

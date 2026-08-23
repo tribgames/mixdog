@@ -85,6 +85,33 @@ test('renderer reconstruction rejects a mismatched reused base file', async (t) 
   );
 });
 
+test('hardlinked reconstruction never mutates the installed base', async (t) => {
+  const paths = await fixture(t);
+  await writeFile(join(paths.base, 'same.js'), 'same');
+  await writeFile(join(paths.base, 'changed.js'), 'before');
+  await writeFile(join(paths.current, 'same.js'), 'same');
+  await writeFile(join(paths.current, 'changed.js'), 'after');
+  const manifestPath = join(paths.current, 'renderer-manifest.json');
+  await createRendererDelta({
+    root: paths.current,
+    baseManifest: await buildRendererManifest(paths.base),
+    deltaDir: paths.delta,
+    manifestPath,
+  });
+
+  await applyRendererDelta({
+    baseDir: paths.base,
+    deltaDir: paths.delta,
+    manifest: JSON.parse(await readFile(manifestPath, 'utf8')),
+    outputDir: paths.output,
+    hardlinkBase: true,
+  });
+
+  assert.equal(await readFile(join(paths.base, 'changed.js'), 'utf8'), 'before');
+  assert.equal(await readFile(join(paths.output, 'changed.js'), 'utf8'), 'after');
+  assert.equal(await readFile(join(paths.output, 'same.js'), 'utf8'), 'same');
+});
+
 test('renderer manifests reject traversal paths', () => {
   assert.throws(() => validateRendererManifest({
     schemaVersion: 1,

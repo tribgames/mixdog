@@ -11,6 +11,7 @@ import {
     isNonTerminalStreamClose,
     isRetryableWireErrorEvent,
     isRetryableStreamErrorEvent,
+    isProviderRecoveryExhausted,
     jitterDelayMs,
     resetStallRetryBudget,
     resolveStallRetryBudget,
@@ -53,15 +54,11 @@ function normalizedIncompleteUsage(raw) {
     };
 }
 
-// Loop-level transport replay. The provider
-// layer already retries transient failures with a ~15s total envelope
-// (PROVIDER_RETRY_BACKOFF_MS); a real network blip (router/VPN flap — the
-// 2026-08-02 17:37 incident also dropped the Discord gateway) outlasts it and
-// used to surface as a failed turn. When the stream exposed NOTHING
-// (replaySafe: no relayed text/reasoning, no dispatched tool call), re-sending
-// the identical request is side-effect-free, so wait out the blip and retry
-// the send at the loop level. Two attempts, 5s/15s — combined with the
-// provider envelope this covers ~50s outages before failing honestly.
+// Loop-level transport replay. Providers that own a retry/fallback ladder stamp
+// providerRecoveryExhausted when that ladder is spent; those failures surface
+// immediately instead of multiplying the provider budget here. This ladder is
+// retained for one-shot transports that expose no output and have no provider
+// recovery owner.
 // Env-overridable (comma-separated ms) so tests can drive the ladder without
 // real waits and an operator can widen the window for a flaky uplink; the
 // LENGTH of the list is the retry budget, like a conventional
@@ -310,6 +307,7 @@ export async function sendWithRecovery(ctx) {
                 // because this guard demanded 'transient' and never fired).
                 if (
                     transportRetriesUsed < TRANSPORT_RETRY_MAX
+                    && !isProviderRecoveryExhausted(sendErr)
                     && await retractExposedTextForReplay()
                 ) {
                     const waitMs = transportRetryWaitMs(transportRetriesUsed);
@@ -427,6 +425,7 @@ export async function sendWithRecovery(ctx) {
             // send after a bounded wait instead of failing the turn.
             if (
                 transportRetriesUsed < TRANSPORT_RETRY_MAX
+                && !isProviderRecoveryExhausted(sendErr)
                 && (
                     (outcome.replaySafe === true && classifyError(sendErr) === 'transient')
                     || (

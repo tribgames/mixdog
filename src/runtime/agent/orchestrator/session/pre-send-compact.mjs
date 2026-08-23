@@ -7,7 +7,6 @@
 import {
     resolveWorkerCompactPolicy,
     compactionTelemetryPressureTokens,
-    resolveGaugeContextTokens,
     currentContextEstimateTokens,
     compactTargetBudget,
     shouldCompactForSession,
@@ -76,15 +75,10 @@ export async function runPreSendCompactPass(state) {
                 messages,
                 sessionRef,
             });
-            // Every reported context number is the SAME one the gauge shows
-            // (user: 게이지는 499k인데 압축 알림은 131k). The gauge anchors on
-            // the provider-billed prompt plus calibrated growth; a bare
-            // transcript estimate is a different, far smaller scale. Captured
-            // here, before compaction mutates `messages`.
-            const gaugeBeforeTokens = resolveGaugeContextTokens(messageTokensEst, compactPolicy, {
-                messages,
-                sessionRef,
-            }) || pressureTokens;
+            // This is the exact canonical value used by the decision below.
+            // Reactive overflow recovery floors it at the trigger so the gauge,
+            // telemetry, and forced compact still describe the same event.
+            const gaugeBeforeTokens = pressureTokens;
             const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
                 forceReactive: reactivePending,
                 messages,
@@ -101,10 +95,7 @@ export async function runPreSendCompactPass(state) {
                 try {
                     opts.onContextPressure({
                         sessionId,
-                        usedTokens: resolveGaugeContextTokens(messageTokensEst, compactPolicy, {
-                            messages,
-                            sessionRef,
-                        }),
+                        usedTokens: pressureTokens,
                         triggerTokens: compactPolicy.triggerTokens || compactPolicy.boundaryTokens || 0,
                         boundaryTokens: compactPolicy.boundaryTokens || 0,
                         willCompact: shouldCompact === true,

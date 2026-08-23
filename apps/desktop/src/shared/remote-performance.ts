@@ -96,11 +96,32 @@ export interface RemoteByteMeter {
 /** Which lane a payload belongs to, read from the shapes remote-relay.ts
  *  actually sends: a named `event`, a compact-wire `e` tag, or an RPC answer
  *  carrying an `id`. */
+/** What a compact frame actually carried. Two frames both named `compact:T`
+ *  can be a six-byte streamed suffix and a whole rebuilt state block; only the
+ *  shape separates them, and only the field names say which block keeps
+ *  moving while the screen does not. */
+function compactFrameShape(wire: unknown): string {
+  if (!wire || typeof wire !== "object") return "";
+  const record = wire as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of ["ip", "ta", "tt", "sd", "streamingTail"]) {
+    if (Object.hasOwn(record, key)) parts.push(key);
+  }
+  const changed = record.sc;
+  if (changed && typeof changed === "object") {
+    const fields = Object.keys(changed as Record<string, unknown>).sort();
+    parts.push(fields.length > 0 ? `sc(${fields.slice(0, 4).join(",")})` : "sc");
+  }
+  return parts.length > 0 ? `:${parts.join("+")}` : ":idle";
+}
+
 export function remoteFrameLane(payload: unknown): string {
   if (!payload || typeof payload !== "object") return "other";
-  const record = payload as { event?: unknown; e?: unknown; id?: unknown };
+  const record = payload as { event?: unknown; e?: unknown; id?: unknown; w?: unknown };
   if (typeof record.event === "string" && record.event) return record.event;
-  if (typeof record.e === "string" && record.e) return `compact:${record.e}`;
+  if (typeof record.e === "string" && record.e) {
+    return `compact:${record.e}${compactFrameShape(record.w)}`;
+  }
   if (record.id !== undefined) return "rpc";
   return "other";
 }

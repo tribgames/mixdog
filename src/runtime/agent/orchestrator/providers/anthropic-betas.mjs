@@ -4,6 +4,7 @@ const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
 const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
 const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
 const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
+export const SERVER_SIDE_FALLBACK_BETA_HEADER = 'server-side-fallback-2026-07-01';
 export { EFFORT_BETA_HEADER };
 
 export function supportsAnthropicFastMode(model) {
@@ -16,6 +17,7 @@ export function buildAnthropicBetaHeaders({
     fastMode = false,
     toolSearch = false,
     effort = false,
+    serverFallback = false,
 } = {}) {
     const headers = String(base || '')
         .split(',')
@@ -29,6 +31,9 @@ export function buildAnthropicBetaHeaders({
     }
     if (effort && !headers.includes(EFFORT_BETA_HEADER)) {
         headers.push(EFFORT_BETA_HEADER);
+    }
+    if (serverFallback && !headers.includes(SERVER_SIDE_FALLBACK_BETA_HEADER)) {
+        headers.push(SERVER_SIDE_FALLBACK_BETA_HEADER);
     }
     return headers.join(',');
 }

@@ -10,6 +10,8 @@
   recoverability.
 - Mid-task: replacement supersedes; addition folds in; status gets a brief
   answer while work continues. After compaction, resume the summary.
+- Periodic task reports stay in-turn: after each update, call `task wait` for
+  the requested interval again until the task settles or the request changes.
 - Auto-compact owns context management: never propose stopping work to the
   user and never stop on your own judgment; resume and continue the work
   after every compaction.

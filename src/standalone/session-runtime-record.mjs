@@ -10,11 +10,7 @@ export async function disposeSessionRuntimeRecord(records, record, args = []) {
   } finally {
     try { record.unsubscribe?.(); } catch {}
     record.unsubscribe = null;
-    record.source = null;
-    record.projected = null;
-    record.published = null;
-    record.fields?.clear?.();
-    record.items?.clear?.();
+    record.publishedSource = null;
     records?.delete?.(record.id);
   }
 }

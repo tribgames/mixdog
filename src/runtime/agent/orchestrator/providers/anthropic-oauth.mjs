@@ -51,6 +51,7 @@ import {
     AnthropicFallbackTriggeredError,
     anthropicRequestTimeoutMs,
     classifyError,
+    markProviderRecoveryExhausted,
     anthropicMaxAttempts,
     resolveStallRetryBudget,
     midstreamBackoffFor,
@@ -66,6 +67,7 @@ import {
     stampAnthropicStreamOutcome,
 } from './anthropic-sse.mjs';
 import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
+import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import { gzipSync } from 'node:zlib';
 
@@ -309,6 +311,9 @@ function buildRequestBody(messages, model, tools, sendOpts) {
         messages: anthropicMessages,
         stream: true,
     };
+    applyAnthropicServerFallback(body, model, {
+        enabled: opts.serverFallback !== false,
+    });
 
     if (systemBlocks.length) body.system = systemBlocks;
 
@@ -593,6 +598,7 @@ export class AnthropicOAuthProvider {
                             fastMode: this.fastModeBetaHeaderLatched,
                             toolSearch: hasDeferredTools,
                             effort: shouldIncludeEffortBeta(useModel, opts),
+                            serverFallback: body.fallbacks === 'default',
                         }),
                         'anthropic-dangerous-direct-browser-access': 'true',
                         'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
@@ -739,7 +745,9 @@ export class AnthropicOAuthProvider {
                 );
             } catch {}
             try { controller?.abort?.(error); } catch {}
-            throw error;
+            throw markProviderRecoveryExhausted(error, {
+                owner: 'anthropic-oauth-transport-budget',
+            });
         };
 
         // Core non-streaming re-issue: abort the dead stream and repeat the
@@ -806,10 +814,13 @@ export class AnthropicOAuthProvider {
                 const message = await fallback.response.json();
                 return normalizeAnthropicNonStreamingResponse(message, useModel);
             } catch (err) {
-                if (lifetime.signal.aborted && lifetime.signal.reason instanceof Error) {
-                    throw lifetime.signal.reason;
-                }
-                throw err;
+                const failure = lifetime.signal.aborted && lifetime.signal.reason instanceof Error
+                    ? lifetime.signal.reason
+                    : err;
+                if (failure instanceof AnthropicFallbackTriggeredError || totalSignal?.aborted) throw failure;
+                throw markProviderRecoveryExhausted(failure, {
+                    owner: 'anthropic-oauth-nonstreaming-fallback',
+                });
             } finally {
                 releaseFallback('Anthropic non-streaming fallback complete');
                 lifetime.cleanup();
@@ -1118,6 +1129,12 @@ export class AnthropicOAuthProvider {
                         totalSignal,
                     );
                     continue;
+                }
+                if (classifier && attemptIndex >= MAX_MIDSTREAM_RETRIES) {
+                    markProviderRecoveryExhausted(err, {
+                        owner: 'anthropic-oauth-midstream',
+                        attempts: attemptIndex + 1,
+                    });
                 }
                 if (attemptIndex > 0 && firstAttemptError) {
                     try { err.midstreamRetries = attemptIndex; } catch {}

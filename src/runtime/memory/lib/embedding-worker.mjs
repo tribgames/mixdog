@@ -13,7 +13,11 @@ import {
   getDefaultEmbeddingDevice,
   getDefaultEmbeddingDtype,
   getEmbeddingModelLoadOptions,
+  getEmbeddingOutputName,
+  getEmbeddingPooling,
   normalizeEmbeddingDtype,
+  normalizeEmbeddingInputType,
+  prepareEmbeddingInput,
 } from './embedding-model-config.mjs'
 
 const MODEL_ID = getConfiguredEmbeddingModelId()
@@ -40,6 +44,7 @@ process.stderr.write = __forwardWorkerWrite
 const DEFAULT_DEVICE = getDefaultEmbeddingDevice(MODEL_ID)
 const DEFAULT_DTYPE = getDefaultEmbeddingDtype(MODEL_ID)
 const MODEL_LOAD_OPTIONS = getEmbeddingModelLoadOptions(MODEL_ID)
+const MODEL_OUTPUT_NAME = getEmbeddingOutputName(MODEL_ID)
 const INTRA_OP_THREADS = 1
 const INTER_OP_THREADS = 1
 // Session-create graph optimization. ORT defaults to 'all' (full node fusion),
@@ -77,10 +82,14 @@ const _envWorkerMaxChars = Number(process.env.MIXDOG_EMBED_MAX_CHARS)
 const WORKER_MAX_CHARS = (Number.isFinite(_envWorkerMaxChars) && _envWorkerMaxChars > 0)
   ? Math.floor(_envWorkerMaxChars)
   : 8000
-const EXTRACT_OPTS = { pooling: 'mean', normalize: true, truncation: true }
+const EXTRACT_OPTS = { pooling: getEmbeddingPooling(MODEL_ID), normalize: true, truncation: true }
 function capEmbedText(text) {
   if (typeof text !== 'string') return ''
   return text.length > WORKER_MAX_CHARS ? text.slice(0, WORKER_MAX_CHARS) : text
+}
+
+function prepareWorkerText(text, inputType) {
+  return capEmbedText(prepareEmbeddingInput(text, inputType, MODEL_ID))
 }
 
 let extractorPromise = null
@@ -244,7 +253,7 @@ async function loadExtractor() {
     extractorPromise = (async () => {
       parentPort.postMessage({ type: 'profile', record: { phase: 'baseline', model: MODEL_ID, device: _device, dtype: configuredDtype, note: 'pre-load' } })
       patchOrtThreads()
-      const { pipeline, env } = await import('@huggingface/transformers')
+      const { AutoModel, AutoTokenizer, pipeline, env } = await import('@huggingface/transformers')
       try { env.backends.onnx.logLevel = 'fatal' } catch {}
       env.allowLocalModels = false
       try { mkdirSync(MODEL_CACHE_DIR, { recursive: true }) } catch {}
@@ -277,7 +286,28 @@ async function loadExtractor() {
       let priorityLowered = false
       try { os.setPriority(0, os.constants.priority.PRIORITY_BELOW_NORMAL); priorityLowered = true } catch {}
       try {
-        if (preferGpu) {
+        if (MODEL_OUTPUT_NAME) {
+          const device = preferGpu ? 'dml' : 'cpu'
+          const [tokenizer, model] = await Promise.all([
+            AutoTokenizer.from_pretrained(MODEL_ID),
+            AutoModel.from_pretrained(MODEL_ID, { ...opts, device }),
+          ])
+          extractor = async (input, extractOptions = {}) => {
+            const modelInputs = await tokenizer(input, {
+              padding: true,
+              truncation: extractOptions.truncation !== false,
+            })
+            const outputs = await model(modelInputs)
+            let result = outputs?.[MODEL_OUTPUT_NAME]
+            if (!result?.data?.length) {
+              throw new Error(`embedding output '${MODEL_OUTPUT_NAME}' missing (model=${MODEL_ID})`)
+            }
+            if (extractOptions.normalize) result = result.normalize(2, -1)
+            return result
+          }
+          extractor.dispose = () => model.dispose()
+          _device = device
+        } else if (preferGpu) {
           extractor = await pipeline('feature-extraction', MODEL_ID, { ...opts, device: 'dml' })
           _device = 'dml'
         } else {
@@ -334,7 +364,8 @@ async function processMessage(msg) {
           break
         }
         const t0 = Date.now()
-        const output = await extractor(texts.map(capEmbedText), EXTRACT_OPTS)
+        const inputType = normalizeEmbeddingInputType(msg.inputType)
+        const output = await extractor(texts.map((text) => prepareWorkerText(text, inputType)), EXTRACT_OPTS)
         const wallMs = Date.now() - t0
         if (!output.data?.length) throw new Error(`embed-batch output missing data (model=${MODEL_ID})`)
         const total = output.data.length
@@ -356,7 +387,8 @@ async function processMessage(msg) {
         resetIdleTimer()
         const extractor = await loadExtractor()
         const t0 = Date.now()
-        const output = await extractor(capEmbedText(msg.text), EXTRACT_OPTS)
+        const inputType = normalizeEmbeddingInputType(msg.inputType)
+        const output = await extractor(prepareWorkerText(msg.text, inputType), EXTRACT_OPTS)
         const wallMs = Date.now() - t0
         if (!output.data?.length) throw new Error(`embed output missing data (model=${MODEL_ID})`)
         const dims = output.data.length

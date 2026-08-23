@@ -37,6 +37,8 @@ import {
     classifyHandshakeError,
     isContextOverflowError,
     createStallRetryBudget,
+    isProviderRecoveryExhausted,
+    markProviderRecoveryExhausted,
     resetStallRetryBudget,
     resolveStallRetryBudget,
 } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
@@ -362,6 +364,50 @@ test('withRetry: a clean transient continuation still retries', async () => {
     assert.equal(retries[0].maxAttempts, 3);
 });
 
+test('withRetry: retry exhaustion is provider-terminal, while a one-shot failure is not', async () => {
+    let exhaustedCalls = 0;
+    const exhausted = await withRetry(async () => {
+        exhaustedCalls += 1;
+        throw err('connection reset', { code: 'ECONNRESET' });
+    }, {
+        maxAttempts: 3,
+        backoffMs: [0, 0, 0],
+        recoveryOwner: 'test-provider',
+    }).then(() => null, (error) => error);
+    assert.equal(exhaustedCalls, 3);
+    assert.equal(isProviderRecoveryExhausted(exhausted), true);
+    assert.equal(exhausted.providerRecoveryOwner, 'test-provider');
+    assert.equal(exhausted.providerRecoveryAttempts, 3);
+
+    let oneShotCalls = 0;
+    const oneShot = await withRetry(async () => {
+        oneShotCalls += 1;
+        throw err('connection reset', { code: 'ECONNRESET' });
+    }, {
+        maxAttempts: 1,
+        backoffMs: [0],
+    }).then(() => null, (error) => error);
+    assert.equal(oneShotCalls, 1);
+    assert.equal(isProviderRecoveryExhausted(oneShot), false);
+});
+
+test('withRetry: a nested provider-terminal failure is never retried again', async () => {
+    let calls = 0;
+    const terminal = markProviderRecoveryExhausted(
+        err('provider retries spent', { code: 'ECONNRESET' }),
+        { owner: 'inner-provider', attempts: 5 },
+    );
+    const thrown = await withRetry(async () => {
+        calls += 1;
+        throw terminal;
+    }, {
+        maxAttempts: 4,
+        backoffMs: [0, 0, 0, 0],
+    }).then(() => null, (error) => error);
+    assert.equal(thrown, terminal);
+    assert.equal(calls, 1);
+});
+
 test('withRetry: a typed transient failure retries; an untyped one does not', async () => {
     let calls = 0;
     const out = await withRetry(async () => {
@@ -410,6 +456,27 @@ function eofResponse(events) {
         },
     };
 }
+function delayedResponse(steps) {
+    let i = 0;
+    return {
+        body: {
+            getReader() {
+                return {
+                    async read() {
+                        const step = steps[i++] ?? { done: true };
+                        if (step.delayMs > 0) {
+                            await new Promise((resolve) => setTimeout(resolve, step.delayMs));
+                        }
+                        if (step.done) return { done: true, value: undefined };
+                        return { done: false, value: step.value };
+                    },
+                    cancel() { return Promise.resolve(); },
+                    releaseLock() {},
+                };
+            },
+        },
+    };
+}
 const anthropicState = () => ({
     attemptIndex: 0,
     sawMessageStart: false,
@@ -422,6 +489,49 @@ const anthropicState = () => ({
     watchdogAbort: null,
     firstMessageTimeoutMs: 5000,
     semanticIdleTimeoutMs: 5000,
+    transportIdleWatchdogEnabled: true,
+});
+
+test('anthropic SSE: comment and named ping keepalives refresh transport activity', async () => {
+    const state = {
+        ...anthropicState(),
+        firstMessageTimeoutMs: 200,
+        transportIdleTimeoutMs: 25,
+    };
+    const response = delayedResponse([
+        { value: frame({ type: 'message_start', message: { model: 'claude-x', usage: { input_tokens: 1 } } }) },
+        { delayMs: 15, value: encoder.encode(': ping\n\n') },
+        { delayMs: 15, value: frame({ type: 'ping' }) },
+        { delayMs: 15, value: frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) },
+        { value: frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'done' } }) },
+        { value: frame({ type: 'content_block_stop', index: 0 }) },
+        { value: frame({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } }) },
+        { value: frame({ type: 'message_stop' }) },
+        { done: true },
+    ]);
+    const activity = [];
+    const result = await parseSSEStream(
+        response, null, () => {}, (kind) => activity.push(kind), () => {}, state, () => {},
+    );
+    assert.equal(result.content, 'done');
+    assert.ok(activity.filter((kind) => kind === 'transport').length >= 4);
+});
+
+test('anthropic SSE: actual transport silence still raises a stall', async () => {
+    const state = {
+        ...anthropicState(),
+        firstMessageTimeoutMs: 200,
+        transportIdleTimeoutMs: 15,
+    };
+    const response = delayedResponse([
+        { value: frame({ type: 'message_start', message: { model: 'claude-x', usage: { input_tokens: 1 } } }) },
+        { delayMs: 40, done: true },
+    ]);
+    const thrown = await parseSSEStream(
+        response, null, () => {}, () => {}, () => {}, state, () => {},
+    ).then(() => null, (error) => error);
+    assert.equal(thrown?.code, 'ESTREAMSTALL');
+    assert.equal(thrown?.streamOutcome?.stallObserved, true);
 });
 
 test('anthropic SSE: truncation after visible text is a continuation, never replayable', async () => {
@@ -1190,6 +1300,17 @@ test('send-with-recovery: a spent stall window never blocks the bounded transpor
     assert.notEqual(fresh, spent);
     assert.equal(opts._stallRetryBudget, fresh);
     assert.equal(fresh.allowStallRetry(), true);
+});
+
+test('send-with-recovery: provider-terminal exhaustion never gains a fresh loop replay', async () => {
+    const terminal = markProviderRecoveryExhausted(
+        err('provider retries spent', { code: 'ECONNRESET' }),
+        { owner: 'test-provider', attempts: 3 },
+    );
+    await assert.rejects(
+        sendWithRecovery(recoveryCtx(terminal)),
+        (thrown) => thrown === terminal,
+    );
 });
 
 test('send-with-recovery: stall with COMPLETE tool calls recovers as a tool turn', async () => {

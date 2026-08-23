@@ -40,22 +40,10 @@ import { createGunzip } from 'zlib'
 import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-file.mjs'
 import { streamResponseToFile } from '../../shared/bounded-download.mjs'
 import { windowsProgramRoots, windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs'
-import { detectDeviceLanguage, normalizeWhisperLanguage } from './whisper-language.mjs'
-
-// Model catalog: `models.standard` / `models.korean` in the manifest, with the
-// legacy single `model` section as the standard fallback for older manifests.
-// Selection: explicit voice.model config wins; 'auto' picks the Korean
-// fine-tune only when the device language resolves to Korean.
-export function selectVoiceModelId(voiceConfig = null) {
-  const pref = String(voiceConfig?.model || 'auto').trim().toLowerCase()
-  if (pref === 'standard' || pref === 'korean') return pref
-  // voice.language is the strongest auto signal: Node's ICU default locale
-  // often resolves to en-US even on a Korean Windows install, so an explicit
-  // transcription language wins over device-locale detection.
-  const configured = normalizeWhisperLanguage(voiceConfig?.language)
-  if (configured === 'ko') return 'korean'
-  if (configured) return 'standard'
-  return detectDeviceLanguage() === 'ko' ? 'korean' : 'standard'
+// The standard multilingual model is the only managed model. Legacy
+// voice.model values are accepted by callers but converge here.
+export function selectVoiceModelId() {
+  return 'standard'
 }
 
 function manifestModelEntry(manifest, modelId = 'standard') {
@@ -624,7 +612,8 @@ function resolveManagedWhisperModelForId(manifest, dataDir, modelId) {
 }
 
 // Clean-install policy: the models dir holds ONLY filenames declared by the
-// current manifest (standard/korean). Anything else — the pre-Q8 F16 weight,
+// current manifest. Anything else — the pre-Q8 F16 weight or retired
+// fine-tunes,
 // interrupted renames, hand-copied experiments — is deleted so a model swap
 // never leaves a 1.6GB orphan behind and resolution never silently falls back
 // to a stale weight.

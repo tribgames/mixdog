@@ -28,15 +28,14 @@ function _dirKey(dir) {
 
 // P1: resolve a file to its nearest project root (sentinel ancestor).
 // Returns null when no root found; caller throws rather than falling back.
-export function _resolveFileProjectRoot(file) {
+// `opts` forwards to the directory walk, so a file anchor can decline the same
+// home/temp sentinel a directory anchor already declines. Without it an
+// implicit walk from a %TEMP% anchor adopts a stray home-directory
+// `package.json` as "the project" and the caller is then refused for targeting
+// home — the exact promotion the boundary rule exists to stop.
+export function _resolveFileProjectRoot(file, opts = {}) {
   if (!file) return null;
-  const abs = pathResolve(file);
-  let dir = dirname(abs);
-  while (dir && dir !== dirname(dir)) {
-    if (_PROJECT_ROOT_SENTINELS.some((s) => existsSync(join(dir, s)))) return dir;
-    dir = dirname(dir);
-  }
-  return null;
+  return _findDirProjectRoot(dirname(pathResolve(file)), opts);
 }
 
 // P1: nearest project root for a DIRECTORY (the dir itself or any ancestor).

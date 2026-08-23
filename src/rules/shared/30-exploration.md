@@ -6,7 +6,8 @@
   a successful owner result closes that facet.
 - Route the missing evidence to its primary owner:
   repository state, history, or diff→`git`;
-  exact symbol declaration, body, usage, or relation→`code_graph`;
+  source-file structure or outline, and exact symbol declaration, body,
+  usage, or relation→`code_graph`;
   literal, regex, or text location→`grep`;
   known-file content, range, or image→`read`;
   wildcard or recursive file paths→`glob`;

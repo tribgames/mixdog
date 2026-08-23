@@ -99,7 +99,7 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
   )))).find(Boolean)
   if (!ortRoot) throw new Error('Embedding runtime is incomplete: onnxruntime-node is unavailable')
 
-  const targetBinaryDir = join(ortRoot, 'bin', 'napi-v3', target.platform, target.arch)
+  const targetBinaryDir = join(ortRoot, 'bin', 'napi-v6', target.platform, target.arch)
   if (!(await exists(join(targetBinaryDir, 'onnxruntime_binding.node')))) {
     throw new Error(`Embedding runtime is incomplete: missing ${target.key} ONNX binding`)
   }
@@ -118,9 +118,9 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
   ]))
 
   // onnxruntime-node resolves exactly:
-  // bin/napi-v3/${process.platform}/${process.arch}/onnxruntime_binding.node.
+  // bin/napi-v6/${process.platform}/${process.arch}/onnxruntime_binding.node.
   // Keep one native payload and remove every foreign OS/architecture.
-  const napiRoot = join(ortRoot, 'bin', 'napi-v3')
+  const napiRoot = join(ortRoot, 'bin', 'napi-v6')
   await removeChildrenExcept(napiRoot, new Set([target.platform]))
   await removeChildrenExcept(join(napiRoot, target.platform), new Set([target.arch]))
   await removeChildrenExcept(ortRoot, new Set([

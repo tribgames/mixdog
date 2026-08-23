@@ -1532,7 +1532,7 @@ export interface DesktopApi {
   ): () => void;
   listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
-  prefetchSession?(sessionId: string): Promise<boolean>;
+  prefetchSession?(sessionId: string, transcriptItemLimit?: number): Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;

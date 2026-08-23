@@ -49,8 +49,11 @@ function requestKind(request) {
 
 function timeoutError(request, deadlineMs) {
   const kind = requestKind(request);
+  // The remedy must name arguments this tool actually publishes. "Set max
+  // depth" named none: `find` exposes query/path/limit/include_noise only, so
+  // the one measured timeout left the caller with no actionable next step.
   const detail = kind === 'fuzzy'
-    ? ' Fuzzy ranking requires a complete file inventory; narrow cwd or set max depth.'
+    ? ' Fuzzy ranking requires a complete file inventory; narrow the search to a subdirectory via path, or use glob for a wildcard path match.'
     : '';
   return codedError(
     'NATIVE_SEARCH_TIMEOUT',
@@ -532,23 +535,47 @@ async function requestNative(server, request, execOptions, deadlineMs) {
   return response;
 }
 
+// Search budget left after excluding server setup. Setup is not search, so it
+// is subtracted from the elapsed wall time rather than from the caller's
+// deadline; the floor of 1 keeps every downstream timer valid.
+function searchRemainingMs(deadlineMs, startedAt, setupMs, now = Date.now()) {
+  return Math.max(1, deadlineMs - (now - startedAt - Math.max(0, setupMs)));
+}
+
 export {
   noteSearchTimeout as _noteSearchTimeoutForTest,
   requestNative as _requestNativeForTest,
+  searchRemainingMs as _searchRemainingMsForTest,
   softDeadlineMs as _softDeadlineMsForTest,
 };
 
 async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
-  const startedAt = Date.now();
-  let server = await _readyServer(Math.min(deadlineMs, SERVER_READY_TIMEOUT_MS));
+  // The caller's deadline budgets SEARCH time. Server setup — binary resolve,
+  // spawn, handshake — is not search, and charging it to the same budget left
+  // a cold whole-filesystem probe roughly 250ms of actual walking out of 1500:
+  // the request then died with NO response at all, not even the ranked partial
+  // the server is built to hand back at its soft deadline. Readiness keeps its
+  // own independent bound (SERVER_READY_TIMEOUT_MS), so excluding it here
+  // cannot make a call wait longer than setup + one full search budget.
+  const overallStartedAt = Date.now();
+  let setupMs = 0;
+  const readyWithinSetup = async (budgetMs) => {
+    const setupStartedAt = Date.now();
+    try {
+      return await _readyServer(Math.min(budgetMs, SERVER_READY_TIMEOUT_MS));
+    } finally {
+      setupMs += Date.now() - setupStartedAt;
+    }
+  };
+  let server = await readyWithinSetup(deadlineMs);
   if (!server) throw unavailableError();
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const remaining = Math.max(1, deadlineMs - (Date.now() - startedAt));
+    const remaining = searchRemainingMs(deadlineMs, overallStartedAt, setupMs);
     try {
       return await requestNative(server, buildRequest(server, remaining), execOptions, remaining);
     } catch (error) {
       if (error?.code !== 'NATIVE_SEARCH_PROCESS_EXIT' || attempt > 0) throw error;
-      server = await _readyServer(Math.min(remaining, SERVER_READY_TIMEOUT_MS));
+      server = await readyWithinSetup(searchRemainingMs(deadlineMs, overallStartedAt, setupMs));
       if (!server) throw unavailableError();
     }
   }
