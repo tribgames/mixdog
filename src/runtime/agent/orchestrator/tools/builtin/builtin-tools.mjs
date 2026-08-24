@@ -244,7 +244,7 @@ export const BUILTIN_TOOLS = [
                 },
                 hidden: { type: 'boolean', description: 'Include dotfiles.' },
                 meta: { type: 'boolean', description: 'Per-entry size bytes, UTC mtime, octal mode.' },
-                limit: { type: 'integer', minimum: 0, description: 'Max entries; default 200; 0 unlimited.' },
+                limit: { type: 'integer', minimum: 0, description: 'Max entries; default 100; 0 unlimited.' },
                 offset: { type: 'integer', minimum: 0, description: 'Entry offset.' },
             },
             required: [],

@@ -13,6 +13,9 @@
   wildcard or recursive file paths→`glob`;
   known directory's immediate entries→`list`;
   unknown file or directory location→`find`.
+- For `code_graph`, location-only lookup uses `body:false`; use `body:true`
+  only for the smallest exact implementation symbol needed, and never use
+  `overview` and `symbols` for the same evidence.
 - Use a path locator only when the owner's required target is unknown. Paths
   reachable by expanding an environment variable or the home directory are
   resolved locations, not unknowns.

@@ -3378,6 +3378,7 @@ if (grepTool?.inputSchema?.properties?.type) {
 const globTool = BUILTIN_TOOLS.find((tool) => tool.name === 'glob');
 const findTool = BUILTIN_TOOLS.find((tool) => tool.name === 'find');
 const listTool = BUILTIN_TOOLS.find((tool) => tool.name === 'list');
+const listLimitDescription = listTool?.inputSchema?.properties?.limit?.description || '';
 const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
 const globPatternShapes = globTool?.inputSchema?.properties?.pattern?.anyOf;
 const globStringPatternShape = globPatternShapes?.find((shape) => shape?.type === 'string');
@@ -3428,6 +3429,8 @@ if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || listTool?.inputSchema?.properties?.path?.type !== 'string'
     || listTool?.inputSchema?.properties?.path?.minLength !== undefined
     || !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '')
+    || !/default 100/i.test(listLimitDescription)
+    || !/0 unlimited/i.test(listLimitDescription)
     || listTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('list description must state its known-directory immediate-entry contract');
 }

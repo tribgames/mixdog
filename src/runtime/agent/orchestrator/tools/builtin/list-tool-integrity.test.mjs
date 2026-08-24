@@ -32,6 +32,20 @@ test('aborted list work cannot poison the result cache', async () => {
     }
 });
 
+test('list defaults to a 100-entry page with an offset continuation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mixdog-list-default-page-'));
+    try {
+        await Promise.all(Array.from({ length: 101 }, (_, index) => (
+            writeFile(join(root, `entry-${String(index).padStart(3, '0')}.txt`), 'ok')
+        )));
+        const out = await executeListTool({ path: root, hidden: true }, process.cwd());
+        assert.equal(out.split('\n').filter((line) => line.endsWith('\tfile')).length, 100);
+        assert.match(out, /\[entries 1-100 of 101; pass offset:100 to continue\]/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test('root readdir failures are errors, stay uncached, and mark a repeatedly failing runtime worker unhealthy', async () => {
     const originalRuntimeWorkerPid = process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID;
     const roots = [];

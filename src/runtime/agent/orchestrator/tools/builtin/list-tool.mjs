@@ -100,7 +100,7 @@ function recordDirectoryWalkTelemetry(options, status, walkResult, warningCount 
     };
 }
 
-// A/B override surface for the default result caps (stock: list/tree 200,
+// A/B override surface for the default result caps (stock: list 100, tree 200,
 // fuzzy find 25). Env-gated so bench variants can match competitor-style
 // generous caps without changing the shipped defaults.
 function _listDefaultHeadLimit(fallback) {
@@ -256,7 +256,7 @@ export async function executeListTool(args, workDir, options = {}) {
     const hidden = Boolean(args.hidden);
     const sort = ['name', 'mtime', 'size'].includes(args.sort) ? args.sort : 'name';
     const typeFilter = ['any', 'file', 'dir'].includes(args.type) ? args.type : 'any';
-    const headLimit = normalizeListHeadLimit(args.head_limit, _listDefaultHeadLimit(200));
+    const headLimit = normalizeListHeadLimit(args.head_limit, _listDefaultHeadLimit(100));
     const offset = typeof args.offset === 'number' && args.offset > 0 ? args.offset : 0;
     const needsGlobalStat = sort === 'mtime' || sort === 'size';
     const includeNoise = Boolean(args.include_noise);
