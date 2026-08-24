@@ -148,8 +148,15 @@ function ensureWorker() {
 }
 
 const EMBED_WORKER_TIMEOUT_MS = 60_000
+const EMBED_WORKER_COLD_TIMEOUT_MS = 180_000
 
-function sendToWorker(action, extra = {}, timeoutMs = EMBED_WORKER_TIMEOUT_MS) {
+function embeddingWorkerTimeout(action) {
+  return !_modelReady && ['warmup', 'embed', 'embed-batch'].includes(action)
+    ? EMBED_WORKER_COLD_TIMEOUT_MS
+    : EMBED_WORKER_TIMEOUT_MS
+}
+
+function sendToWorker(action, extra = {}, timeoutMs = embeddingWorkerTimeout(action)) {
   const w = ensureWorker()
   const id = ++_msgId
   return new Promise((resolve, reject) => {
