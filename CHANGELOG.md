@@ -5,6 +5,17 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- OpenAI OAuth sessions now speak the reference client's wire shape by default:
+  stable installation and thread identity, the lighter request form on current
+  models, and provider-correct handling of a socket that reaches its lifetime
+  limit mid-session.
+- Session startup reserves its pre-warmed connection for the first turn only
+  when the prompt it warmed still matches, so a turn whose environment or tool
+  surface changed starts clean instead of resending the whole request.
+- Directory listings return a first page sized for scanning rather than a dump,
+  and code structure lookups fetch full symbol bodies only when the exact
+  implementation is needed.
+
 ## v0.9.148 - 2026-08-24
 
 - Desktop and mobile conversations preserve drafts, history, follow behavior,
