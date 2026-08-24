@@ -12,6 +12,7 @@ import { mergeVoiceRuntimeManifest } from './sync-voice-runtime-manifest.mjs'
 const names = VOICE_RUNTIME_CONFIG.platforms.map((platform) => platform.asset)
 
 test('voice runtime release assets produce a complete fail-closed manifest', () => {
+  assert.equal(VOICE_RUNTIME_CONFIG.vulkanSdkVersion, '1.4.309.0')
   const assets = names.map((name, index) => ({
     name,
     size: index + 1,

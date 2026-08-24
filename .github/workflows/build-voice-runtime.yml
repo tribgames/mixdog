@@ -89,6 +89,23 @@ jobs:
           cache: true
           quiet: true
 
+      - name: Install Windows Vulkan loader
+        if: matrix.os == 'win32'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:GITHUB_WORKSPACE 'vulkan_sdk.exe'
+          if (-not (Test-Path -LiteralPath $installer)) {
+            throw "cached Vulkan SDK installer was not preserved at $installer"
+          }
+          & $installer --accept-licenses --default-answer --confirm-command install
+          if ($LASTEXITCODE -ne 0) {
+            throw "Vulkan SDK installer exited with $LASTEXITCODE"
+          }
+          $loader = Join-Path $env:SystemRoot 'System32\vulkan-1.dll'
+          if (-not (Test-Path -LiteralPath $loader)) {
+            throw "Vulkan loader was not installed at $loader"
+          }
+
       - name: Install Linux Vulkan build tools
         if: matrix.os == 'linux'
         run: |
