@@ -35,7 +35,7 @@ function loadWorker({ cache, fetchAsset = async () => {
   };
   context.globalThis = context;
   vm.runInNewContext(
-    `${source}\n;globalThis.__swTest = { cacheFirst, scheduleAssetCacheTrim, storableCopy };`,
+    `${source}\n;globalThis.__swTest = { cacheFirst, scheduleAssetCacheTrim, shellFirst, storableCopy };`,
     context,
   );
   return { ...context.__swTest, listeners };
@@ -69,6 +69,50 @@ test("service-worker cache copies retain the body stream without encoded headers
   assert.equal(copy.headers.has("content-encoding"), false);
   assert.equal(copy.headers.has("content-length"), false);
   assert.equal(await copy.text(), "streamed");
+});
+
+test("a cached shell document answers without waiting for the network", async () => {
+  let networkCalls = 0;
+  let stored = null;
+  const cache = {
+    match: async () => new Response("cached shell"),
+    put: async (_request, response) => { stored = response; },
+    keys: async () => [],
+    delete: async () => true,
+  };
+  const { shellFirst } = loadWorker({
+    cache,
+    fetchAsset: async () => {
+      networkCalls += 1;
+      const response = new Response("fresh shell");
+      Object.defineProperty(response, "type", { value: "basic" });
+      return response;
+    },
+  });
+  const result = await shellFirst({ url: "https://relay/d/abc/", mode: "navigate" });
+
+  // The paint gets the copy already on the device; the round trip runs behind it.
+  assert.equal(await result.response.text(), "cached shell");
+  assert.equal(typeof result.maintenance?.then, "function");
+  await result.maintenance;
+  assert.equal(networkCalls, 1);
+  assert.equal(await stored.text(), "fresh shell");
+});
+
+test("a first launch with no cached shell still answers from the network", async () => {
+  let stored = null;
+  const cache = {
+    match: async () => undefined,
+    put: async (_request, response) => { stored = response; },
+    keys: async () => [],
+    delete: async () => true,
+  };
+  const { shellFirst } = loadWorker({ cache });
+  const result = await shellFirst({ url: "https://relay/d/abc/", mode: "navigate" });
+
+  assert.equal(await result.response.text(), "asset");
+  assert.equal(result.maintenance, null);
+  assert.equal(await stored.text(), "asset");
 });
 
 test("cache response is released before maintenance and burst trims coalesce", async () => {

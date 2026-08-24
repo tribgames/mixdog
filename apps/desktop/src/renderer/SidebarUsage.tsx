@@ -188,13 +188,16 @@ function resetExpiryText(value: unknown): string {
   return schedule.state === "soon" ? t("Expires soon") : "";
 }
 
-/** The provider header shows one schedule: the window that resets first. */
-function soonestResetText(windows: UsageRecord[]): string {
-  const soonest = windows
-    .map((window) => timestamp(window.resetAt))
-    .filter((value): value is number => value !== null)
-    .sort((left, right) => left - right)[0];
-  return soonest === undefined ? "" : resetText(soonest);
+/** Every quota window carries its OWN schedule (user: 각각 항목마다 초기화시간
+ *  개별로 하나씩): a compact duration that fits the meter row between the bar
+ *  and the percentage, with the full sentence kept in the row tooltip.
+ *  The duration units are notation, not prose, so they stay untranslated like
+ *  the 5d/13h reading itself. */
+function resetShortText(value: unknown): string {
+  const schedule = resetSchedule(value);
+  if (schedule.state === "due") return "now";
+  if (schedule.state === "in") return schedule.time;
+  return schedule.state === "soon" ? "<1h" : "—";
 }
 
 function resetCredits(row: UsageRecord): UsageRecord {
@@ -404,7 +407,6 @@ export function SidebarUsage({
           const windows = quotaWindows(row);
           const available = Object.keys(row).length > 0;
           const connected = subscriptionConnected(row);
-          const soonestReset = soonestResetText(windows);
           return <div className="sidebar-usage-row" key={subscription.key}
             data-usage-provider={subscription.key}>
             <span className="sidebar-usage-line">
@@ -414,10 +416,6 @@ export function SidebarUsage({
               <b>{subscription.label}</b>
               {windows.length === 0 && <small>{!available && awaitingFirstUsage ? t("Loading…")
                 : connected ? t("Connected") : t("Not connected")}</small>}
-              {/* The reset schedule rides the icon/name line (user: 아이콘과
-                  같은 선상), pinned to the right edge. */}
-              {windows.length > 0 && soonestReset
-                && <small>{soonestReset}</small>}
             </span>
             <span className="sidebar-usage-meters">
               {windows.map((window, index) => {
@@ -425,10 +423,12 @@ export function SidebarUsage({
                 const displayedPercent = displayUsagePercent(percent);
                 const tone = percent !== null && percent >= 90 ? " tone-danger"
                   : percent !== null && percent >= 70 ? " tone-warning" : "";
+                const resetSentence = resetText(window.resetAt);
                 return <span className={`sidebar-usage-meter${tone}`}
                   key={quotaWindowKey(window, index)}>
                   <small>{windowLabel(window)}</small>
                   <i><i style={{ width: `${percent ?? 0}%` }} /></i>
+                  <em title={resetSentence || undefined}>{resetShortText(window.resetAt)}</em>
                   <b>{displayedPercent === null ? "—" : `${displayedPercent}%`}</b>
                 </span>;
               })}

@@ -46,8 +46,8 @@ export const TOOL_DEFS = [
         // handler validates against VALID_CATEGORY.
         category: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: 'Category filter, string or array: rule|constraint|decision|fact|goal|preference|task|issue.' },
         includeArchived: { type: 'boolean', description: 'Include archived entries; default true.' },
-        includeMembers: { type: 'boolean', description: 'Include chunk members; default true.' },
-        includeRaw: { type: 'boolean', description: 'Include raw/episode rows; default true.' },
+        includeMembers: { type: 'boolean', default: false, description: 'Include chunk members; default false.' },
+        includeRaw: { type: 'boolean', default: false, description: 'Include raw/episode rows; default false.' },
         projectScope: { type: 'string', description: 'Pool: inferred from cwd, common, all, or slug.' },
       },
       additionalProperties: false,

@@ -76,6 +76,14 @@ const FIRST_SCREEN_CHUNK_NAMES = new Set([
   'react-vendor',
   'ui-vendor',
   'bootstrap',
+  // The transcript is held NEUTRAL until the rich Markdown renderer resolves
+  // (App: transcriptPending). Both chunks are reachable only by RUNNING the
+  // app bundle, so a phone painted its restored session with an empty
+  // transcript and filled it one round trip later (user: 스크립트 뜨는 게 좀
+  // 느리다, 특히 최초 부트). Naming them here fetches them alongside the
+  // bundle; every other dependency of that import is already first-screen.
+  'MarkdownBody',
+  'markdown-plugins',
 ]);
 const FIRST_SCREEN_STYLE_NAMES = new Set(['bootstrap-styles.css']);
 

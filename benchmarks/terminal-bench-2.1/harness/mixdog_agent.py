@@ -977,9 +977,12 @@ class MixdogAgent(BaseInstalledAgent):
                 )
         finally:
             # Best-effort even when the run raised or hit AgentTimeout: the
-            # driver mirrors /logs/agent/usage.json every 30s, so the last
-            # snapshot survives a kill and keeps the trial's token stats
-            # complete (observed: timeout-but-PASSED trials losing usage).
+            # runtime rewrites /logs/agent/usage.json after every model
+            # response, so the last snapshot survives a kill and keeps the
+            # trial's token stats complete. Before that flush existed only the
+            # exit path wrote the file, and a killed trial left none at all
+            # (observed: timeout trials of the 2026-08-23 runs, later priced
+            # from agent-trace.jsonl by analysis/trace-cost.mjs).
             # Shield so an in-flight outer cancellation cannot strand the
             # container exec mid-write; any failure here stays silent.
             try:

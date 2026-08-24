@@ -819,7 +819,7 @@ test('openai-oauth request allows one mixed custom-patch/function-shell batch', 
         [{ role: 'user', content: 'patch then verify' }],
         'gpt-5.6-sol',
         [PATCH_TOOL_DEFS[0], shellTool],
-        { useResponsesLite: false },
+        {},
     );
     const patch = body.tools.find((tool) => tool.name === 'apply_patch');
     const shell = body.tools.find((tool) => tool.name === 'shell');
@@ -830,7 +830,7 @@ test('openai-oauth request allows one mixed custom-patch/function-shell batch', 
     assert.doesNotMatch(shell.description, /verification|PowerShell:/i);
 });
 
-test('openai-oauth reasoning replay defaults on, honors kill switch, declares all-turn context', () => {
+test('openai-oauth reasoning replay defaults on and honors its kill switch', () => {
     const encrypted = {
         type: 'reasoning',
         id: 'rs_replay_1',
@@ -862,7 +862,7 @@ test('openai-oauth reasoning replay defaults on, honors kill switch, declares al
     assert.deepEqual(replayInput[1], encrypted);
 
     const defaultBody = buildOpenAIOAuthRequestBody(history, 'gpt-5.6-sol', [], {});
-    assert.equal(defaultBody.reasoning.context, 'all_turns');
+    assert.equal('context' in defaultBody.reasoning, false);
     assert.equal(defaultBody.reasoning.summary, 'auto');
     assert.deepEqual(defaultBody.stream_options, {
         reasoning_summary_delivery: 'sequential_cutoff',
@@ -873,7 +873,7 @@ test('openai-oauth reasoning replay defaults on, honors kill switch, declares al
         const killedBody = buildOpenAIOAuthRequestBody(history, 'gpt-5.6-sol', [], {
             replayEncryptedReasoning: true,
         });
-        assert.equal(killedBody.reasoning.context, 'all_turns');
+        assert.equal('context' in killedBody.reasoning, false);
         assert.equal(killedBody.reasoning.summary, 'auto');
         assert.equal(killedBody.input.some((item) => item.type === 'reasoning'), false);
     } finally {
@@ -881,7 +881,7 @@ test('openai-oauth reasoning replay defaults on, honors kill switch, declares al
     }
 });
 
-test('openai-oauth Responses Lite moves the stable prefix into developer input', () => {
+test('openai-oauth always builds the standard Responses payload', () => {
     const body = buildOpenAIOAuthRequestBody(
         [
             { role: 'system', content: 'stable instructions' },
@@ -891,51 +891,25 @@ test('openai-oauth Responses Lite moves the stable prefix into developer input',
         'gpt-5.6-sol',
         [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
         {
-            useResponsesLite: true,
             turnId: '019fc135-f07a-7880-8767-ec3b7be1de64',
         },
     );
-    assert.equal('instructions' in body, false);
-    assert.equal('tools' in body, false);
-    assert.equal(body.parallel_tool_calls, false);
-    assert.equal(body.reasoning.context, 'all_turns');
-    assert.equal(body.input[0].type, 'additional_tools');
-    assert.equal(body.input[0].role, 'developer');
-    assert.equal(body.input[0].tools[0].type, 'namespace');
-    assert.equal(body.input[0].tools[0].name, 'functions');
-    assert.equal(body.input[0].tools[0].tools[0].name, 'read');
-    assert.deepEqual(body.input[1], {
-        type: 'message',
-        role: 'developer',
-        content: [{ type: 'input_text', text: 'stable instructions' }],
-    });
-    assert.equal(body.input[2].role, 'user');
-    assert.equal(body.input[3].role, 'user');
-    assert.deepEqual(body.input[2].internal_chat_message_metadata_passthrough, {
+    assert.equal(body.instructions, 'stable instructions');
+    assert.equal(body.tools[0].name, 'read');
+    assert.equal(body.parallel_tool_calls, true);
+    assert.equal('context' in body.reasoning, false);
+    assert.equal(body.input[0].role, 'user');
+    assert.equal(body.input[1].role, 'user');
+    assert.deepEqual(body.input[0].internal_chat_message_metadata_passthrough, {
         turn_id: '019fc135-f07a-7880-8767-ec3b7be1de64',
     });
-    assert.deepEqual(body.input[3].internal_chat_message_metadata_passthrough, {
+    assert.deepEqual(body.input[1].internal_chat_message_metadata_passthrough, {
         turn_id: '019fc135-f07a-7880-8767-ec3b7be1de64',
     });
 
     const warmup = buildCodexStartupPrewarmBody(body);
     assert.equal(warmup.generate, false);
-    assert.deepEqual(warmup.input, body.input.slice(0, 2));
-
-    process.env.MIXDOG_OAI_RESPONSES_LITE = '0';
-    try {
-        const standard = buildOpenAIOAuthRequestBody(
-            [{ role: 'system', content: 'stable instructions' }, { role: 'user', content: 'hello' }],
-            'gpt-5.6-sol',
-            [],
-            {},
-        );
-        assert.equal(standard.instructions, 'stable instructions');
-        assert.equal('tools' in standard, false);
-        assert.equal(standard.input[0].role, 'user');
-    } finally {
-        delete process.env.MIXDOG_OAI_RESPONSES_LITE;
-    }
+    assert.deepEqual(warmup.input, []);
 });
 
 test('openai-oauth HTTP/SSE stateless experiment omits conversation anchor headers', async () => {

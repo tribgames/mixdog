@@ -4,7 +4,8 @@
 // idle. Extracted from App.tsx so the component file holds UI only.
 import { loadCommandSurfaceModule } from "./command-surface-loader";
 import { connectionQuality } from "./network-conditions";
-import { preloadMarkdownBody, preloadStreamingMarkdownBody } from "./TranscriptView";
+import { preloadMarkdownBody } from "./markdown-body-loader";
+import { preloadStreamingMarkdownBody } from "./TranscriptView";
 import { prewarmSidebarReferences } from "./sidebar-reference-cache";
 import { loadStudioViewModule } from "./studio-loader";
 

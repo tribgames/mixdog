@@ -33,6 +33,35 @@ const median = (values) => {
 const sum = (rows, read) => rows.reduce((total, row) => total + finite(read(row)), 0);
 const inline = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
+// Last-resort pricing source. A trial killed by the agent timeout is torn down
+// before `agent/usage.json` is flushed, which used to drop the task from the
+// cost total AND from the pair ratio — silently comparing our N-5 tasks to a
+// baseline's N. Every model response is already recorded as a `usage_raw`
+// event carrying the full split, so those tasks are priced from the raw trace
+// instead of being excluded. `uncached_input_tokens` is the runtime's
+// normalized uncached figure for both families, so it prices identically to
+// the snapshot; `analysis/trace-cost.mjs` verifies that task by task.
+function traceUsageTotals(trialDir) {
+  const path = join(trialDir, 'agent', 'agent-trace.jsonl');
+  if (!existsSync(path)) return null;
+  const totals = { uncached: 0, cached: 0, cacheWrite: 0, output: 0, requests: 0 };
+  const models = new Set();
+  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    if (!line.includes('usage_raw')) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (row?.kind !== 'usage_raw') continue;
+    totals.requests += 1;
+    if (row.model) models.add(row.model);
+    totals.uncached += finite(row.uncached_input_tokens ?? row.input_tokens);
+    totals.cached += finite(row.cached_tokens);
+    totals.cacheWrite += finite(row.cache_write_tokens);
+    totals.output += finite(row.output_tokens);
+  }
+  if (!totals.requests) return null;
+  return { ...totals, model: models.size === 1 ? [...models][0] : null };
+}
+
 function usageMetrics(trialDir, transcript) {
   const usage = tryReadJson(join(trialDir, 'agent', 'usage.json'));
   if (Array.isArray(usage?.sessions) && usage.sessions.length) {
@@ -43,31 +72,43 @@ function usageMetrics(trialDir, transcript) {
       cacheWrite: session.cacheWriteTokens,
       output: session.outputTokens,
     }));
-    if (costs.some((cost) => cost == null)) {
+    if (!costs.some((cost) => cost == null)) {
       return {
-        costUsd: null,
+        costUsd: costs.reduce((total, cost) => total + cost, 0),
         cacheWrite: finite(usage?.totals?.cacheWriteTokens),
-        costUnsupported: true,
+        costSource: 'usage.json',
       };
     }
-    return {
-      costUsd: costs.reduce((total, cost) => total + cost, 0),
-      cacheWrite: finite(usage?.totals?.cacheWriteTokens),
-    };
   }
-  if (!transcript) return { costUsd: null, cacheWrite: 0 };
-  const cacheWrite = finite(transcript.totalCacheWriteTokens);
-  const costUsd = pricedSplitCost({
-    model: transcript.model,
-    uncached: Math.max(finite(transcript.totalUncachedInputTokens) - cacheWrite, 0),
-    cached: transcript.totalCachedReadTokens,
-    cacheWrite,
-    output: transcript.totalOutputTokens,
-  });
-  if (costUsd == null) {
-    return { costUsd: null, cacheWrite, costUnsupported: true };
+  if (transcript) {
+    const cacheWrite = finite(transcript.totalCacheWriteTokens);
+    const costUsd = pricedSplitCost({
+      model: transcript.model,
+      uncached: Math.max(finite(transcript.totalUncachedInputTokens) - cacheWrite, 0),
+      cached: transcript.totalCachedReadTokens,
+      cacheWrite,
+      output: transcript.totalOutputTokens,
+    });
+    if (costUsd != null) return { costUsd, cacheWrite, costSource: 'session-transcript.json' };
   }
-  return { costUsd, cacheWrite };
+  const trace = traceUsageTotals(trialDir);
+  if (trace) {
+    const costUsd = pricedSplitCost({
+      model: trace.model,
+      uncached: trace.uncached,
+      cached: trace.cached,
+      cacheWrite: trace.cacheWrite,
+      output: trace.output,
+    });
+    if (costUsd != null) {
+      return { costUsd, cacheWrite: trace.cacheWrite, costSource: 'agent-trace.jsonl' };
+    }
+  }
+  return {
+    costUsd: null,
+    cacheWrite: finite(usage?.totals?.cacheWriteTokens ?? transcript?.totalCacheWriteTokens),
+    costUnsupported: true,
+  };
 }
 
 function findRunDir(jobsDir) {
@@ -326,6 +367,9 @@ function collectTrials(runDir, costDetails = {}) {
           ?? finite(trace?.tokens?.output),
       },
       costUsd: optionalNumber(costDetails[task]) ?? directCost ?? usage.costUsd,
+      costSource: optionalNumber(costDetails[task]) != null
+        ? 'cost-details'
+        : (directCost != null ? 'harbor-result' : (usage.costSource ?? null)),
       costUnsupported: Boolean(usage.costUnsupported)
         && optionalNumber(costDetails[task]) == null
         && directCost == null,

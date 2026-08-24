@@ -19,6 +19,7 @@ import type {
   DesktopProjectSummary,
   DesktopPromptContent,
   DesktopSessionFrameSource,
+  DesktopSessionLaneEnd,
   DesktopSessionStateUpdate,
   DesktopSessionSummary,
   DesktopSubmitOptions,
@@ -191,6 +192,7 @@ export class SessionHost implements DesktopService {
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private readonly sessionProjections = new Map<string, SessionProjection>();
+  private readonly recoveringSessionIds = new Set<string>();
   private readonly visibleSessionIds = new Set<string>();
   private readonly visibleSessionSources = new Map<string, Set<string>>();
   /** A new runtime exists on disk before its first prompt/title is accepted.
@@ -392,19 +394,31 @@ export class SessionHost implements DesktopService {
       const full = value.full;
       const rebuilt = full && typeof full === 'object'
         ? { ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot
-        : { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+        : null;
       // A stored read carries no baseline, so it always answers FULL — and a
       // visible cold view is re-read on a one second clock. Folding the fresh
       // parse onto the retained projection keeps the object identity that every
       // delta encoder downstream reads as "already sent".
-      snapshot = prior?.snapshot
-        ? reconcileSessionProjection(prior.snapshot, rebuilt)
-        : rebuilt;
+      if (rebuilt) {
+        snapshot = prior?.snapshot
+          ? reconcileSessionProjection(prior.snapshot, rebuilt)
+          : rebuilt;
+      }
     } else if (value?.patch && typeof value.patch === 'object'
       && prior && Number(value.baseRevision) === prior.revision) {
       snapshot = statePatch(prior.snapshot, value.patch as Record<string, unknown>);
     }
-    if (!snapshot) snapshot = { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+    if (!snapshot) {
+      // The service control session owns no pane and is never published, so an
+      // empty projection cannot blank anything: it keeps the cheap fallback
+      // rather than paying for a recovery read on every global capability.
+      if (id === this.controlSessionId) {
+        snapshot = { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+      } else {
+        this.recoverMissingSessionBaseline(id);
+        return { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+      }
+    }
     const nextRevision = Number.isFinite(revision) ? revision : (prior?.revision ?? 0);
     // Publishing a projection that did not move repaints nothing and costs a
     // whole transcript on the relay leg: the reader already holds this frame.
@@ -415,6 +429,25 @@ export class SessionHost implements DesktopService {
     this.trackShellJobsEngineState(snapshot);
     if (publish && !unmoved && id !== this.controlSessionId) this.publishSession(id, snapshot);
     return this.snapshotWithRemoteSession(snapshot);
+  }
+
+  /** A reply can outlive the baseline it was computed against: the projection
+   *  is dropped when the daemon reclaims an unwatched session and when the
+   *  daemon transport blips, so a reply that answers "unchanged since revision
+   *  N" — or carries a patch against it — arrives with nothing to apply it to.
+   *  Fabricating `{ items: [] }` for that case PUBLISHED AN EMPTY LIVE FRAME
+   *  and blanked a pane that was on screen and working (user: 데스크탑 세션
+   *  pane이 완전히 비어졌다 다시 나옴). Re-read instead: with no baseline to
+   *  announce, the daemon must answer FULL, and nothing is published until that
+   *  real content lands. The in-flight set keeps a read that itself finds no
+   *  content from starting another one. */
+  private recoverMissingSessionBaseline(sessionId: string): void {
+    if (this.disposed || this.recoveringSessionIds.has(sessionId)) return;
+    this.recoveringSessionIds.add(sessionId);
+    console.error(`[mixdog-lane] missing baseline session=${sessionId} — re-reading`);
+    void this.readSession(sessionId)
+      .catch(() => undefined)
+      .finally(() => { this.recoveringSessionIds.delete(sessionId); });
   }
 
   private handleSessionFrame(frame: Record<string, unknown>): void {
@@ -434,8 +467,17 @@ export class SessionHost implements DesktopService {
     }
     if (frame.type === 'session-gone') {
       this.sessionProjections.delete(sessionId);
+      // The daemon's idle sweep reclaims an unwatched session's MEMORY
+      // (session-service: 'idle and unwatched') and reloads it on demand; the
+      // transcript never left disk. Publishing that as an unqualified null
+      // made the renderer drop its cached lane and repaint a live task as an
+      // empty New Task (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예
+      // 비어버린다). Name the reason so only a real teardown clears a pane.
+      const laneEnd: DesktopSessionLaneEnd = String(frame.reason || '') === 'idle and unwatched'
+        ? 'unloaded'
+        : 'gone';
       for (const listener of [...this.sessionStateListeners]) {
-        try { listener({ sessionId, snapshot: null, frameSource: 'live' }); } catch {}
+        try { listener({ sessionId, snapshot: null, frameSource: 'live', laneEnd }); } catch {}
       }
       return;
     }
@@ -454,7 +496,11 @@ export class SessionHost implements DesktopService {
     this.sessionProjections.clear();
     for (const sessionId of this.visibleSessionIds) {
       for (const listener of [...this.sessionStateListeners]) {
-        try { listener({ sessionId, snapshot: null, frameSource: 'live' }); } catch {}
+        // Recovery re-attaches to the daemon and resyncs. Until it lands, a
+        // pane keeps showing what it already has instead of blanking.
+        try {
+          listener({ sessionId, snapshot: null, frameSource: 'live', laneEnd: 'disconnected' });
+        } catch {}
       }
     }
   }
@@ -819,11 +865,23 @@ export class SessionHost implements DesktopService {
     const source = String(sourceId || '').trim();
     if (!source) throw new TypeError('sourceId is required.');
     const requested = [...new Set(sessionIds.map(sessionIdOf))];
+    const priorSourceSessions = this.visibleSessionSources.get(source);
     // Subscribe is already an exact, single-record authorization boundary in
     // the daemon. Do not scan the complete catalog merely to validate the few
     // session ids represented by visible panes.
     const accepted = await Promise.all(requested.map(async (sessionId) => {
-      if (this.visibleSessionIds.has(sessionId)) return sessionId;
+      if (this.visibleSessionIds.has(sessionId)) {
+        // A projection can already be resident for the desktop or another
+        // phone. A NEW source still needs one full replay: subscribing again
+        // would duplicate the daemon read, while returning silently leaves the
+        // new phone blank until the next live token arrives.
+        if (!priorSourceSessions?.has(sessionId)) {
+          const projection = this.sessionProjections.get(sessionId);
+          if (projection) this.publishSession(sessionId, projection.snapshot, 'replay');
+          else await this.readSession(sessionId);
+        }
+        return sessionId;
+      }
       const prior = this.sessionProjections.get(sessionId);
       try {
         const result = await this.sessionClient.subscribe({

@@ -54,9 +54,15 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const usable = exact
     ?? (rendered && text.startsWith(rendered.source) ? rendered : null);
   const renderedRoot = usable?.root ?? null;
+  // Before the first worker result, the source fallback is the visible DOM.
+  // Its text can wrap onto a new line without changing renderedRoot, so key
+  // the layout notification to that visible source as well. Otherwise only
+  // ResizeObserver notices the growth one frame later and the bottom anchor
+  // corrects after paint, which appears as a one-off vertical transcript kick.
+  const fallbackMeasureText = renderedRoot ? "" : text;
   useLayoutEffect(() => {
     onRendered?.();
-  }, [onRendered, renderedRoot]);
+  }, [fallbackMeasureText, onRendered, renderedRoot]);
 
   useEffect(() => {
     if (!parse) return;

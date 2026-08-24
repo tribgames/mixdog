@@ -496,6 +496,7 @@ const api: DesktopApi = {
         sessionId,
         snapshot: decoded.snapshot as SessionSnapshot,
         frameSource: update.frameSource,
+        ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
         ...(typeof update.contentRevision === 'number'
           ? { contentRevision: update.contentRevision }
           : {}),

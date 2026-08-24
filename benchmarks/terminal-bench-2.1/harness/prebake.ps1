@@ -35,8 +35,16 @@ apt-get update
 apt-get install -y curl ca-certificates ripgrep zstd
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y nodejs
-npm install -g mixdog@__VERSION__
+# Lifecycle scripts are skipped here for one reason only: the embedding prune
+# aborts the whole install on linux-x64 when the published tarball ships no
+# ONNX payload, and this cache deletes the entire embedding stack a few lines
+# below anyway. The OTHER half of that postinstall is not optional — it stages
+# the release native assets, including the search server behind the runtime's
+# grep/glob tools — so it runs explicitly right after.
+npm install -g mixdog@__VERSION__ --ignore-scripts
 MIXDOG_PKG="$(npm root -g)/mixdog"
+(cd "$MIXDOG_PKG" && node scripts/prepare-native-assets.mjs)
+test -d "$MIXDOG_PKG/native-tools"
 # Native spawn is supplied by the local runtime bundle, never by this
 # dependency cache. Removing it makes a missing bundle fail closed.
 rm -f "$MIXDOG_PKG/native-tools/mixdog-spawn"

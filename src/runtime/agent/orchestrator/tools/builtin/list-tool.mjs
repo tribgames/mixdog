@@ -13,6 +13,7 @@ import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import {
     buildListCacheKey,
     DEFAULT_IGNORE_GLOBS,
+    rootScanIgnoreGlobs,
 } from './search-builders.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
 import {
@@ -256,7 +257,11 @@ export async function executeListTool(args, workDir, options = {}) {
     const hidden = Boolean(args.hidden);
     const sort = ['name', 'mtime', 'size'].includes(args.sort) ? args.sort : 'name';
     const typeFilter = ['any', 'file', 'dir'].includes(args.type) ? args.type : 'any';
-    const headLimit = normalizeListHeadLimit(args.head_limit, _listDefaultHeadLimit(100));
+    const listHeadLimitCap = _listDefaultHeadLimit(100);
+    const requestedHeadLimit = normalizeListHeadLimit(args.head_limit, listHeadLimitCap);
+    const headLimit = requestedHeadLimit === 0
+        ? 0
+        : Math.min(requestedHeadLimit, listHeadLimitCap);
     const offset = typeof args.offset === 'number' && args.offset > 0 ? args.offset : 0;
     const needsGlobalStat = sort === 'mtime' || sort === 'size';
     const includeNoise = Boolean(args.include_noise);
@@ -899,6 +904,7 @@ export async function prewarmFindEnumeration(root) {
         for (const ex of DEFAULT_IGNORE_GLOBS) {
             common.push('--glob', ex);
         }
+        for (const ex of rootScanIgnoreGlobs(normalizeOutputPath(root))) common.push('--glob', ex);
         common.push('.');
         await getBroadEnumeration({
             root: normalizeOutputPath(root),
@@ -971,6 +977,7 @@ async function getTargetedFindEnumeration({
             if (!includeNoise) {
                 for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
             }
+            for (const ex of rootScanIgnoreGlobs(root)) rgArgs.push('--glob', ex);
             rgArgs.push('.');
             try {
                 const stdout = await runRgImpl(rgArgs, {
@@ -1096,7 +1103,13 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
                 hidden,
                 includeNoise,
                 maxDepth: depth,
-                exclude: includeNoise ? [] : DEFAULT_IGNORE_GLOBS,
+                exclude: [
+                    ...(includeNoise ? [] : DEFAULT_IGNORE_GLOBS),
+                    // Kernel-virtual trees are pruned even under include_noise:
+                    // they are never dependency noise, and walking them starves
+                    // the fuzzy inventory budget on a full-root scan.
+                    ...rootScanIgnoreGlobs(fullPath),
+                ],
             }, {
                 cwd: fullPath,
                 timeout: FIND_FUZZY_TIMEOUT_MS,
@@ -1234,6 +1247,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
     if (!includeNoise) {
         for (const ex of DEFAULT_IGNORE_GLOBS) ignoreGlobs.push('--glob', ex);
     }
+    for (const ex of rootScanIgnoreGlobs(normalizeOutputPath(fullPath))) ignoreGlobs.push('--glob', ex);
     // The narrowed pass must treat `query` as a LITERAL filename substring, not
     // a glob. Wrap every globset metacharacter in a single-char character class
     // (`[` → `[[]`, `*` → `[*]`, …): character-class quoting is the only form
@@ -1476,6 +1490,7 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
     if (!includeNoise) {
         for (const ex of DEFAULT_IGNORE_GLOBS) inventoryArgs.push('--glob', ex);
     }
+    for (const ex of rootScanIgnoreGlobs(fullPath)) inventoryArgs.push('--glob', ex);
     if (namePattern) {
         inventoryArgs.push('--iglob', nameIsGlob ? namePattern : `*${namePattern}*`);
     }

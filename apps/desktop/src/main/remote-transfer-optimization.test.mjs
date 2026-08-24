@@ -9,7 +9,11 @@ import {
   markCompactWire,
   reconcileSessionProjection,
 } from "./state-delta.ts";
-import { clientReadsLane, encodeRelayClientSessionState } from "./remote-relay.ts";
+import {
+  clientReadsLane,
+  encodeRelayClientSessionState,
+  remoteTranscriptSnapshot,
+} from "./remote-relay.ts";
 import {
   createRemotePaintProbeTracker,
   remoteFrameLane,
@@ -339,6 +343,93 @@ function receiveCompact(wire) {
   }
   return wire;
 }
+
+test("a remote transcript drops provider replay blocks and keeps item identity", () => {
+  const plain = { id: "a", role: "user", content: "hi" };
+  const heavy = {
+    id: "b",
+    role: "assistant",
+    content: "answer",
+    thinkingBlocks: [{ type: "thinking", thinking: "x".repeat(4_000), signature: "sig" }],
+  };
+  const snapshot = { sessionId: "s", items: [plain, heavy], status: "idle" };
+  const projected = remoteTranscriptSnapshot(snapshot);
+
+  assert.notEqual(projected, snapshot);
+  assert.equal(projected.items[0], plain, "an untouched item is passed through by reference");
+  assert.equal(Object.hasOwn(projected.items[1], "thinkingBlocks"), false);
+  assert.equal(projected.items[1].content, "answer");
+  assert.ok(
+    JSON.stringify(projected).length * 4 < JSON.stringify(snapshot).length,
+    "the replay blocks dominated the payload",
+  );
+
+  // A second publication of the SAME items must project to the same objects,
+  // or the delta encoder would treat every frame as a full rewrite.
+  const again = remoteTranscriptSnapshot({ ...snapshot });
+  assert.equal(again.items[1], projected.items[1]);
+});
+
+test("a remote client receives the transcript's tail, not its whole history", () => {
+  const items = Array.from({ length: 400 }, (unused, index) => ({
+    id: `i${index}`,
+    content: `turn ${index}`,
+  }));
+  const encoders = new Map();
+  const floors = new Map();
+  const first = encodeRelayClientSessionState(
+    encoders, "s", { sessionId: "s", items }, true, floors,
+  );
+  const decoder = createSnapshotDeltaDecoder();
+  const opened = decoder.decode(receiveCompact(first));
+
+  assert.equal(opened.ok, true);
+  assert.equal(opened.snapshot.items.length, 60);
+  assert.equal(opened.snapshot.items[59].id, "i399", "the window ends at the newest turn");
+  assert.equal(opened.snapshot.transcriptWindowStart, 340);
+
+  // An appended turn must cost ONE item, not a rewritten window: the floor
+  // stays put, so the receiver's array simply grows.
+  const grown = [...items, { id: "i400", content: "turn 400" }];
+  const next = encodeRelayClientSessionState(
+    encoders, "s", { sessionId: "s", items: grown }, true, floors,
+  );
+  assert.ok(JSON.stringify(next).length < 200, JSON.stringify(next).slice(0, 300));
+  const appended = decoder.decode(receiveCompact(next));
+  assert.equal(appended.ok, true);
+  assert.equal(appended.snapshot.items.length, 61);
+  assert.equal(appended.snapshot.items[60].id, "i400");
+});
+
+test("a transcript shorter than the window is sent whole", () => {
+  const items = Array.from({ length: 12 }, (unused, index) => ({ id: `i${index}` }));
+  const floors = new Map();
+  const wire = encodeRelayClientSessionState(
+    new Map(), "s", { sessionId: "s", items }, true, floors,
+  );
+  assert.equal(wire.items.length, 12);
+  assert.equal(Object.hasOwn(wire, "transcriptWindowStart"), false);
+});
+
+test("a remote transcript with nothing to drop is returned unchanged", () => {
+  const snapshot = { sessionId: "s", items: [{ id: "a", content: "hi" }], status: "idle" };
+  assert.equal(remoteTranscriptSnapshot(snapshot), snapshot);
+});
+
+test("dropped replay blocks cost a remote client nothing on later frames", () => {
+  const items = Array.from({ length: 40 }, (unused, index) => ({
+    id: `i${index}`,
+    role: index % 2 ? "assistant" : "user",
+    content: `turn ${index}`,
+    thinkingBlocks: [{ type: "thinking", thinking: "y".repeat(2_000) }],
+  }));
+  const encoders = new Map();
+  const first = encodeRelayClientSessionState(encoders, "s", { sessionId: "s", items }, true);
+  assert.ok(!JSON.stringify(first).includes("thinkingBlocks"));
+  // Same items, same objects: the second publication is not a frame at all.
+  const second = encodeRelayClientSessionState(encoders, "s", { sessionId: "s", items }, true);
+  assert.equal(isNoDelta(second), true);
+});
 
 test("a cold view re-read from disk does not re-send the transcript", () => {
   const items = Array.from({ length: 120 }, (unused, id) => ({

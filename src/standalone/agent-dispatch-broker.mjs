@@ -28,42 +28,26 @@ function dispatchSignature(agent, params) {
   } catch { return null; }
 }
 
-function awaitSharedPreparation(promise, signal) {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(abortError(signal));
-  let listener = null;
-  const aborted = new Promise((_, reject) => {
-    listener = () => reject(abortError(signal));
-    signal.addEventListener('abort', listener, { once: true });
-  });
-  return Promise.race([promise, aborted]).finally(() => {
-    if (listener) {
-      try { signal.removeEventListener('abort', listener); } catch {}
-    }
-  });
-}
-
 /**
  * Process-singleton memory LLM broker.
  *
- * The daemon owns one provider/session/memory graph. Memory
- * process keeps PG, embeddings, and recall, and forwards only cycle LLM calls
- * here. A singleton is NOT a serial lane: every call gets its own dispatch
- * session + AbortController and the fair scheduler starts calls in parallel
- * unless an operator explicitly configures a finite active limit.
+ * The memory process keeps PG, embeddings, and recall, and forwards only
+ * cycle LLM calls here. The broker owns admission (fair scheduler), callId
+ * idempotency, and cancellation; actual agent execution is delegated through
+ * dispatchAgent to the recyclable session runtime worker so orchestrator and
+ * provider churn never accumulates in the permanent daemon process. A
+ * singleton is NOT a serial lane: every call gets its own AbortController and
+ * the fair scheduler starts calls in parallel unless an operator explicitly
+ * configures a finite active limit.
  */
 export function createAgentDispatchBroker({
-  loadConfig,
-  initProviders,
-  makeAgentDispatch,
+  dispatchAgent,
   log = () => {},
   activeMax = Infinity,
   queueMax = 256,
   onActivityChanged = null,
 } = {}) {
-  if (typeof loadConfig !== 'function') throw new TypeError('loadConfig is required');
-  if (typeof initProviders !== 'function') throw new TypeError('initProviders is required');
-  if (typeof makeAgentDispatch !== 'function') throw new TypeError('makeAgentDispatch is required');
+  if (typeof dispatchAgent !== 'function') throw new TypeError('dispatchAgent is required');
 
   const scheduler = createFairCallScheduler({
     name: 'memory agent dispatch',
@@ -72,51 +56,8 @@ export function createAgentDispatchBroker({
     minOwnerQueue: Math.max(8, Math.floor(queueMax / 16)),
   });
   const inFlight = new Map();
-  const dispatchers = new Map(MEMORY_AGENTS.map((agent) => [
-    agent,
-    makeAgentDispatch({
-      agent,
-      taskType: 'maintenance',
-      sourceType: 'memory-cycle',
-      brief: false,
-    }),
-  ]));
   let nextCallId = 0;
   let closed = false;
-  let preparedProviderSignature = null;
-  let providerPreparePromise = null;
-
-  async function prepareProviders(signal = null) {
-    const config = loadConfig();
-    const providers = config?.providers || {};
-    let signature = null;
-    try { signature = JSON.stringify(providers); } catch {}
-    if (signature !== null && preparedProviderSignature === signature) return;
-    if (providerPreparePromise) {
-      await awaitSharedPreparation(providerPreparePromise, signal);
-      if (signature !== null && preparedProviderSignature === signature) return;
-      return prepareProviders(signal);
-    }
-    const pending = Promise.resolve()
-      // Process-global preparation is shared by every request. One caller's
-      // cancellation may stop waiting but must never abort initialization
-      // underneath independent calls.
-      .then(() => initProviders(providers))
-      .then(() => {
-        preparedProviderSignature = signature;
-      });
-    const tracked = pending.finally(() => {
-      if (providerPreparePromise === tracked) providerPreparePromise = null;
-    });
-    providerPreparePromise = tracked;
-    await awaitSharedPreparation(tracked, signal);
-  }
-
-  async function warmup() {
-    if (closed) throw new Error('memory agent dispatch broker is closed');
-    await prepareProviders();
-    return true;
-  }
 
   function dispatch(params = {}, { callId = null, signal = null } = {}) {
     if (closed) return Promise.reject(new Error('memory agent dispatch broker is closed'));
@@ -157,16 +98,22 @@ export function createAgentDispatchBroker({
 
     const run = async () => {
       if (controller.signal.aborted) throw abortError(controller.signal);
-      await prepareProviders(controller.signal);
-      if (controller.signal.aborted) throw abortError(controller.signal);
       const timeout = Number(params.timeout);
-      return dispatchers.get(agent)({
-        prompt,
-        preset: params.preset || undefined,
-        cwd: typeof params.cwd === 'string' && params.cwd ? params.cwd : undefined,
-        parentSignal: controller.signal,
-        ...(Number.isFinite(timeout) && timeout > 0 ? { idleTimeoutMs: timeout } : {}),
-      });
+      // Execution happens in the recyclable session runtime worker, not in
+      // this permanent daemon process: provider/orchestrator churn from
+      // memory-cycle agents returns to the OS at the worker's next memory
+      // recycle instead of accumulating in daemon commit forever.
+      return dispatchAgent({
+        dispatchId: id,
+        agent,
+        options: { taskType: 'maintenance', sourceType: 'memory-cycle', brief: false },
+        params: {
+          prompt,
+          preset: params.preset || undefined,
+          cwd: typeof params.cwd === 'string' && params.cwd ? params.cwd : undefined,
+          ...(Number.isFinite(timeout) && timeout > 0 ? { idleTimeoutMs: timeout } : {}),
+        },
+      }, { signal: controller.signal });
     };
     const promise = scheduler.enqueue(`memory:${agent}`, run, {
       signal: controller.signal,
@@ -204,7 +151,6 @@ export function createAgentDispatchBroker({
     return {
       ...scheduler.snapshot(),
       inFlight: inFlight.size,
-      dispatchers: dispatchers.size,
     };
   }
 
@@ -219,7 +165,6 @@ export function createAgentDispatchBroker({
   }
 
   return {
-    warmup,
     dispatch,
     cancel,
     cancelAndWait,

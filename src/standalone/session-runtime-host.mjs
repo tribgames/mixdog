@@ -535,7 +535,7 @@ export function createSessionRuntimeHost({
   const MEMORY_RECYCLE_THRESHOLD_BYTES = (
     Number.isFinite(configuredRecycleMb) && configuredRecycleMb >= 0
       ? configuredRecycleMb
-      : 384
+      : 256
   ) * 1024 * 1024;
   const MEMORY_RECYCLE_INTERVAL_MS = Math.max(
     5_000,
@@ -543,7 +543,7 @@ export function createSessionRuntimeHost({
   );
   const MEMORY_RECYCLE_COOLDOWN_MS = Math.max(
     60_000,
-    Number(env.MIXDOG_SESSION_WORKER_RECYCLE_COOLDOWN_MS) || 15 * 60_000,
+    Number(env.MIXDOG_SESSION_WORKER_RECYCLE_COOLDOWN_MS) || 5 * 60_000,
   );
   let workloadCache = { refreshedAt: 0, worker: null };
   let workloadRefresh = null;
@@ -608,6 +608,35 @@ export function createSessionRuntimeHost({
     },
     prewarm() {
       return worker.request('prewarm', {}, 120_000);
+    },
+    // Memory-cycle agent execution rides the runtime worker so its provider/
+    // orchestrator churn is reclaimed by the worker's memory recycle instead
+    // of accumulating in the daemon. An in-flight dispatch holds a worker
+    // 'agent' admission lease AND a pending IPC call, so the recycle guard
+    // never tears down a running dispatch.
+    async agentDispatch(payload = {}, { signal = null, timeoutMs = 60 * 60_000 } = {}) {
+      if (closed) throw new Error('session runtime host is closed');
+      const dispatchId = String(payload?.dispatchId || '');
+      if (!dispatchId) throw new Error('agent dispatch id is required');
+      const cancel = (reason) => {
+        void worker.request('agent-dispatch-cancel', {
+          dispatchId,
+          reason: String(reason || 'agent dispatch canceled'),
+        }, 10_000).catch(() => {});
+      };
+      if (signal?.aborted) throw new Error('agent dispatch canceled before start');
+      const onAbort = () => cancel(signal?.reason?.message || signal?.reason);
+      signal?.addEventListener?.('abort', onAbort, { once: true });
+      try {
+        const result = await worker.request('agent-dispatch', payload, timeoutMs);
+        return result?.value;
+      } catch (error) {
+        // The worker keeps running after a host-side timeout; tell it to stop.
+        if (/timed out/.test(String(error?.message || ''))) cancel('agent dispatch timed out');
+        throw error;
+      } finally {
+        signal?.removeEventListener?.('abort', onAbort);
+      }
     },
     refreshRuntimeWorkload,
     get workloads() {

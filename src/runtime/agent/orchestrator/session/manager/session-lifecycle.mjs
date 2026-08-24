@@ -44,7 +44,11 @@ import {
     IMPLICIT_APPROVAL_MODE,
     workflowContextForApprovalMode,
 } from '../approval-mode.mjs';
-import { describeShellStartupPolicy } from '../../tools/builtin/runtime-capabilities.mjs';
+import {
+    describeGitStartupState,
+    describeShellStartupPolicy,
+    detectPathCapabilities,
+} from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
 
@@ -314,6 +318,12 @@ export function createSession(opts) {
     // resolves explicit session signals first and never leaks the daemon's
     // install root (user-cwd.mjs safe fallback chain).
     const sessionCwdLine = opts.cwd || captureOriginalUserCwd();
+    const wantsShellStartupLine = toolsForRouting.some((tool) => tool?.name === 'shell');
+    const wantsGitStartupLine = toolsForRouting.some((tool) => tool?.name === 'git');
+    // One PATH walk feeds every startup line below.
+    const startupCapabilities = wantsShellStartupLine || wantsGitStartupLine
+        ? detectPathCapabilities()
+        : null;
     const shellEnvironmentContext = [
         sessionCwdLine
             ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
@@ -321,8 +331,18 @@ export function createSession(opts) {
         !ownerIsAgent
             ? `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`
             : '',
-        toolsForRouting.some((tool) => tool?.name === 'shell')
-            ? describeShellStartupPolicy()
+        wantsShellStartupLine
+            ? describeShellStartupPolicy({ capabilities: startupCapabilities })
+            : '',
+        // Whether the cwd is inside a repository is the fact the git tool
+        // needs and cannot infer: a PATH listing only says the binary exists.
+        // Without it a session spends a call discovering `exited 128`, and
+        // repeats it per candidate path.
+        wantsGitStartupLine
+            ? describeGitStartupState({
+                capabilities: startupCapabilities,
+                ...(sessionCwdLine ? { cwd: sessionCwdLine } : {}),
+            })
             : '',
     ].filter(Boolean).join('\n');
     const { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment } = composeSystemPrompt({
@@ -493,6 +513,36 @@ export function contextSeedForRouteUpdate(session, routeChanged, selectedContext
         : {};
 }
 
+// The shared-rules block (BP1) renders tool-conditional variants against the
+// edit dialect the model actually receives (edit vs apply_patch). An
+// empty-session route change swaps the tool surface, so this block must
+// re-render too — otherwise a session created on a GPT default route and
+// switched to Claude keeps apply_patch placement guidance for a tool it can
+// no longer call (and vice versa). The block is identified by EXACT previous
+// content: the old variant is rebuilt from the same inputs and matched, so
+// only the true BP1 block is ever replaced; custom-prompt or agent layouts
+// without that block are left untouched, and a same-dialect switch is a no-op.
+export function _refreshSessionRuleVariantsForModel(session, previousModel) {
+    const deny = [
+        ...(Array.isArray(session?.disallowedTools) ? session.disallowedTools : []),
+        ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
+        ...(!isAgentOwner(session) && workflowDisallowsAgentTool(session?.workflow) ? ['agent'] : []),
+    ];
+    const previousRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(previousModel)] });
+    const nextRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(session?.model)] });
+    if (!previousRules || previousRules === nextRules) return false;
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    const index = messages.findIndex((message) => (
+        message?.role === 'system' && !message.cacheTier && message.content === previousRules
+    ));
+    if (index < 0) return false;
+    // Replace, never mutate: session-store delta saves treat stable message
+    // references as an append-only prefix, so a fresh object forces the full
+    // snapshot that keeps the persisted transcript in sync.
+    messages[index] = { ...messages[index], content: nextRules };
+    return true;
+}
+
 export function updateSessionRoute(id, route = {}) {
     if (!id) return null;
     const session = loadSession(id);
@@ -576,8 +626,15 @@ export function updateSessionRoute(id, route = {}) {
         for (const key of ['deferredSelectedTools', 'deferredCallableTools', 'deferredDefaultTools', 'deferredDiscoveredTools']) {
             if (Array.isArray(session[key])) session[key] = filterModelEditToolNames(session[key], session.model);
         }
+        _refreshSessionRuleVariantsForModel(session, previousModel);
         _preparedResumes.delete(id);
     }
+    // Route fields feed the `# Session` prompt block (Model: … · EFFORT · FAST).
+    // Rebuild it here: createSession stamped the block with the creation-time
+    // route and set sessionStartMetaInjected, so the ask-time refresh guard
+    // skips it and an empty-session route change would otherwise keep the old
+    // model line in the system prompt (model self-identity confusion).
+    refreshSessionBp3Environment(session, session.cwd);
     session.updatedAt = Date.now();
     setLiveSession(session);
     void saveSessionAsync(session, { expectedGeneration: session.generation })

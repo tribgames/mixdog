@@ -172,7 +172,7 @@ export function _metadataTrace(metadata) {
 }
 
 // The WebSocket handshake carries compatibility identity and routing fields.
-// Installation and Responses Lite data stay in per-request client_metadata.
+// Installation data stays in per-request client_metadata.
 export function _codexWsCompatibilityHeaders(context = {}) {
     const metadata = _codexMetadataBase(null, context);
     const headers = {};
@@ -211,9 +211,6 @@ export function _withCodexWsClientMetadata(frame, entry, enabled, context = {}) 
     const metadata = {
         ...base,
         ...(frame.client_metadata && typeof frame.client_metadata === 'object' ? frame.client_metadata : {}),
-        ...(context?.useResponsesLite === true
-            ? { ws_request_header_x_openai_internal_codex_responses_lite: 'true' }
-            : {}),
         'x-codex-ws-stream-request-start-ms': String(Date.now()),
     };
     if (entry && typeof entry === 'object') {

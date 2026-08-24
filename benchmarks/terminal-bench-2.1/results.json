@@ -1,13 +1,13 @@
 {
-  "generated": "2026-08-04",
+  "generated": "2026-08-24",
   "runs": {
     "opus5": {
-      "jobs_dir": "jobs-full-opus5-clean-20260804-042235",
-      "score": "78/89"
+      "jobs_dir": "jobs-full-opus5-solo-20260823-144706",
+      "score": "82/89"
     },
     "sol-xhigh": {
-      "jobs_dir": "jobs-full-solxhigh-clean-20260804-042235",
-      "score": "75/89"
+      "jobs_dir": "jobs-full-sol-xhigh-20260823-182305",
+      "score": "79/89"
     }
   },
   "tasks": [
@@ -43,7 +43,7 @@
     },
     {
       "task": "caffe-cifar-10",
-      "opus5": "fail",
+      "opus5": "pass",
       "sol_xhigh": "pass"
     },
     {
@@ -79,7 +79,7 @@
     {
       "task": "configure-git-webserver",
       "opus5": "pass",
-      "sol_xhigh": "pass"
+      "sol_xhigh": "fail"
     },
     {
       "task": "constraints-scheduling",
@@ -113,17 +113,17 @@
     },
     {
       "task": "dna-assembly",
-      "opus5": "fail",
+      "opus5": "pass",
       "sol_xhigh": "fail"
     },
     {
       "task": "dna-insert",
-      "opus5": "fail",
+      "opus5": "pass",
       "sol_xhigh": "fail"
     },
     {
       "task": "extract-elf",
-      "opus5": "pass",
+      "opus5": "fail",
       "sol_xhigh": "pass"
     },
     {
@@ -179,7 +179,7 @@
     {
       "task": "git-multibranch",
       "opus5": "pass",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "gpt2-codegolf",
@@ -199,7 +199,7 @@
     {
       "task": "install-windows-3.11",
       "opus5": "pass",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "kv-store-grpc",
@@ -213,7 +213,7 @@
     },
     {
       "task": "largest-eigenval",
-      "opus5": "pass",
+      "opus5": "fail",
       "sol_xhigh": "pass"
     },
     {
@@ -224,17 +224,17 @@
     {
       "task": "log-summary-date-ranges",
       "opus5": "pass",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "mailman",
       "opus5": "pass",
-      "sol_xhigh": "pass"
+      "sol_xhigh": "fail"
     },
     {
       "task": "make-doom-for-mips",
       "opus5": "fail",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "make-mips-interpreter",
@@ -269,7 +269,7 @@
     {
       "task": "mteb-retrieve",
       "opus5": "fail",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "multi-source-data-merger",
@@ -324,7 +324,7 @@
     {
       "task": "protein-assembly",
       "opus5": "pass",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "prove-plus-comm",
@@ -338,7 +338,7 @@
     },
     {
       "task": "pytorch-model-cli",
-      "opus5": "fail",
+      "opus5": "pass",
       "sol_xhigh": "pass"
     },
     {
@@ -363,8 +363,8 @@
     },
     {
       "task": "raman-fitting",
-      "opus5": "fail",
-      "sol_xhigh": "pass"
+      "opus5": "pass",
+      "sol_xhigh": "fail"
     },
     {
       "task": "regex-chess",
@@ -388,8 +388,8 @@
     },
     {
       "task": "sam-cell-seg",
-      "opus5": "fail",
-      "sol_xhigh": "pass"
+      "opus5": "pass",
+      "sol_xhigh": "fail"
     },
     {
       "task": "sanitize-git-repo",
@@ -419,7 +419,7 @@
     {
       "task": "torch-pipeline-parallelism",
       "opus5": "pass",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "torch-tensor-parallelism",
@@ -429,7 +429,7 @@
     {
       "task": "train-fasttext",
       "opus5": "fail",
-      "sol_xhigh": "fail"
+      "sol_xhigh": "pass"
     },
     {
       "task": "tune-mjcf",

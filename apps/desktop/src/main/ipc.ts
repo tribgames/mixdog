@@ -922,7 +922,7 @@ export function registerDesktopIpc(
     const normalized = [...new Set(sessionIds.map((sessionId) => requiredSessionId(sessionId)))];
     visibleSessionStateIds.clear();
     for (const sessionId of normalized) visibleSessionStateIds.add(sessionId);
-    releaseHiddenSessionStateEntries(
+    const released = releaseHiddenSessionStateEntries(
       visibleSessionStateIds,
       [sessionStateEncoders, latestSessionStates, latestSessionProvenance],
       (sessionId) => {
@@ -934,6 +934,14 @@ export function registerDesktopIpc(
         });
       },
     );
+    // The lane store now keeps a released pane painted, so this is diagnostic
+    // only: it names WHICH registration dropped a session id, the one way to
+    // see a mounted pane leave the visible set while it is still on screen.
+    if (released.length > 0) {
+      console.error('[mixdog-lane] baseline released'
+        + ` count=${released.length} visible=${normalized.length}`
+        + ` ids=${released.slice(0, 6).map((sessionId) => sessionId.slice(-8)).join(',')}`);
+    }
     return (await host.setVisibleSessions?.(normalized)) === true;
   });
   handle(DESKTOP_IPC.searchProjectFiles, (_event, projectIdOrWorkspaceId, query, limit) => {
@@ -1278,6 +1286,7 @@ export function registerDesktopIpc(
     snapshot: SessionSnapshot;
     frameSource: 'live' | 'replay';
     contentRevision?: number;
+    laneEnd?: 'gone' | 'unloaded' | 'disconnected';
   }): void => {
     const sessionId = String(update.sessionId || '');
     if (!sessionId || window.isDestroyed() || window.webContents.isDestroyed()) return;
@@ -1289,6 +1298,7 @@ export function registerDesktopIpc(
         sessionId,
         wire: encoder.encode(null),
         frameSource: update.frameSource,
+        ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
         ...(typeof update.contentRevision === 'number'
           ? { contentRevision: update.contentRevision }
           : {}),

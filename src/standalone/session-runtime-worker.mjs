@@ -133,6 +133,98 @@ async function callRuntime(message) {
   return sanitizeForWire(value);
 }
 
+// ── Memory-cycle agent dispatch ────────────────────────────────────────────
+// Cycle agents (LLM maintenance calls brokered by the daemon) execute in THIS
+// worker: the daemon process is permanent and allocator churn there is
+// unreclaimable, while this worker already recycles above its RSS threshold
+// once fully idle. The orchestrator graph and providers load lazily on the
+// first dispatch; an in-flight dispatch holds an 'agent' admission lease, so
+// the host's recycle guard (activeResources) never interrupts one.
+let agentGraphPromise = null;
+function agentGraph() {
+  agentGraphPromise ??= Promise.all([
+    import('../runtime/agent/orchestrator/config.mjs'),
+    import('../runtime/agent/orchestrator/providers/registry.mjs'),
+    import('../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs'),
+  ]).then(
+    ([config, registry, dispatch]) => ({ config, registry, dispatch }),
+    (error) => {
+      agentGraphPromise = null;
+      throw error;
+    },
+  );
+  return agentGraphPromise;
+}
+const agentDispatchers = new Map();
+const agentDispatchRuns = new Map(); // dispatchId -> AbortController
+let preparedProviderSignature = null;
+let providerPreparePromise = null;
+
+async function prepareAgentProviders() {
+  const { config, registry } = await agentGraph();
+  const providers = config.loadConfig()?.providers || {};
+  let signature = null;
+  try { signature = JSON.stringify(providers); } catch { /* re-prepare each call */ }
+  if (signature !== null && preparedProviderSignature === signature) return;
+  if (providerPreparePromise) {
+    await providerPreparePromise;
+    if (signature !== null && preparedProviderSignature === signature) return;
+    return prepareAgentProviders();
+  }
+  const pending = Promise.resolve()
+    .then(() => registry.initProviders(providers))
+    .then(() => { preparedProviderSignature = signature; });
+  const tracked = pending.finally(() => {
+    if (providerPreparePromise === tracked) providerPreparePromise = null;
+  });
+  providerPreparePromise = tracked;
+  await tracked;
+}
+
+async function runAgentDispatch(message) {
+  const dispatchId = String(message.dispatchId || '');
+  if (!dispatchId) throw new Error('agent dispatch id is required');
+  if (agentDispatchRuns.has(dispatchId)) {
+    throw new Error(`agent dispatch ${dispatchId} is already running`);
+  }
+  const agent = String(message.agent || '');
+  const { dispatch } = await agentGraph();
+  await prepareAgentProviders();
+  let dispatcher = agentDispatchers.get(agent);
+  if (!dispatcher) {
+    dispatcher = dispatch.makeAgentDispatch({
+      agent,
+      ...(message.options && typeof message.options === 'object' ? message.options : {}),
+    });
+    agentDispatchers.set(agent, dispatcher);
+  }
+  const controller = new AbortController();
+  agentDispatchRuns.set(dispatchId, controller);
+  try {
+    const params = message.params && typeof message.params === 'object' ? message.params : {};
+    const value = await dispatcher({
+      prompt: String(params.prompt ?? ''),
+      preset: params.preset || undefined,
+      cwd: typeof params.cwd === 'string' && params.cwd ? params.cwd : undefined,
+      parentSignal: controller.signal,
+      ...(Number.isFinite(Number(params.idleTimeoutMs)) && Number(params.idleTimeoutMs) > 0
+        ? { idleTimeoutMs: Number(params.idleTimeoutMs) }
+        : {}),
+    });
+    return { value: sanitizeForWire(value) ?? null };
+  } finally {
+    agentDispatchRuns.delete(dispatchId);
+  }
+}
+
+function cancelAgentDispatch(message) {
+  const controller = agentDispatchRuns.get(String(message.dispatchId || ''));
+  if (!controller) return { cancelled: false };
+  const reason = new Error(String(message.reason || 'agent dispatch canceled'));
+  try { controller.abort(reason); } catch { try { controller.abort(); } catch { /* settled */ } }
+  return { cancelled: true };
+}
+
 async function prewarm() {
   const module = await sessionModule();
   await Promise.allSettled([
@@ -192,6 +284,9 @@ async function exitAfterPendingWrites(code = 0) {
 async function stopAll(reason = 'session runtime worker shutdown') {
   if (stopping) return;
   stopping = true;
+  for (const controller of agentDispatchRuns.values()) {
+    try { controller.abort(new Error(reason)); } catch { /* settled */ }
+  }
   for (const record of [...records.values()]) {
     try {
       await disposeSessionRuntimeRecord(
@@ -220,6 +315,8 @@ process.on('message', (message) => {
     }
     if (message.type === 'prewarm') return prewarm();
     if (message.type === 'workload') return workloadSnapshot();
+    if (message.type === 'agent-dispatch') return runAgentDispatch(message);
+    if (message.type === 'agent-dispatch-cancel') return cancelAgentDispatch(message);
     if (message.type === 'shutdown') {
       await stopAll(message.reason);
       return { stopped: true };

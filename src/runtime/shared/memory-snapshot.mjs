@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import {
   mkdir,
   open,
+  readFile,
   rename,
   stat,
   unlink,
@@ -57,6 +58,51 @@ function systemMemory() {
   } catch {
     return {};
   }
+}
+
+/**
+ * Private working set of THIS process. Raw RSS double-counts image pages the
+ * runtime binary shares across every mixdog process (~90-100MB each measured
+ * on the desktop bundle), so trend analysis needs the private number beside
+ * memoryUsage. Best-effort: one bounded probe per sample, null when the
+ * platform offers no cheap source.
+ */
+async function selfPrivateMemory() {
+  if (process.platform === 'win32') {
+    try {
+      const { stdout } = await execFileAsync('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-Command',
+        `Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -Filter "IDProcess=${process.pid}" | Select-Object -First 1 -ExpandProperty WorkingSetPrivate`,
+      ], {
+        encoding: 'utf8',
+        timeout: 3000,
+        windowsHide: true,
+      });
+      const bytes = Number(String(stdout).trim());
+      return Number.isFinite(bytes) && bytes >= 0 ? { workingSetPrivateBytes: bytes } : null;
+    } catch {
+      return null;
+    }
+  }
+  if (process.platform === 'linux') {
+    try {
+      const rollup = await readFile('/proc/self/smaps_rollup', 'utf8');
+      const kb = (field) => {
+        const match = rollup.match(new RegExp(`^${field}:\\s+(\\d+) kB$`, 'm'));
+        return match ? Number(match[1]) * 1024 : null;
+      };
+      const privateBytes = (kb('Private_Clean') ?? 0) + (kb('Private_Dirty') ?? 0);
+      const pssBytes = kb('Pss');
+      if (privateBytes <= 0 && pssBytes === null) return null;
+      return {
+        workingSetPrivateBytes: privateBytes > 0 ? privateBytes : null,
+        proportionalSetSizeBytes: pssBytes,
+      };
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 async function pathExists(path) {
@@ -134,6 +180,9 @@ function parseWindowsProcesses(stdout) {
       name: String(row?.Name || ''),
       pid: Number(row?.ProcessId),
       workingSetMb: workingSetMb(row?.WorkingSetSize),
+      workingSetPrivateMb: Number.isFinite(Number(row?.WorkingSetPrivate))
+        ? workingSetMb(row.WorkingSetPrivate)
+        : null,
       commandLine: nullableProcessText(row?.CommandLine),
       parentPid: nullablePid(row?.ParentProcessId),
     }))
@@ -164,10 +213,10 @@ async function topProcesses() {
     if (process.platform === 'win32') {
       const { stdout } = await execFileAsync('powershell.exe', [
         '-NoProfile', '-NonInteractive', '-Command',
-        'Get-CimInstance Win32_Process | Sort-Object WorkingSetSize -Descending | Select-Object -First 8 ProcessId,Name,WorkingSetSize,CommandLine,ParentProcessId | ConvertTo-Json -Compress',
+        '$private = @{}; Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | ForEach-Object { $private[[int64]$_.IDProcess] = $_.WorkingSetPrivate }; Get-CimInstance Win32_Process | Sort-Object WorkingSetSize -Descending | Select-Object -First 8 ProcessId,Name,WorkingSetSize,CommandLine,ParentProcessId,@{n=\'WorkingSetPrivate\';e={$private[[int64]$_.ProcessId]}} | ConvertTo-Json -Compress',
       ], {
         encoding: 'utf8',
-        timeout: 3000,
+        timeout: 5000,
         windowsHide: true,
       });
       return parseWindowsProcesses(stdout);
@@ -200,19 +249,23 @@ function baseSnapshot(reason) {
 async function captureMemoryPressureSnapshot(reason = 'memory-pressure') {
   if (!enabled()) return false;
   const entry = baseSnapshot(reason);
-  const processes = await topProcesses();
+  const [privateMemory, processes] = await Promise.all([selfPrivateMemory(), topProcesses()]);
+  if (privateMemory) entry.privateMemory = privateMemory;
   if (processes) entry.topProcesses = processes;
   return appendSnapshot(entry);
 }
 
 /**
- * Periodic samples stay cheap, but once host free memory drops below the
+ * Periodic samples stay light — one bounded private-WS probe beside
+ * process.memoryUsage() — and once host free memory drops below the
  * attribution threshold the sample upgrades to a full top-process snapshot so
  * post-mortem analysis can name the consumer.
  */
 async function capturePeriodicMemorySnapshot() {
   if (!enabled()) return false;
   const entry = baseSnapshot('periodic');
+  const privateMemory = await selfPrivateMemory();
+  if (privateMemory) entry.privateMemory = privateMemory;
   const freeMemoryBytes = Number(entry.systemMemory?.freeMemoryBytes);
   if (Number.isFinite(freeMemoryBytes) && freeMemoryBytes < PERIODIC_ATTRIBUTION_FREE_BYTES) {
     const processes = await topProcesses();

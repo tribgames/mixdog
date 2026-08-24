@@ -10,7 +10,9 @@
   z-index: 1090;
   left: 56px;
   bottom: var(--rail-usage-popup-bottom, 48px);
-  width: 312px;
+  /* Wider track (user: 좀더 가로로 길게): the meter rows carry a per-window
+     reset column now, so the bar keeps its length instead of paying for it. */
+  width: 380px;
   max-height: calc(100vh - 60px);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -146,9 +148,8 @@
   line-height: var(--mx-line-micro);
 }
 /* Detail-style quota block: each window is one row — label, progress
-   track, percentage. The reset schedule lives on the provider line above
-   (user: 아이콘과 같은 선상). Fixed side columns keep every bar the same
-   length across rows. */
+   track, its OWN reset schedule, percentage (user: 리셋이 3번째, %가 마지막).
+   Fixed side columns keep every bar the same length across rows. */
 .sidebar-usage-meters {
   display: grid;
   gap: 6px;
@@ -159,9 +160,24 @@
 .sidebar-usage-meter {
   min-width: 0;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 32px;
+  grid-template-columns: 40px minmax(0, 1fr) 54px 32px;
   align-items: center;
   gap: 7px;
+}
+/* Per-window reset reading: quiet, right-aligned so "5d 13h" and "12h" share
+   one edge next to the percentage. */
+.sidebar-usage-meter > em {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-style: normal;
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-micro);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .sidebar-usage-meter > small {
   min-width: 0;

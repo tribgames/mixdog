@@ -23,7 +23,9 @@ import {
 } from '../src/runtime/agent/orchestrator/tools/builtin/shell-analysis.mjs';
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import {
+    appendGitStartupState,
     appendShellStartupPolicy,
+    describeGitStartupState,
     describeShellStartupPolicy,
 } from '../src/runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { checkExecPolicyMessage } from '../src/runtime/agent/orchestrator/tools/bash-policy-scan.mjs';
@@ -809,6 +811,62 @@ test('C: shell startup policy reports environment and PATH candidates in fixed o
             /^# Tool Use\n- Shell startup environment:/,
         );
         assert.equal(appendShellStartupPolicy('# Tool Use', [{ name: 'read' }]), '# Tool Use');
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('C: git startup state reports repository presence, not just the binary', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mixdog-git-startup-state-'));
+    try {
+        const gitName = process.platform === 'win32' ? 'git.exe' : 'git';
+        const binDir = join(dir, 'bin');
+        mkdirSync(binDir, { recursive: true });
+        const gitBinary = join(binDir, gitName);
+        writeFileSync(gitBinary, '');
+        if (process.platform !== 'win32') chmodSync(gitBinary, 0o755);
+        const withGit = { pathValue: binDir, platform: process.platform };
+
+        // No binary at all: the PATH listing already implies it, but the git
+        // tool surface states it directly.
+        assert.match(
+            describeGitStartupState({ cwd: dir, pathValue: join(dir, 'empty'), platform: process.platform }),
+            /^- Git startup state: git is not installed here;/,
+        );
+
+        // Installed, but the directory is not a repository — the case behind
+        // every `git status exited 128` in the benchmark traces.
+        const plain = join(dir, 'plain');
+        mkdirSync(plain, { recursive: true });
+        assert.match(
+            describeGitStartupState({ cwd: plain, ...withGit }),
+            /was not inside a git repository at startup/,
+        );
+
+        // A real repository resolves to its root and names the branch.
+        const repo = join(dir, 'repo');
+        const nested = join(repo, 'src', 'deep');
+        mkdirSync(nested, { recursive: true });
+        mkdirSync(join(repo, '.git'), { recursive: true });
+        writeFileSync(join(repo, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+        assert.equal(
+            describeGitStartupState({ cwd: nested, ...withGit }),
+            `- Git startup state: repository root ${resolve(repo)} on branch main.`,
+        );
+
+        // Detached HEAD names no branch and must not invent one.
+        writeFileSync(join(repo, '.git', 'HEAD'), '9fceb02d0ae598e95dc970b74767f19372d61af8\n');
+        assert.match(
+            describeGitStartupState({ cwd: repo, ...withGit }),
+            /with a detached HEAD\.$/,
+        );
+
+        // Only attached when the git tool is actually on the surface.
+        assert.match(
+            appendGitStartupState('# Tool Use', [{ name: 'git' }], { cwd: plain, ...withGit }),
+            /^# Tool Use\n- Git startup state:/,
+        );
+        assert.equal(appendGitStartupState('# Tool Use', [{ name: 'shell' }], { cwd: plain, ...withGit }), '# Tool Use');
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

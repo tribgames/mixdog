@@ -7,23 +7,6 @@
  * _displayCodexModel for existing importers.
  */
 
-const CODEX_RESPONSES_LITE_CAPABILITY = Object.freeze({
-    'gpt-5.6-sol': true,
-    'gpt-5.6-terra': true,
-    'gpt-5.6-luna': true,
-    'gpt-5.5': false,
-    'gpt-5.4': false,
-    'gpt-5.4-mini': false,
-    'gpt-5.2': false,
-    'codex-auto-review': false,
-});
-
-export function _codexUsesResponsesLite(id, modelInfo = null) {
-    const explicit = modelInfo?.useResponsesLite ?? modelInfo?.use_responses_lite;
-    if (typeof explicit === 'boolean') return explicit;
-    return CODEX_RESPONSES_LITE_CAPABILITY[String(id || '').trim()] === true;
-}
-
 // OAuth catalog returns dated ids (gpt-5.4-mini-2026-03-17). Strip the trailing
 // -YYYY-MM-DD to get the version alias (gpt-5.4-mini). Unknown shapes pass
 // through unchanged.
@@ -101,7 +84,6 @@ export function _normalizeCodexModel(m) {
         reasoningLevels: (m?.supported_reasoning_levels || []).map(r => r.effort),
         supportVerbosity: m?.support_verbosity === true,
         defaultVerbosity: m?.default_verbosity || null,
-        useResponsesLite: m?.use_responses_lite === true,
         supportsReasoningSummaries: m?.supports_reasoning_summaries === true,
         serviceTiers,
         defaultServiceTier: m?.default_service_tier || null,

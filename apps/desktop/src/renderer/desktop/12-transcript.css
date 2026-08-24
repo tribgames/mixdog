@@ -522,16 +522,6 @@ html[data-mixdog-mobile-tabs] .conversation {
      use the deeper pressed tint so the pill is clearly a block. */
   background: var(--mx-pressed);
 }
-.message-pending-status {
-  position: absolute;
-  top: calc(100% + 1px);
-  right: 2px;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-  letter-spacing: 0;
-  pointer-events: none;
-}
 .message.user .message-body p { margin: 0; }
 .markdown pre, .detail-block pre {
   padding: 12px;

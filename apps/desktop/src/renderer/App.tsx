@@ -113,7 +113,7 @@ import {
 import type { SourceControlDiffRequest } from "./SourceControlDock";
 import { shouldFocusComposerFromWindowKey } from "./surface-input-focus";
 import { asRecord, displayProject, navigationKey, newDraftSelection, newFolderSelection, newStudioSelection, newTerminalSelection } from "./text-format";
-import { isMarkdownBodyReady, preloadMarkdownBody } from "./TranscriptView";
+import { isMarkdownBodyReady, preloadMarkdownBody } from "./markdown-body-loader";
 import { useEditorNavigation } from "./use-editor-navigation";
 import {
   usePaneTabClose,

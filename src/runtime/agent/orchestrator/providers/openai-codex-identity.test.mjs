@@ -90,7 +90,6 @@ test('Codex cache key and every wire session identity use the same UUIDv7', () =
         poolKey: session.id,
         model: 'gpt-5.6-sol',
         handshake: true,
-        useResponsesLite: true,
         sendOpts: {
             codexSessionId: sessionId,
             codexThreadId: sessionId,
@@ -102,7 +101,6 @@ test('Codex cache key and every wire session identity use the same UUIDv7', () =
     assert.equal(prewarmHeaders['thread-id'], sessionId);
     assert.equal(prewarmHeaders['x-client-request-id'], sessionId);
     assert.equal('x-codex-installation-id' in prewarmHeaders, false);
-    assert.equal('x-openai-internal-codex-responses-lite' in prewarmHeaders, false);
     const prewarmMetadata = JSON.parse(prewarmHeaders['x-codex-turn-metadata']);
     assert.equal(prewarmMetadata.request_kind, 'prewarm');
     assert.equal(prewarmMetadata.turn_id, '');

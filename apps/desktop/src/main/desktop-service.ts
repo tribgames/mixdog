@@ -292,6 +292,7 @@ export async function createDesktopService(
         sessionId,
         wire: encoder.encode(null),
         frameSource: update.frameSource,
+        ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
         ...(typeof update.contentRevision === 'number'
           ? { contentRevision: update.contentRevision }
           : {}),

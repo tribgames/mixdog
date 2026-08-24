@@ -32,6 +32,7 @@ export type DesktopServiceOutbound =
     wire: unknown;
     frameSource: 'live' | 'replay';
     contentRevision?: number;
+    laneEnd?: 'gone' | 'unloaded' | 'disconnected';
   }
   | { kind: 'sessions'; sessions: DesktopSessionSummary[] }
   | { kind: 'agent-pool'; agents: DesktopAgentPoolRow[] }

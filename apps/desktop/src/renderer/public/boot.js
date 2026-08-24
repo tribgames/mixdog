@@ -124,6 +124,17 @@ if (mixdogInstalledApp) {
     var target = event.target;
     if (target && target !== window && (target.src || target.href)) {
       errors.push('failed to load: ' + (target.src || target.href));
+      // The worker answers this document from its last copy, so a launch that
+      // follows a deploy can name chunks that deploy removed. Drop the cached
+      // shell and reload ONCE — the network copy names live chunks. The flag
+      // is what stops a genuinely broken build from reloading forever.
+      try {
+        if (!sessionStorage.getItem('mixdog.shell-recovered') && window.caches) {
+          sessionStorage.setItem('mixdog.shell-recovered', '1');
+          caches.delete('mixdog-shell-v1').then(function () { location.reload(); });
+          return;
+        }
+      } catch (recoveryError) { /* fall through to the overlay */ }
     } else {
       errors.push(String(event.message || event.type)
         + ' @ ' + String(event.filename || '') + ':' + String(event.lineno || 0));

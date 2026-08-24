@@ -105,6 +105,18 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
     mobileChromeSource,
     /orientation:\s*landscape[\s\S]*?grid-template-columns:\s*repeat\(3,/u,
   );
+  assert.match(
+    mobileChromeSource,
+    /--mx-mobile-sheet-safe-bottom:\s*max\(\s*env\(safe-area-inset-bottom,\s*0px\),\s*env\(safe-area-max-inset-bottom,\s*0px\)\s*\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.workbench-side-panel\[data-side="right"\] > \.workbench-side-panel-content\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.desktop-body > \.utility-dock\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su,
+  );
 });
 
 test("desktop Chrome boot retains the canonical projection", () => {

@@ -21,7 +21,21 @@ const DEFAULT_BACKGROUND_ENV = {
   MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS: '',
 };
 
-function runCase(name, args, { env = {}, input = null, expectStdout = null, expectStderr = null, maxMs = THRESHOLD_MS } = {}) {
+// `maxWorkMs` budgets the time the child itself measured, read back from its
+// stdout. The wall time of the spawn cannot serve that purpose: it also pays
+// for process startup, the ESM loader, and any fixed sleep inside the case —
+// on this tree ~1.5s of constants against ~0.4s of actual runtime work, so a
+// wall-clock budget fails on a busy machine while a genuinely slower runtime
+// still fits. Keep `maxMs` as the loose guard against a hung spawn.
+function runCase(name, args, {
+  env = {},
+  input = null,
+  expectStdout = null,
+  expectStderr = null,
+  maxMs = THRESHOLD_MS,
+  maxWorkMs = null,
+  workPattern = null,
+} = {}) {
   const startedAt = performance.now();
   const result = spawnSync(process.execPath, args, {
     cwd: root,
@@ -46,7 +60,15 @@ function runCase(name, args, { env = {}, input = null, expectStdout = null, expe
   if (ms > maxMs) {
     throw new Error(`${name} boot smoke exceeded ${maxMs}ms (${ms.toFixed(1)}ms)`);
   }
-  return { name, ms: Math.round(ms * 10) / 10 };
+  if (maxWorkMs == null) return { name, ms: Math.round(ms * 10) / 10 };
+  const workMs = Number(workPattern?.exec(stdout)?.[1]);
+  if (!Number.isFinite(workMs)) {
+    throw new Error(`${name} did not report a measured work time:\n${stdout.slice(0, 1000)}`);
+  }
+  if (workMs > maxWorkMs) {
+    throw new Error(`${name} runtime work exceeded ${maxWorkMs}ms (${workMs.toFixed(1)}ms, spawn wall ${ms.toFixed(1)}ms)`);
+  }
+  return { name, ms: Math.round(ms * 10) / 10, workMs: Math.round(workMs * 10) / 10 };
 }
 
 const rows = [
@@ -109,24 +131,32 @@ const rows = [
     expectStdout: 'bye.',
   }),
   runCase('runtime_idle_exit', ['--input-type=module', '-e', `
+    const bootStartedAt = performance.now();
     const { createMixdogSessionRuntime } = await import('./src/mixdog-session-runtime.mjs');
     const runtime = await createMixdogSessionRuntime({ toolMode: 'full' });
+    const bootMs = performance.now() - bootStartedAt;
     await new Promise((resolve) => setTimeout(resolve, 450));
     const startedAt = performance.now();
     await runtime.close('runtime-idle-exit-smoke', { waitForExit: false });
-    console.log('runtime_idle_exit close_ms=' + (performance.now() - startedAt).toFixed(1));
+    const closeMs = performance.now() - startedAt;
+    console.log('runtime_idle_exit work_ms=' + (bootMs + closeMs).toFixed(1) + ' boot_ms=' + bootMs.toFixed(1) + ' close_ms=' + closeMs.toFixed(1));
   `], {
     env: { ...DEFAULT_BACKGROUND_ENV, MIXDOG_BOOT_PROFILE: '1' },
-    expectStdout: 'runtime_idle_exit close_ms=',
+    expectStdout: 'runtime_idle_exit work_ms=',
     expectStderr: 'runtime:prewarm-deferred',
-    maxMs: 2_000,
+    maxWorkMs: 1_000,
+    workPattern: /runtime_idle_exit work_ms=([\d.]+)/,
   }),
   runCase('runtime_idle_exit_provider_optin', ['--input-type=module', '-e', `
+    const bootStartedAt = performance.now();
     const { createMixdogSessionRuntime } = await import('./src/mixdog-session-runtime.mjs');
     const runtime = await createMixdogSessionRuntime({ toolMode: 'full' });
+    const bootMs = performance.now() - bootStartedAt;
     await new Promise((resolve) => setTimeout(resolve, 250));
+    const startedAt = performance.now();
     await runtime.close('runtime-provider-optin-exit-smoke', { waitForExit: false });
-    console.log('runtime_idle_exit_provider_optin ok');
+    const closeMs = performance.now() - startedAt;
+    console.log('runtime_idle_exit_provider_optin ok work_ms=' + (bootMs + closeMs).toFixed(1));
   `], {
     env: {
       ...DEFAULT_BACKGROUND_ENV,
@@ -136,11 +166,13 @@ const rows = [
     },
     expectStdout: 'runtime_idle_exit_provider_optin ok',
     expectStderr: 'providers:warm-deferred',
-    maxMs: 2_000,
+    maxWorkMs: 1_000,
+    workPattern: /runtime_idle_exit_provider_optin ok work_ms=([\d.]+)/,
   }),
 ];
 
 for (const row of rows) {
-  process.stdout.write(`${row.name}: ${row.ms}ms\n`);
+  const measured = row.workMs == null ? '' : ` (runtime work ${row.workMs}ms)`;
+  process.stdout.write(`${row.name}: ${row.ms}ms${measured}\n`);
 }
 process.stdout.write('boot smoke passed\n');

@@ -1,5 +1,5 @@
 export const TRANSCRIPT_HISTORY_PAGE_ITEMS = 512;
-export const TRANSCRIPT_HISTORY_MAX_ITEMS = 8_192;
+export const TRANSCRIPT_HISTORY_MAX_ITEMS = 2_048;
 
 /** Next durable transcript window requested when the reader reaches the top.
  * Short sessions are already complete; long sessions grow one page at a time

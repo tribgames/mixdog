@@ -639,7 +639,7 @@ html[data-mixdog-mobile-tabs]
   transform: scale(var(--mx-device-scale, 2.5));
   transform-origin: top left;
   padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--mx-mobile-sheet-safe-bottom);
 }
 html[data-mixdog-mobile-tabs]
   .workbench-side-panel[data-side="right"] :is(
@@ -684,7 +684,7 @@ html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock {
   flex-basis: auto !important;
   zoom: var(--mx-device-scale, 2.5);
   padding-top: env(safe-area-inset-top, 0px);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--mx-mobile-sheet-safe-bottom);
   border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
   box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
 }
@@ -834,6 +834,13 @@ html[data-mixdog-mobile-tabs] {
   --mx-touch-row-glyph-main: calc(20px * var(--mx-device-scale, 2.5));
   --mx-mobile-edge-main: calc(12px * var(--mx-device-scale, 2.5));
   --mx-mobile-floor-main: calc(8px * var(--mx-device-scale, 2.5));
+  /* Android's retractable navigation bar can reduce the live inset to zero
+     while the edge-to-edge viewport still reaches behind system UI. Drawers
+     keep the maximum inset so their last row and pinned actions remain usable. */
+  --mx-mobile-sheet-safe-bottom: max(
+    env(safe-area-inset-bottom, 0px),
+    env(safe-area-max-inset-bottom, 0px)
+  );
 }
 
 /* ── Phone finishing pass ──────────────────────────────────────────────────

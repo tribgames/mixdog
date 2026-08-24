@@ -218,7 +218,34 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // Last visible-session registration. The relay gates per-session transcript
   // frames on a PER CLIENT set, and a reconnect starts a fresh client record
   // with an empty one, so the shim replays this on every reopen.
-  let lastVisibleSessionIds: string[] = [];
+  //
+  // It also OUTLIVES the page. On a cold launch nothing names a session until
+  // React has mounted and restored its panes, and only then can the desktop
+  // start reading that transcript — a serial chain the user watches as an
+  // empty conversation for seconds. The set from the last visit names it while
+  // the bundle is still parsing, so the read overlaps the boot.
+  const VISIBLE_SESSIONS_STORAGE_KEY = 'mixdog.remote-visible-sessions';
+  const LAST_SESSION_STORAGE_KEY = 'mixdog.desktop-last-session.v1';
+  const MAX_RESTORED_VISIBLE_SESSIONS = 8;
+  let lastVisibleSessionIds: string[] = (() => {
+    let restored: unknown = [];
+    try {
+      restored = JSON.parse(localStorage.getItem(VISIBLE_SESSIONS_STORAGE_KEY) || '[]');
+    } catch { /* fall through to the established last-session key */ }
+    if (Array.isArray(restored)) {
+      const sessionIds = restored
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .slice(0, MAX_RESTORED_VISIBLE_SESSIONS);
+      if (sessionIds.length > 0) return sessionIds;
+    }
+    // First launch after this optimization has no dedicated visible-session
+    // record yet. The older startup key still names the focused conversation,
+    // so that launch receives the same head start instead of waiting one visit.
+    try {
+      const lastSessionId = localStorage.getItem(LAST_SESSION_STORAGE_KEY) || '';
+      return /^[A-Za-z0-9_-]+$/u.test(lastSessionId) ? [lastSessionId] : [];
+    } catch { return []; }
+  })();
   // Push lanes this browser actually reads. Terminal output, diagnostics and
   // folder events are produced by DESKTOP activity — a build, a save — and
   // used to reach every paired phone regardless of what it had open, so a
@@ -809,6 +836,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         sessionId: name,
         wire,
         frameSource: frame.f ?? 'live',
+        ...(typeof frame.le === 'string' && frame.le ? { laneEnd: frame.le } : {}),
         ...(frame.pp !== undefined ? { perfProbe: frame.pp } : {}),
         ...(typeof frame.cr === 'number' ? { contentRevision: frame.cr } : {}),
       },
@@ -1008,6 +1036,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           sessionId: payload.sessionId,
           snapshot: decoded.snapshot as SessionSnapshot,
           frameSource: payload.frameSource,
+          ...(payload.laneEnd ? { laneEnd: payload.laneEnd } : {}),
           ...(typeof payload.contentRevision === 'number'
             ? { contentRevision: payload.contentRevision }
             : {}),
@@ -1306,6 +1335,18 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             publishLanes();
             refreshBroadcastLanes();
           })();
+        } else if (lastVisibleSessionIds.length > 0) {
+          // COLD launch. The panes that will ask for this transcript are still
+          // being parsed; naming the session now lets the desktop's own read
+          // and projection run underneath that work instead of after it. The
+          // pane registration that follows is authoritative and simply
+          // re-announces the same set.
+          // setVisibleSessionsForSource now replays an already-resident
+          // projection to a NEW browser, while a cold projection is filled by
+          // that same subscription. One call therefore owns both registration
+          // and transcript delivery; a second prefetch only added another RTT.
+          void call<boolean>('setVisibleSessions', [lastVisibleSessionIds])
+            .catch(() => false);
         }
         resyncOnWake = false;
         everConnected = true;
@@ -1680,6 +1721,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       call<boolean>('prefetchSession', [sessionId, transcriptItemLimit]),
     setVisibleSessions: (sessionIds) => {
       lastVisibleSessionIds = [...sessionIds];
+      try {
+        localStorage.setItem(
+          VISIBLE_SESSIONS_STORAGE_KEY,
+          JSON.stringify(lastVisibleSessionIds.slice(0, MAX_RESTORED_VISIBLE_SESSIONS)),
+        );
+      } catch { /* the next launch simply waits for React, as before */ }
       return call<boolean>('setVisibleSessions', [lastVisibleSessionIds]);
     },
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>

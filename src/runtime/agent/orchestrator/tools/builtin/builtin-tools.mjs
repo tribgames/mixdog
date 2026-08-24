@@ -49,7 +49,7 @@ export const BUILTIN_TOOLS = [
             type: 'object',
             properties: {
                 file_path: {
-                    type: 'string',                    description: 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.',
+                    type: 'string',                    description: 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first; default 100 lines/file — pass limit/offset or one exact path for full content); literal-named files win over expansion.',
                 },
                 offset: {
                     type: 'integer',
@@ -107,7 +107,7 @@ export const BUILTIN_TOOLS = [
                 timeout_ms: {
                     type: 'number',
                     minimum: 0,
-                    description: 'Optional hard total deadline in ms; kills the command even after background promotion. Omit or 0 = no deadline.',
+                    description: 'Hard process-kill deadline in ms; unrelated to the automatic 10s foreground window and still applies after background promotion. Omit for normal builds/tests; use only when forced termination is intended. Omit or 0 = no deadline.',
                 },
             },
             required: ['command'],
@@ -175,7 +175,7 @@ export const BUILTIN_TOOLS = [
                     type: 'string',                    description: 'One plain existing file or directory scope; if unsure, omit to search the project root.',
                 },
                 glob: {
-                    type: 'string',                    description: 'Optional file-path glob filter, not search text.',
+                    type: 'string',                    description: 'Relative file-path glob filter evaluated inside path (e.g. "*.cs", "src/**/*.ts"). Never pass an absolute or exact file path here; use path instead.',
                 },
                 mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files lists matching paths; count totals all patterns together per file.' },
                 limit: { type: 'integer', minimum: 0, description: 'Max results; default 250; 0 unlimited.' },
@@ -244,7 +244,7 @@ export const BUILTIN_TOOLS = [
                 },
                 hidden: { type: 'boolean', description: 'Include dotfiles.' },
                 meta: { type: 'boolean', description: 'Per-entry size bytes, UTC mtime, octal mode.' },
-                limit: { type: 'integer', minimum: 0, description: 'Max entries; default 100; 0 unlimited.' },
+                limit: { type: 'integer', minimum: 0, maximum: 100, description: 'Max entries; default 100; 0 = no page cap (absolute cap still applies).' },
                 offset: { type: 'integer', minimum: 0, description: 'Entry offset.' },
             },
             required: [],

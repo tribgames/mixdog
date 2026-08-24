@@ -6,6 +6,7 @@ import { type Snapshot, type TranscriptItem } from "./desktop-types";
 import { t, tExisting } from "./i18n";
 import { DiffView } from "./lazy-widgets";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
+import { preloadMarkdownBody } from "./markdown-body-loader";
 import { useMobileBack } from "./mobile-back";
 import { MxIcon } from "./MxIcon";
 import { showDesktopToast } from "./notifications";
@@ -624,32 +625,7 @@ export function CopyControl({ value, label, className, tooltipSide = "top" }: {
   </button>;
 }
 
-let markdownBodyReady = false;
-let markdownBodyPromise: Promise<typeof import("./MarkdownBody")> | null = null;
 let streamingMarkdownBodyPromise: Promise<typeof import("./StreamingMarkdownBody")> | null = null;
-export function isMarkdownBodyReady() {
-  return markdownBodyReady;
-}
-export function preloadMarkdownBody() {
-  markdownBodyPromise ||= (async () => {
-    // Capture-only race hook: a cold probe can force IPC to beat the lazy
-    // chunk and prove that App keeps the transcript neutral until rich
-    // Markdown is ready. Production never defines this property.
-    const probeWindow = window as typeof window & { __mixdogMarkdownPreloadDelayMs?: number };
-    const delayMs = Math.max(0, Number(probeWindow.__mixdogMarkdownPreloadDelayMs || 0));
-    probeWindow.__mixdogMarkdownPreloadDelayMs = 0;
-    if (delayMs > 0) {
-      await new Promise((resolve) => window.setTimeout(resolve, delayMs));
-    }
-    const module = await import("./MarkdownBody");
-    markdownBodyReady = true;
-    return module;
-  })().catch((error) => {
-    markdownBodyPromise = null;
-    throw error;
-  });
-  return markdownBodyPromise;
-}
 export const MarkdownBody = lazy(preloadMarkdownBody);
 export function preloadStreamingMarkdownBody() {
   streamingMarkdownBodyPromise ||= import("./StreamingMarkdownBody").catch((error) => {
@@ -1028,9 +1004,6 @@ export const TranscriptRow = memo(function TranscriptRow({
             <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
           )}
         </div>
-        {user && item.pending === true && <span className="message-pending-status" role="status">
-          {item.queuedBehindTurn === true ? t("Queued") : t("Sending…")}
-        </span>}
         {/* No user footer. The send time + copy row rode under every prompt,
             and the phone surface forced hover-revealed chrome permanently
             visible, so it sat there on every bubble (user: 호버도 안 했는데

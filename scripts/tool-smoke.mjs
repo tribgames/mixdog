@@ -1402,6 +1402,10 @@ for (const retired of ['timeout', 'cwd', 'workdir', 'mode', 'shell', 'persistent
 // description and rules both steer models to omit it.
 if (shellProps.timeout_ms?.type !== 'number'
   || shellProps.timeout_ms?.minimum !== 0
+  || !/hard process-kill deadline/i.test(shellProps.timeout_ms?.description || '')
+  || !/unrelated to the automatic 10s foreground window/i.test(shellProps.timeout_ms?.description || '')
+  || !/Omit for normal builds\/tests/i.test(shellProps.timeout_ms?.description || '')
+  || !/forced termination is intended/i.test(shellProps.timeout_ms?.description || '')
   || !/Omit or 0 = no deadline/.test(shellProps.timeout_ms?.description || '')) {
   throw new Error(`shell timeout_ms must declare the no-deadline-by-default contract: ${JSON.stringify(shellProps.timeout_ms)}`);
 }
@@ -2833,12 +2837,14 @@ if (recallProps.limit?.type !== 'integer'
   || !/default 0/i.test(recallProps.offset?.description || '')) {
   throw new Error('recall schema must expose runtime paging bounds and defaults');
 }
-// Cross-session / raw recall surface: includeMembers stays a chunk-member
-// output knob and includeRaw exposes unchunked raw/episode turns.
-if (!/chunk members.*default true/i.test(recallProps.includeMembers?.description || '')) {
+// Cross-session / raw recall surface: summary-only is the default; expansion
+// into chunk members or unchunked raw/episode turns is explicit.
+if (recallProps.includeMembers?.default !== false
+  || !/chunk members.*default false/i.test(recallProps.includeMembers?.description || '')) {
   throw new Error('recall includeMembers must stay scoped to chunk-member output only');
 }
-if (!recallProps.includeRaw || !/raw\/episode rows.*default true/i.test(recallProps.includeRaw?.description || '')) {
+if (recallProps.includeRaw?.default !== false
+  || !/raw\/episode rows.*default false/i.test(recallProps.includeRaw?.description || '')) {
   throw new Error('recall schema must expose includeRaw for unchunked raw/episode turns');
 }
 if (!/archived entries.*default true/i.test(recallProps.includeArchived?.description || '') || recallProps.sessionOnly) {
@@ -3355,7 +3361,8 @@ if (!/\bSearch file contents for literal or regex matches\b/i.test(grepTool?.des
     || /Batch independent searches/i.test(grepTool?.description || '')) {
   throw new Error('grep description must state its scoped discovery and returned-span reuse contract');
 }
-if (!/Glob filter/i.test(grepGlobDescription)) {
+if (!/relative file-path glob filter evaluated inside path/i.test(grepGlobDescription)
+    || !/Never pass an absolute or exact file path here; use path instead/i.test(grepGlobDescription)) {
   throw new Error('grep glob schema must describe scope narrowing');
 }
 if (!/files lists matching paths/i.test(grepModeDescription)
@@ -3431,6 +3438,7 @@ if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '')
     || !/default 100/i.test(listLimitDescription)
     || !/0 unlimited/i.test(listLimitDescription)
+    || listTool?.inputSchema?.properties?.limit?.maximum !== 100
     || listTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('list description must state its known-directory immediate-entry contract');
 }

@@ -1,0 +1,17 @@
+[Unit]
+# initcwnd/initrwnd live on the ROUTE, so sysctl cannot carry them and they are
+# lost on every reboot. 30 segments (~45KB) is what lets the first-screen bundle
+# leave in one flight instead of climbing there over five round trips.
+Description=Mixdog relay route tuning (initcwnd/initrwnd)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Re-applying must be idempotent: the existing values are stripped before the
+# new ones go on, so a restart never builds a duplicate argument list.
+ExecStart=/bin/sh -c 'ip route change $(ip route show default | head -1 | sed "s/ initcwnd [0-9]*//; s/ initrwnd [0-9]*//") initcwnd 30 initrwnd 30'
+
+[Install]
+WantedBy=multi-user.target

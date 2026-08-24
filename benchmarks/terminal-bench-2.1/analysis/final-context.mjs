@@ -10,6 +10,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+const published = JSON.parse(readFileSync('presets.json', 'utf8')).published;
 const stat = (a) => {
     a = a.filter((x) => Number.isFinite(x) && x > 0).sort((x, y) => x - y);
     if (!a.length) return null;
@@ -75,8 +76,8 @@ function codexRun(root) {
 }
 
 const RUNS = [
-    ['mixdog opus5', mixdogRun, 'jobs-full-opus5-clean-20260804-042235'],
-    ['mixdog sol-xhigh', mixdogRun, 'jobs-full-solxhigh-clean-20260804-042235'],
+    ['mixdog opus5', mixdogRun, published.opus.jobsDir],
+    ['mixdog sol-xhigh', mixdogRun, published.sol.jobsDir],
     ['claude code', ccRun, 'jobs-full-cc-n8'],
     ['codex cli', codexRun, 'jobs-full-codex'],
 ];

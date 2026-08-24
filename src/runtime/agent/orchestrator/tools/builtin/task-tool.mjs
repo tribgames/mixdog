@@ -192,7 +192,13 @@ export async function executeTaskTool(args, options = {}) {
         }
         if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
         const latest = getBackgroundTask(taskId, { context: options }) || task;
-        const rendered = renderBackgroundTask(latest, { includeResult: true });
+        let rendered = renderBackgroundTask(latest, { includeResult: true });
+        if (action === 'wait' && latest.status === 'running') {
+            // In-band report cue: the static "periodic reports" rule does not
+            // survive a long tool loop, so a ceiling-hit wait carries the
+            // protocol reminder itself.
+            rendered += '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
+        }
         if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {
             recordDeliveredCompletion({ executionId: taskId });
         }

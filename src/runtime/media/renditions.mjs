@@ -60,7 +60,13 @@ export function renditionSpec(variant) {
 
 let sharpPromise;
 async function loadSharp() {
-  sharpPromise ??= import('sharp').then((mod) => mod?.default || mod || null, () => null);
+  sharpPromise ??= import('sharp').then((mod) => {
+    const sharp = mod?.default || mod || null;
+    // Renditions are cached on disk; libvips' in-memory operation cache
+    // (default ~50MB per process) would only duplicate them in native memory.
+    try { sharp?.cache(false); } catch { /* cache stays default */ }
+    return sharp;
+  }, () => null);
   return sharpPromise;
 }
 

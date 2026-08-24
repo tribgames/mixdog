@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "runs": {
+    "jobs-full-opus5-solo-20260823-144706": {
+      "model": "claude-opus-5",
+      "tasks": 89,
+      "crossChecked": 84,
+      "mismatches": 1,
+      "fullRunCostUsd": 108.924729,
+      "traceOnlyTotalUsd": 108.892818,
+      "snapshotSubtotalUsd": 95.974013,
+      "recovered": [
+        {
+          "task": "caffe-cifar-10",
+          "requests": 41,
+          "tokens": {
+            "uncachedInput": 82,
+            "cacheRead": 1210315,
+            "cacheWrite": 42066,
+            "output": 21713
+          },
+          "costUsd": 1.569052
+        },
+        {
+          "task": "largest-eigenval",
+          "requests": 23,
+          "tokens": {
+            "uncachedInput": 46,
+            "cacheRead": 741447,
+            "cacheWrite": 84514,
+            "output": 57981
+          },
+          "costUsd": 2.665618
+        },
+        {
+          "task": "make-doom-for-mips",
+          "requests": 22,
+          "tokens": {
+            "uncachedInput": 44,
+            "cacheRead": 1247329,
+            "cacheWrite": 103981,
+            "output": 48985
+          },
+          "costUsd": 2.88832
+        },
+        {
+          "task": "schemelike-metacircular-eval",
+          "requests": 29,
+          "tokens": {
+            "uncachedInput": 58,
+            "cacheRead": 2378421,
+            "cacheWrite": 108598,
+            "output": 65389
+          },
+          "costUsd": 3.910206
+        },
+        {
+          "task": "train-fasttext",
+          "requests": 47,
+          "tokens": {
+            "uncachedInput": 94,
+            "cacheRead": 1416401,
+            "cacheWrite": 48070,
+            "output": 29126
+          },
+          "costUsd": 1.91752
+        }
+      ]
+    },
+    "jobs-full-sol-xhigh-20260823-182305": {
+      "model": "gpt-5.6-sol",
+      "tasks": 89,
+      "crossChecked": 88,
+      "mismatches": 0,
+      "fullRunCostUsd": 57.060117,
+      "traceOnlyTotalUsd": 57.060117,
+      "snapshotSubtotalUsd": 56.587872,
+      "recovered": [
+        {
+          "task": "extract-moves-from-video",
+          "requests": 15,
+          "tokens": {
+            "uncachedInput": 39609,
+            "cacheRead": 270720,
+            "cacheWrite": 0,
+            "output": 4628
+          },
+          "costUsd": 0.472245
+        }
+      ]
+    }
+  },
+  "generated": "2026-08-24"
+}

@@ -49,10 +49,6 @@ import { resourceAdmission } from '../runtime/shared/resource-admission.mjs';
 import { snapshot as childSpawnSnapshot } from '../runtime/shared/child-spawn-gate.mjs';
 import { toolWorkloadSnapshot } from '../runtime/shared/tool-workload-gates.mjs';
 import { providerAdmissionScheduler } from '../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
-import { getMcpAdmissionSnapshot } from '../runtime/agent/orchestrator/mcp/client.mjs';
-import { loadConfig as loadAgentConfig } from '../runtime/agent/orchestrator/config.mjs';
-import { initProviders } from '../runtime/agent/orchestrator/providers/registry.mjs';
-import { makeAgentDispatch } from '../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs';
 import {
   closeProviderStreamJsonPool,
   providerStreamJsonSnapshot,
@@ -420,9 +416,13 @@ async function main() {
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
   startMemoryRuntimeEarly();
   agentDispatchBroker = createAgentDispatchBroker({
-    loadConfig: loadAgentConfig,
-    initProviders,
-    makeAgentDispatch,
+    // Memory-cycle agents execute inside the recyclable session runtime
+    // worker: this permanent daemon never loads the orchestrator graph for
+    // them, so its commit stays flat across cycles.
+    dispatchAgent: (payload, options) => {
+      if (!sessionRuntimeHost) throw new Error('session runtime host is not ready');
+      return sessionRuntimeHost.agentDispatch(payload, options);
+    },
     log,
     onActivityChanged: () => { maybeSelfShutdown('memory agent activity changed'); },
   });
@@ -651,7 +651,8 @@ async function main() {
         resources: resourceAdmission.snapshot(),
         childSpawns: childSpawnSnapshot(),
         toolIo: toolWorkloadSnapshot(),
-        mcp: getMcpAdmissionSnapshot(),
+        // MCP runs in session/agent workers, never in this daemon process.
+        mcp: {},
         providers: providerAdmissionScheduler.snapshot(),
         streamParsing: providerStreamJsonSnapshot(),
       },

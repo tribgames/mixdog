@@ -4,6 +4,14 @@
 // app failed to boot on its next visit (user: Importing a module script
 // failed).
 const ASSET_CACHE = "mixdog-assets-v2";
+// The app shell document. It is served `no-cache` so a fresh deploy applies on
+// the very next load, which over the relay costs a full round trip to another
+// continent BEFORE any byte of the app moves — ~450ms on every launch of an
+// otherwise fully cached app. Answering it from the last copy and refreshing
+// behind the paint applies a deploy one launch later instead, which is the
+// same bargain the content-hashed asset URLs already make. boot.js is inlined
+// into this document by the build, so the shell is exactly one request.
+const SHELL_CACHE = "mixdog-shell-v1";
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
 // One page boot requests several hashed chunks together. Trimming after every
@@ -26,7 +34,7 @@ self.addEventListener("install", () => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     for (const name of await caches.keys()) {
-      if (name !== ASSET_CACHE) await caches.delete(name);
+      if (name !== ASSET_CACHE && name !== SHELL_CACHE) await caches.delete(name);
     }
     await self.clients.claim();
   })());
@@ -87,11 +95,33 @@ async function cacheFirst(request) {
   return { response, maintenance };
 }
 
+/** The document: last copy now, fresh copy for the next launch. A cache miss
+ *  falls through to the network, so the first launch after install is
+ *  unchanged. */
+async function shellFirst(request) {
+  const cache = await caches.open(SHELL_CACHE);
+  const hit = await cache.match(request, { ignoreVary: true });
+  const refresh = fetch(request).then(async (response) => {
+    if (response.ok && response.type === "basic") {
+      await cache.put(request, storableCopy(response));
+    }
+    return response;
+  });
+  if (hit) return { response: hit, maintenance: refresh.catch(() => undefined) };
+  return { response: await refresh, maintenance: null };
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  if (request.mode === "navigate") {
+    const operation = shellFirst(request);
+    event.respondWith(operation.then((result) => result.response).catch(() => fetch(request)));
+    event.waitUntil(operation.then((result) => result.maintenance).catch(() => undefined));
+    return;
+  }
   if (!HASHED_ASSET.test(url.pathname)) {
     event.respondWith(fetch(request));
     return;

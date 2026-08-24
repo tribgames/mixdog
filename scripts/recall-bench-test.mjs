@@ -338,7 +338,7 @@ test('event expansion preserves ranked evidence even within one user-turn event'
   );
 });
 
-test('core recall binds the requested temporal window', async () => {
+test('core recall defaults to summary-only and binds the requested temporal window', async () => {
   const calls = [];
   const db = {
     async transaction(run) { return run(this); },
@@ -359,7 +359,6 @@ test('core recall binds the requested temporal window', async () => {
     query: '최근 reasoning summary 설정 변경',
     period: '2026-07-03 09:00~12:00',
     projectScope: 'mixdog',
-    includeRaw: false,
     limit: 5,
   });
   const coreCall = calls.find(({ sql }) => /FROM core_entries/.test(sql));
@@ -367,4 +366,12 @@ test('core recall binds the requested temporal window', async () => {
   assert.match(coreCall.sql, /COALESCE\(updated_at, created_at\) >= \$/);
   assert.match(coreCall.sql, /COALESCE\(updated_at, created_at\) <= \$/);
   assert.equal(coreCall.params.filter(Number.isFinite).length >= 2, true);
+  assert.equal(
+    calls.some(({ sql }) => /FROM entries\s+WHERE chunk_root = ANY\(/s.test(sql)),
+    false,
+  );
+  assert.equal(
+    calls.some(({ sql }) => /FROM entries\s+WHERE chunk_root IS NULL/s.test(sql)),
+    false,
+  );
 });

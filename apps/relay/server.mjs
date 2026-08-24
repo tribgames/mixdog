@@ -2280,6 +2280,15 @@ export async function startRelay({
       }
     }
   };
+  // HTTP/1.1. An http2.createSecureServer({ allowHTTP1: true }) listener was
+  // measurably faster for the phone's first boot (~275ms to reveal, one TLS
+  // handshake instead of one per parallel asset) and passed an isolated probe
+  // on this box: h2 negotiated, the /desktop upgrade completed, brotli and the
+  // cookie/redirect paths were intact. Live traffic disagreed — phone legs
+  // started dying at their 20s RPC deadline and the app came up with no
+  // transcript at all. WebSockets are the product here and the first boot is
+  // paid once per deploy, so the listener stays on the transport where the
+  // legs are known to survive until that failure is understood.
   const server = tlsCert && tlsKey
     ? createTlsServer({ cert: readFileSync(tlsCert), key: readFileSync(tlsKey) }, handler)
     : createServer(handler);
@@ -2517,6 +2526,9 @@ async function finishRelayStart({ server, wss, store, liveDesktops, liveHooks, p
         continue;
       }
       if (ws.isAlive === false) {
+        // A terminate reaches the peer as a bare 1006 that names nobody, so the
+        // sweep says here that IT was the one that cut a silent leg.
+        console.log('[relay] sweep terminated a leg that missed its ping window');
         try { ws.terminate(); } catch { /* already gone */ }
         continue;
       }
@@ -2845,6 +2857,7 @@ function runClientLeg(entry, sendJson, socket, browserClientId = null, options =
   socket.oversizeSignal = (bytes, limit) => signalPhoneOversize(socket, bytes, limit);
   trackLegIngress(socket, rawSocket, { ...ingress, limit: maxFrameBytes });
   entry.clients.set(clientId, socket);
+  const legOpenedAt = Date.now();
   sendJson(entry.socket, { type: 'client-open', clientId });
   socket.isAlive = true;
   socket.on('pong', () => { socket.isAlive = true; });
@@ -2884,10 +2897,18 @@ function runClientLeg(entry, sendJson, socket, browserClientId = null, options =
       : JSON.stringify({ type: 'frame', clientId, data: text });
     sendUplink(socket, path.desktop, envelope);
   }));
-  socket.on('close', () => {
+  socket.on('close', (code, reason) => {
     releaseLeg(socket);
     releaseIngressLeg(socket);
     entry.clients.delete(clientId);
     sendJson(entry.socket, { type: 'client-close', clientId });
+    // A phone that reconnects every few seconds pays a full E2EE handshake and
+    // a full roster resync each time, and this is the ONE place both ends of
+    // that loop are visible. The code names who hung up: 1000 'background' is
+    // the app's own foreground gate, 1001/1006 is the link or the browser
+    // discarding the page, and 4xxx is this relay's own guard.
+    console.log(`[relay] phone leg closed client=${clientId.slice(0, 8)}`
+      + ` code=${code} reason=${String(reason || '').slice(0, 60)}`
+      + ` lived=${Date.now() - legOpenedAt}ms`);
   });
 }

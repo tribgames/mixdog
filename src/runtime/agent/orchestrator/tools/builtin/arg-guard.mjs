@@ -555,6 +555,14 @@ function maybeCapUnboundedRead(a) {
         if (/:\d+(?:-\d+)?\s*$/.test(p)) return;
     }
     a.limit = READ_GUARD_DEFAULT_LIMIT;
+    // Marker for the read tool's glob fan-out: this limit is the injected
+    // default, not a caller choice, so a multi-file survey may tighten it.
+    // Non-enumerable so it never leaks into arg spreads, cache keys, or output.
+    try {
+        Object.defineProperty(a, '_readLimitDefaulted', {
+            value: true, enumerable: false, configurable: true, writable: true,
+        });
+    } catch { /* best-effort */ }
 }
 
 function guardRead(a) {

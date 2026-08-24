@@ -15,7 +15,13 @@ import { ensureGraphBinary } from '../graph-binary-fetcher.mjs';
 import { fuzzyRank, prepareFuzzyItems } from './fuzzy-match.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
-const REQUEST_TIMEOUT_MS = 20_000;
+// Default request budget. Deliberately BELOW the read-only I/O watchdog in
+// tool-exec.mjs (20s): with both at 20s the watchdog killed the call first on
+// a cold whole-filesystem walk, so the soft-deadline partial the server hands
+// back near its own budget never reached the model (observed as a bare
+// "timed out with no partial output" on a full-root glob). The 2.5s margin
+// covers caller preprocessing plus response serialization/ranking.
+const REQUEST_TIMEOUT_MS = 17_500;
 const SERVER_READY_TIMEOUT_MS = 1_000;
 const CANCEL_GRACE_MS = 1_000;
 const PROCESS_FAILURES_BEFORE_BACKOFF = 2;

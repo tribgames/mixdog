@@ -689,6 +689,25 @@ export async function runHeadlessExec({
         },
       );
     }
+    // Rewrite the usage snapshot after every model response, not only on the
+    // way out. A session killed mid-run — agent timeout, SIGKILL — never
+    // reaches the exit path, and used to leave no usage document at all while
+    // its token spend was already real. The file is a few hundred bytes and
+    // the write is atomic, so the cost is negligible and a live run stays
+    // readable from outside.
+    const flushUsageDocument = () => {
+      try {
+        writeUsageDocument(
+          usageLogPath,
+          stats,
+          runtime,
+          lifecycle?.toolCallCount || 0,
+          observedModels,
+        );
+      } catch {
+        // Telemetry must never break the session; the exit path reports.
+      }
+    };
     const askOptions = {
       onTextReset: () => true,
       onUsageDelta: (delta) => {
@@ -696,6 +715,7 @@ export async function runHeadlessExec({
         if (observedModel) observedModels.add(observedModel);
         applyUsageDelta(stats, delta);
         lifecycle?.onUsageDelta(delta);
+        flushUsageDocument();
       },
       ...(lifecycle ? {
         onProviderSendStarted: () => lifecycle.onProviderSendStarted(),

@@ -861,7 +861,15 @@ export function promoteNativeTask({
 } = {}) {
   const key = String(jobId || '').trim();
   const server = _server;
-  if (server?.caps?.promoteTask !== true || !getNativeTask(key)) return null;
+  // Distinguish the two promotion-unavailable causes: a silent null here used
+  // to surface as an unexplained SIGKILL ("background-promotion-failed") with
+  // no way to tell a capability gap from a missing task record afterwards.
+  if (server?.caps?.promoteTask !== true) {
+    throw new Error('native runner lacks promoteTask capability');
+  }
+  if (!getNativeTask(key)) {
+    throw new Error(`no native task record for jobId ${key || '(empty)'}`);
+  }
   return requestNativeTaskState(key, {
     promoteTask: key,
     timeoutMs,

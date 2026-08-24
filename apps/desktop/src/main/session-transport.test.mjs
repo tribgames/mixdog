@@ -275,6 +275,70 @@ test('global capabilities recreate a stale service control session without expos
   }
 });
 
+test('a reply whose baseline vanished re-reads instead of publishing an empty pane', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-session-host-'));
+  let host = null;
+  const reads = [];
+  const items = [{ id: 'a', role: 'assistant', text: 'kept' }];
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    async create() {
+      return {
+        sessionId: 'control_1',
+        revision: 0,
+        snapshot: { sessionId: 'control_1', items: [], queued: [] },
+      };
+    },
+    async read({ sessionId, baseRevision }) {
+      reads.push({ sessionId, baseRevision });
+      // A reply computed against a baseline the host no longer holds: the
+      // daemon answers "nothing changed since the revision you announced", so
+      // the body carries no content at all.
+      if (reads.length === 1) return { sessionId, revision: 7 };
+      return { sessionId, revision: 7, full: { sessionId, items, queued: [] } };
+    },
+    subscribe: unsupported,
+    unsubscribe: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient() { return client; },
+      loadProjects: unsupported,
+      async loadSessionStore() {
+        return { listStoredAgentWorkers: () => [] };
+      },
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+    const updates = [];
+    host.subscribeSessionStates((update) => updates.push(update));
+
+    await host.prefetchSession('s1', 1);
+    await waitFor(() => updates.length > 0);
+
+    // The empty transcript is never published: it blanked a pane that was on
+    // screen and working. The recovery read announces no baseline, so the
+    // daemon must answer FULL.
+    assert.equal(updates.length, 1);
+    assert.deepEqual(updates[0].snapshot.items, items);
+    assert.deepEqual(reads.map((entry) => entry.baseRevision), [null, null]);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
 test('an SSE reconnect resyncs in place without rejecting an in-flight desktop request', async () => {
   const calls = [];
   let streamDisconnect = null;
@@ -389,6 +453,10 @@ test('the pinned remote session stays global when another session publishes focu
     });
     host.subscribeSessionStates((update) => updates.push(update));
     await host.setVisibleSessions(['session_remote', 'session_focused']);
+    updates.length = 0;
+    await host.setVisibleSessionsForSource('remote:test-phone', ['session_focused']);
+    assert.equal(updates.at(-1)?.sessionId, 'session_focused');
+    assert.equal(updates.at(-1)?.frameSource, 'replay');
 
     hooks.onFrame({
       type: 'remote-session-state',

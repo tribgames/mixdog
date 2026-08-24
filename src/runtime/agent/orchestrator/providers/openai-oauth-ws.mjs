@@ -584,7 +584,6 @@ export async function sendViaWebSocket({
         sendOpts,
         model: useModel,
         serviceTier: body?.service_tier || '',
-        useResponsesLite: body?.input?.[0]?.type === 'additional_tools',
     };
     const codexHandshakeHeaders = useCodexWsClientMetadata
         ? _codexWsCompatibilityHeaders({ ...codexMetadataContext, handshake: true })

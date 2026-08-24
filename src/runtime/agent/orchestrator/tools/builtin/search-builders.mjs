@@ -13,6 +13,20 @@ export const DEFAULT_IGNORE_GLOBS = [
     '!**/lpt[1-9]',
 ];
 
+// Kernel-virtual trees mounted at the filesystem root hold no user files and
+// can stall or poison a full-root walk: procfs re-enumerates every pid on each
+// pass and /proc/kcore presents as a terabyte-scale sparse file. A scan rooted
+// at `/` prunes them up front; the globs are ROOT-ANCHORED (no `**/` prefix),
+// so a scan rooted at or inside one of them (path /proc/...) keeps full
+// visibility, and ordinary project directories named `proc`/`sys`/`dev` are
+// never affected because the exclusion only applies when the walk root is `/`.
+export function rootScanIgnoreGlobs(resolvedRoot, platform = process.platform) {
+    if (platform === 'win32') return [];
+    return String(resolvedRoot || '') === '/'
+        ? ['!proc/**', '!sys/**', '!dev/**']
+        : [];
+}
+
 export function buildGrepCacheKey(parts) {
     const {
         patterns,

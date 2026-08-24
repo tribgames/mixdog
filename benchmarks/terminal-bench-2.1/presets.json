@@ -41,7 +41,35 @@
     "server-tasks": [
       "kv-store-grpc",
       "pypi-server"
+    ],
+    "git-failures": [
+      "configure-git-webserver",
+      "custom-memory-heap-crash",
+      "extract-elf",
+      "fix-git",
+      "fix-ocaml-gc",
+      "git-leak-recovery",
+      "merge-diff-arc-agi-task",
+      "modernize-scientific-stack"
     ]
+  },
+  "published": {
+    "opus": {
+      "jobsDir": "jobs-full-opus5-solo-20260823-144706",
+      "chart": "tb21-opus-vs-claude-code.svg",
+      "modelLabel": "Claude Opus 5",
+      "baselineLabel": "Claude Code",
+      "subtitle": "Claude Opus 5 · same model, same reasoning level · solo loop",
+      "docHeading": "Claude Opus 5 vs Claude Code"
+    },
+    "sol": {
+      "jobsDir": "jobs-full-sol-xhigh-20260823-182305",
+      "chart": "tb21-sol-vs-codex.svg",
+      "modelLabel": "GPT-5.6 Sol xhigh",
+      "baselineLabel": "Codex CLI",
+      "subtitle": "GPT-5.6 Sol xhigh · same model, same reasoning level · solo loop",
+      "docHeading": "GPT-5.6 Sol xhigh vs Codex CLI"
+    }
   },
   "baselines": {
     "codex-gpt56-sol": {
@@ -50,7 +78,7 @@
       "harness": "codex",
       "model": "gpt-5.6-sol",
       "finalContextMedianTokens": 33454,
-      "costLowerBound": true
+      "costLowerBound": false
     },
     "claude-code-opus5": {
       "label": "Claude Code · Claude Opus 5 high",
@@ -69,6 +97,10 @@
     },
     "sol-xhigh-fast": {
       "suite": "core",
+      "routeProfile": "sol-xhigh-fast"
+    },
+    "git-failures-sol-xhigh": {
+      "suite": "git-failures",
       "routeProfile": "sol-xhigh-fast"
     },
     "gpt55-xhigh-fast": {

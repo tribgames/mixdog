@@ -187,15 +187,35 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.deepEqual(Object.keys(properties), ['command', 'output_limit']);
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
     assert.equal(properties.command.minLength, undefined);
+    assert.equal(properties.output_limit.maximum, 200);
     const stageProperties = GIT_STAGE_TOOL_DEF.inputSchema.properties;
     assert.deepEqual(Object.keys(stageProperties), ['diff_id', 'change_ids', 'output_limit']);
     assert.deepEqual(GIT_STAGE_TOOL_DEF.inputSchema.required, ['diff_id', 'change_ids']);
     assert.equal(stageProperties.change_ids.anyOf[1].maxItems, 50);
+    assert.equal(stageProperties.output_limit.maximum, 200);
     assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
     assert.match(GIT_TOOL_DEF.description, /Use diff directly when changed content for a known target is required/i);
     assert.match(GIT_TOOL_DEF.description, /Run one Git command directly, without a shell/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
+});
+
+test('git clamps oversized output requests to 200 lines', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-output-cap-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    writeFileSync(
+        join(repo, 'large.txt'),
+        `${Array.from({ length: 250 }, (_, index) => `line-${index}`).join('\n')}\n`,
+    );
+    parseOk(await git(repo, 'add -- large.txt'));
+    parseOk(await git(repo, 'commit -m large'));
+    const shown = parseOk(await git(repo, 'show HEAD:large.txt', { output_limit: 500 }));
+    assert.equal(shown.lines.length, 200);
+    assert.equal(shown.omitted, 50);
 });
 
 // `git --version` is how a caller checks whether git exists at all; rejecting

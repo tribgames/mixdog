@@ -8,11 +8,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import React from "react";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { JSDOM } from "jsdom";
 
 import { parseMarkdownToHast } from "./markdown-ast";
 import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
+import StreamingMarkdownBody from "./StreamingMarkdownBody";
 import { createTranscriptRowMeasureScheduler } from "./transcript-measure";
 
 function flatten(node) {
@@ -84,4 +87,49 @@ test("markdown chunk promotions coalesce into one transcript row measurement", a
   assert.equal(measurements, 0);
   await Promise.resolve();
   assert.equal(measurements, 1);
+});
+
+test("streaming source fallback remeasures on every visible text change", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
+    url: "http://localhost/",
+  });
+  const previous = new Map(["window", "document", "IS_REACT_ACT_ENVIRONMENT"]
+    .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(globalThis, "window", { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: dom.window.document });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const root = createRoot(dom.window.document.getElementById("root"));
+  const CopyControl = () => null;
+  let measurements = 0;
+  const onRendered = () => {
+    measurements += 1;
+  };
+  try {
+    await act(async () => {
+      root.render(React.createElement(StreamingMarkdownBody, {
+        text: "first line",
+        parse: false,
+        copyControl: CopyControl,
+        onRendered,
+      }));
+    });
+    assert.equal(measurements, 1);
+
+    await act(async () => {
+      root.render(React.createElement(StreamingMarkdownBody, {
+        text: "first line\nsecond line",
+        parse: false,
+        copyControl: CopyControl,
+        onRendered,
+      }));
+    });
+    assert.equal(measurements, 2);
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
 });

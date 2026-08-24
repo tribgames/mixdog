@@ -3,7 +3,7 @@
 Primary-model-matched full runs compare mixdog directly with the native
 coding harness for the same model family. Each run covers all 89 tasks with
 unmodified task timeouts and resources. Results are self-reported single runs
-(`k=1`, 2026-08), not leaderboard submissions.
+(`k=1`, 2026-08-23), not leaderboard submissions.
 
 These runs test whether mixdog can match the native harnesses on results
 while spending far less to get there. The mixdog side is a strict
@@ -18,10 +18,10 @@ is consistent across both pairs.
 
 ![Terminal-Bench 2.1 comparison of mixdog with Claude Opus 5 and Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
 
-- Score: **78/89 vs 77/89** — within single-run noise
-- Speed: **1.43×**
-- Final context: **40% smaller** (median tokens at task end, 22.8K vs 38.2K)
-- Priced cost: **29% lower**
+- Score: **82/89 vs 77/89** — +5 tasks
+- Speed: **1.21×**
+- Final context: **31% smaller** (median tokens at task end, 26.2K vs 38.2K)
+- Priced cost: **16% lower** ($108.92 vs $129.21, all 89 tasks)
 
 Every mixdog trial is one Opus 5 session with delegation and helper-model
 lookups disabled. The Claude Code baseline uses its standard shipped loop.
@@ -30,10 +30,10 @@ lookups disabled. The Claude Code baseline uses its standard shipped loop.
 
 ![Terminal-Bench 2.1 comparison of mixdog with GPT-5.6 Sol xhigh and Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
 
-- Score: **75/89 vs 75/89** — tie
-- Speed: **1.27×**
-- Final context: **47% smaller** (median tokens at task end, 17.7K vs 33.5K)
-- Priced cost: **at least 39.7% lower**
+- Score: **79/89 vs 75/89** — +4 tasks
+- Speed: **1.15×**
+- Final context: **47% smaller** (median tokens at task end, 17.8K vs 33.5K)
+- Priced cost: **41% lower** ($57.06 vs $97.54, all 89 tasks)
 
 Speed is baseline elapsed agent time divided by mixdog elapsed agent time.
 Final context is the median context occupancy of each run's last model call,
@@ -44,14 +44,38 @@ single-session bench. The native baselines keep their standard shipped loops.
 Baselines are full 89-task runs of each native harness: Claude Code 2.1.220
 (`jobs-full-cc-n8`, 77/89 settled) and Codex CLI (`jobs-full-codex`, 75/89).
 
-Anthropic cost includes measured cache writes. The archived Codex run did not
-retain `cache_write_tokens`, so its recorded **$97.54** is a lower bound.
+Both published runs settled all 89 tasks with infra retries inside the loop,
+so neither is a zero-retry clean run (Opus: 5 errored trials, 6 retries; Sol:
+1 errored trial).
+
+Cost covers all 89 tasks on both sides. In these runs a trial killed by the
+agent timeout left no `agent/usage.json` at all — the runtime wrote that
+snapshot only on a clean exit, a gap since closed by flushing it after every
+model response — so those tasks (5 in the Opus run, 1 in the Sol run) are
+priced from the `usage_raw` events already recorded in their raw
+`agent/agent-trace.jsonl`, which carry the same uncached/cache-read/cache-write
+/output split. `analysis/trace-cost.mjs` reprices every task from the trace and
+reproduces the flushed snapshot on **88 of 88** Sol tasks and **83 of 84** Opus
+tasks; the one exception, `custom-memory-heap-crash`, differs by $0.03 and is
+published from its snapshot. Recovered rows and their raw token splits are
+archived in [`analysis/trace-recovered-cost.json`](analysis/trace-recovered-cost.json).
+
+Cost is a token valuation at published API list rates, not an invoice: every
+run here authenticates through an OAuth subscription, so the dollar figures
+compare what the same work would cost per token, harness against harness.
+
+Anthropic prices cache writes separately and both Opus-side runs record them.
+The GPT-5.6 Sol rate card prices them too, but every OpenAI-side response —
+ours and Codex's alike — reports `cache_write_tokens: 0` on all 89 tasks, so
+neither Sol total is missing a priced component.
 
 ## Contents
 - `results.md` / `results.json` — per-task outcomes of the published runs
 - `presets.json` / `run.ps1` — model presets and the synchronous benchmark runner
 - `harness/` — Harbor installed-agent adapter, Lead driver, launcher
 - `analysis/` — metric scripts that recompute every published number from raw artifacts
+- `analysis/publish-assets.mjs` — regenerates the charts, tables, and cost archive from the run reports
+- `analysis/trace-recovered-cost.json` — raw token splits for the timeout trials priced from the agent trace
 - `tb21-opus-vs-claude-code.svg` — Opus comparison graph
 - `tb21-sol-vs-codex.svg` — Sol comparison graph
 - `jobs-*` — raw Harbor `result.json`, agent logs, and usage snapshots
@@ -117,12 +141,27 @@ harbor run -d terminal-bench/terminal-bench-2-1 `
   -o jobs-codex -n 8 -r 2 -q -y
 ```
 
+### Publish a new pair of runs
+Point `presets.json` → `published` at the new job directories, then:
+```powershell
+node analysis/publish-assets.mjs
+```
+That regenerates both comparison charts, `results.md`/`.json`, and
+`analysis/trace-recovered-cost.json` straight from each run's `report.json`,
+then prints the score, speed, context, and cost figures to quote. It never
+edits a README: the prose above is written by hand from that output, which is
+also where a `clean=false` run or a lower-bound baseline is flagged.
+
 ### Verify the published numbers from the raw artifacts
 ```powershell
 node analysis/results-table.mjs   # regenerates results.md/.json
 node analysis/final-context.mjs   # final-context medians for all runs
-node harness/cost-exact.mjs jobs-full-opus5-clean-20260804-042235/2026-08-04__04-22-48 cc-baseline-plus.json
-node harness/cost-exact.mjs jobs-full-solxhigh-clean-20260804-042235/2026-08-04__06-40-38
+node harness/cost-exact.mjs jobs-full-opus5-solo-20260823-144706/2026-08-23__23-47-09 cc-baseline-plus.json
+node harness/cost-exact.mjs jobs-full-sol-xhigh-20260823-182305/2026-08-24__03-23-07
+
+# All-89-task cost: reprice from raw traces and cross-check every snapshot
+node analysis/trace-cost.mjs jobs-full-opus5-solo-20260823-144706
+node analysis/trace-cost.mjs jobs-full-sol-xhigh-20260823-182305
 ```
 
 `cc-baseline-plus.json` extends the pinned `cc-baseline.json` with the eight
@@ -133,9 +172,9 @@ entries on shared tasks); the pinned original is unmodified.
 ### Claim → raw evidence map
 | Claim | Raw artifacts |
 |---|---|
-| mixdog Opus 5 78/89 (single-model, single-session) | `jobs-full-opus5-clean-20260804-042235/` |
+| mixdog Opus 5 82/89 (single-model, single-session) | `jobs-full-opus5-solo-20260823-144706/` |
 | Claude Code 77/89 | `jobs-full-cc-n8/` (`full-run-cc-n8-status.txt`: settled=89 pass=77) |
-| mixdog Sol 75/89 (single-model, single-session) | `jobs-full-solxhigh-clean-20260804-042235/` |
+| mixdog Sol 79/89 (single-model, single-session) | `jobs-full-sol-xhigh-20260823-182305/` |
 | Codex CLI 75/89 | `jobs-full-codex/` |
 
 Every trial directory archives `result.json` (verifier reward),

@@ -821,28 +821,42 @@ export function execShellCommand({
         : (backgroundDeadlineMs > 0
           ? Math.max(1, backgroundDeadlineMs - elapsedMs)
           : 0);
-      try {
-        job = await promoteForegroundShellJob({
-          command,
-          cwd,
-          pid: child.pid,
-          jobId: _foregroundRecordId,
-          timeoutMs: remainingBackgroundTimeoutMs,
-          // Carry the command's own start moment into the job: promotion time
-          // and a standby's process-creation time are both wrong.
-          startedAtMs: _commandStartedAtMs,
-          mergeStderr: false,
-          stdoutPath,
-          stderrPath,
-          // Stamp the promoted job with the dispatching terminal's claude.exe
-          // pid so the statusline scopes it to the owning session.
-          clientHostPid,
-          // …and with the dispatching SESSION, so a pooled host (desktop) can
-          // show the job on its own pane only.
-          ownerSessionId,
-        });
-      } catch {
-        job = null;
+      let promotionFailure = '';
+      const _tryPromote = async () => {
+        try {
+          const promoted = await promoteForegroundShellJob({
+            command,
+            cwd,
+            pid: child.pid,
+            jobId: _foregroundRecordId,
+            timeoutMs: remainingBackgroundTimeoutMs,
+            // Carry the command's own start moment into the job: promotion time
+            // and a standby's process-creation time are both wrong.
+            startedAtMs: _commandStartedAtMs,
+            mergeStderr: false,
+            stdoutPath,
+            stderrPath,
+            // Stamp the promoted job with the dispatching terminal's claude.exe
+            // pid so the statusline scopes it to the owning session.
+            clientHostPid,
+            // …and with the dispatching SESSION, so a pooled host (desktop) can
+            // show the job on its own pane only.
+            ownerSessionId,
+          });
+          if (!promoted) promotionFailure = promotionFailure || 'promotion unavailable';
+          return promoted;
+        } catch (err) {
+          promotionFailure = err?.message || String(err);
+          return null;
+        }
+      };
+      job = await _tryPromote();
+      // One bounded retry: a promotion that failed on a transient registry/IPC
+      // race heals within a beat, while a capability gap fails identically and
+      // falls through to the kill path with its reason attached below.
+      if (!job && !settled && child.exitCode == null && child.signalCode == null) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        job = await _tryPromote();
       }
       // Adoption failed AFTER the foreground timers/size-watchdog were already
       // torn down. Do NOT resolve as backgrounded — that would leave the child
@@ -856,7 +870,12 @@ export function execShellCommand({
           timedOut = true;
           _treeKillForceSettle('timeout');
         } else {
-          _treeKillForceSettle('background-promotion-failed');
+          // Keep the stable cause tag first (trace classifiers match on it)
+          // and attach the captured reason so the next occurrence is
+          // diagnosable from the transcript alone.
+          _treeKillForceSettle(promotionFailure
+            ? `background-promotion-failed (${promotionFailure.slice(0, 120)})`
+            : 'background-promotion-failed');
         }
         return;
       }

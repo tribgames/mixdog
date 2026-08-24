@@ -48,6 +48,7 @@ import {
     buildGrepCacheKey,
     buildGrepRgArgs,
     DEFAULT_IGNORE_GLOBS,
+    rootScanIgnoreGlobs,
 } from './search-builders.mjs';
 import { runRg, runRgWindowedLines, rgSupportsPcre2 } from './native-search-runner.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
@@ -415,6 +416,10 @@ export async function executeGlobTool(args, workDir, options = {}) {
         for (const ex of extraIgnoreGlobs) rgArgs.push('--glob', ex);
         for (const rel of rels) rgArgs.push('--glob', rel);
         const rgCwd = resolvedForSearchRoot(root);
+        // Root-anchored kernel-tree prunes trail every positive glob so
+        // rg's later-glob-wins rule can never re-admit /proc//sys//dev on a
+        // full-root scan.
+        for (const ex of rootScanIgnoreGlobs(rgCwd)) rgArgs.push('--glob', ex);
         rgArgs.push('.');
         const cwdStat = await statCached(rgCwd);
         if (cwdStat.err) {

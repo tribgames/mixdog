@@ -105,7 +105,12 @@ async function loadSharp() {
         _sharpPromise = (async () => {
             try {
                 const mod = await import('sharp');
-                return mod?.default || mod || null;
+                const sharp = mod?.default || mod || null;
+                // libvips' internal operation cache (default ~50MB per
+                // process) duplicates the JS-level resize cache above and the
+                // on-disk rendition cache; keep pixels out of native memory.
+                try { sharp?.cache(false); } catch { /* cache stays default */ }
+                return sharp;
             } catch {
                 return null;
             }

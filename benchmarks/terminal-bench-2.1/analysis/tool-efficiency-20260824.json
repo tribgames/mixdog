@@ -1,0 +1,1140 @@
+[
+  {
+    "label": "jobs-full-sol-xhigh-20260823-182305",
+    "trials": 89,
+    "totalCalls": 1609,
+    "totalOutChars": 3409541,
+    "wastedChars": 8894,
+    "wastedPct": 0.3,
+    "failChains": {
+      "recovered": 6,
+      "abandoned": 30,
+      "chainWasteChars": 8803
+    },
+    "tools": {
+      "shell": {
+        "calls": 756,
+        "ok": 755,
+        "failed": 1,
+        "skipped": 0,
+        "failRatePct": 0.1,
+        "execMs": {
+          "n": 756,
+          "sum": 1629578,
+          "mean": 2155.5,
+          "p50": 465,
+          "p95": 10006,
+          "max": 10394
+        },
+        "totalMs": {
+          "n": 756,
+          "sum": 2027309,
+          "mean": 2681.6,
+          "p50": 695,
+          "p95": 10012,
+          "max": 18510
+        },
+        "batchWaitMs": {
+          "n": 756,
+          "sum": 397465,
+          "mean": 525.7,
+          "p50": 1,
+          "p95": 2945,
+          "max": 18468
+        },
+        "outChars": {
+          "n": 756,
+          "sum": 1496374,
+          "mean": 1979.3,
+          "p50": 509,
+          "p95": 10942,
+          "max": 26528
+        },
+        "okOutChars": {
+          "n": 755,
+          "sum": 1496118,
+          "mean": 1981.6,
+          "p50": 509,
+          "p95": 10942,
+          "max": 26528
+        },
+        "wastedChars": 256,
+        "errCats": {
+          "timeout": 1
+        }
+      },
+      "read": {
+        "calls": 296,
+        "ok": 285,
+        "failed": 10,
+        "skipped": 1,
+        "failRatePct": 3.4,
+        "execMs": {
+          "n": 296,
+          "sum": 9238,
+          "mean": 31.2,
+          "p50": 3,
+          "p95": 94,
+          "max": 1200
+        },
+        "totalMs": {
+          "n": 296,
+          "sum": 160074,
+          "mean": 540.8,
+          "p50": 44,
+          "p95": 1412,
+          "max": 10004
+        },
+        "batchWaitMs": {
+          "n": 296,
+          "sum": 150651,
+          "mean": 509,
+          "p50": 35,
+          "p95": 1365,
+          "max": 9996
+        },
+        "outChars": {
+          "n": 296,
+          "sum": 948381,
+          "mean": 3204,
+          "p50": 1348,
+          "p95": 12240,
+          "max": 26648
+        },
+        "okOutChars": {
+          "n": 285,
+          "sum": 946302,
+          "mean": 3320.4,
+          "p50": 1499,
+          "p95": 12240,
+          "max": 26648
+        },
+        "wastedChars": 2079,
+        "errCats": {
+          "not-found": 10
+        }
+      },
+      "grep": {
+        "calls": 118,
+        "ok": 118,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 118,
+          "sum": 6936,
+          "mean": 58.8,
+          "p50": 12,
+          "p95": 185,
+          "max": 1493
+        },
+        "totalMs": {
+          "n": 118,
+          "sum": 341040,
+          "mean": 2890.2,
+          "p50": 54,
+          "p95": 3783,
+          "max": 148386
+        },
+        "batchWaitMs": {
+          "n": 118,
+          "sum": 334043,
+          "mean": 2830.9,
+          "p50": 35,
+          "p95": 2932,
+          "max": 148366
+        },
+        "outChars": {
+          "n": 118,
+          "sum": 336422,
+          "mean": 2851,
+          "p50": 2999,
+          "p95": 4912,
+          "max": 5140
+        },
+        "okOutChars": {
+          "n": 118,
+          "sum": 336422,
+          "mean": 2851,
+          "p50": 2999,
+          "p95": 4912,
+          "max": 5140
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      },
+      "apply_patch": {
+        "calls": 111,
+        "ok": 110,
+        "failed": 1,
+        "skipped": 0,
+        "failRatePct": 0.9,
+        "execMs": {
+          "n": 111,
+          "sum": 1441,
+          "mean": 13,
+          "p50": 11,
+          "p95": 32,
+          "max": 63
+        },
+        "totalMs": {
+          "n": 111,
+          "sum": 4213,
+          "mean": 38,
+          "p50": 35,
+          "p95": 68,
+          "max": 94
+        },
+        "batchWaitMs": {
+          "n": 111,
+          "sum": 2720,
+          "mean": 24.5,
+          "p50": 22,
+          "p95": 53,
+          "max": 87
+        },
+        "outChars": {
+          "n": 111,
+          "sum": 13409,
+          "mean": 120.8,
+          "p50": 64,
+          "p95": 373,
+          "max": 1917
+        },
+        "okOutChars": {
+          "n": 110,
+          "sum": 12647,
+          "mean": 115,
+          "p50": 64,
+          "p95": 299,
+          "max": 1917
+        },
+        "wastedChars": 762,
+        "errCats": {
+          "invalid-args": 1
+        }
+      },
+      "task": {
+        "calls": 105,
+        "ok": 105,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 105,
+          "sum": 9498253,
+          "mean": 90459.6,
+          "p50": 27790,
+          "p95": 504946,
+          "max": 600087
+        },
+        "totalMs": {
+          "n": 105,
+          "sum": 9622215,
+          "mean": 91640.1,
+          "p50": 27792,
+          "p95": 504948,
+          "max": 600380
+        },
+        "batchWaitMs": {
+          "n": 105,
+          "sum": 123635,
+          "mean": 1177.5,
+          "p50": 2,
+          "p95": 5339,
+          "max": 66525
+        },
+        "outChars": {
+          "n": 105,
+          "sum": 430117,
+          "mean": 4096.4,
+          "p50": 901,
+          "p95": 23410,
+          "max": 28927
+        },
+        "okOutChars": {
+          "n": 105,
+          "sum": 430117,
+          "mean": 4096.4,
+          "p50": 901,
+          "p95": 23410,
+          "max": 28927
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      },
+      "git": {
+        "calls": 88,
+        "ok": 66,
+        "failed": 22,
+        "skipped": 0,
+        "failRatePct": 25,
+        "execMs": {
+          "n": 88,
+          "sum": 15454,
+          "mean": 175.6,
+          "p50": 6,
+          "p95": 1373,
+          "max": 4593
+        },
+        "totalMs": {
+          "n": 88,
+          "sum": 23801,
+          "mean": 270.5,
+          "p50": 40,
+          "p95": 1850,
+          "max": 4595
+        },
+        "batchWaitMs": {
+          "n": 88,
+          "sum": 8282,
+          "mean": 94.1,
+          "p50": 25,
+          "p95": 437,
+          "max": 1614
+        },
+        "outChars": {
+          "n": 88,
+          "sum": 60025,
+          "mean": 682.1,
+          "p50": 165,
+          "p95": 1749,
+          "max": 13175
+        },
+        "okOutChars": {
+          "n": 66,
+          "sum": 55354,
+          "mean": 838.7,
+          "p50": 251,
+          "p95": 2008,
+          "max": 13175
+        },
+        "wastedChars": 4671,
+        "errCats": {
+          "other": 7,
+          "non-repo": 15
+        }
+      },
+      "list": {
+        "calls": 75,
+        "ok": 71,
+        "failed": 4,
+        "skipped": 0,
+        "failRatePct": 5.3,
+        "execMs": {
+          "n": 75,
+          "sum": 261,
+          "mean": 3.5,
+          "p50": 3,
+          "p95": 7,
+          "max": 9
+        },
+        "totalMs": {
+          "n": 75,
+          "sum": 52993,
+          "mean": 706.6,
+          "p50": 44,
+          "p95": 3784,
+          "max": 18492
+        },
+        "batchWaitMs": {
+          "n": 75,
+          "sum": 52665,
+          "mean": 702.2,
+          "p50": 38,
+          "p95": 3779,
+          "max": 18486
+        },
+        "outChars": {
+          "n": 75,
+          "sum": 27644,
+          "mean": 368.6,
+          "p50": 111,
+          "p95": 1332,
+          "max": 9276
+        },
+        "okOutChars": {
+          "n": 71,
+          "sum": 26751,
+          "mean": 376.8,
+          "p50": 101,
+          "p95": 1332,
+          "max": 9276
+        },
+        "wastedChars": 893,
+        "errCats": {
+          "not-found": 4
+        }
+      },
+      "glob": {
+        "calls": 45,
+        "ok": 44,
+        "failed": 1,
+        "skipped": 0,
+        "failRatePct": 2.2,
+        "execMs": {
+          "n": 45,
+          "sum": 1193,
+          "mean": 26.5,
+          "p50": 7,
+          "p95": 51,
+          "max": 753
+        },
+        "totalMs": {
+          "n": 45,
+          "sum": 5216,
+          "mean": 115.9,
+          "p50": 38,
+          "p95": 502,
+          "max": 1533
+        },
+        "batchWaitMs": {
+          "n": 45,
+          "sum": 4001,
+          "mean": 88.9,
+          "p50": 26,
+          "p95": 376,
+          "max": 1527
+        },
+        "outChars": {
+          "n": 45,
+          "sum": 73070,
+          "mean": 1623.8,
+          "p50": 153,
+          "p95": 11296,
+          "max": 20315
+        },
+        "okOutChars": {
+          "n": 44,
+          "sum": 72837,
+          "mean": 1655.4,
+          "p50": 131,
+          "p95": 11296,
+          "max": 20315
+        },
+        "wastedChars": 233,
+        "errCats": {
+          "not-found": 1
+        }
+      },
+      "code_graph": {
+        "calls": 7,
+        "ok": 7,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 7,
+          "sum": 198,
+          "mean": 28.3,
+          "p50": 5,
+          "p95": 105,
+          "max": 105
+        },
+        "totalMs": {
+          "n": 7,
+          "sum": 377,
+          "mean": 53.9,
+          "p50": 50,
+          "p95": 106,
+          "max": 106
+        },
+        "batchWaitMs": {
+          "n": 7,
+          "sum": 177,
+          "mean": 25.3,
+          "p50": 29,
+          "p95": 48,
+          "max": 48
+        },
+        "outChars": {
+          "n": 7,
+          "sum": 23676,
+          "mean": 3382.3,
+          "p50": 3011,
+          "p95": 10593,
+          "max": 10593
+        },
+        "okOutChars": {
+          "n": 7,
+          "sum": 23676,
+          "mean": 3382.3,
+          "p50": 3011,
+          "p95": 10593,
+          "max": 10593
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      },
+      "find": {
+        "calls": 6,
+        "ok": 6,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 6,
+          "sum": 21927,
+          "mean": 3654.5,
+          "p50": 712,
+          "p95": 18512,
+          "max": 18512
+        },
+        "totalMs": {
+          "n": 6,
+          "sum": 22132,
+          "mean": 3688.7,
+          "p50": 778,
+          "p95": 18514,
+          "max": 18514
+        },
+        "batchWaitMs": {
+          "n": 6,
+          "sum": 201,
+          "mean": 33.5,
+          "p50": 29,
+          "p95": 66,
+          "max": 66
+        },
+        "outChars": {
+          "n": 6,
+          "sum": 316,
+          "mean": 52.7,
+          "p50": 32,
+          "p95": 151,
+          "max": 151
+        },
+        "okOutChars": {
+          "n": 6,
+          "sum": 316,
+          "mean": 52.7,
+          "p50": 32,
+          "p95": 151,
+          "max": 151
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      },
+      "load_tool": {
+        "calls": 1,
+        "ok": 1,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 1,
+          "sum": 1,
+          "mean": 1,
+          "p50": 1,
+          "p95": 1,
+          "max": 1
+        },
+        "totalMs": {
+          "n": 1,
+          "sum": 16,
+          "mean": 16,
+          "p50": 16,
+          "p95": 16,
+          "max": 16
+        },
+        "batchWaitMs": {
+          "n": 1,
+          "sum": 13,
+          "mean": 13,
+          "p50": 13,
+          "p95": 13,
+          "max": 13
+        },
+        "outChars": {
+          "n": 1,
+          "sum": 26,
+          "mean": 26,
+          "p50": 26,
+          "p95": 26,
+          "max": 26
+        },
+        "okOutChars": {
+          "n": 1,
+          "sum": 26,
+          "mean": 26,
+          "p50": 26,
+          "p95": 26,
+          "max": 26
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      },
+      "cwd": {
+        "calls": 1,
+        "ok": 1,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 1,
+          "sum": 1,
+          "mean": 1,
+          "p50": 1,
+          "p95": 1,
+          "max": 1
+        },
+        "totalMs": {
+          "n": 1,
+          "sum": 14,
+          "mean": 14,
+          "p50": 14,
+          "p95": 14,
+          "max": 14
+        },
+        "batchWaitMs": {
+          "n": 1,
+          "sum": 12,
+          "mean": 12,
+          "p50": 12,
+          "p95": 12,
+          "max": 12
+        },
+        "outChars": {
+          "n": 1,
+          "sum": 81,
+          "mean": 81,
+          "p50": 81,
+          "p95": 81,
+          "max": 81
+        },
+        "okOutChars": {
+          "n": 1,
+          "sum": 81,
+          "mean": 81,
+          "p50": 81,
+          "p95": 81,
+          "max": 81
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      }
+    }
+  },
+  {
+    "label": "jobs-full-opus5-solo-20260823-144706",
+    "trials": 89,
+    "totalCalls": 1877,
+    "totalOutChars": 2117259,
+    "wastedChars": 2940,
+    "wastedPct": 0.1,
+    "failChains": {
+      "recovered": 1,
+      "abandoned": 14,
+      "chainWasteChars": 2940
+    },
+    "tools": {
+      "shell": {
+        "calls": 970,
+        "ok": 969,
+        "failed": 1,
+        "skipped": 0,
+        "failRatePct": 0.1,
+        "execMs": {
+          "n": 970,
+          "sum": 2219616,
+          "mean": 2288.3,
+          "p50": 255,
+          "p95": 10058,
+          "max": 11027
+        },
+        "totalMs": {
+          "n": 970,
+          "sum": 2769811,
+          "mean": 2855.5,
+          "p50": 543,
+          "p95": 10148,
+          "max": 102313
+        },
+        "batchWaitMs": {
+          "n": 970,
+          "sum": 549510,
+          "mean": 566.5,
+          "p50": 1,
+          "p95": 2388,
+          "max": 101771
+        },
+        "outChars": {
+          "n": 970,
+          "sum": 815790,
+          "mean": 841,
+          "p50": 496,
+          "p95": 2880,
+          "max": 21184
+        },
+        "okOutChars": {
+          "n": 969,
+          "sum": 815698,
+          "mean": 841.8,
+          "p50": 499,
+          "p95": 2880,
+          "max": 21184
+        },
+        "wastedChars": 92,
+        "errCats": {
+          "timeout": 1
+        }
+      },
+      "edit": {
+        "calls": 302,
+        "ok": 301,
+        "failed": 1,
+        "skipped": 0,
+        "failRatePct": 0.3,
+        "execMs": {
+          "n": 302,
+          "sum": 4644,
+          "mean": 15.4,
+          "p50": 5,
+          "p95": 22,
+          "max": 397
+        },
+        "totalMs": {
+          "n": 302,
+          "sum": 1061379,
+          "mean": 3514.5,
+          "p50": 48,
+          "p95": 17866,
+          "max": 93921
+        },
+        "batchWaitMs": {
+          "n": 302,
+          "sum": 1056605,
+          "mean": 3498.7,
+          "p50": 35,
+          "p95": 17861,
+          "max": 93900
+        },
+        "outChars": {
+          "n": 302,
+          "sum": 13710,
+          "mean": 45.4,
+          "p50": 43,
+          "p95": 72,
+          "max": 124
+        },
+        "okOutChars": {
+          "n": 301,
+          "sum": 13617,
+          "mean": 45.2,
+          "p50": 43,
+          "p95": 71,
+          "max": 124
+        },
+        "wastedChars": 93,
+        "errCats": {
+          "other": 1
+        }
+      },
+      "read": {
+        "calls": 257,
+        "ok": 256,
+        "failed": 1,
+        "skipped": 0,
+        "failRatePct": 0.4,
+        "execMs": {
+          "n": 257,
+          "sum": 7052,
+          "mean": 27.4,
+          "p50": 4,
+          "p95": 93,
+          "max": 2694
+        },
+        "totalMs": {
+          "n": 257,
+          "sum": 172183,
+          "mean": 670,
+          "p50": 42,
+          "p95": 3438,
+          "max": 9858
+        },
+        "batchWaitMs": {
+          "n": 257,
+          "sum": 164868,
+          "mean": 641.5,
+          "p50": 27,
+          "p95": 3434,
+          "max": 9854
+        },
+        "outChars": {
+          "n": 257,
+          "sum": 857417,
+          "mean": 3336.3,
+          "p50": 1354,
+          "p95": 14688,
+          "max": 31259
+        },
+        "okOutChars": {
+          "n": 256,
+          "sum": 857146,
+          "mean": 3348.2,
+          "p50": 1354,
+          "p95": 14688,
+          "max": 31259
+        },
+        "wastedChars": 271,
+        "errCats": {
+          "not-found": 1
+        }
+      },
+      "task": {
+        "calls": 157,
+        "ok": 157,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 157,
+          "sum": 16878366,
+          "mean": 107505.5,
+          "p50": 16005,
+          "p95": 599976,
+          "max": 601277
+        },
+        "totalMs": {
+          "n": 157,
+          "sum": 16905319,
+          "mean": 107677.2,
+          "p50": 16006,
+          "p95": 599987,
+          "max": 605975
+        },
+        "batchWaitMs": {
+          "n": 157,
+          "sum": 25285,
+          "mean": 161.1,
+          "p50": 2,
+          "p95": 598,
+          "max": 10096
+        },
+        "outChars": {
+          "n": 157,
+          "sum": 185214,
+          "mean": 1179.7,
+          "p50": 924,
+          "p95": 3355,
+          "max": 6554
+        },
+        "okOutChars": {
+          "n": 157,
+          "sum": 185214,
+          "mean": 1179.7,
+          "p50": 924,
+          "p95": 3355,
+          "max": 6554
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      },
+      "list": {
+        "calls": 77,
+        "ok": 75,
+        "failed": 2,
+        "skipped": 0,
+        "failRatePct": 2.6,
+        "execMs": {
+          "n": 77,
+          "sum": 737,
+          "mean": 9.6,
+          "p50": 6,
+          "p95": 29,
+          "max": 40
+        },
+        "totalMs": {
+          "n": 77,
+          "sum": 74094,
+          "mean": 962.3,
+          "p50": 50,
+          "p95": 1940,
+          "max": 32679
+        },
+        "batchWaitMs": {
+          "n": 77,
+          "sum": 73247,
+          "mean": 951.3,
+          "p50": 39,
+          "p95": 1933,
+          "max": 32667
+        },
+        "outChars": {
+          "n": 77,
+          "sum": 23383,
+          "mean": 303.7,
+          "p50": 48,
+          "p95": 3218,
+          "max": 3935
+        },
+        "okOutChars": {
+          "n": 75,
+          "sum": 23042,
+          "mean": 307.2,
+          "p50": 48,
+          "p95": 3218,
+          "max": 3935
+        },
+        "wastedChars": 341,
+        "errCats": {
+          "not-found": 2
+        }
+      },
+      "grep": {
+        "calls": 77,
+        "ok": 75,
+        "failed": 2,
+        "skipped": 0,
+        "failRatePct": 2.6,
+        "execMs": {
+          "n": 77,
+          "sum": 2577,
+          "mean": 33.5,
+          "p50": 9,
+          "p95": 66,
+          "max": 1199
+        },
+        "totalMs": {
+          "n": 77,
+          "sum": 34266,
+          "mean": 445,
+          "p50": 34,
+          "p95": 2461,
+          "max": 2985
+        },
+        "batchWaitMs": {
+          "n": 77,
+          "sum": 31617,
+          "mean": 410.6,
+          "p50": 12,
+          "p95": 2456,
+          "max": 2931
+        },
+        "outChars": {
+          "n": 77,
+          "sum": 205957,
+          "mean": 2674.8,
+          "p50": 2928,
+          "p95": 4974,
+          "max": 5072
+        },
+        "okOutChars": {
+          "n": 75,
+          "sum": 205503,
+          "mean": 2740,
+          "p50": 2973,
+          "p95": 4974,
+          "max": 5072
+        },
+        "wastedChars": 454,
+        "errCats": {
+          "not-found": 2
+        }
+      },
+      "git": {
+        "calls": 21,
+        "ok": 16,
+        "failed": 5,
+        "skipped": 0,
+        "failRatePct": 23.8,
+        "execMs": {
+          "n": 21,
+          "sum": 696,
+          "mean": 33.1,
+          "p50": 4,
+          "p95": 90,
+          "max": 452
+        },
+        "totalMs": {
+          "n": 21,
+          "sum": 6473,
+          "mean": 308.2,
+          "p50": 160,
+          "p95": 991,
+          "max": 1459
+        },
+        "batchWaitMs": {
+          "n": 21,
+          "sum": 5761,
+          "mean": 274.3,
+          "p50": 28,
+          "p95": 918,
+          "max": 1442
+        },
+        "outChars": {
+          "n": 21,
+          "sum": 13871,
+          "mean": 660.5,
+          "p50": 259,
+          "p95": 1558,
+          "max": 5198
+        },
+        "okOutChars": {
+          "n": 16,
+          "sum": 12711,
+          "mean": 794.4,
+          "p50": 308,
+          "p95": 5198,
+          "max": 5198
+        },
+        "wastedChars": 1160,
+        "errCats": {
+          "other": 2,
+          "non-repo": 3
+        }
+      },
+      "find": {
+        "calls": 9,
+        "ok": 7,
+        "failed": 2,
+        "skipped": 0,
+        "failRatePct": 22.2,
+        "execMs": {
+          "n": 9,
+          "sum": 3243,
+          "mean": 360.3,
+          "p50": 26,
+          "p95": 1502,
+          "max": 1502
+        },
+        "totalMs": {
+          "n": 9,
+          "sum": 22866,
+          "mean": 2540.7,
+          "p50": 173,
+          "p95": 20576,
+          "max": 20576
+        },
+        "batchWaitMs": {
+          "n": 9,
+          "sum": 19611,
+          "mean": 2179,
+          "p50": 7,
+          "p95": 19072,
+          "max": 19072
+        },
+        "outChars": {
+          "n": 9,
+          "sum": 458,
+          "mean": 50.9,
+          "p50": 15,
+          "p95": 185,
+          "max": 185
+        },
+        "okOutChars": {
+          "n": 7,
+          "sum": 88,
+          "mean": 12.6,
+          "p50": 14,
+          "p95": 15,
+          "max": 15
+        },
+        "wastedChars": 370,
+        "errCats": {
+          "timeout": 2
+        }
+      },
+      "glob": {
+        "calls": 6,
+        "ok": 5,
+        "failed": 1,
+        "skipped": 0,
+        "failRatePct": 16.7,
+        "execMs": {
+          "n": 6,
+          "sum": 20205,
+          "mean": 3367.5,
+          "p50": 24,
+          "p95": 20001,
+          "max": 20001
+        },
+        "totalMs": {
+          "n": 6,
+          "sum": 21431,
+          "mean": 3571.8,
+          "p50": 33,
+          "p95": 20004,
+          "max": 20004
+        },
+        "batchWaitMs": {
+          "n": 6,
+          "sum": 1225,
+          "mean": 204.2,
+          "p50": 3,
+          "p95": 883,
+          "max": 883
+        },
+        "outChars": {
+          "n": 6,
+          "sum": 1215,
+          "mean": 202.5,
+          "p50": 121,
+          "p95": 600,
+          "max": 600
+        },
+        "okOutChars": {
+          "n": 5,
+          "sum": 1056,
+          "mean": 211.2,
+          "p50": 121,
+          "p95": 600,
+          "max": 600
+        },
+        "wastedChars": 159,
+        "errCats": {
+          "timeout": 1
+        }
+      },
+      "code_graph": {
+        "calls": 1,
+        "ok": 1,
+        "failed": 0,
+        "skipped": 0,
+        "failRatePct": 0,
+        "execMs": {
+          "n": 1,
+          "sum": 3,
+          "mean": 3,
+          "p50": 3,
+          "p95": 3,
+          "max": 3
+        },
+        "totalMs": {
+          "n": 1,
+          "sum": 37,
+          "mean": 37,
+          "p50": 37,
+          "p95": 37,
+          "max": 37
+        },
+        "batchWaitMs": {
+          "n": 1,
+          "sum": 34,
+          "mean": 34,
+          "p50": 34,
+          "p95": 34,
+          "max": 34
+        },
+        "outChars": {
+          "n": 1,
+          "sum": 244,
+          "mean": 244,
+          "p50": 244,
+          "p95": 244,
+          "max": 244
+        },
+        "okOutChars": {
+          "n": 1,
+          "sum": 244,
+          "mean": 244,
+          "p50": 244,
+          "p95": 244,
+          "max": 244
+        },
+        "wastedChars": 0,
+        "errCats": {}
+      }
+    }
+  }
+]

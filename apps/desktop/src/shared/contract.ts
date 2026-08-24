@@ -324,9 +324,17 @@ export type DesktopSessionStateUpdate = {
    *  a replay re-carries the revision of the frame it was derived from, so a
    *  stale disk projection delivered late can never claim to be newer. */
   contentRevision?: number;
+  /** Why this frame carried a NULL snapshot. Only 'gone' is a real teardown.
+   *  The daemon reclaims an unwatched idle session's memory ('unloaded') and a
+   *  dropped daemon transport ('disconnected') both leave the transcript on
+   *  disk and reload on demand, so a cached lane must SURVIVE them — dropping
+   *  it repainted a live task as an empty New Task
+   *  (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예 비어버린다). */
+  laneEnd?: DesktopSessionLaneEnd;
 };
 
 export type DesktopSessionFrameSource = 'live' | 'replay';
+export type DesktopSessionLaneEnd = 'gone' | 'unloaded' | 'disconnected';
 
 // Wire form of the `mixdog:state` push. Streaming publications replace the
 // full `items` array with an identity-prefix patch (settled transcript items
@@ -365,6 +373,7 @@ export type DesktopSessionStateWireUpdate = {
   wire: DesktopStateWire;
   frameSource: DesktopSessionFrameSource;
   contentRevision?: number;
+  laneEnd?: DesktopSessionLaneEnd;
 };
 
 export interface ToolApprovalDecision {

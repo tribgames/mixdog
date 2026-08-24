@@ -152,14 +152,13 @@ npm run dev
 
 Controlled single-model runs on the same 89 tasks produced:
 
-- **78/89** with Claude Opus 5 vs Claude Code's **77/89**
-- **75/89** with GPT-5.6 Sol xhigh, matching Codex CLI
-- **1.43×** faster vs Claude Code and **1.27×** faster vs Codex CLI
-- **40–47%** smaller median final context
-- **29%** lower priced cost vs Claude Code and at least **39.7%** lower vs
-  Codex CLI
+- **82/89** with Claude Opus 5 vs Claude Code's **77/89**
+- **79/89** with GPT-5.6 Sol xhigh vs Codex CLI's **75/89**
+- **1.21×** faster vs Claude Code and **1.15×** faster vs Codex CLI
+- **31–47%** smaller median final context
+- **16%** lower priced cost vs Claude Code and **41%** lower vs Codex CLI
 
-These are self-reported single runs (`k=1`, 2026-08), not leaderboard
+These are self-reported single runs (`k=1`, 2026-08-23), not leaderboard
 submissions. Raw artifacts, commands, comparison charts, and metric scripts
 live under [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
 

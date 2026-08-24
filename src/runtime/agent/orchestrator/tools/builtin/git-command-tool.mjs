@@ -20,6 +20,7 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
+const GIT_OUTPUT_LIMIT_MAX = 200;
 const SUPPORTED = new Set([
     'add', 'am', 'apply', 'archive', 'bisect', 'blame', 'branch', 'bundle',
     'cat-file', 'check-attr', 'check-ignore', 'check-ref-format', 'checkout',
@@ -63,12 +64,12 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command directly, without a shell. History, blame, and old commits are evidence only when the task itself is about the past; work on current code ends at status and diff. Use diff directly when changed content for a known target is required; status is the repository summary. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
+    description: 'Run one Git command directly, without a shell. History, blame, and old commits are evidence only when the task itself is about the past; current-code work needs no git evidence beyond status and diff. Use diff directly when changed content for a known target is required; status is the repository summary. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
             command: { type: 'string', description: 'Full command beginning with git. Quote arguments as for a shell; shell operators are not allowed.' },
-            output_limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Item/line cap. Default 50; git log defaults to 10.' },
+            output_limit: { type: 'integer', minimum: 1, maximum: GIT_OUTPUT_LIMIT_MAX, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
         required: ['command'],
         additionalProperties: false,
@@ -98,7 +99,7 @@ export const GIT_STAGE_TOOL_DEF = {
                 ],
                 description: 'Exact change ID or IDs to stage.',
             },
-            output_limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Status line cap; default 50.' },
+            output_limit: { type: 'integer', minimum: 1, maximum: GIT_OUTPUT_LIMIT_MAX, description: 'Status line cap; default 50.' },
         },
         required: ['diff_id', 'change_ids'],
         additionalProperties: false,
@@ -761,7 +762,7 @@ export async function executeGitStageTool(input, workDir, options = {}) {
             hint: 'Run git diff in the current Project and use its diff_id/change_ids.',
         });
     }
-    const limit = Math.min(500, Math.max(1, Number(input?.output_limit) || 50));
+    const limit = Math.min(GIT_OUTPUT_LIMIT_MAX, Math.max(1, Number(input?.output_limit) || 50));
     const signal = options?.signal || options?.abortSignal || null;
     const repo = snapshot.repo;
     return withGitRepoWriteLock(repo, () => withBuiltinPathLocks([repo], () => withAdvisoryLocks([repo], async () => {
@@ -815,7 +816,7 @@ export async function executeGitTool(input, workDir, options = {}) {
         return fail('git archive requires -o/--output; binary stdout is not returned');
     }
     const limitDefault = plan.operation === 'log' ? 10 : 50;
-    const limit = Math.min(500, Math.max(1, Number(input.output_limit) || limitDefault));
+    const limit = Math.min(GIT_OUTPUT_LIMIT_MAX, Math.max(1, Number(input.output_limit) || limitDefault));
     const signal = options?.signal || options?.abortSignal || null;
     if (plan.operation === 'init' || plan.operation === 'clone') {
         const target = creationTarget(plan);

@@ -1,11 +1,19 @@
-// Regenerate results.md / results.json from the two published clean runs.
+// Regenerate results.md / results.json from the two published runs.
 // Usage: node analysis/results-table.mjs   (from benchmarks/terminal-bench-2.1)
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 
+// Single source of truth for "which runs are published": presets.json.
+const published = JSON.parse(readFileSync('presets.json', 'utf8')).published;
 const RUNS = {
-    opus5: 'jobs-full-opus5-clean-20260804-042235',
-    'sol-xhigh': 'jobs-full-solxhigh-clean-20260804-042235',
+    opus5: published.opus.jobsDir,
+    'sol-xhigh': published.sol.jobsDir,
+};
+const runDate = (dir) => {
+    try {
+        const report = JSON.parse(readFileSync(join(dir, 'report.json'), 'utf8'));
+        return String(report?.timing?.startedAt ?? '').slice(0, 10);
+    } catch { return null; }
 };
 
 function collect(root) {
@@ -42,7 +50,7 @@ const score = (name) => Object.values(byRun[name]).filter((v) => v === 'pass').l
 const md = [
     '# Terminal-Bench 2.1 — per-task results',
     '',
-    'Clean matched-model solo runs, 2026-08-04, k=1.',
+    `Matched-model solo runs, ${runDate(RUNS.opus5) ?? 'unknown date'}, k=1.`,
     '',
     `- **opus5**: mixdog · Claude Opus 5 high — \`${RUNS.opus5}\` — **${score('opus5')}/${tasks.length}**`,
     `- **sol-xhigh**: mixdog · GPT-5.6 Sol xhigh — \`${RUNS['sol-xhigh']}\` — **${score('sol-xhigh')}/${tasks.length}**`,

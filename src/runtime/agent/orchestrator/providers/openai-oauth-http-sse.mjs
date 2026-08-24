@@ -251,9 +251,6 @@ export async function sendViaHttpSse({
     const statelessConversation = opts?.statelessConversation === true
         || _envFlag('MIXDOG_OAI_STATELESS_HTTP', false);
     const headers = _buildOpenAIHttpFallbackHeaders({ auth, cacheKey, statelessConversation });
-    if (auth?.type !== 'openai-direct' && body?.input?.[0]?.type === 'additional_tools') {
-        headers['x-openai-internal-codex-responses-lite'] = 'true';
-    }
     const fetchStartedAt = Date.now();
     const responsesUrl = auth?.type === 'openai-direct'
         ? OPENAI_DIRECT_RESPONSES_URL

@@ -41,6 +41,12 @@ test('list defaults to a 100-entry page with an offset continuation', async () =
         const out = await executeListTool({ path: root, hidden: true }, process.cwd());
         assert.equal(out.split('\n').filter((line) => line.endsWith('\tfile')).length, 100);
         assert.match(out, /\[entries 1-100 of 101; pass offset:100 to continue\]/);
+        const oversized = await executeListTool(
+            { path: root, hidden: true, head_limit: 200 },
+            process.cwd(),
+        );
+        assert.equal(oversized.split('\n').filter((line) => line.endsWith('\tfile')).length, 100);
+        assert.match(oversized, /\[entries 1-100 of 101; pass offset:100 to continue\]/);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

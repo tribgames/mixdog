@@ -7,6 +7,7 @@
 // first-paint bundle: only the resolved language is fetched, and English
 // fetches nothing at all.
 import "./process-shim";
+import { preloadMarkdownBody } from "./markdown-body-loader";
 // Browser-served remote sessions install a WebSocket-backed DesktopApi before
 // any module reads window.mixdogDesktop; inside Electron the preload bridge
 // already exists and this is a no-op.
@@ -34,6 +35,11 @@ if (remoteBrowser) {
 }
 
 if (launchApplication) {
+  // Start the rich transcript renderer while the language catalog and remote
+  // handshake are still in flight. TranscriptView keeps the lane covered
+  // until this exact renderer is ready, so the first visible text is already
+  // correctly formatted instead of flashing raw Markdown.
+  if (remoteBrowser) void preloadMarkdownBody().catch(() => undefined);
   const languageReady = import("./i18n")
     .then((module) => module.initUiLanguage());
   // Web-only early CSS fetch: bootstrap still imports this module and remains

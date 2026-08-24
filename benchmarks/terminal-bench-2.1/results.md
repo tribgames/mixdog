@@ -1,9 +1,9 @@
 # Terminal-Bench 2.1 — per-task results
 
-Clean matched-model solo runs, 2026-08-04, k=1.
+Matched-model solo runs, 2026-08-23, k=1.
 
-- **opus5**: mixdog · Claude Opus 5 high — `jobs-full-opus5-clean-20260804-042235` — **78/89**
-- **sol-xhigh**: mixdog · GPT-5.6 Sol xhigh — `jobs-full-solxhigh-clean-20260804-042235` — **75/89**
+- **opus5**: mixdog · Claude Opus 5 high — `jobs-full-opus5-solo-20260823-144706` — **82/89**
+- **sol-xhigh**: mixdog · GPT-5.6 Sol xhigh — `jobs-full-sol-xhigh-20260823-182305` — **79/89**
 
 | task | opus5 | sol-xhigh |
 |---|---|---|
@@ -13,23 +13,23 @@ Clean matched-model solo runs, 2026-08-04, k=1.
 | build-cython-ext | pass | pass |
 | build-pmars | pass | pass |
 | build-pov-ray | pass | pass |
-| caffe-cifar-10 | fail | pass |
+| caffe-cifar-10 | pass | pass |
 | cancel-async-tasks | pass | pass |
 | chess-best-move | pass | pass |
 | circuit-fibsqrt | pass | pass |
 | cobol-modernization | pass | pass |
 | code-from-image | pass | pass |
 | compile-compcert | pass | pass |
-| configure-git-webserver | pass | pass |
+| configure-git-webserver | pass | fail |
 | constraints-scheduling | pass | pass |
 | count-dataset-tokens | pass | pass |
 | crack-7z-hash | pass | pass |
 | custom-memory-heap-crash | pass | pass |
 | db-wal-recovery | pass | pass |
 | distribution-search | pass | pass |
-| dna-assembly | fail | fail |
-| dna-insert | fail | fail |
-| extract-elf | pass | pass |
+| dna-assembly | pass | fail |
+| dna-insert | pass | fail |
+| extract-elf | fail | pass |
 | extract-moves-from-video | pass | fail |
 | feal-differential-cryptanalysis | pass | pass |
 | feal-linear-cryptanalysis | pass | pass |
@@ -40,25 +40,25 @@ Clean matched-model solo runs, 2026-08-04, k=1.
 | fix-ocaml-gc | pass | pass |
 | gcode-to-text | pass | pass |
 | git-leak-recovery | pass | pass |
-| git-multibranch | pass | fail |
+| git-multibranch | pass | pass |
 | gpt2-codegolf | pass | pass |
 | headless-terminal | pass | pass |
 | hf-model-inference | pass | pass |
-| install-windows-3.11 | pass | fail |
+| install-windows-3.11 | pass | pass |
 | kv-store-grpc | pass | pass |
 | large-scale-text-editing | pass | pass |
-| largest-eigenval | pass | pass |
+| largest-eigenval | fail | pass |
 | llm-inference-batching-scheduler | pass | pass |
-| log-summary-date-ranges | pass | fail |
-| mailman | pass | pass |
-| make-doom-for-mips | fail | fail |
+| log-summary-date-ranges | pass | pass |
+| mailman | pass | fail |
+| make-doom-for-mips | fail | pass |
 | make-mips-interpreter | pass | pass |
 | mcmc-sampling-stan | pass | pass |
 | merge-diff-arc-agi-task | pass | pass |
 | model-extraction-relu-logits | pass | pass |
 | modernize-scientific-stack | pass | pass |
 | mteb-leaderboard | pass | pass |
-| mteb-retrieve | fail | fail |
+| mteb-retrieve | fail | pass |
 | multi-source-data-merger | pass | pass |
 | nginx-request-logging | pass | pass |
 | openssl-selfsigned-cert | pass | pass |
@@ -69,28 +69,28 @@ Clean matched-model solo runs, 2026-08-04, k=1.
 | polyglot-c-py | pass | pass |
 | polyglot-rust-c | pass | pass |
 | portfolio-optimization | pass | pass |
-| protein-assembly | pass | fail |
+| protein-assembly | pass | pass |
 | prove-plus-comm | pass | pass |
 | pypi-server | pass | pass |
-| pytorch-model-cli | fail | pass |
+| pytorch-model-cli | pass | pass |
 | pytorch-model-recovery | pass | fail |
 | qemu-alpine-ssh | pass | pass |
 | qemu-startup | pass | pass |
 | query-optimize | pass | pass |
-| raman-fitting | fail | pass |
+| raman-fitting | pass | fail |
 | regex-chess | pass | pass |
 | regex-log | pass | pass |
 | reshard-c4-data | pass | pass |
 | rstan-to-pystan | pass | pass |
-| sam-cell-seg | fail | pass |
+| sam-cell-seg | pass | fail |
 | sanitize-git-repo | pass | pass |
 | schemelike-metacircular-eval | pass | pass |
 | sparql-university | pass | pass |
 | sqlite-db-truncate | pass | pass |
 | sqlite-with-gcov | pass | pass |
-| torch-pipeline-parallelism | pass | fail |
+| torch-pipeline-parallelism | pass | pass |
 | torch-tensor-parallelism | pass | pass |
-| train-fasttext | fail | fail |
+| train-fasttext | fail | pass |
 | tune-mjcf | pass | pass |
 | video-processing | fail | fail |
 | vulnerable-secret | pass | pass |

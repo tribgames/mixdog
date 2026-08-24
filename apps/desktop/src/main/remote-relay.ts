@@ -181,19 +181,100 @@ export function clientReadsLane(lanes: ReadonlySet<string> | null, lane: string)
   return lanes === null || lanes.has(lane);
 }
 
+// Provider replay material, not display data: `thinkingBlocks` are Anthropic's
+// thinking/redacted_thinking blocks, kept so a later request can hand the model
+// its own prior reasoning back verbatim. No renderer reads them, and in a long
+// session they are a THIRD of the stored transcript — bytes a phone pays for on
+// every join and can never show.
+const REMOTE_TRANSCRIPT_DROP_FIELDS = ['thinkingBlocks'] as const;
+// Item identity is what makes the delta encoder cheap: it compares elements by
+// reference, so an unchanged item MUST project to the same object every time.
+const projectedTranscriptItems = new WeakMap<object, object>();
+
+function remoteTranscriptItem(item: unknown): unknown {
+  if (!item || typeof item !== 'object') return item;
+  const cached = projectedTranscriptItems.get(item as object);
+  if (cached) return cached;
+  let projected: Record<string, unknown> | null = null;
+  for (const field of REMOTE_TRANSCRIPT_DROP_FIELDS) {
+    if (!Object.hasOwn(item, field)) continue;
+    projected ??= { ...(item as Record<string, unknown>) };
+    delete projected[field];
+  }
+  const result = projected ?? item;
+  projectedTranscriptItems.set(item as object, result as object);
+  return result;
+}
+
+/** The transcript as a REMOTE client sees it. Returns the original snapshot
+ *  untouched when nothing was dropped, so the encoder keeps its fast path. */
+export function remoteTranscriptSnapshot(snapshot: unknown): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const record = snapshot as Record<string, unknown>;
+  if (!Array.isArray(record.items)) return snapshot;
+  let dropped = false;
+  const items = record.items.map((item) => {
+    const projected = remoteTranscriptItem(item);
+    if (projected !== item) dropped = true;
+    return projected;
+  });
+  return dropped ? { ...record, items } : snapshot;
+}
+
+// What a phone opens a session to: the end of it. The list is virtualized, so
+// rows above the viewport are never drawn — but the whole array is still
+// decompressed, parsed and allocated before the first of them can paint, and a
+// long session measured 1.5MB of JSON for a screen that shows a handful of
+// turns. The window is what the phone receives; the desktop keeps everything.
+export const REMOTE_TRANSCRIPT_WINDOW_ITEMS = 60;
+const REMOTE_TRANSCRIPT_WINDOW_START = 'transcriptWindowStart';
+
+/** The window START is fixed the first time a client sees a session and then
+ *  only ever grows with appends. Sliding it would rewrite index 0 on every new
+ *  turn, and the delta encoder compares from index 0 — one appended item would
+ *  cost a full window resend. It moves only when the transcript itself became
+ *  shorter than the floor (compaction, rollback, a different session). */
+function windowedTranscript(
+  snapshot: unknown,
+  sessionId: string,
+  floors: Map<string, number>,
+): unknown {
+  if (!snapshot || typeof snapshot !== 'object') return snapshot;
+  const record = snapshot as Record<string, unknown>;
+  const items = record.items;
+  if (!Array.isArray(items)) return snapshot;
+  let floor = floors.get(sessionId);
+  if (floor === undefined || floor > items.length) {
+    floor = Math.max(0, items.length - REMOTE_TRANSCRIPT_WINDOW_ITEMS);
+    floors.set(sessionId, floor);
+  }
+  if (floor === 0) return snapshot;
+  return {
+    ...record,
+    items: items.slice(floor),
+    // Named on the wire so a receiver can tell "this session starts here" from
+    // "this session is short", which is what any later backfill needs to ask.
+    [REMOTE_TRANSCRIPT_WINDOW_START]: floor,
+  };
+}
+
 /** Encode one transcript lane against exactly one relay client's baseline. */
 export function encodeRelayClientSessionState(
   encoders: Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>,
   sessionId: string,
   snapshot: unknown,
   compact = false,
+  windowFloors?: Map<string, number>,
 ): unknown {
   let encoder = encoders.get(sessionId);
   if (!encoder) {
     encoder = createSnapshotDeltaEncoder({ compact });
     encoders.set(sessionId, encoder);
   }
-  return encoder.encode(snapshot);
+  const projected = remoteTranscriptSnapshot(snapshot);
+  return encoder.encode(windowFloors
+    ? windowedTranscript(projected, sessionId, windowFloors)
+    : projected);
 }
 
 export function buildRelayMediaResponsePlan(input: {
@@ -371,6 +452,37 @@ function relayClientUrl(relayUrl: string, deviceId: string): string {
   return url.toString();
 }
 
+// A phone gives up on an unanswered call at 20s (renderer remote-shim), closes
+// the socket and reconnects into a full resync. Anything approaching that is
+// already a broken session, so the threshold is low enough to catch the call
+// that got there while staying silent for ordinary work.
+const SLOW_REMOTE_CALL_MS = 2_000;
+// The byte meter reports one `rpc` total per window, which cannot say whether
+// that was one heavy answer or eighty cheap ones. A phone's first minute spends
+// hundreds of KB across dozens of calls; naming them is what makes that
+// reducible instead of merely visible.
+const REMOTE_CALL_REPORT_MS = 60_000;
+const remoteCallStats = new Map<string, { calls: number; ms: number }>();
+let remoteCallStatsSince = Date.now();
+
+function noteRemoteCall(method: string, elapsedMs: number): void {
+  const row = remoteCallStats.get(method) ?? { calls: 0, ms: 0 };
+  row.calls += 1;
+  row.ms += elapsedMs;
+  remoteCallStats.set(method, row);
+  const window = Date.now() - remoteCallStatsSince;
+  if (window < REMOTE_CALL_REPORT_MS) return;
+  const busiest = [...remoteCallStats.entries()]
+    .sort((left, right) => right[1].calls - left[1].calls)
+    .slice(0, 8)
+    .map(([name, stats]) => `${name}=${stats.calls}x/${Math.round(stats.ms)}ms`);
+  const calls = [...remoteCallStats.values()].reduce((total, stats) => total + stats.calls, 0);
+  console.error(`[mixdog-remote-calls] ${Math.round(window / 1000)}s calls=${calls}`
+    + ` | ${busiest.join(' ')}`);
+  remoteCallStats.clear();
+  remoteCallStatsSince = Date.now();
+}
+
 export async function startRemoteRelay(options: RemoteRelayOptions): Promise<RemoteRelayHandle> {
   const relayUrl = validatedRelayUrl(options.relayUrl);
   const token = await loadOrCreatePairingToken(options.userDataPath);
@@ -431,6 +543,15 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     sessionHandles: Map<string, number>;
     sessionsEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopSessionSummary>>;
     agentPoolEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopAgentPoolRow>>;
+    /** What a returning phone actually waits for: the shell paints in ~250ms
+     *  and then shows nothing until the FIRST transcript frame for the session
+     *  it restored. Everything in between — E2EE handshake, layout restore,
+     *  the visible-session registration, the host's own read — happens here,
+     *  and no counter in this process could tell that gap from a slow link. */
+    openedAt: number;
+    firstTranscriptReported: boolean;
+    /** Per-session transcript window start, fixed on first sight. */
+    sessionWindowFloors: Map<string, number>;
   }
   const activeClients = new Map<string, RelayClientState>();
   let totalPendingFrames = 0;
@@ -734,10 +855,19 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           sessionId,
           update.snapshot,
           state.compactWire,
+          state.sessionWindowFloors,
         );
         // This client's baseline already matches the snapshot: the frame would
         // carry a revision number and nothing else.
         if (isNoDelta(wire)) return Promise.resolve();
+        if (!state.firstTranscriptReported) {
+          state.firstTranscriptReported = true;
+          // Sized once, on the frame that ends the wait — never on the stream
+          // behind it.
+          const bytes = JSON.stringify(wire)?.length ?? 0;
+          console.error('[mixdog-remote-first-transcript]'
+            + ` ms=${Date.now() - state.openedAt} bytes=${Math.round(bytes / 1024)}KB`);
+        }
         if (!state.compactWire) {
           return sendEncryptedFrame(clientId, {
             event: 'sessionState',
@@ -745,6 +875,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               sessionId,
               wire,
               frameSource: update.frameSource,
+              ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
               ...(perfProbe ? { perfProbe } : {}),
               ...(typeof update.contentRevision === 'number'
                 ? { contentRevision: update.contentRevision }
@@ -771,6 +902,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           ...(update.frameSource && update.frameSource !== 'live'
             ? { f: update.frameSource }
             : {}),
+          // Only a null frame carries it, so the key never rides a streaming one.
+          ...(update.laneEnd ? { le: update.laneEnd } : {}),
           ...(perfProbe ? { pp: perfProbe } : {}),
           ...(typeof update.contentRevision === 'number' ? { cr: update.contentRevision } : {}),
         }, true);
@@ -1135,6 +1268,9 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
               agentPoolEncoder: createKeyedListDeltaEncoder<DesktopAgentPoolRow>(
                 (agent, index) => String(agent.sessionId || agent.tag || `agent:${index}`),
               ),
+              openedAt: Date.now(),
+              firstTranscriptReported: false,
+              sessionWindowFloors: new Map(),
             });
             notifyClientCount();
             sendEnvelope({
@@ -1347,7 +1483,18 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             broadcastLists();
             return;
           }
+          // This phone's frames run STRICTLY in order on client.frameQueue, so
+          // one slow call holds up every frame behind it and the deadline fires
+          // on a request the desktop never reached. Byte and frame counters
+          // cannot show that; service time names the call that did it.
+          const callStartedAt = Date.now();
           const response = await executeRemoteFrame(methods, clearFrame);
+          const callMs = Date.now() - callStartedAt;
+          noteRemoteCall(String(call?.method ?? 'unknown'), callMs);
+          if (callMs >= SLOW_REMOTE_CALL_MS) {
+            console.error(`[mixdog-remote-slow-call] method=${String(call?.method ?? 'unknown')}`
+              + ` ms=${callMs} queuedBehind=${client.pendingFrames}`);
+          }
           if (response !== undefined) {
             await sendEncryptedFrame(envelope.clientId as string, response);
           }

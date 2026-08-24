@@ -19,7 +19,7 @@ import { installMotionVisibility } from "./motion-visibility";
 import { installScrollbarMetrics } from "./scrollbar-metrics";
 import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
-import { preloadMarkdownBody } from "./TranscriptView";
+import { preloadMarkdownBody } from "./markdown-body-loader";
 import { defaultSessionLaneStore } from "./session-lane-store";
 import { installAutoDomI18n } from "./auto-dom-i18n";
 
@@ -76,23 +76,27 @@ try {
 // installed web app showed every step of it (user: 웹앱 처음 들어갈 때 화면이
 // 툭툭 튄다). boot.js gates #root behind the window band; release it once the
 // first frame is as settled as it is going to get.
-function revealInstalledWebApp(): void {
-  const reveal = (window as typeof window & { mixdogRevealApp?: () => void }).mixdogRevealApp;
-  if (typeof reveal !== "function") return;
-  const startupSettled = new Promise<void>((resolve) => {
+// Session/layout restore is a relay round trip on the installed web app, so
+// the reveal waits for it instead of letting the restored layout land on an
+// already visible frame. A slow desktop leg can never hold the app behind the
+// gate. The budget starts HERE rather than inside the reveal call: the font
+// race below covers the same launch, and running the two in series charged
+// every boot the sum of both waits (user: 최초 부트가 느리다).
+const startupRevealBudget = Promise.race([
+  new Promise<void>((resolve) => {
     if ((window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled) {
       resolve();
       return;
     }
     window.addEventListener("mixdog:startup-settled", () => resolve(), { once: true });
-  });
-  // Session/layout restore is a relay round trip here, so the reveal waits for
-  // it instead of letting the restored layout land on an already visible frame.
-  // A slow desktop leg can never hold the app behind the gate.
-  void Promise.race([
-    startupSettled,
-    new Promise((resolve) => { window.setTimeout(resolve, 1200); }),
-  ]).then(() => {
+  }),
+  new Promise((resolve) => { window.setTimeout(resolve, 800); }),
+]);
+
+function revealInstalledWebApp(): void {
+  const reveal = (window as typeof window & { mixdogRevealApp?: () => void }).mixdogRevealApp;
+  if (typeof reveal !== "function") return;
+  void startupRevealBudget.then(() => {
     window.requestAnimationFrame(() => reveal());
   });
 }

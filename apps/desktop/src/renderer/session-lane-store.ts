@@ -454,6 +454,24 @@ export function createSessionLaneStore({
     if (!sessionId) return;
     const prior = snapshots.get(sessionId);
     const priorSnapshot = prior?.snapshot ?? null;
+    // A lane that merely STOPPED PUBLISHING must never erase what a pane is
+    // already showing. The daemon evicts an unwatched idle session to reclaim
+    // memory and its transport can drop; both reload on demand, so the cached
+    // transcript stays authoritative until a real frame replaces it. Without
+    // this, switching away for two minutes and back repainted a live task as
+    // an empty New Task (user: 진행중인 TASK창이 갑자기 NEWTASK처럼 아예
+    // 비어버린다). Only a genuine teardown ('gone') clears the entry.
+    //
+    // The reason is OPTIONAL on the wire, and the transport baseline release
+    // (ipc.ts: releaseHiddenSessionStateEntries) omits it. Requiring a reason
+    // here therefore left THAT frame free to erase a pane that was on screen
+    // and mid-turn (user: 데스크탑 세션 pane이 완전히 비어졌다 다시 나옴): one
+    // registration that momentarily omits a mounted session id releases its
+    // baseline, and the lane went blank until the next live frame refilled it.
+    // An unnamed null is a baseline release, never a teardown — the decoder
+    // baseline is dropped in preload and this cache is bounded by prune(), so
+    // holding the frame costs nothing and keeps the pane painted.
+    if (!update.snapshot && update.laneEnd !== "gone" && prior) return;
     const provenance: SessionLaneFrameProvenance = {
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === "number"

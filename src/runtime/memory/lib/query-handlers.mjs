@@ -507,18 +507,11 @@ export function createQueryHandlers({
       ? args.query.some((v) => String(v || '').trim())
       : String(args.query ?? '').trim() !== ''
     let sort = args.sort != null ? String(args.sort) : (hasQueryForSort ? 'importance' : 'date')
-    // Chunk content is the primary recall output. Members default to true so
-    // callers receive the raw chunk leaves (the cycle1-produced semantic
-    // chunks) rather than just the root's cycle2-compressed summary line.
-    // Explicit `includeMembers:false` keeps the legacy summary-only mode.
-    const includeMembers = args.includeMembers !== false
-    // Raw leg defaults ON: recall never drains/chunks inline anymore, so raw
-    // (unchunked) rows — embedded by the always-on post-ingest/tick flush —
-    // are the only way to see content cycle1 hasn't reached yet, regardless
-    // of the recap toggle. The importance/query search leg only ranks chunked
-    // entries; readRawRowsInWindow interleaves the raw rows into the hybrid
-    // list. Explicit includeRaw:false keeps the chunked-only view.
-    const includeRaw = args.includeRaw !== false
+    // Root summaries are the compact default recall output. Chunk members and
+    // unchunked raw/episode rows are explicit expansion legs for callers that
+    // need the underlying transcript evidence.
+    const includeMembers = args.includeMembers === true
+    const includeRaw = args.includeRaw === true
     const includeArchived = args.includeArchived !== false
     const category = args.category
     const temporal = parsePeriod(period, Boolean(query))
@@ -1094,7 +1087,7 @@ export function createQueryHandlers({
     // too and merge chronologically — original text first, no summaries.
     // Query-less + includeRaw:false callers keep the roots-only view.
     let merged = rows
-    if (sort === 'date' && args.includeRaw !== false) {
+    if (sort === 'date' && includeRaw) {
       const rawRows = await readRawRowsInWindow(
         db,
         filters.ts_from ?? temporal?.startMs ?? null,

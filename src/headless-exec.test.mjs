@@ -142,6 +142,65 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   }
 });
 
+test('headless exec flushes the usage snapshot mid-session, before any exit path', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-usage-flush-test-'));
+  const usageLogPath = join(root, 'usage.json');
+  // What a killed run would have left behind: read the file while `ask` is
+  // still running. Before the per-response flush this was always absent, so
+  // an agent-timeout trial reported no token spend at all.
+  let midSession = null;
+  try {
+    const code = await runHeadlessExec({
+      message: 'fix it',
+      provider: 'openai-oauth',
+      model: 'gpt-test',
+      effort: 'high',
+      fast: true,
+      usageLogPath,
+      idlePollMs: 1,
+      write: () => {},
+      writeErr: () => {},
+      boundaryFactory: () => ({
+        loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
+        cleanup: () => {},
+      }),
+      runtimeFactory: async () => ({
+        id: 'sess_flush_test',
+        model: 'gpt-test',
+        clientHostPid: 123,
+        ask: async (_prompt, options) => {
+          options.onUsageDelta({
+            deltaInput: 9,
+            deltaCachedRead: 4,
+            deltaCacheWrite: 2,
+            deltaOutput: 6,
+          });
+          try {
+            midSession = JSON.parse(readFileSync(usageLogPath, 'utf8'));
+          } catch (error) {
+            midSession = { error: error?.message ?? String(error) };
+          }
+          return { result: { content: 'done' } };
+        },
+        close: async () => {},
+      }),
+      hasActiveTasks: () => false,
+      installSignalCleanupFn: () => ({ uninstall() {} }),
+    });
+
+    assert.equal(code, 0);
+    assert.deepEqual(midSession?.totals, {
+      inputTokens: 9,
+      cacheTokens: 4,
+      cacheWriteTokens: 2,
+      outputTokens: 6,
+      toolCallCountApprox: 0,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('headless exec answers an arrived completion and exits without waiting on live work', async () => {
   const output = [];
   const errors = [];

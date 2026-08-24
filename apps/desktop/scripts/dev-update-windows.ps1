@@ -605,10 +605,15 @@ function Invoke-FastDirectChangedOutputs {
     Invoke-SelectedElectronBuild $buildTargets
   }
 
-  # A full Electron build clears out/main before recreating its own targets, so
-  # daemon.cjs must be emitted again even when daemon sources did not change.
-  $daemonChanged = [bool]$Plan.full -or [bool]$Plan.daemon
-  $reuseDaemon = $daemonChanged -and -not $Plan.full `
+  # An Electron build clears out/main before recreating ITS OWN targets, and
+  # daemon.cjs is emitted by a separate script — so rebuilding `main` deletes a
+  # daemon the plan still believes is fresh, and staging then fails on an
+  # archive with no daemon in it. Freshness is a claim about sources; the
+  # artifact's own absence outranks it.
+  $daemonArtifact = Join-Path $desktopDir 'out\main\daemon.cjs'
+  $daemonMissing = -not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)
+  $daemonChanged = [bool]$Plan.full -or [bool]$Plan.daemon -or $daemonMissing
+  $reuseDaemon = $daemonChanged -and -not $Plan.full -and -not $daemonMissing `
     -and ($ReuseBuild -or [bool]$Plan.prebuilt.daemon)
   if ($reuseDaemon) {
     Write-Step 'reusing fresh desktop daemon'
