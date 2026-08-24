@@ -97,9 +97,25 @@ export function buildVoiceRuntimePlatforms(
     if (!Number.isSafeInteger(asset.size) || asset.size <= 0) {
       throw new Error(`release asset ${spec.asset} has invalid size`)
     }
-    const url = String(asset.browser_download_url || '')
-    const expectedPrefix = `https://github.com/${repository}/releases/download/${tag}/`
-    if (!url.startsWith(expectedPrefix)) {
+    const sourceUrl = String(asset.browser_download_url || '')
+    const url = `https://github.com/${repository}/releases/download/${tag}/${spec.asset}`
+    let validDraftUrl = false
+    try {
+      const parsed = new URL(sourceUrl)
+      const prefix = `/${repository}/releases/download/`
+      const parts = parsed.pathname.startsWith(prefix)
+        ? parsed.pathname.slice(prefix.length).split('/')
+        : []
+      validDraftUrl = parsed.origin === 'https://github.com'
+        && !parsed.search
+        && !parsed.hash
+        && parts.length === 2
+        && parts[0].startsWith('untagged-')
+        && parts[1] === spec.asset
+    } catch {
+      validDraftUrl = false
+    }
+    if (sourceUrl !== url && !validDraftUrl) {
       throw new Error(`release asset ${spec.asset} has invalid download URL`)
     }
     platforms[spec.key] = {

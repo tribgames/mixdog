@@ -72,7 +72,7 @@ import { getHiddenAgent, resolveAgentSessionPermission } from '../src/runtime/ag
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { stripShellExitHeader } from '../src/tui/session/tool-result-text.mjs';
 import { _argShapeSig, _isToolArgShapeFailure } from '../src/runtime/agent/orchestrator/session/loop/tool-classify.mjs';
-import { compactSettledToolCallBodies } from '../src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs';
+import { compactToolCallsForHistory } from '../src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs';
 import { crossTurnDedupStub } from '../src/runtime/agent/orchestrator/session/loop/completion-guards.mjs';
 import { toolCompletionInstruction } from '../src/runtime/shared/tool-execution-contract.mjs';
 
@@ -114,12 +114,12 @@ function assertOk(name, result, pattern = null) {
     { role: 'assistant', toolCalls: [{ id: 'call_compacted', name: 'apply_patch', arguments: { patch: longPatch } }] },
     { role: 'tool', toolCallId: 'call_compacted', toolKind: 'normal', content: 'Applied 1 File (Native)' },
   ];
-  assert(compactSettledToolCallBodies(messages), 'settled mutation body should compact');
-  const marker = messages[0].toolCalls[0].arguments.patch;
-  assert(/already applied to compacted\.txt; do not copy or repeat/i.test(marker),
-    `compacted mutation marker must stay status-only: ${marker}`);
-  assert(!/re-?read|fresh patch|write a patch/i.test(marker),
-    `compacted mutation marker must not instruct another read/edit: ${marker}`);
+  // A settled mutation body stays verbatim in history. Collapsing it later
+  // rewrote a prefix the provider had already cached, and the re-billed request
+  // cost more than the collapsed tokens ever recovered.
+  const stored = compactToolCallsForHistory(messages[0].toolCalls, { deferBodies: true });
+  assert(stored[0].arguments.patch === longPatch,
+    'settled mutation body must stay verbatim so the cached prefix survives');
   const completion = toolCompletionInstruction({
     surface: 'shell',
     id: 'job-1',

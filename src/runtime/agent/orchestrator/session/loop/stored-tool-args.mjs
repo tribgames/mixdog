@@ -3,16 +3,16 @@
 // when persisted into assistant history. A FAILED call restores its full text
 // (command/script AND mutation bodies): the failed mutation rolled back, so its
 // patch text is the model's own draft, and leaving only the marker made models
-// copy `[mixdog compacted …]` back as literal patch input. Bodies of calls that
-// did NOT fail stay compacted so an already-applied patch cannot be replayed.
+// copy `[mixdog compacted …]` back as literal patch input.
 //
-// Mutation bodies additionally get ONE turn of grace: the push that commits a
-// tool-call turn defers body compaction (deferBodies), so the send that
-// immediately follows a successful patch still shows the model its own patch
-// verbatim. compactSettledToolCallBodies then collapses settled successful
-// bodies to markers on the next push / loop entry. This closes the observed
-// failure where a model writing a follow-up patch right after a success copies
-// the marker it was just shown as literal patch input.
+// Mutation bodies (patch / old_string / new_string / content / rewrite) are
+// never collapsed after the fact. The sweep that used to do it (deferBodies
+// plus a settled-body pass on the next push) rewrote a prefix the provider had
+// already cached, and every rewrite re-billed that whole request at the
+// uncached rate. Measured over one 89-task run: $1.20 lost to recover $0.16,
+// because the collapsed tokens only come back at the cached rate over the
+// REMAINING turns, and a task rarely has enough of them left. Bodies now stay
+// verbatim in history, so the prefix — and its cache — survives the session.
 import { createHash } from 'crypto';
 
 const STORED_TOOL_ARG_BODY_KEY_RE = /^(?:content|old_string|new_string|patch|rewrite)$/i;
@@ -107,40 +107,6 @@ export function compactToolCallsForHistory(calls, opts = {}) {
             arguments: compactStoredToolArgValue(call.arguments, '', 0, opts),
         };
     });
-}
-
-// Collapse the body args of every SETTLED, non-failed tool call in history to
-// their compacted markers. Runs at loop entry and before each new assistant
-// push, so a deferred verbatim body survives exactly the send(s) that follow
-// its own turn and no longer. Contract guards:
-//   - a call whose result is an error keeps its full body (retry-safe, same
-//     contract as restoreToolCallBodyForId);
-//   - a call with no result row yet (current batch / interrupted turn) is
-//     left untouched.
-// Returns true when at least one body was actually collapsed to a marker
-// (i.e. the transcript prefix changed), so callers can tag the intentional
-// cache break instead of logging an unexplained input_prefix_mismatch.
-export function compactSettledToolCallBodies(messages) {
-    if (!Array.isArray(messages)) return false;
-    const resultKinds = new Map();
-    for (const message of messages) {
-        if (message?.role === 'tool' && message.toolCallId) {
-            resultKinds.set(message.toolCallId, message.toolKind || 'normal');
-        }
-    }
-    let changed = false;
-    const sweepOpts = { onCompacted: () => { changed = true; } };
-    for (const message of messages) {
-        if (message?.role !== 'assistant' || !Array.isArray(message.toolCalls)) continue;
-        for (const call of message.toolCalls) {
-            if (!call || typeof call !== 'object') continue;
-            if (!call.arguments || typeof call.arguments !== 'object') continue;
-            const kind = call.id ? resultKinds.get(call.id) : undefined;
-            if (kind === undefined || kind === 'error') continue;
-            call.arguments = compactStoredToolArgValue(call.arguments, '', 0, sweepOpts);
-        }
-    }
-    return changed;
 }
 
 // Restore retry-safe long command/script text for ONE failed tool call inside a

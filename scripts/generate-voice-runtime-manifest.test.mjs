@@ -52,6 +52,21 @@ test('voice runtime manifest generation rejects undeclared archives', () => {
   )
 })
 
+test('voice runtime manifest normalizes hidden draft asset URLs to the published tag', () => {
+  const assets = names.map((name, index) => ({
+    name,
+    size: index + 1,
+    digest: `sha256:${String(index + 1).padStart(64, '0')}`,
+    browser_download_url:
+      `https://github.com/tribgames/mixdog/releases/download/untagged-fixture/${name}`,
+  }))
+  const platforms = buildVoiceRuntimePlatforms(assets)
+  assert.equal(
+    platforms['win32-x64'].variants[0].url,
+    `https://github.com/tribgames/mixdog/releases/download/${VOICE_RUNTIME_TAG}/whisper-server-win32-x64-vulkan.zip`,
+  )
+})
+
 test('voice runtime release lookup finds an authenticated untagged draft', async (t) => {
   const originalFetch = globalThis.fetch
   t.after(() => {

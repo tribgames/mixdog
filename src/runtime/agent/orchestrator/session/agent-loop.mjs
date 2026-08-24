@@ -78,7 +78,6 @@ import {
 } from './loop/tool-helpers.mjs';
 import {
     compactToolCallsForHistory,
-    compactSettledToolCallBodies,
     restoreToolCallBodyForId,
 } from './loop/stored-tool-args.mjs';
 import { repairTranscriptBeforeProviderSend } from './loop/transcript-repair.mjs';
@@ -235,9 +234,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     if (!opts.cacheBreakIntent && typeof sessionRef?.pendingCacheBreakIntent === 'string') {
         opts.cacheBreakIntent = sessionRef.pendingCacheBreakIntent;
         delete sessionRef.pendingCacheBreakIntent;
-    }
-    if (compactSettledToolCallBodies(messages) && !opts.cacheBreakIntent) {
-        opts.cacheBreakIntent = 'deferred_body_compaction';
     }
     const pushToolResultMessage = (message) => {
         messages.push(message);
@@ -1029,10 +1025,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // turn). Blank it so it never accumulates as input tokens.
             content: suppressMidTurnText ? '' : (response.content || ''),
             // deferBodies: mutation bodies (patch / old_string / ...) stay
-            // verbatim through the send that answers this batch, then the
-            // compactSettledToolCallBodies sweep below collapses them. This
-            // keeps a model that patches twice in a row from ever seeing (and
-            // copying) a compacted marker where its own last patch should be.
+            // verbatim for the rest of the session. They are never collapsed
+            // afterwards — that rewrote an already-cached prefix and re-billed
+            // the whole request uncached — so a model that patches twice in a
+            // row also never sees a marker where its own last patch should be.
             toolCalls: compactToolCallsForHistory(calls, { deferBodies: true }),
             // MIXED Anthropic turn (native server tools + client tool_use):
             // the ordered `server_tool_use` / `*_tool_result` blocks exist ONLY
@@ -1067,12 +1063,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 ? { providerMetadata: response.providerMetadata }
                 : {}),
         }, opts);
-        // Settle earlier deferred bodies before this turn's message lands:
-        // every previous call already has its result row, so successful bodies
-        // compact to markers while failed ones keep their full retry text.
-        if (compactSettledToolCallBodies(messages) && !opts.cacheBreakIntent) {
-            opts.cacheBreakIntent = 'deferred_body_compaction';
-        }
         messages.push(_assistantTurnMsg);
         try { opts.onAssistantMessageCommitted?.(_assistantTurnMsg); } catch {}
         const _callsToExecute = calls;
