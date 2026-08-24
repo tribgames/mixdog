@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.149 - 2026-08-24
+
 - OpenAI OAuth sessions now speak the reference client's wire shape by default:
   stable installation and thread identity, the lighter request form on current
   models, and provider-correct handling of a socket that reaches its lifetime
