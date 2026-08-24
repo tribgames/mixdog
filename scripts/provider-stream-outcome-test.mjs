@@ -1830,6 +1830,16 @@ test('classifyError: SDK timeout names, 425, HTTP/2, and WS connection-limit', (
         classifyMidstreamError(limit, { attemptIndex: 0, sawResponseCreated: true }, WS_POLICY),
         'websocket_connection_limit',
     );
+    const eventLimit = err('Responses websocket connection limit reached (60 minutes).', {
+        payload: {
+            type: 'invalid_request_error',
+            code: 'websocket_connection_limit_reached',
+        },
+    });
+    assert.equal(
+        classifyMidstreamError(eventLimit, { attemptIndex: 0, sawResponseCreated: false }, WS_POLICY),
+        'websocket_connection_limit',
+    );
 });
 
 test('isContextOverflowError: typed 413 and request_too_large/context codes', () => {

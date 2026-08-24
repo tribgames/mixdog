@@ -8,7 +8,10 @@ import {
     mintUuidV7,
 } from '../session/manager/session-id.mjs';
 import { buildStableProviderPromptCacheKey } from '../agent-runtime/cache-strategy.mjs';
-import { _withCodexWsClientMetadata } from './openai-codex-metadata.mjs';
+import {
+    _codexWsCompatibilityHeaders,
+    _withCodexWsClientMetadata,
+} from './openai-codex-metadata.mjs';
 import { codexOriginator, codexUserAgent } from './codex-client-meta.mjs';
 
 test('Codex wire identity is a real time-based UUIDv7 and remains session-stable', () => {
@@ -26,14 +29,7 @@ test('Codex wire identity is a real time-based UUIDv7 and remains session-stable
     assert.equal(ensureCodexWireSessionId(session), sessionId);
 });
 
-test('Codex cache key and every wire session identity use the same UUIDv7', (t) => {
-    const previousParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY;
-    process.env.MIXDOG_OAI_CODEX_WIRE_PARITY = '1';
-    t.after(() => {
-        if (previousParity == null) delete process.env.MIXDOG_OAI_CODEX_WIRE_PARITY;
-        else process.env.MIXDOG_OAI_CODEX_WIRE_PARITY = previousParity;
-    });
-
+test('Codex cache key and every wire session identity use the same UUIDv7', () => {
     const sessionId = mintUuidV7();
     const turnStartedAtUnixMs = Date.now();
     const turnId = mintUuidV7(turnStartedAtUnixMs);
@@ -80,11 +76,38 @@ test('Codex cache key and every wire session identity use the same UUIDv7', (t) 
     assert.equal(turnMetadata.session_id, sessionId);
     assert.equal(turnMetadata.thread_id, sessionId);
     assert.equal(turnMetadata.turn_id, turnId);
+    assert.match(turnMetadata.installation_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     assert.equal(turnMetadata.agent_name, '/root');
     assert.equal(turnMetadata.sandbox, 'none');
     assert.equal(turnMetadata.sandbox_mode, 'danger-full-access');
     assert.equal(turnMetadata.auto_review_enabled, false);
+    assert.equal(turnMetadata.node_repl_auto_review_required, false);
+    assert.equal(turnMetadata.node_repl_disabled, false);
     assert.equal(turnMetadata.turn_started_at_unix_ms, turnStartedAtUnixMs);
+
+    const prewarmHeaders = _codexWsCompatibilityHeaders({
+        cacheKey: promptCacheKey,
+        poolKey: session.id,
+        model: 'gpt-5.6-sol',
+        handshake: true,
+        useResponsesLite: true,
+        sendOpts: {
+            codexSessionId: sessionId,
+            codexThreadId: sessionId,
+            requestKind: 'prewarm',
+            session,
+        },
+    });
+    assert.equal(prewarmHeaders['session-id'], sessionId);
+    assert.equal(prewarmHeaders['thread-id'], sessionId);
+    assert.equal(prewarmHeaders['x-client-request-id'], sessionId);
+    assert.equal('x-codex-installation-id' in prewarmHeaders, false);
+    assert.equal('x-openai-internal-codex-responses-lite' in prewarmHeaders, false);
+    const prewarmMetadata = JSON.parse(prewarmHeaders['x-codex-turn-metadata']);
+    assert.equal(prewarmMetadata.request_kind, 'prewarm');
+    assert.equal(prewarmMetadata.turn_id, '');
+    assert.equal(prewarmMetadata.installation_id, turnMetadata.installation_id);
+    assert.equal('turn_started_at_unix_ms' in prewarmMetadata, false);
 });
 
 // A compaction summary is a request of the same session: same thread identity,

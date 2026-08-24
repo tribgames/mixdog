@@ -333,6 +333,15 @@ export function createSessionLifecycle({
         throwIfAborted(signal);
         // best-effort: ordinary hook failure never breaks session create
       }
+      if (rt.session.provider === 'openai-oauth'
+        && Number(rt.session.totalInputTokens || 0) === 0
+        && !rt.session.providerState
+        && typeof providerImpl.prewarmWsTransportForSession === 'function') {
+        void Promise.resolve(providerImpl.prewarmWsTransportForSession({
+          sessionId: rt.session.id,
+          session: rt.session,
+        })).catch(() => {});
+      }
       throwIfAborted(signal);
       bootProfile('session:create:ready', {
         ms: (performance.now() - startedAt).toFixed(1),

@@ -85,6 +85,7 @@ import { normalizeGrokToolSchemas } from '../src/runtime/agent/orchestrator/prov
 import { sendViaHttpSse } from '../src/runtime/agent/orchestrator/providers/openai-oauth-http-sse.mjs';
 import {
     OpenAIOAuthProvider,
+    buildCodexStartupPrewarmBody,
     buildRequestBody as buildOpenAIOAuthRequestBody,
 } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { _convertMessagesToResponsesInputForTest } from '../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
@@ -818,7 +819,7 @@ test('openai-oauth request allows one mixed custom-patch/function-shell batch', 
         [{ role: 'user', content: 'patch then verify' }],
         'gpt-5.6-sol',
         [PATCH_TOOL_DEFS[0], shellTool],
-        {},
+        { useResponsesLite: false },
     );
     const patch = body.tools.find((tool) => tool.name === 'apply_patch');
     const shell = body.tools.find((tool) => tool.name === 'shell');
@@ -862,16 +863,78 @@ test('openai-oauth reasoning replay defaults on, honors kill switch, declares al
 
     const defaultBody = buildOpenAIOAuthRequestBody(history, 'gpt-5.6-sol', [], {});
     assert.equal(defaultBody.reasoning.context, 'all_turns');
-    assert.deepEqual(defaultBody.input[1], encrypted);
+    assert.equal(defaultBody.reasoning.summary, 'auto');
+    assert.deepEqual(defaultBody.stream_options, {
+        reasoning_summary_delivery: 'sequential_cutoff',
+    });
+    assert.deepEqual(defaultBody.input.find((item) => item.type === 'reasoning'), encrypted);
     process.env.MIXDOG_OAI_DISABLE_REASONING_REPLAY = '1';
     try {
         const killedBody = buildOpenAIOAuthRequestBody(history, 'gpt-5.6-sol', [], {
             replayEncryptedReasoning: true,
         });
-        assert.equal(killedBody.reasoning.context, undefined);
+        assert.equal(killedBody.reasoning.context, 'all_turns');
+        assert.equal(killedBody.reasoning.summary, 'auto');
         assert.equal(killedBody.input.some((item) => item.type === 'reasoning'), false);
     } finally {
         delete process.env.MIXDOG_OAI_DISABLE_REASONING_REPLAY;
+    }
+});
+
+test('openai-oauth Responses Lite moves the stable prefix into developer input', () => {
+    const body = buildOpenAIOAuthRequestBody(
+        [
+            { role: 'system', content: 'stable instructions' },
+            { role: 'system', content: 'session environment', cacheTier: 'env' },
+            { role: 'user', content: 'hello' },
+        ],
+        'gpt-5.6-sol',
+        [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+        {
+            useResponsesLite: true,
+            turnId: '019fc135-f07a-7880-8767-ec3b7be1de64',
+        },
+    );
+    assert.equal('instructions' in body, false);
+    assert.equal('tools' in body, false);
+    assert.equal(body.parallel_tool_calls, false);
+    assert.equal(body.reasoning.context, 'all_turns');
+    assert.equal(body.input[0].type, 'additional_tools');
+    assert.equal(body.input[0].role, 'developer');
+    assert.equal(body.input[0].tools[0].type, 'namespace');
+    assert.equal(body.input[0].tools[0].name, 'functions');
+    assert.equal(body.input[0].tools[0].tools[0].name, 'read');
+    assert.deepEqual(body.input[1], {
+        type: 'message',
+        role: 'developer',
+        content: [{ type: 'input_text', text: 'stable instructions' }],
+    });
+    assert.equal(body.input[2].role, 'user');
+    assert.equal(body.input[3].role, 'user');
+    assert.deepEqual(body.input[2].internal_chat_message_metadata_passthrough, {
+        turn_id: '019fc135-f07a-7880-8767-ec3b7be1de64',
+    });
+    assert.deepEqual(body.input[3].internal_chat_message_metadata_passthrough, {
+        turn_id: '019fc135-f07a-7880-8767-ec3b7be1de64',
+    });
+
+    const warmup = buildCodexStartupPrewarmBody(body);
+    assert.equal(warmup.generate, false);
+    assert.deepEqual(warmup.input, body.input.slice(0, 2));
+
+    process.env.MIXDOG_OAI_RESPONSES_LITE = '0';
+    try {
+        const standard = buildOpenAIOAuthRequestBody(
+            [{ role: 'system', content: 'stable instructions' }, { role: 'user', content: 'hello' }],
+            'gpt-5.6-sol',
+            [],
+            {},
+        );
+        assert.equal(standard.instructions, 'stable instructions');
+        assert.equal('tools' in standard, false);
+        assert.equal(standard.input[0].role, 'user');
+    } finally {
+        delete process.env.MIXDOG_OAI_RESPONSES_LITE;
     }
 });
 
@@ -2762,6 +2825,114 @@ test('OpenAI OAuth startup prewarm sends no transcript and anchors the first rea
     }
 });
 
+test('OpenAI OAuth session prewarm materializes one prompt warmup with Codex identity', async () => {
+    const previousWarmup = process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP;
+    process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP = '1';
+    try {
+        const provider = new OpenAIOAuthProvider({});
+        const session = {
+            id: 'startup-prewarm-session',
+            codexWireSessionId: '019fc135-f07a-7880-8767-ec3b7be1de63',
+            model: 'gpt-5.6-sol',
+            messages: [{ role: 'system', content: 'stable instructions' }],
+            tools: [{ name: 'read', description: 'read', inputSchema: { type: 'object' } }],
+            effort: 'xhigh',
+            fast: false,
+            modelParameters: {},
+            promptCacheKey: 'mixdog-codex',
+        };
+        const sends = [];
+        const startupPrewarmHandle = {
+            entry: {},
+            poolKey: session.id,
+            cacheKey: session.codexWireSessionId,
+        };
+        const ready = await provider.prewarmWsTransportForSession({
+            sessionId: session.id,
+            session,
+        }, {
+            _send: async (messages, model, tools, sendOpts) => {
+                sends.push({ messages, model, tools, sendOpts });
+                return { startupPrewarm: true, startupPrewarmHandle };
+            },
+        });
+
+        assert.equal(ready, true);
+        assert.equal(sends.length, 1);
+        assert.equal(sends[0].messages, session.messages);
+        assert.equal(sends[0].tools, session.tools);
+        assert.equal(sends[0].model, session.model);
+        assert.equal(sends[0].sendOpts._startupPrewarmOnly, true);
+        assert.equal(sends[0].sendOpts.requestKind, 'prewarm');
+        assert.equal(sends[0].sendOpts.codexRequestKind, 'prewarm');
+        assert.equal(sends[0].sendOpts.codexSessionId, session.codexWireSessionId);
+        assert.equal(sends[0].sendOpts.codexThreadId, session.codexWireSessionId);
+        assert.equal(provider._startupPrewarmReadyByPoolKey.get(session.id), startupPrewarmHandle);
+    } finally {
+        if (previousWarmup == null) delete process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP;
+        else process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP = previousWarmup;
+    }
+});
+
+test('OpenAI OAuth prompt prewarm upgrades an in-flight transport prewarm', async () => {
+    const previousWarmup = process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP;
+    process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP = '1';
+    try {
+        const provider = new OpenAIOAuthProvider({});
+        provider.ensureAuth = async () => ({ accessToken: 'test-token' });
+        let releaseAcquire;
+        let signalAcquire;
+        const acquireGate = new Promise((resolve) => { releaseAcquire = resolve; });
+        const acquireStarted = new Promise((resolve) => { signalAcquire = resolve; });
+        let acquireCount = 0;
+        let sendCount = 0;
+        const startupPrewarmHandle = {
+            entry: {},
+            poolKey: 'startup-prewarm-upgrade',
+            cacheKey: '019fc135-f07a-7880-8767-ec3b7be1de63',
+        };
+        const seams = {
+            _hasPooled: () => false,
+            _warmVersion: async () => {},
+            _acquire: async () => {
+                acquireCount += 1;
+                signalAcquire();
+                await acquireGate;
+                return { entry: {}, reused: false };
+            },
+            _release: () => {},
+            _send: async () => {
+                sendCount += 1;
+                return { startupPrewarm: true, startupPrewarmHandle };
+            },
+        };
+        const session = {
+            id: 'startup-prewarm-upgrade',
+            codexWireSessionId: '019fc135-f07a-7880-8767-ec3b7be1de63',
+            model: 'gpt-5.6-sol',
+            messages: [{ role: 'system', content: 'stable instructions' }],
+            tools: [],
+        };
+        const transport = provider.prewarmWsTransportForSession({
+            sessionId: session.id,
+            model: session.model,
+        }, seams);
+        await acquireStarted;
+        const prompt = provider.prewarmWsTransportForSession({
+            sessionId: session.id,
+            session,
+        }, seams);
+        releaseAcquire();
+
+        assert.deepEqual(await Promise.all([transport, prompt]), [true, true]);
+        assert.equal(acquireCount, 1);
+        assert.equal(sendCount, 1);
+    } finally {
+        if (previousWarmup == null) delete process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP;
+        else process.env.MIXDOG_OPENAI_OAUTH_WS_WARMUP = previousWarmup;
+    }
+});
+
 test('openai oauth ws delta: native tool_search output replays with canonical fields', () => {
     const prevTransport = process.env.MIXDOG_OAI_TRANSPORT;
     try {
@@ -3387,20 +3558,56 @@ test('codex turn-state: captures from nested response/metadata header shapes', (
 });
 
 test('codex turn-state: echoed within a turn, dropped across turns, never fabricated', () => {
-    const ctxA = { sendOpts: { turnId: 'turn-A', codexSessionId: 'sess', threadId: 'thread' } };
+    const sessionId = '019fc135-f07a-7880-8767-ec3b7be1de63';
+    const turnA = '019fc135-f07a-7880-8767-ec3b7be1de64';
+    const turnB = '019fc135-f07a-7880-8767-ec3b7be1de65';
+    const ctxA = { sendOpts: { turnId: turnA, codexSessionId: sessionId, threadId: sessionId } };
     // A server-captured token with unknown owner (handshake/prewarm capture).
     const entry = { turnState: 'tok-A' };
     const f1 = _withCodexWsClientMetadata({}, entry, true, ctxA);
     assert.equal(f1.client_metadata['x-codex-turn-state'], 'tok-A');
     // First use attributes the token to the turn now on the wire.
-    assert.equal(entry.turnStateTurnId, 'turn-A');
+    assert.equal(entry.turnStateTurnId, turnA);
     // Subsequent request in the SAME turn replays the same token.
     const f2 = _withCodexWsClientMetadata({}, entry, true, ctxA);
     assert.equal(f2.client_metadata['x-codex-turn-state'], 'tok-A');
     // Next turn: the token must be dropped, never replayed or fabricated.
-    const ctxB = { sendOpts: { turnId: 'turn-B', codexSessionId: 'sess', threadId: 'thread' } };
+    const ctxB = { sendOpts: { turnId: turnB, codexSessionId: sessionId, threadId: sessionId } };
     const f3 = _withCodexWsClientMetadata({}, entry, true, ctxB);
     assert.equal('x-codex-turn-state' in f3.client_metadata, false);
+    assert.equal(entry.turnState, null);
+});
+
+test('codex turn-state: startup prewarm pin is adopted once by the first real turn', () => {
+    const sessionId = '019fc135-f07a-7880-8767-ec3b7be1de63';
+    const firstTurnId = '019fc135-f07a-7880-8767-ec3b7be1de64';
+    const nextTurnId = '019fc135-f07a-7880-8767-ec3b7be1de65';
+    const entry = {
+        turnState: 'tok-prewarm',
+        turnStateTurnId: '',
+        turnStateFromPrewarm: true,
+    };
+    const firstTurn = _withCodexWsClientMetadata({}, entry, true, {
+        sendOpts: {
+            requestKind: 'turn',
+            turnId: firstTurnId,
+            codexSessionId: sessionId,
+            threadId: sessionId,
+        },
+    });
+    assert.equal(firstTurn.client_metadata['x-codex-turn-state'], 'tok-prewarm');
+    assert.equal(entry.turnStateTurnId, firstTurnId);
+    assert.equal(entry.turnStateFromPrewarm, false);
+
+    const nextTurn = _withCodexWsClientMetadata({}, entry, true, {
+        sendOpts: {
+            requestKind: 'turn',
+            turnId: nextTurnId,
+            codexSessionId: sessionId,
+            threadId: sessionId,
+        },
+    });
+    assert.equal('x-codex-turn-state' in nextTurn.client_metadata, false);
     assert.equal(entry.turnState, null);
 });
 

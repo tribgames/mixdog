@@ -25,7 +25,7 @@ import {
 
 // Human-readable transport label for handshake/acquire error messages. Shared
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
-import { _envOn, _codexDashedId, _codexDashedIdV7, _codexBetaFeatures, _dumpHandshakeHeaders, _dumpFrame, _formatRedactedHeaders, _cfCookieHeader, _cfCookieCapture } from './openai-ws-headers.mjs';
+import { _envOn, _codexBetaFeatures, _dumpHandshakeHeaders, _dumpFrame, _formatRedactedHeaders, _cfCookieHeader, _cfCookieCapture } from './openai-ws-headers.mjs';
 export function _wsErrLabel(p) {
     if (p === 'xai') return 'xAI WS';
     if (p === 'openai-direct' || p === 'openai') return 'OpenAI WS';
@@ -410,41 +410,21 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
             'x-codex-beta-features': _codexBetaFeatures(),
         };
     const isOpenAiOauth = auth.type !== 'xai' && auth.type !== 'openai-direct';
-    // Default mode preserves the measured Mixdog underscore session_id cache
-    // key. Strict wire parity instead follows Codex exactly: dashed
-    // session-id/thread-id only, UUIDv7-shaped ids, and x-client-request-id.
-    const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
-    if (sessionToken && !wireParity) {
-        headers['session_id'] = String(sessionToken);
-    }
     if (isOpenAiOauth && (sessionToken || _cacheKey)) {
-        const uuidIds = wireParity;
-        const shapeId = wireParity ? _codexDashedIdV7 : _codexDashedId;
-        // Underscore `session_id` above is left as-is (backend prefix-dedupe
-        // key); only the dashed codex pair is reshaped under the opt-in.
-        const threadId = uuidIds ? shapeId(String(_cacheKey || sessionToken)) : String(_cacheKey || sessionToken);
-        const sessionId = uuidIds ? shapeId(String(sessionToken || _cacheKey)) : String(sessionToken || _cacheKey);
+        // Codex uses one caller-owned UUIDv7 identity everywhere. Prefer the
+        // metadata projection from the session; prompt_cache_key/sessionToken
+        // is the exact same UUID and remains a defensive fallback.
+        const sessionId = String(codexHeaders?.['session-id'] || sessionToken || _cacheKey);
+        const threadId = String(codexHeaders?.['thread-id'] || _cacheKey || sessionId);
         headers['session-id'] = sessionId;
         headers['thread-id'] = threadId;
-        // The reference client sets x-client-request-id to the dashed thread id.
-        headers['x-client-request-id'] = threadId;
+        headers['x-client-request-id'] = String(codexHeaders?.['x-client-request-id'] || threadId);
         if (codexHeaders && typeof codexHeaders === 'object') {
             for (const [key, value] of Object.entries(codexHeaders)) {
                 if (typeof key === 'string' && typeof value === 'string' && value) {
                     headers[key] = value;
                 }
             }
-        }
-        // Reshaped-id realignment: under wire parity the thread-id above becomes
-        // a Codex UUIDv7 (shapeId), while _codexWsCompatibilityHeaders derives
-        // x-codex-parent-thread-id from the RAW dashed thread_id — the merged
-        // codexHeaders would then carry a parent-thread id that no longer
-        // matches the thread-id on the same handshake. Realign it to the
-        // reshaped value (single source of truth: the pool owns the wire id
-        // shape). With no reshaping there is no mismatch, so codex's raw value
-        // stays untouched.
-        if (uuidIds && headers['x-codex-parent-thread-id']) {
-            headers['x-codex-parent-thread-id'] = threadId;
         }
     } else {
         // xAI/direct keep a per-request value so their server-side traces stay

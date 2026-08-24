@@ -71,6 +71,7 @@ import {
     _compareVersion,
     _isMainCodexFamily,
     _markLatestCodex,
+    _codexUsesResponsesLite,
 } from './openai-codex-model.mjs';
 
 // Public test/integration entry retained alongside the transport module export.
@@ -104,9 +105,18 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     const pendingToolMedia = [];
     const customToolCallNameById = new Map();
     const replayEncryptedReasoning = opts.replayEncryptedReasoning === true;
-    const wireParity = process.env.MIXDOG_OAI_CODEX_WIRE_PARITY === '1';
+    const wireParity = opts.codexWireParity === true;
+    const wireMessageMetadata = opts.codexMessageMetadata
+        && typeof opts.codexMessageMetadata === 'object'
+        ? opts.codexMessageMetadata
+        : {};
     const wireMessage = (role, content) => (wireParity
-        ? { type: 'message', role, content, internal_chat_message_metadata_passthrough: {} }
+        ? {
+            type: 'message',
+            role,
+            content,
+            internal_chat_message_metadata_passthrough: wireMessageMetadata,
+        }
         : { role, content });
     // `phase` replays each retained item on the side of the assistant text it
     // was emitted on, so the rebuilt turn keeps the response's own item order.
@@ -243,6 +253,55 @@ function _codexModelSupportsReasoningSummaries(id) {
     return true;
 }
 
+function _codexModelUsesResponsesLite(id, opts = {}) {
+    if (typeof opts.useResponsesLite === 'boolean') return opts.useResponsesLite;
+    const override = String(process.env.MIXDOG_OAI_RESPONSES_LITE || '').trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(override)) return true;
+    if (['0', 'false', 'no', 'off'].includes(override)) return false;
+    const info = _findCachedCodexModel(id);
+    return _codexUsesResponsesLite(id, info);
+}
+
+function _responsesLiteTools(tools) {
+    const out = [];
+    const functions = [];
+    let functionsIndex = null;
+    for (const tool of Array.isArray(tools) ? tools : []) {
+        if (tool?.type === 'function' || tool?.type === 'custom') {
+            if (functionsIndex == null) functionsIndex = out.length;
+            functions.push(tool);
+            continue;
+        }
+        if (tool?.type === 'namespace' && tool?.name === 'functions') {
+            if (functionsIndex == null) functionsIndex = out.length;
+            if (Array.isArray(tool.tools)) functions.push(...tool.tools);
+            continue;
+        }
+        out.push(tool);
+    }
+    if (functions.length) {
+        out.splice(functionsIndex, 0, {
+            type: 'namespace',
+            name: 'functions',
+            description: '',
+            tools: functions,
+        });
+    }
+    return out;
+}
+
+export function buildCodexStartupPrewarmBody(body) {
+    const input = Array.isArray(body?.input) ? body.input : [];
+    const stableInput = [];
+    if (input[0]?.type === 'additional_tools' && input[0]?.role === 'developer') {
+        stableInput.push(input[0]);
+        if (input[1]?.type === 'message' && input[1]?.role === 'developer') {
+            stableInput.push(input[1]);
+        }
+    }
+    return { ...body, input: stableInput, generate: false };
+}
+
 // Effort normalization: `ultra` collapses to
 // `max` on the wire — the openai-oauth backend does not accept `ultra`. Every
 // other effort passes through unchanged; empty/unknown falls back to medium.
@@ -281,6 +340,8 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         .join('\n\n---\n\n');
     const opts = sendOpts || {};
     const promptCacheProvider = opts.promptCacheProvider || 'openai-oauth';
+    const useResponsesLite = promptCacheProvider === 'openai-oauth'
+        && _codexModelUsesResponsesLite(model, opts);
     // Recovery-only encrypted-reasoning replay is DEFAULT ON for the OAuth
     // backend (validated 2026-08-11: smoke wire parity on normal chains +
     // live full-frame acceptance + full-run A/B). The per-socket policy in
@@ -297,6 +358,10 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         model,
         nativeToolSearchProvider: promptCacheProvider,
         replayEncryptedReasoning,
+        codexWireParity: promptCacheProvider === 'openai-oauth',
+        codexMessageMetadata: (opts.turnId || opts.turn_id)
+            ? { turn_id: opts.turnId || opts.turn_id }
+            : {},
     });
     if (environmentText) {
         // Leading input item, after the cached prefix instead of inside it.
@@ -310,6 +375,13 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
                 type: 'input_text',
                 text: `<environment_context>\n${environmentText}\n</environment_context>`,
             }],
+            ...(promptCacheProvider === 'openai-oauth'
+                ? {
+                    internal_chat_message_metadata_passthrough: (opts.turnId || opts.turn_id)
+                        ? { turn_id: opts.turnId || opts.turn_id }
+                        : {},
+                }
+                : {}),
         });
     }
     // Match the request body shape the OAuth backend expects so the
@@ -322,9 +394,11 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         const value = String(item || '').trim();
         if (value && !include.includes(value)) include.push(value);
     }
+    const supportsReasoningSummary = _codexModelSupportsReasoningSummaries(model);
     // Field order MIRRORS the reference request struct:
     // model, instructions, input, tools, tool_choice, parallel_tool_calls,
-    // reasoning, store, stream, include, service_tier, prompt_cache_key, text.
+    // reasoning, store, stream, stream_options, include, service_tier,
+    // prompt_cache_key, text.
     // JSON serialization order is load-bearing for the server prompt cache
     // (exact-prefix match): matching that byte layout keeps our requests on
     // the same cache-routing shape the backend warms. tools/service_tier/
@@ -346,10 +420,18 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         // gpt-5.5. Match the observed bytes.
         reasoning: {
             effort: _normalizeReasoningEffort(opts.effort),
-            ...(replayEncryptedReasoning ? { context: 'all_turns' } : {}),
+            ...(supportsReasoningSummary ? { summary: 'auto' } : {}),
+            ...(useResponsesLite ? { context: 'all_turns' } : {}),
         },
         store: process.env.MIXDOG_OAI_STORE === 'true' ? true : false,
         stream: true,
+        ...(promptCacheProvider === 'openai-oauth' && supportsReasoningSummary
+            ? {
+                stream_options: {
+                    reasoning_summary_delivery: 'sequential_cutoff',
+                },
+            }
+            : {}),
         include,
     };
     const maxOutputTokens = Number(opts.maxOutputTokens ?? opts.outputTokens ?? opts.max_output_tokens);
@@ -379,6 +461,25 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     const toolsList = (functionTools.length || nativeTools.length)
         ? [...nativeTools, ...functionTools]
         : null;
+    const liteTools = useResponsesLite ? _responsesLiteTools(toolsList || []) : null;
+    const wireInput = useResponsesLite
+        ? [
+            {
+                type: 'additional_tools',
+                role: 'developer',
+                tools: liteTools,
+            },
+            ...(instructions
+                ? [{
+                    type: 'message',
+                    role: 'developer',
+                    content: [{ type: 'input_text', text: instructions }],
+                }]
+                : []),
+            ...input,
+        ]
+        : input;
+    if (useResponsesLite) body.parallel_tool_calls = false;
     const promptCacheLane = opts.promptCacheLane || resolveProviderPromptCacheLane(promptCacheProvider, opts);
     const promptCacheKey = buildStableProviderPromptCacheKey(promptCacheProvider, opts, {
         model,
@@ -400,18 +501,20 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         : null) || 'low';
     // Rebuild the body in codex struct order so JSON serialization is
     // byte-compatible with codex: ... input, tools, tool_choice,
-    // parallel_tool_calls, reasoning, store, stream, include, service_tier,
-    // prompt_cache_key, text. service_tier is only present when fast set it.
+    // parallel_tool_calls, reasoning, store, stream, stream_options, include,
+    // service_tier, prompt_cache_key, text. service_tier is only present when
+    // fast set it.
     const ordered = {
         model: body.model,
-        instructions: body.instructions,
-        input: body.input,
-        ...(toolsList ? { tools: toolsList } : {}),
+        ...(!useResponsesLite ? { instructions: body.instructions } : {}),
+        input: wireInput,
+        ...(!useResponsesLite && toolsList ? { tools: toolsList } : {}),
         tool_choice: body.tool_choice,
         parallel_tool_calls: body.parallel_tool_calls,
         reasoning: body.reasoning,
         store: body.store,
         stream: body.stream,
+        ...(body.stream_options ? { stream_options: body.stream_options } : {}),
         include: body.include,
         ...(body.service_tier ? { service_tier: body.service_tier } : {}),
         prompt_cache_key: promptCacheKey,

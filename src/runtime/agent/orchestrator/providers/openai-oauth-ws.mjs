@@ -515,6 +515,7 @@ export async function sendViaWebSocket({
     _sendSpanTraceFn = appendAgentTrace,
     _agentTraceFn = appendAgentTrace,
     _carriedWarmup = null,
+    _prewarmedHandle = null,
 }) {
     // One bounded Codex stream retry budget covers transient handshake and
     // pre-output stream failures. Every retry acquires a fresh connection.
@@ -583,6 +584,7 @@ export async function sendViaWebSocket({
         sendOpts,
         model: useModel,
         serviceTier: body?.service_tier || '',
+        useResponsesLite: body?.input?.[0]?.type === 'additional_tools',
     };
     const codexHandshakeHeaders = useCodexWsClientMetadata
         ? _codexWsCompatibilityHeaders({ ...codexMetadataContext, handshake: true })
@@ -650,6 +652,7 @@ export async function sendViaWebSocket({
     // Armed by the rejection safety net below: once a server rejects a
     // replayed reasoning item, every later attempt of THIS send strips them.
     let suppressReasoningReplay = false;
+    let prewarmedHandle = _prewarmedHandle;
 
     for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
         const handshakeStart = performance.now();
@@ -659,29 +662,43 @@ export async function sendViaWebSocket({
         sendSpan.acquireAttempts += 1;
         try { onStageChange?.('requesting'); } catch {}
         try {
-            acquired = await _acquireWithRetryFn({
-                auth,
-                poolKey,
-                cacheKey,
-                codexHeaders: codexHandshakeHeaders,
-                // Retry attempt must not reuse a pooled socket — the prior
-                // one is either torn down or in an unknown state.
-                forceFresh: forceFresh || attemptIndex > 0,
-                externalSignal,
-                // No nested connect retry budget: the outer stream loop owns
-                // all retries for this logical request.
-                maxAttempts: 1,
-                retry429,
-                onRetry: (info) => {
-                    handshakeRetries += 1;
-                    sendSpan.handshakeRetries += 1;
-                    if (info?.classifier) handshakeRetryClassifiers.push(info.classifier);
-                    const attempt = Number(info?.attempt) || handshakeRetries;
-                    const max = Number(info?.max) || MAX_MIDSTREAM_RETRIES;
-                    emitReconnectProgress({ attempt, max, classifier: info?.classifier });
-                },
-                onBackoffSlept: (ms) => { sendSpan.retryBackoffMs += ms; },
-            });
+            const reserved = attemptIndex === 0
+                && forceFresh !== true
+                && prewarmedHandle?.entry
+                && prewarmedHandle.poolKey === poolKey
+                && prewarmedHandle.cacheKey === cacheKey;
+            if (reserved) {
+                acquired = {
+                    entry: prewarmedHandle.entry,
+                    reused: true,
+                    prewarmed: true,
+                };
+                prewarmedHandle = null;
+            } else {
+                acquired = await _acquireWithRetryFn({
+                    auth,
+                    poolKey,
+                    cacheKey,
+                    codexHeaders: codexHandshakeHeaders,
+                    // Retry attempt must not reuse a pooled socket — the prior
+                    // one is either torn down or in an unknown state.
+                    forceFresh: forceFresh || attemptIndex > 0,
+                    externalSignal,
+                    // No nested connect retry budget: the outer stream loop owns
+                    // all retries for this logical request.
+                    maxAttempts: 1,
+                    retry429,
+                    onRetry: (info) => {
+                        handshakeRetries += 1;
+                        sendSpan.handshakeRetries += 1;
+                        if (info?.classifier) handshakeRetryClassifiers.push(info.classifier);
+                        const attempt = Number(info?.attempt) || handshakeRetries;
+                        const max = Number(info?.max) || MAX_MIDSTREAM_RETRIES;
+                        emitReconnectProgress({ attempt, max, classifier: info?.classifier });
+                    },
+                    onBackoffSlept: (ms) => { sendSpan.retryBackoffMs += ms; },
+                });
+            }
         } catch (err) {
             _stampWarmup(err);
             sendSpan.poolAcquireMs += performance.now() - handshakeStart;
@@ -780,7 +797,9 @@ export async function sendViaWebSocket({
         }
         const { entry, reused } = acquired;
         sendSpan.poolAcquireMs += performance.now() - handshakeStart;
-        sendSpan.acquireMode = entry?.ephemeral ? 'ephemeral' : (reused ? 'reused' : 'new');
+        sendSpan.acquireMode = acquired.prewarmed
+            ? 'prewarmed'
+            : entry?.ephemeral ? 'ephemeral' : (reused ? 'reused' : 'new');
         // Re-seed the retry attempt's fresh entry with the prior attempt's
         // last successful anchor so _computeDelta sees a non-null
         // lastInputPrefixHash and prev_response_id, keeping the same xAI
@@ -819,6 +838,9 @@ export async function sendViaWebSocket({
         // entry.lastRequestInput always records the post-policy input.
         requestBody = _applyReasoningReplayPolicy(entry, requestBody, { suppress: suppressReasoningReplay });
         let warmupResult = null;
+        const startupWarmupResponseId = typeof entry?.startupWarmupResponseId === 'string'
+            ? entry.startupWarmupResponseId
+            : null;
         // midState is shared between warmup and the main stream so warmup
         // failures (first-byte timeout, send-failure, ws_4000) flow through
         // the SAME mid-stream classifier as the main send. A wedged warmup
@@ -864,7 +886,11 @@ export async function sendViaWebSocket({
                 // cannot accidentally duplicate the transcript. Keep the same
                 // request properties as the real turn; Codex changes only the
                 // input tail and adds generate:false.
-                const parityWarmupBody = { ...warmupBody, input: [], generate: false };
+                const parityWarmupBody = {
+                    ...warmupBody,
+                    input: Array.isArray(warmupBody.input) ? warmupBody.input : [],
+                    generate: false,
+                };
                 const warmupFrame = _buildResponseCreateFrame(parityWarmupBody);
                 const warmupMetadataContext = {
                     ...codexMetadataContext,
@@ -927,6 +953,7 @@ export async function sendViaWebSocket({
                 entry.lastInputPrefixHash = createHash('sha256')
                     .update(JSON.stringify(warmupInputArr))
                     .digest('hex');
+                entry.turnStateFromPrewarm = true;
                 try {
                     const warmupPayload = {
                         provider: traceProvider,
@@ -947,6 +974,36 @@ export async function sendViaWebSocket({
                         payload: warmupPayload,
                     });
                 } catch {}
+            }
+
+            // Codex performs generate:false during session startup, then hands
+            // this live client session to the first real turn. Startup callers
+            // stop here; the pooled entry retains its response id, request
+            // snapshot, socket, and turn-state for the later real send.
+            if (sendOpts?._startupPrewarmOnly === true) {
+                const responseId = warmupResult?.responseId
+                    || startupWarmupResponseId
+                    || entry.lastResponseId
+                    || null;
+                if (responseId) entry.startupWarmupResponseId = responseId;
+                else releaseWebSocket({ entry, poolKey, keep: false });
+                emitSendSpan('ok');
+                return {
+                    content: '',
+                    model: warmupResult?.model || useModel,
+                    toolCalls: [],
+                    usage: warmupResult?.usage || {
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        cachedTokens: 0,
+                        cacheWriteTokens: 0,
+                        promptTokens: 0,
+                    },
+                    startupPrewarm: !!responseId,
+                    startupPrewarmHandle: responseId
+                        ? { entry, poolKey, cacheKey }
+                        : null,
+                };
             }
 
             // A completed generate:false prewarm is a valid continuation
@@ -1393,9 +1450,10 @@ export async function sendViaWebSocket({
                 cacheObservation.actualMiss ? (cacheObservation.missReason || 'miss') : false,
             );
         }
+        const effectiveWarmupResponseId = warmupResult?.responseId || startupWarmupResponseId || null;
         const warmupContinuity = _warmupContinuityTrace({
-            warmupUsed: !!warmupResult,
-            warmupResponseId: warmupResult?.responseId || null,
+            warmupUsed: !!effectiveWarmupResponseId,
+            warmupResponseId: effectiveWarmupResponseId,
             priorEntryResponseId,
             sentPrevResponseId,
             earlyCacheMisses: entry.earlyCacheMisses,
@@ -1454,8 +1512,10 @@ export async function sendViaWebSocket({
                 body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
                 frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
                 frame_has_instructions: typeof frame.instructions === 'string' && frame.instructions.length > 0,
-                warmup_used: !!warmupResult,
-                warmup_response_id: warmupResult?.responseId || null,
+                warmup_used: !!effectiveWarmupResponseId,
+                warmup_response_id: effectiveWarmupResponseId,
+                warmup_first_real_cache_hit: !!effectiveWarmupResponseId
+                    && cacheObservation.cachedTokens > 0,
                 ...warmupContinuity,
                 tool_call_count: resultToolCallCount,
                 keep_socket: keepSocket,
@@ -1510,6 +1570,9 @@ export async function sendViaWebSocket({
             }
         } catch {}
 
+        if (startupWarmupResponseId) {
+            try { delete entry.startupWarmupResponseId; } catch {}
+        }
         releaseWebSocket({ entry, poolKey, keep: keepSocket });
         const { responseId: _ignored, responseItems: _responseItemsIgnored, closeSocket: _closeSocketIgnored, ...out } = result;
         if (includeResponseId && result.responseId) out.responseId = result.responseId;

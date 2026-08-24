@@ -698,6 +698,17 @@ function _classifyMidstreamWs(err, state, attemptIndex, policy) {
   if (err?.wsSendFailed || state.wsSendFailed) {
     return _allowMidstream('ws_send_failed', attemptIndex, policy)
   }
+  // The Responses WebSocket emits its hard 60-minute retirement as a top-level
+  // `event.error`, not `response.failed`. openai-ws-stream preserves that typed
+  // object on err.payload; recognize only the documented code here so unknown
+  // pre-response error events remain terminal rather than becoming text-based
+  // retry guesses.
+  for (const field of [err?.payload?.code, err?.payload?.type]) {
+    const key = typeof field === 'string' ? field.trim().toLowerCase() : ''
+    if (key === WEBSOCKET_CONNECTION_LIMIT) {
+      return _allowMidstream('websocket_connection_limit', attemptIndex, policy)
+    }
+  }
   // Stall / local-close-4000 must be classified as RETRYABLE before the
   // pre-`response.created` deny gate below. A first-meaningful-frame timeout
   // fires with sawResponseCreated=false + close 4000 + StreamStalledError, so

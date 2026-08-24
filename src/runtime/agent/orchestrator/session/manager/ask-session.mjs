@@ -461,6 +461,42 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
                 autoCompactTokenLimit: contextMeta.autoCompactTokenLimit,
             };
+            const effectiveCwd = cwdOverride || session.cwd;
+            if (session.sessionStartMetaInjected !== true
+                && !hasUserConversationMessage(session.messages)) {
+                refreshSessionBp3Environment(session, effectiveCwd);
+            }
+            let _startupProviderPrewarm = null;
+            if (session.provider === 'openai-oauth'
+                && Number(session.totalInputTokens || 0) === 0
+                && !session.providerState
+                && typeof provider.prewarmWsTransportForSession === 'function') {
+                try {
+                    _startupProviderPrewarm = Promise.resolve(
+                        provider.prewarmWsTransportForSession({
+                            sessionId,
+                            session,
+                            messages: filterModelVisibleSessionMessages(session.messages),
+                            model: session.model,
+                            tools: session.tools,
+                            effort: session.effort || null,
+                            fast: session.fast === true,
+                            modelParameters: session.modelParameters || {},
+                            selectedContextWindow: session.selectedContextWindow || session.contextWindow || null,
+                            promptCacheKey: session.promptCacheKey || null,
+                            providerCacheKey: session.promptCacheKey || null,
+                            ...(session.providerCacheOpts || {}),
+                            ...(codexWireSendOpts(session, {
+                                requestKind: 'prewarm',
+                                turnId: _codexTurnId,
+                                startedAtMs: _turnCheckpointStartedAt,
+                            }) || {}),
+                        }),
+                    ).catch(() => false);
+                } catch {
+                    _startupProviderPrewarm = null;
+                }
+            }
             // Cap caller-supplied / prefetched context so an oversized
             // payload can't blow the session token budget before the
             // first model call. 32 KB ~ 8k tokens at the 4 B/tok
@@ -488,11 +524,6 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             if (explicitPrefetchResult) {
                 _contextBlock += `# Prefetch\n${_capCtx(explicitPrefetchResult)}\n\n`;
-            }
-            const effectiveCwd = cwdOverride || session.cwd;
-            if (session.sessionStartMetaInjected !== true
-                && !hasUserConversationMessage(session.messages)) {
-                refreshSessionBp3Environment(session, effectiveCwd);
             }
             const historyMessages = filterModelVisibleSessionMessages(session.messages);
             const beforeCount = historyMessages.length + 1;
@@ -576,6 +607,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     },
                 });
             } catch { /* trace must never break the ask path */ }
+            if (_startupProviderPrewarm) {
+                try {
+                    await runAbortable(turnSignal, () => _startupProviderPrewarm);
+                } catch {
+                    throwIfAborted(turnSignal);
+                }
+            }
             const agentLoop = await runAbortable(turnSignal, () => _getAgentLoop());
             const _trackTextDelta = (chunk) => {
                 _turnInterruption.recordTextDelta(chunk);

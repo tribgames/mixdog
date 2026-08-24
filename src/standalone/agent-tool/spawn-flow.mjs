@@ -337,10 +337,10 @@ export function createSpawnFlow({
     const spec = spawnSessionSpec(plan, args, context);
     const { session, effectiveCwd } = prepareAgentSession(spec);
     bindSpawnedSession(session, plan);
-    // Spawn prewarm opens the worker's WebSocket now, in
-    // parallel with the remaining prep / first-prompt build, so the first
-    // request skips the handshake. Fire-and-forget: failures fall back to the
-    // lazy per-send handshake. MIXDOG_AGENT_SPAWN_WS_PREWARM=0 disables.
+    // Spawn prewarm builds the materialized stable prompt and keeps the
+    // resulting Codex-style client handle reserved for the first turn.
+    // Fire-and-forget: failures fall back to the lazy per-send handshake.
+    // MIXDOG_AGENT_SPAWN_WS_PREWARM=0 disables.
     maybePrewarmSpawnTransport(plan, session);
     return preparedSpawnResult(
       { ...plan, workerCwd: effectiveCwd || plan.workerCwd },

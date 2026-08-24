@@ -19,7 +19,12 @@ import { makeModelCache } from './model-cache.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
-import { acquireWebSocket, releaseWebSocket, hasPooledWebSocket } from './openai-ws-pool.mjs';
+import {
+    acquireWebSocket,
+    releaseWebSocket,
+    hasPooledWebSocket,
+    WS_IDLE_MS,
+} from './openai-ws-pool.mjs';
 import { _codexWsCompatibilityHeaders } from './openai-codex-metadata.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import {
@@ -78,8 +83,17 @@ export { _displayCodexModel };
 // Public test/integration entry retained alongside the transport module export.
 export { sendViaHttpSse };
 // --- Constants ---
-import { buildRequestBody } from './openai-responses-payload.mjs';
-export { buildRequestBody, convertMessagesToResponsesInput, toOpenAIResponsesTool, _convertMessagesToResponsesInputForTest } from './openai-responses-payload.mjs';
+import {
+    buildCodexStartupPrewarmBody,
+    buildRequestBody,
+} from './openai-responses-payload.mjs';
+export {
+    buildCodexStartupPrewarmBody,
+    buildRequestBody,
+    convertMessagesToResponsesInput,
+    toOpenAIResponsesTool,
+    _convertMessagesToResponsesInputForTest,
+} from './openai-responses-payload.mjs';
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 // Exported for openai-oauth-http-sse.mjs (fallback transport headers/URL).
 export const CODEX_OAUTH_ORIGINATOR = 'codex_cli_rs';
@@ -358,6 +372,22 @@ async function refreshTokens(refreshToken) {
         clearTimeout(timeout);
     }
 }
+// Identity of the STABLE prefix a startup prewarm actually warmed (model +
+// instructions/tools, never the live transcript). A reservation may only be
+// consumed by a request whose own prefix hashes the same: the first turn
+// refreshes environment/tool surface after the prewarm was fired, and adopting
+// a socket anchored on the older prefix costs the whole prewarm and forces the
+// real request back to a full frame.
+function _codexStartupPrefixHash(body) {
+    const prewarm = buildCodexStartupPrewarmBody(body);
+    return createHash('sha256').update(JSON.stringify({
+        model: prewarm?.model ?? null,
+        instructions: prewarm?.instructions ?? null,
+        tools: prewarm?.tools ?? null,
+        input: prewarm?.input ?? [],
+    })).digest('hex').slice(0, 24);
+}
+
 // --- Build Responses API request ---
 export class OpenAIOAuthProvider {
     // OpenAI input_tokens already INCLUDES cached_tokens (cached is a subset),
@@ -371,6 +401,8 @@ export class OpenAIOAuthProvider {
     // booleans here would let one unhealthy session force every other session
     // onto HTTP.
     _httpFallbackUntilByPoolKey = new Map();
+    _startupPrewarmByPoolKey = new Map();
+    _startupPrewarmReadyByPoolKey = new Map();
     config;
     constructor(config) {
         this.config = config || {};
@@ -531,14 +563,32 @@ export class OpenAIOAuthProvider {
         let auth = await _authP;
         await _verP;
         const body = await _bodyP;
-        // poolKey != cacheKey by design (see openai-oauth-ws.mjs header note).
-        // poolKey is per-session so parallel reviewer/worker callers each get
-        // their own socket bucket. cacheKey is the Codex-style prompt_cache_key:
-        // by default it is the session/thread identity (clamped to 64 chars) and
-        // feeds both `body.prompt_cache_key` and the OAuth WS handshake
-        // `session_id`, so each long-lived thread keeps a stable cache shard.
+        // poolKey != cacheKey by design. poolKey isolates socket/delta state per
+        // session. cacheKey is body.prompt_cache_key and affects prompt-cache
+        // routing only; Codex handshake identity comes from sendOpts and remains
+        // independent so a future cache-lane policy cannot merge conversations.
         const poolKey  = opts.sessionId || null;
         const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai-oauth');
+        const startupPrefixHash = _codexStartupPrefixHash(body);
+        let startupPrewarmHandle = null;
+        if (poolKey && opts._startupPrewarmOnly !== true) {
+            const candidate = this._startupPrewarmReadyByPoolKey.get(poolKey) || null;
+            if (candidate) {
+                this._startupPrewarmReadyByPoolKey.delete(poolKey);
+                if (candidate._reservationTimer) {
+                    clearTimeout(candidate._reservationTimer);
+                    candidate._reservationTimer = null;
+                }
+                if (candidate.poolKey === poolKey
+                    && candidate.cacheKey === cacheKey
+                    && candidate.prefixHash === startupPrefixHash
+                    && candidate.entry) {
+                    startupPrewarmHandle = candidate;
+                } else if (candidate.entry) {
+                    releaseWebSocket({ entry: candidate.entry, poolKey, keep: false });
+                }
+            }
+        }
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
         const sendWs = typeof opts._sendViaWebSocketFn === 'function' ? opts._sendViaWebSocketFn : sendViaWebSocket;
         const sendHttp = typeof opts._sendViaHttpSseFn === 'function' ? opts._sendViaHttpSseFn : sendViaHttpSse;
@@ -644,21 +694,24 @@ export class OpenAIOAuthProvider {
             }
             return recordLiveModel(result);
         };
-        const dispatchWs = (forceFresh = false, carriedWarmup = null) => sendWs({
-            auth,
-            body,
-            sendOpts: opts,
-            onStreamDelta,
-            onToolCall,
-            onTextDelta,
-            onStageChange,
-            externalSignal,
-            poolKey,
-            cacheKey,
-            iteration,
-            useModel,
-            displayModel: _displayCodexModel,
-            forceFresh,
+        const dispatchWs = (forceFresh = false, carriedWarmup = null) => {
+            const prewarmedHandle = forceFresh ? null : startupPrewarmHandle;
+            startupPrewarmHandle = null;
+            return sendWs({
+                auth,
+                body,
+                sendOpts: opts,
+                onStreamDelta,
+                onToolCall,
+                onTextDelta,
+                onStageChange,
+                externalSignal,
+                poolKey,
+                cacheKey,
+                iteration,
+                useModel,
+                displayModel: _displayCodexModel,
+                forceFresh,
             // Default refs-style recovery: keep using WS first. A transient
             // first-byte / mid-stream stall closes the bad socket and retries on
             // a fresh WS entry; only after the bounded WS retry budget is
@@ -678,10 +731,12 @@ export class OpenAIOAuthProvider {
             // exactly that. Every prewarmed call on record (72/72) kept its
             // chain continuous. MIXDOG_OPENAI_OAUTH_WS_WARMUP=0 disables it.
             warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', true)
-                ? { ...body, input: [], generate: false }
+                ? buildCodexStartupPrewarmBody(body)
                 : null,
-            _carriedWarmup: carriedWarmup,
-        });
+                _carriedWarmup: carriedWarmup,
+                _prewarmedHandle: prewarmedHandle,
+            });
+        };
         const mustSurfaceFallbackError = (fallbackErr) => externalSignal?.aborted
             || fallbackErr?.name === 'AbortError'
             || fallbackErr?.code === 'ABORT_ERR'
@@ -695,6 +750,13 @@ export class OpenAIOAuthProvider {
                 || httpFallbackActive()
                 || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)
             ))) {
+            if (startupPrewarmHandle?.entry) {
+                releaseWebSocket({ entry: startupPrewarmHandle.entry, poolKey, keep: false });
+                startupPrewarmHandle = null;
+            }
+            if (opts._startupPrewarmOnly === true) {
+                return { startupPrewarm: false };
+            }
             return dispatchHttp('forced');
         }
 
@@ -704,9 +766,16 @@ export class OpenAIOAuthProvider {
             if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-start model=${useModel} agent=${_sendAgent} sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} iteration=${iteration ?? '(none)'}\n`); }
             const result = await dispatchWs(false);
             if (process.env.MIXDOG_DEBUG_AGENT) { process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`); }
+            // Stamp the reservation with the prefix it warmed so the first real
+            // request can tell a matching anchor from a stale one.
+            if (opts._startupPrewarmOnly === true && result?.startupPrewarmHandle) {
+                result.startupPrewarmHandle.prefixHash = startupPrefixHash;
+                result.startupPrewarmHandle.promptWarmup = true;
+            }
             return recordLiveModel(result);
         } catch (err) {
             traceWsError(err, 'primary');
+            if (opts._startupPrewarmOnly === true) throw err;
             const status = err?.httpStatus;
             // Live-text invariant: if the WS attempt already relayed a
             // non-empty text chunk to the client, NO recovery path may reissue
@@ -782,35 +851,128 @@ export class OpenAIOAuthProvider {
         }
     }
     /**
-     * Spawn-time transport prewarm (codex prewarm_websocket parity): open the
-     * session's WS socket while the caller is still assembling the session /
-     * first prompt, so the first real request reuses an already-open pooled
-     * socket instead of paying TLS + upgrade on its critical path.
+     * Session-startup Responses prewarm. With a materialized session this sends
+     * Codex's generate:false request (stable instructions/tools, empty input)
+     * and leaves the response/socket state pooled for the first real turn.
+     * Legacy callers without a materialized prompt retain the connection-only
+     * prewarm path.
      *
      * Best-effort by contract: every failure returns false and leaves the
-     * lazy per-send handshake untouched. Only runs when the thread-scoped
-     * prompt_cache_key derivation is active — with it disabled the real
-     * cacheKey depends on the built request body (instructions/tools hash),
-     * which does not exist yet at spawn prep, and a mismatched socket would
-     * just be evicted as incompatible on first acquire.
+     * lazy per-send warmup untouched.
      */
     async prewarmWsTransportForSession(opts = {}, seams = {}) {
-        const _acquire = seams._acquire || acquireWebSocket;
-        const _release = seams._release || releaseWebSocket;
-        const _hasPooled = seams._hasPooled || hasPooledWebSocket;
-        const _warmVersion = seams._warmVersion || warmCodexClientVersion;
         const poolKey = opts.sessionId || null;
         if (!poolKey) return false;
-        try {
+        const session = opts.session && typeof opts.session === 'object' ? opts.session : null;
+        const messages = Array.isArray(opts.messages)
+            ? opts.messages
+            : (Array.isArray(session?.messages) ? session.messages : null);
+        const tools = Array.isArray(opts.tools)
+            ? opts.tools
+            : (Array.isArray(session?.tools) ? session.tools : []);
+        const model = opts.model || session?.model || null;
+        const promptWarmup = !!(messages
+            && model
+            && _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', true));
+        // A connection-only reservation (session create, before the prompt is
+        // materialized) must not satisfy the first turn's prompt prewarm.
+        const readyHandle = this._startupPrewarmReadyByPoolKey.get(poolKey) || null;
+        if (readyHandle && (!promptWarmup || readyHandle.promptWarmup === true)) return true;
+        const existing = this._startupPrewarmByPoolKey.get(poolKey);
+        if (existing) {
+            if (!promptWarmup || existing.promptWarmup) return existing.task;
+            try { await existing.task; } catch {}
+            if (this._startupPrewarmByPoolKey.get(poolKey) === existing) {
+                this._startupPrewarmByPoolKey.delete(poolKey);
+            }
+            return this.prewarmWsTransportForSession(opts, seams);
+        }
+        const record = { promptWarmup, task: null };
+        const task = (async () => {
+            const _acquire = seams._acquire || acquireWebSocket;
+            const _release = seams._release || releaseWebSocket;
+            const _hasPooled = seams._hasPooled || hasPooledWebSocket;
+            const _warmVersion = seams._warmVersion || warmCodexClientVersion;
+            const _send = seams._send || ((messages, model, tools, sendOpts) =>
+                this.send(messages, model, tools, sendOpts));
             const transportPolicy = resolveOpenAiTransportPolicy();
             if (transportPolicy.transport === 'http'
                 || _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)) return false;
+            if (promptWarmup) {
+                const {
+                    messages: _messages,
+                    tools: _tools,
+                    model: _model,
+                    ...baseSendOpts
+                } = opts;
+                const codexSessionId = baseSendOpts.codexSessionId
+                    || session?.codexWireSessionId
+                    || null;
+                const sendOpts = {
+                    ...baseSendOpts,
+                    sessionId: poolKey,
+                    session,
+                    effort: baseSendOpts.effort ?? session?.effort ?? null,
+                    fast: baseSendOpts.fast === true || session?.fast === true,
+                    modelParameters: baseSendOpts.modelParameters || session?.modelParameters || {},
+                    promptCacheKey: baseSendOpts.promptCacheKey || session?.promptCacheKey || null,
+                    ...(codexSessionId ? {
+                        codexSessionId,
+                        codexThreadId: baseSendOpts.codexThreadId || codexSessionId,
+                        threadId: baseSendOpts.threadId || codexSessionId,
+                    } : {}),
+                    requestKind: 'prewarm',
+                    codexRequestKind: 'prewarm',
+                    _startupPrewarmOnly: true,
+                };
+                const _t0 = Date.now();
+                const result = await _send(messages, model, tools, sendOpts);
+                const handle = result?.startupPrewarmHandle || null;
+                const ready = result?.startupPrewarm === true && !!handle?.entry;
+                if (ready) {
+                    const previous = this._startupPrewarmReadyByPoolKey.get(poolKey);
+                    if (previous?.entry && previous !== handle) {
+                        if (previous._reservationTimer) clearTimeout(previous._reservationTimer);
+                        releaseWebSocket({ entry: previous.entry, poolKey, keep: false });
+                    }
+                    this._startupPrewarmReadyByPoolKey.set(poolKey, handle);
+                    handle._reservationTimer = setTimeout(() => {
+                        if (this._startupPrewarmReadyByPoolKey.get(poolKey) !== handle) return;
+                        this._startupPrewarmReadyByPoolKey.delete(poolKey);
+                        handle._reservationTimer = null;
+                        releaseWebSocket({ entry: handle.entry, poolKey, keep: false });
+                    }, WS_IDLE_MS);
+                    try { handle._reservationTimer.unref?.(); } catch {}
+                    try {
+                        handle.entry.socket?.once?.('close', () => {
+                            if (handle._reservationTimer) {
+                                clearTimeout(handle._reservationTimer);
+                                handle._reservationTimer = null;
+                            }
+                            if (this._startupPrewarmReadyByPoolKey.get(poolKey) === handle) {
+                                this._startupPrewarmReadyByPoolKey.delete(poolKey);
+                            }
+                        });
+                    } catch {}
+                }
+                try {
+                    appendAgentTrace({
+                        sessionId: poolKey,
+                        kind: 'spawn_ws_prewarm',
+                        provider: 'openai-oauth',
+                        transport: 'websocket',
+                        payload: {
+                            elapsed_ms: Date.now() - _t0,
+                            prompt_warmup: true,
+                            ready,
+                        },
+                    });
+                } catch {}
+                return ready;
+            }
             const threadKeyGate = String(process.env.MIXDOG_OAI_CODEX_THREAD_CACHE_KEY || '').toLowerCase();
             if (threadKeyGate === '0' || threadKeyGate === 'false') return false;
             if (_hasPooled(poolKey)) return true;
-            // Identical derivation to buildRequestBody's prompt_cache_key
-            // (thread-scoped branch), so the prewarmed socket's handshake
-            // session_id and pool-compatibility key match the first real send.
             const cacheKey = buildStableProviderPromptCacheKey('openai-oauth', opts);
             const [auth] = await Promise.all([this.ensureAuth(), _warmVersion()]);
             const codexHeaders = _codexWsCompatibilityHeaders({
@@ -818,8 +980,6 @@ export class OpenAIOAuthProvider {
                 cacheKey,
                 sendOpts: opts,
                 model: opts.model,
-                // Same tier the request body will carry, so the prewarm
-                // handshake routes to the node the first real send wants.
                 serviceTier: opts.fast === true && codexModelSupportsServiceTier(opts.model, 'priority')
                     ? 'priority'
                     : '',
@@ -840,18 +1000,28 @@ export class OpenAIOAuthProvider {
                     kind: 'spawn_ws_prewarm',
                     provider: 'openai-oauth',
                     transport: 'websocket',
-                    payload: { elapsed_ms: Date.now() - _t0, reused: acquired.reused === true },
+                    payload: {
+                        elapsed_ms: Date.now() - _t0,
+                        reused: acquired.reused === true,
+                        prompt_warmup: false,
+                    },
                 });
             } catch {}
-            if (process.env.MIXDOG_DEBUG_AGENT) {
-                process.stderr.write(`[agent-trace] spawn-ws-prewarm ok poolKey=${createHash('sha256').update(String(poolKey)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _t0}ms\n`);
-            }
             return true;
+        })();
+        record.task = task;
+        this._startupPrewarmByPoolKey.set(poolKey, record);
+        try {
+            return await task;
         } catch (err) {
             if (process.env.MIXDOG_DEBUG_AGENT) {
                 process.stderr.write(`[agent-trace] spawn-ws-prewarm failed err=${String(err?.message || err).slice(0, 160)}\n`);
             }
             return false;
+        } finally {
+            if (this._startupPrewarmByPoolKey.get(poolKey) === record) {
+                this._startupPrewarmByPoolKey.delete(poolKey);
+            }
         }
     }
     async listModels() {

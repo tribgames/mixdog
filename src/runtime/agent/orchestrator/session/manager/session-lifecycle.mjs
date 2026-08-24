@@ -46,6 +46,7 @@ import {
 } from '../approval-mode.mjs';
 import { describeShellStartupPolicy } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
+import { refreshSessionBp3Environment } from './prompt-utils.mjs';
 
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
     // Keep this in sync with createSession's provider-cache policy: only
@@ -477,6 +478,7 @@ export function createSession(opts) {
         ownerSessionId: opts.ownerSessionId || null,
         clientHostPid: opts.clientHostPid || null,
     };
+    refreshSessionBp3Environment(session, opts.cwd);
     // In-process registry + async debounced save: same-process create → load
     // reads live memory; disk flush is for cross-process / restart durability.
     setLiveSession(session);
