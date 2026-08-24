@@ -1,6 +1,6 @@
 {
-  "version": "1.8.4",
-  "source": "ggml-org/whisper.cpp official release",
+  "version": "1.9.2",
+  "source": "ggml-org/whisper.cpp@306c88f4d1286aec1bf96e544632897886af5501",
   "model": {
     "id": "large-v3-turbo-q8_0",
     "filename": "ggml-large-v3-turbo-q8_0.bin",
@@ -62,78 +62,13 @@
     "win32-x64": {
       "variants": [
         {
-          "id": "cublas-12.4",
-          "requires": { "cudaMajor": 12 },
-          "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-cublas-12.4.0-bin-x64.zip",
-          "sha256": "b07cff4e59831b227896018facbb6334907bf324a342c84597c44f087823d252",
-          "size": 457024596,
-          "format": "zip",
-          "executable": "Release/whisper-cli.exe"
-        },
-        {
-          "id": "cublas-11.8",
-          "requires": { "cudaMajor": 11 },
-          "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-cublas-11.8.0-bin-x64.zip",
-          "sha256": "194480dd24606389c4eceb98d48292f37f59138192ae491ed4f38736cdb8888c",
-          "size": 58787783,
-          "format": "zip",
-          "executable": "Release/whisper-cli.exe"
-        },
-        {
-          "id": "cublas-11-bundled",
-          "requires": { "nvidiaDriver": true },
-          "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-cublas-11.8.0-bin-x64.zip",
-          "sha256": "194480dd24606389c4eceb98d48292f37f59138192ae491ed4f38736cdb8888c",
-          "size": 58787783,
-          "format": "zip",
-          "executable": "Release/whisper-cli.exe",
-          "extras": [
-            {
-              "url": "https://files.pythonhosted.org/packages/0b/1d/7a78cd36fd5e3da4021b3ac2c2c8b2651dd72345b7c3ecc0d3e051884f50/nvidia_cublas_cu11-11.11.3.6-py3-none-win_amd64.whl",
-              "sha256": "6ab12b1302bef8ac1ff4414edd1c059e57f4833abef9151683fb8f4de25900be",
-              "size": 427234740,
-              "format": "zip",
-              "files": [
-                { "from": "nvidia/cublas/bin/cublas64_11.dll", "to": "Release/cublas64_11.dll" },
-                { "from": "nvidia/cublas/bin/cublasLt64_11.dll", "to": "Release/cublasLt64_11.dll" }
-              ]
-            }
-          ]
-        },
-        {
-          "id": "base-cpu",
+          "id": "vulkan",
           "requires": null,
-          "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-bin-x64.zip",
-          "sha256": "74f973345cb52ef5ba3ec9e7e7af8e48cc8c71722d1528603b80588a11f82e3e",
-          "size": 4078768,
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.2/whisper-server-win32-x64-vulkan.zip",
+          "sha256": "6ee3718696033ddbc156201eb0c097b778d8aca7388233b54fd3a966cbcb9fee",
+          "size": 16751300,
           "format": "zip",
-          "executable": "Release/whisper-cli.exe"
-        }
-      ]
-    },
-    "darwin-arm64": {
-      "variants": [
-        {
-          "id": "metal",
-          "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.8.4/whisper-darwin-arm64-metal.zip",
-          "sha256": "6bfbe8e06c07b87c2d7cd9a6541128781752bd2827d9f97ea9605d06c53835d7",
-          "size": 3147446,
-          "format": "zip",
-          "executable": "Release/whisper-cli"
-        }
-      ]
-    },
-    "darwin-x64": {
-      "variants": [
-        {
-          "id": "cpu",
-          "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.8.4/whisper-darwin-x64-cpu.zip",
-          "sha256": "eed4606e4333dacaafa3ed5a982856db98dcf7d7300200b831c71bedd6fe05e1",
-          "size": 3041846,
-          "format": "zip",
-          "executable": "Release/whisper-cli"
+          "executable": "whisper-server.exe"
         }
       ]
     },
@@ -142,13 +77,54 @@
         {
           "id": "vulkan",
           "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.8.4/whisper-linux-x64-vulkan.zip",
-          "sha256": "f378ad30db89b8bb710210b057539f9b18f4cdecceac093ff189ce7e904fe6de",
-          "size": 54510528,
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.2/whisper-server-linux-x64-vulkan.zip",
+          "sha256": "c3cbf695ebc818546a8ef4d3657ef74378781948b8ff62e7f2bf1da70ccdc639",
+          "size": 14461318,
           "format": "zip",
-          "executable": "Release/whisper-cli"
+          "executable": "whisper-server"
+        }
+      ]
+    },
+    "linux-arm64": {
+      "variants": [
+        {
+          "id": "vulkan",
+          "requires": null,
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.2/whisper-server-linux-arm64-vulkan.zip",
+          "sha256": "73fc8ac7fdbc1e68ebb4a2c27faaf3c1145fcf7f4b0f04f32fdeb26bc66b20eb",
+          "size": 14274639,
+          "format": "zip",
+          "executable": "whisper-server"
+        }
+      ]
+    },
+    "darwin-arm64": {
+      "variants": [
+        {
+          "id": "metal",
+          "requires": null,
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.2/whisper-server-darwin-arm64-metal.zip",
+          "sha256": "2ebd9eec5b991716c230f9d4dace8db952f99f0faf8ca1ef3b3a5b4a1b106401",
+          "size": 1350283,
+          "format": "zip",
+          "executable": "whisper-server"
+        }
+      ]
+    },
+    "darwin-x64": {
+      "variants": [
+        {
+          "id": "cpu",
+          "requires": null,
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.2/whisper-server-darwin-x64-cpu.zip",
+          "sha256": "4d39a13874c380e28ae25ff922673bf8869e6e756f49e866a67e7a86ec8088a5",
+          "size": 1346377,
+          "format": "zip",
+          "executable": "whisper-server"
         }
       ]
     }
-  }
+  },
+  "release_tag": "voice-runtime-v1.9.2",
+  "build_hash": "3705f8c9636467bb1ff9722b409dcc888bd7271e3774f13b0bc3ec64cc3d2822"
 }
