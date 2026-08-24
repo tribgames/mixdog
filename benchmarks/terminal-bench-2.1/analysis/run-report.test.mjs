@@ -113,7 +113,7 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
   return jobsDir;
 }
 
-test('includes cached and cache-write input in final context tokens', () => {
+test('uses normalized prompt tokens without double-counting cached input', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-context-report-'));
   try {
     const jobsDir = fixture(root, 'jobs-current', 'sha256:context', '2026-08-15T00:00:00.000Z', [10, 20]);
@@ -122,10 +122,18 @@ test('includes cached and cache-write input in final context tokens', () => {
     writeFileSync(join(agentDir, 'mixdog.txt'), `${JSON.stringify({
       type: 'model.request.completed',
       usage: {
-        input_tokens: 2,
+        input_tokens: 107,
         cached_input_tokens: 100,
-        cache_write_input_tokens: 5,
+        cache_write_input_tokens: 0,
       },
+    })}\n`);
+    writeFileSync(join(agentDir, 'agent-trace.jsonl'), `${JSON.stringify({
+      kind: 'usage_raw',
+      input_tokens: 107,
+      cached_tokens: 100,
+      cache_write_tokens: 0,
+      output_tokens: 2,
+      prompt_tokens: 107,
     })}\n`);
     const report = generateRunReport({ jobsDir, historyRoot: root });
     assert.equal(report.finalContext.medianTokens, 107);

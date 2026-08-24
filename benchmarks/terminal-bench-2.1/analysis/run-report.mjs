@@ -94,6 +94,13 @@ function traceDiagnostics(trialDir) {
   const toolCounts = new Map();
   const tokens = { input: 0, cached: 0, cacheWrite: 0, output: 0 };
   let providerRequests = 0;
+  // Prompt size of the LAST model call = the context the run ended on.
+  // `prompt_tokens` is the runtime's NORMALIZED total, which is the only
+  // unambiguous field here: raw `input_tokens` means the full prompt on
+  // OpenAI (cache reads included) but only the uncached remainder on
+  // Anthropic, so no single arithmetic over the split fields is right for
+  // both. See the provider-aware fallback in collectTrials.
+  let promptTokens = null;
   for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
     if (!line.trim()) continue;
     let row;
@@ -104,6 +111,7 @@ function traceDiagnostics(trialDir) {
       tokens.cached += finite(row.cached_tokens);
       tokens.cacheWrite += finite(row.cache_write_tokens);
       tokens.output += finite(row.output_tokens);
+      promptTokens = optionalNumber(row.prompt_tokens) ?? promptTokens;
       continue;
     }
     if (row?.kind !== 'tool') continue;
@@ -125,6 +133,7 @@ function traceDiagnostics(trialDir) {
   }
   return {
     providerRequests,
+    finalContextTokens: promptTokens,
     toolCalls: tools.length,
     tokens,
     toolCounts: Object.fromEntries(
@@ -150,6 +159,41 @@ function loadCostDetails(config, historyRoot) {
   ]));
 }
 
+// Codex baseline artifacts. Its trajectory publishes the same two quantities we
+// report for our own runs, so the pinned run-wide constant is no longer the only
+// source:
+//   last_token_usage.input_tokens — full prompt of the final call. Its
+//     cached_input_tokens is a SUBSET of that number, never an addition.
+//   rollout `token_count` events — one per model response, i.e. provider
+//     requests. final_metrics.total_steps counts trajectory steps instead
+//     (2,861 vs 1,961 on the 2026-08-02 run) and is NOT the same unit.
+function codexBaselineMetrics(trialDir) {
+  const trajectory = tryReadJson(join(trialDir, 'agent', 'trajectory.json'));
+  if (!trajectory) return null;
+  const last = trajectory?.final_metrics?.extra?.last_token_usage ?? {};
+  let providerRequests = 0;
+  const walk = (dir) => {
+    let entries = [];
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      if (!/^rollout-.*\.jsonl$/.test(entry.name)) continue;
+      for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
+        if (line.includes('"token_count"')) providerRequests += 1;
+      }
+    }
+  };
+  walk(join(trialDir, 'agent', 'sessions'));
+  return {
+    finalContextTokens: optionalNumber(last.input_tokens),
+    providerRequests: providerRequests || null,
+  };
+}
+
 function collectTrials(runDir, costDetails = {}) {
   const rows = [];
   for (const entry of readdirSync(runDir, { withFileTypes: true })) {
@@ -166,26 +210,39 @@ function collectTrials(runDir, costDetails = {}) {
     const transcript = Array.isArray(rawTranscript) ? rawTranscript[0] : rawTranscript;
     const usage = usageMetrics(trialDir, transcript);
     const trace = traceDiagnostics(trialDir);
+    const codex = codexBaselineMetrics(trialDir);
     const directCost = optionalNumber(result?.agent_result?.cost_usd);
     let resultEvent = null;
     let finalContextTokens = null;
+    let lastRequestUsage = null;
     try {
       for (const line of readFileSync(join(trialDir, 'agent', 'mixdog.txt'), 'utf8').split(/\r?\n/)) {
         if (!line.includes('"type":"result"') && !line.includes('"type":"model.request.completed"')) continue;
         try {
           const row = JSON.parse(line);
           if (row?.type === 'result') resultEvent = row;
-          if (row?.type === 'model.request.completed') {
-            const input = optionalNumber(row?.usage?.input_tokens);
-            if (input != null) {
-              finalContextTokens = input
-                + finite(row?.usage?.cached_input_tokens)
-                + finite(row?.usage?.cache_write_input_tokens);
-            }
-          }
+          if (row?.type === 'model.request.completed' && row?.usage) lastRequestUsage = row.usage;
         } catch { /* retain the last valid result row */ }
       }
     } catch { /* non-mixdog baselines have other logs */ }
+    if (lastRequestUsage) {
+      // Provider-aware by construction: `input_tokens` is the FULL prompt on
+      // OpenAI (cache reads are a subset of it) but only the uncached
+      // remainder on Anthropic. Summing the split fields for both families
+      // double-counted every cached token of an OpenAI run — a ~1.9x inflated
+      // context on the 2026-08-23 sol run. model-rates already draws exactly
+      // this line for pricing; an unknown model reads as inclusive, which can
+      // understate but can never double-count.
+      const input = optionalNumber(lastRequestUsage.input_tokens);
+      const family = rateFor(inline(resultEvent?.model))?.family;
+      if (input != null) {
+        finalContextTokens = family === 'anthropic'
+          ? input
+            + finite(lastRequestUsage.cached_input_tokens)
+            + finite(lastRequestUsage.cache_write_input_tokens)
+          : input;
+      }
+    }
     if (finalContextTokens == null) {
       // A baseline harness writes its own transcript. Claude Code reports the
       // live window on every assistant message, so the last one carries the
@@ -248,8 +305,12 @@ function collectTrials(runDir, costDetails = {}) {
           : finite(resultEvent.duration_api_ms) / 1000,
       },
       activity: {
+        // null, never 0, when no source reports it: a baseline that publishes
+        // no call count must be EXCLUDED from a turn comparison rather than
+        // entering it as a zero.
         providerRequests: optionalNumber(resultEvent?.provider_requests)
-          ?? finite(trace?.providerRequests),
+          ?? optionalNumber(codex?.providerRequests)
+          ?? optionalNumber(trace?.providerRequests),
         toolCalls: optionalNumber(resultEvent?.tool_calls)
           ?? optionalNumber(usage?.toolCallCountApprox)
           ?? finite(trace?.toolCalls),
@@ -268,7 +329,13 @@ function collectTrials(runDir, costDetails = {}) {
       costUnsupported: Boolean(usage.costUnsupported)
         && optionalNumber(costDetails[task]) == null
         && directCost == null,
-      finalContextTokens: optionalNumber(transcript?.lastContextTokens) ?? finalContextTokens,
+      // Normalized total first: it is the only field with one meaning across
+      // providers. The event-derived value behind it is provider-corrected but
+      // still reconstructed from split counters.
+      finalContextTokens: optionalNumber(trace?.finalContextTokens)
+        ?? optionalNumber(transcript?.lastContextTokens)
+        ?? finalContextTokens
+        ?? optionalNumber(codex?.finalContextTokens),
       trace: result?.exception_info || trace?.failures?.length ? trace : null,
     });
   }
@@ -479,6 +546,7 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
           costUsd: ours.costUsd,
           costUnsupported: ours.costUnsupported,
           finalContextTokens: ours.finalContextTokens,
+          providerRequests: ours.activity?.providerRequests ?? null,
         },
         baseline: {
           passed: baseline.passed,
@@ -487,6 +555,7 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
           costUsd: baseline.costUsd,
           costUnsupported: baseline.costUnsupported,
           finalContextTokens: baseline.finalContextTokens,
+          providerRequests: baseline.activity?.providerRequests ?? null,
         },
       };
     });

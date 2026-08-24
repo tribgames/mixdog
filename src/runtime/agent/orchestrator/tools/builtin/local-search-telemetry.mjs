@@ -24,7 +24,10 @@ export function recordLocalSearchBackend(backend, durationMs, outcome) {
     const name = String(backend || '').replace(/[^a-z0-9_]/gi, '').toLowerCase();
     const result = String(outcome || 'hit').replace(/[^a-z0-9_]/gi, '').toLowerCase();
     if (!name || !result) return;
-    target[`${name}_${result}s`] = (Number(target[`${name}_${result}s`]) || 0) + 1;
+    // An outcome already ending in `s` takes `es`, so a miss counts under
+    // `native_misses` rather than the unreadable `native_misss`.
+    const counter = `${name}_${result.endsWith('s') ? `${result}es` : `${result}s`}`;
+    target[counter] = (Number(target[counter]) || 0) + 1;
     addNumber(target, `${name}_ms`, durationMs);
 }
 

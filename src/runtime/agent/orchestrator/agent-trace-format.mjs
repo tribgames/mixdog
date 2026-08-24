@@ -377,6 +377,11 @@ function classifyToolFailure(resultText, toolName) {
     if (/not in allow-list|not allowed/.test(text)) return 'permission';
     if (String(toolName || '') === 'shell' || /^\s*\[exit code:\s*\d+\]/i.test(raw)) return 'command-exit';
     if (isReadOnlyNavigationMiss(toolName, raw)) return 'navigation/miss';
+    // An absent executable is a fact about the environment, not a defect in
+    // the tool that reported it: the caller installs it or takes another
+    // route. Filed under runtime/failure it padded the count that is supposed
+    // to surface real tool bugs.
+    if (/executable not found in this environment/.test(text)) return 'environment/unavailable';
     if (/enoent|cannot find|not found at this path|path does not exist|no such file|file not found in graph|unreadable/.test(text)) return 'path/enoent';
     if (/timed out|timeout|interrupted|aborted/.test(text)) return 'timeout/abort';
     if (/unknown tool|tool.*not.*available|missing.*tool/.test(text)) return 'tool-surface';

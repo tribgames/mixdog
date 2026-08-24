@@ -312,6 +312,38 @@ function semanticExit(plan, result) {
     return null;
 }
 
+// "There is no repository here" is the ANSWER to a read-only repository
+// question, not a failure of the tool that asked it. Reported as an error it
+// sent the caller looking for the same fact another way: one measured run
+// repeated status/diff nine times across three directories before accepting
+// it. Mutations keep failing — a merge cannot succeed without a repository.
+function notARepository(result) {
+    if (!result || result.error || result.timedOut || result.aborted || result.overflow) return false;
+    if (result.exitCode !== 128) return false;
+    return /not a git repository|must be run in a work tree/i.test(String(result.stderr || ''));
+}
+
+// Merge-family conflicts are git's documented outcome for exit 1: the command
+// ran correctly and the conflicting paths ARE the result the caller needs.
+// Wrapping them in a failure envelope hid that list behind "git merge exited 1".
+const CONFLICT_OPERATIONS = new Set(['am', 'apply', 'cherry-pick', 'merge', 'rebase', 'revert', 'stash']);
+
+function conflictOutcome(plan, result) {
+    if (!CONFLICT_OPERATIONS.has(plan.operation)) return null;
+    if (!result || result.error || result.timedOut || result.aborted || result.overflow) return null;
+    if (result.exitCode !== 1) return null;
+    const text = `${String(result.stdout || '')}\n${String(result.stderr || '')}`;
+    if (!/CONFLICT \(|Automatic merge failed|could not apply|needs merge/i.test(text)) return null;
+    const paths = [...text.matchAll(/^CONFLICT \([^)]*\): Merge conflict in (.+)$/gm)]
+        .map((match) => match[1].trim())
+        .filter(Boolean);
+    return {
+        summary: 'conflicts require resolution',
+        conflicted: true,
+        ...(paths.length ? { conflicts: [...new Set(paths)] } : {}),
+    };
+}
+
 function runGit(plan, argv, options = {}) {
     return runProcess('git', [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal });
 }
@@ -800,7 +832,11 @@ export async function executeGitTool(input, workDir, options = {}) {
     // never issued — and re-ran the probe just to build that message.
     const { root: repo, probe } = await resolveRepo(plan, signal);
     if (!repo) {
-        return commandFailure(plan, probe ?? await runGit(plan, ['rev-parse', '--show-toplevel'], { signal }), limit);
+        const missing = probe ?? await runGit(plan, ['rev-parse', '--show-toplevel'], { signal });
+        if (isReadOnly(plan) && notARepository(missing)) {
+            return ok({ repo: false, cwd: plan.cwd, reason: 'not a git repository' });
+        }
+        return commandFailure(plan, missing, limit);
     }
     const prepared = prepare(plan, limit);
     if (isReadOnly(plan)) {
@@ -837,7 +873,17 @@ export async function executeGitTool(input, workDir, options = {}) {
         const after = await statusSnapshot(repo, signal);
         invalidateBuiltinResultCache();
         drainCodeGraphCache();
-        if (!succeeded(result)) return `${commandFailure(plan, result, limit)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
+        if (!succeeded(result)) {
+            const conflict = conflictOutcome(plan, result);
+            if (conflict) {
+                return ok({
+                    ...mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit),
+                    ...conflict,
+                    status: statusDelta(before, after, limit),
+                });
+            }
+            return `${commandFailure(plan, result, limit)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
+        }
         return ok({ ...mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit), status: statusDelta(before, after, limit) });
     })), { signal });
 }

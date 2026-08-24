@@ -17,7 +17,16 @@ async function serve(argsList, execOptions, opts) {
         recordLocalSearchBackend('native', performance.now() - startedAt, 'hit');
         return result;
     } catch (error) {
-        recordLocalSearchBackend('native', performance.now() - startedAt, 'error');
+        // A backend that cannot serve this request is a miss, not an error:
+        // the caller falls back and still returns a complete answer. Counting
+        // the fallback as a backend error made healthy calls read as silent
+        // failures in run telemetry (9 of them in one measured run, all of
+        // them ordinary fallbacks for paths outside the served inventory).
+        const code = String(error?.code || '');
+        const outcome = code === 'NATIVE_SEARCH_UNAVAILABLE' || code === 'NATIVE_SEARCH_UNSUPPORTED'
+            ? 'miss'
+            : 'error';
+        recordLocalSearchBackend('native', performance.now() - startedAt, outcome);
         throw error;
     }
 }

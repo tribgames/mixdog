@@ -5,6 +5,19 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Desktop and mobile conversations preserve drafts, history, follow behavior,
+  pane gestures, and remote state more reliably while reducing relay transfer
+  and renderer deployment overhead.
+- Agent sessions recover provider streams, compaction, worker state, and tool
+  results more consistently, with clearer Git conflict and environment
+  outcomes and more accurate search telemetry.
+- Voice input gains a verified cross-platform runtime release path, while
+  memory retrieval, native process handling, and packaged runtime preparation
+  are hardened.
+- Release automation, FastDirect deployment, and benchmark reporting now reuse
+  unchanged artifacts and compare model calls, cost, and final context with
+  provider-correct accounting.
+
 ## v0.9.147 - 2026-08-21
 
 - Long OpenAI sessions now keep their response chain and turn-state pin intact

@@ -1,10 +1,11 @@
 // Live progress for the running full-sol-xhigh bench against the Codex CLI
-// baseline, on the SAME completed task set. Metrics come from the official
-// report generator so definitions cannot drift; Codex turn counts come from
-// each baseline trial's trajectory (final_metrics.total_steps).
-import { readFileSync, existsSync } from 'node:fs';
+// baseline, on the SAME completed task set. Every metric comes from the
+// official report generator so definitions cannot drift — including the
+// baseline's per-task context and model-call counts, which the report reads
+// from each Codex trial's own trajectory and rollout.
+import { existsSync } from 'node:fs';
 import { readdirSync } from 'node:fs';
-import { resolve, dirname, join, basename } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateRunReport } from './run-report.mjs';
 
@@ -21,27 +22,6 @@ const newestSolRun = () => readdirSync(TB)
 const CUR = process.argv[2] || resolve(TB, newestSolRun() || 'jobs-full-sol-xhigh-20260823-171008');
 
 const rep = generateRunReport({ jobsDir: CUR, historyRoot: resolve(CUR, '..'), status: true });
-
-// Codex turn counts: one trajectory.json per baseline trial.
-const codexSteps = new Map();
-try {
-  const codexRoot = resolve(TB, 'jobs-full-codex');
-  for (const dated of readdirSync(codexRoot)) {
-    const runDir = join(codexRoot, dated);
-    let trials = [];
-    try { trials = readdirSync(runDir); } catch { continue; }
-    for (const trial of trials) {
-      const traj = join(runDir, trial, 'agent', 'trajectory.json');
-      const alt = join(runDir, trial, 'trajectory.json');
-      const path = existsSync(traj) ? traj : (existsSync(alt) ? alt : null);
-      if (!path) continue;
-      try {
-        const steps = JSON.parse(readFileSync(path, 'utf8'))?.final_metrics?.total_steps;
-        if (Number.isFinite(steps)) codexSteps.set(basename(trial).replace(/__[^_]+$/, ''), steps);
-      } catch { /* a malformed trajectory just drops that task's turn count */ }
-    }
-  }
-} catch { /* no baseline turn data available */ }
 
 const pairTask = new Map((rep.pair?.tasks || []).map((t) => [t.task, t]));
 const done = rep.tasks.filter((t) => t.settled && pairTask.has(t.task));
@@ -66,8 +46,10 @@ const costRows = names.filter((n) => Number.isFinite(done.find((t) => t.task ===
 const oursCost = sum(costRows.map((n) => done.find((t) => t.task === n).costUsd));
 const baseCost = sum(costRows.map((n) => base(n).costUsd));
 const oursReq = sum(done.map((t) => t.activity?.providerRequests));
-const stepRows = names.filter((n) => codexSteps.has(n));
-const baseReq = sum(stepRows.map((n) => codexSteps.get(n)));
+// Model calls on both sides, counted the same way (the report derives the
+// baseline's from its rollout `token_count` events, NOT total_steps).
+const stepRows = names.filter((n) => Number.isFinite(base(n).providerRequests));
+const baseReq = sum(stepRows.map((n) => base(n).providerRequests));
 const oursReqOnStepRows = sum(stepRows.map((n) => done.find((t) => t.task === n)?.activity?.providerRequests));
 
 const st = rep.result;
@@ -75,9 +57,9 @@ console.log(`진행  ${st.completed}/89 완료 · ${st.running} 실행중 · ${s
 console.log('');
 console.log(`1) 성공률      now ${oursPass}/${done.length} (${pct(oursPass, done.length)})  |  Codex ${basePass} (${pct(basePass, done.length)})`);
 console.log(`2) 속도        now ${num(oursSec)}s  |  Codex ${num(baseSec)}s   (${(baseSec / (oursSec || 1)).toFixed(2)}x)`);
-// The Codex baseline records only a whole-run median (no per-task context), so
-// a same-task-set median is impossible; fall back to that published figure and
-// SAY the comparison is run-level rather than matched.
+// Per-task baseline context now comes from each trajectory, so the median is
+// taken over the SAME task set. The published whole-run figure stays as the
+// fallback for a baseline whose trajectories are unreadable, and says so.
 const CODEX_RUN_MEDIAN_CTX = 33454;
 console.log(baseCtx > 0
   ? `3) 최종컨텍스트 now ${num(oursCtx)}  |  Codex ${num(baseCtx)}   (${pct(baseCtx - oursCtx, baseCtx)} 절감)`
