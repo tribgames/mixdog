@@ -5,6 +5,7 @@ import {
   VOICE_RUNTIME_CONFIG,
   VOICE_RUNTIME_TAG,
   buildVoiceRuntimePlatforms,
+  fetchGithubRelease,
   voiceRuntimeBuildHash,
 } from './generate-voice-runtime-manifest.mjs'
 import { mergeVoiceRuntimeManifest } from './sync-voice-runtime-manifest.mjs'
@@ -49,6 +50,35 @@ test('voice runtime manifest generation rejects undeclared archives', () => {
     }]),
     /unexpected runtime asset/,
   )
+})
+
+test('voice runtime release lookup finds an authenticated untagged draft', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  const requests = []
+  globalThis.fetch = async (url) => {
+    requests.push(String(url))
+    if (String(url).includes('/releases/tags/')) {
+      return new Response(null, { status: 404 })
+    }
+    return Response.json([{
+      tag_name: VOICE_RUNTIME_TAG,
+      draft: true,
+      assets: [],
+    }])
+  }
+
+  const release = await fetchGithubRelease(
+    'tribgames/mixdog',
+    VOICE_RUNTIME_TAG,
+    'fixture-token',
+  )
+  assert.equal(release.draft, true)
+  assert.equal(release.tag_name, VOICE_RUNTIME_TAG)
+  assert.equal(requests.length, 2)
+  assert.match(requests[1], /\/releases\?per_page=100&page=1$/)
 })
 
 test('voice runtime build identity is stable and merge preserves model and ffmpeg metadata', async () => {

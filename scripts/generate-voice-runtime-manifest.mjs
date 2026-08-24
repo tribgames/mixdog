@@ -139,9 +139,33 @@ export async function fetchGithubRelease(
         headers: githubHeaders(token),
         signal: AbortSignal.timeout(30_000),
       })
-      if (allowMissing && response.status === 404) return null
-      if (!response.ok) throw new Error(`GitHub release lookup failed: HTTP ${response.status}`)
-      return response.json()
+      if (response.ok) return response.json()
+      if (response.status !== 404) {
+        throw new Error(`GitHub release lookup failed: HTTP ${response.status}`)
+      }
+
+      // GitHub keeps a hidden draft under an `untagged-*` URL and the
+      // releases/tags endpoint returns 404 until publication creates the real
+      // tag. Authenticated release listings still expose its requested
+      // tag_name, which lets interrupted release runs resume and verify it.
+      for (let page = 1; page <= 10; page++) {
+        const listing = await fetch(
+          `https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}`,
+          {
+            headers: githubHeaders(token),
+            signal: AbortSignal.timeout(30_000),
+          },
+        )
+        if (!listing.ok) {
+          throw new Error(`GitHub release listing failed: HTTP ${listing.status}`)
+        }
+        const releases = await listing.json()
+        const draft = releases.find((release) => release?.draft && release?.tag_name === tag)
+        if (draft) return draft
+        if (releases.length < 100) break
+      }
+      if (allowMissing) return null
+      throw new Error('GitHub release lookup failed: HTTP 404')
     } catch (error) {
       lastError = error
       if (attempt < 3) await new Promise((resolveDelay) => setTimeout(resolveDelay, attempt * 1_000))
