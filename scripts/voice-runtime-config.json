@@ -17,7 +17,7 @@
       "os": "linux",
       "arch": "x64",
       "backend": "vulkan",
-      "runner": "ubuntu-22.04",
+      "runner": "ubuntu-24.04",
       "asset": "whisper-server-linux-x64-vulkan.zip",
       "executable": "whisper-server"
     },
@@ -26,7 +26,7 @@
       "os": "linux",
       "arch": "arm64",
       "backend": "vulkan",
-      "runner": "ubuntu-22.04-arm",
+      "runner": "ubuntu-24.04-arm",
       "asset": "whisper-server-linux-arm64-vulkan.zip",
       "executable": "whisper-server"
     },

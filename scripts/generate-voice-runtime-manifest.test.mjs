@@ -25,6 +25,12 @@ test('voice runtime release assets produce a complete fail-closed manifest', () 
   assert.equal(platforms['darwin-arm64'].variants[0].id, 'metal')
   assert.equal(platforms['darwin-x64'].variants[0].id, 'cpu')
   assert.equal(platforms['win32-x64'].variants[0].executable, 'whisper-server.exe')
+  assert.deepEqual(
+    VOICE_RUNTIME_CONFIG.platforms
+      .filter((platform) => platform.os === 'linux')
+      .map((platform) => platform.runner),
+    ['ubuntu-24.04', 'ubuntu-24.04-arm'],
+  )
 })
 
 test('voice runtime manifest generation rejects a partial release', () => {
