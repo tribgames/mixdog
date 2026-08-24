@@ -66,6 +66,15 @@ scratch/
 # Tool backups
 .codex-backups/
 
+# Runtime data-dir state. These live in ~/.mixdog/data; they only appear at the
+# repo root when a run points its data dir here, and they are never inputs to
+# the product.
+/agent-workers.json
+/lead-workers.json
+/session-summaries.json
+/session-pending-messages.json
+/memory-cycle-state.json
+
 .bench/
 
 .bench-*.json
