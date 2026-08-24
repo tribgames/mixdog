@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.148 - 2026-08-24
+
 - Desktop and mobile conversations preserve drafts, history, follow behavior,
   pane gestures, and remote state more reliably while reducing relay transfer
   and renderer deployment overhead.
