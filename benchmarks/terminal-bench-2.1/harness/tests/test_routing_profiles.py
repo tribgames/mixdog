@@ -260,7 +260,7 @@ class RoutingProfileTests(unittest.TestCase):
 
     def test_benchmark_config_contains_only_profile_routes_and_workflow(self) -> None:
         profile = load_route_profile("fable-xhigh")
-        config = build_benchmark_config(profile, "default")
+        config = build_benchmark_config(profile)
         agent = config["agent"]
 
         self.assertEqual(set(config), {"agent", "outputStyle"})
@@ -280,7 +280,7 @@ class RoutingProfileTests(unittest.TestCase):
         )
         self.assertEqual(config["outputStyle"], "simple")
         self.assertEqual(agent["profile"], {"language": "en"})
-        self.assertEqual(agent["workflow"], {"active": "default"})
+        self.assertEqual(agent["workflow"], {"active": "headless"})
         self.assertEqual(agent["mcpServers"], {})
         self.assertEqual(agent["workflowRoutes"], {"lead": profile["routes"]["lead"]})
         self.assertNotIn("memory", agent["workflowRoutes"])
@@ -593,11 +593,11 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         sys.modules.pop(module_name, None)
         return module
 
-    def test_adapter_defaults_to_stock_workflow_with_headless_mandate(self) -> None:
+    def test_adapter_fixes_workflow_to_headless(self) -> None:
         module = self.load_adapter_module()
-        agent = module.MixdogAgent()
+        agent = module.MixdogAgent(workflow="solo")
 
-        self.assertEqual(agent._workflow, "solo")
+        self.assertEqual(agent._workflow, "headless")
         self.assertFalse(hasattr(module, "HEADLESS_BENCH_MANDATE"))
 
     def test_version_probe_reads_package_metadata_without_booting_cli(self) -> None:

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pricedCost } from './model-rates.mjs';
 const A = 'benchmarks/terminal-bench-2.1/jobs-full-sol-xhigh-20260824-120411'; // prev run (80/89)
-const B = 'benchmarks/terminal-bench-2.1/jobs-full-sol-xhigh-20260824-144622'; // current (slim rule)
+const B = 'benchmarks/terminal-bench-2.1/jobs-full-sol-xhigh-20260824-144802'; // current (slim rule)
 function rewards(run) {
   const m = new Map();
   for (const dd of readdirSync(run)) {

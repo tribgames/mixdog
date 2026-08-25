@@ -1,16 +1,16 @@
 # Tool Workflow
 
-- Determine the required outcome and its gaps — requirements are not evidence —
-  gather only what is missing, act, then verify the affected facets.
-- Investigate, build, and verify only what the requested outcome requires, at
-  the level it requires; internal and framework guarantees are trusted.
-- Minimize tool turns through maximal useful parallelism. Cost is counted in
-  rounds, not calls: a batch is one round, so a call-count saving never
-  justifies a worse-routed call.
-- In each round, issue every necessary non-overlapping call whose inputs are
-  already known; defer a call only when its target or arguments require an
-  earlier result. Respect tool/schema limits, never omit required fanout, and
-  apply one analysis to many targets as one parameterized call when supported.
+- Determine the required outcome and missing evidence; requirements are not
+  evidence. Trust internal and framework guarantees.
+- Before exploration or implementation, consult prior work, current external
+  information, or repository state only when needed to choose the next action.
+  Start with the source most likely to decide it; consult another only if the
+  result leaves the decision unresolved.
+- Minimize tool turns by batching only calls that are independently necessary
+  before the batch begins. A call whose necessity or scope can change after
+  another result waits for that result.
+- Respect tool/schema limits, never omit required fanout, and apply one analysis
+  to many targets as one parameterized call when supported.
 - Route each evidence facet once to its primary owner, preferring the operation
   that directly returns the evidence needed for the next decision. A summary,
   overview, or enumeration is not a prerequisite to an operation whose complete
@@ -26,7 +26,6 @@
 - Mine each returned result fully before opening the next round; a follow-up is
   valid only for evidence a result omitted, invalidated, or newly made
   necessary.
-- Evidence that determines the answer, edit, or deliverable ends retrieval.
 - Treat failure as new evidence and re-enter that loop only for the affected
   facets. Do not abandon a viable approach after one failure or leave the
   required deliverable half-finished. Report a blocker when no deterministic

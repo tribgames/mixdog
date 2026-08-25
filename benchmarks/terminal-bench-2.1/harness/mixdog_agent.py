@@ -63,7 +63,7 @@ if not DEFAULT_MIXDOG_VERSION or str(DEFAULT_MIXDOG_VERSION).lower() == "latest"
         "package.json version must pin the Terminal-Bench dependency shell"
     )
 # Terminal-Bench always boots a benchmark-owned route profile and the shipped
-# default workflow (Solo) unless an explicit workflow is selected.
+# hidden Headless workflow.
 
 # Where the OAuth credentials file lands inside the container. Also used as
 # MIXDOG_DATA_DIR so mixdog's default credential path resolves to the same file
@@ -441,9 +441,10 @@ class MixdogAgent(BaseInstalledAgent):
         # Legacy direct-worker probes still select "worker"; published runs use
         # the product headless path.
         self._mode = (mode or "headless").strip().lower()
-        # Bench runs use the shipped default workflow (Solo); the prompt-level
-        # mandate bypasses only waiting for interactive approval.
-        self._workflow = workflow or "solo"
+        # Benchmark execution is always non-interactive and non-delegating.
+        # Keep the adapter argument for Harbor compatibility, but never allow
+        # it to select an interactive workflow.
+        self._workflow = "headless"
         # None => use the configured route provider; e.g.
         # --ak provider=anthropic-oauth.
         self._provider = provider

@@ -6,13 +6,13 @@ test('contract digest captures wrappers, edit dialect, provider wire schema, and
   const digest = await buildContractDigest(undefined, {
     provider: 'openai-oauth',
     model: 'gpt-5.6-sol',
-    workflow: 'solo',
+    workflow: 'headless',
     fallbackProvider: 'anthropic-oauth',
     fallbackModel: 'claude-opus-4-8',
   });
 
   assert.equal(digest.schemaVersion, 2);
-  assert.equal(digest.workflow, 'solo');
+  assert.equal(digest.workflow, 'headless');
   assert.deepEqual(digest.disabledTools, ['web_search', 'web_fetch', 'memory', 'recall']);
   assert.deepEqual(Object.keys(digest.routeContracts), ['lead', 'leadFallback']);
 

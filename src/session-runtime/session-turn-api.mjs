@@ -14,6 +14,7 @@ import { traceTurnTiming } from '../runtime/agent/orchestrator/agent-trace.mjs';
 import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
 import { isVisibleStreamProgress } from '../runtime/shared/stream-progress.mjs';
 import { runAbortable, settleWithin, throwIfAborted } from '../runtime/shared/abort-race.mjs';
+import { interruptTaskWaitForSession } from '../runtime/agent/orchestrator/session/task-wait-control.mjs';
 
 export function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -499,6 +500,10 @@ export function createSessionTurnApi(deps) {
     },
     agentStatus() {
       return agentStatusState();
+    },
+    interruptTaskWait(reason = 'user-message') {
+      const sessionId = getSession()?.id || getReservedSessionId?.() || '';
+      return interruptTaskWaitForSession(sessionId, reason);
     },
     // Raw model-message read for LIVE transcript consumers (remote agent
     // handoff, daemon session.read). Answers from the in-memory session so a

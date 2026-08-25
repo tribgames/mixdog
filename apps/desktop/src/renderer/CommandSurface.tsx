@@ -291,7 +291,7 @@ export function CommandSurface({
               ? <UsageSkeleton />
               : <p className="settings-loading" role="status">{t('Loading…')}</p>
             : <SurfaceBody surface={surface} data={data} snapshot={snapshot}
-                sessionId={sessionId} onInherit={onInherit}
+                sessionId={sessionId} onInherit={onInherit} onClose={onClose}
                 loading={loading} pending={pending} run={run} />}
           </div>
           </PaneSurfaceGate>
@@ -303,12 +303,13 @@ export function CommandSurface({
 
 type SurfaceRun = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 
-function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, loading, pending, run }: {
+function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, onClose, loading, pending, run }: {
   surface: CommandSurfaceName;
   data: Record<string, unknown>;
   snapshot?: unknown;
   sessionId?: string;
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  onClose?: () => void;
   loading?: boolean;
   pending: string;
   run: SurfaceRun;
@@ -320,7 +321,7 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, loading, p
   if (surface === 'inherit') {
     return <InheritBody status={data.contextStatus}
       snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
-      sessionId={sessionId ?? ''} loading={loading} onInherit={onInherit} />;
+      sessionId={sessionId ?? ''} loading={loading} onInherit={onInherit} onClose={onClose} />;
   }
   if (surface === 'doctor') {
     return <Group title={t('Diagnostic result')}>
@@ -336,13 +337,14 @@ function SurfaceBody({ surface, data, snapshot, sessionId, onInherit, loading, p
  * whether it can happen at all. The heir is a NEW session on the currently
  * selected model holding this conversation; the source is left untouched.
  */
-function InheritBody({ status, snapshot, sessionId, loading, onInherit }: {
+function InheritBody({ status, snapshot, sessionId, loading, onInherit, onClose }: {
   status: unknown;
   snapshot?: unknown;
   sessionId: string;
   /** The context reading is still in flight; the decision stays locked. */
   loading?: boolean;
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  onClose?: () => void;
 }) {
   const [running, setRunning] = useState(false);
   const [failure, setFailure] = useState('');
@@ -382,12 +384,17 @@ function InheritBody({ status, snapshot, sessionId, loading, onInherit }: {
       </p>
       <dl className="command-surface-facts">
         <div><dt>{t('Messages')}</dt><dd>{spoken}</dd></div>
-        <div><dt>{t('Model')}</dt><dd>{model ? `${provider}/${model}` : t('Unknown')}</dd></div>
+        <div><dt>{t('Model')}</dt>
+          <dd title={model ? `${provider}/${model}` : undefined}>
+            {model ? `${provider}/${model}` : t('Unknown')}
+          </dd></div>
         <div><dt>{t('Context')}</dt><dd>{fit.percent === null ? '—' : `${fit.percent}%`}</dd></div>
       </dl>
       {(blocked || failure) && <p className="inherit-surface-note" role="status">{failure || blocked}</p>}
     </div>
     <footer className="inherit-surface-actions">
+      {onClose && <button type="button" className="inherit-surface-cancel"
+        disabled={running} onClick={onClose}>{t('Cancel')}</button>}
       <button type="button" disabled={Boolean(blocked) || waiting || running}
         onClick={() => {
           if (blocked || !onInherit || !route || running) return;

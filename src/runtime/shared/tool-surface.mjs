@@ -69,6 +69,12 @@ export {
   isMemorySurface,
 };
 
+export function isTaskWaitToolCall(name, args = {}) {
+  if (normalizeToolName(name) !== 'task') return false;
+  const parsed = parseToolArgs(args);
+  return String(parsed?.action || '').trim().toLowerCase() === 'wait';
+}
+
 function patchOperationProfile(args = {}) {
   const a = parseToolArgs(args);
   const patchText = String(a.patch ?? '');

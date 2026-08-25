@@ -434,12 +434,22 @@ async function captureWindow(): Promise<void> {
       throw new Error(`Desktop capture source is ${sourceSize.width}x${sourceSize.height}, expected 1113x687; refusing to resize evidence.`);
     }
     // Dictation smoke (post-PNG so the evidence stays clean): drives the FULL
-    // renderer chain — fake mic → MediaRecorder → base64 → IPC → stubbed
-    // transcription → draft append.
+    // renderer chain — install prompt → fake setup → fake mic → MediaRecorder
+    // → base64 → IPC → stubbed transcription → draft append.
     const dictationSmoke = await withCaptureTimeout(window.webContents.executeJavaScript(`(async () => {
       const mic = document.querySelector('.composer-mic');
       if (!(mic instanceof HTMLElement)) throw new Error('Missing capture element: .composer-mic');
       mic.click();
+      const promptStarted = Date.now();
+      let installButton = null;
+      while (Date.now() - promptStarted < 3000) {
+        installButton = document.querySelector('#voice-install-title + button, .settings-confirm-dialog button.primary');
+        if (installButton instanceof HTMLElement) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const installPromptShown = document.querySelector('#voice-install-title') instanceof HTMLElement;
+      if (!(installButton instanceof HTMLElement)) throw new Error('Voice install confirmation did not open.');
+      installButton.click();
       await new Promise((resolve) => setTimeout(resolve, 900));
       mic.click();
       const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
@@ -449,11 +459,17 @@ async function captureWindow(): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
       return {
+        installPromptShown,
         transcriptApplied: (textarea.value || '').includes('dictation smoke transcript'),
         micIdle: !mic.className.includes('is-recording') && !mic.className.includes('is-transcribing'),
         notice: (document.querySelector('.composer-notice')?.textContent || '').trim(),
       };
-    })()`), 'Dictation smoke', 10_000) as { transcriptApplied: boolean; micIdle: boolean; notice: string };
+    })()`), 'Dictation smoke', 10_000) as {
+      installPromptShown: boolean;
+      transcriptApplied: boolean;
+      micIdle: boolean;
+      notice: string;
+    };
     // Tool-presentation E2E: inject a synthetic rich transcript over the live
     // state channel so the REAL transcript renderer (tool cards, shell output,
     // failure states, diff review bar) is exercised and captured — no

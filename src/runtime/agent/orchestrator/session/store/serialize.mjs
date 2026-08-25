@@ -30,22 +30,41 @@ export function _sessionForDisk(session) {
     //    persist a non-canonical message array).
     //  - toolApprovalHook: the askOpts.onToolApproval callback wired for the
     //    turn — a function that must never be serialized.
+    //  - _providerPrefixGuardState: hashes of the live provider projection.
+    //    Stored history intentionally omits inline media, so these hashes are
+    //    valid only for the current runtime and must not survive a reload.
     const hasTransient = session && typeof session === 'object'
         && (Object.prototype.hasOwnProperty.call(session, 'liveTurnMessages')
-            || Object.prototype.hasOwnProperty.call(session, 'toolApprovalHook'));
+            || Object.prototype.hasOwnProperty.call(session, 'toolApprovalHook')
+            || Object.prototype.hasOwnProperty.call(session, '_providerPrefixGuardState'));
     const messages = Array.isArray(session?.messages) ? session.messages : null;
     if (!messages || messages.length === 0) {
         if (!hasTransient) return session;
-        const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
+        const {
+            liveTurnMessages: _dropLTM,
+            toolApprovalHook: _dropTAH,
+            _providerPrefixGuardState: _dropPPGS,
+            ...rest
+        } = session;
         return rest;
     }
     const out = _messagesForDisk(messages);
     if (out === messages) {
         if (!hasTransient) return session;
-        const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
+        const {
+            liveTurnMessages: _dropLTM,
+            toolApprovalHook: _dropTAH,
+            _providerPrefixGuardState: _dropPPGS,
+            ...rest
+        } = session;
         return rest;
     }
-    const { liveTurnMessages: _dropLTM, toolApprovalHook: _dropTAH, ...rest } = session;
+    const {
+        liveTurnMessages: _dropLTM,
+        toolApprovalHook: _dropTAH,
+        _providerPrefixGuardState: _dropPPGS,
+        ...rest
+    } = session;
     return { ...rest, messages: out };
 }
 
@@ -95,6 +114,10 @@ export function _storedSessionFromFile(dir, filename, ensureLifecycle = true) {
         const record = readTopLevelLifecycleRecord(text);
         if (isLifecycleUnreadable(record) || record.id !== storageId) return null;
         const session = record.doc;
+        // Older builds persisted this runtime-local snapshot. Discard it at
+        // the reload boundary before sanitized history establishes a new
+        // provider prefix baseline.
+        delete session._providerPrefixGuardState;
         return ensureLifecycle ? _ensureLifecycleFields(session) : session;
     } catch {
         return null;

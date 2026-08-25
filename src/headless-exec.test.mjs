@@ -119,6 +119,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     assert.deepEqual(errors, []);
     assert.equal(runtimeOptions[0].approvalMode, 'implicit');
     assert.equal(runtimeOptions[0].disallowDelegation, true);
+    assert.deepEqual(runtimeOptions[0].initialConfig.workflow, { active: 'headless' });
     assert.equal(runtimeOptions[0].autoWakeCompletions, false);
     assert.equal(runtimeOptions[0].toolMode, 'full');
     assert.deepEqual(activeScopes[0], {
@@ -485,4 +486,16 @@ test('--json is accepted for exec and rejected for the interactive command', () 
   const interactive = classifyCliInvocation(['--json']);
   assert.equal(interactive.kind, 'error');
   assert.equal(interactive.error, 'option --json is only supported for mixdog exec');
+});
+
+test('headless exec rejects workflow selection', () => {
+  const invocation = classifyCliInvocation([
+    'exec',
+    '--provider', 'openai-oauth',
+    '--model', 'gpt-test',
+    '--workflow', 'solo',
+    'fix it',
+  ]);
+  assert.equal(invocation.kind, 'error');
+  assert.equal(invocation.error, 'option --workflow is not supported for mixdog exec');
 });

@@ -486,6 +486,7 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
   const voice = record(data.voice);
   const voiceProgress = record(record(snapshot).progressHint);
   const voiceComponents = record(voice.components);
+  const voiceReady = voice.enabled === true && voice.installed === true;
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const experienceLevelOptions = rows(profile.experienceLevels).map((entry) => ({ value: String(entry.id || entry.value || ''), label: label(entry) }));
   const busy = Boolean(pending);
@@ -510,10 +511,10 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
         description={voiceProgress.text ? String(voiceProgress.text) : voice.installed
           ? 'Managed Whisper and ffmpeg runtime is ready for voice input.'
           : `Runtime components · Whisper ${voiceComponents.whisper ? 'ready' : 'missing'} · model ${voiceComponents.model ? 'ready' : 'missing'} · ffmpeg ${voiceComponents.ffmpeg ? 'ready' : 'missing'}`}
-        status={voice.enabled ? 'On' : voiceProgress.text || voice.busy ? 'Installing…' : 'Off'}
+        status={voiceReady ? 'On' : voiceProgress.text || voice.busy ? 'Installing…' : 'Off'}
         actions={<ActionButton disabled={busy || voice.busy === true}
           onClick={() => void run('toggleVoice', [], 'voice-toggle')}>
-          {voice.enabled ? 'Disable voice' : voice.installed ? 'Enable voice' : 'Install & enable'}
+          {voiceReady ? 'Disable voice' : voice.installed ? 'Enable voice' : 'Install & enable'}
         </ActionButton>} />
     </Group>
     <UiLanguageChoices pending={pending} />

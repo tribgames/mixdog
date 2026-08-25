@@ -1,7 +1,7 @@
 /**
  * src/tui/session/turn.mjs - lead TUI turn session runtime (createRunTurn). Extracted from session-local.mjs.
  */
-import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
+import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, isTaskWaitToolCall, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
 import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
 import { toolResultText, toolErrorDisplay, stripShellExitHeader } from './tool-result-text.mjs';
@@ -109,6 +109,19 @@ export function createRunTurn(bag) {
     const toolCards = [];
     const toolGroups = new Map();
     const resultsDone = new Set();
+    // `task wait` is passive control flow, not user-visible work. Keep its call
+    // ids only long enough to suppress live/result cards and drive the spinner.
+    const suppressedTaskWaitCallIds = new Set();
+    const activeTaskWaitCallIds = new Set();
+    const refreshTaskWaitSpinner = () => {
+      if (!getState().spinner) return;
+      set({
+        spinner: {
+          ...getState().spinner,
+          mode: activeTaskWaitCallIds.size > 0 ? 'task-wait' : 'tool-use',
+        },
+      });
+    };
     // ── Live shell-output tail → running tool card ─────────────────────────
     // 1 s poll of orchestrator liveness while this turn runs. When exactly one
     // standalone (non-aggregate) card is unresolved and the runtime reports a
@@ -728,6 +741,12 @@ export function createRunTurn(bag) {
     };
 
     const deliverToolResultMessage = (message) => {
+      const suppressedCallId = toolResultCallId(message);
+      if (suppressedCallId && suppressedTaskWaitCallIds.has(suppressedCallId)) {
+        activeTaskWaitCallIds.delete(suppressedCallId);
+        refreshTaskWaitSpinner();
+        return;
+      }
       if (message?.__earlyNotify === true) {
         const earlyCallId = toolResultCallId(message);
         if (earlyCallId) {
@@ -794,16 +813,32 @@ export function createRunTurn(bag) {
           // spinner is active the buffered text was dropped by the following
           // closeAssistantSegment(), so the message above the tool card vanished.
           flushStreamBatch();
-          if (thinkingText && getState().thinking) {
-            const thinkingLastEndedAt = closeThinkingSegment();
-            set({ thinking: null, spinner: getState().spinner ? { ...getState().spinner, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingLastEndedAt, mode: 'tool-use' } : getState().spinner });
-            _publishedThinkingActive = false;
-          } else if (getState().spinner) {
-            set({ spinner: { ...getState().spinner, mode: 'tool-use' } });
-          }
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
-          const displayCalls = batchCalls;
+          const displayCalls = [];
+          for (const call of batchCalls) {
+            if (!isTaskWaitToolCall(toolCallName(call), toolCallArgs(call))) {
+              displayCalls.push(call);
+              continue;
+            }
+            const callId = toolCallId(call);
+            // Tool protocol calls normally always carry ids. If a malformed
+            // provider omits one, keep the ordinary card so its result cannot
+            // strand an unaddressable hidden spinner.
+            if (!callId) {
+              displayCalls.push(call);
+              continue;
+            }
+            suppressedTaskWaitCallIds.add(callId);
+            activeTaskWaitCallIds.add(callId);
+          }
+          if (thinkingText && getState().thinking) {
+            const thinkingLastEndedAt = closeThinkingSegment();
+            set({ thinking: null, spinner: getState().spinner ? { ...getState().spinner, thinking: false, thinkingAccumulatedMs: accumulatedThinkingMs, thinkingLastEndedAt, mode: activeTaskWaitCallIds.size > 0 ? 'task-wait' : 'tool-use' } : getState().spinner });
+            _publishedThinkingActive = false;
+          } else if (getState().spinner) {
+            refreshTaskWaitSpinner();
+          }
           const agentBatch = ++providerToolBatch;
           commitAssistantSegment({ sealToolBlock: true });
 
@@ -914,6 +949,11 @@ export function createRunTurn(bag) {
           const lastTouchedAggregate = [...touchedAggregates].at(-1) || null;
           lastTouchedAggregate?.ensureVisible?.();
           for (const [bufferedCallId, bufferedMessage] of earlyResultBuffer) {
+            if (suppressedTaskWaitCallIds.has(bufferedCallId)) {
+              deliverToolResultMessage(bufferedMessage);
+              earlyResultBuffer.delete(bufferedCallId);
+              continue;
+            }
             if (!cardByCallId.has(bufferedCallId)) continue;
             deliverToolResultMessage(bufferedMessage);
             earlyResultBuffer.delete(bufferedCallId);

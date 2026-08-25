@@ -34,6 +34,14 @@ process.on('message', (message) => {
     respond(requestId, { published: true });
     return;
   }
+  if (message.type === 'workload') {
+    respond(requestId, {
+      runtimes: revisions.size,
+      memory: { rssBytes: 1024 * 1024 * 1024 },
+      resources: { active: {} },
+    });
+    return;
+  }
   if (message.type === 'call') {
     if (message.method === 'resume') {
       respond(requestId, true);
@@ -112,6 +120,34 @@ test('omitted trailing arguments stay omitted across the runtime wire', async ()
     // Interior holes cannot be omitted positionally; only the tail is trimmed.
     const interior = await runtime.submitAsync('echo', undefined, 'keep');
     assert.deepEqual(interior.args, ['echo', null, 'keep']);
+  } finally {
+    await host.close('test complete');
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('RSS telemetry never schedules a destructive runtime recycle', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mixdog-runtime-rss-'));
+  const workerEntry = join(dir, 'worker.mjs');
+  await writeFile(workerEntry, WORKER_STUB, 'utf8');
+
+  const host = createSessionRuntimeHost({
+    workerEntry,
+    cwd: dir,
+    env: {
+      ...process.env,
+      MIXDOG_SESSION_WORKER_RECYCLE_RSS_MB: '1',
+      MIXDOG_SESSION_WORKER_RECYCLE_INTERVAL_MS: '1',
+    },
+    log: () => {},
+  });
+  try {
+    const runtime = await host.create({ sessionId: 'session-rss' });
+    const originalPid = host.status.worker.pid;
+    await host.refreshRuntimeWorkload();
+    assert.equal(host.status.memoryRecycle, undefined);
+    assert.equal((await runtime.submitAsync('healthy')).pid, originalPid);
+    assert.equal(host.status.worker.pid, originalPid);
   } finally {
     await host.close('test complete');
     await rm(dir, { recursive: true, force: true });

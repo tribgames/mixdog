@@ -5,6 +5,7 @@ import {
   aggregateDoneCategories,
   formatAggregateHeader,
   formatToolActionHeader,
+  isTaskWaitToolCall,
   toolLoadingTargets,
 } from './tool-surface.mjs';
 import { deriveToolCardModel } from './tool-card-model.mjs';
@@ -76,4 +77,11 @@ test('aggregate loading cards preserve comma-separated tool and skill names', ()
     result: 'Finished',
   });
   assert.equal(model.labelText, 'Loaded grep, setup, memory');
+});
+
+test('task wait display policy is scoped to the wait action', () => {
+  assert.equal(isTaskWaitToolCall('task', { action: 'wait', task_id: 'task_1' }), true);
+  assert.equal(isTaskWaitToolCall('functions.task', '{"action":"WAIT","task_id":"task_1"}'), true);
+  assert.equal(isTaskWaitToolCall('task', { action: 'read', task_id: 'task_1' }), false);
+  assert.equal(isTaskWaitToolCall('shell', { action: 'wait' }), false);
 });

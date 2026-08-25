@@ -451,9 +451,14 @@ export class CaptureService implements DesktopService {
       this.captureTheme = String(args[0] || 'basic');
       return { value: this.captureTheme as T, snapshot: this.getSnapshot() };
     }
-    // Dictation E2E: the fake Chromium media device feeds MediaRecorder; the
-    // engine transcription is stubbed so the smoke validates the FULL renderer
-    // chain (record → stop → base64 → IPC → draft append) hardware-free.
+    if (capability === 'getVoiceStatus') {
+      return { value: { enabled: false, installed: false } as T, snapshot: this.getSnapshot() };
+    }
+    if (capability === 'toggleVoice') {
+      return { value: { enabled: true, installed: true } as T, snapshot: this.getSnapshot() };
+    }
+    // Dictation E2E: setup and transcription are stubbed while the fake
+    // Chromium media device validates the FULL renderer chain hardware-free.
     if (capability === 'transcribeAudio') {
       const payload = args[0] as { data?: string; mimeType?: string } | undefined;
       if (!payload || typeof payload.data !== 'string' || payload.data.length < 512) {

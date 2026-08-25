@@ -672,7 +672,10 @@ export async function runHeadlessExec({
       approvalMode: 'implicit',
       disallowDelegation: true,
       autoWakeCompletions: false,
-      initialConfig: boundary.loadConfig(),
+      initialConfig: {
+        ...boundary.loadConfig(),
+        workflow: { active: 'headless' },
+      },
     });
     if (lifecycle && !clean(runtime?.id) && typeof runtime?.reserveSessionId === 'function') {
       runtime.reserveSessionId(lifecycle.threadId);

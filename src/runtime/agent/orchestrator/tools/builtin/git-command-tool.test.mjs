@@ -195,7 +195,8 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.equal(stageProperties.output_limit.maximum, 200);
     assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
-    assert.match(GIT_TOOL_DEF.description, /Use diff directly when changed content for a known target is required/i);
+    assert.match(GIT_TOOL_DEF.description, /Owns repository state, diffs, history, and mutations/i);
+    assert.match(GIT_TOOL_DEF.description, /Use diff for known targets; otherwise use status alone to discover targets/i);
     assert.match(GIT_TOOL_DEF.description, /Run one Git command directly, without a shell/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });

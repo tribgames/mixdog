@@ -40,10 +40,7 @@ import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent
 import { ensureCodexWireSessionId, mintSessionId, mintUuidV7 } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
-import {
-    IMPLICIT_APPROVAL_MODE,
-    workflowContextForApprovalMode,
-} from '../approval-mode.mjs';
+import { IMPLICIT_APPROVAL_MODE } from '../approval-mode.mjs';
 import {
     describeGitStartupState,
     describeShellStartupPolicy,
@@ -353,7 +350,7 @@ export function createSession(opts) {
         skipRoleCatalog: !ownerIsAgent,
         profile: profile || undefined,
         agent: resolvedAgent,
-        workflowContext: workflowContextForApprovalMode(opts.workflowContext, opts.approvalMode),
+        workflowContext: opts.workflowContext || null,
         coreMemoryContext: opts.coreMemoryContext || null,
         skillManifest: buildSkillManifest(skills),
         environmentContext: shellEnvironmentContext,

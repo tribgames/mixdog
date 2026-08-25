@@ -80,7 +80,14 @@ export function createSessionApiA(bag) {
     const submissionId = String(intake?.queueOptions?.id || '').trim();
     if (submissionId) acceptingSubmissions.delete(submissionId);
     if (intake?.cancelled === true) return false;
-    return enqueue(intake.text, intake.queueOptions);
+    const accepted = enqueue(intake.text, intake.queueOptions);
+    // User input wakes a passive `task wait` without cancelling either the
+    // turn or the background task. The returned running snapshot creates the
+    // normal post-tool boundary, where this queued prompt is injected.
+    if (accepted !== false) {
+      try { runtime.interruptTaskWait?.('user-message'); } catch {}
+    }
+    return accepted;
   };
   const submit = (text, options = {}) => {
     const intake = submission(text, options);

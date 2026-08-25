@@ -124,6 +124,12 @@
       "routeProfile": "sol-xhigh-nofast",
       "compareTo": "codex-gpt56-sol"
     },
+    "full-sol-xhigh-k5": {
+      "suite": "full",
+      "routeProfile": "sol-xhigh-nofast",
+      "compareTo": "codex-gpt56-sol",
+      "attempts": 5
+    },
     "full-opus5-solo": {
       "suite": "full",
       "routeProfile": "opus5-solo",

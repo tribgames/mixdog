@@ -44,12 +44,12 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges, bounded to the narrowest range that answers the question. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Read only lines not already returned by another tool, using the smallest anchored range needed; never read an entire file when an existing result provides the relevant location. Do not read an output artifact after a still-valid passed check has established the needed facts. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
                 file_path: {
-                    type: 'string',                    description: 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first; default 100 lines/file — pass limit/offset or one exact path for full content); literal-named files win over expansion.',
+                    type: 'string',                    description: 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10 files, newest first; limit applies per file and is capped at 25 lines; all files share a 10 KB output budget); literal-named files win over expansion.',
                 },
                 offset: {
                     type: 'integer',
@@ -59,7 +59,7 @@ export const BUILTIN_TOOLS = [
                 limit: {
                     type: 'integer',
                     minimum: 1,
-                    description: 'Maximum line count as a bare integer; default 500.',
+                    description: 'Maximum line count as a bare integer; default 500 for one exact file, capped at 25 per file for glob expansion.',
                 },
             },
             required: ['file_path'],
@@ -160,7 +160,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
+        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. All rendered output is capped at 10 KB. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {

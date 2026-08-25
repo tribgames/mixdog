@@ -8,7 +8,7 @@ import { parseModelVisibleCompletionWrapper, parseSyntheticAgentMessage } from '
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
-import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
+import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, isTaskWaitToolCall, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
 import { aggregateBucketForCategory, aggregateRawResult, aggregateToolMembers, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
 import {
   isInternalTranscriptDisplayText,
@@ -75,6 +75,7 @@ function restoredToolCallItems(message, nextId, pendingByCallId) {
     if (typeof args === 'string') {
       try { args = JSON.parse(args); } catch { /* keep the raw string args */ }
     }
+    if (isTaskWaitToolCall(name, args)) continue;
     const item = {
       kind: 'tool',
       id: nextId(),

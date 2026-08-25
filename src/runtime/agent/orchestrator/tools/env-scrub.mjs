@@ -135,5 +135,21 @@ export function scrubRuntimeRootVars(env) {
     delete env.MIXDOG_WORKER_MODE;
     delete env.MIXDOG_DAEMON_SPAWNED_FOR;
     delete env.MIXDOG_SUPERVISOR_PID;
+    // Same identity family as MIXDOG_SUPERVISOR_PID above, and the last one
+    // missing: MIXDOG_SERVER_PID is the DAEMON's own pid. A child that
+    // inherits it advertises the daemon as its server in active-instance.json,
+    // so the liveness/staleness checks in runtime-paths.mjs judge an unrelated
+    // process. Internal forks blank or re-set it explicitly after this
+    // boundary (see memory-runtime-proxy.mjs).
+    delete env.MIXDOG_SERVER_PID;
+    // Electron execution-MODE leak: a packaged desktop/daemon host runs its
+    // node entrypoints with ELECTRON_RUN_AS_NODE=1. Inherited by a child, it
+    // silently converts every Electron app that child launches into a bare
+    // node interpreter — Unity Hub, VS Code, Slack and friends stop booting
+    // their own CLI and hand the argv to node instead, which eats a leading
+    // `--` as its end-of-options marker and rejects app flags as bad node
+    // options. Internal daemon/worker forks that genuinely need node mode set
+    // this explicitly after the boundary and are unaffected.
+    delete env.ELECTRON_RUN_AS_NODE;
     return env;
 }

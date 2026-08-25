@@ -30,24 +30,6 @@ const RUNTIME_METHODS = new Set([
   'dispose',
 ]);
 
-export function shouldRecycleSessionRuntimeWorker({
-  rssBytes = 0,
-  thresholdBytes = 0,
-  daemonBusy = 0,
-  pending = 0,
-  activeResources = 0,
-  now = Date.now(),
-  lastRecycleAt = 0,
-  cooldownMs = 0,
-} = {}) {
-  return Number(thresholdBytes) > 0
-    && Number(rssBytes) >= Number(thresholdBytes)
-    && Number(daemonBusy) === 0
-    && Number(pending) === 0
-    && Number(activeResources) === 0
-    && Number(now) - Number(lastRecycleAt) >= Math.max(0, Number(cooldownMs) || 0);
-}
-
 export function applyRuntimeStateFrame(previous, frame) {
   if (frame?.full && typeof frame.full === 'object') return frame.full;
   const patch = frame?.patch;
@@ -242,12 +224,6 @@ class SessionRuntimeWorker {
   recycleUnhealthy(child, detail = null) {
     const reason = String(detail?.reason || 'session runtime worker reported unhealthy');
     void this.recycleChild(child, `unhealthy: ${reason}`);
-  }
-
-  recycleForMemory(rssBytes) {
-    const rssMb = Math.round(Number(rssBytes) / 1024 / 1024);
-    return this.recycleChild(this.child, `idle memory reclaim (${rssMb} MB RSS)`)
-      || Promise.resolve(false);
   }
 
   requestRaw(type, payload = {}, timeoutMs = 10 * 60_000) {
@@ -515,7 +491,6 @@ export function createSessionRuntimeHost({
   cwd = process.cwd(),
   env = process.env,
   log = () => {},
-  canRecycle = () => true,
 } = {}) {
   const worker = new SessionRuntimeWorker({
     workerEntry,
@@ -531,23 +506,8 @@ export function createSessionRuntimeHost({
 
   // Runtime workload telemetry is refreshed lazily with a short TTL.
   const WORKLOAD_TTL_MS = 2_000;
-  const configuredRecycleMb = Number(env.MIXDOG_SESSION_WORKER_RECYCLE_RSS_MB);
-  const MEMORY_RECYCLE_THRESHOLD_BYTES = (
-    Number.isFinite(configuredRecycleMb) && configuredRecycleMb >= 0
-      ? configuredRecycleMb
-      : 256
-  ) * 1024 * 1024;
-  const MEMORY_RECYCLE_INTERVAL_MS = Math.max(
-    5_000,
-    Number(env.MIXDOG_SESSION_WORKER_RECYCLE_INTERVAL_MS) || 60_000,
-  );
-  const MEMORY_RECYCLE_COOLDOWN_MS = Math.max(
-    60_000,
-    Number(env.MIXDOG_SESSION_WORKER_RECYCLE_COOLDOWN_MS) || 5 * 60_000,
-  );
   let workloadCache = { refreshedAt: 0, worker: null };
   let workloadRefresh = null;
-  let lastMemoryRecycleAt = Date.now();
   function refreshRuntimeWorkload() {
     if (workloadRefresh) return workloadRefresh;
     if (!worker.child || worker.child.killed) {
@@ -571,36 +531,6 @@ export function createSessionRuntimeHost({
     return workloadRefresh;
   }
 
-  async function maybeRecycleWorkerMemory() {
-    if (closed || !worker.child || worker.child.killed || worker.recycling || worker.recovery) return;
-    let daemonBusy = 1;
-    try { daemonBusy = Number(canRecycle()) === 1 ? 0 : 1; } catch {}
-    if (daemonBusy !== 0) return;
-    await refreshRuntimeWorkload();
-    const snapshot = workloadCache.worker;
-    const active = snapshot?.resources?.active || {};
-    const activeResources = Object.values(active)
-      .reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
-    const now = Date.now();
-    if (!shouldRecycleSessionRuntimeWorker({
-      rssBytes: snapshot?.memory?.rssBytes,
-      thresholdBytes: MEMORY_RECYCLE_THRESHOLD_BYTES,
-      daemonBusy,
-      pending: worker.pending.size,
-      activeResources,
-      now,
-      lastRecycleAt: lastMemoryRecycleAt,
-      cooldownMs: MEMORY_RECYCLE_COOLDOWN_MS,
-    })) return;
-    lastMemoryRecycleAt = now;
-    await worker.recycleForMemory(snapshot.memory.rssBytes);
-    workloadCache = { refreshedAt: Date.now(), worker: null };
-  }
-  const memoryRecycleTimer = MEMORY_RECYCLE_THRESHOLD_BYTES > 0
-    ? setInterval(() => { void maybeRecycleWorkerMemory(); }, MEMORY_RECYCLE_INTERVAL_MS)
-    : null;
-  memoryRecycleTimer?.unref?.();
-
   return {
     async create(options = {}) {
       if (closed) throw new Error('session runtime host is closed');
@@ -609,11 +539,8 @@ export function createSessionRuntimeHost({
     prewarm() {
       return worker.request('prewarm', {}, 120_000);
     },
-    // Memory-cycle agent execution rides the runtime worker so its provider/
-    // orchestrator churn is reclaimed by the worker's memory recycle instead
-    // of accumulating in the daemon. An in-flight dispatch holds a worker
-    // 'agent' admission lease AND a pending IPC call, so the recycle guard
-    // never tears down a running dispatch.
+    // Agent execution rides the runtime worker instead of accumulating
+    // provider/orchestrator churn in the daemon.
     async agentDispatch(payload = {}, { signal = null, timeoutMs = 60 * 60_000 } = {}) {
       if (closed) throw new Error('session runtime host is closed');
       const dispatchId = String(payload?.dispatchId || '');
@@ -652,7 +579,6 @@ export function createSessionRuntimeHost({
     async close(reason = 'session runtime host closed') {
       if (closed) return;
       closed = true;
-      if (memoryRecycleTimer) clearInterval(memoryRecycleTimer);
       await worker.close(reason);
     },
     get status() {
@@ -660,11 +586,6 @@ export function createSessionRuntimeHost({
       return {
         active: Boolean(status.pid),
         worker: status,
-        memoryRecycle: {
-          thresholdBytes: MEMORY_RECYCLE_THRESHOLD_BYTES,
-          cooldownMs: MEMORY_RECYCLE_COOLDOWN_MS,
-          lastRecycleAt: lastMemoryRecycleAt,
-        },
       };
     },
   };

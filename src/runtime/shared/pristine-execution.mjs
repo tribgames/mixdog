@@ -84,7 +84,7 @@ export function buildMinimalPristineConfig({ provider, model, effort, fast } = {
         ...route,
       }],
       default: 'exec-explicit-route',
-      workflow: { active: 'solo' },
+      workflow: { active: 'headless' },
       workflowRoutes: {},
       agents: {},
       modelSettings,

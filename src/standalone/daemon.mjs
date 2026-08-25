@@ -583,7 +583,6 @@ async function main() {
   sessionRuntimeHost = createSessionRuntimeHost({
     cwd: CWD,
     log,
-    canRecycle: () => (sessionService?.busyCount ?? 1) === 0,
   });
   function prewarmSessionRuntime() {
     if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;

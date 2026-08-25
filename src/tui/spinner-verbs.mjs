@@ -93,6 +93,7 @@ export const SPINNER_MODE_OVERRIDE_VERBS = {
   compacting: 'Compacting conversation',
   'auto-clear': 'Auto-clearing conversation',
   resuming: 'Resuming conversation',
+  'task-wait': '작업 대기 중',
 };
 
 /**

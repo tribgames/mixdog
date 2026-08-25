@@ -272,6 +272,13 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
         hint = finalizeReadFamilyEnoentTail(hint, filePath, err?.code);
         const _rawMsg = err instanceof Error ? err.message : String(err);
         const _safeMsg = normalizeErrorMessage(_rawMsg, workDir);
+        // A conclusive "no such path" is the ANSWER to the read, not a tool
+        // failure (same policy as git's `repo:false`): the error envelope
+        // routed callers into recovery mode for an ordinary absence probe.
+        // Genuine not-found only — EACCES/EPERM etc. keep failure semantics.
+        if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') {
+            return `[path absent] ${_safeMsg}${hint}`;
+        }
         return `Error: ${_safeMsg}${hint}`;
     }
     // A successful edit/apply_patch leaves a session-scoped full-file snapshot.

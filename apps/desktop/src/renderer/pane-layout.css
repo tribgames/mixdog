@@ -523,6 +523,23 @@
   min-height: 0;
   overflow: hidden;
 }
+/* Focused-group frame (user: 포그라운드 pane 구분이 잘 안 된다 — 위 띠만
+   있고 좌우가 열려 있다). The active tab's accent band marked the focused
+   STRIP; the cell itself carried nothing, so a 2x2 workspace gave no cue
+   below the tab row. A hairline accent ring closes the frame on all four
+   sides while the band stays as-is.
+   `has-siblings` scopes it to real splits: a single pane is unambiguous and
+   must not grow a permanent blue box. The carousel shows one cell at a time
+   for the same reason. Painted as an overlay pseudo-element so it rides above
+   the strip band and the surface stack instead of being clipped by them. */
+.pane-cell.is-focused.has-siblings:not(.pane-carousel-item)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mx-accent) 55%, transparent);
+}
 .pane-surface-stack {
   position: relative;
   display: flex;

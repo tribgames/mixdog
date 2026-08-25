@@ -28,9 +28,18 @@ export function useGlobalKeyInput({
   scrollTranscriptRows,
   resetTranscriptScroll,
   applySelectionRect,
+  settleStuckDrag,
 }) {
   // (body moved verbatim)
   useInput((input, key) => {
+    // A drag whose button release never reached the app (button let go OUTSIDE
+    // the terminal window, or the release swallowed while mouse tracking was
+    // off) leaves dragRef.current.active stuck true: Ctrl+C copy is gated on
+    // !active, and every later scroll rebuilds the rect from anchor→last so the
+    // highlight drifts on its own. A keystroke proves the gesture is over —
+    // settle it through the same path a real release takes, before any branch
+    // below reads the selection.
+    settleStuckDrag?.();
     if (toolApproval) {
       const value = String(input || '').trim().toLowerCase();
       if (key.escape || value === 'd' || value === 'n') {

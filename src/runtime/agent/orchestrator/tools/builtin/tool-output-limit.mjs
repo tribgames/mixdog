@@ -9,6 +9,7 @@ function _envInt(name, fallback) {
 }
 export const TOOL_OUTPUT_MAX_BYTES = _envInt('MIXDOG_TOOL_OUTPUT_MAX_BYTES', 50 * 1024);
 export const LOCATOR_OUTPUT_MAX_BYTES = _envInt('MIXDOG_LOCATOR_OUTPUT_MAX_BYTES', 20 * 1024);
+export const GREP_OUTPUT_MAX_BYTES = _envInt('MIXDOG_GREP_OUTPUT_MAX_BYTES', 10 * 1024);
 export const CODE_GRAPH_OUTPUT_MAX_BYTES = _envInt('MIXDOG_CODE_GRAPH_OUTPUT_MAX_BYTES', 30 * 1024);
 // recall/memory search returns model-facing prose blocks; uncapped multi-query
 // browses were observed injecting 42KB in one call (2026-08-05 audit). Same

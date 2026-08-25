@@ -64,7 +64,7 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command directly, without a shell. History, blame, and old commits are evidence only when the task itself is about the past; current-code work needs no git evidence beyond status and diff. Use diff directly when changed content for a known target is required; status is the repository summary. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
+    description: 'Run one Git command directly, without a shell. Owns repository state, diffs, history, and mutations. Use diff for known targets; otherwise use status alone to discover targets. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
@@ -274,12 +274,22 @@ function commandFailure(plan, result, limit = 50) {
     // Bounded like every success path: an unbounded failure dump from a large
     // repository cost far more context than the diagnosis it carried.
     const max = Math.min(Math.max(limit, 20), 40);
-    return fail(reason, {
+    const detail = {
         exit: result.exitCode,
         signal: result.signal,
         stderr: failureText(result.stderr, max),
         stdout: failureText(result.stdout, max),
-    });
+    };
+    // Exit 128 is git's state/precondition verdict (identity unset, bare
+    // repository, dubious ownership, missing ref) and stderr carries git's
+    // own explanation — the ANSWER the caller acts on next. The error
+    // envelope pushed callers into shell fallbacks for ordinary repository
+    // state. Spawn errors, timeouts, aborts, overflow and usage exits (129)
+    // keep failure semantics.
+    if (result.exitCode === 128 && !result.error && !result.timedOut && !result.aborted && !result.overflow) {
+        return JSON.stringify({ ok: false, reason, ...detail });
+    }
+    return fail(reason, detail);
 }
 
 // Non-zero exits that ARE the answer rather than a failure: git reports

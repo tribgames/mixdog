@@ -762,12 +762,12 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   }, [stopSmoothScroll]);
 
   // SGR mouse handling: extracted to app/use-mouse-input.mjs (useMouseInput).
-  useMouseInput({
+  const { settleStuckDrag } = useMouseInput({
     inkInput,
     isRawModeSupported,
     store,
     stdout,
-    rows: resizeState.rows,
+    frameColumns,
     statuslineBandRows: STATUSLINE_BAND_ROWS,
     dragRef,
     lastClickRef,
@@ -914,6 +914,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     scrollTranscriptRows,
     resetTranscriptScroll,
     applySelectionRect,
+    settleStuckDrag,
   });
 
   // Usage-quota dashboard + /context breakdown panels:

@@ -140,7 +140,7 @@ export function useMouseInput({
   isRawModeSupported,
   store,
   stdout,
-  rows,
+  frameColumns,
   statuslineBandRows,
   dragRef,
   lastClickRef,
@@ -172,6 +172,29 @@ export function useMouseInput({
   // Wheel acceleration state (see WHEEL_STEP_ROWS). Hook-scoped so it survives
   // the input effect's re-subscribes.
   const wheelAccelRef = useRef({ dir: 0, t: 0, step: WHEEL_STEP_ROWS });
+  // Set by the input effect to its own finalizeActiveDrag (+ the WT gesture
+  // finish). Held in a ref so settleStuckDrag below can reuse the EXACT
+  // button-release path without hoisting the whole handler out of the effect.
+  const finalizeDragRef = useRef(null);
+
+  // Recovery for a drag whose release never arrived: the button was let go
+  // OUTSIDE the terminal window, or the release was swallowed while mouse
+  // tracking was off. drag.active then stays true indefinitely — Ctrl+C copy is
+  // gated on !active, and every later scroll rebuilds the rect from
+  // anchor→last, so the highlight keeps moving with no pointer behind it. App
+  // calls this from the global key handler: any keystroke ends the gesture.
+  const settleStuckDrag = useCallback(() => {
+    const drag = dragRef.current;
+    if (!drag?.active) return false;
+    const finalize = finalizeDragRef.current;
+    if (!finalize) {
+      drag.active = false;
+      return true;
+    }
+    const last = drag.last || {};
+    finalize(Number(last.x) || 0, Number(last.y) || 0);
+    return true;
+  }, [dragRef]);
 
   const passthroughCtrlWheelZoom = useCallback(() => {
     // Re-enable with retries. Console stream failures are normally reported to
@@ -246,6 +269,26 @@ export function useMouseInput({
     const clampToStatusBand = (row) => {
       const { top, bottom } = statusBand();
       return Math.max(top, Math.min(bottom, row));
+    };
+    const maxSelectionColumn = () => {
+      const cols = Math.max(1, Number(frameColumns) || Number(stdout?.columns) || 80);
+      return cols - 1;
+    };
+    // Snap a drag point into the region that owns the selection. Rows clamp to
+    // the band as before, but the COLUMN now follows normal text-selection
+    // semantics: a pointer ABOVE the band selects to the start of its first
+    // row, BELOW it to the end of its last row — instead of freezing at
+    // whatever column the pointer happened to hold, which painted a partial row
+    // on the wrong side of the anchor. Horizontal overshoot is clamped into the
+    // grid too: while the pointer sits outside the window a terminal can report
+    // column 0 (x = -1 after the 1-based fixup) or a column past the width, and
+    // that point orders BEFORE/AFTER the anchor and visibly flips the selection.
+    const selectionPointInRegion = (x, y, region) => {
+      const { top, bottom } = region === 'status' ? statusBand() : transcriptViewport();
+      const maxX = maxSelectionColumn();
+      if (y < top) return { x: 0, y: top };
+      if (y > bottom) return { x: maxX, y: bottom };
+      return { x: Math.max(0, Math.min(maxX, x)), y };
     };
     const promptRect = () => promptBoxRectRef.current;
     const isInPromptBox = (x, y) => {
@@ -346,16 +389,21 @@ export function useMouseInput({
         return;
       }
       const span = drag.anchorSpan;
-      const finalY = region === 'status' ? clampToStatusBand(fy) : clampToTranscriptViewport(fy);
+      // Release can land outside the region (or outside the window entirely) —
+      // snap it the same way drag motion does, so the finalized rect matches
+      // the highlight the user was looking at.
+      const finalPoint = selectionPointInRegion(fx, fy, region);
+      const finalX = finalPoint.x;
+      const finalY = finalPoint.y;
       drag.active = false;
       if (span) {
-        const rect = buildSpanRect(span, fx, finalY, region, drag.anchorScroll);
+        const rect = buildSpanRect(span, finalX, finalY, region, drag.anchorScroll);
         applySelectionRect(rect);
       } else {
         const anchor = region === 'status'
           ? drag.anchor
           : selectionPointAtCurrentScroll(drag.anchor, drag.anchorScroll);
-        const rect = linearSelection(anchor, { x: fx, y: finalY });
+        const rect = linearSelection(anchor, { x: finalX, y: finalY });
         const empty = rect.x1 === rect.x2 && rect.y1 === rect.y2;
         if (empty) applySelectionRect(null);
         else applySelectionRect(rect);
@@ -718,37 +766,43 @@ export function useMouseInput({
             return;
           }
           // Drag motion (transcript or status): extend the selection to the
-          // current cell, clamped to the owning region's band.
-          const selectionY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
+          // current cell, snapped into the owning region's band — rows clamp,
+          // and a pointer outside the band takes that row's start/end column.
+          const motionPoint = selectionPointInRegion(x, y, region);
+          const selectionX = motionPoint.x;
+          const selectionY = motionPoint.y;
           const prevDragY = dragRef.current.last ? Number(dragRef.current.last.y) : y;
-          dragRef.current.last = { x, y: selectionY };
+          dragRef.current.last = { x: selectionX, y: selectionY };
           const span = dragRef.current.anchorSpan;
           if (span) {
             // Word/line multi-click drag: extend by whole words/lines from the
             // anchor span to the word/line under the cursor (see buildSpanRect).
-            const rect = buildSpanRect(span, x, selectionY, region, dragRef.current.anchorScroll);
+            const rect = buildSpanRect(span, selectionX, selectionY, region, dragRef.current.anchorScroll);
             applySelectionRectThrottled(rect);
           } else {
             const anchor = region === 'status'
               ? dragRef.current.anchor
               : selectionPointAtCurrentScroll(dragRef.current.anchor, dragRef.current.anchorScroll);
-            const rect = linearSelection(anchor, { x, y: selectionY });
+            const rect = linearSelection(anchor, { x: selectionX, y: selectionY });
             applySelectionRectThrottled(rect);
           }
           // Auto-scroll-while-dragging is transcript-only (the status band does
           // not scroll).
           if (region === 'transcript') {
-            const frameRows = Math.max(1, Number(rows) || 24);
             const { top, bottom } = transcriptViewport();
             // Edge auto-scroll only when the pointer pushes TOWARD the edge:
             // either this motion moved vertically toward it, or the pointer
             // sits beyond the transcript viewport rows entirely. A horizontal
             // drag along the top/bottom rows must NOT scroll — it used to
-            // scroll away the very rows being selected.
-            if (y <= 1 && (y < prevDragY || y < top)) {
+            // scroll away the very rows being selected. The edge is the
+            // VIEWPORT's own first/last row: the previous screen-absolute
+            // guesses (row <= 1 / rows - 5) drifted away from the real
+            // transcript bounds whenever the prompt box grew, leaving rows that
+            // clamped the selection without ever scrolling.
+            if (y <= top && (y < prevDragY || y < top)) {
               queueScrollCoalesced(3);
               startEdgeAutoscroll(1);
-            } else if (y >= frameRows - 5 && (y > prevDragY || y > bottom)) {
+            } else if (y >= bottom && (y > prevDragY || y > bottom)) {
               queueScrollCoalesced(-3);
               startEdgeAutoscroll(-1);
             } else {
@@ -774,10 +828,19 @@ export function useMouseInput({
         }
       }
     };
+    // Expose this effect's release path so a keystroke can settle a drag whose
+    // release never arrived (see settleStuckDrag).
+    finalizeDragRef.current = (fx, fy) => {
+      finalizeActiveDrag(fx, fy);
+      finishWindowsMouseGesture();
+    };
     inkInput.on('mouse', onMouse);
     return () => {
       inkInput.off('mouse', onMouse);
+      finalizeDragRef.current = null;
       stopEdgeAutoscroll();
     };
-  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, rows, scrollTranscriptRows, queueScrollCoalesced, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect]);
+  }, [inkInput, isRawModeSupported, store, passthroughCtrlWheelZoom, frameColumns, scrollTranscriptRows, queueScrollCoalesced, applySelectionRect, applySelectionRectThrottled, selectionPointAtCurrentScroll, buildSpanRect]);
+
+  return { settleStuckDrag };
 }

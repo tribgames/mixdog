@@ -76,7 +76,9 @@
   inset: auto 0 0;
   height: 36px;
   pointer-events: none;
-  background: linear-gradient(transparent, var(--mx-bg-deep));
+  /* Fades into the CARD it covers, not the transcript backdrop: --mx-bg-deep
+     painted a black band across the bottom of a --mx-bg-base surface. */
+  background: linear-gradient(transparent, var(--mx-bg-base));
 }
 
 /* Chat interaction audit additions. */

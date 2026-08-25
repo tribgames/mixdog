@@ -554,27 +554,43 @@
 .command-surface .mixdog-settings__body { gap: 28px; }
 .command-surface .mixdog-settings__header h1 { flex: 1 1 auto; }
 .command-surface-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-/* /inherit readings: three short label/value pairs above the decision. */
-.command-surface-facts { display: grid; gap: 6px; margin: 0; }
+/* /inherit readings: three label/value bands, the same row grammar the context
+   card next door uses. Loose baseline rows pushed every value onto the card's
+   far edge, so a short number floated a column away from its own label
+   (user: ui레이아웃이 이상하다). */
+.command-surface-facts { display: grid; gap: 4px; margin: 0; }
 .command-surface-facts > div {
   min-width: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: center;
   gap: 12px;
+  padding: 6px 10px;
+  border-radius: var(--mx-radius-md);
+  background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
 }
 .command-surface-facts dt {
+  min-width: 0;
+  overflow: hidden;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
 }
 .command-surface-facts dd {
   min-width: 0;
   margin: 0;
+  justify-self: end;
   overflow: hidden;
+  color: var(--mx-text);
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--mx-font-item);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
 }
 /* /inherit wears ONE frame, exactly like the context surface: the dialog IS
    the card. Before this it rented the 800×560 settings shell for three short
@@ -611,8 +627,8 @@
 .inherit-surface-body {
   min-width: 0;
   display: grid;
-  gap: 14px;
-  padding: 16px 20px 18px;
+  gap: 12px;
+  padding: 16px 16px 18px;
 }
 .inherit-surface-lede,
 .inherit-surface-note {
@@ -626,6 +642,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 8px;
   padding: 12px 16px;
   border-top: .5px solid var(--mx-border-muted);
 }
@@ -643,6 +660,16 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-semibold);
   cursor: pointer;
+}
+/* Dismissal stays quiet next to the committing action. */
+.inherit-surface-actions > button.inherit-surface-cancel {
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+  font-weight: var(--mx-weight-regular);
+}
+.inherit-surface-actions > button.inherit-surface-cancel:hover:not(:disabled) {
+  background: var(--mx-hover);
 }
 .inherit-surface-actions > button:hover:not(:disabled) { background: var(--mx-flat-hover-contrast); }
 .inherit-surface-actions > button:active:not(:disabled) { background: var(--mx-flat-press-contrast); }

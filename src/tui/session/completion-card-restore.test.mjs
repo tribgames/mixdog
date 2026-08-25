@@ -91,3 +91,21 @@ test('restored shell results preserve command-failure and no-match taxonomy', ()
   assert.equal(probe?.isError, false);
   assert.equal(probe?.exitErrorCount, 0);
 });
+
+test('task wait calls stay hidden when a session transcript is restored', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      toolCalls: [
+        { id: 'call_wait', name: 'task', arguments: { action: 'wait', task_id: 'task_shell_1' } },
+        { id: 'call_read', name: 'task', arguments: { action: 'read', task_id: 'task_shell_1' } },
+      ],
+    },
+    { role: 'tool', toolCallId: 'call_wait', content: 'status: running' },
+    { role: 'tool', toolCallId: 'call_read', content: 'status: completed' },
+  ];
+
+  const items = restoreTranscriptItems(messages, { sessionId: 'sess_task_wait_restore' });
+  assert.equal(items.some((item) => item?.kind === 'tool' && item?.args?.action === 'wait'), false);
+  assert.equal(items.some((item) => item?.kind === 'tool' && item?.args?.action === 'read'), true);
+});

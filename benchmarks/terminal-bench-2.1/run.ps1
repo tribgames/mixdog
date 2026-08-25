@@ -234,7 +234,7 @@ $contractArgs = @(
     $contractPath,
     "--provider", [string]$lead.provider,
     "--model", [string]$lead.model,
-    "--workflow", "solo"
+    "--workflow", "headless"
 )
 foreach ($slot in @('worker', 'heavy-worker', 'reviewer', 'debugger')) {
     $routeSlot = $routeProperty.Value.routes.PSObject.Properties[$slot]

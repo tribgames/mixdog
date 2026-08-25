@@ -499,6 +499,27 @@
 .approval-actions button:hover:not(:disabled), .diff-toggle:hover:not(:disabled) { background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-alpha-light-6); }
 .approval-actions button:active:not(:disabled), .diff-toggle:active:not(:disabled) { background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-alpha-light-6); }
 .approval-actions button:disabled, .diff-toggle:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.code-diff { border-radius: var(--mx-radius-md); box-shadow: 0 0 0 .5px var(--mx-border); }
-.diff-file > header { height: 32px; border-bottom-color: var(--mx-border-muted); background: var(--mx-bg-layer-1); font-size: var(--mx-font-meta); }
+/* A transcript diff is the same class of object as a fenced code card, so it
+   wears that card's chrome: the muted hairline and the shared card surface.
+   --mx-border plus a --mx-bg-layer-1 header band made it the brightest box in
+   the tool body while every neighbour was a flat tint (user: 프레임 디자인이
+   테마랑 어긋난다). The header also carried NO padding — its icon, file name
+   and stat chip sat flush against the frame — and its border-bottom-color
+   never painted, because no border-style was ever set. */
+.code-diff {
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+}
+.diff-file > header {
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-bottom: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-faint);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+}
+/* Multi-file patches: the removed band used to separate stacked files. */
+.diff-file + .diff-file > header { border-top: .5px solid var(--mx-border-muted); }
 

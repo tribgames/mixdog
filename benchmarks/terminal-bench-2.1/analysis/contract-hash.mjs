@@ -288,7 +288,7 @@ function publicRouteContract(contract, prompt) {
 }
 
 export async function buildContractDigest(repoRoot = REPO_ROOT, options = {}) {
-  const workflowId = String(options.workflow || 'solo').trim() || 'solo';
+  const workflowId = String(options.workflow || 'headless').trim() || 'headless';
   const extraRoutes = Array.isArray(options.routes) ? options.routes : [];
   const routes = [
     {
@@ -355,7 +355,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import
   const options = {
     provider: optionValue(process.argv, '--provider'),
     model: optionValue(process.argv, '--model'),
-    workflow: optionValue(process.argv, '--workflow', 'solo'),
+    workflow: optionValue(process.argv, '--workflow', 'headless'),
     fallbackProvider: optionValue(process.argv, '--fallback-provider'),
     fallbackModel: optionValue(process.argv, '--fallback-model'),
     routes: optionList(process.argv, '--route').map(parseRouteOption),

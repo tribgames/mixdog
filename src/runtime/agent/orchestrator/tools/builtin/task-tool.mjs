@@ -20,6 +20,7 @@ import {
     TASK_WAIT_TIMEOUT_MIN_MS,
 } from './builtin-tools.mjs';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
+import { beginInterruptibleTaskWait } from '../../session/task-wait-control.mjs';
 import {
     acknowledgeBackgroundTaskCompletion,
     cancelBackgroundTask,
@@ -160,44 +161,62 @@ export async function executeTaskTool(args, options = {}) {
     const isShellTask = task.surface === 'shell';
 
     if (action === 'read' || action === 'wait') {
+        let waitInterruptedByUser = false;
         if (action === 'wait') {
             if (!isShellTask) return `Error: task wait is only available for shell tasks: ${taskId}`;
             // The turn's abort signal must cut the wait short; a cancelled turn
             // cannot sit out the remaining ceiling.
-            let waitSignal = null;
-            try { waitSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
-            catch { waitSignal = null; }
+            let turnSignal = null;
+            try { turnSignal = (await getAbortSignalForSession(options?.sessionId)) || null; }
+            catch { turnSignal = null; }
+            const waitControl = beginInterruptibleTaskWait(options?.sessionId, turnSignal);
+            const waitSignal = waitControl.signal;
             const waitTimeoutMs = resolveTaskWaitTimeoutMs(args.timeout_ms);
-            // A shell task whose descendants outlived the shell process has no
-            // native job to subscribe to — the process it belonged to is gone.
-            // Its registry promise (resolved by the descendant observer) is the
-            // completion event in that case.
-            if (!peekShellJob(taskId) && task.status === 'running' && task.promise) {
-                await new Promise((resolve) => {
-                    const timer = setTimeout(resolve, waitTimeoutMs);
-                    timer.unref?.();
-                    const done = () => { clearTimeout(timer); resolve(); };
-                    task.promise.then(done, done);
-                    if (waitSignal) {
-                        if (waitSignal.aborted) done();
-                        else waitSignal.addEventListener('abort', done, { once: true });
-                    }
-                });
-            } else {
-                await waitForShellJob(taskId, {
-                    timeoutMs: waitTimeoutMs,
-                    signal: waitSignal,
-                });
+            try {
+                // A shell task whose descendants outlived the shell process has no
+                // native job to subscribe to — the process it belonged to is gone.
+                // Its registry promise (resolved by the descendant observer) is the
+                // completion event in that case.
+                if (!peekShellJob(taskId) && task.status === 'running' && task.promise) {
+                    await new Promise((resolve) => {
+                        const timer = setTimeout(resolve, waitTimeoutMs);
+                        timer.unref?.();
+                        const done = () => {
+                            clearTimeout(timer);
+                            if (waitSignal) {
+                                try { waitSignal.removeEventListener('abort', done); } catch {}
+                            }
+                            resolve();
+                        };
+                        task.promise.then(done, done);
+                        if (waitSignal) {
+                            if (waitSignal.aborted) done();
+                            else waitSignal.addEventListener('abort', done, { once: true });
+                        }
+                    });
+                } else {
+                    await waitForShellJob(taskId, {
+                        timeoutMs: waitTimeoutMs,
+                        signal: waitSignal,
+                    });
+                }
+            } finally {
+                waitInterruptedByUser = waitControl.interruptedByUser;
+                waitControl.dispose();
             }
         }
         if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
         const latest = getBackgroundTask(taskId, { context: options }) || task;
         let rendered = renderBackgroundTask(latest, { includeResult: true });
         if (action === 'wait' && latest.status === 'running') {
-            // In-band report cue: the static "periodic reports" rule does not
-            // survive a long tool loop, so a ceiling-hit wait carries the
-            // protocol reminder itself.
-            rendered += '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
+            if (waitInterruptedByUser) {
+                rendered += '\n\nWait interrupted by new user input; task still running. Handle the new message now and call task wait again only when its result is needed.';
+            } else {
+                // In-band report cue: the static "periodic reports" rule does not
+                // survive a long tool loop, so a ceiling-hit wait carries the
+                // protocol reminder itself.
+                rendered += '\n\nWait ceiling reached; task still running. If periodic reports were requested, write the user-facing report now, then call task wait for the next interval; otherwise continue independent work or end the turn.';
+            }
         }
         if (acknowledgeBackgroundTaskCompletion(taskId, { context: options })) {
             recordDeliveredCompletion({ executionId: taskId });

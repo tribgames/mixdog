@@ -75,6 +75,7 @@ import {
     READ_STREAM_RANGE_MIN_BYTES,
 } from './builtin/read-constants.mjs';
 import {
+    GREP_OUTPUT_MAX_BYTES,
     LOCATOR_OUTPUT_MAX_BYTES,
     capLineOrientedToolOutput,
 } from './builtin/tool-output-limit.mjs';
@@ -495,7 +496,16 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
     const _locatorCap = _explicitCap
         ? Math.min(_explicitCap, LOCATOR_OUTPUT_MAX_BYTES)
         : LOCATOR_OUTPUT_MAX_BYTES;
-    const _budgetedResult = _LOCATOR_BUDGET_TOOLS.has(toolName)
+    const _grepCap = _explicitCap
+        ? Math.min(_explicitCap, GREP_OUTPUT_MAX_BYTES)
+        : GREP_OUTPUT_MAX_BYTES;
+    const _budgetedResult = toolName === 'grep'
+        ? capLineOrientedToolOutput(
+            _withNotices,
+            _grepCap,
+            (kept) => `[grep output capped at ${_grepCap} bytes; ${kept.length} line(s) shown, remainder omitted]`,
+        )
+        : _LOCATOR_BUDGET_TOOLS.has(toolName)
         ? capLineOrientedToolOutput(
             _withNotices,
             _locatorCap,

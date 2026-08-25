@@ -113,7 +113,7 @@ function makeThrottledProgressNotice({ pushNotice, setProgressHint } = {}, inter
  * runtime descriptor (resolveVoiceRuntime shape) once `installed` is true;
  * throws on any ensure* failure (manifest fetch, sha256 mismatch, etc.).
  */
-async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice, setProgressHint } = {}) {
+export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice, setProgressHint } = {}) {
   const fetcher = await loadVoiceRuntimeFetcher();
   // Every device installs the same standard multilingual Q8 model.
   const modelId = fetcher.selectVoiceModelId(readSection('voice'));
@@ -152,7 +152,8 @@ async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNoti
  */
 export async function toggleVoice({ pushNotice, setProgressHint } = {}) {
   const dataDir = resolvePluginData();
-  if (isVoiceEnabled()) {
+  const status = await getVoiceStatus({ dataDir });
+  if (status.enabled && status.installed) {
     // The async RMW preserves the shared config lock/ACL protocol without
     // blocking the TUI event loop. It can still throw — a locked/corrupt config,
     // permissions error, etc. Guard it the same way the ON path is guarded and

@@ -108,10 +108,13 @@
   color: var(--mx-text-faint);
   font-weight: var(--mx-weight-regular);
 }
+/* Nested rows land on ONE rung: rail at 8px (the 16px icon's centre) + 1px
+   hairline + 14px = 23px, exactly the icon+gap title column every activity
+   header uses. The old 15px pushed these rows a pixel off that column. */
 .tool-activity-category-items {
   min-width: 0;
   margin: 2px 0 4px 8px;
-  padding: 2px 0 2px 15px;
+  padding: 2px 0 2px 14px;
   border-left: 1px solid var(--mx-border-muted);
 }
 .tool-activity-item-title b,
@@ -181,12 +184,16 @@
 @media (prefers-reduced-motion: reduce) {
   .tool-activity-item { transition: none; }
 }
+/* Same 8 + 1 + 14 = 23px rung as the category rail above. The old
+   23 + 1 + 10 hung the detail 11px right of its own title column and put its
+   rail on a different vertical than every other rail in the group (user: 도구
+   상세 줄들만 레이아웃 통일성을 벗어난다). */
 .tool-activity-item-body {
   min-width: 0;
   min-height: 0;
-  margin: 0 0 0 23px;
+  margin: 0 0 0 8px;
   overflow: hidden;
-  padding: 7px 0 7px 10px;
+  padding: 7px 0 7px 14px;
   border-left: 1px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
 }

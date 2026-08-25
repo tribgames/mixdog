@@ -223,7 +223,7 @@ export function Spinner({ verb = 'Working', startedAt, outputTokens = 0, tokens 
   // desktop shows the same word at the same second.
   const displayVerb = SPINNER_MODE_OVERRIDE_VERBS[mode]
     || (mode === 'reconnecting' ? (String(verb || '').trim() || 'Reconnecting') : spinnerVerbFor(startedAt, now));
-  const messageText = mode === 'reconnecting' ? displayVerb : `${displayVerb}…`;
+  const messageText = displayVerb;
   const messageLen = messageText.length;
 
   // Glimmer speed per mode.

@@ -16,6 +16,7 @@ type DictationMeter = {
   analyser: AnalyserNode;
   frame: number;
 };
+type VoiceStatus = { installed?: boolean };
 
 // The recording overlay paints its bars from a ref, never from React state: a
 // per-frame level in state would re-render the whole composer (model pickers
@@ -72,12 +73,14 @@ export function useComposerDictation({
   setDraft,
   invokeResult,
   showNotice,
+  confirmVoiceInstall,
 }: {
   transitioningRef: MutableRefObject<boolean>;
   textarea: MutableRefObject<HTMLTextAreaElement | null>;
   setDraft: Dispatch<SetStateAction<string>>;
   invokeResult<T>(action: () => T | Promise<T>): Promise<T | undefined>;
   showNotice(message: string, durationMs?: number): void;
+  confirmVoiceInstall(): Promise<boolean>;
 }) {
   const [dictationState, setDictationState] = useState<DictationState>("idle");
   // Elapsed time backs the composer's recording overlay: the disc alone
@@ -86,6 +89,7 @@ export function useComposerDictation({
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   // Smoothed 0..1 input level, read by the overlay's own animation frame.
   const dictationLevelRef = useRef(0);
+  const dictationPreparing = useRef(false);
   const dictationSession = useRef<{
     recorder: MediaRecorder;
     stream: MediaStream;
@@ -106,7 +110,27 @@ export function useComposerDictation({
       }
       return;
     }
+    if (dictationPreparing.current) return;
+    dictationPreparing.current = true;
     try {
+      const voiceStatus = await invokeResult(() =>
+        window.mixdogDesktop.invokeCapability<VoiceStatus>({
+          capability: "getVoiceStatus",
+          args: [],
+        }));
+      if (!voiceStatus) return;
+      if (voiceStatus.value?.installed !== true) {
+        if (!(await confirmVoiceInstall())) return;
+        const installed = await invokeResult(() =>
+          window.mixdogDesktop.invokeCapability<VoiceStatus>({
+            capability: "toggleVoice",
+            args: [],
+          }));
+        if (installed?.value?.installed !== true) {
+          showNotice("Voice transcription installation did not complete. Open Settings and try again.");
+          return;
+        }
+      }
       const devices = await navigator.mediaDevices.enumerateDevices();
       if (!devices.some((device) => device.kind === "audioinput")) {
         showNotice("No microphone was detected. Connect one and try again.");
@@ -206,8 +230,10 @@ export function useComposerDictation({
             ? "The microphone is busy in another app. Close it and try again."
             : reason instanceof Error ? reason.message : String(reason));
       setDictationState("idle");
+    } finally {
+      dictationPreparing.current = false;
     }
-  }, [dictationState, invokeResult, setDraft, showNotice, textarea, transitioningRef]);
+  }, [confirmVoiceInstall, dictationState, invokeResult, setDraft, showNotice, textarea, transitioningRef]);
 
   // Discarding is its own path: `toggleDictation` always transcribes what it
   // stopped, so a take started by mistake had no way back (overlay ×, Esc).

@@ -1,4 +1,5 @@
 import { accessSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import {
     basename,
     delimiter as pathDelimiter,
@@ -160,6 +161,29 @@ function _headBranch(gitDirectory) {
     }
 }
 
+function _repositoryChangeState(root) {
+    try {
+        const result = spawnSync('git', [
+            '--no-optional-locks',
+            '-C',
+            root,
+            'status',
+            '--porcelain=v1',
+            '--untracked-files=normal',
+        ], {
+            encoding: 'utf8',
+            env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+            maxBuffer: 64 * 1024,
+            timeout: 1500,
+            windowsHide: true,
+        });
+        const output = String(result.stdout || '').trim();
+        if (result.status === 0) return output ? 'changes present' : 'clean';
+        if (result.error?.code === 'ENOBUFS' && output) return 'changes present';
+    } catch {}
+    return null;
+}
+
 // Startup snapshot, same contract as the shell line above: it states what was
 // true when the session opened, not a permanent rule. `git init` or a move to
 // another directory changes it, which is why this reports the observation
@@ -180,7 +204,8 @@ export function describeGitStartupState({
         return `- Git startup state: ${cwd} was not inside a git repository at startup; git commands that require one fail until a repository exists.`;
     }
     const branch = _headBranch(found.gitDirectory);
-    return `- Git startup state: repository root ${found.root}${branch ? ` on branch ${branch}` : ' with a detached HEAD'}.`;
+    const changeState = _repositoryChangeState(found.root);
+    return `- Git startup state: repository root ${found.root}${branch ? ` on branch ${branch}` : ' with a detached HEAD'}${changeState ? `; ${changeState}` : ''}.`;
 }
 
 export function appendGitStartupState(rules, tools, options = {}) {

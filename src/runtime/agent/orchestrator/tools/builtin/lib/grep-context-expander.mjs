@@ -12,11 +12,12 @@ import {
 import {
     relativePathPrefix,
 } from '../search-path-diagnostics.mjs';
+import { GREP_OUTPUT_MAX_BYTES } from '../tool-output-limit.mjs';
 import {
     relativeGrepLine,
 } from './search-input-helpers.mjs';
 
-export const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = 5_000;
+export const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = GREP_OUTPUT_MAX_BYTES;
 const GREP_FOCUSED_CONTEXT_RADIUS = 12;
 const GREP_FOCUSED_RAW_BLOCKS = 3;
 // Anchors must stay usable as evidence without a follow-up read: keep the

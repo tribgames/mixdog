@@ -2,6 +2,8 @@
 
 - Use read-only means for inspection; never mutate to clear an obstacle or
   unexpected state. Preserve evidence before a required mutation can destroy it.
+- Stop exploring once sufficient evidence determines the next action required
+  by the request.
 - Ownership is exclusive: each evidence type has one owner;
   a successful owner result closes that facet.
 - Route the missing evidence to its primary owner:
@@ -19,15 +21,13 @@
 - Use a path locator only when the owner's required target is unknown. Paths
   reachable by expanding an environment variable or the home directory are
   resolved locations, not unknowns.
-- Enumerate sibling directories or same-kind files with one wildcard call
-  (`glob`, or `read` with a glob for content sampling), never a
-  directory-by-directory `list` walk or one `read` per file.
+- Enumerate sibling directories or same-kind files with one `glob` call, never
+  a directory-by-directory `list` walk or one `read` per file.
 - Treat supplied target locations as resolved; access them directly without
   locator searches. Within the current project, pass project-relative paths and
   omit optional scopes equal to its root; explicit paths may be outside cwd
   only for targets outside the project.
-- Before deciding how to parse, count, transform, or summarize files whose
-  format has not been inspected, inspect the original content itself.
+- Inspect source content only when its format is required and unknown.
 - Returned declarations, bodies, usages, relations, and contextual spans from
   any tool — not only `read` — are source context; `read` covers only omitted
   lines or missing anchored ranges.

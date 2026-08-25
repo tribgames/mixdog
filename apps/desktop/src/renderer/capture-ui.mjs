@@ -749,8 +749,10 @@ try {
   assert.equal(metadata.pixelSamples.titlebar.color, "#151518");
   assert.equal(metadata.pixelSamples.base.color, "#1c1c1f");
   assert.equal(metadata.pixelSamples.sidebar.color, "#151518");
-  // Dictation E2E (fake Chromium mic + stubbed engine transcription): the
-  // whole renderer chain must land the transcript in the draft and settle.
+  // Dictation E2E (stubbed setup + fake Chromium mic + stubbed transcription):
+  // the install consent must precede recording, then the transcript must land.
+  assert.equal(metadata.dictationSmoke.installPromptShown, true,
+    'dictation smoke must ask before installing the voice runtime');
   assert.equal(metadata.dictationSmoke.transcriptApplied, true,
     'dictation smoke must append the stubbed transcript to the draft');
   assert.equal(metadata.dictationSmoke.micIdle, true, 'mic button must settle back to idle');

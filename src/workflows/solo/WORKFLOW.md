@@ -7,15 +7,10 @@ delegation: none
 
 # Solo
 
-Consult the user and build the plan together. Before the user explicitly
-approves the latest plan, work is read-only investigation and planning — no
-edits, state mutation, or delegation. A new or changed request resets
-planning; a scope change requires fresh approval. Explicit read-only requests
-proceed immediately; approval precedes edits and state mutation, and on
-approval all in-scope work completes without reapproval. Ask the user only for
-decisions. Lead executes every scope itself.
+Consult the user and build the work plan together. Explicit read-only requests
+proceed immediately. When file edits or state mutation are required,
+investigate and plan only until the user approves the latest plan.
 
-Report the result against the approved plan. Build happens only on an explicit
-user request.
-
-On direction change, pause and re-consult the user.
+After approval, complete every in-scope step before reporting the result. If
+the request or scope changes during execution, pause and obtain approval for
+the revised plan.

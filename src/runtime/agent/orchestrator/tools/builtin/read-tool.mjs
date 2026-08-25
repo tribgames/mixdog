@@ -94,14 +94,13 @@ async function _readReachPreflight(rawPath, workDir, helpers) {
     }
 }
 
-// Survey window for MULTI-file glob fan-out when the caller supplied no
-// explicit window: sampling many files at the single-file default turned one
-// call into thousands of context lines (e.g. "/app/logs/*.log" → 26k chars),
-// while format/shape evidence needs only the head of each file. Per-file
-// ranged-read footers hand back the next offset, and a single-file match or
-// any explicit offset/limit/mode keeps the standard defaults.
+// Per-file hard cap for glob fan-out. Sampling many files at the single-file
+// default turns one call into thousands of context lines, while format/shape
+// evidence needs only a small head from each file. Exact-path reads keep the
+// standard defaults.
 // MIXDOG_READ_GLOB_SURVEY_LIMIT overrides for A/B runs.
-const READ_GLOB_SURVEY_LIMIT = 100;
+const READ_GLOB_SURVEY_LIMIT = 25;
+const READ_GLOB_OUTPUT_BUDGET_BYTES = 10 * 1024;
 function _readGlobSurveyLimit() {
     const parsed = parseInt(process.env.MIXDOG_READ_GLOB_SURVEY_LIMIT ?? '', 10);
     return parsed > 0 ? parsed : READ_GLOB_SURVEY_LIMIT;
@@ -225,23 +224,22 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                     ? `\n[glob expansion capped at ${READ_GLOB_CAP} files (newest first); narrow the pattern for the rest]`
                     : '';
                 const _surveyArgs = { ...args, path: _capped, file_path: undefined };
-                // The arg guard injects the plain-read default limit before
-                // this branch runs; its marker distinguishes that default from
-                // a caller-chosen limit, which is always honored as-is.
-                if (_capped.length > 1
-                    && (_surveyArgs.limit === undefined || args._readLimitDefaulted === true)
-                    && _surveyArgs.offset === undefined
-                    && _surveyArgs.mode === undefined
-                    && _surveyArgs.n === undefined
-                    && _surveyArgs.full === undefined) {
-                    const _survey = _readGlobSurveyLimit();
-                    _surveyArgs.limit = _surveyArgs.limit === undefined
-                        ? _survey
-                        : Math.min(_surveyArgs.limit, _survey);
-                }
+                const _survey = _readGlobSurveyLimit();
+                const _requestedLimit = Number(_surveyArgs.limit);
+                _surveyArgs.limit = Number.isFinite(_requestedLimit) && _requestedLimit > 0
+                    ? Math.min(Math.trunc(_requestedLimit), _survey)
+                    : _survey;
                 const _expanded = await executeReadTool(
                     _surveyArgs,
-                    workDir, readStateScope, executeChildBuiltinTool, { ...options }, helpers,
+                    workDir, readStateScope, executeChildBuiltinTool, {
+                        ...options,
+                        readOutputBudgetBytes: Math.min(
+                            Number(options?.readOutputBudgetBytes) > 0
+                                ? Number(options.readOutputBudgetBytes)
+                                : READ_GLOB_OUTPUT_BUDGET_BYTES,
+                            READ_GLOB_OUTPUT_BUDGET_BYTES,
+                        ),
+                    }, helpers,
                 );
                 if (!_capNote) return _expanded;
                 if (typeof _expanded === 'string') return _expanded + _capNote;

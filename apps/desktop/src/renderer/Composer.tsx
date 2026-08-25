@@ -32,6 +32,7 @@ import {
 } from "./slash-commands";
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
 import { touchPrimaryPointer } from "./surface-input-focus";
+import { acquireTitleBarDim } from "./titlebar-dim";
 import { registerImagePreview } from "./transcript-metrics";
 import { classifyPromptEscape, PROMPT_ESCAPE_HINT_TIMEOUT_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import {
@@ -125,6 +126,51 @@ function DictationProgress() {
     <span className="composer-dictation-progress" aria-hidden="true">
       {DICTATION_BAR_GAINS.map((_, index) => <span key={index} />)}
     </span>
+  );
+}
+
+function VoiceInstallDialog({ onCancel, onConfirm }: {
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const releaseTitleBarDim = acquireTitleBarDim();
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCancel();
+    };
+    cancelRef.current?.focus();
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      releaseTitleBarDim();
+      prior?.focus({ preventScroll: true });
+    };
+  }, [onCancel]);
+  return createPortal(
+    <div className="settings-confirm-layer" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onCancel();
+    }}>
+      <section className="settings-confirm-dialog" role="alertdialog" aria-modal="true"
+        aria-labelledby="voice-install-title" aria-describedby="voice-install-description">
+        <header>
+          <h3 id="voice-install-title">{t("Install voice transcription?")}</h3>
+          <button type="button" aria-label={t("Close confirmation")} onClick={onCancel}>
+            <X aria-hidden="true" size={16} />
+          </button>
+        </header>
+        <p id="voice-install-description">{t("Install & enable")}</p>
+        <footer>
+          <button ref={cancelRef} type="button" onClick={onCancel}>{t("Cancel")}</button>
+          <button type="button" className="primary" onClick={onConfirm}>{t("Install")}</button>
+        </footer>
+      </section>
+    </div>,
+    document.body,
   );
 }
 
@@ -226,6 +272,8 @@ export const Composer = memo(function Composer({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
   const [composerNotice, setComposerNotice] = useState('');
+  const [voiceInstallPromptOpen, setVoiceInstallPromptOpen] = useState(false);
+  const voiceInstallResolver = useRef<((confirmed: boolean) => void) | null>(null);
   // Composer notices are transient helpers (mic errors, etc.): auto-dismiss
   // after a beat instead of pinning to the composer forever (user-flagged).
   const composerNoticeTimer = useRef(0);
@@ -241,8 +289,29 @@ export const Composer = memo(function Composer({
     return () => {
       mountedRef.current = false;
       window.clearTimeout(composerNoticeTimer.current);
+      const resolveVoiceInstall = voiceInstallResolver.current;
+      voiceInstallResolver.current = null;
+      resolveVoiceInstall?.(false);
     };
   }, []);
+  const confirmVoiceInstall = useCallback(() => new Promise<boolean>((resolve) => {
+    voiceInstallResolver.current = resolve;
+    setVoiceInstallPromptOpen(true);
+  }), []);
+  const settleVoiceInstallPrompt = useCallback((confirmed: boolean) => {
+    const resolve = voiceInstallResolver.current;
+    voiceInstallResolver.current = null;
+    setVoiceInstallPromptOpen(false);
+    resolve?.(confirmed);
+  }, []);
+  const cancelVoiceInstallPrompt = useCallback(
+    () => settleVoiceInstallPrompt(false),
+    [settleVoiceInstallPrompt],
+  );
+  const acceptVoiceInstallPrompt = useCallback(
+    () => settleVoiceInstallPrompt(true),
+    [settleVoiceInstallPrompt],
+  );
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
   const [composerFocused, setComposerFocused] = useState(false);
@@ -312,6 +381,7 @@ export const Composer = memo(function Composer({
     setDraft,
     invokeResult,
     showNotice: showComposerNotice,
+    confirmVoiceInstall,
   });
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
@@ -1846,6 +1916,9 @@ export const Composer = memo(function Composer({
   });
   return (
     <>
+      {voiceInstallPromptOpen && <VoiceInstallDialog
+        onCancel={cancelVoiceInstallPrompt}
+        onConfirm={acceptVoiceInstallPrompt} />}
       <QueueList queued={visibleQueued} restoring={restoring}
         onEdit={(id) => void restoreQueue(id, 'queue-row')}
         onSteer={(id) => void steerQueuedNow(id)}
@@ -2050,7 +2123,7 @@ export const Composer = memo(function Composer({
           aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
           aria-pressed={dictationState === 'recording'}
           data-tooltip={dictationState === 'recording' ? t('Stop and transcribe · Enter')
-            : dictationState === 'transcribing' ? t('Transcribing…') : t('Dictate (local Whisper)')}
+            : dictationState === 'transcribing' ? t('Transcribing…') : t('Dictate')}
           data-tooltip-side="top"
           onClick={() => void toggleDictation()}>
           {/* Recording swaps the glyph for the stop square: the disc alone

@@ -5,6 +5,22 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Tool results stay scannable and honest about size: search output and
+  multi-file reads hold to a fixed budget instead of flooding an answer with
+  thousands of lines, and a path that simply does not exist — or an ordinary
+  repository state verdict — comes back as the answer rather than a failure
+  that sends the assistant into recovery.
+- Sessions no longer carry a stale provider fingerprint across a restart, and a
+  new message immediately wakes a turn that is waiting on a background task, so
+  a reply lands instead of sitting behind the wait.
+- Terminal text selection recovers from a drag whose button was released
+  outside the window, and a selection dragged past the top or bottom edge
+  follows normal start-of-line and end-of-line behavior instead of freezing at
+  the last column the pointer held.
+- Voice dictation asks for confirmation before installing its runtime, tool
+  cards and diff frames line up on the shared theme, and ten interface
+  languages are refreshed.
+
 ## v0.9.149 - 2026-08-24
 
 - OpenAI OAuth sessions now speak the reference client's wire shape by default:

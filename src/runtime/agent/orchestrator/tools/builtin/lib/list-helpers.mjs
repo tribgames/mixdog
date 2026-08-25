@@ -18,9 +18,16 @@ export async function readFamilyPathEnoentOrError(workDir, fullPath, inputPath, 
         rerun: (target, opts) => rerunTool({ ...args, path: target }, workDir, opts),
     });
     if (redirected) return redirected;
-    const msg = `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+    const safeMsg = normalizeErrorMessage(err instanceof Error ? err.message : String(err));
     const hint = buildNotFoundHint(workDir, fullPath, 'List', err?.code);
-    return msg + finalizeReadFamilyEnoentTail(hint, inputPath, err?.code);
+    const tail = finalizeReadFamilyEnoentTail(hint, inputPath, err?.code);
+    // Conclusive absence is the list's ANSWER, not a tool failure (matches
+    // read's `[path absent]` and git's `repo:false` policy). Genuine
+    // not-found only — EACCES/EPERM etc. keep failure semantics.
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') {
+        return `[path absent] ${safeMsg}${tail}`;
+    }
+    return `Error: ${safeMsg}${tail}`;
 }
 
 export function normalizeListHeadLimit(raw, defaultCap) {
