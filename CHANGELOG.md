@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.150 - 2026-08-25
+
 - Tool results stay scannable and honest about size: search output and
   multi-file reads hold to a fixed budget instead of flooding an answer with
   thousands of lines, and a path that simply does not exist — or an ordinary
