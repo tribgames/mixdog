@@ -103,6 +103,7 @@ Mixdog supports subscription OAuth and API-key routes, including:
 - OpenAI API keys and ChatGPT/Codex account OAuth
 - Google Gemini and Antigravity OAuth
 - xAI API keys and Grok account OAuth
+- OpenRouter API keys and its unified model catalog
 - Experimental Cursor account OAuth
 - DeepSeek and OpenCode Go
 - OpenAI-compatible APIs

@@ -10,6 +10,7 @@ import {
     OpenAICompatProvider,
     OPENAI_COMPAT_PRESETS,
     applyCompatProviderChatOptions,
+    compatReportedCostUsd,
     parseToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
 import {
@@ -408,6 +409,7 @@ test('provider setup lists every OAuth row in order and leads the API rows with 
         'antigravity-oauth',
     ]);
     assert.equal(setup.api[0].id, 'opencode-go');
+    assert.equal(setup.api[1].id, 'openrouter');
     assert.equal([...setup.oauth, ...setup.api].some((provider) => provider.id === 'cursor-api'), false);
 });
 
@@ -731,6 +733,8 @@ test('current vendor preset defaults and OpenCode Go protocol routes are pinned'
     assert.equal(OPENAI_COMPAT_PRESETS.xai.defaultModel, 'grok-4.5');
     assert.equal(OPENAI_COMPAT_PRESETS.deepseek.defaultModel, 'deepseek-v4-pro');
     assert.equal(OPENAI_COMPAT_PRESETS['opencode-go'].defaultModel, 'glm-5.2');
+    assert.equal(OPENAI_COMPAT_PRESETS.openrouter.baseURL, 'https://openrouter.ai/api/v1');
+    assert.equal(OPENAI_COMPAT_PRESETS.openrouter.extraHeaders['X-OpenRouter-Title'], 'mixdog');
     for (const model of ['minimax-m3', 'minimax-m2.7', 'qwen3.7-max', 'qwen3.6-plus']) {
         assert.equal(isAnthropicGoModel(model), true, model);
     }
@@ -799,6 +803,25 @@ test('provider-specific thinking fields do not leak across compat contracts', ()
     assert.deepEqual(applyCompatProviderChatOptions({}, 'deepseek'), {});
 });
 
+test('OpenRouter uses its unified reasoning contract and reported cost', () => {
+    assert.deepEqual(
+        applyCompatProviderChatOptions({ model: 'anthropic/claude-sonnet-4.6' }, 'openrouter', { effort: 'high' }),
+        {
+            model: 'anthropic/claude-sonnet-4.6',
+            reasoning: { enabled: true, effort: 'high' },
+        },
+    );
+    assert.deepEqual(
+        applyCompatProviderChatOptions({ model: 'google/gemini-3-pro' }, 'openrouter', { effort: 'none' }),
+        {
+            model: 'google/gemini-3-pro',
+            reasoning: { enabled: false },
+        },
+    );
+    assert.equal(compatReportedCostUsd('openrouter', { cost: 0.012345 }), 0.012345);
+    assert.equal(compatReportedCostUsd('openrouter', { cost: -1 }), undefined);
+});
+
 test('xai ships reasoning_effort only for the model families that accept it', () => {
     // grok-3 / grok-4 / grok-4-fast answer with HTTP 400 "does not support
     // parameter reasoningEffort", so the field must not leave the client.
@@ -850,6 +873,23 @@ test('deepseek reasoning_content replay follows the model, not the provider', ()
     assert.equal(xaiWire.find((m) => m.role === 'assistant').reasoning_content, 'inner thought');
 });
 
+test('OpenRouter reasoning_details round-trip on assistant tool turns', () => {
+    const reasoningDetails = [
+        { type: 'reasoning.text', text: 'plan', signature: 'opaque' },
+        { type: 'reasoning.encrypted', data: 'ciphertext' },
+    ];
+    const wire = toOpenAIMessages([
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'c1', name: 'shell', arguments: { command: 'pwd' } }],
+            providerMetadata: { openrouter: { reasoning_details: reasoningDetails } },
+        },
+        { role: 'tool', toolCallId: 'c1', content: 'ok' },
+    ], 'openrouter');
+    assert.equal(wire[0].reasoning_details, reasoningDetails);
+});
+
 test('compat chat stream preserves LM Studio reasoning alias without mixing it into answer text', async () => {
     const result = await consumeCompatChatCompletionStream(stream([
         { id: 'r', model: 'local', choices: [{ delta: { reasoning: 'plan ' } }] },
@@ -861,6 +901,48 @@ test('compat chat stream preserves LM Studio reasoning alias without mixing it i
     });
     assert.equal(result.reasoningContent, 'plan done');
     assert.equal(result.content, 'answer');
+});
+
+test('compat chat stream accumulates OpenRouter reasoning_details', async () => {
+    const result = await consumeCompatChatCompletionStream(stream([
+        {
+            id: 'or',
+            model: 'anthropic/claude-sonnet-4.6',
+            choices: [{
+                delta: {
+                    reasoning: 'plan',
+                    reasoning_details: [{ type: 'reasoning.text', text: 'plan', signature: 'opaque' }],
+                },
+            }],
+        },
+        {
+            id: 'or',
+            model: 'anthropic/claude-sonnet-4.6',
+            choices: [{
+                delta: {
+                    tool_calls: [{
+                        index: 0,
+                        id: 'c1',
+                        type: 'function',
+                        function: { name: 'shell', arguments: '{"command":"pwd"}' },
+                    }],
+                },
+            }],
+        },
+        {
+            id: 'or',
+            model: 'anthropic/claude-sonnet-4.6',
+            choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+            usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.001 },
+        },
+    ]), {
+        label: 'openrouter',
+        parseToolCalls,
+    });
+    assert.deepEqual(result.reasoningDetails, [
+        { type: 'reasoning.text', text: 'plan', signature: 'opaque' },
+    ]);
+    assert.deepEqual(result.response.choices[0].message.reasoning_details, result.reasoningDetails);
 });
 
 test('compat API-key auth retries a TYPED 401 once; text-only and 403 never reload', async () => {

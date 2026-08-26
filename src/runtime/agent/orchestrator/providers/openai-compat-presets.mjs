@@ -14,6 +14,14 @@ export const OPENAI_COMPAT_PRESETS = {
         baseURL: 'https://opencode.ai/zen/go/v1',
         defaultModel: 'glm-5.2',
     },
+    openrouter: {
+        baseURL: 'https://openrouter.ai/api/v1',
+        defaultModel: 'openrouter/auto',
+        extraHeaders: {
+            'HTTP-Referer': 'https://github.com/tribgames/mixdog',
+            'X-OpenRouter-Title': 'mixdog',
+        },
+    },
     ollama: {
         baseURL: 'http://localhost:11434/v1',
         defaultModel: 'llama3.3:latest',

@@ -192,7 +192,17 @@ html[data-mixdog-mobile-tabs] .conversation {
   scrollbar-gutter: stable;
   /* Virtual-core owns end anchoring and measurement compensation. */
   overflow-anchor: none;
+  /* ONE arrow across the reading surface (user: 스크롤바 위에서는 커서,
+     입력 위에서만 입력 커서가 나와야). Prose lines end within ~40px of the
+     scrollbar, so the I-beam that selectable glyphs draw under cursor:auto
+     covered most of the scroll approach. Selection and copy are untouched —
+     only the pointer shape is pinned. */
+  cursor: default;
 }
+/* cursor inherits: anchors and any embedded fields resolved their shapes from
+   `auto` before, so pin them back under the transcript's arrow. */
+.transcript a { cursor: pointer; }
+.transcript :is(input, textarea) { cursor: text; }
 .transcript:focus-visible {
   outline: 2px solid var(--mx-focus);
   outline-offset: -2px;

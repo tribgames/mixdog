@@ -12,7 +12,7 @@ export const TOOL_DEFS = [
   {
     name: 'browser',
     title: 'Mixdog Browser',
-    description: 'Drive the visible browser tab in the Mixdog desktop app — real Chromium sharing the user\'s login sessions. snapshot lists interactive elements with refs (e.g. e12) that click/fill target; refs reset on every navigation, so re-snapshot after the page changes. navigate/click/press return a fresh snapshot; screenshot returns the rendered viewport image; read returns the page text. '
+    description: 'Drive a browser tab in the Mixdog desktop app — real Chromium sharing the user\'s login sessions. snapshot lists interactive elements with refs (e.g. e12) that click/fill target; refs reset on every navigation, so re-snapshot after the page changes. navigate/click/press return a fresh snapshot; screenshot returns the rendered viewport image; read returns the page text. Set background:true to work in a hidden offscreen page (same logins, nothing shown to the user) instead of the visible tab. '
       + TOOL_SYNC_EXECUTION_CONTRACT,
     inputSchema: {
       type: 'object',
@@ -32,6 +32,7 @@ export const TOOL_DEFS = [
         },
         dy: { type: 'integer', description: 'scroll distance in px (negative scrolls up); omit for one viewport down.' },
         maxChars: { type: 'integer', minimum: 1, description: 'read cap; default 8000, max 30000.' },
+        background: { type: 'boolean', description: 'Act on a hidden offscreen page (same logins, invisible to the user) instead of the visible tab. Keep it consistent across a task\'s steps so the page persists.' },
       },
       required: ['action'],
     },

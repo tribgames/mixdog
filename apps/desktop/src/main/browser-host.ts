@@ -10,14 +10,17 @@
  * a loopback HTTP server whose port+token ride a discovery file in the Mixdog
  * data directory. The runtime tool reads that file, so the tool surface only
  * exists while this desktop app runs — no daemon protocol changes.
+ *
+ * background:true commands run against a hidden offscreen BrowserWindow on the
+ * SAME partition, so the agent can work invisibly while staying logged in.
  */
 import { randomBytes } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { BrowserWindow, WebContents } from 'electron';
-import { session } from 'electron';
+import type { WebContents } from 'electron';
+import { BrowserWindow, session } from 'electron';
 
 import { DESKTOP_IPC } from '../shared/contract';
 
@@ -37,6 +40,11 @@ const SNAPSHOT_MAX_ELEMENTS = 120;
 const SNAPSHOT_TEXT_CHARS = 1_800;
 const READ_DEFAULT_CHARS = 8_000;
 const READ_MAX_CHARS = 30_000;
+const SCREENSHOT_TIMEOUT_MS = 8_000;
+const SCREENSHOT_FALLBACK_TIMEOUT_MS = 2_000;
+/** Offscreen (background) page viewport. Fixed and generous so fixed-width
+ *  desktop layouts render without a scrollbar the agent can't see. */
+const OFFSCREEN_VIEWPORT = { width: 1280, height: 900 };
 
 interface BrowserCommand {
   action: string;
@@ -47,6 +55,9 @@ interface BrowserCommand {
   key?: string;
   dy?: number;
   maxChars?: number;
+  /** Run against a hidden offscreen page instead of the visible tab. Shares
+   *  the same partition, so cookies/logins carry over. */
+  background?: boolean;
 }
 
 interface BrowserCommandResult {
@@ -257,6 +268,39 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     return currentGuest;
   }
 
+  // Background target: a never-shown BrowserWindow on the SAME partition, so
+  // the offscreen page is logged in exactly like the visible tab. Reused
+  // across background commands; created lazily on first use.
+  let offscreenWindow: BrowserWindow | null = null;
+  function ensureOffscreen(): WebContents {
+    if (offscreenWindow && !offscreenWindow.isDestroyed()) return offscreenWindow.webContents;
+    // Never shown: the page runs fully (navigate/click/snapshot are JS, not
+    // frames). Screenshots go through CDP Page.captureScreenshot, which renders
+    // server-side in the Blink compositor and does not need an on-screen
+    // surface — an invalidate() before capture forces the frame.
+    const win = new BrowserWindow({
+      show: false,
+      width: OFFSCREEN_VIEWPORT.width,
+      height: OFFSCREEN_VIEWPORT.height,
+      webPreferences: {
+        partition: BROWSER_PARTITION,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        // Keep rendering/timers running while the window is hidden.
+        backgroundThrottling: false,
+      },
+    });
+    // Popups collapse into the same offscreen page — one page is the model.
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:/i.test(url)) void win.webContents.loadURL(url).catch(() => undefined);
+      return { action: 'deny' };
+    });
+    win.once('closed', () => { if (offscreenWindow === win) offscreenWindow = null; });
+    offscreenWindow = win;
+    return win.webContents;
+  }
+
   /** No live webview → ask the renderer to present a browser surface and wait
    *  for its guest to attach. */
   async function ensureGuest(): Promise<WebContents> {
@@ -392,13 +436,60 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     await cdp.sendCommand('Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' });
   }
 
+  // Two capture engines with a per-target preferred order. On this platform a
+  // hidden BrowserWindow renders through Electron's native capturePage()
+  // instantly, while CDP Page.captureScreenshot never produces a frame for it
+  // and only wastes its timeout; a visible <webview> tab is the reverse
+  // (capturePage is unreliable when unfocused/split, CDP is solid). So each
+  // target tries its fast path first and falls back to the other.
+  async function captureViaCdp(guest: WebContents): Promise<string | null> {
+    const cdp = guestDebugger(guest);
+    try {
+      const shot = await Promise.race([
+        cdp.sendCommand('Page.captureScreenshot', { format: 'jpeg', quality: 75 }) as Promise<{ data?: string }>,
+        new Promise<never>((_, reject) => setTimeout(
+          () => reject(new Error('cdp screenshot timed out')), SCREENSHOT_TIMEOUT_MS)),
+      ]);
+      return shot?.data || null;
+    } catch {
+      return null;
+    }
+  }
+  async function captureViaNative(guest: WebContents): Promise<string | null> {
+    try {
+      const image = await Promise.race([
+        guest.capturePage(),
+        new Promise<never>((_, reject) => setTimeout(
+          () => reject(new Error('capturePage timed out')), SCREENSHOT_FALLBACK_TIMEOUT_MS)),
+      ]);
+      const jpeg = image.toJPEG(75);
+      return jpeg && jpeg.length > 0 ? jpeg.toString('base64') : null;
+    } catch {
+      return null;
+    }
+  }
+  async function captureScreenshotJpeg(guest: WebContents, background: boolean): Promise<string> {
+    try { guest.invalidate(); } catch { /* teardown can reject repaint */ }
+    const order = background
+      ? [captureViaNative, captureViaCdp]
+      : [captureViaCdp, captureViaNative];
+    for (const engine of order) {
+      const data = await engine(guest);
+      if (data) return data;
+    }
+    throw new Error('screenshot capture failed');
+  }
+
   async function runCommand(command: BrowserCommand): Promise<BrowserCommandResult> {
     const action = String(command.action || '').trim().toLowerCase();
     if (!action) throw new Error('browser command requires action');
-    const guest = await ensureGuest();
+    // Foreground drives the visible tab (auto-opened if needed); background
+    // drives a hidden offscreen page on the same partition.
+    const background = command.background === true;
+    const guest = background ? ensureOffscreen() : await ensureGuest();
     switch (action) {
       case 'open':
-        return { text: 'Browser pane is open.' };
+        return { text: background ? 'Background browser page is ready.' : 'Browser pane is open.' };
       case 'navigate': {
         const url = normalizeAgentUrl(command.url || '');
         const load = guest.loadURL(url).catch((error: Error & { errno?: number }) => {
@@ -495,15 +586,10 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
         return snapshotResult(guest);
       }
       case 'screenshot': {
-        const cdp = guestDebugger(guest);
-        const shot = await cdp.sendCommand('Page.captureScreenshot', {
-          format: 'jpeg',
-          quality: 75,
-        }) as { data?: string };
-        if (!shot?.data) throw new Error('screenshot capture failed');
+        const data = await captureScreenshotJpeg(guest, background);
         return {
           text: `Screenshot of ${guest.getURL()}`,
-          image: { mimeType: 'image/jpeg', data: shot.data },
+          image: { mimeType: 'image/jpeg', data },
         };
       }
       case 'read': {
@@ -650,6 +736,10 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       disposed = true;
       if (heartbeat) clearInterval(heartbeat);
       heartbeat = null;
+      if (offscreenWindow && !offscreenWindow.isDestroyed()) {
+        try { offscreenWindow.destroy(); } catch { /* already gone */ }
+      }
+      offscreenWindow = null;
       if (discoveryPath) {
         // Only remove the file while it still describes THIS bridge.
         try {

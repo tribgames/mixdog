@@ -296,6 +296,7 @@ export async function consumeCompatChatCompletionStream(stream, {
     let sawFirstEvent = false;
     let content = '';
     let reasoningContent = '';
+    const reasoningDetails = [];
     // Invariant flag for the gateway live-text relay: set once a non-empty
     // text chunk has been forwarded to the client. A failure after this point
     // must be treated as permanent — the rendered text cannot be withdrawn and
@@ -435,6 +436,10 @@ export async function consumeCompatChatCompletionStream(stream, {
             // use reasoning, and some local compatibility shims expose
             // thinking. They are aliases, never concatenate multiple aliases
             // from the same chunk.
+            if (Array.isArray(choice?.delta?.reasoning_details) && choice.delta.reasoning_details.length) {
+                reasoningDetails.push(...choice.delta.reasoning_details);
+                reportProgress('reasoning');
+            }
             const reasoningDelta = typeof choice?.delta?.reasoning_content === 'string'
                 ? choice.delta.reasoning_content
                 : typeof choice?.delta?.reasoning === 'string'
@@ -513,6 +518,7 @@ export async function consumeCompatChatCompletionStream(stream, {
     const message = {
         content: content || null,
         ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+        ...(reasoningDetails.length ? { reasoning_details: reasoningDetails } : {}),
     };
     const rawToolCalls = [...toolAcc.values()]
         .sort((a, b) => a._order - b._order)
@@ -557,6 +563,7 @@ export async function consumeCompatChatCompletionStream(stream, {
         toolCalls,
         stopReason,
         reasoningContent: reasoningContent || null,
+        reasoningDetails: reasoningDetails.length ? reasoningDetails : null,
         rawUsage,
     };
 }

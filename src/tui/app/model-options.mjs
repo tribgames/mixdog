@@ -166,6 +166,7 @@ export const providerDisplayName = (provider) => {
   if (key === 'xai' || key === 'xai-api') return 'xAI API';
   if (key === 'deepseek' || key === 'deepseek-api') return 'DeepSeek API';
   if (key === 'opencode-go') return 'OpenCode Go API';
+  if (key === 'openrouter') return 'OpenRouter';
   if (key === 'ollama') return 'Ollama';
   if (key === 'lmstudio') return 'LM Studio';
   if (key === 'default') return 'Default';
@@ -182,6 +183,7 @@ export const providerDisplayRank = (provider) => {
     'antigravity-oauth': 31,
     'cursor-oauth': 32,
     'opencode-go': 35,
+    openrouter: 36,
     openai: 40,
     'openai-api': 40,
     anthropic: 50,

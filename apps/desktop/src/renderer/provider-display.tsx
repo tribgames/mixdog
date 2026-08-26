@@ -22,6 +22,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "openai-api": "OpenAI API",
   "openai-oauth": "OpenAI OAuth",
   "opencode-go": "OpenCode Go API",
+  openrouter: "OpenRouter",
   xai: "xAI API",
   "xai-api": "xAI API",
 };
@@ -34,6 +35,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   "antigravity-oauth": 31,
   "cursor-oauth": 32,
   "opencode-go": 35,
+  openrouter: 36,
   openai: 40,
   "openai-api": 40,
   anthropic: 50,

@@ -168,10 +168,33 @@ function normalizeReasoningEffort(value, allowed) {
     return allowed.includes(effort) ? effort : null;
 }
 
+export function compatReportedCostUsd(providerName, usage) {
+    if (providerName === 'openrouter') {
+        const cost = Number(usage?.cost);
+        return Number.isFinite(cost) && cost >= 0 ? cost : undefined;
+    }
+    if (providerName === 'xai') {
+        const ticks = Number(usage?.cost_in_usd_ticks);
+        return Number.isFinite(ticks) && ticks >= 0
+            ? Number((ticks * 1e-10).toFixed(8))
+            : undefined;
+    }
+    return undefined;
+}
+
 // Keep provider extensions isolated: fields accepted by one OpenAI-compatible
 // backend are frequently rejected by another even when the core Chat schema is
 // shared.
 export function applyCompatProviderChatOptions(params, providerName, opts = {}, config = {}, modelInfo = null) {
+    if (providerName === 'openrouter') {
+        const effort = normalizeReasoningEffort(
+            opts.openRouterReasoningEffort ?? opts.effort ?? config?.reasoningEffort,
+            ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+        );
+        if (effort === 'none') params.reasoning = { enabled: false };
+        else if (effort) params.reasoning = { enabled: true, effort };
+        return params;
+    }
     if (providerName === 'xai') {
         const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
             ?? opts.effort
@@ -594,6 +617,9 @@ export class OpenAICompatProvider {
         const reasoningContent = (capturesReasoningContent && typeof assembled.reasoningContent === 'string')
             ? assembled.reasoningContent
             : null;
+        const reasoningDetails = this.name === 'openrouter' && Array.isArray(choice?.message?.reasoning_details)
+            ? choice.message.reasoning_details
+            : null;
         return {
             content: assembled.content || '',
             // Streamed chunks can omit `model`; fall back to the requested
@@ -609,6 +635,9 @@ export class OpenAICompatProvider {
             // instead of silently treating a truncated answer as complete.
             ...(stopReason === 'length' && (assembled.content || '').length > 0 ? { truncated: true } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
+            ...(reasoningDetails?.length ? {
+                providerMetadata: { openrouter: { reasoning_details: reasoningDetails } },
+            } : {}),
             usage: response.usage ? (() => {
                 const input = response.usage.prompt_tokens ?? response.usage.input_tokens ?? 0;
                 const cached = extractCompatCachedTokens(response.usage);
@@ -616,10 +645,7 @@ export class OpenAICompatProvider {
                 // (1 tick = $1e-10, per docs.x.ai). Surface it as costUsd so the
                 // session manager skips the catalog-rate fallback and records the
                 // provider-billed value verbatim.
-                const ticks = response.usage.cost_in_usd_ticks;
-                const costUsd = typeof ticks === 'number' && ticks >= 0
-                    ? Number((ticks * 1e-10).toFixed(8))
-                    : undefined;
+                const costUsd = compatReportedCostUsd(this.name, response.usage);
                 return {
                     inputTokens: input,
                     outputTokens: response.usage.completion_tokens ?? response.usage.output_tokens ?? 0,

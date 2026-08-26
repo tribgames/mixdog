@@ -44,6 +44,7 @@ import {
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
+  Object.freeze({ id: 'openrouter', name: 'OpenRouter', env: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys' }),
   Object.freeze({ id: 'openai', name: 'OpenAI API', env: 'OPENAI_API_KEY', url: 'https://platform.openai.com/api-keys' }),
   Object.freeze({ id: 'anthropic', name: 'Anthropic API', env: 'ANTHROPIC_API_KEY', url: 'https://console.anthropic.com/settings/keys' }),
   Object.freeze({ id: 'gemini', name: 'Gemini API', env: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/apikey' }),

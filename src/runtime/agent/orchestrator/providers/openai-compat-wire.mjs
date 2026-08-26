@@ -56,6 +56,12 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
         || providerName === 'xai';
     const out = [];
     const pendingToolMedia = [];
+    const openRouterReasoningDetails = (message) => {
+        if (providerName !== 'openrouter') return null;
+        const metadata = message?.providerMetadata?.openrouter;
+        const details = metadata?.reasoning_details ?? metadata?.reasoningDetails;
+        return Array.isArray(details) && details.length ? details : null;
+    };
     const flushToolMedia = () => {
         if (!pendingToolMedia.length) return;
         out.push({ role: 'user', content: pendingToolMedia.splice(0) });
@@ -83,11 +89,20 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
                 })),
             };
             if (replaysReasoningContent && m.reasoningContent) msg.reasoning_content = m.reasoningContent;
+            const reasoningDetails = openRouterReasoningDetails(m);
+            if (reasoningDetails) msg.reasoning_details = reasoningDetails;
             out.push(msg);
             continue;
         }
-        if (m.role === 'assistant' && replaysReasoningContent && m.reasoningContent) {
-            out.push({ role: m.role, content: normalizeContentForOpenAIChat(m.content, { role: 'assistant' }), reasoning_content: m.reasoningContent });
+        const reasoningDetails = m.role === 'assistant' ? openRouterReasoningDetails(m) : null;
+        if (m.role === 'assistant' && ((replaysReasoningContent && m.reasoningContent) || reasoningDetails)) {
+            const msg = {
+                role: m.role,
+                content: normalizeContentForOpenAIChat(m.content, { role: 'assistant' }),
+            };
+            if (replaysReasoningContent && m.reasoningContent) msg.reasoning_content = m.reasoningContent;
+            if (reasoningDetails) msg.reasoning_details = reasoningDetails;
+            out.push(msg);
             continue;
         }
         out.push({ role: m.role, content: normalizeContentForOpenAIChat(m.content, { role: m.role }) });
