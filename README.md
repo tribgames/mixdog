@@ -7,6 +7,27 @@
 Mixdog is a standalone coding agent for orchestrated, multi-provider workflows.
 Use it from a full-screen terminal UI or the Windows desktop app.
 
+## Get started
+
+### Windows desktop
+
+[Download Mixdog Desktop for Windows (x64)](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
+
+The desktop package is currently unsigned, so Windows SmartScreen may show a
+security warning during installation.
+
+### CLI
+
+Requires Node.js >= 22.
+
+```bash
+npm install -g mixdog
+mixdog
+```
+
+First run guides you through provider authentication, model selection, and
+workflow setup.
+
 ## Benchmarks
 
 Terminal-Bench 2.1 — same model, same 89 tasks, same official verifier, with
@@ -56,27 +77,6 @@ the harness, presets, and metric scripts that recompute each number above:
   schedules.
 - **Windows desktop app** — agent panes, Monaco editor, git, terminal, file
   explorer, Studio, automation, and settings in one workbench.
-
-## Get started
-
-### Windows desktop
-
-[Download Mixdog Desktop for Windows (x64)](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
-
-The desktop package is currently unsigned, so Windows SmartScreen may show a
-security warning during installation.
-
-### CLI
-
-Requires Node.js >= 22.
-
-```bash
-npm install -g mixdog
-mixdog
-```
-
-First run guides you through provider authentication, model selection, and
-workflow setup.
 
 ## Providers
 
