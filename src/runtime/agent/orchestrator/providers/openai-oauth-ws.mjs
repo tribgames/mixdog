@@ -50,7 +50,6 @@ import {
     acquireWebSocket,
     releaseWebSocket,
     _sendFrame,
-    _closeAllPooledSockets,
     drainOpenaiWsPool,
 } from './openai-ws-pool.mjs';
 import {
@@ -74,7 +73,6 @@ import { envPositiveInt } from './lib/env-utils.mjs';
 // (drainOpenaiWsPool), scripts/provider-toolcall-test.mjs (parseToolSearchArgs,
 // _logicalResponseItemMatch, _streamResponse) and other external callers.
 export {
-    _closeAllPooledSockets,
     drainOpenaiWsPool,
     _logicalResponseItemMatch,
     parseToolSearchArgs,

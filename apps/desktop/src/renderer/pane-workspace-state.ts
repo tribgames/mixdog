@@ -101,7 +101,7 @@ function safeLocalStorage(): Storage | null {
 
 /** Restore a persisted workspace; any malformed layout rejects the whole
  *  stored value so startup always lands on a coherent tree. */
-export function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspaceState | null {
+function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspaceState | null {
   try {
     const raw = storage?.getItem(PANE_LAYOUT_KEY);
     if (!raw) return null;

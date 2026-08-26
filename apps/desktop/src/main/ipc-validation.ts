@@ -77,7 +77,7 @@ const CAPABILITY_ARITY = {
   listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
   listProviders: [0, 0], listProviderModels: [0, 1], getProviderSetup: [0, 1],
   getUsageDashboard: [0, 1], consumeCodexRateLimitResetCredit: [1, 1],
-  getTurnReviewDiff: [0, 0], revertTurnReview: [0, 0], revertTurnReviewFile: [1, 1],
+  getTurnReviewDiff: [0, 0], revertTurnReview: [0, 1], revertTurnReviewFile: [1, 2],
   getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],
   completeOnboarding: [0, 1], loginOAuthProvider: [1, 1], beginOAuthProviderLogin: [1, 1],
   getOAuthProviderLoginStatus: [1, 1], completeOAuthProviderLogin: [2, 2], cancelOAuthProviderLogin: [1, 1],

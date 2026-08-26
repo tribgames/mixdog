@@ -123,7 +123,11 @@ export function createSessionTurnApi(deps) {
         // path. Every actual tool execution joins this same promise below, so
         // shell/apply_patch cannot mutate the worktree before the baseline.
         turnSnapshotPromise = Promise.resolve()
-          .then(() => beginTurnSnapshotForTurn(getCurrentCwd(), id))
+          .then(() => beginTurnSnapshotForTurn(getCurrentCwd(), id, {
+            // The first submitted row is the outer prompt. Mid-loop steering
+            // is drained inside this ask() and deliberately keeps this ID.
+            checkpointId: String(options.id || '').trim(),
+          }))
           .catch(() => undefined);
       };
       const routeStartedAt = performance.now();

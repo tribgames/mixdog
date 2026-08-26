@@ -67,8 +67,7 @@
 }
 /* Shared stable-surface grammar. Inactive content remains mounted, measured,
    and font-resolved; inert/aria-hidden own interaction and accessibility. */
-.stable-surface-switch,
-.stable-content-swap {
+.stable-surface-switch {
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -85,35 +84,22 @@
   z-index: 1;
   pointer-events: auto;
 }
-.stable-content-swap-layer[data-surface-active="false"],
 .stable-surface-preserved[data-surface-active="false"] {
   visibility: hidden;
   pointer-events: none;
 }
-.stable-content-swap-layer[data-surface-active="true"],
 .stable-surface-preserved[data-surface-active="true"] {
   visibility: visible;
 }
-/* CSS visibility is CHILD-OVERRIDABLE: an active nested swap/surface layer
-   inside a HIDDEN preserved ancestor repaints itself (the prewarmed CLOSED
-   settings dialog bled its rows over the app once its body adopted
-   StableContentSwap). While any preserved ancestor is inactive, force every
-   descendant visibility-winner back to hidden — the double-attribute
-   selectors outrank the single-attribute enables above. */
-.stable-surface-preserved[data-surface-active="false"] .stable-content-swap-layer[data-surface-active="true"],
+/* CSS visibility is CHILD-OVERRIDABLE: an active nested surface layer inside
+   a HIDDEN preserved ancestor can repaint itself. While any preserved ancestor
+   is inactive, force every descendant visibility-winner back to hidden — the
+   double-attribute selectors outrank the single-attribute enables above. */
 .stable-surface-preserved[data-surface-active="false"] .stable-surface-layer[data-surface-active="true"],
 .stable-surface-preserved[data-surface-active="false"] .stable-surface-preserved[data-surface-active="true"],
 .stable-surface-preserved[data-surface-active="false"] .session-sidebar-surface[data-surface-active="true"] {
   visibility: hidden;
   pointer-events: none;
-}
-.stable-content-swap-layer[data-surface-active="true"] {
-  position: relative;
-  z-index: 1;
-}
-.stable-content-swap-layer[data-surface-active="false"] {
-  position: absolute;
-  inset: 0;
 }
 .main-panel > .stable-takeover-surface[data-surface-active="false"] {
   position: absolute;

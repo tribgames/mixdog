@@ -141,11 +141,6 @@ export function parseToolSelection(value) {
     .filter(Boolean);
 }
 
-export function parseToolSearchQuerySelection(query) {
-  const match = clean(query).match(/^select\s*:\s*(.+)$/i);
-  return match ? parseToolSelection(match[1]) : [];
-}
-
 export function routeToolRank(name) {
   const index = ROUTE_TOOL_ORDER.indexOf(clean(name));
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;

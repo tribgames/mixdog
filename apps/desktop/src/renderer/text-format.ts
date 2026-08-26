@@ -104,16 +104,6 @@ export function formatElapsed(value: unknown): string {
   return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
 }
 
-export function formatIdleDuration(value: unknown): string {
-  const milliseconds = Math.max(0, Number(value) || 0);
-  if (!milliseconds) return "provider default";
-  const minutes = Math.round(milliseconds / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remainder = minutes % 60;
-  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
-}
-
 export const TURN_LOCKED_SLASH_COMMANDS = new Set([
   "clear",
   "resume",

@@ -31,11 +31,12 @@ import { isMobileRemoteSurface, MobileTabOverview } from "./MobileTabOverview";
 import { registerMobileBack, useMobileBack } from "./mobile-back";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
-  cancelLayoutFrame,
-  flushLayoutFrame,
-  scheduleLayoutFrame,
-} from "./interaction-frame-scheduler";
-import { publishTabDrag, type TabDragFrame } from "./tab-drag-bus";
+  acceptPaneDrag,
+  beginPaneDrag,
+  currentPaneDrag,
+  finishPaneDrag,
+  type PaneDragSession,
+} from "./pane-drag-session";
 
 export interface WorkspaceTabStripProps {
   tabs: WorkspaceTab[];
@@ -172,11 +173,6 @@ export function WorkspaceTabStrip({
   }, [mobileOverviewOpen]);
   // The mobile root marker + device-scale factor install in main.tsx BEFORE
   // the first render (user: 첫 진입 레이아웃 시프트) — nothing to do here.
-  // Drag frames carry the source pane so a drop can MOVE the tab between
-  // groups instead of copying it.
-  const publishFrame = useCallback((frame: Omit<TabDragFrame, "sourceLeafId">) => {
-    publishTabDrag({ ...frame, sourceLeafId: paneId });
-  }, [paneId]);
   const selectTab = useCallback((tab: WorkspaceTab) => {
     prefetchTabSurface(tab);
     const startedAt = performance.now();
@@ -190,29 +186,12 @@ export function WorkspaceTabStrip({
   }, [onSelectTab]);
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
   const tabStrip = useRef<HTMLElement>(null);
-  const ghostNode = useRef<HTMLDivElement | null>(null);
-  const pointerDrag = useRef<{
-    kind: "tab" | "group";
-    pointerId: number;
-    sourceKey: string;
-    startX: number;
-    startY: number;
-    started: boolean;
-    lastTargetKey: string;
-    outside: boolean;
-    lastX: number;
-    lastY: number;
-    deltaX: number;
-    deltaY: number;
-    /** Pending drop index while the pointer stays in the strip. */
-    dropIndex: number | null;
-  } | null>(null);
-  const pointerMoveFrameKey = useRef({});
-  const latestPointerMove = useRef<React.PointerEvent<HTMLElement> | PointerEvent | null>(null);
+  const nativeDrag = useRef<PaneDragSession | null>(null);
   const suppressTabClick = useRef("");
   const [draggingKey, setDraggingKey] = useState("");
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [draggingGroup, setDraggingGroup] = useState(false);
+  const [dragScroll, setDragScroll] = useState(false);
   const [tabMenu, setTabMenu] = useState<{ key: string; left: number; top: number } | null>(null);
   const tabMenuNode = useRef<HTMLDivElement>(null);
   // Every renderer follows ONE tab-strip layout —
@@ -411,167 +390,49 @@ export function WorkspaceTabStrip({
     return () => window.removeEventListener("mixdog:close-active-tab", closeActive);
   }, [activeKey, focused, onCloseTab, tabs]);
 
-  const finishPointerDrag = useCallback((pointerId: number, cancelled = false) => {
-    flushLayoutFrame(pointerMoveFrameKey.current);
-    latestPointerMove.current = null;
-    const drag = pointerDrag.current;
-    if (!drag || drag.pointerId !== pointerId) return;
-    if (drag.started && drag.kind === "tab") suppressTabClick.current = drag.sourceKey;
-    const source = drag.kind === "group"
-      ? tabStrip.current
-      : tabNodes.current.get(drag.sourceKey);
-    // Clear ownership before releasing capture: browsers may synchronously
-    // deliver lostpointercapture from releasePointerCapture().
-    pointerDrag.current = null;
-    try {
-      if (source?.hasPointerCapture?.(pointerId)) source.releasePointerCapture(pointerId);
-    } catch {
-      // The browser can release capture before React delivers pointercancel.
-    }
+  const finishNativeDrag = useCallback(() => {
+    const drag = nativeDrag.current;
+    finishPaneDrag();
+    nativeDrag.current = null;
     setDraggingKey("");
     setDraggingGroup(false);
+    setDragScroll(false);
     setDropIndex(null);
     delete document.body.dataset.tabDragging;
-    // Drag-to-split handoff: a gesture that ends below the strip belongs to
-    // the pane workspace (tab-drag-bus). The strip must neither reorder nor
-    // re-select for it — the workspace navigates once the split lands.
-    if (drag.started && drag.outside) {
-      const sourceTab = tabs.find((tab) =>
-        tab.key === (drag.kind === "group" ? activeKey : drag.sourceKey)) ?? tabs[0];
-      if (sourceTab) {
-        publishFrame({
-          kind: drag.kind,
-          phase: cancelled ? "cancel" : "drop",
-          key: sourceTab.key,
-          title: sourceTab.title,
-          selection: sourceTab.selection,
-          x: drag.lastX,
-          y: drag.lastY,
-          deltaX: drag.deltaX,
-          deltaY: drag.deltaY,
-        });
-      }
+    if (drag?.kind === "tab") {
+      suppressTabClick.current = drag.key;
+      window.setTimeout(() => {
+        if (suppressTabClick.current === drag.key) suppressTabClick.current = "";
+      }, 0);
+    }
+  }, []);
+
+  const startNativeDrag = useCallback((
+    event: React.DragEvent<HTMLElement>,
+    kind: "tab" | "group",
+    sourceTab: WorkspaceTab | undefined,
+  ) => {
+    if (!sourceTab) {
+      event.preventDefault();
       return;
     }
-    // The reorder commits ON DROP (drop →
-    // open at the half-rule index); nothing moved during hover, and
-    // a cancelled drag moves nothing at all.
-    if (drag.kind === "tab" && drag.started && !cancelled && drag.dropIndex !== null) {
-      onReorderTab(drag.sourceKey, drag.dropIndex);
-    }
-    // Moved OFF drag-start: selecting mid-gesture kicked the
-    // heavy session/file-tab switch machinery while the pointer was captured
-    // (file tabs with busy log reloads intermittently killed the drag). The
-    // dragged tab activates once, on drop.
-    if (drag.kind === "tab" && drag.started && drag.sourceKey !== activeKey) {
-      const sourceTab = tabs.find((tab) => tab.key === drag.sourceKey);
-      if (sourceTab) onSelectTab(sourceTab);
-    }
-  }, [activeKey, onReorderTab, onSelectTab, tabs]);
+    const drag: PaneDragSession = {
+      kind,
+      key: sourceTab.key,
+      title: sourceTab.title,
+      selection: sourceTab.selection,
+      sourceLeafId: paneId,
+    };
+    nativeDrag.current = drag;
+    beginPaneDrag(event.nativeEvent, drag, event.currentTarget);
+    if (kind === "group") setDraggingGroup(true);
+    else setDraggingKey(sourceTab.key);
+    document.body.dataset.tabDragging = "1";
+  }, [paneId]);
 
-  const processPointerDrag = useCallback((event: React.PointerEvent<HTMLElement> | PointerEvent) => {
-    const drag = pointerDrag.current;
-    const pointerId = event.pointerId || 1;
-    if (!drag || drag.pointerId !== pointerId) return;
-    if (!drag.started) {
-      // Split drags naturally leave the horizontal strip vertically. Measuring
-      // only X treated a straight-down gesture as a click and selected the
-      // background tab instead of handing it to the workspace.
-      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 4) return;
-      drag.started = true;
-      const source = drag.kind === "group"
-        ? tabStrip.current
-        : tabNodes.current.get(drag.sourceKey);
-      try { source?.setPointerCapture?.(pointerId); } catch {}
-      if (drag.kind === "group") setDraggingGroup(true);
-      else setDraggingKey(drag.sourceKey);
-      // Editors pause their disk polling while a tab drag is live.
-      document.body.dataset.tabDragging = "1";
-    }
-    event.preventDefault();
-
+  const dropIndexAt = useCallback((clientX: number, target: EventTarget | null): number | null => {
     const strip = tabStrip.current;
-    if (!strip) return;
-    const stripRect = strip.getBoundingClientRect();
-    drag.deltaX = event.clientX - drag.lastX;
-    drag.deltaY = event.clientY - drag.lastY;
-    drag.lastX = event.clientX;
-    drag.lastY = event.clientY;
-    // Drag image: the ghost label's top-left corner rides at the
-    // cursor (setDragImage(tab, 0, 0); text-only label as in shrink sizing).
-    if (drag.kind === "tab" && ghostNode.current) {
-      ghostNode.current.style.transform =
-        `translate(${event.clientX}px, ${event.clientY}px)`;
-    }
-    // Drag-to-split: once the pointer leaves this strip's band
-    // the gesture stops reordering and becomes a workspace drop preview.
-    // With per-pane strips the band is the OWN shell box (side-by-side
-    // groups sit at the same height), and hovering a foreign strip is
-    // always outside. Zero-size rects (headless DOM) keep the legacy
-    // bottom-only rule so pointer tests stay meaningful.
-    const shell = strip.parentElement;
-    const shellRect = (shell ?? strip).getBoundingClientRect();
-    const pointedShell = document.elementFromPoint?.(event.clientX, event.clientY)
-      ?.closest?.(".workspace-tabs-shell") ?? null;
-    // A blank-strip drag owns the whole editor GROUP, so route every frame to
-    // PaneWorkspace once the gesture starts. TAB drags stay in REORDER mode
-    // while inside their own strip band: the root's top drop rail overlaps
-    // the strip (both live on the panel's top edge), and letting it win there
-    // made every in-strip drag jump straight to the split preview (user:
-    // 라벨 순서 바꾸기가 안 되고 분할이 바로 나온다).
-    // The band is the EXACT shell rect — there is no slack: the moment
-    // the pointer leaves the tabs container the editor-area overlay owns
-    // the gesture (dragleave → DropOverlay).
-    const outsideStrip = drag.kind === "group"
-      || event.clientY > shellRect.bottom
-      || (shellRect.height > 0 && event.clientY < shellRect.top)
-      || (shellRect.width > 0 && (event.clientX < shellRect.left
-        || event.clientX > shellRect.right))
-      || (pointedShell !== null && pointedShell !== shell);
-    if (outsideStrip !== drag.outside) {
-      drag.outside = outsideStrip;
-      // Leaving the band hands the gesture to the workspace drop preview;
-      // the in-strip insertion feedback clears on drag-leave.
-      if (outsideStrip && drag.kind === "tab") {
-        drag.dropIndex = null;
-        setDropIndex(null);
-      }
-      if (!outsideStrip) {
-        const sourceTab = tabs.find((tab) =>
-          tab.key === (drag.kind === "group" ? activeKey : drag.sourceKey)) ?? tabs[0];
-        if (sourceTab) {
-          publishFrame({
-            kind: drag.kind, phase: "cancel", key: sourceTab.key, title: sourceTab.title,
-            selection: sourceTab.selection, x: event.clientX, y: event.clientY,
-          });
-        }
-      }
-    }
-    if (drag.outside) {
-      const sourceTab = tabs.find((tab) =>
-        tab.key === (drag.kind === "group" ? activeKey : drag.sourceKey)) ?? tabs[0];
-      if (sourceTab) {
-        publishFrame({
-          kind: drag.kind, phase: "move", key: sourceTab.key, title: sourceTab.title,
-          selection: sourceTab.selection, x: event.clientX, y: event.clientY,
-          deltaX: drag.deltaX, deltaY: drag.deltaY,
-        });
-      }
-      return;
-    }
-    if (drag.kind === "group") return;
-    const edge = Math.max(24, stripRect.width * 0.05);
-    const scrollDistance = Math.max(8, Math.min(24, edge * 0.5));
-    if (event.clientX < stripRect.left + edge) {
-      strip.scrollBy?.({ left: -scrollDistance, behavior: "auto" });
-    } else if (event.clientX > stripRect.right - edge) {
-      strip.scrollBy?.({ left: scrollDistance, behavior: "auto" });
-    }
-
-    // Drop feedback:
-    // nothing moves during hover — the tab under the pointer resolves the
-    // insertion index by its HALF (left half → before it, right half →
-    // after it) and the empty container run targets the ends.
+    if (!strip) return null;
     let index = -1;
     let measured = false;
     let firstLeft = Number.POSITIVE_INFINITY;
@@ -580,12 +441,11 @@ export function WorkspaceTabStrip({
       if (!rect || rect.width <= 0) continue;
       measured = true;
       firstLeft = Math.min(firstLeft, rect.left);
-      if (index >= 0 || event.clientX < rect.left || event.clientX > rect.right) continue;
-      index = at + (event.clientX - rect.left > rect.width / 2 ? 1 : 0);
+      if (index >= 0 || clientX < rect.left || clientX > rect.right) continue;
+      index = at + (clientX - rect.left > rect.width / 2 ? 1 : 0);
     }
     if (!measured) {
-      // Zero-size rects (headless DOM) keep the event-target tab rule.
-      const pointedTab = (event.target as Element | null)
+      const pointedTab = (target as Element | null)
         ?.closest?.<HTMLElement>(".workspace-tab") || null;
       const key = pointedTab && strip.contains(pointedTab)
         ? pointedTab.dataset.tabKey || ""
@@ -593,53 +453,35 @@ export function WorkspaceTabStrip({
       const at = tabs.findIndex((tab) => tab.key === key);
       if (at >= 0 && pointedTab) {
         const rect = pointedTab.getBoundingClientRect();
-        index = at + (event.clientX - rect.left > rect.width / 2 ? 1 : 0);
+        index = at + (clientX - rect.left > rect.width / 2 ? 1 : 0);
       }
     } else if (index < 0) {
-      // Container run (drop on the empty strip run): the left gutter aims
-      // before the first tab, everywhere else after the last.
-      index = event.clientX < firstLeft ? 0 : tabs.length;
+      index = clientX < firstLeft ? 0 : tabs.length;
     }
-    const nextDropIndex = index < 0 ? null : index;
-    if (drag.dropIndex !== nextDropIndex) {
-      drag.dropIndex = nextDropIndex;
-      setDropIndex(nextDropIndex);
-    }
-  }, [activeKey, tabs]);
-  const movePointerDrag = useCallback((
-    event: React.PointerEvent<HTMLElement> | PointerEvent,
-  ) => {
-    const drag = pointerDrag.current;
-    if (!drag || drag.pointerId !== (event.pointerId || 1)) return;
-    event.preventDefault();
-    latestPointerMove.current = event;
-    scheduleLayoutFrame(pointerMoveFrameKey.current, () => {
-      const latest = latestPointerMove.current;
-      latestPointerMove.current = null;
-      if (latest) processPointerDrag(latest);
-    });
-  }, [processPointerDrag]);
+    return index < 0 ? null : index;
+  }, [tabs]);
 
-  // Pending drags are not captured until they cross the movement threshold,
-  // so tracking only on the strip loses a fast vertical gesture as soon as
-  // the pointer leaves its 35px band. Window tracking bridges that gap; once
-  // capture starts it also gives move/up one canonical handler.
-  useEffect(() => {
-    const onPointerMove = (event: PointerEvent) => movePointerDrag(event);
-    const onPointerUp = (event: PointerEvent) => finishPointerDrag(event.pointerId || 1);
-    const onPointerCancel = (event: PointerEvent) =>
-      finishPointerDrag(event.pointerId || 1, true);
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-    return () => {
-      cancelLayoutFrame(pointerMoveFrameKey.current);
-      latestPointerMove.current = null;
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-    };
-  }, [finishPointerDrag, movePointerDrag]);
+  const handleNativeDragOver = useCallback((event: React.DragEvent<HTMLElement>) => {
+    const drag = currentPaneDrag();
+    if (!drag) return;
+    setDragScroll(true);
+    if (drag.kind !== "tab" || drag.sourceLeafId !== paneId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    setDropIndex(dropIndexAt(event.clientX, event.target));
+  }, [dropIndexAt, paneId]);
+
+  const handleNativeDrop = useCallback((event: React.DragEvent<HTMLElement>) => {
+    const drag = currentPaneDrag();
+    if (!drag || drag.kind !== "tab" || drag.sourceLeafId !== paneId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const index = dropIndexAt(event.clientX, event.target);
+    if (index !== null) onReorderTab(drag.key, index);
+    acceptPaneDrag();
+    setDropIndex(null);
+  }, [dropIndexAt, onReorderTab, paneId]);
 
   // Chromium CalculateTabBounds output for the current strip input; the
   // per-tab width variable pins basis/min/max exactly like gfx::Rect bounds.
@@ -718,9 +560,11 @@ export function WorkspaceTabStrip({
         })() : <>
         {/* Drop-border feedback: the pending insertion index paints
             a 2px line between its two neighboring tabs. */}
-        <nav ref={tabStrip} className="workspace-tabs"
+        <nav ref={tabStrip}
+          className={`workspace-tabs${dragScroll ? " drag-scroll" : ""}`}
           data-slot="workspace-tabs-scroll"
           data-group-dragging={draggingGroup ? "true" : undefined}
+          draggable
           aria-label={t("Open tabs")} onKeyDown={onTabKeyDown}
           onWheel={(event) => {
             // Scroll mapping: the vertical wheel drives the
@@ -731,26 +575,23 @@ export function WorkspaceTabStrip({
               : event.deltaY;
             if (strip && delta) strip.scrollBy?.({ left: delta, behavior: "auto" });
           }}
-          onPointerDown={(event) => {
-            if (event.button !== 0 || event.pointerType === "touch"
-              || event.target !== event.currentTarget) return;
-            const pointerId = event.pointerId || 1;
-            pointerDrag.current = {
-              kind: "group",
-              pointerId,
-              sourceKey: activeKey,
-              startX: event.clientX,
-              startY: event.clientY,
-              started: false,
-              lastTargetKey: "",
-              outside: false,
-              lastX: event.clientX,
-              lastY: event.clientY,
-              deltaX: 0,
-              deltaY: 0,
-              dropIndex: null,
-            };
+          onDragStart={(event) => {
+            if (event.target !== event.currentTarget) return;
+            startNativeDrag(
+              event,
+              "group",
+              tabs.find((tab) => tab.key === activeKey) ?? tabs[0],
+            );
           }}
+          onDragEnter={() => setDragScroll(true)}
+          onDragOver={handleNativeDragOver}
+          onDragLeave={(event) => {
+            if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+            setDragScroll(false);
+            setDropIndex(null);
+          }}
+          onDrop={handleNativeDrop}
+          onDragEnd={finishNativeDrag}
           onPointerLeave={() => {
             setFixedTabWidths(new Map());
           }}>
@@ -773,35 +614,20 @@ export function WorkspaceTabStrip({
                   data-active={active}
                   data-working={working || undefined}
                   aria-grabbed={draggingKey === tab.key}
+                  draggable
                   style={pinnedTabWidth ? ({
                     "--workspace-tab-current-width": `${pinnedTabWidth}px`,
                   } as React.CSSProperties) : undefined}
                   onPointerEnter={() => prefetchTabSurface(tab)}
                   onFocusCapture={() => prefetchTabSurface(tab)}
-                  onPointerDown={(event) => {
-                    if (event.button !== 0 ||
-                      (event.target as Element | null)?.closest?.(".workspace-tab-close")) return;
+                  onDragStart={(event) => {
+                    if ((event.target as Element | null)?.closest?.(".workspace-tab-close")) {
+                      event.preventDefault();
+                      return;
+                    }
                     prefetchTabSurface(tab);
-                    if (event.pointerType === "touch") return;
-                    const pointerId = event.pointerId || 1;
-                    pointerDrag.current = {
-                      kind: "tab",
-                      pointerId,
-                      sourceKey: tab.key,
-                      startX: event.clientX,
-                      startY: event.clientY,
-                      started: false,
-                      lastTargetKey: "",
-                      outside: false,
-                      lastX: event.clientX,
-                      lastY: event.clientY,
-                      deltaX: 0,
-                      deltaY: 0,
-                      dropIndex: null,
-                    };
-                  }}
-                  onLostPointerCapture={(event) => {
-                    if (pointerDrag.current?.started) finishPointerDrag(event.pointerId || 1);
+                    event.stopPropagation();
+                    startNativeDrag(event, "tab", tab);
                   }}
                   onMouseDown={(event) => {
                     if (event.button !== 1) return;
@@ -885,21 +711,6 @@ export function WorkspaceTabStrip({
           onClick={onNewTask}>
           <span className="codicon codicon-add" aria-hidden="true" />
         </button>
-        {/* Drag image: a text-only ghost label whose top-left corner
-            rides at the cursor (setDragImage(tab, 0, 0)). */}
-        {draggingKey ? createPortal(
-          <div className="workspace-tab-ghost" aria-hidden="true"
-            ref={(node) => {
-              ghostNode.current = node;
-              const drag = pointerDrag.current;
-              if (node && drag) {
-                node.style.transform = `translate(${drag.lastX}px, ${drag.lastY}px)`;
-              }
-            }}>
-            <span>{tabs.find((tab) => tab.key === draggingKey)?.title ?? ""}</span>
-          </div>,
-          document.body,
-        ) : null}
         {tabSwitcher ? createPortal(
           <div ref={switcherNode} className="workspace-tab-new-menu workspace-tab-switcher"
             role="menu" aria-label={t("Open tabs")}

@@ -119,8 +119,9 @@
   white-space: nowrap;
 }
 .turn-review-summary .diff-stats {
-  display: grid;
-  grid-template-columns: 30px 30px;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
   gap: 6px;
   margin-left: 0;
 }

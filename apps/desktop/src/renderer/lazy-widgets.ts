@@ -1,10 +1,14 @@
 import { lazy } from "react";
 
 import type { WorkspaceSelection } from "./nav-types";
+import { loadMonacoLocale } from "./monaco-locale";
 
 const importDiffView = () => import("./DiffView.lazy");
 const importTerminalPane = () => import("./TerminalPane");
-const importEditorPane = () => import("./EditorPane.lazy");
+const importEditorPane = async () => {
+  await loadMonacoLocale();
+  return import("./EditorPane.lazy");
+};
 const importFolderPane = () => import("./FolderPane.lazy");
 
 export const DiffView = lazy(importDiffView);

@@ -36,7 +36,12 @@ import {
   reportBootSurfaceStage,
 } from "./boot-metrics";
 import type { NavigationSelection } from "./nav-types";
-import { publishTabDrag } from "./tab-drag-bus";
+import {
+  beginPaneDrag,
+  finishPaneDrag,
+  type PaneDragSession,
+} from "./pane-drag-session";
+import { RowOverflowMenu } from "./RowOverflowMenu";
 import { sessionListInsertedAtTop, sessionListKeepsExistingTopInsert } from "./first-submit-stability";
 import type { SidebarPanelKey } from "./app-shell-components";
 import {
@@ -214,9 +219,6 @@ interface SessionSidebarProps {
   sessionsReady: boolean;
   workingSessionIds?: ReadonlySet<string>;
   unreadSessionIds?: ReadonlySet<string>;
-  /** Session-scoped channel relay owner: shown as its own single-row Remote
-   *  section between Automations and Recent (user decision). */
-  remoteSessionId?: string;
   selection: NavigationSelection;
   onNewTask(): void;
   onPrefetchSession?(sessionId: string): Promise<boolean>;
@@ -237,7 +239,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   sessionsReady,
   workingSessionIds,
   unreadSessionIds,
-  remoteSessionId = "",
   selection,
   onNewTask,
   onPrefetchSession,
@@ -305,13 +306,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   // excluded from Recent (user decision: fires must not flood the list).
   const isAutomationRow = (session: DesktopSessionSummary) =>
     session.sourceType === "schedule" || session.sourceType === "webhook";
-  // The relay-owning session lives in its own Remote section, not Recent.
-  const remoteRow = useMemo(() => (remoteSessionId
-    ? allRows.find((session) => session.id === remoteSessionId && session.archived !== true) || null
-    : null), [allRows, remoteSessionId]);
   const rows = useMemo(() => allRows.filter((session) =>
-    session.archived !== true && !isAutomationRow(session) && session.id !== remoteSessionId),
-  [allRows, remoteSessionId]);
+    session.archived !== true && !isAutomationRow(session)),
+  [allRows]);
   // One GROUP per automation name: the newest session is the visible row and
   // older fires stay reachable behind a per-group "Past runs" toggle (user
   // decision — fires are full sessions now, so history must not vanish).
@@ -354,11 +351,57 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const archivedRows = useMemo(() => allRows.filter((session) =>
     session.archived === true || (isAutomationRow(session) && session.sourceDelivery === "channel")),
   [allRows]);
+  const automationRows = useMemo(() =>
+    automationGroups.flatMap(({ runs }) => runs),
+  [automationGroups]);
+  const deletableArchivedRows = useMemo(() =>
+    archivedRows.filter((session) => session.archived === true),
+  [archivedRows]);
   const [recentOpen, setRecentOpen] = useState(true);
   const [recentRowLimit, setRecentRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const [automationsOpen, setAutomationsOpen] = useState(true);
-  const [remoteOpen, setRemoteOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [bulkAction, setBulkAction] = useState<
+    "" | "archive-automations" | "archive-recent" | "restore" | "delete"
+  >("");
+  const updateSessionArchives = useCallback(async (
+    action: "archive-automations" | "archive-recent" | "restore",
+    targets: readonly DesktopSessionSummary[],
+    archived: boolean,
+  ) => {
+    if (bulkAction || targets.length === 0) return;
+    setBulkAction(action);
+    try {
+      for (const session of targets) {
+        try {
+          await onArchiveSession(session.id, archived);
+        } catch {
+          // The row-level action restores failures; continue with the rest.
+        }
+      }
+    } finally {
+      setBulkAction("");
+    }
+  }, [bulkAction, onArchiveSession]);
+  const deleteAllArchived = useCallback(async () => {
+    if (bulkAction || deletableArchivedRows.length === 0) return;
+    setBulkAction("delete");
+    try {
+      for (const session of deletableArchivedRows) {
+        try {
+          await onDeleteSession(session.id);
+        } catch {
+          // Failed rows stay archived; continue deleting the remaining rows.
+        }
+      }
+    } finally {
+      setBulkAction("");
+    }
+  }, [bulkAction, deletableArchivedRows, onDeleteSession]);
+  const automationsHaveHeadingDot = !automationsOpen
+    && automationRows.some((session) => unreadSessionIds?.has(session.id) === true);
+  const recentHasHeadingDot = !recentOpen
+    && rows.some((session) => unreadSessionIds?.has(session.id) === true);
   useEffect(() => {
     if (selection.kind !== "session") return;
     const selectedIndex = rows.findIndex((session) => session.id === selection.id);
@@ -487,7 +530,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     open,
     panelActive,
     recentOpen,
-    remoteOpen,
     rows,
     visibleRecentRowCount,
   ]);
@@ -604,16 +646,25 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         onScroll={handleRecentScroll}>
         {automationGroups.length > 0 && (
           <section className="sidebar-recent sidebar-automations" aria-label={t("Automations")}>
-            <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
-              aria-expanded={automationsOpen}
-              onClick={() => setAutomationsOpen((open) => !open)}>
-              <span>{t("Automations")}</span>
-              {automationsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              {/* Collapsed sections still have to announce new activity. */}
-              {!automationsOpen && automationGroups.some(({ runs }) =>
-                runs.some((run) => unreadSessionIds?.has(run.id) === true))
-                && <span className="sidebar-heading-dot" role="status" aria-label={t("Automations have new activity")} />}
-            </button>
+            <div className="sidebar-category-header">
+              <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
+                aria-expanded={automationsOpen}
+                onClick={() => setAutomationsOpen((open) => !open)}>
+                <span>{t("Automations")}</span>
+                {automationsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                {/* Collapsed sections still have to announce new activity. */}
+                {automationsHaveHeadingDot
+                  && <span className="sidebar-heading-dot" role="status" aria-label={t("Automations have new activity")} />}
+              </button>
+              {!automationsHaveHeadingDot && <RowOverflowMenu label="Actions" width={232} items={[{
+                id: "archive-all",
+                label: "Archive all",
+                disabled: Boolean(bulkAction) || automationRows.length === 0,
+                onSelect: () => {
+                  void updateSessionArchives("archive-automations", automationRows, true);
+                },
+              }]} />}
+            </div>
             {automationsOpen && (
               <nav className="session-list automation-session-list" aria-label={t("Automations")}>
                 {automationGroups.map(({ key, name, runs }) => {
@@ -665,43 +716,25 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             )}
           </section>
         )}
-        {remoteRow && (
-          <section className="sidebar-recent sidebar-remote" aria-label={t("Remote")}>
-            <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
-              aria-expanded={remoteOpen}
-              onClick={() => setRemoteOpen((open) => !open)}>
-              <span>{t("Remote")}</span>
-              {remoteOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            </button>
-            {remoteOpen && (
-              <nav className="session-list remote-session-list" aria-label={t("Remote")}>
-                <SessionSidebarRow key={remoteRow.id}
-                  session={remoteRow} active={selection.kind === "session" && selection.id === remoteRow.id}
-                  working={workingSessionIds?.has(remoteRow.id) === true}
-                  unread={unreadSessionIds?.has(remoteRow.id) === true}
-                  editingSessionId={editingSessionId} sessionTitleDraft={sessionTitleDraft}
-                  sessionTitleInvalid={sessionTitleInvalid}
-                  confirmingSessionId={confirmingSessionId} deletingSessionId={deletingSessionId}
-                  onTitleDraftChange={setSessionTitleDraft} onStartRename={openSessionEditor}
-                  onCancelRename={closeSessionEditor} onCommitRename={commitSessionEditor}
-                  onPrefetchSession={requestPrefetch}
-                  onResumeSession={onResumeSession} onCloseEditor={closeSessionEditor}
-                  onSetConfirming={setConfirmingSessionId}
-                  onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
-                  onArchiveSession={onArchiveSession} />
-              </nav>
-            )}
-          </section>
-        )}
         <section className="sidebar-recent" aria-label={t("Recent sessions")}>
-          <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
-            aria-expanded={recentOpen}
-            onClick={() => setRecentOpen((open) => !open)}>
-            <span>{t("Recent")}</span>
-            {recentOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            {!recentOpen && rows.some((session) => unreadSessionIds?.has(session.id) === true)
-              && <span className="sidebar-heading-dot" role="status" aria-label={t("Recent has new activity")} />}
-          </button>
+          <div className="sidebar-category-header">
+            <button type="button" className="sidebar-recent-heading sidebar-heading-toggle"
+              aria-expanded={recentOpen}
+              onClick={() => setRecentOpen((open) => !open)}>
+              <span>{t("Recent")}</span>
+              {recentOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {recentHasHeadingDot
+                && <span className="sidebar-heading-dot" role="status" aria-label={t("Recent has new activity")} />}
+            </button>
+            {!recentHasHeadingDot && <RowOverflowMenu label="Actions" width={232} items={[{
+                id: "archive-all",
+                label: "Archive all",
+                disabled: Boolean(bulkAction) || rows.length === 0,
+                onSelect: () => {
+                  void updateSessionArchives("archive-recent", rows, true);
+                },
+              }]} />}
+          </div>
           {recentOpen && (
           <nav id="recent-session-list" className="session-list recent-session-list" aria-label={t("Recent sessions")}>
             {!sessionsReady && rows.length === 0
@@ -729,12 +762,37 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         </section>
         {archivedRows.length > 0 && (
           <section className="sidebar-recent sidebar-archived" aria-label={t("Archived sessions")}>
-            <button type="button" className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
-              aria-expanded={archivedOpen}
-              onClick={() => setArchivedOpen((open) => !open)}>
-              <span>{t("Archived")}</span>
-              {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            </button>
+            <div className="sidebar-category-header">
+              <button type="button" className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
+                aria-expanded={archivedOpen}
+                onClick={() => setArchivedOpen((open) => !open)}>
+                <span>{t("Archived")}</span>
+                {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              </button>
+              <RowOverflowMenu label="Actions" width={232} items={[
+                {
+                  id: "restore-all",
+                  label: "Restore all",
+                  disabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
+                  onSelect: () => {
+                    void updateSessionArchives("restore", deletableArchivedRows, false);
+                  },
+                },
+                {
+                  id: "delete-all-archived",
+                  label: "Delete all archived sessions",
+                  danger: true,
+                  separatorBefore: true,
+                  disabled: Boolean(bulkAction) || deletableArchivedRows.length === 0,
+                  children: [{
+                    id: "confirm-delete-all-archived",
+                    label: "Confirm delete",
+                    danger: true,
+                    onSelect: () => { void deleteAllArchived(); },
+                  }],
+                },
+              ]} />
+            </div>
             {archivedOpen && (
               <nav className="session-list archived-session-list" aria-label={t("Archived sessions")}>
                 {archivedRows.map((session) => <SessionSidebarRow key={session.id}
@@ -921,16 +979,7 @@ const SessionRow = React.memo(function SessionRow({
 }) {
   const resume = useCallback(() => onResumeSession(session.id), [onResumeSession, session.id]);
   const titleInput = useRef<HTMLInputElement>(null);
-  const dragGhost = useRef<HTMLDivElement | null>(null);
-  const pointerDrag = useRef<{
-    pointerId: number;
-    source: HTMLDivElement;
-    startX: number;
-    startY: number;
-    lastX: number;
-    lastY: number;
-    started: boolean;
-  } | null>(null);
+  const nativeDrag = useRef<PaneDragSession | null>(null);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
   const dragTitle = sessionLabel(session);
@@ -966,80 +1015,11 @@ const SessionRow = React.memo(function SessionRow({
     cancelPrefetch();
     resume();
   }, [cancelPrefetch, confirmingDelete, deleting, editing, resume]);
-  const finishPointerDrag = useCallback((pointerId: number, cancelled = false) => {
-    const drag = pointerDrag.current;
-    if (!drag || drag.pointerId !== pointerId) return;
-    pointerDrag.current = null;
-    try {
-      if (drag.source.hasPointerCapture?.(pointerId)) {
-        drag.source.releasePointerCapture(pointerId);
-      }
-    } catch {
-      // Pointer capture may already be gone when React delivers pointercancel.
-    }
-    if (drag.started) {
-      publishTabDrag({
-        kind: "session",
-        phase: cancelled ? "cancel" : "drop",
-        key: `session:${session.id}`,
-        title: dragTitle,
-        selection: dragSelection,
-        x: drag.lastX,
-        y: drag.lastY,
-      });
-      if (!cancelled) {
-        suppressClick.current = true;
-        window.setTimeout(() => {
-          suppressClick.current = false;
-        }, 0);
-      }
-    }
-    setDragging(false);
-    delete document.body.dataset.tabDragging;
-  }, [dragSelection, dragTitle, session.id]);
-  const movePointerDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = pointerDrag.current;
-    const pointerId = event.pointerId || 1;
-    if (!drag || drag.pointerId !== pointerId) return;
-    drag.lastX = event.clientX;
-    drag.lastY = event.clientY;
-    if (!drag.started) {
-      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 4) return;
-      drag.started = true;
-      cancelPrefetch();
-      setDragging(true);
-      document.body.dataset.tabDragging = "1";
-    }
-    event.preventDefault();
-    if (dragGhost.current) {
-      dragGhost.current.style.transform = `translate(${drag.lastX}px, ${drag.lastY}px)`;
-    }
-    publishTabDrag({
-      kind: "session",
-      phase: "move",
-      key: `session:${session.id}`,
-      title: dragTitle,
-      selection: dragSelection,
-      x: drag.lastX,
-      y: drag.lastY,
-    });
-  }, [cancelPrefetch, dragSelection, dragTitle, session.id]);
   useEffect(() => () => {
-    const drag = pointerDrag.current;
-    if (drag?.started) {
-      publishTabDrag({
-        kind: "session",
-        phase: "cancel",
-        key: `session:${session.id}`,
-        title: dragTitle,
-        selection: dragSelection,
-        x: drag.lastX,
-        y: drag.lastY,
-      });
-    }
-    pointerDrag.current = null;
+    if (nativeDrag.current) finishPaneDrag();
+    nativeDrag.current = null;
     delete document.body.dataset.tabDragging;
-  }, [dragSelection, dragTitle, session.id]);
+  }, []);
   return (
     <div
       className={`session-row ${active ? "selected" : ""} ${working ? "working" : ""} ${editing ? "editing" : ""} ${confirmingDelete ? "confirming-delete" : ""}`}
@@ -1047,34 +1027,39 @@ const SessionRow = React.memo(function SessionRow({
       data-dragging={dragging ? "true" : undefined}
       aria-current={active ? "page" : undefined}
       aria-grabbed={dragging ? "true" : undefined}
+      draggable={!editing && !confirmingDelete && !deleting}
       onPointerEnter={schedulePrefetch}
       onPointerLeave={cancelPrefetch}
       onFocusCapture={schedulePrefetch}
       onBlurCapture={cancelPrefetch}
-      onPointerDown={(event) => {
-        if (event.button !== 0 || editing || confirmingDelete || deleting
-          || (event.target as Element | null)?.closest?.(
-            ".session-row-actions, .session-title-input")) return;
-        if (event.pointerType === "touch") {
-          cancelPrefetch();
-          onPrefetchSession(session.id);
+      onDragStart={(event) => {
+        if ((event.target as Element | null)?.closest?.(
+          ".session-row-actions, .session-title-input")) {
+          event.preventDefault();
           return;
         }
-        const pointerId = event.pointerId || 1;
-        pointerDrag.current = {
-          pointerId,
-          source: event.currentTarget,
-          startX: event.clientX,
-          startY: event.clientY,
-          lastX: event.clientX,
-          lastY: event.clientY,
-          started: false,
+        const drag: PaneDragSession = {
+          kind: "session",
+          key: `session:${session.id}`,
+          title: dragTitle,
+          selection: dragSelection,
         };
-        try { event.currentTarget.setPointerCapture?.(pointerId); } catch {}
+        nativeDrag.current = drag;
+        beginPaneDrag(event.nativeEvent, drag, event.currentTarget);
+        cancelPrefetch();
+        setDragging(true);
+        document.body.dataset.tabDragging = "1";
       }}
-      onPointerMove={movePointerDrag}
-      onPointerUp={(event) => finishPointerDrag(event.pointerId || 1)}
-      onPointerCancel={(event) => finishPointerDrag(event.pointerId || 1, true)}
+      onDragEnd={() => {
+        finishPaneDrag();
+        nativeDrag.current = null;
+        setDragging(false);
+        delete document.body.dataset.tabDragging;
+        suppressClick.current = true;
+        window.setTimeout(() => {
+          suppressClick.current = false;
+        }, 0);
+      }}
       onClick={activateFromClick}
       onDoubleClick={(event) => {
         if (editing || confirmingDelete || deleting
@@ -1162,19 +1147,6 @@ const SessionRow = React.memo(function SessionRow({
           <Archive size={14} />
         </button>}
       </div>
-      {dragging ? createPortal(
-        <div className="workspace-tab-ghost session-row-drag-ghost" aria-hidden="true"
-          ref={(node) => {
-            dragGhost.current = node;
-            const drag = pointerDrag.current;
-            if (node && drag) {
-              node.style.transform = `translate(${drag.lastX}px, ${drag.lastY}px)`;
-            }
-          }}>
-          <span>{dragTitle}</span>
-        </div>,
-        document.body,
-      ) : null}
     </div>
   );
 });

@@ -184,7 +184,7 @@ function _getPoolArr(poolKey) {
 // cap-overflow ephemeral. They were invisible to per-session close and to the
 // global drain, so a wedged one survived both. Tracking them here keeps the
 // reuse map unchanged (nothing can select them) while making every owned socket
-// reachable by closeOpenaiWsPoolForSession/_closeAllPooledSockets.
+// reachable by closeOpenaiWsPoolForSession/drainOpenaiWsPool.
 const _unpooledSockets = new Set();
 
 function _trackUnpooled(entry, poolKey) {
@@ -883,16 +883,14 @@ export function _setOpenSocketForTest(fn) {
     _openSocketImpl = typeof fn === 'function' ? fn : _openSocket;
 }
 
-// Drain-complete fence — set true once _closeAllPooledSockets runs so any
+// Drain-complete fence — set true once drainOpenaiWsPool runs so any
 // in-flight acquire that resumes after drain throws instead of pushing a
 // fresh socket into the cleared pool. Single-set, process-lifetime invariant.
 let _drainComplete = false;
 
 // Drain hook — self-registered exit drain.
 // Force-closes pooled sockets and fences subsequent acquires.
-// `drainOpenaiWsPool` alias matches the registry's `drain*` naming convention;
-// `_closeAllPooledSockets` kept for backward compat with existing call sites.
-export function _closeAllPooledSockets(reason = 'shutdown', { immediate = false } = {}) {
+export function drainOpenaiWsPool(reason = 'shutdown', { immediate = false } = {}) {
     _drainComplete = true;
     for (const arr of _wsPool.values()) {
         // _shutdownEntry tears down per-entry timers before the map is dropped
@@ -909,7 +907,6 @@ export function _closeAllPooledSockets(reason = 'shutdown', { immediate = false 
     _unpooledSockets.clear();
     _wsPool.clear();
 }
-export const drainOpenaiWsPool = _closeAllPooledSockets;
 // Session-close / drain hooks are shared across provider transports (cursor-wire
 // registers the same globals), so chain whatever is already installed instead of
 // replacing it — import order must not decide which transport gets torn down.
@@ -925,4 +922,4 @@ globalThis.__mixdogDrainProviderConnections = (reason) => {
 };
 // 'exit' hands the listener an exit CODE, never a reason string, and no timer
 // can fire after it: terminate immediately instead of scheduling.
-process.on('exit', () => _closeAllPooledSockets('process-exit', { immediate: true }));
+process.on('exit', () => drainOpenaiWsPool('process-exit', { immediate: true }));

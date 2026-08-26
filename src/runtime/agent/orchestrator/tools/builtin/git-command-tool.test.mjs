@@ -11,7 +11,7 @@ import {
     GIT_TOOL_DEF,
     _gitCommandInternals,
 } from './git-command-tool.mjs';
-import { commandHasShellSyntax } from './git-command-policy.mjs';
+import { commandHasShellSyntax, gitCommandMutates } from './git-command-policy.mjs';
 
 function parseOk(result) {
     assert.doesNotMatch(String(result), /^Error:/, String(result));
@@ -163,11 +163,83 @@ test('git tool answers semantic exits and keeps literal operator characters', as
     // diff reports through the exit code for --quiet and --check.
     assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, false);
     assert.equal(parseOk(await git(repo, 'diff --check')).problems, false);
+    assert.equal(parseOk(await git(repo, 'reflog exists HEAD')).exists, true);
+    assert.equal(parseOk(await git(repo, 'reflog exists refs/heads/missing')).exists, false);
+    assert.equal(parseOk(await git(repo, 'show-ref --verify --quiet refs/heads/missing')).exists, false);
+    assert.equal(parseOk(await git(repo, 'rev-parse --verify --quiet refs/heads/missing')).exists, false);
+    assert.equal(parseOk(await git(repo, 'merge-base --is-ancestor HEAD HEAD')).ancestor, true);
     writeFileSync(join(repo, 'base.txt'), 'base\ntrailing   \n');
     assert.equal(parseOk(await git(repo, 'diff --quiet')).changed, true);
     const check = parseOk(await git(repo, 'diff --check'));
     assert.equal(check.problems, true);
     assert.match(JSON.stringify(check), /trailing whitespace/);
+});
+
+test('git preserves non-patch diff and history presentations', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-presentations-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    writeFileSync(join(repo, 'base.txt'), 'base\n');
+    parseOk(await git(repo, 'add -- base.txt'));
+    parseOk(await git(repo, 'commit -m base'));
+    writeFileSync(join(repo, 'base.txt'), 'changed\n');
+
+    for (const command of [
+        'diff --stat -- base.txt',
+        'diff --raw -- base.txt',
+        'diff --numstat -- base.txt',
+        'diff --name-only -- base.txt',
+        'diff --name-status -- base.txt',
+        'diff-files -- base.txt',
+        'diff-index HEAD -- base.txt',
+    ]) {
+        const result = parseOk(await git(repo, command));
+        assert.match(JSON.stringify(result), /base\.txt/, command);
+    }
+
+    parseOk(await git(repo, 'add -- base.txt'));
+    parseOk(await git(repo, 'commit -m changed'));
+    assert.match(JSON.stringify(parseOk(await git(repo, 'diff-tree --no-commit-id HEAD^ HEAD -- base.txt'))), /base\.txt/);
+    for (const command of ['log --stat -1', 'log --raw -1', 'log -p -1', 'show --raw HEAD']) {
+        const result = parseOk(await git(repo, command));
+        assert.equal(result.commits, undefined, command);
+        assert.match(JSON.stringify(result), /base\.txt/, command);
+    }
+    assert.match(JSON.stringify(parseOk(await git(repo, 'reflog list'))), /refs\/heads\//);
+});
+
+test('git policy distinguishes probes from output and ref mutations', () => {
+    for (const command of [
+        'git --version',
+        'git remote -v',
+        'git reflog exists HEAD',
+        'git symbolic-ref HEAD',
+    ]) {
+        assert.equal(gitCommandMutates({ command }), false, command);
+    }
+    for (const command of [
+        'git remote -v update',
+        'git reflog delete HEAD@{0}',
+        'git symbolic-ref --delete HEAD',
+        'git diff --output=outside.patch',
+    ]) {
+        assert.equal(gitCommandMutates({ command }), true, command);
+    }
+});
+
+test('git plans patch, plumbing, and custom history output without over-reading', () => {
+    const plan = (operation, args, limit = 7) => _gitCommandInternals.prepare({ operation, args }, limit);
+    assert.equal(plan('diff', []).format, 'diff');
+    assert.equal(plan('diff', ['--stat']).format, 'text');
+    assert.equal(plan('diff-files', []).format, 'text');
+    assert.equal(plan('diff-files', ['-p']).format, 'diff');
+    assert.deepEqual(plan('log', ['--oneline']).argv.slice(0, 3), ['log', '-n7', '--no-color']);
+    assert.deepEqual(plan('log', ['--stat']).argv.slice(0, 3), ['log', '-n7', '--no-color']);
+    assert.equal(plan('reflog', ['list']).argv[0], 'reflog');
+    assert.notEqual(plan('reflog', ['list']).argv[1], 'show');
 });
 
 test('git failure detail folds progress frames and keeps the fatal tail', () => {
@@ -238,7 +310,7 @@ test('git forwards unknown subcommands to git instead of pre-rejecting them', as
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const repo = join(root, 'repo');
     parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
-    for (const command of ['git filter-repo --version', 'git fast-export --help']) {
+    for (const command of ['git filter-repo --version', 'git fast-export --no-data HEAD']) {
         assert.doesNotMatch(String(await executeGitTool({ command }, repo)), /unsupported git subcommand/);
     }
 });
@@ -254,6 +326,8 @@ test('git refuses only non-returning subcommands and routes servers to shell', a
     parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
     assert.match(String(await executeGitTool({ command: 'git mergetool' }, repo)), /interactive GUI/i);
     assert.match(String(await executeGitTool({ command: 'git daemon --export-all' }, repo)), /shell tool/i);
+    assert.match(String(await executeGitTool({ command: 'git fast-export --help' }, repo)), /external viewer/i);
+    assert.match(String(await executeGitTool({ command: 'git help fast-export' }, repo)), /external viewer/i);
     assert.match(String(await executeGitTool({ command: 'git' }, repo)), /requires a subcommand/i);
 });
 

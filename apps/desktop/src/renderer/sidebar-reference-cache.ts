@@ -16,6 +16,7 @@ import type {
   DesktopModelOption,
   DesktopProjectSummary,
 } from '../shared/contract';
+import { record, rows } from './record-utils';
 
 type RecordValue = Record<string, unknown>;
 
@@ -122,14 +123,6 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   // capability call.
   completeOnboarding: ['webSearchRoute', 'agents', ...PROVIDER_KEYS],
 };
-
-function record(value: unknown): RecordValue {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
-}
-
-function rows(value: unknown): RecordValue[] {
-  return Array.isArray(value) ? value.map(record) : [];
-}
 
 function message(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);

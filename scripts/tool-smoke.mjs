@@ -3041,6 +3041,14 @@ if (!listQueryResult.error || !/names/i.test(listQueryResult.error)) {
 if (listQueryResult.activeTools.includes('shell') || (Array.isArray(listQueryResult.discoveredTools) && listQueryResult.discoveredTools.includes('shell'))) {
   throw new Error(`load_tool free-text query must not activate/discover tools: ${JSON.stringify(listQueryResult)}`);
 }
+for (const legacyArgs of [{ select: 'shell' }, { query: 'select:shell' }]) {
+  const legacyResult = JSON.parse(__renderToolSearchForTest(legacyArgs, toolSearchSession, 'full'));
+  if (legacyResult.selected
+    || (Array.isArray(legacyResult.loaded) && legacyResult.loaded.length)
+    || legacyResult.activeTools.includes('shell')) {
+    throw new Error(`load_tool legacy inputs must not load tools: ${JSON.stringify(legacyResult)}`);
+  }
+}
 // names[] is the primary loader input (aliases expand, tools activate).
 const namesLoadResult = JSON.parse(__renderToolSearchForTest({ names: ['shell', 'recall'] }, {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
@@ -3052,8 +3060,8 @@ for (const name of ['shell', 'recall']) {
     throw new Error(`load_tool names[] must load ${name}: ${JSON.stringify(namesLoadResult)}`);
   }
 }
-// query "select:a,b" is the explicit query-side loader (aliases expand).
-const bulkSelectResult = JSON.parse(__renderToolSearchForTest({ query: 'select:shell,recall' }, toolSearchSession, 'full'));
+// names[] loads multiple aliases and persists their expanded tool set.
+const bulkSelectResult = JSON.parse(__renderToolSearchForTest({ names: ['shell', 'recall'] }, toolSearchSession, 'full'));
 if (bulkSelectResult.selected?.mode !== 'select') {
   throw new Error(`tool_search query-select must report select mode: ${JSON.stringify(bulkSelectResult.selected)}`);
 }
@@ -3067,7 +3075,7 @@ const prefixedSelectSession = {
   deferredToolCatalog: smokeCatalog.slice(),
   deferredSelectedTools: [...fullDefaults],
 };
-const prefixedSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'select:shell,recall' }, prefixedSelectSession, 'full'));
+const prefixedSelectResult = JSON.parse(__renderToolSearchForTest({ names: ['shell', 'recall'] }, prefixedSelectSession, 'full'));
 if (!prefixedSelectResult.activeTools.includes('shell') || !prefixedSelectResult.activeTools.includes('recall')) {
   throw new Error(`tool_search select field should accept select: prefix: ${JSON.stringify(prefixedSelectResult)}`);
 }
@@ -3091,7 +3099,7 @@ const nativeBaseRequest = buildRequestBody(
   nativeToolSearchSession.tools,
   { sessionId: 'deferred-stability', session: nativeToolSearchSession },
 );
-const nativeSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'shell,recall' }, nativeToolSearchSession, 'full'));
+const nativeSelectResult = JSON.parse(__renderToolSearchForTest({ names: ['shell', 'recall'] }, nativeToolSearchSession, 'full'));
 for (const name of ['shell', 'task', 'recall']) {
   if (!nativeSelectResult.activeTools.includes(name)) {
     throw new Error(`native load_tool must register ${name} as callable: ${JSON.stringify(nativeSelectResult)}`);
@@ -3108,7 +3116,7 @@ if (!nativeSelectResult.nativeToolSearch?.toolReferences?.includes('shell')) {
   throw new Error(`native tool_search must return Anthropic tool references: ${JSON.stringify(nativeSelectResult.nativeToolSearch)}`);
 }
 const nativeToolCountAfterFirstLoad = nativeToolSearchSession.tools.length;
-const nativeRepeatResult = JSON.parse(__renderToolSearchForTest({ select: 'shell,recall' }, nativeToolSearchSession, 'full'));
+const nativeRepeatResult = JSON.parse(__renderToolSearchForTest({ names: ['shell', 'recall'] }, nativeToolSearchSession, 'full'));
 if (nativeRepeatResult.loaded.length
   || !['shell', 'task', 'recall'].every((name) => nativeRepeatResult.alreadyActive.includes(name))
   || !['shell', 'task', 'recall'].every((name) => nativeRepeatResult.nativeToolSearch?.toolReferences?.includes(name))
@@ -3197,7 +3205,7 @@ const nativePatchSearchSession = {
   deferredProviderMode: 'native',
   deferredNativeTools: true,
 };
-const nativePatchSelectResult = JSON.parse(__renderToolSearchForTest({ select: 'apply_patch' }, nativePatchSearchSession, 'full'));
+const nativePatchSelectResult = JSON.parse(__renderToolSearchForTest({ names: ['apply_patch'] }, nativePatchSearchSession, 'full'));
 const nativePatchTool = nativePatchSelectResult.nativeToolSearch?.openaiTools?.find((tool) => tool?.name === 'apply_patch');
 if (nativePatchTool?.type !== 'custom' || nativePatchTool?.format?.syntax !== 'lark') {
   throw new Error(`native tool_search must preserve apply_patch as OpenAI custom freeform: ${JSON.stringify(nativePatchSelectResult.nativeToolSearch)}`);
@@ -3215,7 +3223,7 @@ if (grokCanonicalSession.deferredNativeTools
   || !grokLoadResult.alreadyActive.includes('edit')) {
   throw new Error(`Grok must use a fixed canonical ordinary-function surface: ${JSON.stringify(grokLoadResult)}`);
 }
-// Native query-select explicitly loads onto the active surface; aliases expand.
+// Native names[] loading explicitly activates aliases on the current surface.
 const nativeSelectQuerySession = {
   tools: smokeCatalog.filter((tool) => fullDefaults.has(tool?.name)),
   deferredToolCatalog: smokeCatalog.slice(),
@@ -3224,7 +3232,7 @@ const nativeSelectQuerySession = {
   deferredProviderMode: 'native',
   deferredNativeTools: true,
 };
-const nativeSelectQueryResult = JSON.parse(__renderToolSearchForTest({ query: 'select:websearch' }, nativeSelectQuerySession, 'full'));
+const nativeSelectQueryResult = JSON.parse(__renderToolSearchForTest({ names: ['websearch'] }, nativeSelectQuerySession, 'full'));
 for (const name of ['web_search', 'web_fetch']) {
   if (!nativeSelectQueryResult.activeTools.includes(name)) {
     throw new Error(`native tool_search query-select should load ${name}: ${JSON.stringify(nativeSelectQueryResult)}`);

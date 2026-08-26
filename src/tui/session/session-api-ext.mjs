@@ -670,17 +670,17 @@ export function createSessionApiB(bag) {
     getTurnReviewDiff: async (options = {}) => {
       return (await runtime.getTurnReviewDiff?.(options)) ?? { supported: false, files: [], patch: '' };
     },
-    revertTurnReview: async () => {
+    revertTurnReview: async (checkpointId) => {
       if (typeof runtime.revertTurnReview !== 'function') {
         throw new Error('Turn review revert is unavailable');
       }
-      return await runtime.revertTurnReview();
+      return await runtime.revertTurnReview(checkpointId);
     },
-    revertTurnReviewFile: async (file) => {
+    revertTurnReviewFile: async (file, checkpointId) => {
       if (typeof runtime.revertTurnReviewFile !== 'function') {
         throw new Error('Turn review revert is unavailable');
       }
-      return await runtime.revertTurnReviewFile(file);
+      return await runtime.revertTurnReviewFile(file, checkpointId);
     },
     getOnboardingStatus: () => {
       return runtime.getOnboardingStatus?.() || { completed: true, workflowRoutes: {} };

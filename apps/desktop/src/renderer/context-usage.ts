@@ -1,3 +1,5 @@
+import { record } from './record-utils';
+
 export interface ContextUsageInput {
   usedTokens?: unknown;
   autoCompactTokenLimit?: unknown;
@@ -11,15 +13,9 @@ export interface ContextDisplayUsageInput extends ContextUsageInput {
   fallbackUsedTokens?: unknown;
 }
 
-function nonNegativeNumber(value: unknown): number {
+export function nonNegativeNumber(value: unknown): number {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, number) : 0;
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
 }
 
 export function resolveContextUsage(input: ContextUsageInput) {

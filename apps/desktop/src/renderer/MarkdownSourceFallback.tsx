@@ -61,12 +61,6 @@ function sourceParts(text: string): MarkdownSourcePart[] {
   return parts;
 }
 
-export function isFencedCodeOnlyMarkdown(text: string): boolean {
-  const parts = sourceParts(text);
-  return parts.some((part) => part.kind === "code")
-    && parts.every((part) => part.kind === "code" || !part.text.trim());
-}
-
 const SOURCE_HEADING = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
 const SOURCE_BULLET = /^ {0,3}[-*+]\s+(.*)$/;
 const SOURCE_ORDERED = /^ {0,3}\d+[.)]\s+(.*)$/;

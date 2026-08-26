@@ -25,6 +25,7 @@ import {
 } from '../i18n';
 import { registerMobileBack } from '../mobile-back';
 import { providerDisplayName } from '../provider-display';
+import { record } from '../record-utils';
 import {
   getSidePanelMode,
   setSidePanelMode,
@@ -41,7 +42,7 @@ import { GitPanel } from './git-panel';
 import type { SettingsCategory } from './settings-items';
 
 import { ActionButton, AutoSaveRow, FormRow, Group, ListEmpty, ResourceRow, SelectRow, settingsStatus, ToggleRow } from "./capability-controls";
-import { durationTextInput, formatDuration, label, providerLabel, record, rows, sectionError, sectionLoaded, type CapabilityApi, type PanelContext, type RecordValue } from "./capability-data";
+import { durationTextInput, formatDuration, label, providerLabel, rows, sectionError, sectionLoaded, type CapabilityApi, type PanelContext, type RecordValue } from "./capability-data";
 
 export function CategoryPanel({ category, context }: {
   category: SettingsCategory;

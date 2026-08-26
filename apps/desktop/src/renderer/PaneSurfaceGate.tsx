@@ -5,7 +5,6 @@ import { createBootSurfaceBarrier, markBootStage } from "./boot-metrics";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { t } from "./i18n";
 
-type SurfaceId = string | number;
 const SURFACE_FONT_WAIT_MAX_MS = 300;
 const STARTUP_SURFACE_FALLBACK_MS = 1_200;
 const DESKTOP_BOOT_COVER_MAX_MS = 4_000;
@@ -73,7 +72,7 @@ export function DeferredPersistentSurface({
   return startupReady ? <>{children}</> : <>{fallback}</>;
 }
 
-export function scheduleStableSurfaceCommit(commit: () => void): () => void {
+function scheduleStableSurfaceCommit(commit: () => void): () => void {
   let cancelled = false;
   let frame = 0;
   let fontTimer = 0;
@@ -247,176 +246,6 @@ export function DesktopBootGate({
     {!handoffComplete && <div className="desktop-boot-cover"
       data-leaving={coverLeaving ? "true" : undefined}>
       <DesktopLoadingSurface label={label} brand />
-    </div>}
-  </div>;
-}
-
-function sameRequest<T extends SurfaceId>(
-  request: { id: T; key: SurfaceId },
-  id: T,
-  key: SurfaceId,
-): boolean {
-  return Object.is(request.id, id) && Object.is(request.key, key);
-}
-
-/**
- * Present one already-mounted surface while the requested surface settles
- * hidden. Ready cache hits keep the outgoing surface visible; cold requests
- * use the opaque loading cover. Rapid requests cancel stale commits.
- */
-export function useStableSurfaceSwitch<T extends SurfaceId>(
-  requestedId: T,
-  ready: boolean,
-  transitionKey: SurfaceId = requestedId,
-) {
-  const [presented, setPresented] = useState(() => ({
-    id: requestedId,
-    key: transitionKey,
-  }));
-  const [coldRequest, setColdRequest] = useState<{ id: T; key: SurfaceId } | null>(
-    () => ready ? null : { id: requestedId, key: transitionKey },
-  );
-  const sequence = useRef(0);
-  const settled = sameRequest(presented, requestedId, transitionKey);
-  const cold = coldRequest
-    ? sameRequest(coldRequest, requestedId, transitionKey)
-    : false;
-
-  useLayoutEffect(() => {
-    const request = { id: requestedId, key: transitionKey };
-    const token = ++sequence.current;
-    if (!ready) {
-      setColdRequest((current) => current && sameRequest(current, requestedId, transitionKey)
-        ? current
-        : request);
-      return undefined;
-    }
-    if (sameRequest(presented, requestedId, transitionKey) && !cold) {
-      setColdRequest((current) => current
-        && !sameRequest(current, requestedId, transitionKey) ? null : current);
-      return undefined;
-    }
-    const commit = () => {
-      if (sequence.current !== token) return;
-      setPresented(request);
-      setColdRequest((current) => current
-        && sameRequest(current, requestedId, transitionKey) ? null : current);
-    };
-    if (cold) return scheduleStableSurfaceCommit(commit);
-    // Warm surfaces are already mounted/ready. Commit synchronously from the
-    // layout effect so React finishes the replacement before the browser can
-    // paint the outgoing destination for another frame.
-    commit();
-    return undefined;
-  }, [
-    cold,
-    presented.id,
-    presented.key,
-    ready,
-    requestedId,
-    transitionKey,
-  ]);
-
-  return {
-    presentedId: presented.id,
-    settled,
-    transitioning: !settled,
-    covered: !ready || cold,
-  };
-}
-
-export function StableSurfaceSwitch<T extends SurfaceId>({
-  activeId,
-  ready,
-  label,
-  transitionKey = activeId,
-  className = "",
-  children,
-}: {
-  activeId: T;
-  ready: boolean;
-  label: string;
-  transitionKey?: SurfaceId;
-  className?: string;
-  children(state: {
-    presentedId: T;
-    transitioning: boolean;
-    surfaceProps(id: T): {
-      "data-surface-active": "true" | "false";
-      inert: true | undefined;
-      "aria-hidden": true | undefined;
-    };
-  }): ReactNode;
-}) {
-  const state = useStableSurfaceSwitch(activeId, ready, transitionKey);
-  const surfaceProps = (id: T) => {
-    const active = Object.is(state.presentedId, id);
-    return {
-      "data-surface-active": active ? "true" as const : "false" as const,
-      inert: active ? undefined : true as const,
-      "aria-hidden": active ? undefined : true as const,
-    };
-  };
-  return <div
-    className={`stable-surface-switch${className ? ` ${className}` : ""}`}
-    data-ready={ready && Object.is(state.presentedId, activeId) ? "true" : "false"}
-    data-transitioning={state.transitioning ? "true" : "false"}>
-    {children({
-      presentedId: state.presentedId,
-      transitioning: state.transitioning,
-      surfaceProps,
-    })}
-    {state.covered && <div className="pane-surface-cover">
-      <DesktopLoadingSurface label={label} />
-    </div>}
-  </div>;
-}
-
-/**
- * Stage a cold keyed subtree beside the outgoing one behind an opaque cover.
- * Warm replacements commit before paint and remove the outgoing subtree in the
- * same render, so menu/depth changes never expose an alpha-blended old page.
- */
-export function StableContentSwap({
-  transitionKey,
-  ready = true,
-  label = "Preparing…",
-  className = "",
-  children,
-}: {
-  transitionKey: SurfaceId;
-  ready?: boolean;
-  label?: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  const nodes = useRef(new Map<SurfaceId, ReactNode>()).current;
-  const state = useStableSurfaceSwitch(transitionKey, ready, transitionKey);
-  nodes.set(transitionKey, children);
-  // Retain only the currently presented and requested nodes while a cold
-  // request settles. Once presented, the outgoing node disappears atomically.
-  for (const key of nodes.keys()) {
-    if (!Object.is(key, state.presentedId) && !Object.is(key, transitionKey)) {
-      nodes.delete(key);
-    }
-    if (state.settled && !Object.is(key, transitionKey)) {
-      nodes.delete(key);
-    }
-  }
-  return <div
-    className={`stable-content-swap${className ? ` ${className}` : ""}`}
-    data-ready={state.settled && ready ? "true" : "false"}>
-    {[...nodes.entries()].map(([key, node]) => {
-      const active = Object.is(key, state.presentedId);
-      return <div key={key} className="stable-content-swap-layer"
-        data-surface-active={active ? "true" : "false"}
-        inert={active ? undefined : true}
-        aria-hidden={active ? undefined : true}>
-        {node}
-      </div>;
-    })}
-    {state.covered && <div className="pane-surface-cover">
-      <DesktopLoadingSurface label={label} />
     </div>}
   </div>;
 }

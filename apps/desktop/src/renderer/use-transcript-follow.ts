@@ -82,7 +82,7 @@ export function grewWhileAtBottom({
 }
 
 /** Scrollbar / empty padding: the event target IS the overflow root. */
-export function isTranscriptChromeTarget(
+function isTranscriptChromeTarget(
   root: EventTarget | null,
   target: EventTarget | null,
 ): boolean {
@@ -230,15 +230,6 @@ function shouldMarkBoundaryGesture(
   delta: number,
 ): boolean {
   return boundaryGestureReached(target, delta);
-}
-
-export function wheelConsumedByNestedScroller(
-  target: EventTarget | null,
-  boundary: HTMLElement,
-  deltaY: number,
-): boolean {
-  const nested = boundaryTarget(boundary, target);
-  return nested !== boundary && !shouldMarkBoundaryGesture(nested, deltaY);
 }
 
 function distanceFromBottom(element: HTMLElement): number {

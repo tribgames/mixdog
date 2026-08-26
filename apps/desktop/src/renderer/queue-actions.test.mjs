@@ -15,7 +15,7 @@ import {
   shouldNavigatePromptHistory,
   shouldStopComposerGeneration,
 } from "./renderer-logic.mjs";
-import { paneActiveSessionIds, paneSessionTabIds } from "./pane-layout.ts";
+import { paneActiveSessionIds } from "./pane-layout.ts";
 import { usePromptQueueHistory } from "../../../../src/tui/app/use-prompt-queue-history.mjs";
 import { classifyPromptEscape } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
 import {
@@ -274,7 +274,7 @@ test("queue parity helpers preserve order, rollback exact prefixes, and guard me
   assert.equal(isQueuedEntryEditable({ mode: "prompt" }), true);
 });
 
-test("PANE prewarm includes restored inactive session tabs with active sessions first", () => {
+test("PANE active sessions follow focused pane order", () => {
   const session = (id) => ({ kind: "session", id });
   const leaves = [
     {
@@ -295,11 +295,6 @@ test("PANE prewarm includes restored inactive session tabs with active sessions 
     },
   ];
 
-  assert.deepEqual(paneSessionTabIds(leaves, "right"), [
-    "right-active",
-    "left-active",
-    "left-inactive",
-  ]);
   assert.deepEqual(paneActiveSessionIds(leaves, "right"), [
     "right-active",
     "left-active",

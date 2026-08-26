@@ -62,7 +62,7 @@ const agentReviewCache = new Map<string, AgentTurnReview[]>();
 const leadReviewCache = new Map<string, string | null>();
 const leadReviewFilesCache = new Map<string, TurnReviewFile[]>();
 const leadReviewSnapshotKindCache = new Map<string, string>();
-const leadReviewRevertModeCache = new Map<string, string>();
+const leadReviewCheckpointIdCache = new Map<string, string>();
 function reviewChars(reviews: AgentTurnReview[], leadPatch: string | null): number {
   return (leadPatch?.length || 0) + reviews.reduce((total, review) => total + review.patch.length, 0);
 }
@@ -79,19 +79,19 @@ function rememberAgentReviews(
   leadPatch: string | null,
   files: TurnReviewFile[],
   snapshotKind: string,
-  revertMode: string,
+  checkpointId: string,
 ): void {
   agentReviewCache.delete(scopeKey);
   leadReviewCache.delete(scopeKey);
   leadReviewFilesCache.delete(scopeKey);
   leadReviewSnapshotKindCache.delete(scopeKey);
-  leadReviewRevertModeCache.delete(scopeKey);
+  leadReviewCheckpointIdCache.delete(scopeKey);
   if (reviewChars(reviews, leadPatch) > AGENT_REVIEW_SCOPE_MAX_CHARS) return;
   agentReviewCache.set(scopeKey, reviews);
   leadReviewCache.set(scopeKey, leadPatch);
   leadReviewFilesCache.set(scopeKey, files);
   leadReviewSnapshotKindCache.set(scopeKey, snapshotKind);
-  leadReviewRevertModeCache.set(scopeKey, revertMode);
+  leadReviewCheckpointIdCache.set(scopeKey, checkpointId);
   while (
     agentReviewCache.size > AGENT_REVIEW_CACHE_LIMIT
     || retainedReviewChars() > AGENT_REVIEW_CACHE_MAX_CHARS
@@ -102,7 +102,7 @@ function rememberAgentReviews(
     leadReviewCache.delete(oldest);
     leadReviewFilesCache.delete(oldest);
     leadReviewSnapshotKindCache.delete(oldest);
-    leadReviewRevertModeCache.delete(oldest);
+    leadReviewCheckpointIdCache.delete(oldest);
   }
 }
 
@@ -357,14 +357,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     leadPatch: string | null;
     files: TurnReviewFile[];
     snapshotKind: string;
-    revertMode: string;
+    checkpointId: string;
   }>(() => ({
     scopeKey: turnScopeKey,
     reviews: agentReviewCache.get(turnScopeKey) || [],
     leadPatch: leadReviewCache.get(turnScopeKey) ?? null,
     files: leadReviewFilesCache.get(turnScopeKey) || [],
     snapshotKind: leadReviewSnapshotKindCache.get(turnScopeKey) || "",
-    revertMode: leadReviewRevertModeCache.get(turnScopeKey) || "",
+    checkpointId: leadReviewCheckpointIdCache.get(turnScopeKey) || "",
   }));
   // Keying the read as well as the write prevents a one-frame stale bar before
   // effects run when the user switches sessions or opens New task.
@@ -380,11 +380,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const authoritativeSnapshotKind = agentReviewState.scopeKey === turnScopeKey
     ? agentReviewState.snapshotKind
     : (leadReviewSnapshotKindCache.get(turnScopeKey) || "");
-  const authoritativeRevertMode = agentReviewState.scopeKey === turnScopeKey
-    ? agentReviewState.revertMode
-    : (leadReviewRevertModeCache.get(turnScopeKey) || "");
+  const authoritativeCheckpointId = agentReviewState.scopeKey === turnScopeKey
+    ? agentReviewState.checkpointId
+    : (leadReviewCheckpointIdCache.get(turnScopeKey) || "");
   const authoritativeWorktreeSnapshot = authoritativeSnapshotKind === "worktree";
-  const capabilityFailures = useRef(0);
   const capabilityRequestInFlight = useRef(false);
   const pendingCapabilityRefresh = useRef<{
     scopeKey: string;
@@ -395,7 +394,6 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   );
   const lastAgentReviewSignature = useRef<string | null>(null);
   useEffect(() => {
-    capabilityFailures.current = 0;
     pendingCapabilityRefresh.current = null;
     lastAgentReviewSignature.current = null;
     setExpanded(false);
@@ -416,7 +414,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         sessionId?: string;
       }) => Promise<{ value?: unknown }>;
     } | undefined;
-    if (!sessionId || !api?.invokeCapability || capabilityFailures.current >= 3) return;
+    if (!sessionId || !api?.invokeCapability) return;
     const requestedScope = turnScopeKey;
     if (document.visibilityState === "hidden") return;
     if (capabilityRequestInFlight.current) {
@@ -443,6 +441,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         authoritative?: boolean;
         snapshotKind?: unknown;
         revertMode?: unknown;
+        checkpointId?: unknown;
         patch?: unknown;
         files?: Array<{
           path?: unknown;
@@ -460,15 +459,13 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         }>;
       } | null;
       if (!value || value.supported === false) {
-        capabilityFailures.current += 1;
         return;
       }
-      capabilityFailures.current = 0;
       const leadPatch = value.authoritative === true
         ? (typeof value.patch === "string" ? value.patch : "")
         : null;
       const snapshotKind = value.authoritative === true ? String(value.snapshotKind || "") : "";
-      const revertMode = value.authoritative === true ? String(value.revertMode || "") : "";
+      const checkpointId = value.authoritative === true ? String(value.checkpointId || "") : "";
       const files = (value.authoritative === true && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
         const path = String(row?.path || "");
         if (!path) return [];
@@ -492,8 +489,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           patch,
         }];
       });
-      const signature = JSON.stringify([leadPatch, files, snapshotKind, revertMode, reviews]);
-      rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, revertMode);
+      const signature = JSON.stringify([leadPatch, files, snapshotKind, checkpointId, reviews]);
+      rememberAgentReviews(requestedScope, reviews, leadPatch, files, snapshotKind, checkpointId);
       if (lastAgentReviewSignature.current === signature) return;
       lastAgentReviewSignature.current = signature;
       if (activeScope.current === requestedScope) {
@@ -503,11 +500,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
           leadPatch,
           files,
           snapshotKind,
-          revertMode,
+          checkpointId,
         });
       }
     } catch {
-      capabilityFailures.current += 1;
+      // The next turn boundary, visibility change, expansion, or bounded idle
+      // refresh retries. A transient read must never permanently lock Revert.
     } finally {
       capabilityRequestInFlight.current = false;
       const pending = pendingCapabilityRefresh.current;
@@ -652,7 +650,15 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     ...agentSources,
   ], [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
   const reviewVisible = summary.files.size > 0;
-  const canRevertTurn = Boolean(cwd && authoritativeRevertMode);
+  const requestedCheckpointId = reviewScope.key === "none"
+    ? authoritativeCheckpointId
+    : reviewScope.key;
+  const checkpointMatches = !authoritativeCheckpointId
+    || authoritativeCheckpointId === requestedCheckpointId;
+  // Revert availability is decided by the runtime at click time. A transient
+  // or stale capability read must not permanently disable an otherwise valid
+  // checkpoint, but a known ID mismatch is never allowed to hit another turn.
+  const canRevertTurn = Boolean(cwd && sessionId && requestedCheckpointId && checkpointMatches);
   // The prior turn's review must leave at the next user boundary. Conversation
   // reserves geometry only after the CURRENT turn actually touches files, so
   // carrying an empty review row through every busy turn creates a fixed black
@@ -718,7 +724,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                   setRevertError("");
                   void window.mixdogDesktop.invokeCapability?.({
                     capability: "revertTurnReview",
-                    args: [],
+                    args: [requestedCheckpointId],
                     sessionId,
                   })
                     .then(async () => {
@@ -817,7 +823,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                     setRevertError("");
                     void window.mixdogDesktop.invokeCapability?.({
                       capability: "revertTurnReviewFile",
-                      args: [rel],
+                      args: [rel, requestedCheckpointId],
                       sessionId,
                     })
                       .then(async () => {

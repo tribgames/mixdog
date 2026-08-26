@@ -25,9 +25,9 @@ import {
   MEASURED_TOOL_USAGE,
   READONLY_TOOL_NAMES,
 } from './tool-catalog-data.mjs';
-import { toolKind, measuredToolUsage, parseToolSelection, parseToolSearchQuerySelection, routeToolRank, sortedCatalogByMeasuredUsage, activeToolForSurface, deferredProviderMode, nativeProviderFamily } from './tool-catalog-schema.mjs';
+import { toolKind, measuredToolUsage, parseToolSelection, routeToolRank, sortedCatalogByMeasuredUsage, activeToolForSurface, deferredProviderMode, nativeProviderFamily } from './tool-catalog-schema.mjs';
 import { filterModelEditTools } from '../runtime/shared/edit-tool-dialect.mjs';
-export { toolKind, toolSchemaBucket, estimateToolSchemaBreakdown, measuredToolUsage, parseToolSelection, parseToolSearchQuerySelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
+export { toolKind, toolSchemaBucket, estimateToolSchemaBreakdown, measuredToolUsage, parseToolSelection, sortedCatalogByMeasuredUsage } from './tool-catalog-schema.mjs';
 export { resolveProviderRequestTools, snapshotProviderRequestTools } from './provider-request-snapshot.mjs';
 export {
   DEFERRED_DEFAULT_FULL_TOOLS,
@@ -686,18 +686,9 @@ export function selectDeferredTools(session, names, mode) {
   return { added, already, blocked, missing, native };
 }
 
-// Collect the exact deferred-tool names to load, honoring back-compat inputs:
-//   names[]            → primary loader input
-//   select / "select:" → legacy alias (parseToolSelection strips the prefix)
-//   query "select:a,b" → legacy query-side loader
-// A free-text `query` is NOT a search anymore: it yields no names, and the
-// caller is steered back to names[].
+// Collect the exact deferred-tool names requested by the loader.
 function parseLoadToolNames(args = {}) {
-  const fromNames = parseToolSelection(args.names);
-  if (fromNames.length) return fromNames;
-  const fromSelect = parseToolSelection(args.select);
-  if (fromSelect.length) return fromSelect;
-  return parseToolSearchQuerySelection(args.query);
+  return parseToolSelection(args.names);
 }
 
 // Split live MCP servers into "still connecting" (pending) and "failed" so the

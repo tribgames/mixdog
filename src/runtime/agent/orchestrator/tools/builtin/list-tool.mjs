@@ -239,9 +239,6 @@ async function tryNativeDeepListRows({
 }
 
 export async function executeListTool(args, workDir, options = {}) {
-    if (typeof args.fuzzy === 'string' && args.fuzzy.length > 0) {
-        return executeFuzzyFindTool({ ...args, query: args.fuzzy }, workDir, options);
-    }
     if (args.mode === 'tree') return executeTreeTool(args, workDir, options);
     if (args.mode === 'find') return executeFindFilesTool(args, workDir, options);
     args.path = normalizeInputPath(args.path);
@@ -1031,9 +1028,7 @@ async function getTargetedFindEnumeration({
 }
 
  // Fuzzy filename search (nucleo-style): collect the file
-// list via `rg --files`, then rank by subsequence score. `list.fuzzy` still
-// routes here for hidden backward compatibility, but the model-facing tool is
-// `find`.
+// list via `rg --files`, then rank by subsequence score.
 // A pruned tree cannot report what it never enumerated. Dependency and cache
 // directories are skipped by DEFAULT, so a file that exists only inside one —
 // a __pycache__ artifact, a vendored source, a build cache — came back as
@@ -1068,7 +1063,7 @@ export async function executeFuzzyFindTool(args, workDir, options = {}) {
 const FIND_NOISE_WIDEN_BUDGET_MS = 2_000;
 
 async function runFuzzyFindPass(args, workDir, options = {}) {
-    const query = String(args.query ?? args.fuzzy ?? '').trim();
+    const query = String(args.query ?? '').trim();
     if (!query) return 'Error: find requires query.';
     const inputPath = normalizeInputPath(args.path) || '.';
     const guard = listGuardPath(inputPath);

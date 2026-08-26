@@ -11,6 +11,12 @@ const ALWAYS_READ = new Set([
 ]);
 
 const SHELL_OPERATOR_CHARS = '|&;<>()';
+const OPERATION_ALIASES = new Map([
+    ['--version', 'version'],
+    ['-v', 'version'],
+    ['--help', 'help'],
+    ['-h', 'help'],
+]);
 
 function atTokenBoundary(char) {
     return char === undefined || /\s/.test(char);
@@ -61,19 +67,23 @@ export function gitActionOf(operation, args) {
 
 export function gitPlanIsReadOnly(plan) {
     const { operation, args } = plan;
+    if (args.some((value) => value === '--output' || value.startsWith('--output='))) return false;
     if (operation === 'fsck' && args.includes('--lost-found')) return false;
     if (ALWAYS_READ.has(operation)) return true;
-    if (operation === 'reflog') return !['delete', 'expire'].includes(gitActionOf(operation, args));
+    if (operation === 'reflog') return ['show', 'list', 'exists'].includes(gitActionOf(operation, args));
     if (operation === 'stash') return ['list', 'show'].includes(gitActionOf(operation, args));
     if (operation === 'worktree') return gitActionOf(operation, args) === 'list';
-    if (operation === 'remote') return args.length === 0 || args.includes('-v') || ['get-url', 'show'].includes(gitActionOf(operation, args));
+    if (operation === 'remote') return ['list', 'get-url', 'show'].includes(gitActionOf(operation, args));
     if (operation === 'clean') return args.some((value) => value === '-n' || value === '--dry-run' || /^-[^-]*n/.test(value));
     if (operation === 'bundle') return ['list-heads', 'verify'].includes(gitActionOf(operation, args));
     if (operation === 'notes') return ['', 'list', 'show'].includes(gitActionOf(operation, args));
     if (operation === 'replace') return args.length === 0 || args.includes('--list');
     if (operation === 'sparse-checkout') return gitActionOf(operation, args) === 'list';
     if (operation === 'submodule') return ['', 'status', 'summary'].includes(gitActionOf(operation, args));
-    if (operation === 'symbolic-ref') return args.filter((value) => !value.startsWith('-')).length <= 1;
+    if (operation === 'symbolic-ref') {
+        if (args.some((value) => value === '-d' || value === '--delete')) return false;
+        return args.filter((value) => !value.startsWith('-')).length <= 1;
+    }
     if (operation === 'hash-object') return !args.includes('-w') && !args.includes('--stdin-paths');
     if (operation === 'branch' || operation === 'tag') {
         return args.length === 0 || args.some((value) => ['--list', '-l', '-a', '--all', '-r', '--remotes'].includes(value));
@@ -112,7 +122,8 @@ function parsedGitOperation(command) {
         }
         break;
     }
-    const operation = String(tokens[index] || '').toLowerCase();
+    const rawOperation = String(tokens[index] || '').toLowerCase();
+    const operation = OPERATION_ALIASES.get(rawOperation) ?? rawOperation;
     return operation ? { operation, args: tokens.slice(index + 1) } : null;
 }
 

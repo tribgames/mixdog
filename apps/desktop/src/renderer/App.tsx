@@ -59,7 +59,6 @@ import { PaneWorkspace } from "./PaneWorkspace";
 import {
   defaultSessionLaneStore,
   useSessionLane,
-  usePinnedRemoteSession,
 } from "./session-lane-store";
 import {
   type SettingsSection as SlashSettingsSection
@@ -72,7 +71,7 @@ import {
 } from "./WorkbenchOverlays";
 import { WorkspaceEmptyState } from "./WorkspaceEmptyState";
 
-import { ActivityRail, type ActivityRailWorkbenchSurface } from "./ActivityRail";
+import { ActivityRail } from "./ActivityRail";
 import { preloadAgentPool } from "./AgentActivityPane";
 import {
   markBootStage,
@@ -123,6 +122,7 @@ import { usePaneTabNavigation } from "./use-pane-tab-navigation";
 import { useAppWorkspaceNavigation } from "./use-app-workspace-navigation";
 import { useAppPaneChrome } from "./use-app-pane-chrome";
 import { useAppStartupRestore } from "./use-app-startup-restore";
+import { useAppSessionActions } from "./use-app-session-actions";
 import {
   AppConversationPaneSurface,
 } from "./app-conversation-pane-surfaces";
@@ -260,7 +260,6 @@ export function App() {
     selectDesktopSnapshot,
     desktopChromeSnapshotsEqual,
   );
-  const sidebarRemoteSessionId = usePinnedRemoteSession(defaultSessionLaneStore);
   const {
     applyDockOpen,
     applySidebarOpen,
@@ -274,7 +273,6 @@ export function App() {
     dismissSheetsForBottomPanel,
     dockMotion,
     dockOpen,
-    dockOpenIntent,
     dockTab,
     dockWidth,
     failedSidebarPanels,
@@ -308,7 +306,6 @@ export function App() {
     settingsSection,
     sidebarMotion,
     sidebarOpen,
-    sidebarOpenIntent,
     sidebarPanes,
     toggleBottomPanel,
     toggleDock,
@@ -1009,107 +1006,27 @@ export function App() {
     refreshSessionsBestEffort,
     beginNavigation: () => { navigationEpoch.current += 1; },
   });
-  const renameSession = useCallback(async (sessionId: string, rawTitle: string) => {
-    const title = rawTitle.trim();
-    if (!title) return;
-    const previousSession = sessions.find((session) => session.id === sessionId);
-    if (!previousSession || sessionSummaryTitle(previousSession) === title) return;
-    const tabKey = navigationKey({ kind: "session", id: sessionId });
-    const previousTabTitle = tabs.find((tab) => tab.key === tabKey)?.title;
-    const pending = { title };
-    pendingSessionRenames.current.set(sessionId, pending);
-    setSessions((current) => current.map((session) => session.id === sessionId
-      ? { ...session, title }
-      : session));
-    setTabs((current) => current.map((tab) => tab.key === tabKey ? { ...tab, title } : tab));
-    setError("");
-    try {
-      await window.mixdogDesktop.renameSession(sessionId, title);
-    } catch (reason) {
-      if (pendingSessionRenames.current.get(sessionId) !== pending) return;
-      pendingSessionRenames.current.delete(sessionId);
-      invalidateSessionListings();
-      setSessions((current) => current.map((session) =>
-        session.id === sessionId && session.title === title ? previousSession : session));
-      if (previousTabTitle !== undefined) {
-        setTabs((current) => current.map((tab) =>
-          tab.key === tabKey && tab.title === title ? { ...tab, title: previousTabTitle } : tab));
-      }
-      setError(reason instanceof Error ? reason.message : String(reason));
-      return;
-    }
-    if (pendingSessionRenames.current.get(sessionId) === pending) {
-      try {
-        await refreshSessions();
-      } catch {
-        // The persisted optimistic title remains authoritative if reconciliation is unavailable.
-      } finally {
-        if (pendingSessionRenames.current.get(sessionId) === pending) {
-          pendingSessionRenames.current.delete(sessionId);
-        }
-      }
-    }
-  }, [refreshSessions, sessions, setError, tabs]);
-  // Archive: hide from Recent without touching the on-disk file.
-  // Optimistic flip moves the row immediately; the sessions push reconciles.
-  const archiveSession = useCallback(async (sessionId: string, archived: boolean) => {
-    const previousSession = sessions.find((session) => session.id === sessionId);
-    if (!previousSession || previousSession.archived === archived) return;
-    const pending = { archived };
-    pendingSessionArchives.current.set(sessionId, pending);
-    invalidateSessionListings();
-    setSessions((current) => current.map((session) => session.id === sessionId
-      ? { ...session, archived }
-      : session));
-    setError("");
-    try {
-      await window.mixdogDesktop.setSessionArchived?.(sessionId, archived);
-    } catch (reason) {
-      if (pendingSessionArchives.current.get(sessionId) !== pending) return;
-      pendingSessionArchives.current.delete(sessionId);
-      invalidateSessionListings();
-      setSessions((current) => current.map((session) =>
-        session.id === sessionId && session.archived === archived ? previousSession : session));
-      setError(reason instanceof Error ? reason.message : String(reason));
-      throw reason;
-    }
-    if (pendingSessionArchives.current.get(sessionId) === pending) {
-      pendingSessionArchives.current.delete(sessionId);
-    }
-  }, [invalidateSessionListings, pendingSessionArchives, sessions, setError, setSessions]);
-  const deleteSession = useCallback(async (sessionId: string) => {
-    const previousSession = sessions.find((session) => session.id === sessionId);
-    if (!previousSession || pendingSessionDeletes.current.has(sessionId)) return;
-    const deletingCurrent = selection.kind === "session" && selection.id === sessionId;
-    pendingSessionDeletes.current.add(sessionId);
-    setError("");
-    let next: SessionSnapshot;
-    try {
-      next = await window.mixdogDesktop.deleteSession(sessionId);
-    } catch (reason) {
-      pendingSessionDeletes.current.delete(sessionId);
-      setError(reason instanceof Error ? reason.message : String(reason));
-      throw reason;
-    }
-    invalidateSessionListings();
-    pendingSessionRenames.current.delete(sessionId);
-    applySnapshot(next);
-    setSessions((current) => current.filter((session) => session.id !== sessionId));
-    setTabs((current) => current.filter((tab) =>
-      !(tab.selection.kind === "session" && tab.selection.id === sessionId)));
-    if (deletingCurrent) {
-      navigationEpoch.current += 1;
-      activateSelection({ kind: "new" }, "New task");
-      setRequestedSessionId("");
-    }
-    try {
-      await refreshSessions();
-    } catch {
-      // The successful deletion remains authoritative if reconciliation is unavailable.
-    } finally {
-      pendingSessionDeletes.current.delete(sessionId);
-    }
-  }, [activateSelection, applySnapshot, clearNewTaskPreferences, refreshSessions, selection, sessions, setError]);
+  const {
+    renameSession,
+    archiveSession,
+    deleteSession,
+  } = useAppSessionActions({
+    sessions,
+    setSessions,
+    tabs,
+    setTabs,
+    selection,
+    setError,
+    refreshSessions,
+    pendingRenames: pendingSessionRenames,
+    pendingArchives: pendingSessionArchives,
+    pendingDeletes: pendingSessionDeletes,
+    invalidateSessionListings,
+    applySnapshot,
+    activateSelection,
+    navigationEpoch,
+    setRequestedSessionId,
+  });
   const finishPendingConversationHandoff = () => {
     if (!pendingConversationHandoff.current) return;
     pendingConversationHandoff.current = null;
@@ -2360,7 +2277,6 @@ export function App() {
         sessionsReady={sessionCatalogReady}
         workingSessionIds={workingSessionIds}
         unreadSessionIds={unreadSessionIds}
-        remoteSessionId={sidebarRemoteSessionId}
         selection={sidebarSelection}
         onNewTask={sidebarNewTask}
         onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
@@ -2380,7 +2296,6 @@ export function App() {
         sessionsReady={sessionCatalogReady}
         workingSessionIds={workingSessionIds}
         unreadSessionIds={unreadSessionIds}
-        remoteSessionId={sidebarRemoteSessionId}
         selection={sidebarSelection}
         onNewTask={sidebarNewTask}
         onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
@@ -2454,10 +2369,6 @@ export function App() {
           data-motion={sidebarMotion}>
           <ActivityRail
           sidebarOpen={sidebarOpen && !sidebarPanel}
-          activeWorkbenchSurface={dockOpen
-            && (["search", "source-control"] as string[]).includes(dockTab)
-            ? dockTab as ActivityRailWorkbenchSurface
-            : null}
           onToggleSessions={() => {
             // The right dock is NEVER force-closed here (user: 설정 외의
             // 강제 닫힘 금지): the narrow-band one-sheet rule already lives
@@ -2504,12 +2415,6 @@ export function App() {
             trackSidebarPanelModule("webhooks", loadSidebarPanelModule.webhooks());
           }}
           onCloseActiveSurface={closeActiveRailPanel}
-          onOpenWorkbench={(surface) => {
-            closeSidebarPanels();
-            if (sidebarOpenIntent.current) applySidebarOpen(false);
-            if (dockOpenIntent.current && dockTab === surface) applyDockOpen(false);
-            else openDockTab(surface);
-          }}
           onOpenSettings={() => { closeSidebarForNavigation("instant"); openSettings(); }}
           onPrefetchSettings={warmSettingsView}
           viewGroups={sidebarViewLayout.groups}

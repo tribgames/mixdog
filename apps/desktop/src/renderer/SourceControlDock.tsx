@@ -5,9 +5,6 @@ import {
   ArrowUp,
   ArrowUpDown,
   Check,
-  ChevronLeft,
-  Copy,
-  GitCommit,
   Minus,
   Search,
   Undo2,
@@ -36,7 +33,6 @@ import {
   PullRequestsPane,
   type PullRequestOpenHandler,
 } from "./PullRequestsPane";
-import { GitFileDiff } from "./ReviewPane";
 import {
   ScmContextMenu,
   elementMenuPoint,
@@ -45,14 +41,13 @@ import {
   type ScmContextMenuItem,
   type ScmContextMenuState,
 } from "./ScmContextMenu";
-import { ScmPathText } from "./ScmPathText";
-import { ScmStatusIcon, scmStatusKind } from "./ScmStatusIcon";
 import {
   changedFileMenuItems,
   SourceControlFileRow,
 } from "./source-control-file-row";
 import { sourceControlRemoteActions } from "./source-control-remote-actions";
 import { SourceControlBranchPicker } from "./source-control-branch-picker";
+import { SourceControlCommitDetail } from "./source-control-commit-detail";
 import { useSurfaceActive } from "./surface-activity";
 import {
   changedFilesLabel,
@@ -1520,114 +1515,18 @@ export function SourceControlDock({
           {/* Create Pull Request moved to the Graph/PR tab (user: PR 분리). */}
         </form>;
       })()}
-    </> : selectedCommit ? (() => {
-      // Commit header grammar: title, then ONE meta row of author NAME (no
-      // monogram — the header follows the history rows, where the disc only
-      // ate width), commit ref (short SHA + copy button) and the added/deleted
-      // line totals; the changed-file list is introduced by an
-      // `N changed files` header. The files themselves keep routing to the
-      // existing diff surface — no third pane inside a ~300px dock.
-      const detailFiles = commitDetail?.files ?? [];
-      const additions = detailFiles.reduce((sum, file) => sum + file.additions, 0);
-      const deletions = detailFiles.reduce((sum, file) => sum + file.deletions, 0);
-      // A LOADED commit with no subject is an empty commit message, not a
-      // pending load — the two must never render the same string.
-      const detailSummary = (commitDetail?.subject ?? "").trim();
-      const headline = commitDetail
-        ? detailSummary || EMPTY_SUMMARY
-        : "Loading commit…";
-      const detailAuthor = (commitDetail?.author ?? "").trim();
-      const copyState = commitDetail && shaCopy?.hash === commitDetail.hash ? shaCopy : null;
-      return <div className="dock-scm-history dock-scm-commit-detail">
-      <header className="dock-scm-commit-header">
-        <div className="dock-scm-commit-headline">
-          <button type="button" className="dock-scm-commit-back"
-            aria-label="Back to commit history" onClick={closeCommit}>
-            <ChevronLeft size={14} aria-hidden="true" />
-          </button>
-          <b title={headline}
-            data-empty={commitDetail && !detailSummary ? true : undefined}>{headline}</b>
-        </div>
-        {commitDetail && <div className="dock-scm-commit-meta">
-          <span className="dock-scm-commit-author" title={commitDetail.email}>
-            <span>{detailAuthor || UNKNOWN_AUTHOR}</span>
-          </span>
-          <span className="dock-scm-commit-ref">
-            <GitCommit size={12} aria-hidden="true" />
-            <code>{commitDetail.shortHash}</code>
-            <button type="button" className="dock-scm-commit-copy"
-              aria-label="Copy the full SHA"
-              title={copyState ? copyState.ok ? "Copied" : "Copy failed" : "Copy the full SHA"}
-              onClick={() => void copyCommitSha(commitDetail.hash)}>
-              {copyState?.ok
-                ? <Check size={12} aria-hidden="true" />
-                : <Copy size={12} aria-hidden="true" />}
-            </button>
-            {/* The copy outcome is announced, never left to the icon alone. */}
-            <span className="dock-scm-copy-status" role="status" aria-live="polite">
-              {copyState
-                ? copyState.ok
-                  ? "Full SHA copied to the clipboard"
-                  : "Could not copy the SHA to the clipboard"
-                : ""}
-            </span>
-          </span>
-          <span className="dock-scm-commit-lines">
-            <i>+{additions}</i><em>−{deletions}</em>
-          </span>
-          <time dateTime={commitDetail.authoredAt}>
-            {new Date(commitDetail.authoredAt).toLocaleString()}
-          </time>
-        </div>}
-      </header>
-      {commitDetail && <div className="dock-scm-commit-files-header">
-        {changedFilesLabel(detailFiles.length, detailFiles.length)}
-      </div>}
-      {detailFiles.map((file) => {
-        const open = openCommitFile === file.path;
-        const patch = commitDiffs[file.path];
-        return <section className="dock-scm-commit-file" data-open={open || undefined} key={file.path}>
-          <button type="button" className="dock-scm-commit-file-row"
-            aria-expanded={onOpenDiff ? undefined : open} onClick={() => {
-              if (onOpenDiff) {
-                onOpenDiff(projectPath, file.path, {
-                  source: "commit",
-                  hash: selectedCommit,
-                });
-              } else {
-                void toggleCommitFile(file);
-              }
-            }}>
-            {/* Same one-sentence path grammar as the working-directory rows —
-                the file name is kept whole and only the dim directory prefix
-                loses characters. */}
-            <ScmPathText title={file.path}
-              path={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path} />
-            {/* The counts are a FIXED right-aligned column, so the path keeps
-                every pixel they do not need. */}
-            <small className="dock-scm-commit-file-lines">
-              {file.additions > 0 && <i>+{file.additions}</i>}
-              {file.deletions > 0 && <em>-{file.deletions}</em>}
-            </small>
-            {/* ONE trailing control per row: the status icon, same grammar as
-                the working-directory rows. */}
-            <ScmStatusIcon kind={scmStatusKind(file.status)} size={12} />
-          </button>
-          {open && <div className="dock-scm-commit-diff">
-            {patch === undefined || patch === null
-              ? <p>Loading diff…</p>
-              : patch.startsWith("Error:")
-                ? <p>{patch}</p>
-                : patch
-                  ? <GitFileDiff patch={patch} mode="unified" />
-                  : <p>No textual diff.</p>}
-          </div>}
-        </section>;
-      })}
-      {commitDetail && detailFiles.length === 0 &&
-        <p className="utility-dock-empty">No file changes in this commit.</p>}
-    </div>;
-    })() : <div className="dock-scm-history" ref={historyScrollRef}>
+    </> : selectedCommit ? <SourceControlCommitDetail
+      detail={commitDetail}
+      selectedCommit={selectedCommit}
+      shaCopy={shaCopy}
+      openCommitFile={openCommitFile}
+      commitDiffs={commitDiffs}
+      projectPath={projectPath}
+      onOpenDiff={onOpenDiff}
+      onBack={closeCommit}
+      onCopySha={copyCommitSha}
+      onToggleFile={toggleCommitFile}
+    /> : <div className="dock-scm-history" ref={historyScrollRef}>
       {/* History row without the avatar stack (the dock has
           no avatar service, and a monogram only ate width): a one-line
           summary, the byline (`author • relative age`), then the tag and the

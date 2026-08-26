@@ -187,7 +187,6 @@ import {
   estimateToolSchemaBreakdown,
   measuredToolUsage,
   parseToolSelection,
-  parseToolSearchQuerySelection,
   sortedCatalogByMeasuredUsage,
   filterDisallowedTools,
   sortedNamesByMeasuredUsage,
@@ -1636,14 +1635,16 @@ export async function createMixdogSessionRuntime({
       rt.session?.id,
       options,
     ),
-    revertTurnReview: () => revertTurnSnapshotReview(
+    revertTurnReview: (checkpointId) => revertTurnSnapshotReview(
       rt.currentCwd,
       rt.session?.id,
+      checkpointId,
     ),
-    revertTurnReviewFile: (file) => revertTurnSnapshotReviewFile(
+    revertTurnReviewFile: (file, checkpointId) => revertTurnSnapshotReviewFile(
       rt.currentCwd,
       rt.session?.id,
       file,
+      checkpointId,
     ),
     get id() {
       return rt.session?.id || rt.reservedSessionId || null;

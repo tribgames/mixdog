@@ -21,6 +21,7 @@ import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
+import { preferredModelEffort, routeOption } from './model-route-utils';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import {
@@ -28,15 +29,12 @@ import {
   modelDisplayName,
   normalizeModelOptions,
 } from './provider-display';
+import { record } from './record-utils';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import {
   useSidebarReferences,
   type SidebarReferenceKey,
 } from './sidebar-reference-cache';
-import {
-  preferredEffort,
-  routeOption,
-} from './settings/capability-controls';
 import { acquireTitleBarDim } from './titlebar-dim';
 import { usePersistedListOrder } from './use-persisted-list-order';
 
@@ -53,10 +51,6 @@ type RouteEditorTarget = {
   readOnlyDefinition: boolean;
 };
 
-function record(value: unknown): RecordValue {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
-}
-
 type AgentRouteSummary = {
   model: string;
   effort: string;
@@ -71,7 +65,7 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   const modelLabel = model
     ? modelDisplayName(model, provider, selected?.display || '')
     : 'Default · follows Main';
-  const effortValue = String(route.effort || preferredEffort(selected) || '');
+  const effortValue = String(route.effort || preferredModelEffort(selected) || '');
   const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);
   const rawEffortLabel = effortOption?.label || effortValue;
   const fastCapable = selected?.fastCapable === true || typeof route.fast === 'boolean';

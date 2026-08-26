@@ -144,7 +144,7 @@ function sanitizeRow(value: unknown): UsageRecord | null {
 
 /** Returns a bounded copy of a usage dashboard, or null when the payload is
  *  not one (missing/!Array rows, non-object, hostile shape). */
-export function sanitizeUsageDashboard(value: unknown): UsageRecord | null {
+function sanitizeUsageDashboard(value: unknown): UsageRecord | null {
   const dashboard = scalarRecord(value, MAX_DASHBOARD_KEYS);
   if (!dashboard) return null;
   const source = value as UsageRecord;
@@ -477,15 +477,4 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
     cadenceHolders = Math.max(0, cadenceHolders - 1);
     if (cadenceHolders === 0) scheduleRetirement();
   };
-}
-
-/** Test-only: drops every timer, subscriber and cached value for this window. */
-export function resetUsageDashboardStore(): void {
-  retire();
-  stopCadence();
-  host = null;
-  listeners = new Set();
-  cadenceHolders = 0;
-  cadenceApi = undefined;
-  snapshot = EMPTY_SNAPSHOT;
 }

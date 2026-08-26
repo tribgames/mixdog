@@ -1,10 +1,5 @@
 import type { CommandSurface as CommandSurfaceName } from "./slash-commands";
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
+import { record } from "./record-utils";
 
 export function commandSurfaceSessionId(
   surface: CommandSurfaceName,

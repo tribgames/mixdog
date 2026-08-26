@@ -7,9 +7,15 @@ import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
+import {
+  parseModelRef,
+  preferredModelEffort,
+  preferredModelParameters,
+} from './model-route-utils';
 import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
+import { record, rows } from './record-utils';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import {
   AutomationAttachButton,
@@ -22,7 +28,6 @@ import {
   modelDisplayName,
   modelFastAvailable,
   normalizeModelOptions,
-  preferredModelParameters,
 } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -55,14 +60,6 @@ const WEEKDAY_OPTIONS = [
   { value: '6', label: 'Saturday' },
   { value: '0', label: 'Sunday' },
 ];
-
-function record(value: unknown): RecordValue {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
-}
-
-function rows(value: unknown): RecordValue[] {
-  return Array.isArray(value) ? value.map(record) : [];
-}
 
 // Announce that background sessions may have changed (App refreshes Recent).
 // window.Event keeps the constructor tied to the ACTIVE window realm, so the
@@ -187,44 +184,6 @@ function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
   };
 }
 
-// schedule.model wire format: "provider/model[@effort][+fast]" — the same
-// string the scheduler parses back into a dispatch route.
-function parseModelRef(ref: string): { route: string; effort: string; fast: boolean; modelParameters: Record<string, string> } {
-  const raw = String(ref || '');
-  const queryAt = raw.indexOf('?');
-  let route = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
-  const modelParameters = queryAt >= 0 ? Object.fromEntries(new URLSearchParams(raw.slice(queryAt + 1))) : {};
-  let fast = false;
-  if (route.endsWith('+fast')) {
-    fast = true;
-    route = route.slice(0, -5);
-  }
-  let effort = '';
-  const slash = route.indexOf('/');
-  if (slash > 0) {
-    const at = route.lastIndexOf('@');
-    if (at > slash) {
-      effort = route.slice(at + 1);
-      route = route.slice(0, at);
-    }
-  }
-  return { route, effort, fast, modelParameters };
-}
-
-function preferredEffort(option?: DesktopModelOption): string {
-  if (!option?.effortOptions.length) return '';
-  if (option.savedEffort && option.effortOptions.some((entry) => entry.value === option.savedEffort)) {
-    return option.savedEffort;
-  }
-  if (option.defaultEffort && option.effortOptions.some((entry) => entry.value === option.defaultEffort)) {
-    return option.defaultEffort;
-  }
-  for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
-    if (option.effortOptions.some((entry) => entry.value === value)) return value;
-  }
-  return option.effortOptions[0]?.value || '';
-}
-
 function ScheduleEditor({ draft, editing, busy, models, projects, workflows, error = '', onCancel, onSave }: {
   draft: ScheduleDraft;
   editing: boolean;
@@ -253,7 +212,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const selected = models.find((option) => option.provider === modelProvider && option.model === modelId);
   const effortValue = selected?.effortOptions.some((entry) => entry.value === effort)
     ? effort
-    : preferredEffort(selected);
+    : preferredModelEffort(selected) || '';
   const selectedModelParameters = preferredModelParameters(selected, modelParameters);
   const fastAvailable = modelFastAvailable(selected, effortValue, selectedModelParameters);
   const projectOptions = [

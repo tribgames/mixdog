@@ -9,6 +9,7 @@ import { routePreferenceStore } from "./app-route-preference";
 import { type RecordValue } from "./desktop-types";
 import { t } from "./i18n";
 import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
+import { preferredModelParameters } from "./model-route-utils";
 import { RouteEditor } from "./RouteEditor";
 import { OpenSelect } from "./OpenSelect";
 import {
@@ -16,7 +17,6 @@ import {
   modelDisplayName,
   modelFastAvailable,
   modelMaxContextWindow,
-  preferredModelParameters,
 } from "./provider-display";
 import { shouldShowFastControl } from "./renderer-logic.mjs";
 import { type SettingsSection } from "./slash-commands";

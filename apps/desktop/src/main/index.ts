@@ -12,6 +12,7 @@ import { SessionTransport } from './session-transport';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
+import { createIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
 import { installViewportGuard } from './viewport-guard';
 import {
@@ -380,6 +381,7 @@ const DESKTOP_DISPOSE_TIMEOUT_MS = 4_000;
 let windowState: ReturnType<typeof persistWindowState> | null = null;
 let windowStateFlush: Promise<void> = Promise.resolve();
 let diagnosticsMemoryTimer: NodeJS.Timeout | null = null;
+let idleReclaim: IdleReclaim | null = null;
 let diagnosticsEventLoopTimer: NodeJS.Timeout | null = null;
 let deferredServicesPromise: Promise<void> | null = null;
 let deferredServicesScheduled = false;
@@ -400,6 +402,17 @@ function currentProcessMemory() {
     }));
   } catch {
     return [];
+  }
+}
+
+/** Working set of the renderer processes only, for the idle-reclaim record. */
+function rendererWorkingSetKb(): number {
+  try {
+    return app.getAppMetrics()
+      .filter((metric) => metric.type === 'Tab')
+      .reduce((total, metric) => total + (metric.memory?.workingSetSize || 0), 0);
+  } catch {
+    return 0;
   }
 }
 
@@ -535,6 +548,8 @@ function disposeDesktopResources(): Promise<void> {
     clearInterval(diagnosticsEventLoopTimer);
     diagnosticsEventLoopTimer = null;
   }
+  idleReclaim?.dispose();
+  idleReclaim = null;
   unsubscribeAwake?.();
   unsubscribeAwake = null;
   unsubscribeServiceSettings?.();
@@ -721,7 +736,27 @@ async function createWindow(): Promise<void> {
       ? { bounceDock: () => { app.dock?.bounce('informational'); } }
       : {}),
   });
-  window.on('focus', () => turnAttention?.onFocus());
+  // Background memory reclaim: a heavy session leaves the renderer resident
+  // above 1 GB and nothing hands that back while the desktop sits untouched.
+  idleReclaim = createIdleReclaim({
+    isFocused: () => !window.isDestroyed() && window.isFocused(),
+    reclaim: async () => {
+      if (window.isDestroyed()) return;
+      const startedAt = Date.now();
+      const beforeKb = rendererWorkingSetKb();
+      await purgeRendererMemory(window.webContents);
+      diagnostics?.write('renderer-idle-reclaim', {
+        beforeKb,
+        afterKb: rendererWorkingSetKb(),
+        totalMs: Date.now() - startedAt,
+      });
+    },
+  });
+  window.on('focus', () => {
+    turnAttention?.onFocus();
+    idleReclaim?.onFocus();
+  });
+  window.on('blur', () => idleReclaim?.onBlur());
   // Apply the persisted zoom BEFORE the first paint. It used to be applied by
   // the renderer's lazy getZoomFactor call a beat after the window appeared,
   // which rescaled the page and the titlebar overlay height in quick
@@ -1022,6 +1057,7 @@ if (!app.requestSingleInstanceLock()) {
     unsubscribeAwake = host.subscribe((snapshot) => {
       awakeService.onSnapshot(snapshot);
       turnAttention?.onSnapshot(snapshot);
+      idleReclaim?.onSnapshot(snapshot);
     });
     void settingsStore.read().then(applyDesktopSettings).catch(() => {
       /* default stays enabled */

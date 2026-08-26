@@ -99,8 +99,6 @@ export type Snapshot = RecordValue & {
     }>;
   };
   workflow?: RecordValue | null;
-  remoteEnabled?: boolean;
-  remoteSessionId?: string | null;
 };
 
 export const EMPTY_SNAPSHOT: Snapshot = { items: [], queued: [] };

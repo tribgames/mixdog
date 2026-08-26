@@ -11,6 +11,12 @@
      and below that floor the strip collapses to the count switcher. */
   overflow: hidden;
 }
+.workspace-tabs.drag-scroll {
+  overflow-x: scroll !important;
+  overflow-y: hidden !important;
+  scrollbar-width: none;
+}
+.workspace-tabs.drag-scroll::-webkit-scrollbar { display: none; }
 .titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
 .workspace-tabs-shell { position: relative; align-self: center; }
 /* Chrome-mobile compact strip (user: 이름 + 숫자 → 목록 선택): when the
@@ -177,8 +183,9 @@
 @container (max-width: 64px) {
   .workspace-tab.active .workspace-tab-main span { display: none; }
 }
-/* Short dividers define background cells without boxing the active tab into
-   the strip. The neighbor immediately before selection also stays open. */
+/* Short dividers (8px inset, never full height) separate EVERY cell — the
+   selected label included (user: 붙어있는 기본 테두리 구분). They frame the
+   selection without ever becoming a full-height box around it. */
 /* Tab DnD: the source tab stays in
    place; a text-only ghost label rides the cursor and a 2px accent border
    marks the insertion index between tabs (drop-target-left/right). */
@@ -214,6 +221,9 @@
   white-space: nowrap;
   will-change: transform;
 }
+.pane-native-drag-image {
+  transform: translate(-10000px, -10000px);
+}
 .session-row-drag-ghost {
   max-width: min(320px, calc(100vw - 24px));
   overflow: hidden;
@@ -225,7 +235,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.workspace-tab:not(.active)::before {
+.workspace-tab::before {
   content: "";
   position: absolute;
   top: 8px;
@@ -235,9 +245,13 @@
   background: var(--mx-border-muted);
   pointer-events: none;
 }
-.workspace-tab:has(+ .workspace-tab.active)::before,
 .workspace-tab:hover::before,
 .workspace-tab:focus-within::before { opacity: 0; }
+/* The selection keeps BOTH seams — its own right hairline and the left
+   neighbor's — so the divider pair stays put even while either tab is
+   hovered; the pair is the selection's boundary, not a hover affordance. */
+.workspace-tab.active::before,
+.workspace-tab:has(+ .workspace-tab.active)::before { opacity: 1; }
 .workspace-tab:active { cursor: grabbing; }
 .workspace-tab:hover,
 .workspace-tab:focus-within {
@@ -267,15 +281,15 @@
      reverted (user: 완전 이상한데 — 기존으로 롤백); only the height changed. */
   left: 0;
   right: 0;
-  height: 1px;
+  /* ONE thickness for both states (user: 상단 회색 띠는 2pt로 포커스 띠랑
+     같았으면): background panes draw the band in neutral ink and the focused
+     pane only recolors it, so the strip never shifts weight on focus. */
+  height: 2px;
   border-radius: 0;
-  /* Every pane keeps a quiet foreground marker; the focused pane doubles and
-     accents this same line instead of adding a label frame. */
   background: var(--mx-border-strong);
   pointer-events: none;
 }
 .workspace-tabs-shell[data-focused="true"] .workspace-tab.active::after {
-  height: 2px;
   background: var(--mx-accent);
 }
 /* Keep the close affordance fully opaque for active and interaction states. */

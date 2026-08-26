@@ -19,6 +19,7 @@ import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { ProgressSpinner } from './ProgressSpinner';
 import { modelDisplayName, ModelRouteLabel } from './provider-display';
+import { record } from './record-utils';
 import { formatWorkElapsed, timeMs } from './TranscriptView';
 
 type RecordValue = Record<string, unknown>;
@@ -131,10 +132,6 @@ interface LiveAgentSummary {
   turnStartedAt: number;
   sessionId: string;
   ownerSessionId: string;
-}
-
-function record(value: unknown): RecordValue {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 }
 
 function agentRoleLabel(value: unknown): string {

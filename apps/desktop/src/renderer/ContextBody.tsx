@@ -1,19 +1,11 @@
-import { resolveContextDisplayUsage } from './context-usage';
+import { nonNegativeNumber, resolveContextDisplayUsage } from './context-usage';
 import { t } from './i18n';
+import { record } from './record-utils';
 
 type Row = Record<string, unknown>;
 
-function record(value: unknown): Row {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
-}
-
-function finite(value: unknown): number {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.max(0, number) : 0;
-}
-
 function compactTokens(value: unknown): string {
-  const number = finite(value);
+  const number = nonNegativeNumber(value);
   if (number <= 0) return '0';
   if (number >= 1_000_000) return `${(number / 1_000_000).toFixed(number >= 10_000_000 ? 0 : 1)}m`;
   if (number >= 10_000) return `${Math.round(number / 1_000)}k`;
@@ -22,13 +14,13 @@ function compactTokens(value: unknown): string {
 }
 
 function contextPercent(value: unknown, total: unknown): number | null {
-  const denominator = finite(total);
+  const denominator = nonNegativeNumber(total);
   if (!denominator) return null;
-  return Math.max(0, Math.min(100, (finite(value) / denominator) * 100));
+  return Math.max(0, Math.min(100, (nonNegativeNumber(value) / denominator) * 100));
 }
 
 function tokenBuckets(source: Row, names: string[]): number {
-  return names.reduce((sum, name) => sum + finite(record(source[name]).tokens), 0);
+  return names.reduce((sum, name) => sum + nonNegativeNumber(record(source[name]).tokens), 0);
 }
 
 export function ContextBody({ status, snapshot }: { status: unknown; snapshot: unknown }) {
@@ -53,12 +45,12 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
   });
   const used = usage.used;
   const windowTokens = usage.limit;
-  const rawWindowTokens = finite(context.rawContextWindow || state.contextWindow || context.contextWindow || windowTokens);
+  const rawWindowTokens = nonNegativeNumber(context.rawContextWindow || state.contextWindow || context.contextWindow || windowTokens);
   const freeTokens = windowTokens ? Math.max(0, windowTokens - used) : 0;
   const usedPercent = contextPercent(used, windowTokens) || 0;
   const rawCategories = [
     { key: 'system', label: t('System prompt'), tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']) },
-    { key: 'tools', label: t('System tools'), tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) + finite(request.requestOverheadTokens) },
+    { key: 'tools', label: t('System tools'), tokens: tokenBuckets(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']) + nonNegativeNumber(request.requestOverheadTokens) },
     { key: 'mcp', label: t('MCP tools'), tokens: tokenBuckets(schema, ['mcp']) },
     { key: 'agents', label: t('Custom agents'), tokens: tokenBuckets(schema, ['agents']) },
     { key: 'memory', label: t('Memory files'), tokens: tokenBuckets(semantic, ['memory']) + tokenBuckets(schema, ['memory']) },

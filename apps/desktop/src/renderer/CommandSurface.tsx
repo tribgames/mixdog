@@ -18,6 +18,7 @@ import {
 } from './session-inheritance';
 import { ContextBody } from './ContextBody';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
+import { record } from './record-utils';
 import { displayUsagePercent } from './usage-percent';
 import './settings/settings.css';
 
@@ -27,9 +28,6 @@ type Row = Record<string, unknown>;
 type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
   Partial<Pick<DesktopApi, 'getSnapshot' | 'subscribeState'>>;
 
-function record(value: unknown): Row {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
-}
 function pretty(value: unknown) {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }

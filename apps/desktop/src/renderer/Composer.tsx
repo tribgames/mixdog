@@ -1,28 +1,14 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type MutableRefObject } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject } from "react";
 import { createPortal } from "react-dom";
-import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPastedText, DesktopPromptAttachment, DesktopPromptContent, DesktopRendererComposerActionDiagnostic, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
+import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
-import {
-  absolutePathsForDragPayload,
-  dataTransferHasPathPayload,
-  localFilesFromPaths,
-  readFileDragPayload,
-} from "./file-drag";
 import { t } from "./i18n";
 import { useMobileBack } from "./mobile-back";
 import { ModelSelector } from "./model-controls";
 import { MxIcon } from "./MxIcon";
 import { ProgressSpinner } from "./ProgressSpinner";
-import {
-  hasSendablePromptContent,
-  isComposerNewlineChord,
-  nextComposerShiftLatch,
-  shouldBlockPromptSubmit,
-  shouldInterruptPrompt,
-  shouldNavigatePromptHistory,
-  shouldStopComposerGeneration,
-} from "./renderer-logic.mjs";
+import { shouldStopComposerGeneration } from "./renderer-logic.mjs";
 import {
   desktopSlashCommandDescription,
   resolveDesktopSlashCommand,
@@ -33,15 +19,6 @@ import {
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
 import { touchPrimaryPointer } from "./surface-input-focus";
 import { acquireTitleBarDim } from "./titlebar-dim";
-import { registerImagePreview } from "./transcript-metrics";
-import { classifyPromptEscape, PROMPT_ESCAPE_HINT_TIMEOUT_MS } from "../../../../src/tui/components/prompt-input/escape-policy.mjs";
-import {
-  mergeQueuedRestoreDraft,
-  paletteOwnsPromptVerticalArrow,
-  queuedRestorePrefix,
-  queuedRestoreProjection,
-  replaceQueuedRestorePrefix,
-} from "../../../../src/tui/components/prompt-input/restore-policy.mjs";
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { pastedTextLineCount, shouldFoldPastedText } from "../../../../src/tui/paste-text-policy.mjs";
 
@@ -50,9 +27,7 @@ import { pastedTextLineCount, shouldFoldPastedText } from "../../../../src/tui/p
 // follow-up list live in composer-support.tsx.
 import {
   COMPOSER_PLACEHOLDERS,
-  MAX_COMPOSER_ATTACHMENTS,
   MAX_PERSISTED_PROMPT_HISTORY,
-  MAX_SUBMIT_TEXT_LENGTH,
   PROJECT_CONTEXT_LOCAL,
   ProjectContextSelector,
   QueueList,
@@ -63,24 +38,15 @@ import {
   type ComposerHistoryEntry,
   writePromptHistory,
 } from "./composer-support";
-// Attachment budget policy and file -> attachment conversion.
-import {
-  attachmentFromFile,
-  attachmentPolicyError,
-  isSupportedComposerImagePath,
-} from "./composer-attachments";
 import {
   composerDraftAfterScopeChange,
-  insertComposerToken,
-  nextComposerSubmissionId,
-  rejectComposerSubmissionRecovery,
-  resolveComposerSubmissionRecovery,
-  retainComposerSubmissionRecovery,
   shouldPreserveComposerDraftOnScopeChange,
-  submissionRetryKey,
-  takeRejectedComposerSubmissionRecoveries,
 } from "./composer-draft";
 import { useComposerDictation } from "./use-composer-dictation";
+import { useComposerAttachments } from "./use-composer-attachments";
+import { useComposerQueue } from "./use-composer-queue";
+import { useComposerSubmission } from "./use-composer-submission";
+import { useComposerKeyboard } from "./use-composer-keyboard";
 export {
   PROJECT_CONTEXT_LOCAL,
   ProjectContextSelector,
@@ -174,10 +140,6 @@ function VoiceInstallDialog({ onCancel, onConfirm }: {
   );
 }
 
-function reportComposerAction(diagnostic: DesktopRendererComposerActionDiagnostic): void {
-  try { window.mixdogDesktop?.rendererDiagnostic?.(diagnostic); } catch { /* diagnostics only */ }
-}
-
 export const Composer = memo(function Composer({
   turnBusy,
   commandBusy,
@@ -269,8 +231,6 @@ export const Composer = memo(function Composer({
   // Reuse the same id when the exact restored payload is retried so daemon-side
   // idempotency acknowledges it instead of posting a duplicate user message.
   const submissionRetryRef = useRef<{ key: string; id: string } | null>(null);
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [attachmentError, setAttachmentError] = useState('');
   const [composerNotice, setComposerNotice] = useState('');
   const [voiceInstallPromptOpen, setVoiceInstallPromptOpen] = useState(false);
   const voiceInstallResolver = useRef<((confirmed: boolean) => void) | null>(null);
@@ -320,12 +280,9 @@ export const Composer = memo(function Composer({
   const [mentionResults, setMentionResults] = useState<string[]>([]);
   const [mentionLoading, setMentionLoading] = useState(false);
   const [mentionDismissed, setMentionDismissed] = useState('');
-  const [restoring, setRestoring] = useState(false);
-  const [locallyHiddenQueueIds, setLocallyHiddenQueueIds] = useState<string[]>([]);
   // Esc-Esc selects a previous prompt, rewinds to it, and restores it for edit.
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selectorIndex, setSelectorIndex] = useState(0);
-  const [draggingFiles, setDraggingFiles] = useState(false);
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
   const activeHistoryScope = useRef(historyScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -339,39 +296,10 @@ export const Composer = memo(function Composer({
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
-  const queueRestoreInFlightRef = useRef(false);
-  // A daemon response can settle one render before its queue projection does.
-  // Snapshot shaping may clone the queue array, so remember its stable entry
-  // signature rather than its identity. New queue ids re-arm Esc/Up normally.
-  const queuedProjectionKey = Array.isArray(queued)
-    ? queued.map((entry, index) => {
-      const item = asRecord(entry);
-      return String(item?.id ?? `${index}:${item?.text ?? item?.displayText ?? ''}`);
-    }).join('\n')
-    : '';
-  useEffect(() => {
-    const liveIds = new Set((Array.isArray(queued) ? queued : [])
-      .map((entry) => asRecord(entry)?.id)
-      .filter((id) => id !== undefined && id !== null)
-      .map(String));
-    setLocallyHiddenQueueIds((current) => {
-      const next = current.filter((id) => liveIds.has(id));
-      return next.length === current.length ? current : next;
-    });
-  }, [queuedProjectionKey]);
-  const restoredQueueProjectionRef = useRef('');
-  const hasRestorableQueuedMessages = () => Boolean(queuedProjectionKey)
-    && restoredQueueProjectionRef.current !== queuedProjectionKey;
-  const pendingSubmissionId = !draftMode && Array.isArray(pendingSubmissionIds)
-    ? String(pendingSubmissionIds[pendingSubmissionIds.length - 1] || '').trim()
-    : '';
   const slashPalette = useRef<HTMLDivElement>(null);
   const messagePalette = useRef<HTMLDivElement>(null);
   const mentionPalette = useRef<HTMLDivElement>(null);
   const mentionSearchGeneration = useRef(0);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const attachmentSequence = useRef(1);
-  const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
@@ -386,6 +314,35 @@ export const Composer = memo(function Composer({
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
   const historySeedAttachments = useRef<ComposerAttachment[]>([]);
+  const {
+    attachments,
+    attachmentsRef,
+    attachmentError,
+    setAttachmentError,
+    draggingFiles,
+    setDraggingFiles,
+    attachmentSequence,
+    fileInput,
+    insertAttachment,
+    clearAttachments,
+    removeAttachments,
+    removeAttachment,
+    replaceAttachments,
+    attachFiles,
+    restoredAttachments,
+    mergeRestoredAttachments,
+    resetAttachments,
+  } = useComposerAttachments({
+    draftRef,
+    setDraft,
+    textarea,
+    historyNavigation,
+    transitioningRef,
+    projectScope,
+    recoveryScope,
+    submissionRecoveryVersion,
+    dropTargetRef,
+  });
   useEffect(() => {
     const element = textarea.current;
     if (!element) return undefined;
@@ -437,8 +394,7 @@ export const Composer = memo(function Composer({
     if (activeHistoryScope.current === historyScope) return;
     const previousHistoryScope = activeHistoryScope.current;
     activeHistoryScope.current = historyScope;
-    attachmentsRef.current = [];
-    setDraggingFiles(false);
+    resetAttachments();
     composingRef.current = false;
     suppressImeLineBreakRef.current = false;
     mentionSearchGeneration.current += 1;
@@ -465,8 +421,6 @@ export const Composer = memo(function Composer({
       draftRef.current = next;
       return next;
     });
-    setAttachments([]);
-    setAttachmentError('');
     setComposerNotice('');
     setSlashIndex(0);
     setSlashDismissedDraft('');
@@ -476,14 +430,12 @@ export const Composer = memo(function Composer({
     setMentionResults([]);
     setMentionLoading(false);
     setMentionDismissed('');
-    queueRestoreInFlightRef.current = false;
-    setRestoring(false);
     setDraggingFiles(false);
     setSelectorOpen(false);
     setSelectorIndex(0);
     setPersistedHistory(readPromptHistory(historyScope));
     historyNavigation.current = { index: -1, seed: '' };
-  }, [historyScope]);
+  }, [historyScope, resetAttachments]);
   const history = useMemo<ComposerHistoryEntry[]>(() => {
     const engineHistory: ComposerHistoryEntry[] = Array.isArray(promptHistoryList)
       ? promptHistoryList.map((entry) => typeof entry === 'string'
@@ -649,7 +601,6 @@ export const Composer = memo(function Composer({
     mentionPalette.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
       ?.scrollIntoView?.({ block: 'nearest' });
   }, [mentionIndex, mentionOpen, mentionResults]);
-  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
   useEffect(() => {
     const receiveDraft = (event: Event) => {
       const text = String((event as CustomEvent<unknown>).detail || '');
@@ -677,481 +628,34 @@ export const Composer = memo(function Composer({
     if (result?.snapshot !== undefined) applySnapshot(result.snapshot);
     return result?.value;
   }, [applySnapshot, invokeResult, sessionId]);
-
-  const insertAttachment = useCallback((attachment: ComposerAttachment) => {
-    const currentAttachments = attachmentsRef.current;
-    const policyError = attachmentPolicyError(currentAttachments, attachment);
-    if (policyError) {
-      setAttachmentError(policyError);
-      return false;
-    }
-    const nextAttachments = [...currentAttachments, attachment];
-    attachmentsRef.current = nextAttachments;
-    setAttachments(nextAttachments);
-    const element = textarea.current;
-    // Chip-only attachments (images, pasted text) keep the draft untouched:
-    // the chip is their sole editor representation (user: pasting left a
-    // redundant "[Image #N]" / "[Pasted text #N]" token in the input).
-    if (!attachment.token || attachment.chipOnly === true) {
-      window.setTimeout(() => { textarea.current?.focus(); }, 0);
-      historyNavigation.current = { index: -1, seed: '' };
-      return true;
-    }
-    setDraft((current) => {
-      const { next, caret } = insertComposerToken(
-        current,
-        element?.selectionStart,
-        element?.selectionEnd,
-        attachment.token,
-      );
-      window.setTimeout(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(caret, caret);
-      }, 0);
-      draftRef.current = next;
-      return next;
-    });
-    historyNavigation.current = { index: -1, seed: '' };
-    return true;
-  }, []);
-  const clearAttachments = useCallback(() => {
-    attachmentsRef.current = [];
-    setAttachments([]);
-  }, []);
-  const removeAttachments = useCallback((ids: Set<number>) => {
-    if (ids.size === 0) return;
-    const next = attachmentsRef.current.filter((attachment) => !ids.has(attachment.id));
-    attachmentsRef.current = next;
-    setAttachments(next);
-  }, []);
-
-  const attachFiles = useCallback(async (files: FileList | File[]) => {
-    if (transitioningRef.current) return;
-    setAttachmentError('');
-    const available = Math.max(0, MAX_COMPOSER_ATTACHMENTS - attachmentsRef.current.length);
-    if (available === 0) {
-      setAttachmentError(`Attach up to ${MAX_COMPOSER_ATTACHMENTS} items at a time.`);
-      return;
-    }
-    const incoming = Array.from(files);
-    if (incoming.length > available) {
-      setAttachmentError(`Only the first ${available} item${available === 1 ? '' : 's'} fit; remove an attachment to add more.`);
-    }
-    for (const file of incoming.slice(0, available)) {
-      if (transitioningRef.current) return;
-      try {
-        // A null attachment means the session moved on mid-read; the whole
-        // remaining batch belongs to a draft that no longer exists.
-        const attachment = await attachmentFromFile(file, {
-          id: attachmentSequence.current++,
-          cancelled: () => transitioningRef.current,
-        });
-        if (!attachment) return;
-        insertAttachment(attachment);
-      } catch (reason) {
-        setAttachmentError(reason instanceof Error ? reason.message : String(reason));
-      }
-    }
-  }, [insertAttachment]);
-
-  const insertProjectMentions = useCallback((paths: string[]) => {
-    const mentions = paths
-      .map((path) => path.replace(/\\/g, '/').replace(/^\/+/, '').trim())
-      .filter((path) => path && !path.split('/').includes('..') && !/^[a-z]:/i.test(path))
-      .map((path) => `@${path}`);
-    if (!mentions.length) return;
-    const element = textarea.current;
-    setDraft((current) => {
-      const { next, caret } = insertComposerToken(
-        current,
-        element?.selectionStart,
-        element?.selectionEnd,
-        mentions.join(" "),
-      );
-      draftRef.current = next;
-      window.setTimeout(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(caret, caret);
-      }, 0);
-      return next;
-    });
-    historyNavigation.current = { index: -1, seed: '' };
-  }, []);
-  const insertAbsolutePaths = useCallback((paths: string[]) => {
-    const tokens = paths
-      .map((path) => String(path || "").trim())
-      .filter(Boolean)
-      .map((path) => /\s/.test(path) ? `"${path}"` : path);
-    if (!tokens.length) return;
-    const element = textarea.current;
-    setDraft((current) => {
-      const { next, caret } = insertComposerToken(
-        current,
-        element?.selectionStart,
-        element?.selectionEnd,
-        tokens.join(" "),
-      );
-      draftRef.current = next;
-      window.setTimeout(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(caret, caret);
-      }, 0);
-      return next;
-    });
-    historyNavigation.current = { index: -1, seed: '' };
-  }, []);
-  const attachLocalPaths = useCallback(async (paths: string[]) => {
-    const loaded = await localFilesFromPaths(window.mixdogDesktop, paths);
-    if (loaded.directories.length) {
-      insertAbsolutePaths(loaded.directories.map((entry) => entry.absolutePath));
-    }
-    if (loaded.errors.length) setAttachmentError(loaded.errors[0]);
-    if (loaded.files.length) await attachFiles(loaded.files);
-  }, [attachFiles, insertAbsolutePaths]);
-  const attachProjectPaths = useCallback(async (projectPath: string, paths: string[]) => {
-    const imagePaths = paths.filter(isSupportedComposerImagePath);
-    insertProjectMentions(paths.filter((path) => !isSupportedComposerImagePath(path)));
-    if (!imagePaths.length) return;
-    await attachLocalPaths(absolutePathsForDragPayload({
-      kind: "project",
-      projectPath,
-      paths: imagePaths,
-    }));
-  }, [attachLocalPaths, insertProjectMentions]);
-
-  useEffect(() => {
-    const target = dropTargetRef.current;
-    if (!target) return;
-    const containsType = (event: DragEvent, type: string) =>
-      Array.from(event.dataTransfer?.types ?? []).includes(type);
-    const containsFiles = (event: DragEvent) => containsType(event, 'Files');
-    const containsPaths = (event: DragEvent) => Boolean(
-      event.dataTransfer && dataTransferHasPathPayload(event.dataTransfer),
-    );
-    const containsInput = (event: DragEvent) => containsFiles(event) || containsPaths(event);
-    const clearDraggingFiles = () => setDraggingFiles(false);
-    const onDragEnter = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (transitioningRef.current) return;
-      setDraggingFiles(true);
-    };
-    const onDragOver = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = transitioningRef.current ? 'none' : 'copy';
-      }
-      if (!transitioningRef.current) setDraggingFiles(true);
-    };
-    const onDragLeave = (event: DragEvent) => {
-      if (event.relatedTarget && target.contains(event.relatedTarget as Node)) return;
-      clearDraggingFiles();
-    };
-    const onWindowDragOver = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      if (event.target instanceof Node && target.contains(event.target)) return;
-      clearDraggingFiles();
-    };
-    const onDrop = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      clearDraggingFiles();
-      if (transitioningRef.current || !event.dataTransfer) return;
-      const payload = readFileDragPayload(event.dataTransfer);
-      if (payload) {
-        if (payload.kind === "project") {
-          const source = payload.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
-          const targetProject = projectScope.replace(/[\\/]+/g, '/').toLocaleLowerCase();
-          if (source && targetProject && source === targetProject) {
-            void attachProjectPaths(payload.projectPath, payload.paths);
-            return;
-          }
-        }
-        void attachLocalPaths(absolutePathsForDragPayload(payload));
-        return;
-      }
-      const itemFiles = Array.from(event.dataTransfer.items)
-        .filter((item) => item.kind === 'file')
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => Boolean(file));
-      void attachFiles(itemFiles.length ? itemFiles : event.dataTransfer.files);
-    };
-    target.addEventListener('dragenter', onDragEnter);
-    target.addEventListener('dragover', onDragOver);
-    target.addEventListener('dragleave', onDragLeave);
-    target.addEventListener('drop', onDrop);
-    window.addEventListener('dragover', onWindowDragOver, true);
-    window.addEventListener('drop', clearDraggingFiles, true);
-    window.addEventListener('dragend', clearDraggingFiles, true);
-    window.addEventListener('blur', clearDraggingFiles);
-    return () => {
-      target.removeEventListener('dragenter', onDragEnter);
-      target.removeEventListener('dragover', onDragOver);
-      target.removeEventListener('dragleave', onDragLeave);
-      target.removeEventListener('drop', onDrop);
-      window.removeEventListener('dragover', onWindowDragOver, true);
-      window.removeEventListener('drop', clearDraggingFiles, true);
-      window.removeEventListener('dragend', clearDraggingFiles, true);
-      window.removeEventListener('blur', clearDraggingFiles);
-    };
-  }, [attachFiles, attachLocalPaths, attachProjectPaths, dropTargetRef, projectScope]);
-
-  const restoredAttachments = useCallback((value: RecordValue, restoredText: string): {
-    attachments: ComposerAttachment[];
-    text: string;
-  } => {
-    const restored: ComposerAttachment[] = [];
-    const reserved = new Set(attachmentsRef.current.map((attachment) => attachment.id));
-    let textValue = restoredText;
-    const uniqueId = (rawId: number) => {
-      let id = rawId > 0 ? rawId : attachmentSequence.current;
-      while (reserved.has(id)) id = Math.max(id + 1, attachmentSequence.current++);
-      reserved.add(id);
-      attachmentSequence.current = Math.max(attachmentSequence.current, id + 1);
-      return id;
-    };
-    for (const [key, raw] of Object.entries(asRecord(value.pastedImages) || {})) {
-      const image = asRecord(raw);
-      if (!image || typeof image.content !== 'string') continue;
-      const rawId = Number(image.id || key) || 0;
-      const name = String(image.filename || `Image ${rawId || attachmentSequence.current}`);
-      const namedToken = `[Image #${rawId}: ${name}]`;
-      const plainToken = `[Image #${rawId}]`;
-      const sourceToken = textValue.includes(namedToken) ? namedToken : textValue.includes(plainToken) ? plainToken : '';
-      // Images restore as chip-only attachments (empty token). A legacy
-      // bracket token in restored text is stripped rather than re-inserted.
-      if (sourceToken) {
-        textValue = textValue.replace(sourceToken, ' ').replace(/ {2,}/g, ' ')
-          .split('\n').map((line) => line.trim()).join('\n').trim();
-      }
-      restored.push({ id: uniqueId(rawId), name, kind: 'image', mimeType: String(image.mediaType || 'image/png'),
-        data: image.content, token: '',
-        ...(typeof image.metadataText === 'string' && image.metadataText
-          ? { metadataText: image.metadataText }
-          : {}) });
-    }
-    for (const [key, raw] of Object.entries(asRecord(value.pastedTexts) || {})) {
-      const text = asRecord(raw);
-      if (!text || typeof text.text !== 'string') continue;
-      const rawId = Number(text.id || key) || 0;
-      const pastedMatch = textValue.match(new RegExp(`\\[Pasted text #${rawId}(?: \\+\\d+ lines)?\\]`));
-      const fileMatch = textValue.match(new RegExp(`\\[File #${rawId}(?:: [^\\]\\r\\n]+)?\\]`));
-      const source = text.source === 'file' || (!pastedMatch && Boolean(fileMatch)) ? 'file' : 'paste';
-      const match = source === 'file' ? fileMatch : pastedMatch;
-      if (!match) continue;
-      const id = uniqueId(rawId);
-      const token = id === rawId ? match[0] : match[0].replace(`#${rawId}`, `#${id}`);
-      if (token !== match[0]) textValue = textValue.replace(match[0], token);
-      restored.push({
-        id,
-        name: String(text.filename || (source === 'file' ? `File ${id}` : `Pasted text ${id}`)),
-        kind: 'text',
-        mimeType: String(text.mimeType || 'text/plain'),
-        data: text.text,
-        token,
-        source,
-      });
-    }
-    return { attachments: restored, text: textValue };
-  }, []);
-
-  const mergeRestoredAttachments = useCallback((restored: ComposerAttachment[], restoredText: string) => {
-    if (!restored.length) return restoredText;
-    const next = [...attachmentsRef.current];
-    let nextText = restoredText;
-    let firstError = '';
-    for (const attachment of restored) {
-      const index = next.findIndex((entry) => entry.id === attachment.id && entry.kind === attachment.kind);
-      if (index >= 0) {
-        next[index] = attachment;
-        continue;
-      }
-      const policyError = attachmentPolicyError(next, attachment);
-      if (policyError) {
-        firstError ||= policyError;
-        nextText = nextText.replace(attachment.token, '').replace(/ {2,}/g, ' ').trim();
-        continue;
-      }
-      next.push(attachment);
-    }
-    if (firstError) setAttachmentError(firstError);
-    attachmentsRef.current = next;
-    setAttachments(next);
-    return nextText;
-  }, [attachmentPolicyError]);
-  useLayoutEffect(() => {
-    const recoveries = takeRejectedComposerSubmissionRecoveries(recoveryScope);
-    if (!recoveries.length) return;
-    const restoredTexts = recoveries.map((recovery) =>
-      mergeRestoredAttachments(recovery.attachments, recovery.text));
-    setDraft((current) => {
-      const next = [...restoredTexts, current].filter(Boolean).join('\n');
-      draftRef.current = next;
-      return next;
-    });
-    historyNavigation.current = { index: -1, seed: '' };
-  }, [mergeRestoredAttachments, recoveryScope, submissionRecoveryVersion]);
-
-  const restoreQueue = async (
-    queuedId = '',
-    source: DesktopRendererComposerActionDiagnostic['source'] = 'queue-row',
-  ) => {
-    if (restoring || queueRestoreInFlightRef.current) return undefined;
-    reportComposerAction({
-      kind: 'composer-action',
-      action: 'restore-queue',
-      source,
-      turnBusy,
-      queueCount: Array.isArray(queued) ? queued.length : 0,
-      draftLength: draftRef.current.length,
-      composing: composingRef.current,
-      uptimeMs: performance.now(),
-      ...(queuedId ? { targeted: true } : {}),
-    });
-    // Capture the projection before the daemon round trip. A newly queued
-    // prompt that arrives while restore settles must not be retired with the
-    // older entries the user actually reclaimed.
-    const projection = queuedRestoreProjection(queued, queuedId);
-    const requestedIds = projection.ids;
-    const before = {
-      value: draftRef.current,
-      cursor: textarea.current?.selectionStart ?? draftRef.current.length,
-      selectionAnchor: null,
-    };
-    const optimistic = mergeQueuedRestoreDraft(projection.text, before);
-    const optimisticPrefix = queuedRestorePrefix(projection.text, before.value);
-    if (requestedIds.length) {
-      setLocallyHiddenQueueIds((current) => [
-        ...current,
-        ...requestedIds.filter((id) => !current.includes(id)),
-      ]);
-    }
-    if (optimisticPrefix) {
-      draftRef.current = optimistic.value;
-      setDraft(optimistic.value);
-      historyNavigation.current = { index: -1, seed: '' };
-      window.setTimeout(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(optimistic.cursor, optimistic.cursor);
-      }, 0);
-    }
-    const revealRequested = () => {
-      if (!requestedIds.length) return;
-      const ids = new Set(requestedIds);
-      setLocallyHiddenQueueIds((current) => current.filter((id) => !ids.has(id)));
-    };
-    const reconcile = (authoritativeText = '') => {
-      const current = draftRef.current;
-      const currentCursor = textarea.current?.selectionStart ?? current.length;
-      const authoritativePrefix = queuedRestorePrefix(authoritativeText, before.value);
-      const next = replaceQueuedRestorePrefix(optimisticPrefix, authoritativePrefix, {
-        value: current,
-        cursor: currentCursor,
-        selectionAnchor: null,
-      });
-      if (!next.replaced) return false;
-      draftRef.current = next.value;
-      setDraft(next.value);
-      window.setTimeout(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(next.cursor, next.cursor);
-      }, 0);
-      return true;
-    };
-    queueRestoreInFlightRef.current = true;
-    setRestoring(true);
-    try {
-      const args = queuedId ? ['', queuedId] : [''];
-      const value = await invokeCapability<RecordValue>('restoreQueued', args);
-      if (!value) {
-        reconcile('');
-        revealRequested();
-        return value;
-      }
-      const restored = restoredAttachments(value, String(value.text || ''));
-      const queuedText = mergeRestoredAttachments(restored.attachments, restored.text);
-        // Latch the projection ONLY for a restore that actually popped
-        // entries. Marking an empty answer as "already restored" left
-        // ArrowUp/Esc permanently disarmed for every queued message that
-        // followed (user: 예약 메시지가 위쪽 화살표로 회수되지 않는다).
-        const restoredCount = Number(value.count);
-        const restoredAnything = Number.isFinite(restoredCount)
-          ? restoredCount > 0
-          : Boolean(queuedText || restored.attachments.length);
-        if (!restoredAnything) {
-          reconcile('');
-          revealRequested();
-          showComposerNotice('No queued messages to restore');
-          return value;
-        }
-        const restoredIds = Array.isArray(value.ids)
-          ? value.ids.map(String).filter(Boolean)
-          : requestedIds;
-        restoredQueueProjectionRef.current = queuedProjectionKey;
-        reconcile(queuedText);
-        historyNavigation.current = { index: -1, seed: '' };
-        // The engine queue is authoritative, but Conversation also holds a
-        // local optimistic twin until durable settlement. Retire that twin
-        // after a successful pop so it cannot resurrect the reserved row.
-        onQueuedRestored?.(restoredIds);
-      return value;
-    } finally {
-      queueRestoreInFlightRef.current = false;
-      setRestoring(false);
-    }
-  };
-
-  // Queue rows: discard a queued follow-up in place. restoreQueued
-  // removes the entry from the engine queue; the merged text it returns is
-  // intentionally ignored so the current draft is untouched.
-  const discardQueued = async (queuedId: string) => {
-    if (restoring || queueRestoreInFlightRef.current || !queuedId) return;
-    setLocallyHiddenQueueIds((current) =>
-      current.includes(queuedId) ? current : [...current, queuedId]);
-    queueRestoreInFlightRef.current = true;
-    setRestoring(true);
-    try {
-      const value = await invokeCapability<RecordValue>('restoreQueued', ['', queuedId]);
-      if (value === undefined) {
-        setLocallyHiddenQueueIds((current) => current.filter((id) => id !== queuedId));
-        return;
-      }
-      const removedIds = Array.isArray(value.ids)
-        ? value.ids.map(String).filter(Boolean)
-        : [queuedId];
-      onQueuedRestored?.(removedIds.length ? removedIds : [queuedId]);
-    } finally {
-      queueRestoreInFlightRef.current = false;
-      setRestoring(false);
-    }
-  };
-
-  const steerQueuedNow = async (queuedId: string) => {
-    if (restoring || queueRestoreInFlightRef.current || !queuedId) return;
-    setLocallyHiddenQueueIds((current) =>
-      current.includes(queuedId) ? current : [...current, queuedId]);
-    queueRestoreInFlightRef.current = true;
-    setRestoring(true);
-    try {
-      const value = await invokeCapability<RecordValue>('prioritizeQueued', [queuedId]);
-      if (!value || Number(value.count) < 1) {
-        setLocallyHiddenQueueIds((current) => current.filter((id) => id !== queuedId));
-        return;
-      }
-      const promotedIds = Array.isArray(value.ids)
-        ? value.ids.map(String).filter(Boolean)
-        : [queuedId];
-      onQueuedRestored?.(promotedIds.length ? promotedIds : [queuedId]);
-      if (turnBusy) await abort({ restorePrompt: false });
-    } finally {
-      queueRestoreInFlightRef.current = false;
-      setRestoring(false);
-    }
-  };
+  const {
+    restoring,
+    setRestoring,
+    pendingSubmissionId,
+    visibleQueued,
+    hasRestorableQueuedMessages,
+    restoreQueue,
+    discardQueued,
+    steerQueuedNow,
+  } = useComposerQueue({
+    queued,
+    hiddenQueueIds,
+    pendingSubmissionIds,
+    draftMode,
+    turnBusy,
+    draftRef,
+    setDraft,
+    textarea,
+    composingRef,
+    historyNavigation,
+    invokeCapability,
+    abort,
+    restoredAttachments,
+    mergeRestoredAttachments,
+    showNotice: showComposerNotice,
+    onQueuedRestored,
+    scope: historyScope,
+  });
 
   // Rewindable prompts, oldest → newest (the newest row is preselected).
   const selectableMessages = Array.isArray(userMessages) ? userMessages : [];
@@ -1374,541 +878,101 @@ export const Composer = memo(function Composer({
     return true;
   };
 
-  const send = async (
-    slashOverride = '',
-    source: DesktopRendererComposerActionDiagnostic['source'] = 'form-submit',
-  ) => {
-    const submittedDraft = textarea.current?.value ?? draftRef.current;
-    const submittedAttachments = [...attachmentsRef.current];
-    const text = (slashOverride || submittedDraft).trim();
-    const serializedSubmit = Boolean(draftMode || text.startsWith('/'));
-    if (!hasSendablePromptContent({ text, attachments: submittedAttachments })
-      || transitioningRef.current || shouldBlockPromptSubmit({
-      submitting: submittingRef.current,
-      draftMode,
-      slashCommand: text.startsWith('/'),
-    })) return;
-    reportComposerAction({
-      kind: 'composer-action',
-      action: 'submit',
-      source,
-      turnBusy,
-      queueCount: Array.isArray(queued) ? queued.length : 0,
-      draftLength: text.length,
-      composing: composingRef.current,
-      uptimeMs: performance.now(),
-    });
-    if (serializedSubmit) {
-      submittingRef.current = true;
-      setSubmitting(true);
-    }
-    try {
-      setComposerNotice('');
-      if (text.startsWith('/')) {
-        if (commandBusy) {
-          setAttachmentError('Wait for the current command to finish. Your command is still in the editor.');
-          return;
-        }
-        setDraft((current) => current === submittedDraft ? '' : current);
-        removeAttachments(new Set(submittedAttachments.map((attachment) => attachment.id)));
-        historyNavigation.current = { index: -1, seed: '' };
-        const accepted = await executeSlash(text);
-        if (!accepted) {
-          setDraft((current) => current ? current : submittedDraft);
-          mergeRestoredAttachments(submittedAttachments, submittedDraft);
-        } else {
-          rememberPrompt(text);
-        }
-        return;
-      }
-      setAttachmentError('');
-      // Decoded byte length of a base64 payload. The transcript preview cache
-      // is keyed by (id, bytes) and the settled item's bytes come back from
-      // the daemon as the decoded buffer length, so this must match exactly.
-      const base64Bytes = (data: string) => Math.floor((data.length * 3) / 4)
-        - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
-      // Chip-only pasted text keeps its bracket token out of the editor; the
-      // token joins the outgoing text here so the daemon still expands the
-      // pasted payload in place and the transcript folds it back into a chip.
-      const chipOnlyTextTokens = submittedAttachments
-        .filter((attachment) => attachment.chipOnly === true && attachment.token
-          && !submittedDraft.includes(attachment.token))
-        .map((attachment) => attachment.token);
-      const expandedText = chipOnlyTextTokens.length
-        ? [submittedDraft.trim(), ...chipOnlyTextTokens].filter(Boolean).join('\n')
-        : submittedDraft;
-      const used = submittedAttachments.filter((attachment) => expandedText.includes(attachment.token));
-      const pastedImages: Record<string, DesktopPromptAttachment> = {};
-      const pastedTexts: Record<string, DesktopPastedText> = {};
-      for (const attachment of used) {
-        if (attachment.kind === 'text') {
-          pastedTexts[String(attachment.id)] = {
-            id: attachment.id,
-            text: attachment.data,
-            filename: attachment.name,
-            mimeType: attachment.mimeType,
-            source: attachment.source || 'file',
-          };
-        } else if (attachment.kind === 'image') {
-          pastedImages[String(attachment.id)] = {
-            id: attachment.id,
-            type: 'image',
-            sizeBytes: base64Bytes(attachment.data),
-            mediaType: attachment.mimeType,
-            filename: attachment.name,
-            ...(attachment.metadataText ? { metadataText: attachment.metadataText } : {}),
-          };
-        }
-      }
-      const imageAttachments = used.filter((attachment) => attachment.kind === 'image');
-      const pdfAttachments = used.filter((attachment) => attachment.kind === 'pdf');
-      // Register byte-free preview sources for the transcript chips this
-      // submit will produce. The transcript item itself carries metadata only.
-      for (const attachment of imageAttachments) {
-        registerImagePreview(attachment.id, base64Bytes(attachment.data),
-          `data:${attachment.mimeType};base64,${attachment.data}`);
-      }
-      if (expandedText.length > MAX_SUBMIT_TEXT_LENGTH) {
-        setAttachmentError('This prompt is too large to send. Remove or shorten an inline text attachment.');
-        return;
-      }
-      const content: DesktopPromptContent = imageAttachments.length || pdfAttachments.length
-        ? [
-          // Image-only submits can now have an empty draft (no bracket token
-          // padding the text) — skip the empty text part for provider safety.
-          ...(expandedText ? [{ type: 'text' as const, text: expandedText }] : []),
-          // TUI parity: each image carries its "[Image: WxH, displayed at …]"
-          // metadata text part directly before the image block.
-          ...imageAttachments.flatMap((attachment) => [
-            ...(attachment.metadataText
-              ? [{ type: 'text' as const, text: attachment.metadataText }]
-              : []),
-            {
-              type: 'image' as const,
-              data: attachment.data,
-              mimeType: attachment.mimeType,
-            },
-          ]),
-          ...pdfAttachments.map((attachment) => ({
-            type: 'file' as const,
-            data: attachment.data,
-            mimeType: attachment.mimeType,
-            filename: attachment.name,
-          })),
-        ]
-        : expandedText;
-      // First-submit session materialization can legitimately take a moment
-      // (keychain/core-memory startup). Commit the editor state immediately so
-      // Enter never looks ignored; a rejected submit restores the exact draft
-      // and attachments without creating a session ahead of user intent.
-      const committedAttachments = [...used];
-      const retryKey = submissionRetryKey(expandedText, committedAttachments);
-      const submittedDisplayText = expandedText.trim();
-      const priorRetry = submissionRetryRef.current;
-      const submissionId = priorRetry?.key === retryKey
-        ? priorRetry.id
-        : nextComposerSubmissionId();
-      retainComposerSubmissionRecovery({
-        id: submissionId,
-        scope: recoveryScope,
-        text: submittedDraft,
-        attachments: committedAttachments,
-      });
-      setDraft((current) => current === submittedDraft ? '' : current);
-      removeAttachments(new Set(committedAttachments.map((attachment) => attachment.id)));
-      historyNavigation.current = { index: -1, seed: '' };
-      const restoreSubmitted = () => {
-        rejectComposerSubmissionRecovery(submissionId);
-        if (mountedRef.current) setSubmissionRecoveryVersion((current) => current + 1);
-      };
-      let accepted: unknown;
-      try {
-        accepted = await submit(content, {
-          id: submissionId,
-          ...(submittedDisplayText ? { displayText: submittedDisplayText } : {}),
-          ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
-          ...(Object.keys(pastedTexts).length ? { pastedTexts } : {}),
-        });
-      } catch (error) {
-        submissionRetryRef.current = { key: retryKey, id: submissionId };
-        restoreSubmitted();
-        throw error;
-      }
-      if (accepted === true) {
-        resolveComposerSubmissionRecovery(submissionId);
-        if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;
-        rememberPrompt(expandedText, committedAttachments);
-      } else {
-        submissionRetryRef.current = { key: retryKey, id: submissionId };
-        restoreSubmitted();
-      }
-    } finally {
-      if (serializedSubmit) {
-        submittingRef.current = false;
-        setSubmitting(false);
-      }
-    }
-  };
+  const { send, stop } = useComposerSubmission({
+    turnBusy,
+    commandBusy,
+    draftMode,
+    queued,
+    recoveryScope,
+    textarea,
+    draftRef,
+    attachmentsRef,
+    transitioningRef,
+    composingRef,
+    submittingRef,
+    submissionRetryRef,
+    mountedRef,
+    historyNavigation,
+    setDraft,
+    setSubmitting,
+    setSubmissionRecoveryVersion,
+    clearNotice: () => setComposerNotice(''),
+    setAttachmentError,
+    removeAttachments,
+    mergeRestoredAttachments,
+    restoredAttachments,
+    executeSlash,
+    rememberPrompt,
+    submit,
+    abort,
+    onQueuedRestored,
+  });
   const onSubmit = (event: FormEvent) => { event.preventDefault(); void send('', 'form-submit'); };
-  const insertNewline = (element: HTMLTextAreaElement) => {
-    const start = element.selectionStart;
-    const end = element.selectionEnd;
-    setDraft((current) => `${current.slice(0, start)}\n${current.slice(end)}`);
-    window.setTimeout(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(start + 1, start + 1);
-    }, 0);
-  };
-  const selectMention = (path: string | undefined) => {
-    if (!path || !mentionMatch) return;
-    const before = draft.slice(0, mentionMatch.start);
-    const after = draft.slice(mentionMatch.end);
-    const inserted = `@${path}${after && /^\s/.test(after) ? '' : ' '}`;
-    const next = `${before}${inserted}${after}`;
-    const caret = before.length + inserted.length;
-    setDraft(next);
-    setCaretOffset(caret);
-    setMentionDismissed('');
-    setMentionResults([]);
-    historyNavigation.current = { index: -1, seed: '' };
-    window.setTimeout(() => {
-      textarea.current?.focus();
-      textarea.current?.setSelectionRange(caret, caret);
-    }, 0);
-  };
-  const navigateMentionPalette = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!mentionOpen) return false;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setMentionDismissed(mentionSignature);
-      return true;
-    }
-    if (!mentionResults.length) return false;
-    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown')
-      && !paletteOwnsPromptVerticalArrow(mentionResults.length)) return false;
-    if (event.key === 'Enter' || event.key === 'Tab') {
-      event.preventDefault();
-      selectMention(mentionResults[mentionIndex] || mentionResults[0]);
-      return true;
-    }
-    const last = mentionResults.length - 1;
-    const moves: Record<string, (index: number) => number> = {
-      ArrowDown: (index) => (index + 1) % mentionResults.length,
-      ArrowUp: (index) => (index - 1 + mentionResults.length) % mentionResults.length,
-      Home: () => 0,
-      End: () => last,
-      PageUp: (index) => Math.max(0, index - 8),
-      PageDown: (index) => Math.min(last, index + 8),
-    };
-    const move = moves[event.key];
-    if (!move) return false;
-    event.preventDefault();
-    setMentionIndex(move);
-    return true;
-  };
-  const navigateSlashPalette = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!slashOpen || slashCommands.length === 0) return false;
-    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown')
-      && !paletteOwnsPromptVerticalArrow(slashCommands.length)) return false;
-    const last = slashCommands.length - 1;
-    if (event.key === 'Tab') {
-      event.preventDefault();
-      setDraft(`/${paletteCommandToken(slashCommands[slashIndex])} `);
-      return true;
-    }
-    const moves: Record<string, (index: number) => number> = {
-      ArrowDown: (index) => (index + 1) % slashCommands.length,
-      ArrowRight: (index) => (index + 1) % slashCommands.length,
-      ArrowUp: (index) => (index - 1 + slashCommands.length) % slashCommands.length,
-      ArrowLeft: (index) => (index - 1 + slashCommands.length) % slashCommands.length,
-      Home: () => 0,
-      End: () => last,
-      PageUp: (index) => Math.max(0, index - slashCommands.length),
-      PageDown: (index) => Math.min(last, index + slashCommands.length),
-    };
-    const move = moves[event.key];
-    if (!move) return false;
-    event.preventDefault();
-    setSlashIndex(move);
-    return true;
-  };
-  const navigateMessageSelector = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!selectorOpen) return false;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      setSelectorOpen(false);
-      escapeClearAtRef.current = 0;
-      return true;
-    }
-    // Typing is an implicit dismissal: the character still reaches the draft.
-    if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      setSelectorOpen(false);
-      return false;
-    }
-    if (selectableMessages.length === 0) return false;
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void rewindToMessage(selectableMessages[selectorIndex]?.id || '');
-      return true;
-    }
-    const last = selectableMessages.length - 1;
-    const moves: Record<string, (index: number) => number> = {
-      ArrowDown: (index) => Math.min(last, index + 1),
-      ArrowUp: (index) => Math.max(0, index - 1),
-      Home: () => 0,
-      End: () => last,
-      PageUp: (index) => Math.max(0, index - 8),
-      PageDown: (index) => Math.min(last, index + 8),
-    };
-    const move = moves[event.key];
-    if (!move) return false;
-    event.preventDefault();
-    setSelectorIndex(move);
-    return true;
-  };
-  const onKeyUp = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    shiftLatchRef.current = nextComposerShiftLatch(shiftLatchRef.current, {
-      type: 'keyup',
-      key: event.key,
-      shiftKey: event.shiftKey,
-    });
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Escape') escapeClearAtRef.current = 0;
-    const shiftLatched = shiftLatchRef.current;
-    shiftLatchRef.current = nextComposerShiftLatch(shiftLatched, {
-      type: 'keydown',
-      key: event.key,
-      shiftKey: event.shiftKey,
-    });
-    const newlineChord = isComposerNewlineChord({
-      key: event.key,
-      shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      altKey: event.altKey,
-      shiftLatched,
-    });
-    const composing = event.nativeEvent.isComposing || composingRef.current ||
-      event.nativeEvent.keyCode === 229;
-    // If the previous composing Enter produced no native newline, its one-shot
-    // guard expires at the next real key. Plain Enter below still submits.
-    if (!composing) suppressImeLineBreakRef.current = false;
-    if (composing && event.key === 'Enter') {
-      // Do not cancel keydown: the IME still owns candidate confirmation.
-      // Keep the guard through compositionend and delayed beforeinput.
-      suppressImeLineBreakRef.current = true;
-    }
-    // A newline chord pressed while an IME syllable is still composing is
-    // swallowed by the commit: the composition ends and NOTHING breaks the
-    // line (user: 개행이 안돼). Let the commit land, then insert the break the
-    // user asked for — unless the platform already inserted one.
-    if (composing && newlineChord) {
-      const element = event.currentTarget;
-      window.setTimeout(() => {
-        const caret = element.selectionStart;
-        if (element.value.slice(Math.max(0, caret - 1), caret) === '\n') return;
-        insertNewline(element);
-      }, 0);
-      return;
-    }
-    if (composing && (event.key === 'Enter' || event.key === 'Escape' || event.key === 'Tab' ||
-      event.key.startsWith('Arrow'))) {
-      // Keep the key owned by the IME without cancelling its native commit.
-      // Otherwise it bubbles into workbench shortcuts even though the composer
-      // correctly skipped slash/mention submission.
-      event.stopPropagation();
-      return;
-    }
-    if (event.key === 'Enter' && event.repeat) {
-      event.preventDefault();
-      return;
-    }
-    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'u') {
-      event.preventDefault();
-      const element = event.currentTarget;
-      const selectionStart = element.selectionStart;
-      const selectionEnd = element.selectionEnd;
-      const lineStart = draft.lastIndexOf('\n', Math.max(0, selectionStart - 1)) + 1;
-      const removeStart = selectionStart === selectionEnd ? lineStart : selectionStart;
-      setDraft((current) => `${current.slice(0, removeStart)}${current.slice(selectionEnd)}`);
-      window.setTimeout(() => textarea.current?.setSelectionRange(removeStart, removeStart), 0);
-      return;
-    }
-    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'j') {
-      event.preventDefault();
-      insertNewline(event.currentTarget);
-      return;
-    }
-    if (navigateMessageSelector(event)) return;
-    if (navigateMentionPalette(event)) return;
-    if (navigateSlashPalette(event)) return;
-    if (slashOpen && slashCommands.length && event.key === 'Enter' &&
-      !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      const command = slashCommands[slashIndex];
-      void send(`/${paletteCommandToken(command)}`, 'slash-keyboard');
-      return;
-    }
-    if (event.key === 'Escape') {
-      if (slashOpen) {
-        event.preventDefault();
-        setSlashDismissedDraft(draft);
-        escapeClearAtRef.current = 0;
-        return;
-      }
-      const element = event.currentTarget;
-      const escape = classifyPromptEscape({
-        interruptActive: shouldInterruptPrompt({
-          turnBusy,
-          pendingSubmissionId,
-          draftMode,
-        }),
-        hasSelection: element.selectionStart !== element.selectionEnd,
-        hasQueuedMessages: hasRestorableQueuedMessages(),
-        hasMessages: selectableMessages.length > 0,
-        value: draft || (attachments.length ? 'attachment' : ''),
-        lastClearPressAt: escapeClearAtRef.current,
-      });
-      escapeClearAtRef.current = escape.nextClearPressAt;
-      if (escape.action === 'interrupt') {
-        event.preventDefault();
-        // Once the runtime owns the turn, Esc only interrupts it. A submission
-        // id is used solely while the prompt is still waiting at intake.
-        void stop(Boolean(draft || attachments.length), turnBusy ? '' : pendingSubmissionId);
-      } else if (escape.action === 'collapse-selection') {
-        event.preventDefault();
-        const end = element.selectionEnd;
-        window.setTimeout(() => element.setSelectionRange(end, end), 0);
-      } else if (escape.action === 'restore-queue') {
-        event.preventDefault();
-        void restoreQueue('', 'escape');
-      } else if (escape.action === 'arm-clear') {
-        event.preventDefault();
-        showComposerNotice('Esc again to clear', PROMPT_ESCAPE_HINT_TIMEOUT_MS);
-      } else if (escape.action === 'clear') {
-        event.preventDefault();
-        setDraft('');
-        clearAttachments();
-        showComposerNotice('');
-        historyNavigation.current = { index: -1, seed: '' };
-      } else if (escape.action === 'arm-select') {
-        event.preventDefault();
-        showComposerNotice(t("Esc again to pick a message"), PROMPT_ESCAPE_HINT_TIMEOUT_MS);
-      } else if (escape.action === 'message-selector') {
-        event.preventDefault();
-        showComposerNotice('');
-        openMessageSelector();
-      }
-      return;
-    }
-    const queueAvailable = hasRestorableQueuedMessages();
-    const historyIntent = shouldNavigatePromptHistory({
-      key: event.key,
+  const { selectMention, onKeyDown, onKeyUp } = useComposerKeyboard({
+    draft: {
       value: draft,
-      selectionStart: event.currentTarget.selectionStart,
-      selectionEnd: event.currentTarget.selectionEnd,
-      shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      altKey: event.altKey,
-      historyActive: historyNavigation.current.index >= 0,
-      allowNonEmpty: event.key === 'ArrowUp' && queueAvailable,
-    });
-    // TUI parity: ArrowUp reclaims queued follow-ups even with a draft in
-    // progress (caret at start) — the engine merges queued text above the
-    // current draft, exactly like the terminal's up-arrow restore.
-    if (event.key === 'ArrowUp' && historyIntent && !event.altKey &&
-      queueAvailable) {
-      event.preventDefault();
-      void restoreQueue('', 'arrow-up');
-      return;
-    }
-    if (event.key === 'ArrowUp' && historyIntent && history.length) {
-      event.preventDefault();
-      const navigation = historyNavigation.current;
-      if (navigation.index < 0) {
-        navigation.seed = event.currentTarget.value;
-        historySeedAttachments.current = attachmentsRef.current.map((attachment) => ({ ...attachment }));
-      }
-      navigation.index = Math.min(history.length - 1, navigation.index + 1);
-      const entry = history[navigation.index];
-      const value = entry?.text || '';
-      const nextAttachments = (entry?.attachments || []).map((attachment) => ({ ...attachment }));
-      for (const attachment of nextAttachments) {
-        attachmentSequence.current = Math.max(attachmentSequence.current, attachment.id + 1);
-      }
-      attachmentsRef.current = nextAttachments;
-      setAttachments(nextAttachments);
-      draftRef.current = value;
-      setDraft(value);
-      window.setTimeout(() => textarea.current?.setSelectionRange(0, 0), 0);
-      return;
-    }
-    if (event.key === 'ArrowDown' && historyIntent && historyNavigation.current.index >= 0) {
-      event.preventDefault();
-      const navigation = historyNavigation.current;
-      navigation.index -= 1;
-      const entry: ComposerHistoryEntry = navigation.index < 0
-        ? { text: navigation.seed, attachments: historySeedAttachments.current }
-        : history[navigation.index];
-      const value = entry?.text || '';
-      const nextAttachments = (entry?.attachments || []).map((attachment) => ({ ...attachment }));
-      for (const attachment of nextAttachments) {
-        attachmentSequence.current = Math.max(attachmentSequence.current, attachment.id + 1);
-      }
-      attachmentsRef.current = nextAttachments;
-      setAttachments(nextAttachments);
-      draftRef.current = value;
-      setDraft(value);
-      window.setTimeout(() => textarea.current?.setSelectionRange(value.length, value.length), 0);
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (newlineChord) {
-        insertNewline(event.currentTarget);
-      } else {
-        void send('', 'keyboard-enter');
-      }
-    }
-  };
-  const stop = async (preserveDraft = false, submissionId = '') => {
-    const restorePrompt = submissionId
-      ? !preserveDraft
-      : false;
-    const result = asRecord(await abort({
-      restorePrompt,
-      ...(submissionId ? { submissionId } : {}),
-    }));
-    if (submissionId && (result?.aborted === true || result?.restoreText)) {
-      const restoredIds = Array.isArray(result.restoredSubmissionIds)
-        ? result.restoredSubmissionIds.map(String).filter(Boolean)
-        : [submissionId];
-      onQueuedRestored?.(restoredIds.length ? restoredIds : [submissionId]);
-    }
-    if (result?.restoreText) {
-      const restoredText = String(result.restoreText);
-      const restored = restoredAttachments(result, restoredText);
-      const acceptedText = mergeRestoredAttachments(restored.attachments, restored.text);
-      setDraft((current) => {
-        const next = [acceptedText, current].filter(Boolean).join('\n');
-        draftRef.current = next;
-        return next;
-      });
-      window.setTimeout(() => textarea.current?.focus(), 0);
-    }
-  };
-  const hiddenQueueIdSet = new Set([
-    ...(hiddenQueueIds || []).map(String),
-    ...locallyHiddenQueueIds,
-  ]);
-  const visibleQueued = Array.isArray(queued)
-    ? queued.filter((item) => {
-      const id = asRecord(item)?.id;
-      return id === undefined || id === null || !hiddenQueueIdSet.has(String(id));
-    })
-    : queued;
+      set: setDraft,
+      ref: draftRef,
+      textarea,
+      setCaretOffset,
+    },
+    mention: {
+      match: mentionMatch,
+      open: mentionOpen,
+      signature: mentionSignature,
+      results: mentionResults,
+      index: mentionIndex,
+      setIndex: setMentionIndex,
+      setDismissed: setMentionDismissed,
+      setResults: setMentionResults,
+    },
+    slash: {
+      open: slashOpen,
+      commands: slashCommands,
+      index: slashIndex,
+      setIndex: setSlashIndex,
+      setDismissedDraft: setSlashDismissedDraft,
+      commandToken: paletteCommandToken,
+    },
+    selector: {
+      open: selectorOpen,
+      setOpen: setSelectorOpen,
+      index: selectorIndex,
+      setIndex: setSelectorIndex,
+      messages: selectableMessages,
+      openSelector: openMessageSelector,
+      rewindToMessage,
+    },
+    history: {
+      entries: history,
+      navigation: historyNavigation,
+      seedAttachments: historySeedAttachments,
+      attachmentsRef,
+      replaceAttachments,
+    },
+    queue: {
+      pendingSubmissionId,
+      hasRestorableMessages: hasRestorableQueuedMessages,
+      restore: (source) => { void restoreQueue('', source); },
+    },
+    runtime: {
+      turnBusy,
+      draftMode,
+      attachments,
+      escapeClearAt: escapeClearAtRef,
+      showNotice: showComposerNotice,
+    },
+    ime: {
+      composing: composingRef,
+      suppressLineBreak: suppressImeLineBreakRef,
+      shiftLatch: shiftLatchRef,
+    },
+    actions: {
+      send,
+      stop,
+      clearAttachments,
+    },
+  });
   const stopOnly = shouldStopComposerGeneration({
     turnBusy,
     text: draft,
@@ -2004,14 +1068,9 @@ export const Composer = memo(function Composer({
             ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
             : <span><MxIcon name="open-file" size={16} /></span>}
           <span data-tooltip={attachment.name}>{attachment.name}</span>
-          <button type="button" aria-label={t("Remove {{name}}", { name: attachment.name })} onClick={() => {
-            setAttachments((current) => {
-              const next = current.filter((entry) => entry.id !== attachment.id);
-              attachmentsRef.current = next;
-              return next;
-            });
-            setDraft((current) => current.replace(attachment.token, '').replace(/ {2,}/g, ' '));
-          }} className="attachment-remove" data-tooltip={t("Remove")}>
+          <button type="button" aria-label={t("Remove {{name}}", { name: attachment.name })}
+            onClick={() => removeAttachment(attachment)}
+            className="attachment-remove" data-tooltip={t("Remove")}>
             <X size={14} aria-hidden="true" />
           </button>
         </div>)}

@@ -38,6 +38,12 @@
   container-name: mixdog-pane;
   container-type: inline-size;
 }
+/* Monaco's fixed context view remains inside its leaf stacking context.
+   Lift the focused leaf above sibling panes so their tab close buttons and
+   chrome cannot paint through a menu that crosses a split boundary. */
+.pane-leaf:has(> .pane-cell.is-focused) {
+  z-index: 4;
+}
 .pane-resize-handle {
   position: relative;
   /* Consume one visual pixel; the transparent pseudo-element below preserves

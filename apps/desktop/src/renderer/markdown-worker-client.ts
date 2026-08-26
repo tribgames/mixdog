@@ -1,4 +1,5 @@
 import type { MarkdownAstRoot } from "./markdown-ast";
+import { registerIdleReclaim } from "./idle-reclaim";
 
 interface MarkdownWorkerResponse {
   id: number;
@@ -51,6 +52,13 @@ function rememberStreamingMarkdownAst(text: string, root: MarkdownAstRoot): void
     astCacheCharacters -= oldest.length;
   }
 }
+
+// Parsed markdown is pure derived state: an idle drop costs one reparse the
+// next time that exact text scrolls back into view.
+registerIdleReclaim(() => {
+  astCache.clear();
+  astCacheCharacters = 0;
+});
 
 function parseMarkdownOnRenderer(text: string): Promise<MarkdownAstRoot> {
   rendererParserPromise ||= import("./markdown-ast");

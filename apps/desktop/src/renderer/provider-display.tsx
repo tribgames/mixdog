@@ -180,20 +180,6 @@ export function modelFastAvailable(
   return model.fastEfforts.includes(String(effort || '').trim().toLowerCase());
 }
 
-export function preferredModelParameters(
-  model: DesktopModelOption | undefined,
-  current: Record<string, string> = {},
-): Record<string, string> {
-  if (!model) return {};
-  const defaults = { ...(model.defaultModelParameters || {}), ...(model.savedModelParameters || {}), ...current };
-  return Object.fromEntries((model.modelParameterOptions || []).flatMap((definition) => {
-    const value = defaults[definition.id];
-    if (value && definition.options.some((option) => option.value === value)) return [[definition.id, value]];
-    const fallback = definition.options[0]?.value;
-    return fallback ? [[definition.id, fallback]] : [];
-  }));
-}
-
 export function modelContextWindow(model: DesktopModelOption): number {
   const value = Number(model.contextWindow);
   const explicit = Number.isFinite(value) && value > 0 ? value : 0;

@@ -109,6 +109,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
       const turns = (existing?.turns || []).filter((entry) => entry?.generation !== generation);
       turns.push({
         generation,
+        checkpointId: clean(turn?.checkpointId),
         root,
         baselineTree,
         // Relative, forward-slashed paths this session's own tools mutated.

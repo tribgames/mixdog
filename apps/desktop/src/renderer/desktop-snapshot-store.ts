@@ -69,8 +69,6 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "agentWorkers",
   "agentJobs",
   "activeTools",
-  "remoteEnabled",
-  "remoteSessionId",
 ];
 
 const DOCK_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [

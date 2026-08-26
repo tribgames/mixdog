@@ -55,9 +55,11 @@ test('a sibling session turn leaves a completed review revertable', async () => 
   const root = await createRepository();
   _resetTurnSnapshotForTest();
   try {
-    await beginTurnSnapshot(root, 'session-a');
+    await beginTurnSnapshot(root, 'session-a', { checkpointId: 'prompt-a' });
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
-    assert.equal((await getTurnReviewDiff(root, 'session-a')).revertMode, 'worktree');
+    const initialReview = await getTurnReviewDiff(root, 'session-a');
+    assert.equal(initialReview.revertMode, 'worktree');
+    assert.equal(initialReview.checkpointId, 'prompt-a');
     await completeTurnSnapshot('session-a');
 
     // Opening a turn in the SAME worktree from another session used to flip
@@ -68,7 +70,13 @@ test('a sibling session turn leaves a completed review revertable', async () => 
     assert.equal(review.snapshotKind, 'worktree');
     assert.equal(review.revertMode, 'worktree');
 
-    await revertTurnReviewFile(root, 'session-a', 'file.txt');
+    await assert.rejects(
+      revertTurnReviewFile(root, 'session-a', 'file.txt', 'prompt-b'),
+      /checkpoint changed/,
+    );
+    assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\ntwo\n');
+
+    await revertTurnReviewFile(root, 'session-a', 'file.txt', 'prompt-a');
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
   } finally {
     _resetTurnSnapshotForTest();
@@ -128,6 +136,35 @@ test('a worktree without a Git baseline keeps the tracked revert', async () => {
   }
 });
 
+test('only the next outer prompt replaces the checkpoint', async () => {
+  const root = await createRepository();
+  _resetTurnSnapshotForTest();
+  try {
+    await beginTurnSnapshot(root, 'follow-up', { checkpointId: 'prompt-1' });
+    await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
+    assert.equal((await getTurnReviewDiff(root, 'follow-up')).checkpointId, 'prompt-1');
+
+    // Mid-loop steering does not call beginTurnSnapshot, so every refresh in
+    // the outer loop keeps the original prompt checkpoint.
+    assert.equal((await getTurnReviewDiff(root, 'follow-up')).checkpointId, 'prompt-1');
+    await completeTurnSnapshot('follow-up');
+
+    await beginTurnSnapshot(root, 'follow-up', { checkpointId: 'prompt-2' });
+    await writeFile(join(root, 'file.txt'), 'one\ntwo\nthree\n');
+    assert.equal((await getTurnReviewDiff(root, 'follow-up')).checkpointId, 'prompt-2');
+
+    await assert.rejects(
+      revertTurnReview(root, 'follow-up', 'prompt-1'),
+      /checkpoint changed/,
+    );
+    await revertTurnReview(root, 'follow-up', 'prompt-2');
+    assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\ntwo\n');
+  } finally {
+    _resetTurnSnapshotForTest();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 // The two ways a review used to lose its revert while the baseline tree was
 // still on disk: the runtime dropped the tracker (next turn, cache eviction,
 // restart), and a shared worktree made the whole-tree diff unattributable.
@@ -137,7 +174,7 @@ test('a completed review survives losing its in-memory tracker', async () => {
   _resetTurnSnapshotForTest();
   _setTurnSnapshotStoreRootForTest(store);
   try {
-    await beginTurnSnapshot(root, 'restart-a');
+    await beginTurnSnapshot(root, 'restart-a', { checkpointId: 'prompt-restart' });
     await writeFile(join(root, 'file.txt'), 'one\ntwo\n');
     recordTurnDiffChanges('restart-a', [{
       path: join(root, 'file.txt'),
@@ -153,9 +190,16 @@ test('a completed review survives losing its in-memory tracker', async () => {
     const review = await getTurnReviewDiff(root, 'restart-a');
     assert.equal(review.snapshotKind, 'scoped');
     assert.equal(review.revertMode, 'scoped');
+    assert.equal(review.checkpointId, 'prompt-restart');
     assert.deepEqual(review.files.map((file) => file.path), ['file.txt']);
 
-    await revertTurnReview(root, 'restart-a');
+    await assert.rejects(
+      revertTurnReview(root, 'restart-a', 'wrong-prompt'),
+      /checkpoint changed/,
+    );
+    assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\ntwo\n');
+
+    await revertTurnReview(root, 'restart-a', 'prompt-restart');
     assert.equal(await readFile(join(root, 'file.txt'), 'utf8'), 'one\n');
   } finally {
     _resetTurnSnapshotForTest();

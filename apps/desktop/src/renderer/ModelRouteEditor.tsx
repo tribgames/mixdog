@@ -1,25 +1,11 @@
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
 import { t } from './i18n';
+import { preferredModelEffort, preferredModelParameters } from './model-route-utils';
 import {
   modelDisplayName,
   modelFastAvailable,
-  preferredModelParameters,
 } from './provider-display';
 import { RouteEditor } from './RouteEditor';
-
-function preferredEffort(model: DesktopModelOption | undefined): string {
-  if (!model?.effortOptions.length) return '';
-  if (model.savedEffort && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {
-    return model.savedEffort;
-  }
-  if (model.defaultEffort && model.effortOptions.some((entry) => entry.value === model.defaultEffort)) {
-    return model.defaultEffort;
-  }
-  return ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']
-    .find((value) => model.effortOptions.some((entry) => entry.value === value))
-    || model.effortOptions[0]?.value
-    || '';
-}
 
 export function ModelRouteEditor({
   models,
@@ -52,7 +38,7 @@ export function ModelRouteEditor({
     option.provider === provider && option.model === model);
   const effort = selected?.effortOptions.some((option) => option.value === value.effort)
     ? String(value.effort)
-    : preferredEffort(selected);
+    : preferredModelEffort(selected) || '';
   const modelParameters = preferredModelParameters(selected, value.modelParameters || {});
   const fastAvailable = modelFastAvailable(selected, effort, modelParameters);
   const fast = fastAvailable && (typeof value.fast === 'boolean'
@@ -66,7 +52,7 @@ export function ModelRouteEditor({
     patch: Partial<DesktopModelSelection> = {},
   ): DesktopModelSelection => {
     const sameModel = option === selected;
-    const nextEffort = patch.effort ?? (sameModel ? effort : preferredEffort(option));
+    const nextEffort = patch.effort ?? (sameModel ? effort : preferredModelEffort(option) || '');
     const nextParameters = patch.modelParameters
       ?? preferredModelParameters(option, sameModel ? modelParameters : {});
     const requestedFast = patch.fast ?? (sameModel ? fast : option.fastPreferred);

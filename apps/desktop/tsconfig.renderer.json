@@ -16,6 +16,7 @@
     "src/renderer/desktop-api.d.ts",
     "src/renderer/fontsource.d.ts",
     "src/renderer/monaco-basic-languages.d.ts",
+    "src/renderer/monaco-locales.d.ts",
     "src/renderer/renderer-logic.d.mts",
     "src/renderer/App.tsx",
     "src/renderer/main.tsx"

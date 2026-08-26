@@ -241,9 +241,7 @@
    sections (stage → gate → gate-content → .capability-settings-content), so
    the body's 28px section rhythm must be recreated on the capability content
    column — without it every group heading glues onto the previous card
-   (user: 옵션창 상하정렬 틀어짐 / 레이아웃 다 틀어짐). The stage stopped
-   being a StableContentSwap, so this rhythm lives on the content host now,
-   never on stale .stable-content-swap selectors. */
+   (user: 옵션창 상하정렬 틀어짐 / 레이아웃 다 틀어짐). */
 /* The stage must also stay a NON-shrinking, unclipped flow child, or the
    body viewport swallows the overflow and kills body scrolling
    (user: 옵션창 스크롤이 안 된다). */

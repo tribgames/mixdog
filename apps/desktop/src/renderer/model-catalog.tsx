@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
+import { record } from './record-utils';
 import {
   modelDisplayName,
   modelOptionDescription,
@@ -15,10 +16,6 @@ import {
 type RecordValue = Record<string, unknown>;
 const RECENT_MODELS_KEY = 'mixdog.desktop-recent-models';
 const RECENT_MODELS_LIMIT = 5;
-
-function record(value: unknown): RecordValue {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
-}
 
 function providerSetupEntries(value: unknown): Array<RecordValue & { group: 'api' | 'oauth' | 'local' }> {
   const setup = record(value);

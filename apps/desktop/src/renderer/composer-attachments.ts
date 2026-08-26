@@ -3,6 +3,7 @@
 // Extracted from Composer.tsx, which keeps token insertion, draft edits and
 // error surfacing.
 import type { RecordValue } from "./desktop-types";
+import { fileLooksLikeText } from "./file-content";
 import { asRecord } from "./text-format";
 import {
   MAX_COMPOSER_ATTACHMENTS,
@@ -10,7 +11,6 @@ import {
   MAX_INLINE_IMAGE_BASE64_TOTAL,
   MAX_INLINE_TEXT_TOTAL,
   MAX_PDF_FILE_BYTES,
-  fileLooksLikeText,
   type ComposerAttachment,
 } from "./composer-support";
 import { isRemoteBrowserRenderer } from "./remote-ui-projection";

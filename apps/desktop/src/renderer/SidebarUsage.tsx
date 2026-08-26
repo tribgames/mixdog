@@ -9,22 +9,19 @@ import {
 import { PaneSurfaceGate } from "./PaneSurfaceGate";
 import { t } from "./i18n";
 import { ProviderIcon } from "./provider-display";
+import { record } from "./record-utils";
 import {
   getUsageDashboardSnapshot,
   holdUsageDashboardCadence,
   publishUsageDashboard,
   refreshUsageDashboard,
   subscribeUsageDashboard,
-  USAGE_DASHBOARD_CACHE_KEY,
   withUsageTimeout,
   type UsageApi,
   type UsageRecord,
 } from "./usage-dashboard-store";
 import { displayUsagePercent } from "./usage-percent";
 
-/** The cache key is owned by the shared store; this alias keeps the historical
- *  import site for the sidebar surface. */
-export const SIDEBAR_USAGE_CACHE_KEY = USAGE_DASHBOARD_CACHE_KEY;
 const SIDEBAR_CODEX_RESET_ATTEMPT_KEY = "mixdog.desktop.codex-reset-attempt.v1";
 const SIDEBAR_CODEX_RESET_TIMEOUT_MS = 90_000;
 
@@ -37,12 +34,6 @@ const SUBSCRIPTIONS = [
 ] as const;
 
 type Subscription = typeof SUBSCRIPTIONS[number];
-
-function record(value: unknown): UsageRecord {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as UsageRecord
-    : {};
-}
 
 function rows(value: unknown): UsageRecord[] {
   const dashboard = record(value);

@@ -57,18 +57,6 @@ export function createPaneLeaf(selection: WorkspaceSelection, id?: string): Pane
   };
 }
 
-/** The empty workspace: no tabs, no surface — the shell shows
- *  the centered guidance screen until a task pane is created. */
-export function createEmptyPaneLeaf(id?: string): PaneLeaf {
-  paneLeafCounter += 1;
-  return {
-    type: "leaf",
-    id: id || `pane_${Date.now().toString(36)}_${paneLeafCounter}`,
-    tabs: [],
-    activeKey: "",
-  };
-}
-
 /** The selection the group currently shows (null for an empty group). */
 export function paneActiveSelection(leaf: PaneLeaf): WorkspaceSelection | null {
   return leaf.tabs.find((tab) => navigationKey(tab) === leaf.activeKey) ?? leaf.tabs[0] ?? null;
@@ -129,33 +117,6 @@ export function clampPaneRatioForSizes(
 export function paneLeaves(node: PaneNode): PaneLeaf[] {
   if (node.type === "leaf") return [node];
   return [...paneLeaves(node.first), ...paneLeaves(node.second)];
-}
-
-/** Session lanes represented by the complete PANE tab model. Active sessions
- * lead the queue (focused group first), then inactive tabs follow in strip
- * order. Restored tabs therefore warm even when App's legacy registry is empty. */
-export function paneSessionTabIds(
-  leaves: readonly PaneLeaf[],
-  focusedLeafId = "",
-): string[] {
-  const orderedLeaves = focusedLeafId
-    ? [
-      ...leaves.filter((leaf) => leaf.id === focusedLeafId),
-      ...leaves.filter((leaf) => leaf.id !== focusedLeafId),
-    ]
-    : [...leaves];
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  const append = (selection: WorkspaceSelection | null): void => {
-    if (selection?.kind !== "session" || seen.has(selection.id)) return;
-    seen.add(selection.id);
-    ids.push(selection.id);
-  };
-  for (const leaf of orderedLeaves) append(paneActiveSelection(leaf));
-  for (const leaf of orderedLeaves) {
-    for (const tab of leaf.tabs) append(tab);
-  }
-  return ids;
 }
 
 /** Session lanes that are actually painted: one active session per pane.
@@ -716,12 +677,6 @@ export function paneTabAcrossVisualBoundary(
   return null;
 }
 
-/** Visual column-major order: traverse each vertical lane from top to bottom,
- *  then continue in the next lane to the right. */
-export function paneLeavesInColumnOrder(root: PaneNode): PaneLeaf[] {
-  return paneLeavesInCoordinateOrder(root, "left", "top");
-}
-
 /** Find the nearest pane wholly above or below the current pane. Candidates
  *  sharing horizontal space win over diagonal panes; ties follow visual order. */
 export function paneLeafIdInVerticalDirection(
@@ -937,31 +892,6 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
     next = replacePaneNodeAtPath(next, siblingPath, sibling);
   }
   return next;
-}
-
-/** Even distribution: after a structural change every
- *  split's ratio is recomputed from the leaf weights along its axis, so
- *  adding or removing panes always lands on equal columns/rows. Manual sash
- *  drags persist until the next structural change. */
-export function distributePaneRatios(root: PaneNode): PaneNode {
-  const weight = (node: PaneNode, direction: PaneDirection): number => {
-    if (node.type === "leaf") return 1;
-    if (node.direction === direction) {
-      return weight(node.first, direction) + weight(node.second, direction);
-    }
-    return Math.max(weight(node.first, direction), weight(node.second, direction));
-  };
-  const walk = (node: PaneNode): PaneNode => {
-    if (node.type === "leaf") return node;
-    const first = walk(node.first);
-    const second = walk(node.second);
-    const a = weight(first, node.direction);
-    const b = weight(second, node.direction);
-    const ratio = clampPaneRatio(a / (a + b));
-    if (first === node.first && second === node.second && ratio === node.ratio) return node;
-    return { ...node, first, second, ratio };
-  };
-  return walk(root);
 }
 
 /** Distribute only the axis changed by a root-edge drop. Same-axis nested

@@ -825,6 +825,23 @@
   flex: 0 0 auto;
   transform: translateY(1px);
 }
+.sidebar-category-header {
+  position: relative;
+  min-width: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+}
+.sidebar-category-header > .sidebar-heading-toggle {
+  position: static;
+  min-width: 0;
+  width: auto;
+  flex: 1 1 auto;
+}
+.sidebar-category-header > .row-overflow .row-overflow-trigger {
+  width: 28px;
+  height: 28px;
+}
 /* Empty-state line matches the section rows' type (user). */
 .sidebar-section-empty {
   margin: 2px 0 0;

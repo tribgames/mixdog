@@ -208,13 +208,19 @@ function parseCommand(command, workDir) {
     const rawOperation = String(tokens[index] || '').toLowerCase();
     const operation = OPERATION_ALIASES.get(rawOperation) ?? rawOperation;
     if (!operation) throw new Error('git requires a subcommand');
+    const args = tokens.slice(index + 1);
+    if (args.includes('--help')
+        || (operation === 'help' && args.some((value) => !value.startsWith('-')))
+        || (operation === 'help' && args.some((value) => ['-w', '--web', '-m', '--man', '-i', '--info'].includes(value)))) {
+        throw new Error('git manual help can open an external viewer; use the subcommand -h form for terminal usage');
+    }
     if (GUI_OPERATIONS.has(operation)) {
         throw new Error(`git ${operation} opens an interactive GUI and would never return here; use its non-interactive form (diff, merge, add -p)`);
     }
     if (SERVER_OPERATIONS.has(operation)) {
         throw new Error(`git ${operation} is a long-running server; start it with the shell tool so it becomes a background task`);
     }
-    return { command: String(command), cwd, globalArgs, operation, args: tokens.slice(index + 1) };
+    return { command: String(command), cwd, globalArgs, operation, args };
 }
 
 async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES } = {}) {
@@ -327,12 +333,25 @@ function semanticExit(plan, result) {
         if (result.exitCode === 0) return { exists: true };
         return result.exitCode === 1 || result.exitCode === 128 ? { exists: false } : null;
     }
+    if (operation === 'reflog' && actionOf(operation, args) === 'exists') {
+        if (result.exitCode === 0) return { exists: true };
+        return result.exitCode === 1 ? { exists: false } : null;
+    }
+    if ((operation === 'show-ref' && args.includes('--verify') && args.includes('--quiet'))
+        || (operation === 'rev-parse' && args.includes('--verify') && args.includes('--quiet'))) {
+        if (result.exitCode === 0) return { exists: true };
+        return result.exitCode === 1 ? { exists: false } : null;
+    }
+    if (operation === 'merge-base' && args.includes('--is-ancestor')) {
+        if (result.exitCode === 0) return { ancestor: true };
+        return result.exitCode === 1 ? { ancestor: false } : null;
+    }
     if (!['diff', 'diff-files', 'diff-index', 'diff-tree'].includes(operation)) return null;
     if (args.includes('--check')) {
         if (result.exitCode === 0) return { problems: false };
         return result.exitCode === 1 || result.exitCode === 2 ? { problems: true } : null;
     }
-    if (args.some((value) => value === '--exit-code' || value === '--quiet')) {
+    if (args.some((value) => value === '--exit-code' || value === '--quiet' || value === '--no-index')) {
         if (result.exitCode === 0) return { changed: false };
         return result.exitCode === 1 ? { changed: true } : null;
     }
@@ -379,8 +398,40 @@ function hasOutputFormat(args) {
     return args.some((value) => /^(?:--format|--pretty)(?:=|$)/.test(value) || value === '--oneline');
 }
 
+function hasPatchOutput(args) {
+    return args.some((value) => ['-p', '-u', '--patch', '--binary'].includes(value)
+        || /^-U\d*$/.test(value)
+        || /^--(?:patch|unified|word-diff|color-words)(?:=|$)/.test(value));
+}
+
+function needsTextDiffOutput(args) {
+    return args.some((value) => [
+        '-s', '--no-patch', '--raw', '--patch-with-raw', '--patch-with-stat',
+        '--numstat', '--shortstat', '--summary', '--compact-summary',
+        '--name-only', '--name-status', '--check', '--cumulative',
+        '--no-prefix', '--default-prefix',
+    ].includes(value)
+        || /^--(?:stat|dirstat|dirstat-by-file)(?:-|=|$)/.test(value)
+        || /^--(?:line-prefix|src-prefix|dst-prefix|output-indicator-(?:new|old|context))(?:=|$)/.test(value)
+        || /^--submodule(?:=|$)/.test(value)
+        || /^--(?:word-diff|color-words)(?:=|$)/.test(value));
+}
+
+function hasDiffPresentation(args) {
+    return hasPatchOutput(args) || needsTextDiffOutput(args);
+}
+
+function hasSpecialHistoryPresentation(args) {
+    return hasDiffPresentation(args) || args.some((value) => [
+        '-g', '--graph', '--source', '--show-signature', '--show-notes',
+        '--notes', '--no-notes', '--walk-reflogs', '--left-right',
+        '--cherry-mark', '--boundary', '--parents', '--children',
+    ].includes(value)
+        || /^--(?:decorate|decorate-refs|decorate-refs-exclude|show-notes|notes|date)(?:=|$)/.test(value));
+}
+
 function hasLogLimit(args) {
-    return args.some((value) => /^-\d+$/.test(value) || value === '-n' || value === '--max-count' || value.startsWith('--max-count='));
+    return args.some((value) => /^-(?:n)?\d+$/.test(value) || value === '-n' || value === '--max-count' || value.startsWith('--max-count='));
 }
 
 function prepare(plan, limit) {
@@ -390,22 +441,26 @@ function prepare(plan, limit) {
         return { argv: ['status', '--porcelain=v1', '-b', '--untracked-files=normal'], format: 'status', action: 'list' };
     }
     if (['diff', 'diff-files', 'diff-index', 'diff-tree'].includes(operation)) {
-        // `--check` prints whitespace diagnostics, not a patch: compacting it as
-        // a diff would drop the very lines that are the answer.
-        const format = args.includes('--check') ? 'text' : 'diff';
+        // Plumbing diff commands default to raw records, and presentation flags
+        // can replace or prefix patch markers. Only compact a standard patch.
+        const patch = !needsTextDiffOutput(args) && (operation === 'diff' || hasPatchOutput(args));
+        const format = patch ? 'diff' : 'text';
         return { argv: [operation, '--no-ext-diff', '--no-color', ...args], format, action: 'list' };
     }
-    if (operation === 'log' && !hasOutputFormat(args)) {
+    if (operation === 'log') {
         const limitArgs = hasLogLimit(args) ? [] : [`-n${limit}`];
-        return {
-            argv: ['log', ...limitArgs, '--date=iso-strict', '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%b%x1e', ...args],
-            format: 'log',
-            action: 'list',
-        };
+        if (!hasOutputFormat(args) && !hasSpecialHistoryPresentation(args)) {
+            return {
+                argv: ['log', ...limitArgs, '--date=iso-strict', '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%b%x1e', ...args],
+                format: 'log',
+                action: 'list',
+            };
+        }
+        return { argv: ['log', ...limitArgs, '--no-color', ...args], format: 'text', action: 'list' };
     }
     if (operation === 'show') {
         const blob = args.some((value) => !value.startsWith('-') && value.includes(':'));
-        const explicit = hasOutputFormat(args) || args.some((value) => /^(?:--stat|--numstat|--shortstat|--name-only|--name-status)$/.test(value));
+        const explicit = hasOutputFormat(args) || hasSpecialHistoryPresentation(args);
         if (!blob && !explicit) {
             return { argv: ['show', '--no-color', '--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s%n', ...args], format: 'show', action: 'list' };
         }
@@ -417,10 +472,13 @@ function prepare(plan, limit) {
             action: 'list',
         };
     }
-    if (operation === 'reflog' && isReadOnly(plan) && !args.some((value) => value.startsWith('--format'))) {
+    if (operation === 'reflog' && isReadOnly(plan) && actionOf(operation, args) === 'show') {
         const action = actionOf(operation, args);
         const rest = action === 'show' && args[0] === 'show' ? args.slice(1) : args;
         const limitArgs = hasLogLimit(rest) ? [] : [`-n${limit}`];
+        if (rest.some((value) => value.startsWith('--format'))) {
+            return { argv: ['reflog', 'show', ...limitArgs, ...rest], format: 'text', action: 'show' };
+        }
         return {
             argv: ['reflog', 'show', ...limitArgs, '--date=iso-strict', '--format=%gD%x00%H%x00%gs', ...rest],
             format: 'reflog',
@@ -915,4 +973,4 @@ export async function executeGitTool(input, workDir, options = {}) {
     })), { signal });
 }
 
-export const _gitCommandInternals = { creationTarget, failureText, foldProgressFrames, localizeConfigPlan, parseCommand };
+export const _gitCommandInternals = { creationTarget, failureText, foldProgressFrames, localizeConfigPlan, parseCommand, prepare };

@@ -1,13 +1,6 @@
 import type { DesktopModelSelection } from "../shared/contract";
 import type { Snapshot } from "./desktop-types";
-
-type Row = Record<string, unknown>;
-
-function record(value: unknown): Row {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Row
-    : {};
-}
+import { record } from "./record-utils";
 
 function finite(value: unknown): number | null {
   const number = Number(value);

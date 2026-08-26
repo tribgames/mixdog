@@ -38,9 +38,6 @@ const USAGE_RAIL_PIN_KEY = "mixdog.desktop.usage-rail-pin.v1";
 
 export type ActivityRailSurface =
   "utilities" | "projects" | "workflows" | "schedules" | "webhooks" | "settings";
-export type ActivityRailWorkbenchSurface =
-  "search" | "source-control";
-
 export function ActivityRail({
   activeSurface,
   sidebarOpen,
@@ -65,10 +62,6 @@ export function ActivityRail({
   primaryNavigation,
 }: {
   activeSurface: ActivityRailSurface | null;
-  /* Workbench surfaces (Explorer/Search/SCM/Debug/Tests) belong to the RIGHT
-     utility dock only (user: 좌우 분산 유지) — the rail accepts the props for
-     compatibility but never renders that cluster. */
-  activeWorkbenchSurface?: ActivityRailWorkbenchSurface | null;
   sidebarOpen: boolean;
   onToggleSessions(): void;
   onOpenUtilities(): void;
@@ -82,7 +75,6 @@ export function ActivityRail({
   onOpenWebhooks(): void;
   onPrefetchWebhooks?(): void;
   onCloseActiveSurface(): void;
-  onOpenWorkbench?(surface: ActivityRailWorkbenchSurface): void;
   onOpenSettings(): void;
   onPrefetchSettings?(): void;
   /** Overridable only for tests; the rail warms usage through the host API. */

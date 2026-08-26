@@ -17,6 +17,7 @@ import {
   reportBootSurfaceReady,
   reportBootSurfaceStage,
 } from "./boot-metrics";
+import { loadMonacoLocale } from "./monaco-locale";
 import type { WorkspaceSelection } from "./nav-types";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { GitFileDiff } from "./ReviewPane";
@@ -29,7 +30,10 @@ import { navigationKey } from "./text-format";
 type GitDiffSelection = Extract<WorkspaceSelection, { kind: "diff" }>;
 
 // Monaco DiffEditor loads on first use only.
-const MonacoGitDiff = lazy(() => import("./MonacoGitDiff.lazy"));
+const MonacoGitDiff = lazy(async () => {
+  await loadMonacoLocale();
+  return import("./MonacoGitDiff.lazy");
+});
 
 export function GitDiffPane({
   selection,

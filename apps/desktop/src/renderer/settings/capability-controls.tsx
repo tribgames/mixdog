@@ -3,12 +3,10 @@ import {
 } from 'lucide-react';
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 
-import type {
-  DesktopModelOption
-} from '../../shared/contract';
 import { registerMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
 import { modelDisplayName, providerDisplayName } from '../provider-display';
+import { record } from '../record-utils';
 // The primitives translate their OWN string props: every settings panel that
 // renders through Group/Rows/ActionButton gets localized titles without each
 // call site wrapping literals. Dynamic values (model names, provider labels)
@@ -16,7 +14,7 @@ import { modelDisplayName, providerDisplayName } from '../provider-display';
 import { t } from '../i18n';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
-import { count, providerLabel, record, type RecordValue, rows, type SettingsConfirmation } from "./capability-data";
+import { count, providerLabel, rows, type SettingsConfirmation } from "./capability-data";
 
 export function Group({ title, description, children }: {
   title?: string; description?: string; children: ReactNode;
@@ -68,56 +66,6 @@ export function SelectRow({ title, description: _description, value, disabled, o
     <span className="mixdog-settings__row-title">{displayTitle}</span>
   </div><div className="settings-row-control"><OpenSelect className="settings-select" ariaLabel={displayTitle} value={value} disabled={disabled}
     options={normalized.map((entry) => ({ ...entry, label: t(entry.label) }))} onChange={onChange} /></div></div>;
-}
-
-export function routeOption(value: RecordValue): DesktopModelOption {
-  const model = String(value.id || value.model || '');
-  const effortOptions = rows(value.effortOptions).flatMap((entry) => {
-    const optionValue = String(entry.value || '');
-    if (!optionValue) return [];
-    return [{ value: optionValue, label: String(entry.label || optionValue) }];
-  });
-  const savedEffort = String(value.savedEffort || '');
-  const savedFast = typeof value.savedFast === 'boolean' ? value.savedFast : undefined;
-  const fastCapable = value.fastCapable === true;
-  const fastEfforts = Array.isArray(value.fastEfforts)
-    ? value.fastEfforts.map((entry) => String(entry || '').trim().toLowerCase())
-    : undefined;
-  const modelParameterOptions = Array.isArray(value.modelParameterOptions)
-    ? value.modelParameterOptions as DesktopModelOption['modelParameterOptions']
-    : [];
-  return {
-    provider: String(value.provider || ''),
-    model,
-    display: String(value.display || value.name || model),
-    effortOptions,
-    fastCapable,
-    ...(fastEfforts ? { fastEfforts } : {}),
-    fastPreferred: fastCapable && (value.fastPreferred === true || savedFast === true),
-    ...(savedEffort ? { savedEffort } : {}),
-    ...(savedFast === undefined ? {} : { savedFast }),
-    ...(value.supportsVision === true ? { supportsVision: true } : {}),
-    ...(value.defaultEffort ? { defaultEffort: String(value.defaultEffort) } : {}),
-    ...(value.defaultFast === true ? { defaultFast: true } : {}),
-    modelParameterOptions,
-    parameterVariants: Array.isArray(value.parameterVariants) ? value.parameterVariants as Array<Record<string, string>> : [],
-    defaultModelParameters: record(value.defaultModelParameters) as Record<string, string>,
-    savedModelParameters: record(value.savedModelParameters) as Record<string, string>,
-  };
-}
-
-export function preferredEffort(model: DesktopModelOption | undefined): string | undefined {
-  if (!model?.effortOptions.length) return undefined;
-  if (model.savedEffort && model.effortOptions.some((entry) => entry.value === model.savedEffort)) {
-    return model.savedEffort;
-  }
-  if (model.defaultEffort && model.effortOptions.some((entry) => entry.value === model.defaultEffort)) {
-    return model.defaultEffort;
-  }
-  for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
-    if (model.effortOptions.some((entry) => entry.value === value)) return value;
-  }
-  return model.effortOptions[0]?.value;
 }
 
 export function FormRow({ title, description: _description, status, children, resetOnSubmit = false, onSubmit }: {

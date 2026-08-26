@@ -8,10 +8,12 @@ import type {
 } from '../../shared/contract';
 
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
+import { preferredModelEffort } from '../model-route-utils';
 import { showDesktopToast } from '../notifications';
+import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
-import { SettingsConfirmDialog, preferredEffort } from "./capability-controls";
-import { type CapabilitySettingsProps, type PanelContext, type SettingsConfirmation, getCachedCapabilitySettings, preloadCapabilitySettings, record } from "./capability-data";
+import { SettingsConfirmDialog } from "./capability-controls";
+import { type CapabilitySettingsProps, type PanelContext, type SettingsConfirmation, getCachedCapabilitySettings, preloadCapabilitySettings } from "./capability-data";
 import { CategoryPanel } from "./capability-panels";
 export { getCachedCapabilitySettings, preloadCapabilitySettings, type CachedCapabilitySettings } from "./capability-data";
 export { OAuthControl } from "./capability-panels";
@@ -172,7 +174,7 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
       const activeEffort = String(active.effort || '');
       const effort = isActiveRoute && model.effortOptions.some((entry) => entry.value === activeEffort)
         ? activeEffort
-        : preferredEffort(model);
+        : preferredModelEffort(model);
       const fast = model.fastCapable
         ? (isActiveRoute && typeof active.fast === 'boolean'
           ? active.fast === true

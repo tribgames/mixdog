@@ -28,6 +28,7 @@ import { t } from '../i18n';
 import { OpenSelect } from '../OpenSelect';
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { modelOptionLabel, providerDisplayName } from '../provider-display';
+import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { OAuthControl } from './CapabilitySettings';
@@ -128,10 +129,6 @@ function savedStep(): number {
   } catch {
     return 0;
   }
-}
-
-function record(value: unknown): RecordValue {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 }
 
 function rows(value: unknown, key?: string): RecordValue[] {

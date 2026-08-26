@@ -89,6 +89,7 @@ function createDiffTracker(meta = {}) {
   return {
     ownerSessionId: clean(meta.ownerSessionId) || null,
     ownerGeneration: Number(meta.ownerGeneration) || 0,
+    checkpointId: clean(meta.checkpointId),
     worktreeRequest: clean(meta.worktreeRequest),
     worktreeContended: false,
     valid: true,
@@ -445,20 +446,26 @@ function publicAgentReviews(sessionId) {
 }
 
 /** Start a new user turn and invalidate the prior turn's child review group. */
-export async function beginTurnSnapshot(_worktree, sessionId) {
+export async function beginTurnSnapshot(_worktree, sessionId, options = {}) {
   const ownerSessionId = clean(sessionId);
   if (DISABLED || !ownerSessionId) return;
   const generation = (_turnsBySession.get(ownerSessionId)?.generation || 0) + 1;
+  const checkpointId = clean(options?.checkpointId);
   for (const [trackedSessionId, tracker] of _diffTrackersBySession) {
     if (tracker.ownerSessionId === ownerSessionId) _diffTrackersBySession.delete(trackedSessionId);
   }
   _turnsBySession.delete(ownerSessionId);
   _turnsBySession.set(ownerSessionId, {
     generation,
+    checkpointId,
     agents: new Map(),
   });
   const worktreeRequest = pathKey(_worktree);
-  const tracker = resetDiffTracker(ownerSessionId, { worktreeRequest });
+  const tracker = resetDiffTracker(ownerSessionId, {
+    ownerGeneration: generation,
+    checkpointId,
+    worktreeRequest,
+  });
   trimTurnCache();
   if (!tracker) return;
   for (const [otherSessionId, other] of _diffTrackersBySession) {
@@ -575,6 +582,7 @@ async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
   try {
     await saveTurnSnapshotRecord(ownerSessionId, {
       generation: _turnsBySession.get(ownerSessionId)?.generation || 0,
+      checkpointId: tracker.checkpointId,
       root: snapshot.root,
       baselineTree: snapshot.baselineTree,
       toolFiles: owned,
@@ -669,6 +677,7 @@ async function scopedReviewFromRecord(ownerSessionId) {
     patch: resumed.snapshot.patch || '',
     snapshotKind: 'scoped',
     revertMode: 'scoped',
+    checkpointId: clean(resumed.record.checkpointId),
     patchTruncated: resumed.snapshot.patchTruncated === true,
     authoritative: true,
     agents: publicAgentReviews(ownerSessionId),
@@ -677,9 +686,20 @@ async function scopedReviewFromRecord(ownerSessionId) {
 }
 
 /** Restore recorded paths — every one of them, or just the file the user picked. */
-async function revertFromRecord(worktree, ownerSessionId, file) {
+function assertCheckpointMatches(expectedCheckpointId, actualCheckpointId) {
+  const expected = clean(expectedCheckpointId);
+  if (!expected) return;
+  const actual = clean(actualCheckpointId);
+  if (!actual) throw new Error('turn review checkpoint is unavailable');
+  if (actual !== expected) {
+    throw new Error('turn review checkpoint changed; refresh the review');
+  }
+}
+
+async function revertFromRecord(worktree, ownerSessionId, file, expectedCheckpointId = '') {
   const resumed = await resumeRecordedSnapshot(ownerSessionId);
   if (!resumed) return null;
+  assertCheckpointMatches(expectedCheckpointId, resumed.record.checkpointId);
   const owned = resumed.record.toolFiles;
   const targets = file
     ? owned.filter((path) => recordedPathMatchesFile(path, resumed.record.root, file))
@@ -723,6 +743,7 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
     patch: snapshot?.patch ?? tracker?.unifiedDiff ?? '',
     snapshotKind: snapshot ? 'worktree' : 'tool',
     revertMode: snapshot ? 'worktree' : trackedRevertAvailable ? 'tracked' : '',
+    checkpointId: clean(turn?.checkpointId || tracker?.checkpointId),
     patchTruncated: snapshot?.patchTruncated === true,
     authoritative: Boolean(turn && tracker),
     agents: publicAgentReviews(ownerSessionId),
@@ -738,9 +759,10 @@ function unavailableTrackedRevertReason(tracker) {
 }
 
 /** Restore one reviewed file to this turn's worktree baseline, never to HEAD. */
-export async function revertTurnReviewFile(_worktree, sessionId, file) {
+export async function revertTurnReviewFile(_worktree, sessionId, file, expectedCheckpointId = '') {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (tracker) assertCheckpointMatches(expectedCheckpointId, tracker.checkpointId);
   if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
     if (pairs.length > 0) {
@@ -749,7 +771,7 @@ export async function revertTurnReviewFile(_worktree, sessionId, file) {
       await revertTrackedPairs(tracker, _worktree, [pair]);
       return await getTurnReviewDiff(_worktree, ownerSessionId);
     }
-    const recorded = await revertFromRecord(_worktree, ownerSessionId, file);
+    const recorded = await revertFromRecord(_worktree, ownerSessionId, file, expectedCheckpointId);
     if (recorded) return recorded;
     throw new Error(unavailableTrackedRevertReason(tracker));
   }
@@ -757,22 +779,23 @@ export async function revertTurnReviewFile(_worktree, sessionId, file) {
     await revertTurnWorktreeFile(tracker.worktreeSnapshot, file);
     return await getTurnReviewDiff(_worktree, ownerSessionId);
   }
-  const recorded = await revertFromRecord(_worktree, ownerSessionId, file);
+  const recorded = await revertFromRecord(_worktree, ownerSessionId, file, expectedCheckpointId);
   if (recorded) return recorded;
   throw new Error('turn worktree snapshot is unavailable');
 }
 
 /** Restore every file in the reviewed turn to its turn-start state. */
-export async function revertTurnReview(_worktree, sessionId) {
+export async function revertTurnReview(_worktree, sessionId, expectedCheckpointId = '') {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
+  if (tracker) assertCheckpointMatches(expectedCheckpointId, tracker.checkpointId);
   if (tracker && !worktreeSnapshotUsable(tracker)) {
     const pairs = trackedPairs(tracker);
     if (pairs.length > 0) {
       await revertTrackedPairs(tracker, _worktree, pairs);
       return await getTurnReviewDiff(_worktree, ownerSessionId);
     }
-    const recorded = await revertFromRecord(_worktree, ownerSessionId, null);
+    const recorded = await revertFromRecord(_worktree, ownerSessionId, null, expectedCheckpointId);
     if (recorded) return recorded;
     throw new Error(unavailableTrackedRevertReason(tracker));
   }
@@ -780,7 +803,7 @@ export async function revertTurnReview(_worktree, sessionId) {
     await revertTurnWorktreeSnapshot(tracker.worktreeSnapshot);
     return await getTurnReviewDiff(_worktree, ownerSessionId);
   }
-  const recorded = await revertFromRecord(_worktree, ownerSessionId, null);
+  const recorded = await revertFromRecord(_worktree, ownerSessionId, null, expectedCheckpointId);
   if (recorded) return recorded;
   throw new Error('turn worktree snapshot is unavailable');
 }

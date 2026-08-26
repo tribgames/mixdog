@@ -22,8 +22,6 @@ export type SessionLaneSource =
 export interface SessionLaneStore {
   get(sessionId: string): Snapshot | null;
   subscribe(sessionId: string, listener: () => void): () => void;
-  getRemoteSessionId(): string;
-  subscribeRemoteSession(listener: () => void): () => void;
   /** Wire the preload lane once; returns a stop function. Idempotent — a
    *  second start while wired returns the existing stop. */
   start(source?: SessionLaneSource | undefined): () => void;
@@ -469,9 +467,7 @@ export function createSessionLaneStore({
 } = {}): SessionLaneStore {
   const snapshots = new Map<string, SessionLaneEntry>();
   const listeners = new Map<string, Set<() => void>>();
-  const remoteSessionListeners = new Set<() => void>();
   const notificationKeys = new Map<string, object>();
-  let remoteSessionId = "";
   let retainedBytes = 0;
   let stop: (() => void) | null = null;
   const removeSnapshot = (sessionId: string): void => {
@@ -557,16 +553,6 @@ export function createSessionLaneStore({
     }
     if (update.snapshot) {
       const incoming = decorator.decorate(update.snapshot);
-      if (Object.prototype.hasOwnProperty.call(incoming, "remoteEnabled")
-        || Object.prototype.hasOwnProperty.call(incoming, "remoteSessionId")) {
-        const nextRemoteSessionId = incoming.remoteEnabled === true
-          ? String(incoming.remoteSessionId || "")
-          : "";
-        if (nextRemoteSessionId !== remoteSessionId) {
-          remoteSessionId = nextRemoteSessionId;
-          for (const listener of [...remoteSessionListeners]) listener();
-        }
-      }
       const decision = decideSessionLaneFrame(
         priorSnapshot,
         prior?.revision ?? null,
@@ -633,11 +619,6 @@ export function createSessionLaneStore({
         }
       };
     },
-    getRemoteSessionId: () => remoteSessionId,
-    subscribeRemoteSession(listener) {
-      remoteSessionListeners.add(listener);
-      return () => remoteSessionListeners.delete(listener);
-    },
     subscribedSessionIds: () => [...listeners.keys()],
     evictInactive() {
       for (const sessionId of [...snapshots.keys()]) {
@@ -672,7 +653,6 @@ export function createSessionLaneStore({
       notificationKeys.clear();
       snapshots.clear();
       retainedBytes = 0;
-      remoteSessionId = "";
       decorator.clear();
     },
   };
@@ -709,14 +689,4 @@ export function useSessionLane(
     [enabled, isEqual, sessionId, store],
   );
   return useSyncExternalStore(subscribe, read);
-}
-
-export function usePinnedRemoteSession(
-  store: SessionLaneStore = defaultSessionLaneStore,
-): string {
-  return useSyncExternalStore(
-    store.subscribeRemoteSession,
-    store.getRemoteSessionId,
-    store.getRemoteSessionId,
-  );
 }

@@ -9,6 +9,7 @@ import type {
   SessionSnapshot
 } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
+import { record } from '../record-utils';
 import type { SettingsCategory } from './settings-items';
 
 
@@ -276,10 +277,6 @@ export function preloadCapabilitySettings(
     if (entry.inFlight === request) entry.inFlight = undefined;
   });
   return request;
-}
-
-export function record(value: unknown): RecordValue {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 }
 
 export function rows(value: unknown, ...keys: string[]): RecordValue[] {

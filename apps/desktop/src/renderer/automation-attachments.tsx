@@ -1,5 +1,6 @@
 import { Paperclip, X } from 'lucide-react';
 import { useRef } from 'react';
+import { fileLooksLikeText } from './file-content';
 import { MxIcon } from './MxIcon';
 
 // Composer-parity attachments for automation editors (schedules/webhooks).
@@ -51,21 +52,6 @@ async function fileBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
   return url.slice(url.indexOf(',') + 1);
-}
-
-async function fileLooksLikeText(file: File): Promise<boolean> {
-  try {
-    const bytes = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
-    if (bytes.length === 0) return true;
-    let control = 0;
-    for (const byte of bytes) {
-      if (byte === 0) return false;
-      if (byte < 9 || (byte > 13 && byte < 32)) control += 1;
-    }
-    return control / bytes.length <= 0.3;
-  } catch {
-    return false;
-  }
 }
 
 /** Read picked files into attachments, enforcing count/size caps against `existing`. */

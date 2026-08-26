@@ -37,7 +37,7 @@ function asUiLanguage(value: unknown): UiLanguage | null {
 
 /** Map a BCP-47 locale onto a supported UI language: exact tag, Chinese
  *  script/region resolution, then the bare language prefix. */
-export function uiLanguageForLocale(locale: string): UiLanguage | null {
+function uiLanguageForLocale(locale: string): UiLanguage | null {
   const lower = String(locale || "").trim().toLowerCase();
   if (!lower) return null;
   const exact = UI_LANGUAGE_VALUES.find((value) => value.toLowerCase() === lower);
