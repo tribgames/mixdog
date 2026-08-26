@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.151 - 2026-08-26
+
 - Editing a symbolic link now changes the file it points at instead of being
   refused: patch and edit follow the link through every engine, write
   atomically beside the real target, and leave the link itself intact.
