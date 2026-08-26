@@ -934,8 +934,13 @@
      레이어·딤드가 틀어진다): the sheet anchors to the window bar and rides
      OVER the strip rows, exactly like the ≤760 drawer — the old 761–940
      variant anchored below the tab strip (83px) with its own radius and a
-     partial scrim, so mid-band windows got a second, broken composition. */
-  .utility-dock {
+     partial scrim, so mid-band windows got a second, broken composition.
+     Scoped to the BARE desktop-body dock: the workbench right panel nests
+     its own dock, and an unqualified selector re-framed that nested dock as
+     a SECOND fixed sheet — titlebar-offset top with a full-height 100%, so
+     its last rows ran 35px past the panel frame and were unreachable
+     (user: 프레임 안에 들어오는 구조인데 요소만 넘친다). */
+  .desktop-body > .utility-dock {
     position: fixed;
     z-index: 38;
     top: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
@@ -959,7 +964,7 @@
      line to the desktop-body clip (same as the drawer), and an INSET one
      hides under the tabs-header's opaque band (pixel-verified: y35 flat).
      ::after paints over children, immune to both. */
-  .utility-dock::after {
+  .desktop-body > .utility-dock::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -1002,8 +1007,8 @@
     .panel-backdrop { left: 0; }
   }
   /* Fixed sheet mode ignores inline width, so slide via transform instead. */
-  .utility-dock { animation: utility-dock-sheet-in var(--mx-sheet-motion); }
-  .utility-dock.closing {
+  .desktop-body > .utility-dock { animation: utility-dock-sheet-in var(--mx-sheet-motion); }
+  .desktop-body > .utility-dock.closing {
     opacity: 1;
     transform: translateX(calc(100% + 16px));
     transition: transform var(--mx-sheet-motion);
@@ -1011,9 +1016,9 @@
   /* The sheet slides by transform and never animates its width, so the inner
      block has no moving edge to hide behind: keep it start-aligned or a sheet
      narrower than the dock width would clip the TABS off the left side. */
-  .utility-dock > .utility-dock-tabs-header,
-  .utility-dock > .utility-dock-header,
-  .utility-dock > .utility-dock-body { align-self: flex-start; }
+  .desktop-body > .utility-dock > .utility-dock-tabs-header,
+  .desktop-body > .utility-dock > .utility-dock-header,
+  .desktop-body > .utility-dock > .utility-dock-body { align-self: flex-start; }
   .utility-dock-resize { display: none; }
 }
 /* Window-edge dragging changes media-query layout before React effects can

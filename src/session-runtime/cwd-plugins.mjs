@@ -1,6 +1,7 @@
 import { discoverPluginMcp } from './plugin-mcp.mjs';
 import { featureEnvOverride, memoryToolsEnabled } from './config-helpers.mjs';
 import { readSessionCoreMemoryPayload } from '../runtime/memory/lib/core-memory-file.mjs';
+import { saveSession } from '../runtime/agent/orchestrator/session/store.mjs';
 
 // cwd-plugins.mjs — cwd resolution/apply + plugins-status + core-memory context,
 // extracted from mixdog-session-runtime.mjs. Dependency-injected factory that
@@ -15,16 +16,14 @@ export function createCwdPlugins({
   setCurrentCwd,
   getConfig,
   getSession,
+  getDesktopSession,
+  setDesktopSession,
   getRoute,
-  getLastProjectMcpKey,
-  setLastProjectMcpKey,
   isCodeGraphPrewarmLazy,
   isCodeGraphFirstTurnPrewarmDone,
   getCodeGraphPrewarmDelayMs,
   setSessionNeedsCwdRefresh,
   // callbacks / deps
-  connectConfiguredMcp,
-  invalidatePreSessionToolSurface,
   scheduleCodeGraphPrewarm,
   hooks,
   hookCommonPayload,
@@ -37,8 +36,9 @@ export function createCwdPlugins({
   pluginMcpServerName,
   mcpScriptForPlugin,
   countSkillFiles,
-  readProjectMcpServers,
   writeLastSessionCwd,
+  updateCurrentCwdOverride,
+  persistSession = (session) => saveSession(session, { immediate: true }),
   // shared utils
   clean,
   resolve,
@@ -98,17 +98,31 @@ export function createCwdPlugins({
     return next;
   }
 
-  function applyResolvedCwd(nextCwd, { markRefresh = true, waitForMcpReset = false } = {}) {
+  function applyResolvedCwd(nextCwd, {
+    markRefresh = true,
+    waitForMcpReset = false,
+    persistProjectSelection = false,
+  } = {}) {
     const resolved = resolve(nextCwd);
     const stat = statSync(resolved);
     if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${resolved}`);
     const changed = resolve(getCurrentCwd()) !== resolved;
     setCurrentCwd(resolved);
     const currentCwd = resolved;
-    process.env.MIXDOG_SESSION_CWD = currentCwd;
-    writeLastSessionCwd(currentCwd);
     const session = getSession();
     if (session) session.cwd = currentCwd;
+    updateCurrentCwdOverride?.(currentCwd);
+    writeLastSessionCwd(currentCwd, session?.clientHostPid);
+    if (persistProjectSelection && session) {
+      const desktop = getDesktopSession?.() || session.desktopSession;
+      if (desktop && typeof desktop === 'object') {
+        const nextDesktop = { classification: 'project', projectPath: currentCwd };
+        setDesktopSession?.(nextDesktop);
+        session.desktopSession = nextDesktop;
+      }
+      session.updatedAt = Date.now();
+      persistSession(session);
+    }
     // cwd changes NEVER recreate the session: a mid-conversation cwd switch must
     // preserve the full message history. We retarget the live execution cwd in
     // place; the BP3 session snapshot remains the session-start environment.
@@ -125,29 +139,14 @@ export function createCwdPlugins({
       const delay = getCodeGraphPrewarmDelayMs();
       scheduleCodeGraphPrewarm(changed ? 0 : delay, changed ? 'cwd-change' : 'cwd');
     }
-    // Project-local `.mcp.json` follows the cwd. Ordinary in-session cwd changes
-    // reconnect in the background, while desktop context replacement requests
-    // an awaitable reset so the next session/turn cannot observe the old registry.
-    let mcpReset = null;
-    if (changed) {
-      try {
-        const nextKey = resolved + '\u0000' + JSON.stringify(readProjectMcpServers(resolved));
-        if (nextKey !== getLastProjectMcpKey()) {
-          setLastProjectMcpKey(nextKey);
-          mcpReset = Promise.resolve(connectConfiguredMcp({ reset: true }))
-            .then(() => invalidatePreSessionToolSurface())
-            .catch(() => {});
-        }
-      } catch {}
-    }
+    // Extension settings are global; cwd changes never reload MCP or Skills.
+    void waitForMcpReset;
     // CwdChanged: bridge an effective cwd switch to the standard hook bus.
     // No matcher event — payload is minimal { cwd }. Fire-and-forget.
     if (changed) {
       try { void hooks.dispatch('CwdChanged', hookCommonPayload({ cwd: currentCwd })); } catch {}
     }
-    return waitForMcpReset
-      ? Promise.resolve(mcpReset).then(() => currentCwd)
-      : currentCwd;
+    return currentCwd;
   }
 
   async function refreshSessionForCwdIfNeeded(reason = 'cwd-change') {
@@ -183,6 +182,7 @@ export function createCwdPlugins({
         sourceUrl: clean(entry.source),
         sourceType: clean(entry.sourceType) || 'git',
         managed: entry.managed !== false,
+        enabled: entry.enabled !== false,
         root,
         installedAt: entry.installedAt || null,
         updatedAt: entry.updatedAt || null,

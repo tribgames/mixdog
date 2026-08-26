@@ -44,6 +44,20 @@ fn close_inherited_file_descriptors() {
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+// Task Manager groups its Processes rows by AppUserModelID, so a helper with no
+// identity of its own lists itself beside the app that spawned it rather than
+// inside it. Claim the desktop app's AUMID (electron-builder.yml `appId`); see
+// mixdog-graph/src/main.rs for the full account. Cosmetic and best-effort.
+#[cfg(windows)]
+fn adopt_desktop_app_identity() {
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    let app_id: Vec<u16> = "io.mixdog.desktop\0".encode_utf16().collect();
+    let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+}
+
+#[cfg(not(windows))]
+fn adopt_desktop_app_identity() {}
 const DEFAULT_OUTPUT_LIMIT: usize = 100 * 1024 * 1024;
 const TAIL_LIMIT: usize = 64 * 1024;
 // File capture has no pump thread counting bytes, so the output cap is
@@ -1069,6 +1083,7 @@ fn promote(req: PromoteRequest, manager: &Arc<Manager>) {
 }
 
 fn main() {
+    adopt_desktop_app_identity();
     #[cfg(unix)]
     close_inherited_file_descriptors();
     emit(&json!({

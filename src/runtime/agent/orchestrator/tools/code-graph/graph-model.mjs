@@ -128,27 +128,41 @@ export function _attachGraphRuntimeCaches(graph) {
   return graph;
 }
 
-export function _estimateGraphRuntimeCacheBytes(graph) {
-  if (!graph) return 0;
-  let total = 0;
-  for (const entry of graph._sourceTextCache?.values() || []) {
-    total += Buffer.byteLength(String(entry?.text || ''), 'utf8');
-  }
-  for (const lines of graph._maskedLinesCache?.values() || []) {
-    if (!Array.isArray(lines)) continue;
-    for (const line of lines) total += Buffer.byteLength(String(line || ''), 'utf8');
-  }
-  for (const lines of graph._sourceLinesCache?.values() || []) {
-    if (!Array.isArray(lines)) continue;
-    for (const line of lines) total += Buffer.byteLength(String(line || ''), 'utf8');
-  }
-  for (const memo of graph._referenceSearchCache?.values() || []) {
-    total += Buffer.byteLength(String(memo || ''), 'utf8');
-  }
-  for (const memo of graph._keywordSearchCache?.values() || []) {
-    total += Buffer.byteLength(String(memo || ''), 'utf8');
-  }
-  return total;
+export function _estimateGraphRetainedBytes(graph) {
+  const seen = new WeakSet();
+  const estimate = (value) => {
+    if (value == null) return 0;
+    const type = typeof value;
+    if (type === 'string') return 16 + (value.length * 2);
+    if (type === 'number' || type === 'bigint') return 8;
+    if (type === 'boolean') return 4;
+    if (type !== 'object') return 0;
+    if (seen.has(value)) return 0;
+    seen.add(value);
+    if (ArrayBuffer.isView(value)) return 32 + value.byteLength;
+    if (value instanceof ArrayBuffer) return 24 + value.byteLength;
+    if (value instanceof Map) {
+      let bytes = 48 + (value.size * 24);
+      for (const [key, item] of value) bytes += estimate(key) + estimate(item);
+      return bytes;
+    }
+    if (value instanceof Set) {
+      let bytes = 48 + (value.size * 16);
+      for (const item of value) bytes += estimate(item);
+      return bytes;
+    }
+    if (Array.isArray(value)) {
+      let bytes = 24 + (value.length * 8);
+      for (const item of value) bytes += estimate(item);
+      return bytes;
+    }
+    let bytes = 48;
+    for (const [key, item] of Object.entries(value)) {
+      bytes += 8 + estimate(key) + estimate(item);
+    }
+    return bytes;
+  };
+  return estimate(graph);
 }
 
 export function _clearGraphRuntimeCaches(graph) {

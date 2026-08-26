@@ -58,6 +58,10 @@ export function formatToolStartProgress(name, args = {}) {
             return Array.isArray(a.query) ? `searching web (${_plural(a.query.length, 'query', 'queries')})` : `searching web for ${_t(a.query || a.keywords)}`;
         case 'web_fetch':
             return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
+        case 'browser':
+            return a.action === 'navigate' && a.url
+                ? `browsing ${_t(a.url)}`
+                : `browser ${_t(a.action || 'command')}`;
 
         // ── agent module: agent / models ─────────────────────────────────
         case 'agent': {

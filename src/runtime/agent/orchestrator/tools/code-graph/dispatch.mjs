@@ -31,7 +31,8 @@ import {
 } from './project-root.mjs';
 import { buildCodeGraphAsync, prewarmCodeGraph, prewarmCodeGraphSymbols } from './build.mjs';
 import { _fileInfoFromRustRecord, _runGraphFiles } from './graph-binary.mjs';
-import { _attachGraphRuntimeCaches } from './graph-model.mjs';
+import { _attachGraphRuntimeCaches, _estimateGraphRetainedBytes } from './graph-model.mjs';
+import { _pruneCodeGraphMemoryCache } from './memory-cache.mjs';
 import {
   _isFilesystemRootPath,
   collectTrustedCodeGraphRoots,
@@ -93,6 +94,23 @@ function _outlineLanguageForPath(file) {
 const _exactFileGraphInflight = new Map();
 const _exactFileGraphCache = new Map();
 const EXACT_FILE_GRAPH_CACHE_MAX = 64;
+const EXACT_FILE_GRAPH_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+
+function _pruneExactFileGraphCache() {
+  const rows = [..._exactFileGraphCache.entries()].map(([key, entry]) => ({
+    key,
+    retainedBytes: _estimateGraphRetainedBytes(entry?.graph),
+  }));
+  let totalRetainedBytes = rows.reduce((sum, row) => sum + row.retainedBytes, 0);
+  for (const row of rows) {
+    if (
+      _exactFileGraphCache.size <= EXACT_FILE_GRAPH_CACHE_MAX
+      && totalRetainedBytes <= EXACT_FILE_GRAPH_CACHE_MAX_BYTES
+    ) break;
+    _exactFileGraphCache.delete(row.key);
+    totalRetainedBytes -= row.retainedBytes;
+  }
+}
 
 async function _buildExactFileGraph(cwd, abs, signal = null) {
   const root = pathResolve(cwd);
@@ -144,9 +162,7 @@ async function _buildExactFileGraph(cwd, abs, signal = null) {
     });
     _exactFileGraphCache.delete(key);
     _exactFileGraphCache.set(key, { sourceHash, graph });
-    while (_exactFileGraphCache.size > EXACT_FILE_GRAPH_CACHE_MAX) {
-      _exactFileGraphCache.delete(_exactFileGraphCache.keys().next().value);
-    }
+    _pruneExactFileGraphCache();
     return graph;
   })();
   const inflight = { sourceHash, promise: pending };
@@ -1244,7 +1260,10 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
       }
       default: throw new Error(`Unknown code-graph tool: ${name}`);
     }
-  })();
+  })().finally(() => {
+    _pruneCodeGraphMemoryCache();
+    _pruneExactFileGraphCache();
+  });
   if (!signal) return _work;
   let onAbort = null;
   const abortP = new Promise((_, reject) => {

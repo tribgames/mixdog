@@ -142,7 +142,15 @@ export const SETTINGS_CATEGORIES = [
 const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>([
   'providers',
 ]);
-const REMOTE_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
+const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>([
+  'skills',
+  'mcp',
+  'plugins',
+]);
+const LOCAL_SETTINGS_CATEGORIES = SETTINGS_CATEGORIES.filter(
+  (category) => !MOVED_EXTENSION_CATEGORIES.has(category.value),
+);
+const REMOTE_SETTINGS_CATEGORIES = LOCAL_SETTINGS_CATEGORIES.filter(
   (category) => !REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category.value),
 );
 
@@ -155,9 +163,10 @@ export function settingsCategoryForSurface(
   category: SettingsCategory,
   remote: boolean,
 ): SettingsCategory {
+  if (MOVED_EXTENSION_CATEGORIES.has(category)) return 'general';
   return remote && REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
 }
 
 export function settingsCategoriesForSurface(remote: boolean): ReadonlyArray<SettingsCategoryItem> {
-  return remote ? REMOTE_SETTINGS_CATEGORIES : SETTINGS_CATEGORIES;
+  return remote ? REMOTE_SETTINGS_CATEGORIES : LOCAL_SETTINGS_CATEGORIES;
 }

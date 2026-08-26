@@ -22,7 +22,7 @@ test('server setup is not charged to the search budget', () => {
   assert.equal(_searchRemainingMsForTest(deadline, startedAt, 0, 9_000), 1);
 });
 
-test('a fuzzy deadline returns promptly without starting a duplicate targeted walk', async () => {
+test('a fuzzy deadline returns promptly without starting another filesystem walk', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-find-budget-'));
   try {
     writeFileSync(join(root, 'anchor.txt'), 'anchor\n');
@@ -30,23 +30,17 @@ test('a fuzzy deadline returns promptly without starting a duplicate targeted wa
       new Error('native fuzzy search timed out after 1500ms.'),
       { code: 'NATIVE_SEARCH_TIMEOUT' },
     );
-    let targetedEnumerationCalls = 0;
     const telemetry = {};
     const out = String(await runWithLocalSearchTelemetry(telemetry, () => executeFuzzyFindTool(
       { query: 'needle-that-never-ranks', path: '.', head_limit: 5 },
       root,
       {
         __tryServeFuzzySearch: async () => { throw timeout; },
-        __runRg: async () => {
-          targetedEnumerationCalls += 1;
-          return '';
-        },
       },
     )));
     assert.ok(!/^Error[\s:[]/.test(out.trimStart()), `must not surface as a tool failure:\n${out}`);
     assert.match(out, /no fuzzy match yet/);
     assert.match(out, /inventory is still building/);
-    assert.equal(targetedEnumerationCalls, 0);
     assert.equal(telemetry.native_fuzzy_partials, 1);
     assert.equal(telemetry.native_fuzzy_targeted_hits, undefined);
     assert.equal(telemetry.native_fuzzy_errors, undefined);
@@ -73,7 +67,6 @@ test('a served partial still reports its ranked matches', async () => {
           scanErrors: 0,
           walkErrorDetails: [],
         }),
-        __runRg: async () => '',
       },
     ));
     assert.match(out, /src\/alpha\.ts/);
@@ -83,10 +76,9 @@ test('a served partial still reports its ranked matches', async () => {
   }
 });
 
-test('an empty served partial also avoids a duplicate targeted walk', async () => {
+test('an empty served partial is returned without another filesystem walk', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-find-empty-partial-'));
   try {
-    let targetedEnumerationCalls = 0;
     const out = String(await executeFuzzyFindTool(
       { query: 'missing', path: '.', head_limit: 5 },
       root,
@@ -102,14 +94,9 @@ test('an empty served partial also avoids a duplicate targeted walk', async () =
           scanErrors: 0,
           walkErrorDetails: [],
         }),
-        __runRg: async () => {
-          targetedEnumerationCalls += 1;
-          return '';
-        },
       },
     ));
     assert.match(out, /inventory is still building/);
-    assert.equal(targetedEnumerationCalls, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

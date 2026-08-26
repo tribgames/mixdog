@@ -151,6 +151,9 @@ const webPreferences = Object.freeze({
   allowRunningInsecureContent: false,
   // Enables Chromium's sandboxed built-in PDF viewer for editor previews.
   plugins: true,
+  // In-app browser pane (Utilities → Browser): guests stay sandboxed with no
+  // node access; main/browser-host.ts vets every attach via will-attach-webview.
+  webviewTag: true,
 });
 
 // Shared by the real entry and the excluded capture harness so evidence uses

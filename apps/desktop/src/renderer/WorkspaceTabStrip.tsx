@@ -18,6 +18,7 @@ import {
   FileText,
   FileDiff,
   Folder,
+  Globe,
   MessageCircle,
   Sparkles,
   Terminal,
@@ -27,8 +28,8 @@ import type { DesktopSessionSummary } from "../shared/contract";
 import type { WorkspaceTab } from "./nav-types";
 import { t } from "./i18n";
 import { prefetchSurfaceForSelection } from "./lazy-widgets";
-import { isMobileRemoteSurface, MobileTabOverview } from "./MobileTabOverview";
-import { registerMobileBack, useMobileBack } from "./mobile-back";
+import { isMobileRemoteSurface } from "./MobileTabOverview";
+import { useMobileBack } from "./mobile-back";
 import { ProgressSpinner } from "./ProgressSpinner";
 import {
   acceptPaneDrag,
@@ -92,6 +93,7 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
     case "file": return <FileText size={size} />;
     case "diff": return <FileDiff size={size} />;
     case "studio": return <Sparkles size={size} />;
+    case "browser": return <Globe size={size} />;
     case "terminal": return <Terminal size={size} />;
     case "folder": return <Folder size={size} />;
     default: return <MessageCircle size={size} />;
@@ -151,7 +153,6 @@ export function WorkspaceTabStrip({
   tabs,
   activeKey,
   activeBusy = false,
-  sessions,
   workingSessionIds,
   unreadSessionIds,
   focused = false,
@@ -163,14 +164,6 @@ export function WorkspaceTabStrip({
   onPinTab,
   onNewTask,
 }: WorkspaceTabStripProps) {
-  // Full-screen grid overview backing the compact header's count button.
-  const [mobileOverviewOpen, setMobileOverviewOpen] = useState(false);
-  // ABB (user: 백버튼 처리): the open overview arms one history sentinel so
-  // hardware back closes it instead of leaving the PWA.
-  useEffect(() => {
-    if (!mobileOverviewOpen) return undefined;
-    return registerMobileBack(() => setMobileOverviewOpen(false));
-  }, [mobileOverviewOpen]);
   // The mobile root marker + device-scale factor install in main.tsx BEFORE
   // the first render (user: 첫 진입 레이아웃 시프트) — nothing to do here.
   const selectTab = useCallback((tab: WorkspaceTab) => {
@@ -516,11 +509,12 @@ export function WorkspaceTabStrip({
                 <polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123" fill="currentColor" />
               </svg>
             </button>
+            {/* Label-only pill (user: 목록 전환도, 이름 탭 동작도 필요 없다 —
+                세션은 왼쪽 서랍, 옆 탭은 스와이프): tapping does nothing;
+                long-press keeps the tab menu for closing. */}
             <button type="button" ref={switcherTrigger}
               className="workspace-tab-compact-current"
-              aria-haspopup="dialog" aria-expanded={mobileOverviewOpen}
               data-tooltip={activeTab?.title}
-              onClick={() => setMobileOverviewOpen(true)}
               onContextMenu={(event) => {
                 if (!activeTab) return;
                 event.preventDefault();
@@ -536,13 +530,15 @@ export function WorkspaceTabStrip({
                 : activeTab ? tabGlyph(activeTab) : null}
               <span>{activeTab?.title ?? ""}</span>
             </button>
-            <button type="button" ref={switcherTrigger}
+            {/* The old count/overview slot is the phone's New task + (user:
+                처음 들어가면 new task에서 출발 안 하니 거기 +로 바꾸자):
+                the same 44dp box as its neighbors. */}
+            <button type="button"
               className="workspace-tab-count"
-              aria-label={t("Open tabs")} aria-haspopup="dialog"
-              aria-expanded={mobileOverviewOpen}
-              data-tooltip={t("Open tabs")}
-              onClick={() => setMobileOverviewOpen(true)}>
-              {tabs.length}
+              aria-label={t("New task")}
+              data-tooltip={t("New task")}
+              onClick={onNewTask}>
+              <span className="codicon codicon-add" aria-hidden="true" />
             </button>
             {/* User: ⋮ 말고 — the trailing cluster stays [N][하단][우측],
                 three controls at ONE size (equal 40dp boxes, 24dp glyphs). */}
@@ -672,6 +668,8 @@ export function WorkspaceTabStrip({
                             ? <FileDiff size={14} />
                           : tab.selection.kind === "studio"
                             ? <Sparkles size={14} />
+                            : tab.selection.kind === "browser"
+                              ? <Globe size={14} />
                             : tab.selection.kind === "terminal"
                               ? <Terminal size={14} />
                               : tab.selection.kind === "folder"
@@ -821,16 +819,6 @@ export function WorkspaceTabStrip({
         {trailing
           ? <div className="workspace-tabs-trailing">{trailing}</div>
           : null}
-        {mobileOverviewOpen && <MobileTabOverview
-          tabs={tabs}
-          activeKey={activeKey}
-          sessions={sessions}
-          workingSessionIds={workingSessionIds}
-          unreadSessionIds={unreadSessionIds}
-          onSelectTab={selectTab}
-          onCloseTab={onCloseTab}
-          onNewTask={onNewTask}
-          onClose={() => setMobileOverviewOpen(false)} />}
       </div>
   );
 }

@@ -18,7 +18,10 @@ import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { createStandaloneChannelWorker } from '../standalone/channel-worker.mjs';
 import { createStandaloneHookBus } from '../standalone/hook-bus.mjs';
 import { getStandaloneMemoryRuntime } from '../standalone/memory-runtime-proxy.mjs';
-import { writeLastSessionCwd } from '../runtime/shared/user-cwd.mjs';
+import {
+  updateCurrentCwdOverride,
+  writeLastSessionCwd,
+} from '../runtime/shared/user-cwd.mjs';
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
@@ -153,7 +156,6 @@ import {
 } from './output-styles.mjs';
 import { readJsonSafe, readTextSafe } from './fs-utils.mjs';
 import {
-  readProjectMcpServers,
   countSkillFiles,
   mcpScriptForPlugin,
   normalizePluginMcpServerConfig,
@@ -265,6 +267,14 @@ import {
   STANDALONE_ROOT,
   STANDALONE_DATA_DIR,
 } from './runtime-paths.mjs';
+// Desktop-app browser bridge: tiny fs/fetch client, so a static import adds
+// no meaningful boot cost. The tool itself is gated per session by the sync
+// bridge-availability probe (headless runs never see it).
+import {
+  browserBridgeAvailableSync,
+  executeBrowserTool,
+} from '../runtime/browser-bridge/client.mjs';
+import { TOOL_DEFS as BROWSER_BRIDGE_TOOL_DEFS } from '../runtime/browser-bridge/tool-defs.mjs';
 import {
   dispatchWebSearchRuntimeTool,
   memoryToolArgsForCaller,
@@ -419,9 +429,12 @@ export async function createMixdogSessionRuntime({
   const webSearchEnabled = () => featureEnvOverride('MIXDOG_FEATURE_WEB_SEARCH')
     ?? moduleEnabled(rt.config, 'webSearch', true);
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
+  const browserToolEnabled = () => featureEnvOverride('MIXDOG_FEATURE_BROWSER')
+    ?? browserBridgeAvailableSync();
   const featureDisallowedTools = () => [
     ...(webSearchEnabled() ? [] : ['web_search', 'web_fetch']),
     ...(memoryToolsEnabledFn() ? [] : ['memory', 'recall']),
+    ...(browserToolEnabled() ? [] : ['browser']),
   ];
 
   async function getMemoryModule() {
@@ -621,7 +634,6 @@ export async function createMixdogSessionRuntime({
   // True while the boot-time provider-catalog refresh is in flight: warming a
   // model cache it is about to invalidate only burns the load twice.
   rt.startupProviderCatalogRefreshPending = false;
-  rt.lastProjectMcpKey = null;
   // MCP connect state, owned here so teardown/reconnect paths still observe it;
   // the mcp-glue factory mutates this object in place (see createMcpGlue).
   const mcpState = {
@@ -635,6 +647,7 @@ export async function createMixdogSessionRuntime({
     mcpTransportLabel,
     resolveEffectiveMcpServers,
     mcpStatus,
+    getMcpServerConfig,
     connectConfiguredMcp,
     awaitInitialMcpConnect,
     normalizeMcpServerInput,
@@ -755,12 +768,14 @@ export async function createMixdogSessionRuntime({
     skillsStatus,
     skillContent,
     skillToolContent,
-    addProjectSkill,
+    addGlobalSkill,
+    saveSkillDocument,
+    invalidateSkills,
   } = createSkillsApi({ contextMod, getCwd: () => rt.currentCwd });
 
   // cwd resolution/apply + plugins-status + core-memory context. Extracted to
   // session-runtime/cwd-plugins.mjs; the facade keeps ownership of the mutable
-  // currentCwd/session/config/lastProjectMcpKey locals via getter/setter
+  // currentCwd/session/config locals via getter/setter
   // injection and passes the later-defined callbacks (prewarm/tool-surface/
   // memory) as closures.
   const {
@@ -774,9 +789,9 @@ export async function createMixdogSessionRuntime({
     setCurrentCwd: (next) => { rt.currentCwd = next; },
     getConfig: () => rt.config,
     getSession: () => rt.session,
+    getDesktopSession: () => rt.desktopSession,
+    setDesktopSession: (next) => { rt.desktopSession = next; },
     getRoute: () => rt.route,
-    getLastProjectMcpKey: () => rt.lastProjectMcpKey,
-    setLastProjectMcpKey: (next) => { rt.lastProjectMcpKey = next; },
     isCodeGraphPrewarmLazy: () => codeGraphPrewarmLazy,
     isCodeGraphFirstTurnPrewarmDone: () => rt.codeGraphFirstTurnPrewarmDone,
     getCodeGraphPrewarmDelayMs: () => codeGraphPrewarmDelayMs,
@@ -794,8 +809,8 @@ export async function createMixdogSessionRuntime({
     pluginMcpServerName,
     mcpScriptForPlugin,
     countSkillFiles,
-    readProjectMcpServers,
     writeLastSessionCwd,
+    updateCurrentCwdOverride,
     clean,
     resolve,
     statSync,
@@ -900,6 +915,7 @@ export async function createMixdogSessionRuntime({
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
+    ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser'),
     ...agentTool.tools,
   ].map(applyStandaloneToolDefaults);
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });
@@ -965,6 +981,12 @@ export async function createMixdogSessionRuntime({
           throw new Error('memory tools are disabled in settings; background memory and manual core memory remain available');
         }
       }
+      if (name === 'browser') {
+        if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_BROWSER') === false) {
+          throw new Error('the browser tool is disabled in this environment');
+        }
+        return await executeBrowserTool(args);
+      }
       if (name === 'web_search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
         return dispatchWebSearchRuntimeTool(name, args, callerCtx, {
           getWebSearchModule,
@@ -1002,7 +1024,7 @@ export async function createMixdogSessionRuntime({
           if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${nextCwd}`);
           currentCwd = typeof callerCtx?.setCallerCwd === 'function'
             ? clean(await callerCtx.setCallerCwd(nextCwd)) || nextCwd
-            : applyResolvedCwd(nextCwd);
+            : applyResolvedCwd(nextCwd, { persistProjectSelection: true });
         } else if (action !== 'get') {
           throw new Error(`cwd: unknown action "${action}"`);
         }
@@ -1033,7 +1055,6 @@ export async function createMixdogSessionRuntime({
     },
   });
   internalTools.markBootReady?.();
-  try { rt.lastProjectMcpKey = resolve(rt.currentCwd) + '\u0000' + JSON.stringify(readProjectMcpServers(rt.currentCwd)); } catch { rt.lastProjectMcpKey = null; }
   void connectConfiguredMcp()
     .then((status) => bootProfile('mcp:ready', {
       connected: Number(status?.connectedCount || 0),
@@ -1346,8 +1367,8 @@ export async function createMixdogSessionRuntime({
     providerWarmup: providerWarmupEnabled,
     codeGraphPrewarm: codeGraphPrewarmEnabled,
   });
-  // Heavy session/tool/code-graph work is demand-driven. Startup restores the
-  // visible pane tree only; the first real turn arms these warmups.
+  // Heavy work remains demand-driven. Native helpers overlap provider.send;
+  // memory and code-graph parsing stay cold until their feature is used.
   bootProfile('runtime:prewarm-deferred', { reason: 'first-turn' });
   scheduleProviderWarmup();
   scheduleProviderModelWarmup();
@@ -1467,6 +1488,7 @@ export async function createMixdogSessionRuntime({
       mgr.updateSessionGeneratedTitle(sessionId, title, stage)
     ),
   });
+  let disposeGlobalExtensionSubscription = () => {};
   const lifecycleApi = createLifecycleApi({
     getSession: () => rt.session,
     setSession: adoptSession,
@@ -1514,6 +1536,7 @@ export async function createMixdogSessionRuntime({
     getStandaloneTools: modelStandaloneTools,
     clearRuntimeNotifications,
     disposeSessionTitles: () => sessionTitles.disposeAll(),
+    disposeGlobalExtensionSubscription: () => disposeGlobalExtensionSubscription(),
   });
   const resourceApi = createResourceApi({
     getConfig: () => rt.config,
@@ -1529,15 +1552,22 @@ export async function createMixdogSessionRuntime({
     recreateCurrentSessionIfReady,
     normalizeMcpServerInput,
     mcpStatus,
+    getMcpServerConfig,
     skillsStatus,
     skillContent,
-    addProjectSkill,
+    addGlobalSkill,
+    saveSkillDocument,
+    invalidateSkills,
+    getDisabledSkills: () => settingsApi.getDisabledSkills(),
+    setDisabledSkills: (names) => settingsApi.setDisabledSkills(names),
     pluginsStatus,
     getMemoryModule,
     reloadFullConfig,
+    flushSkillsSave,
     awaitKeychainPrewarm,
     getActiveTurnCount: () => rt.activeTurnCount,
   });
+  disposeGlobalExtensionSubscription = () => resourceApi.disposeGlobalExtensionSubscription?.();
   const modelRouteApi = createModelRouteApi({
     getConfig: () => rt.config,
     getRoute: () => rt.route,

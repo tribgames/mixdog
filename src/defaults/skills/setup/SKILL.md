@@ -15,7 +15,7 @@ description: Use this skill only to inspect or modify a Mixdog user's persisted 
 
 - `<mixdogData>` 해석 순서: `MIXDOG_DATA_DIR` → `<MIXDOG_HOME|~/.mixdog>/data` (`src/runtime/shared/plugin-paths.mjs`)
 - 통합 config: `<mixdogData>/mixdog-config.json`
-- 프로젝트 config: `<cwd>/.mcp.json`, `<cwd>/.mixdog/skills/`, `<cwd>/.mixdog/hooks.json`
+- 프로젝트 config: `<cwd>/.mixdog/hooks.json`
 - TUI 명령 목록: `src/tui/app/slash-commands.mjs`
 - TUI 설정 허브: `/setting` (별칭 `/settings`, `/config`) → `src/tui/app/settings-picker.mjs`
 - Desktop 설정: `Ctrl+,` → General / Context / Output style / Providers / Git / Skills / MCP / Plugins / Hooks / Connection / System / Shortcuts / About
@@ -111,7 +111,8 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 1. **확인**: Desktop **Settings → General → Web search**, TUI `/setting → Web search`.
 2. **변경**: toggle → `setWebSearchEnabled()`.
 3. **저장**: `agent.modules.webSearch.enabled`.
-4. **검증**: 다음 세션의 tool surface.
+4. **검색 범위**: 전역 `<mixdogData>/skills/`와 활성 Plugin skill만 사용한다. Project `.mixdog/skills/`는 읽지 않는다.
+5. **검증**: 열린 runtime과 다음 세션의 tool surface.
 
 ### reasoning effort / Fast
 
@@ -263,18 +264,15 @@ TUI·Desktop interval 편집 UI는 없다.
 
 ### MCP 추가
 
-UI에는 서버 추가·삭제·전체 재연결 액션이 없다.
-
-1. **확인**: `/mcp` 또는 Desktop **Settings → MCP**, `mcpStatus()`, `<cwd>/.mcp.json`.
+1. **확인**: `/mcp` 또는 Desktop **Settings → MCP**, `mcpStatus()`, `agent.mcpServers`.
 2. **변경**:
-   - 전역: 디스크 `agent.mcpServers.<name>` 편집
-   - 프로젝트: `<cwd>/.mcp.json`의 `mcpServers` wrapper 또는 bare name map 편집
+   - Desktop: **Settings → MCP → Add**
+   - 디스크: `agent.mcpServers.<name>` 편집
    - API 자동화: `addMcpServer()`, `removeMcpServer()`, `reconnectMcp()`
 3. **transport**:
    - stdio: `type`, `command`, `args`, `cwd`, `env`
    - URL: `http`, `sse`, `ws`와 `url`, 선택 `headers`
-4. **제약**: API로 stdio를 추가할 때 `cwd`는 현재 프로젝트 아래여야 한다.
-5. **검증**: `connected`, `toolCount`, `source`, `transport`, `error`.
+4. **검증**: `connected`, `toolCount`, `transport`, `error`.
 
 파일을 직접 편집했다면 mixdog 재시작이 기본 적용 경로다.
 
@@ -282,17 +280,15 @@ UI에는 서버 추가·삭제·전체 재연결 액션이 없다.
 
 TUI `/mcp`와 Desktop MCP 모두 서버별 toggle을 지원하며 live connection과 세션 tool surface를 재동기화한다.
 
-- `source: project`: `<cwd>/.mcp.json` 항목의 `enabled`를 직접 저장
-- `source: config`: 서버 정의는 유지하고 현재 프로젝트용 override를 `agent.mcpProjectOverrides[normalizedCwd][name].enabled`에 저장
-- 즉, 전역 config 서버를 toggle해도 전역 `agent.mcpServers.<name>.enabled`를 바꾸지 않는다.
+- 서버 정의는 유지하고 `agent.mcpServers.<name>.enabled`를 전역으로 변경한다.
+- Project `.mcp.json`과 Project별 override는 읽지 않는다.
 - turn 실행 중 toggle은 turn 종료 경계에서 세션을 재생성한다.
 
 ### MCP 진단
 
-1. `/mcp`의 source/transport/error를 먼저 읽는다.
-2. 프로젝트와 전역 이름 충돌 시 `<cwd>/.mcp.json`이 우선한다.
-3. stdio는 command·args·cwd·자식 env, URL transport는 scheme·endpoint·headers·방화벽을 확인한다.
-4. `connected:true`와 기대 tool 노출로 검증한다.
+1. `/mcp`의 transport/error를 먼저 읽는다.
+2. stdio는 command·args·cwd·자식 env, URL transport는 scheme·endpoint·headers·방화벽을 확인한다.
+3. `connected:true`와 기대 tool 노출로 검증한다.
 
 ### Skills enable / disable
 
@@ -317,11 +313,11 @@ UI 생성 액션은 없다.
 
 1. **확인**: `/plugins` 또는 Desktop **Settings → Plugins**.
 2. **추가**: Git URL, `owner/repo`, 기존 local path → `addPlugin()`.
-3. **관리**: update/metadata refresh, plugin MCP enable/reconfigure, root/MCP name 복사, uninstall.
+3. **관리**: 전역 enable/disable, update/metadata refresh, plugin MCP enable/reconfigure, root/MCP name 복사, uninstall.
 4. **저장**: `<mixdogData>/plugins/registry.json`; managed Git checkout은 `<mixdogData>/plugins/installed/`.
 5. **검증**: `pluginsStatus()`, plugin skill 수, MCP server 노출.
 
-Plugins 화면에는 일반적인 “plugin 활성/비활성” toggle이 없다. MCP와 skill 활성 상태는 각각 MCP/Skills 화면에서 관리한다.
+Plugin toggle은 해당 Plugin의 Skills와 MCP를 전역으로 함께 활성화/비활성화한다. 개별 MCP와 Skill은 각 화면에서도 관리할 수 있다.
 
 ### Hooks
 
@@ -380,8 +376,8 @@ Discord/Telegram messaging은 제거됐다. schedules/webhooks 자동화와 voic
 
 1. **확인**: 상태줄 cwd, `/project`, Desktop rail **Projects**.
 2. **변경**: `/project [path]` 또는 picker. TUI picker는 등록·생성·rename도 지원한다.
-3. **적용**: cwd 변경 시 프로젝트 `.mcp.json`과 skills를 다시 읽고 MCP를 재연결한다.
-4. **검증**: cwd, `/mcp` source, `/skills` project 항목.
+3. **적용**: cwd 변경은 실행 경로만 바꾸며 전역 Skills·Plugins·MCP 상태는 유지한다.
+4. **검증**: cwd와 실행 경로.
 
 ### Git (Desktop 전용)
 
@@ -438,11 +434,6 @@ Desktop과 현재 runtime에서 소비되지 않는 아래 key는 사용자 옵�
         "cwd": "<project-subdir>",
         "env": {}
       }
-    },
-    "mcpProjectOverrides": {
-      "<normalized-cwd>": {
-        "<name>": { "enabled": false }
-      }
     }
   }
 }
@@ -466,8 +457,8 @@ URL transport는 `type` + `url` + 선택 `headers`를 사용한다.
 
 ### 우선순위와 금지
 
-- MCP 이름 충돌: project `.mcp.json` > `agent.mcpServers`
-- Skill 이름 충돌: project > global > plugin
+- MCP는 전역 `agent.mcpServers`만 사용한다.
+- Skill 이름 충돌: global > plugin
 - `Mixdog.md` 자동 프롬프트 로드는 없다. skill/core memory를 사용한다.
 - 확인되지 않은 key는 추측하지 말고 TODO로 남긴다.
 - UI에 없는 runtime API를 사용자 UI처럼 설명하지 않는다.

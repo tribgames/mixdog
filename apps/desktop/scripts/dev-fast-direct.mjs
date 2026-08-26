@@ -88,12 +88,6 @@ const targetInputs = {
     join(desktopDir, 'scripts', 'dev-update-windows.ps1'),
     join(repoRoot, 'native', 'mixdog-token'),
     join(repoRoot, 'scripts', 'build-token-addon.mjs'),
-    // The search engine addon is compiled into the installed tree, so its
-    // sources belong to the package group: a change to the Rust engine has to
-    // force the full rebuild that reinstalls it.
-    join(repoRoot, 'native', 'mixdog-graph'),
-    join(repoRoot, 'native', 'mixdog-graph-addon'),
-    join(repoRoot, 'scripts', 'build-graph-addon.mjs'),
   ],
 };
 

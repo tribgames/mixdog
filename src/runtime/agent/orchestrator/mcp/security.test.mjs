@@ -1,31 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
 import {
   mcpUrlForLog,
   normalizeMcpTransportUrl,
+  resolveMcpHttpHeaders,
+  resolveMcpStdioEnvironment,
   scrubMcpConnectionMessage,
 } from './client.mjs';
-import { readProjectMcpServers } from '../../../../session-runtime/plugin-mcp.mjs';
-
-test('configured project MCP remains enabled by default', () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-mcp-on-'));
-  try {
-    mkdirSync(root, { recursive: true });
-    writeFileSync(join(root, '.mcp.json'), JSON.stringify({
-      mcpServers: { demo: { command: 'node', args: ['server.mjs'] } },
-    }));
-    const configured = readProjectMcpServers(root);
-    assert.equal(configured.demo.command, 'node');
-    assert.notEqual(configured.demo.enabled, false);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test('MCP transport requires encryption except for loopback', () => {
   assert.equal(
     normalizeMcpTransportUrl('http://127.0.0.1:3000/mcp', 'http'),
@@ -61,4 +43,38 @@ test('MCP logs and failures redact URL and header credentials', () => {
   );
   assert.doesNotMatch(scrubbed, new RegExp(secret));
   assert.match(scrubbed, /redacted/);
+});
+
+test('MCP HTTP auth resolves from environment without storing secret values', () => {
+  const headers = resolveMcpHttpHeaders({
+    bearer_token_env_var: 'MCP_TOKEN',
+    env_http_headers: { 'X-API-Key': 'MCP_API_KEY' },
+    headers: { 'X-Static': '${MCP_STATIC}', Authorization: 'Explicit auth' },
+  }, {
+    MCP_TOKEN: 'bearer-secret',
+    MCP_API_KEY: 'key-secret',
+    MCP_STATIC: 'expanded',
+  });
+  assert.deepEqual(headers, {
+    Authorization: 'Explicit auth',
+    'X-API-Key': 'key-secret',
+    'X-Static': 'expanded',
+  });
+});
+
+test('MCP stdio passthrough narrows inherited environment only when configured', () => {
+  const env = {
+    PATH: '/bin',
+    HOME: '/home/test',
+    KEEP_ME: 'kept',
+    DROP_ME: 'dropped',
+  };
+  assert.equal(resolveMcpStdioEnvironment({ env: { LOCAL: '${KEEP_ME}' } }, env).DROP_ME, 'dropped');
+  const narrowed = resolveMcpStdioEnvironment({
+    env_vars: ['KEEP_ME'],
+    env: { LOCAL: '${KEEP_ME}' },
+  }, env);
+  assert.equal(narrowed.KEEP_ME, 'kept');
+  assert.equal(narrowed.LOCAL, 'kept');
+  assert.equal(narrowed.DROP_ME, undefined);
 });

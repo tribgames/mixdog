@@ -464,7 +464,7 @@ async function _initRuntime() {
   // no-ops while recap is off). The env hard-override / secondary mode skip the
   // tick loop entirely.
   if (!memorySecondaryMode()) {
-    _transcriptWatcher = _transcriptIngest.initTranscriptWatcher()
+    _transcriptWatcher = await _transcriptIngest.initTranscriptWatcher()
   } else {
     __mixdogMemoryLog('[memory-service] secondary mode; skipping transcript watcher\n')
   }

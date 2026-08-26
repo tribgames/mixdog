@@ -79,6 +79,7 @@ export const DESKTOP_IPC = {
   getZoomFactor: 'mixdog:get-zoom-factor',
   setZoomFactor: 'mixdog:set-zoom-factor',
   zoomFactorChanged: 'mixdog:zoom-factor-changed',
+  browserOpenRequested: 'mixdog:browser-open-requested',
   applyTitleBarTheme: 'mixdog:apply-titlebar-theme',
   setTitleBarDim: 'mixdog:set-titlebar-dim',
   invokeCapability: 'mixdog:invoke-capability',
@@ -549,8 +550,10 @@ export const DESKTOP_CAPABILITIES = [
   'getSystemShell',
   'setSystemShell',
   'mcpStatus',
+  'getMcpServerConfig',
   'reconnectMcp',
   'addMcpServer',
+  'saveMcpServer',
   'removeMcpServer',
   'setMcpServerEnabled',
   'getDisabledSkills',
@@ -558,11 +561,13 @@ export const DESKTOP_CAPABILITIES = [
   'skillsStatus',
   'skillContent',
   'addSkill',
+  'saveSkill',
   'reloadSkills',
   'pluginsStatus',
   'reloadPlugins',
   'addPlugin',
   'updatePlugin',
+  'setPluginEnabled',
   'removePlugin',
   'enablePluginMcp',
   'hooksStatus',
@@ -659,6 +664,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'toolsStatus',
   'getSystemShell',
   'mcpStatus',
+  'getMcpServerConfig',
   'getDisabledSkills',
   'skillsStatus',
   'skillContent',
@@ -1701,6 +1707,9 @@ export interface DesktopApi {
   getZoomFactor(): Promise<number>;
   setZoomFactor(factor: number): Promise<number>;
   onZoomFactorChanged(listener: (factor: number) => void): () => void;
+  /** Agent browser bridge (desktop host only): a `browser` tool call arrived
+   *  while no in-app browser webview was live; present a browser surface. */
+  onBrowserOpenRequested?(listener: () => void): () => void;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

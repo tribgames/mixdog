@@ -133,20 +133,11 @@ export function createPrewarmSchedulers({
     const start = () => void (async () => {
       timers.searchRuntimeWarmupTimer = null;
       if (isCloseRequested()) return;
-      const root = getCurrentCwd();
       const nativeSearchWarm = (async () => {
         const { warmNativeSearchServer } = await import('../runtime/agent/orchestrator/tools/builtin/native-search-client.mjs');
         bootProfile('native-search:warm', { up: await warmNativeSearchServer() === true });
       })().catch((error) => {
         bootProfile('native-search:warm-failed', { error: error?.message || String(error) });
-      });
-      const findIndexWarm = (async () => {
-        const { prewarmFindEnumeration } = await import('../runtime/agent/orchestrator/tools/builtin/list-tool.mjs');
-        bootProfile('find-index:prewarm-scheduled', { cwd: root });
-        await prewarmFindEnumeration(root);
-        bootProfile('find-index:prewarm-complete', { cwd: root });
-      })().catch((error) => {
-        bootProfile('find-index:prewarm-failed', { error: error?.message || String(error) });
       });
       const nativeSpawnWarm = (async () => {
         const { warmNativeSpawnServer } = await import('../runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
@@ -154,7 +145,7 @@ export function createPrewarmSchedulers({
       })().catch((error) => {
         bootProfile('native-spawn:warm-failed', { error: error?.message || String(error) });
       });
-      await Promise.all([nativeSearchWarm, findIndexWarm, nativeSpawnWarm]);
+      await Promise.all([nativeSearchWarm, nativeSpawnWarm]);
     });
     if (delayMs <= 0) {
       start();

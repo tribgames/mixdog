@@ -311,6 +311,16 @@
   background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
+.compact-switch { cursor: pointer; }
+.compact-switch:has(input:disabled) { opacity: var(--mx-op-disabled); cursor: default; }
+.schedules-row > .compact-switch { flex: 0 0 auto; margin-left: auto; }
+.schedules-dialog-header-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.schedules-dialog-header-actions > .compact-switch { flex: 0 0 auto; }
 .schedules-row-status {
   width: 8px;
   height: 12px;
@@ -497,7 +507,7 @@
 }
 .workflows-agent-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
 .workflows-agent-mode-field { display: grid; justify-items: start; gap: 6px; }
-.workflows-agent-mode-field .mx-select-root { min-width: 180px; }
+.workflows-agent-mode-field .mx-select-root { width: 120px; min-width: 120px; }
 .workflows-agent-mode-field .mx-select-trigger { width: 100%; height: 32px; border-radius: var(--mx-radius-md); }
 .workflows-agent-add { display: flex; justify-content: flex-start; }
 .workflows-section-head {

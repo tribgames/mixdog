@@ -103,9 +103,9 @@ export function ActivityRail({
     onOpen(): void;
     onPrefetch?(): void;
   }> = ([
-    { id: "projects", label: "Open projects", tooltip: "Projects", icon: "project",
+    { id: "projects", label: "Open projects", tooltip: "Projects", icon: "folder",
       onOpen: onOpenProjects, onPrefetch: onPrefetchProjects },
-    { id: "workflows", label: "Open workflows", tooltip: "Workflows", icon: "layers",
+    { id: "workflows", label: "Open workflows", tooltip: "Workflows", icon: "type-hierarchy",
       onOpen: onOpenWorkflows, onPrefetch: onPrefetchWorkflows },
     { id: "schedules", label: "Open schedules", tooltip: "Schedules", icon: "calendar",
       onOpen: onOpenSchedules, onPrefetch: onPrefetchSchedules },

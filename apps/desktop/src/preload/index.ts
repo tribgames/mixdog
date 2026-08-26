@@ -528,6 +528,11 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.zoomFactorChanged, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.zoomFactorChanged, receive);
   },
+  onBrowserOpenRequested: (listener) => {
+    const receive = (): void => listener();
+    ipcRenderer.on(DESKTOP_IPC.browserOpenRequested, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.browserOpenRequested, receive);
+  },
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),
   // Byte lane for gallery media: a plain URL the DOM fetches itself (cached

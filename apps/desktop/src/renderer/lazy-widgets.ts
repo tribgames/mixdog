@@ -10,11 +10,13 @@ const importEditorPane = async () => {
   return import("./EditorPane.lazy");
 };
 const importFolderPane = () => import("./FolderPane.lazy");
+const importBrowserPane = () => import("./BrowserPane.lazy");
 
 export const DiffView = lazy(importDiffView);
 export const TerminalPane = lazy(importTerminalPane);
 export const EditorPane = lazy(importEditorPane);
 export const FolderPane = lazy(importFolderPane);
+export const BrowserPane = lazy(importBrowserPane);
 
 export async function disposeTerminalPane(id: string): Promise<void> {
   const module = await importTerminalPane();
@@ -53,6 +55,14 @@ export function prefetchFolderPane(): Promise<unknown> {
   });
   return folderPrefetch;
 }
+let browserPrefetch: Promise<unknown> | null = null;
+export function prefetchBrowserPane(): Promise<unknown> {
+  browserPrefetch ||= importBrowserPane().catch((error) => {
+    browserPrefetch = null;
+    throw error;
+  });
+  return browserPrefetch;
+}
 export function prefetchEditorPane(): Promise<unknown> {
   editorPrefetch ||= importEditorPane().catch((error) => {
     editorPrefetch = null;
@@ -80,7 +90,9 @@ export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void
         ? prefetchTerminalPane()
         : selection.kind === "folder"
           ? prefetchFolderPane()
-          : null;
+          : selection.kind === "browser"
+            ? prefetchBrowserPane()
+            : null;
   void promise?.catch(() => undefined);
 }
 

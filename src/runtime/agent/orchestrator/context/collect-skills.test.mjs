@@ -1,0 +1,153 @@
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+import {
+  collectSkillsCached,
+  invalidateSkillsCache,
+  loadSkillResource,
+} from './collect.mjs';
+
+test('discovers global standard skill folders and ignores project-local skills and reference Markdown', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-standard-skill-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  try {
+    const cwd = join(root, 'project');
+    const skillDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'copied-skill');
+    const projectSkillDir = join(cwd, '.mixdog', 'skills', 'project-only');
+    mkdirSync(join(skillDir, 'references'), { recursive: true });
+    mkdirSync(join(skillDir, 'scripts'), { recursive: true });
+    mkdirSync(projectSkillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), [
+      '---',
+      'name: copied-skill',
+      'description: >',
+      '  Use when a copied standard skill',
+      '  should be discovered.',
+      'metadata:',
+      '  source: external',
+      '---',
+      '',
+      '# Instructions',
+      '',
+      'Read `references/guide.md` and run `scripts/check.py` when needed.',
+      '',
+    ].join('\n'));
+    writeFileSync(join(skillDir, 'references', 'guide.md'), [
+      '---',
+      'name: not-a-skill',
+      'description: This reference must never become a skill.',
+      '---',
+      '',
+      '# Reference',
+      '',
+    ].join('\n'));
+    writeFileSync(join(skillDir, 'scripts', 'check.py'), 'print("ok")\n');
+    writeFileSync(join(projectSkillDir, 'SKILL.md'), [
+      '---',
+      'name: project-only',
+      'description: This project-local skill must be ignored.',
+      '---',
+      '',
+      '# Project instructions',
+      '',
+    ].join('\n'));
+
+    invalidateSkillsCache(cwd);
+    const copied = collectSkillsCached(cwd)
+      .find((skill) => skill.name === 'copied-skill');
+    assert.ok(copied);
+    assert.equal(copied.description,
+      'Use when a copied standard skill should be discovered.');
+    assert.equal(collectSkillsCached(cwd)
+      .some((skill) => skill.name === 'not-a-skill'), false);
+    assert.equal(collectSkillsCached(cwd)
+      .some((skill) => skill.name === 'project-only'), false);
+
+    const loaded = loadSkillResource('copied-skill', cwd);
+    assert.match(loaded.content, /^# Instructions/);
+    assert.equal(loaded.dir, skillDir);
+    assert.equal(existsSync(join(loaded.dir, 'references', 'guide.md')), true);
+    assert.equal(existsSync(join(loaded.dir, 'scripts', 'check.py')), true);
+  } finally {
+    invalidateSkillsCache(join(root, 'project'));
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('loads skills only from globally enabled plugins', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-skill-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  try {
+    const enabledRoot = join(root, 'enabled-plugin');
+    const disabledRoot = join(root, 'disabled-plugin');
+    const writeSkill = (pluginRoot, name) => {
+      const dir = join(pluginRoot, 'skills', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'SKILL.md'), [
+        '---',
+        `name: ${name}`,
+        `description: Use when ${name} is needed.`,
+        '---',
+        '',
+        '# Instructions',
+        '',
+      ].join('\n'));
+    };
+    writeSkill(enabledRoot, 'enabled-plugin-skill');
+    writeSkill(disabledRoot, 'disabled-plugin-skill');
+    const registryDir = join(process.env.MIXDOG_DATA_DIR, 'plugins');
+    mkdirSync(registryDir, { recursive: true });
+    writeFileSync(join(registryDir, 'registry.json'), JSON.stringify({
+      plugins: [
+        { id: 'enabled', root: enabledRoot, enabled: true },
+        { id: 'disabled', root: disabledRoot, enabled: false },
+      ],
+    }));
+
+    invalidateSkillsCache();
+    const names = collectSkillsCached(join(root, 'any-project')).map((skill) => skill.name);
+    assert.equal(names.includes('enabled-plugin-skill'), true);
+    assert.equal(names.includes('disabled-plugin-skill'), false);
+  } finally {
+    invalidateSkillsCache();
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('requires a standard folder name that matches the manifest name', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-mismatched-skill-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  try {
+    const cwd = join(root, 'project');
+    const skillDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'folder-name');
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, 'SKILL.md'), [
+      '---',
+      'name: different-name',
+      'description: Use when testing mismatched folders.',
+      '---',
+      '',
+      '# Instructions',
+      '',
+    ].join('\n'));
+
+    invalidateSkillsCache(cwd);
+    assert.equal(collectSkillsCached(cwd)
+      .some((skill) => skill.name === 'different-name'), false);
+  } finally {
+    invalidateSkillsCache(join(root, 'project'));
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

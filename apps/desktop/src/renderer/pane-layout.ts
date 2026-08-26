@@ -995,6 +995,10 @@ export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | nu
       return typeof record.id === "string" && record.id
         ? { kind: "studio", id: record.id }
         : null;
+    case "browser":
+      return typeof record.id === "string" && record.id
+        ? { kind: "browser", id: record.id }
+        : null;
     case "terminal":
       return typeof record.id === "string" && record.id
         ? {

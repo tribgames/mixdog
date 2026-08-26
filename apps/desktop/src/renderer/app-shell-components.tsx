@@ -108,8 +108,10 @@ const loadWebhooksViewModule = () => import("./WebhooksView");
 const loadProjectsViewModule = () => import("./ProjectsView");
 const loadWorkflowsViewModule = () => import("./WorkflowsView");
 const loadUtilitiesViewModule = () => import("./UtilitiesView");
+const loadExtensionsViewModule = () => import("./ExtensionsView");
 
-export type SidebarPanelKey = "utilities" | "schedules" | "webhooks" | "projects" | "workflows";
+export type SidebarPanelKey =
+  | "utilities" | "schedules" | "webhooks" | "projects" | "workflows" | "extensions";
 type SidebarPanelLoaderGate = (panel: SidebarPanelKey) => Promise<unknown>;
 
 function gateSidebarPanelModule<T>(panel: SidebarPanelKey, load: () => Promise<T>): Promise<T> {
@@ -125,6 +127,7 @@ export const loadSidebarPanelModule = {
   webhooks: () => gateSidebarPanelModule("webhooks", loadWebhooksViewModule),
   projects: () => gateSidebarPanelModule("projects", loadProjectsViewModule),
   workflows: () => gateSidebarPanelModule("workflows", loadWorkflowsViewModule),
+  extensions: () => gateSidebarPanelModule("extensions", loadExtensionsViewModule),
 } as const;
 
 // A rejected lazy loader stays cached, so each retry needs a fresh component.
@@ -138,6 +141,8 @@ export const createProjectsPane = () => lazy(() => loadSidebarPanelModule.projec
   .then((module) => ({ default: module.ProjectsPane })));
 export const createWorkflowsPane = () => lazy(() => loadSidebarPanelModule.workflows()
   .then((module) => ({ default: module.WorkflowsPane })));
+export const createExtensionsPane = () => lazy(() => loadSidebarPanelModule.extensions()
+  .then((module) => ({ default: module.ExtensionsPane })));
 
 const StudioPane = lazy(() => loadStudioViewModule()
   .then((module) => ({ default: module.StudioPane })));

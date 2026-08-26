@@ -1,34 +1,31 @@
-// Skill surface (status listing, resource load, tool envelope, project skill
-// creation). Extracted from runtime-core so the facade only wires the mutable
+// Skill surface (status listing, resource load, tool envelope, global skill
+// creation/editing). Extracted from runtime-core so the facade only wires the mutable
 // cwd and the context module into it.
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
+import {
+  createSkillDocument,
+  updateSkillDocument,
+  validateSkillDescription,
+  validateSkillName,
+} from '../runtime/shared/skill-document.mjs';
 import { clean } from './session-text.mjs';
 
-const SKILL_TEMPLATE = (name, description) => [
-  '---',
-  `name: ${name}`,
-  `description: ${description}`,
-  '---',
-  '',
-  '# Instructions',
-  '',
-  'Describe when and how to use this skill.',
-  '',
-].join('\n');
+const DEFAULT_SKILL_BODY = '# Instructions\n\nDescribe how to use this skill.';
 
 export function createSkillsApi({ contextMod, getCwd }) {
+  const globalSkillsRoot = () => resolve(resolvePluginData(), 'skills');
+
   function skillsStatus() {
     const cwd = getCwd();
     const skills = typeof contextMod.collectSkillsCached === 'function'
       ? contextMod.collectSkillsCached(cwd)
       : [];
     const norm = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
-    const cwdNorm = norm(cwd);
-    // A skill under <cwd>/.mixdog/skills is project-scoped; everything else
-    // comes from the user/global tree.
+    const globalRoot = `${norm(globalSkillsRoot())}/`;
     const sourceForSkill = (filePath) => (
-      cwdNorm && norm(filePath).startsWith(`${cwdNorm}/.mixdog/skills/`) ? 'project' : 'skill'
+      norm(filePath).startsWith(globalRoot) ? 'global' : 'plugin'
     );
     return {
       cwd,
@@ -38,6 +35,7 @@ export function createSkillsApi({ contextMod, getCwd }) {
         description: skill.description || '',
         filePath: skill.filePath || null,
         source: sourceForSkill(skill.filePath),
+        editable: sourceForSkill(skill.filePath) === 'global',
       })),
     };
   }
@@ -65,16 +63,72 @@ export function createSkillsApi({ contextMod, getCwd }) {
     return contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir);
   }
 
-  function addProjectSkill(input = {}) {
-    const name = clean(input.name).replace(/[^a-zA-Z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
-    if (!name) throw new Error('skill name is required');
-    const dir = join(getCwd(), '.mixdog', 'skills', name);
+  function addGlobalSkill(input = {}) {
+    const name = validateSkillName(clean(input.name));
+    const description = validateSkillDescription(input.description);
+    const body = String(input.instructions || input.body || DEFAULT_SKILL_BODY);
+    const dir = join(globalSkillsRoot(), name);
     const filePath = join(dir, 'SKILL.md');
     if (existsSync(filePath)) throw new Error(`skill already exists: ${name}`);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(filePath, SKILL_TEMPLATE(name, clean(input.description) || 'Project skill.'), 'utf8');
+    writeFileSync(filePath, createSkillDocument({ name, description, body }), 'utf8');
+    contextMod.invalidateSkillsCache?.(getCwd());
     return { name, filePath };
   }
 
-  return { skillsStatus, skillContent, skillToolContent, addProjectSkill };
+  function saveSkillDocument(input = {}) {
+    const originalName = validateSkillName(input.originalName);
+    const name = validateSkillName(input.name);
+    const description = validateSkillDescription(input.description);
+    const body = String(input.instructions || input.body || '');
+    const resource = contextMod.loadSkillResource?.(originalName, getCwd());
+    if (!resource?.filePath) throw new Error(`skill not found: ${originalName}`);
+    const resourcePath = resolve(resource.filePath);
+    const resourceRelative = relative(globalSkillsRoot(), resourcePath);
+    if (!resourceRelative || resourceRelative.startsWith('..') || isAbsolute(resourceRelative)) {
+      throw new Error(`plugin skill is read-only: ${originalName}`);
+    }
+    const collision = skillsStatus().skills.find((skill) =>
+      skill.name === name && skill.filePath !== resource.filePath);
+    if (collision) throw new Error(`skill already exists: ${name}`);
+
+    const currentDir = dirname(resource.filePath);
+    if (basename(currentDir) !== originalName) {
+      throw new Error(`skill folder does not match its name: ${originalName}`);
+    }
+    const nextDir = join(dirname(currentDir), name);
+    if (nextDir !== currentDir && existsSync(nextDir)) {
+      throw new Error(`skill folder already exists: ${name}`);
+    }
+    const source = readFileSync(resource.filePath, 'utf8');
+    const updated = updateSkillDocument(source, { name, description, body });
+    let filePath = resource.filePath;
+    if (nextDir !== currentDir) {
+      renameSync(currentDir, nextDir);
+      filePath = join(nextDir, 'SKILL.md');
+      try {
+        writeFileSync(filePath, updated, 'utf8');
+      } catch (error) {
+        renameSync(nextDir, currentDir);
+        throw error;
+      }
+    } else {
+      writeFileSync(filePath, updated, 'utf8');
+    }
+    contextMod.invalidateSkillsCache?.(getCwd());
+    return { originalName, name, filePath };
+  }
+
+  function invalidateSkills() {
+    contextMod.invalidateSkillsCache?.(getCwd());
+  }
+
+  return {
+    skillsStatus,
+    skillContent,
+    skillToolContent,
+    addGlobalSkill,
+    saveSkillDocument,
+    invalidateSkills,
+  };
 }

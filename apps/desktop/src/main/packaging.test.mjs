@@ -221,15 +221,8 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(devUpdate, /function Install-LocalTokenAddon/);
   assert.match(devUpdate, /build-token-addon\.mjs'\) --build --release/);
   assert.match(devUpdate, /mixdog-token-\$version\.node/);
-  // The in-process search engine replaces the standalone search process, so a
-  // local deployment has to build it AND install it into the tree the packaged
-  // app points MIXDOG_SEARCH_SERVER_ADDON at. Missing either half silently
-  // falls back to the child process and its separate Task Manager row.
-  assert.match(devUpdate, /function Install-LocalGraphAddon/);
-  assert.match(devUpdate, /build-graph-addon\.mjs'\) --build --release/);
-  assert.match(devUpdate, /resources\\native-tools/);
-  assert.match(devUpdate, /'mixdog-graph\.node'/);
-  assert.match(main, /MIXDOG_SEARCH_SERVER_ADDON:\s*join\(nativeToolsDir, 'mixdog-graph\.node'\)/);
+  assert.doesNotMatch(devUpdate, /mixdog-graph\.node|Install-LocalGraphAddon|build-graph-addon/);
+  assert.doesNotMatch(main, /MIXDOG_SEARCH_SERVER_ADDON/);
   assert.match(devUpdate, /Wait-ForFreshDaemon[\s\S]*DetachedRelaunch/);
   assert.match(devUpdate, /fast deploy handed to detached worker/);
   assert.match(devUpdate, /Stop-InstalledMixdogProcess/);

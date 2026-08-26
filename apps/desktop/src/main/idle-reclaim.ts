@@ -5,9 +5,10 @@
 // idle, rose to 1.0–1.2 GB across a few sessions, and stayed there. The heap
 // was reclaimable — the same log shows unforced drops of 500 MB once the host
 // came under pressure — but nothing asks for it back while RAM is plentiful.
-// Chromium already owns the right primitive for a backgrounded tab; this arms
-// it deliberately, and only when the user cannot notice: window unfocused, no
-// turn streaming, and one release per quiet stretch.
+// So this drops what the app itself owns (recomputable caches), and only when
+// the user cannot notice: window unfocused, no turn streaming, and one release
+// per quiet stretch. The V8 heap is NOT forced down from here; main/index.ts
+// caps the renderer's old space instead, which is the supported lever.
 import type { SessionSnapshot } from '../shared/contract';
 import { turnInProgress } from './turn-attention';
 
@@ -85,36 +86,24 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
 export interface IdleReclaimTarget {
   isDestroyed(): boolean;
   executeJavaScript(code: string): Promise<unknown>;
-  debugger: {
-    isAttached(): boolean;
-    attach(version?: string): void;
-    detach(): void;
-    sendCommand(method: string): Promise<unknown>;
-  };
 }
 
-/** Drop the renderer's recomputable caches, then let Chromium shrink the V8
- *  heap the way it does for a backgrounded tab. Both legs are best-effort: an
- *  open DevTools session owns the debugger, and a window on its way out simply
- *  has nothing left to release. */
+/** Drop the renderer's recomputable caches. Best-effort: a window on its way
+ *  out, or one mid-navigation, simply has nothing left to release.
+ *
+ *  This deliberately stops at the caches. The first version also attached the
+ *  debugger and sent CDP Memory.forciblyPurgeJavaScriptMemory, which the
+ *  protocol documents as a way to SIMULATE an OomIntervention — a diagnostic,
+ *  not a runtime knob. Both times it fired in a real session the renderer died
+ *  on the spot with ACCESS_VIOLATION (0xC0000005) and the window reloaded under
+ *  the user: desktop-diagnostics records renderer-idle-reclaim followed by
+ *  render-process-gone within the same second, twice (19:57:48, 20:39:39).
+ *  Never reach for the debugger here. The heap is bounded the supported way
+ *  instead — main/index.ts caps the renderer's old space so V8 runs its own
+ *  major GCs rather than sitting on a gigabyte because the host has RAM free. */
 export async function purgeRendererMemory(contents: IdleReclaimTarget): Promise<void> {
   if (contents.isDestroyed()) return;
   await contents.executeJavaScript(
     `window.dispatchEvent(new Event(${JSON.stringify(IDLE_RECLAIM_EVENT)}));true`,
   ).catch(() => { /* the document is gone or mid-navigation */ });
-  if (contents.isDestroyed()) return;
-  let attached = false;
-  try {
-    if (!contents.debugger.isAttached()) {
-      contents.debugger.attach('1.3');
-      attached = true;
-    }
-    await contents.debugger.sendCommand('Memory.forciblyPurgeJavaScriptMemory');
-  } catch {
-    /* DevTools holds the debugger, or the target went away mid-purge */
-  } finally {
-    if (attached) {
-      try { contents.debugger.detach(); } catch { /* already detached */ }
-    }
-  }
 }

@@ -14,6 +14,8 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   mkdirSync(cwdA);
   mkdirSync(cwdB);
   mkdirSync(cwdNext);
+  const previousProcessCwd = process.env.MIXDOG_SESSION_CWD;
+  process.env.MIXDOG_SESSION_CWD = 'process-global-must-not-change';
 
   const runtimeA = await createMixdogSessionRuntime({ cwd: cwdA, toolMode: 'full' });
   const runtimeB = await createMixdogSessionRuntime({ cwd: cwdB, toolMode: 'full' });
@@ -22,6 +24,8 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
       runtimeA.close('cwd-routing-test', { waitForExit: false }),
       runtimeB.close('cwd-routing-test', { waitForExit: false }),
     ]);
+    if (previousProcessCwd === undefined) delete process.env.MIXDOG_SESSION_CWD;
+    else process.env.MIXDOG_SESSION_CWD = previousProcessCwd;
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -53,4 +57,5 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   assert.equal(setResult.sessionId, callerSession.id);
   assert.equal(runtimeA.cwd, cwdNext);
   assert.equal(runtimeB.cwd, cwdB);
+  assert.equal(process.env.MIXDOG_SESSION_CWD, 'process-global-must-not-change');
 });

@@ -4,9 +4,17 @@
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
-Mixdog is a standalone coding agent for orchestrated, multi-provider workflows.
-Use it from a full-screen terminal UI or the desktop app on Windows, macOS, and
-Linux. Pair a browser or phone when you want to continue remotely.
+## Better results. Less cost. More work.
+
+Mixdog is an efficiency-first AI coding harness designed to deliver equal or
+better performance with less context, time, and cost—so you can complete more
+work within the same API budget or subscription quota.
+
+With simple setup and an intuitive UX, Mixdog makes powerful orchestration,
+parallel tasks, and seamless work across terminal, desktop, and web accessible
+to everyone—from beginners to experts.
+
+**The easiest way to get more out of every coding model.**
 
 ## Get started
 

@@ -1,4 +1,3 @@
-import { watch } from 'fs';
 import { readdir, stat } from 'fs/promises';
 import { basename, isAbsolute, relative } from 'path';
 import {
@@ -23,8 +22,6 @@ import {
     lstatPathsForMtime,
     statCacheSet,
     statPathsForMtime,
-    registerCacheInvalidationListener,
-    invalidateBuiltinResultCache,
 } from './cache-layers.mjs';
 import { formatListSize, formatMtime } from './list-formatting.mjs';
 import {
@@ -39,11 +36,9 @@ import {
 } from './tool-output-limit.mjs';
 import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
 import { tryServeFuzzySearch, tryServeListMetadata } from './native-search-client.mjs';
-import { fuzzyRankMulti, prepareFuzzyItems, splitFuzzyQueryTokens } from './fuzzy-match.mjs';
 import {
     recordLocalSearchBackend,
     recordLocalSearchCacheHit,
-    recordLocalSearchIndex,
     recordNativeSearchTiming,
 } from './local-search-telemetry.mjs';
 import { assertPathReachable } from './fs-reachability.mjs';
@@ -590,477 +585,12 @@ export async function executeTreeTool(args, workDir, options = {}) {
     return out;
 }
 
-// ── Broad-enumeration cache (shared `rg --files` sweep) ──────────────────
-// A `rg --files` sweep of a root depends ONLY on (root, hidden, depth,
-// includeNoise, ignoreMode) — NOT on the per-query narrowing. Yet both the fuzzy-find
-// broad pass and the find_files broad fast path re-run that full sweep for
-// every query item AND for every concurrent caller (measured 1-4s each when
-// several locator calls hit the same root). Cache the PARSED file list per
-// key with in-flight promise dedup (N concurrent callers share ONE sweep)
-// plus a short TTL for serial reuse. Truncated/partial sweeps are
-// known-incomplete and are NEVER cached.
-const FIND_ENUM_CACHE = new Map(); // key -> { files, items, expiresAt, gen }
-const FIND_ENUM_INFLIGHT = new Map(); // key -> { promise, controller, subscribers }
-const FIND_TARGETED_BATCHES_BY_RUNNER = new WeakMap();
-const FIND_ENUM_ROOT_GEN = new Map();
-const FIND_ENUM_WATCHERS = new Map();
-let FIND_ENUM_GEN = 0;
-
-// The broad enumeration is a DERIVED cache the scope/path invalidation layer
-// does not otherwise know about. Invalidate only inventories whose roots
-// overlap the written paths; a patch in an isolated temp root must not force
-// every active Project to rescan.
-function findEnumerationPathsOverlap(left, right) {
-    const contains = (base, target) => {
-        const rel = relative(base, target);
-        return rel === '' || (!isAbsolute(rel) && !/^\.\.(?:[\\/]|$)/.test(rel));
-    };
-    return contains(left, right) || contains(right, left);
-}
-function findEnumerationRootFromKey(key) {
-    return String(key).split('\u0000', 1)[0];
-}
-function findEnumerationRootGeneration(root) {
-    return FIND_ENUM_ROOT_GEN.get(root) || 0;
-}
-function invalidateFindEnumerationRoot(root) {
-    FIND_ENUM_ROOT_GEN.set(root, findEnumerationRootGeneration(root) + 1);
-    for (const key of [...FIND_ENUM_CACHE.keys()]) {
-        if (findEnumerationRootFromKey(key) === root) FIND_ENUM_CACHE.delete(key);
-    }
-    for (const key of [...FIND_ENUM_INFLIGHT.keys()]) {
-        if (findEnumerationRootFromKey(key) === root) FIND_ENUM_INFLIGHT.delete(key);
-    }
-}
-// Trailing-edge prewarm throttle: sustained write bursts (builds, installs)
-// fire the watcher continuously; re-running the two full sweeps on every
-// flush kept the serve bulk queue permanently busy. Invalidation stays
-// immediate — only the warm rebuild is coalesced to one run per interval
-// per root, scheduled at the trailing edge so the cache re-arms after the
-// burst settles.
-const FIND_ENUM_PREWARM_STATE = new Map(); // root -> { lastAt, timer }
-const FIND_ENUM_PREWARM_MIN_INTERVAL_MS = 15_000;
-function scheduleFindEnumerationPrewarm(root, delayMs = 100) {
-    let state = FIND_ENUM_PREWARM_STATE.get(root);
-    if (!state) {
-        state = { lastAt: 0, timer: null };
-        FIND_ENUM_PREWARM_STATE.set(root, state);
-    }
-    if (state.timer) return;
-    const wait = Math.max(delayMs, state.lastAt + FIND_ENUM_PREWARM_MIN_INTERVAL_MS - Date.now());
-    state.timer = setTimeout(() => {
-        state.timer = null;
-        state.lastAt = Date.now();
-        void prewarmFindEnumeration(root);
-    }, wait);
-    state.timer.unref?.();
-}
-function ensureFindEnumerationWatcher(root) {
-    const existing = FIND_ENUM_WATCHERS.get(root);
-    if (existing) {
-        existing.touchedAt = Date.now();
-        return true;
-    }
-    try {
-        const pending = new Set();
-        const record = { watcher: null, timer: null, touchedAt: Date.now() };
-        const flush = () => {
-            record.timer = null;
-            const paths = [...pending];
-            pending.clear();
-            invalidateBuiltinResultCache(paths.length ? paths : [root]);
-            scheduleFindEnumerationPrewarm(root);
-        };
-        record.watcher = watch(root, { recursive: true, persistent: false }, (_event, filename) => {
-            const rel = filename == null ? '' : String(filename);
-            pending.add(rel ? resolveAgainstCwd(rel, root) : root);
-            if (record.timer) clearTimeout(record.timer);
-            record.timer = setTimeout(flush, 40);
-            record.timer.unref?.();
-        });
-        record.watcher.on('error', () => {
-            if (record.timer) clearTimeout(record.timer);
-            FIND_ENUM_WATCHERS.delete(root);
-            invalidateFindEnumerationRoot(root);
-            try { record.watcher.close(); } catch {}
-        });
-        record.watcher.unref?.();
-        FIND_ENUM_WATCHERS.set(root, record);
-        if (FIND_ENUM_WATCHERS.size > 16) {
-            const oldest = [...FIND_ENUM_WATCHERS.entries()]
-                .filter(([candidate]) => candidate !== root)
-                .sort((a, b) => a[1].touchedAt - b[1].touchedAt)[0];
-            if (oldest) {
-                FIND_ENUM_WATCHERS.delete(oldest[0]);
-                try { oldest[1].watcher.close(); } catch {}
-                invalidateFindEnumerationRoot(oldest[0]);
-            }
-        }
-        return true;
-    } catch {
-        return false;
-    }
-}
-registerCacheInvalidationListener((affectedPaths) => {
-    if (!Array.isArray(affectedPaths) || affectedPaths.length === 0) {
-        const roots = new Set([
-            ...FIND_ENUM_CACHE.keys(),
-            ...FIND_ENUM_INFLIGHT.keys(),
-        ].map(findEnumerationRootFromKey));
-        for (const root of roots) {
-            if (!FIND_ENUM_WATCHERS.has(root)) invalidateFindEnumerationRoot(root);
-        }
-        return;
-    }
-    const keys = new Set([...FIND_ENUM_CACHE.keys(), ...FIND_ENUM_INFLIGHT.keys()]);
-    const affectedRoots = new Set();
-    for (const key of keys) {
-        const root = findEnumerationRootFromKey(key);
-        if (affectedPaths.some((affected) => findEnumerationPathsOverlap(root, affected))) {
-            affectedRoots.add(root);
-        }
-    }
-    for (const root of affectedRoots) {
-        invalidateFindEnumerationRoot(root);
-    }
-});
-
-function findEnumTtlMs() {
-    const raw = process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
-    if (raw == null || raw === '') return 30000;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) return 30000; // malformed → default
-    return Math.floor(n); // 0 = disabled
-}
-
-function findEnumKey({ root, hidden, depth, includeNoise, ignoreMode }) {
-    return `${root}\u0000${hidden ? 1 : 0}\u0000${depth ?? ''}\u0000${includeNoise ? 1 : 0}\u0000${ignoreMode}`;
-}
-
-// Parse `rg --files` stdout into the same normalized relative-path list both
-// broad passes build (strip trailing CR, drop empties, strip leading `./`,
-// forward-slash). Module-level so the cache and both call sites agree.
-function parseRgFileList(stdout) {
-    return String(stdout)
-        .split('\n')
-        .map((p) => (p.endsWith('\r') ? p.slice(0, -1) : p))
-        .filter((p) => p.length > 0)
-        .map((p) => normalizeOutputPath(p.replace(/^\.[/\\]/, '')));
-}
-
-function findEnumerationAbortError(signal) {
-    const reason = signal?.reason;
-    return reason instanceof Error ? reason : new Error(String(reason || 'find canceled'));
-}
-
-function subscribeToFindEnumeration(key, entry, signal = null) {
-    const token = {};
-    entry.subscribers.add(token);
-    return new Promise((resolve, reject) => {
-        let done = false;
-        const detach = () => {
-            if (signal instanceof AbortSignal) {
-                try { signal.removeEventListener('abort', onAbort); } catch { /* ignore */ }
-            }
-        };
-        const settle = (fn, value) => {
-            if (done) return;
-            done = true;
-            entry.subscribers.delete(token);
-            detach();
-            fn(value);
-        };
-        function onAbort() {
-            const error = findEnumerationAbortError(signal);
-            settle(reject, error);
-            // A shared broad sweep survives one caller canceling, but when every
-            // subscriber is gone it is useless work and must release its rg.
-            if (entry.subscribers.size === 0) {
-                try { entry.controller.abort(error); } catch { /* ignore */ }
-                if (FIND_ENUM_INFLIGHT.get(key) === entry) FIND_ENUM_INFLIGHT.delete(key);
-            }
-        }
-        if (signal instanceof AbortSignal) {
-            if (signal.aborted) { onAbort(); return; }
-            signal.addEventListener('abort', onAbort, { once: true });
-        }
-        entry.promise.then(
-            (value) => settle(resolve, value),
-            (error) => settle(reject, error),
-        );
-    });
-}
-
-// Run (or reuse) the broad `rg --files` sweep for a root. Returns
-// { files, truncated, partial }. The returned `files` array is SHARED — callers
-// must treat it as read-only. `rgArgs` must be the broad-pass args (no per-query
-// narrowing); the cache key includes every enumeration-affecting dimension, so
-// any caller producing an
-// equivalent sweep for the same dims reuses the result.
-async function getBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMode, rgArgs, cwd, runRgImpl = runRg, bestEffort = false, signal = null }) {
-    const ttl = findEnumTtlMs();
-    const key = findEnumKey({ root, hidden, depth, includeNoise, ignoreMode });
-    const rootGen = findEnumerationRootGeneration(root);
-    if (ttl > 0) {
-        const hit = FIND_ENUM_CACHE.get(key);
-        if (hit && hit.gen === FIND_ENUM_GEN && hit.rootGen === rootGen && hit.expiresAt > Date.now()) {
-            recordLocalSearchIndex('hit', hit.files.length);
-            return { files: hit.files, items: hit.items, truncated: false, partial: false };
-        }
-        if (hit) FIND_ENUM_CACHE.delete(key); // expired
-    }
-    // Single-flight is independent of the persistent TTL cache. Even when
-    // MIXDOG_FIND_ENUM_CACHE_TTL_MS=0 disables reuse across calls, concurrent
-    // scalar find calls should still share the one broad `rg --files` sweep
-    // instead of spawning N identical enumerations.
-    const inflight = FIND_ENUM_INFLIGHT.get(key);
-    if (inflight) return subscribeToFindEnumeration(key, inflight, signal);
-    const genAtStart = FIND_ENUM_GEN;
-    const rootGenAtStart = rootGen;
-    const controller = new AbortController();
-    const entry = { promise: null, controller, subscribers: new Set() };
-    entry.promise = (async () => {
-        let truncated = false;
-        let partial = false;
-        let files;
-        if (runRgImpl === runRg) {
-            const served = await runRgWindowedLines(rgArgs, {
-                cwd, timeout: 10_000, signal: controller.signal,
-            }, {
-                offset: 0,
-                limit: 50_000,
-                nativeInventory: true,
-                // Only explicit boot/prewarm work may finish an inventory after
-                // its caller leaves. Normal find calls cancel on last waiter.
-                keepWarm: bestEffort,
-            });
-            files = parseRgFileList(served.lines.join('\n'));
-            truncated = served.complete !== true || served.truncated === true;
-            partial = served.partial === true || served.timeout === true;
-        } else {
-            const stdout = await runRgImpl(rgArgs, { cwd, signal: controller.signal });
-            truncated = Boolean(stdout && typeof stdout === 'object' && stdout.truncated);
-            partial = Boolean(stdout && typeof stdout === 'object' && stdout.partial);
-            files = parseRgFileList(stdout);
-        }
-        const items = prepareFuzzyItems(files);
-        recordLocalSearchIndex('build', files.length);
-        // Never cache a truncated/partial sweep — it is known-incomplete, so a
-        // later query with a larger head_limit must re-run the enumeration.
-        // Also never let an in-flight prewarm/real sweep repopulate after a
-        // write invalidation cleared the cache during the sweep.
-        if (ttl > 0 && !truncated && !partial
-            && FIND_ENUM_GEN === genAtStart
-            && findEnumerationRootGeneration(root) === rootGenAtStart) {
-            const watched = ensureFindEnumerationWatcher(root);
-            FIND_ENUM_CACHE.set(key, {
-                files,
-                items,
-                expiresAt: watched ? Number.MAX_SAFE_INTEGER : Date.now() + ttl,
-                gen: genAtStart,
-                rootGen: rootGenAtStart,
-            });
-        }
-        return { files, items, truncated, partial };
-    })();
-    FIND_ENUM_INFLIGHT.set(key, entry);
-    const cleanup = () => {
-        if (FIND_ENUM_INFLIGHT.get(key) === entry) FIND_ENUM_INFLIGHT.delete(key);
-    };
-    entry.promise.then(cleanup, cleanup);
-    return subscribeToFindEnumeration(key, entry, signal);
-}
-
-// Cache-only peek: returns the SHARED files array of a still-valid broad
-// sweep for these dimensions, or null. Never spawns, joins, or waits — the
-// targeted find path below must not block behind a full-tree enumeration.
-function peekBroadEnumeration({ root, hidden, depth, includeNoise, ignoreMode }) {
-    if (findEnumTtlMs() <= 0) return null;
-    const key = findEnumKey({ root, hidden, depth, includeNoise, ignoreMode });
-    const hit = FIND_ENUM_CACHE.get(key);
-    if (hit && hit.gen === FIND_ENUM_GEN
-        && hit.rootGen === findEnumerationRootGeneration(root)
-        && hit.expiresAt > Date.now()) {
-        return hit.files;
-    }
-    return null;
-}
-
-// Best-effort warm of the broad enumeration for a root using the `find` tool's
-// DEFAULT flags (hidden:true, includeNoise:false, depth:unbounded). Swallows
-// all errors — a failed prewarm must never surface or block the caller.
-export async function prewarmFindEnumeration(root) {
-    try {
-        if (!root || typeof root !== 'string') return;
-        const hidden = true, includeNoise = false, depth = null;
-        const common = ['--files', '--no-require-git', '--hidden'];
-        for (const ex of DEFAULT_IGNORE_GLOBS) {
-            common.push('--glob', ex);
-        }
-        for (const ex of rootScanIgnoreGlobs(normalizeOutputPath(root))) common.push('--glob', ex);
-        common.push('.');
-        await getBroadEnumeration({
-            root: normalizeOutputPath(root),
-            hidden, depth, includeNoise, ignoreMode: 'git',
-            rgArgs: common, cwd: root, bestEffort: true,
-        });
-    } catch { /* best-effort warm; never surface */ }
-}
-
-function escapeFindGlobLiteral(value) {
-    return String(value).replace(/[*?[\]{}]/g, (char) => `[${char}]`);
-}
-
-async function getTargetedFindEnumeration({
-    queries,
-    root,
-    hidden,
-    depth,
-    includeNoise,
-    runRgImpl,
-    signal,
-    timeoutMs = null,
-}) {
-    const terms = [...new Set((queries || []).map((query) => String(query || '').trim()).filter(Boolean))];
-    // Reuse a WARM broad inventory only (cache peek). A cold cache goes
-    // straight to the cheap targeted --iglob batch below: front-running the
-    // full `--no-ignore` sweep made cold finds stall behind the serve bulk
-    // queue for tens of seconds.
-    const inventory = peekBroadEnumeration({
-        root: normalizeOutputPath(root),
-        hidden,
-        depth,
-        includeNoise,
-        ignoreMode: includeNoise ? 'all' : 'git',
-    });
-    if (inventory) {
-        const lowerTerms = terms.map((term) => term.toLowerCase());
-        return {
-            files: inventory.filter((path) => {
-                const lower = path.toLowerCase();
-                return lowerTerms.some((term) => lower.includes(term));
-            }),
-            truncated: false,
-            partial: false,
-        };
-    }
-    let batches = FIND_TARGETED_BATCHES_BY_RUNNER.get(runRgImpl);
-    if (!batches) {
-        batches = new Map();
-        FIND_TARGETED_BATCHES_BY_RUNNER.set(runRgImpl, batches);
-    }
-    const batchKey = JSON.stringify([root, hidden, depth ?? '', includeNoise]);
-    let batch = batches.get(batchKey);
-    if (!batch) {
-        batch = {
-            terms: new Set(),
-            waiters: new Set(),
-            controller: new AbortController(),
-        };
-        batches.set(batchKey, batch);
-        setImmediate(async () => {
-            if (batches.get(batchKey) === batch) batches.delete(batchKey);
-            if (batch.waiters.size === 0) return;
-            const rgArgs = ['--files', includeNoise ? '--no-ignore' : '--no-require-git'];
-            if (hidden) rgArgs.push('--hidden');
-            if (depth != null) rgArgs.push('--max-depth', String(depth));
-            for (const query of batch.terms) {
-                rgArgs.push('--iglob', `*${escapeFindGlobLiteral(query)}*`);
-            }
-            if (!includeNoise) {
-                for (const ex of DEFAULT_IGNORE_GLOBS) rgArgs.push('--glob', ex);
-            }
-            for (const ex of rootScanIgnoreGlobs(root)) rgArgs.push('--glob', ex);
-            rgArgs.push('.');
-            try {
-                const stdout = await runRgImpl(rgArgs, {
-                    cwd: root,
-                    signal: batch.controller.signal,
-                    ...(Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
-                        ? { timeout: Math.floor(Number(timeoutMs)) }
-                        : {}),
-                });
-                const paths = parseRgFileList(stdout).filter((path) =>
-                    includeNoise || !path.split('/').some((segment) => NOISE_DIR_NAMES.has(segment)));
-                const result = {
-                    files: paths,
-                    truncated: Boolean(stdout && typeof stdout === 'object' && stdout.truncated),
-                    partial: Boolean(stdout && typeof stdout === 'object' && stdout.partial),
-                };
-                for (const waiter of [...batch.waiters]) waiter.resolve(result);
-            } catch (error) {
-                for (const waiter of [...batch.waiters]) waiter.reject(error);
-            }
-        });
-    }
-    for (const term of terms) batch.terms.add(term);
-    const run = new Promise((resolve, reject) => {
-        let settled = false;
-        const waiter = {
-            resolve(value) {
-                if (settled) return;
-                settled = true;
-                batch.waiters.delete(waiter);
-                if (signal instanceof AbortSignal) signal.removeEventListener('abort', onAbort);
-                resolve(value);
-            },
-            reject(error) {
-                if (settled) return;
-                settled = true;
-                batch.waiters.delete(waiter);
-                if (signal instanceof AbortSignal) signal.removeEventListener('abort', onAbort);
-                reject(error);
-            },
-        };
-        const onAbort = () => {
-            waiter.reject(findEnumerationAbortError(signal));
-            if (batch.waiters.size === 0) {
-                try { batch.controller.abort(findEnumerationAbortError(signal)); } catch {}
-            }
-        };
-        batch.waiters.add(waiter);
-        if (signal instanceof AbortSignal) {
-            if (signal.aborted) onAbort();
-            else signal.addEventListener('abort', onAbort, { once: true });
-        }
-    });
-    return run;
-}
-
- // Fuzzy filename search (nucleo-style): collect the file
-// list via `rg --files`, then rank by subsequence score.
-// A pruned tree cannot report what it never enumerated. Dependency and cache
-// directories are skipped by DEFAULT, so a file that exists only inside one —
-// a __pycache__ artifact, a vendored source, a build cache — came back as
-// "(no fuzzy match for X)", which reads as PROVEN ABSENCE and ends the search.
-// A second, noise-including pass turns that into the truth, but the default
-// answer still may not list dependency paths (that is the point of the
-// default), so the miss keeps its body and gains the one fact it was missing:
-// a match exists, and which flag surfaces it. Only a CLEAN miss retries — a
-// partial or timed-out pass says "no fuzzy match YET" and is already telling
-// the caller to narrow, so it never pays for a second walk.
+// Fuzzy filename search has one canonical implementation: the Rust search
+// server's resident inventory. A server failure is surfaced instead of
+// launching a second filesystem walk with different semantics.
 export async function executeFuzzyFindTool(args, workDir, options = {}) {
-    const startedAt = performance.now();
-    const result = await runFuzzyFindPass(args, workDir, options);
-    const text = String(result ?? '');
-    if (!/^\(no fuzzy match for /.test(text)) return result;
-    if (args?.include_noise === true || options?._findNoiseWidened === true) return result;
-    // The retry walks the same tree again. A miss that was already expensive
-    // pays for itself twice, so only a cheap pass earns the second look.
-    if (performance.now() - startedAt > FIND_NOISE_WIDEN_BUDGET_MS) return result;
-    const widened = String(await runFuzzyFindPass(
-        { ...args, include_noise: true },
-        workDir,
-        { ...options, _findNoiseWidened: true },
-    ) ?? '');
-    if (!widened || /^\(no fuzzy match/.test(widened)) return result;
-    const hits = widened.split('\n').filter((line) => line && !line.startsWith('... [') && !line.startsWith('[')).length;
-    return `${text}\n[notice] ${hits} match${hits === 1 ? '' : 'es'} exist inside dependency/cache trees the default scan skips`
-        + ' — pass include_noise:true to list them.';
+    return runFuzzyFindPass(args, workDir, options);
 }
-
-/** A miss cheaper than this earns the one widening retry below. */
-const FIND_NOISE_WIDEN_BUDGET_MS = 2_000;
 
 async function runFuzzyFindPass(args, workDir, options = {}) {
     const query = String(args.query ?? '').trim();
@@ -1106,24 +636,16 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
     const nativeFuzzyImpl = typeof options?.__tryServeFuzzySearch === 'function'
         ? options.__tryServeFuzzySearch
         : tryServeFuzzySearch;
-    const runRgImpl = (options && typeof options.__runRg === 'function') ? options.__runRg : runRg;
     let nativeEmptyPartial = null;
     // Space-separated fragments AND-match one path. The native matcher handles
     // every token independently and sums exact per-token scores.
-    const queryTokens = splitFuzzyQueryTokens(query);
-    if (
-        headLimit > 0
-        && (
-            typeof options?.__runRg !== 'function'
-            || typeof options?.__tryServeFuzzySearch === 'function'
-        )
-    ) {
+    {
         const nativeStartedAt = performance.now();
         try {
             const served = await nativeFuzzyImpl({
                 query,
                 cwd: fullPath,
-                limit: headLimit + 1,
+                limit: headLimit > 0 ? headLimit + 1 : 1_000,
                 hidden,
                 includeNoise,
                 maxDepth: depth,
@@ -1142,11 +664,11 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
             if (served?.complete) {
                 recordNativeSearchTiming(served);
                 recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'hit');
-                const hasMore = served.hasMore || served.matches.length > headLimit;
-                const matches = hasMore ? served.matches.slice(0, headLimit) : served.matches;
+                const hasMore = served.hasMore || (headLimit > 0 && served.matches.length > headLimit);
+                const matches = headLimit > 0 && hasMore ? served.matches.slice(0, headLimit) : served.matches;
                 const lines = matches.length === 0
                     ? [`(no fuzzy match for "${query}")`]
-                    : [...matches, ...(hasMore ? [`... (top ${headLimit}; raise limit for more)`] : [])];
+                    : [...matches, ...(hasMore ? [`... (top ${headLimit || 1_000}; narrow query or raise limit for more)`] : [])];
                 const result = lines.join('\n');
                 if (served.cacheSafe !== false) {
                     cacheSet(cacheKey, result, { scopes: [fullPath] });
@@ -1172,6 +694,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
                 nativeEmptyPartial = served;
             } else {
                 recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'miss');
+                return capFindResult('Error: native fuzzy search returned an invalid response.');
             }
         } catch (error) {
             if (options.signal?.aborted) throw error;
@@ -1196,9 +719,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
                 };
             } else {
                 recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'error');
-                if (error?.code !== 'NATIVE_SEARCH_UNSUPPORTED') {
-                    return capFindResult(`Error: ${normalizeErrorMessage(error instanceof Error ? error.message : String(error))}`);
-                }
+                return capFindResult(`Error: ${normalizeErrorMessage(error instanceof Error ? error.message : String(error))}`);
             }
         }
     }
@@ -1215,136 +736,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
             `... [native inventory is still building${scanErrorNote}; retry the same scope for complete results]`,
         ].join('\n'));
     }
-    // Common discovery respects .gitignore even outside a Git repository.
-    // include_noise deliberately retains the old hardened --no-ignore behavior.
-    // Noise dirs stay excluded via DEFAULT_IGNORE_GLOBS below.
-    const baseRgArgs = ['--files', includeNoise ? '--no-ignore' : '--no-require-git'];
-    if (hidden) baseRgArgs.push('--hidden');
-    if (depth != null) baseRgArgs.push('--max-depth', String(depth));
-    // Noise-exclusion globs are kept SEPARATE and always appended LAST (after
-    // any positive --iglob). ripgrep's "last matching glob wins" rule means a
-    // positive include placed after these negations would re-admit e.g.
-    // `.git/<query>` — so the exclusions must trail the narrowed include.
-    const ignoreGlobs = [];
-    if (!includeNoise) {
-        for (const ex of DEFAULT_IGNORE_GLOBS) ignoreGlobs.push('--glob', ex);
-    }
-    for (const ex of rootScanIgnoreGlobs(normalizeOutputPath(fullPath))) ignoreGlobs.push('--glob', ex);
-    // The narrowed pass must treat `query` as a LITERAL filename substring, not
-    // a glob. Wrap every globset metacharacter in a single-char character class
-    // (`[` → `[[]`, `*` → `[*]`, …): character-class quoting is the only form
-    // globset honors on Windows, where a backslash-escape (`\*`) is read as a
-    // literal path separator and does NOT escape. So a query like "[slug].tsx"
-    // still produces the intended `*[[]slug[]].tsx*` include instead of a
-    // character-class that matches one of s/l/u/g.
-    // Test-only seam: allow a caller to inject a runRg stand-in (e.g. to
-    // simulate a truncated broad pass) without touching the production path.
-    // Never set on the real tool-execution options object.
-    const parseRgFiles = (stdout) => String(stdout)
-        .split('\n')
-        // Strip only the trailing CR from rg's line split — do NOT trim, or a
-        // filename with leading/trailing spaces would be corrupted.
-        .map((p) => (p.endsWith('\r') ? p.slice(0, -1) : p))
-        .filter((p) => p.length > 0)
-        .map((p) => normalizeOutputPath(p.replace(/^\.[/\\]/, '')));
-    // Broad enumeration: every file under the scope, ranked by fuzzy score.
-    // Subject to rg's 20MB/20s cap — an exact-name hit deep in a huge tree can
-    // be dropped by cap lottery, so it is backstopped by the narrowed pass.
-    // Shared across queries/concurrent callers via the broad-enumeration cache
-    // (keyed on root+hidden+depth+includeNoise, i.e. exactly this pass's args).
-    let broadEnum;
-    try {
-        broadEnum = await getBroadEnumeration({
-            root: normalizeOutputPath(fullPath),
-            hidden, depth, includeNoise, ignoreMode: includeNoise ? 'all' : 'git',
-            rgArgs: [...baseRgArgs, ...ignoreGlobs, '.'],
-            cwd: fullPath,
-            runRgImpl,
-            signal: options.signal,
-        });
-    } catch (err) {
-        return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
-    }
-    let rgTruncated = broadEnum.truncated;
-    let rgPartial = broadEnum.partial;
-    const passOneItems = broadEnum.items || prepareFuzzyItems(broadEnum.files);
-    const queryTokensLower = queryTokens.map((t) => t.toLowerCase());
-    const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
-    const passOneRanked = fuzzyRankMulti(query, passOneItems, rankLimit);
-    const passOneHasCandidate = passOneRanked.length > 0;
-    let targetedProbeRan = false;
-    let targetedPaths = [];
-    // A full --no-ignore enumeration can exceed 20MB, then trigger one more
-    // whole-tree narrowed pass PER query. Probe only requested names instead,
-    // unioning every query in this find batch into one rg process.
-    if (rgTruncated || rgPartial || !passOneHasCandidate) {
-        try {
-            const targeted = await getTargetedFindEnumeration({
-                queries: queryTokens.length > 0 ? queryTokens : [query],
-                root: fullPath,
-                hidden,
-                depth,
-                includeNoise,
-                runRgImpl,
-                signal: options.signal,
-            });
-            rgTruncated ||= targeted.truncated;
-            rgPartial ||= targeted.partial;
-            // Every fragment must appear in the path (AND) — a single-fragment
-            // query keeps the prior substring behavior.
-            targetedPaths = targeted.files.filter((path) => {
-                const lower = path.toLowerCase();
-                return queryTokensLower.every((t) => lower.includes(t));
-            });
-            targetedProbeRan = true;
-        } catch {
-            if (options.signal?.aborted) throw findEnumerationAbortError(options.signal);
-            rgPartial = true;
-        }
-    }
-    // Merge common + targeted results, preserving common-path order.
-    const seen = new Set();
-    const items = [];
-    for (const item of passOneItems) {
-        const p = item.path;
-        if (seen.has(p)) continue;
-        seen.add(p);
-        items.push(item);
-    }
-    for (const item of prepareFuzzyItems(targetedPaths)) {
-        const p = item.path;
-        if (seen.has(p)) continue;
-        seen.add(p);
-        items.push(item);
-    }
-    const rankedRaw = targetedPaths.length > 0
-        ? fuzzyRankMulti(query, items, rankLimit)
-        : passOneRanked;
-    const hasMore = headLimit > 0 && rankedRaw.length > headLimit;
-    const ranked = hasMore ? rankedRaw.slice(0, headLimit) : rankedRaw;
-    // Build output lines uniformly for the hit and no-match cases so a
-    // truncated/partial broad pass ALWAYS surfaces its warning — otherwise a
-    // cut-off enumeration that happened to drop the sole match would silently
-    // report "(no fuzzy match …)" as if the tree were exhaustively searched.
-    const noMatch = ranked.length === 0;
-    const lines = noMatch ? [`(no fuzzy match for "${query}")`] : ranked.map((r) => r.item.path);
-    if (!noMatch && hasMore) lines.push(`... (top ${headLimit}; raise limit for more)`);
-    if (rgTruncated) lines.push('... [warning] rg stdout truncated at 20MB cap; broad ranking incomplete (exact-name hits still merged)');
-    if (rgPartial && !rgTruncated) lines.push('... [warning] rg exit 2 (partial results); broad ranking may be incomplete');
-    if (!targetedProbeRan && headLimit > 0 && passOneRanked.length >= headLimit) {
-        lines.push('[gitignored trees not searched; include_noise:true is available only if those trees are required]');
-    }
-    const result = lines.join('\n');
-    // Do not cache a truncated/partial enumeration — the broad ranking is
-    // known-incomplete, so a later call with a larger head_limit must re-run.
-    // A no-match result is also left uncached (mirrors the prior early return).
-    if (!noMatch && !rgTruncated && !rgPartial) {
-        cacheSet(cacheKey, result, { scopes: [fullPath] });
-    }
-    if (typeof options?.onProgress === 'function') {
-        try { options.onProgress(`${ranked.length} candidates`); } catch { /* best-effort */ }
-    }
-    return capFindResult(result);
+    return capFindResult('Error: native fuzzy search did not return a result.');
 }
 
 export async function executeFindFilesTool(args, workDir, options = {}) {

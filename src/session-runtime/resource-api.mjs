@@ -8,8 +8,13 @@ import {
   tombstoneOnClose,
 } from './session-text.mjs';
 import {
+  publishGlobalExtensionChange,
+  subscribeGlobalExtensionChanges,
+} from './global-extensions.mjs';
+import {
   addPlugin as registryAddPlugin,
   removePlugin as registryRemovePlugin,
+  setPluginEnabled as registrySetPluginEnabled,
   updatePlugin as registryUpdatePlugin,
 } from '../standalone/plugin-admin.mjs';
 import {
@@ -18,10 +23,8 @@ import {
   pluginRawMcpServers,
   pluginMcpEnableScript,
   resolveContainedPluginPath,
-  setProjectMcpServerEnabled,
-  normalizeMcpProjectPathKey,
+  mergeMcpServerConfig,
 } from './plugin-mcp.mjs';
-import { invalidateProjectMcpCache } from './mcp-glue.mjs';
 
 // MCP servers, skills, plugins, hooks, and memory/recall surfaces. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
@@ -31,9 +34,10 @@ export function createResourceApi(deps) {
     getConfig, getSession, getCurrentCwd,
     cfgMod, mgr, hooks, STANDALONE_DATA_DIR,
     saveConfigAndAdopt, connectConfiguredMcp, invalidatePreSessionToolSurface,
-    recreateCurrentSessionIfReady, normalizeMcpServerInput, mcpStatus,
-    skillsStatus, skillContent, addProjectSkill, pluginsStatus, getMemoryModule,
-    reloadFullConfig, awaitKeychainPrewarm, getActiveTurnCount,
+    recreateCurrentSessionIfReady, normalizeMcpServerInput, mcpStatus, getMcpServerConfig,
+    skillsStatus, skillContent, addGlobalSkill, saveSkillDocument, invalidateSkills,
+    getDisabledSkills, setDisabledSkills, pluginsStatus, getMemoryModule,
+    reloadFullConfig, flushSkillsSave, awaitKeychainPrewarm, getActiveTurnCount,
   } = deps;
   // Per-server MCP toggle serialization. The synchronous config adopt in
   // setMcpServerEnabled has already made the intent durable; the heavy
@@ -42,6 +46,39 @@ export function createResourceApi(deps) {
   // update `desired` and ride the in-flight chain so it converges to the last
   // requested state, closing/recreating the session only once at the end.
   const mcpToggleChains = new Map(); // name -> { desired, running }
+  let globalRefreshTimer = null;
+  function applyGlobalExtensionRecreate(kind) {
+    if (typeof getActiveTurnCount === 'function' && getActiveTurnCount() > 0) {
+      if (!globalRefreshTimer) {
+        globalRefreshTimer = setTimeout(() => {
+          globalRefreshTimer = null;
+          applyGlobalExtensionRecreate(kind);
+        }, 250);
+        globalRefreshTimer.unref?.();
+      }
+      return;
+    }
+    invalidatePreSessionToolSurface();
+    const session = getSession();
+    if (session?.id) {
+      mgr.closeSession(session.id, `global-${kind}-refresh`, { tombstone: tombstoneOnClose(session) });
+    }
+    void recreateCurrentSessionIfReady().catch((err) => {
+      process.stderr.write(`[extensions] session recreate failed: ${err?.message || err}\n`);
+    });
+  }
+  async function refreshGlobalExtensionState(kind) {
+    reloadFullConfig?.();
+    if (kind === 'skills' || kind === 'plugins') invalidateSkills?.();
+    if (kind === 'mcp' || kind === 'plugins') {
+      await connectConfiguredMcp({ reset: true });
+    }
+    applyGlobalExtensionRecreate(kind);
+  }
+  const globalExtensionSubscription = subscribeGlobalExtensionChanges(refreshGlobalExtensionState);
+  const publishGlobalChange = (kind) => (
+    publishGlobalExtensionChange(kind, globalExtensionSubscription.id)
+  );
   // Close/recreate the live session only at a turn boundary: a background
   // toggle must never abort an in-flight turn. If a turn is active, poll until
   // it ends, then swap the session so it picks up the new tool surface.
@@ -105,6 +142,9 @@ export function createResourceApi(deps) {
     mcpStatus() {
       return mcpStatus();
     },
+    getMcpServerConfig(name) {
+      return getMcpServerConfig(name);
+    },
     async reconnectMcp() {
       await awaitKeychainPrewarm();
       reloadFullConfig();
@@ -113,11 +153,13 @@ export function createResourceApi(deps) {
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-reconnect', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('mcp');
       return status;
     },
     async addMcpServer(input = {}) {
       const { name, config: serverConfig } = normalizeMcpServerInput(input);
       const nextConfig = { ...getConfig() };
+      delete nextConfig.mcpProjectOverrides;
       nextConfig.mcpServers = {
         ...(nextConfig.mcpServers || {}),
         [name]: serverConfig,
@@ -128,7 +170,39 @@ export function createResourceApi(deps) {
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-add', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('mcp');
       return { name, status };
+    },
+    async saveMcpServer(input = {}) {
+      const originalName = clean(input.originalName);
+      const normalizedInput = normalizeMcpServerInput(input);
+      const name = originalName && clean(input.name) === originalName
+        ? originalName
+        : normalizedInput.name;
+      const normalized = normalizedInput.config;
+      const nextConfig = { ...getConfig() };
+      delete nextConfig.mcpProjectOverrides;
+      const servers = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
+        ? { ...nextConfig.mcpServers }
+        : {};
+      if (originalName && !Object.prototype.hasOwnProperty.call(servers, originalName)) {
+        throw new Error(`MCP server not configured: ${originalName}`);
+      }
+      if (name !== originalName && Object.prototype.hasOwnProperty.call(servers, name)) {
+        throw new Error(`MCP server already exists: ${name}`);
+      }
+      const existing = originalName ? servers[originalName] : {};
+      if (originalName && originalName !== name) delete servers[originalName];
+      servers[name] = mergeMcpServerConfig(existing, normalized);
+      nextConfig.mcpServers = servers;
+      saveConfigAndAdopt(nextConfig);
+      const status = await connectConfiguredMcp({ reset: true });
+      invalidatePreSessionToolSurface();
+      const session = getSession();
+      if (session?.id) mgr.closeSession(session.id, 'cli-mcp-save', { tombstone: tombstoneOnClose(session) });
+      await recreateCurrentSessionIfReady();
+      await publishGlobalChange('mcp');
+      return { name, source: 'config', status };
     },
     async removeMcpServer(name) {
       const serverName = clean(name);
@@ -141,73 +215,36 @@ export function createResourceApi(deps) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
       delete current[serverName];
-      const currentOverrides = nextConfig.mcpProjectOverrides && typeof nextConfig.mcpProjectOverrides === 'object'
-        ? nextConfig.mcpProjectOverrides
-        : {};
-      const mcpProjectOverrides = {};
-      for (const [projectKey, serverOverrides] of Object.entries(currentOverrides)) {
-        if (!serverOverrides || typeof serverOverrides !== 'object' || Array.isArray(serverOverrides)) continue;
-        const nextServerOverrides = { ...serverOverrides };
-        delete nextServerOverrides[serverName];
-        if (Object.keys(nextServerOverrides).length > 0) {
-          mcpProjectOverrides[projectKey] = nextServerOverrides;
-        }
-      }
-      saveConfigAndAdopt({ ...nextConfig, mcpServers: current, mcpProjectOverrides });
+      delete nextConfig.mcpProjectOverrides;
+      saveConfigAndAdopt({ ...nextConfig, mcpServers: current });
       const status = await connectConfiguredMcp({ reset: true });
       invalidatePreSessionToolSurface();
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-mcp-remove', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('mcp');
       return status;
     },
-    setMcpServerEnabled(name, enabled) {
+    async setMcpServerEnabled(name, enabled) {
       const serverName = clean(name);
       if (!serverName) throw new Error('MCP server name is required');
       const want = enabled !== false;
-      // A project-local `.mcp.json` entry WINS over config for this name, so the
-      // durable toggle must land in whichever file actually drives the server.
-      // For project-sourced servers, persist the `enabled` flag into `.mcp.json`
-      // then explicitly invalidate the project cache (mtime granularity is not
-      // reliable for same-tick writes), before running the same
-      // background connect/recreate chain used for config servers.
       const shadowRow = mcpStatus().servers.find((s) => s.name === serverName);
-      if (shadowRow && shadowRow.source === 'project') {
-        setProjectMcpServerEnabled(getCurrentCwd(), serverName, want);
-        invalidateProjectMcpCache(getCurrentCwd());
-        return scheduleMcpToggle(serverName, want);
-      }
+      if (!shadowRow) throw new Error(`MCP server not configured: ${serverName}`);
       const nextConfig = { ...getConfig() };
-      const current = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
+      const servers = nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object'
         ? { ...nextConfig.mcpServers }
         : {};
-      if (!Object.prototype.hasOwnProperty.call(current, serverName)) {
+      const current = servers[serverName];
+      if (!current || typeof current !== 'object' || Array.isArray(current)) {
         throw new Error(`MCP server not configured: ${serverName}`);
       }
-      // Keep the global server definition single-source; only this project's
-      // enabled override is adopted + persisted synchronously (fast), then
-      // hand the heavy connect/close/recreate to the per-server background
-      // chain. Return that chain's promise so callers can settle the picker on
-      // completion, but the store no longer blocks on it.
-      const projectKey = normalizeMcpProjectPathKey(getCurrentCwd());
-      const currentOverrides = nextConfig.mcpProjectOverrides && typeof nextConfig.mcpProjectOverrides === 'object'
-        ? nextConfig.mcpProjectOverrides
-        : {};
-      const projectOverrides = currentOverrides[projectKey] && typeof currentOverrides[projectKey] === 'object'
-        ? currentOverrides[projectKey]
-        : {};
-      cfgMod.markMcpProjectOverrideDirty(projectKey, serverName, want);
-      saveConfigAndAdopt({
-        ...nextConfig,
-        mcpProjectOverrides: {
-          ...currentOverrides,
-          [projectKey]: {
-            ...projectOverrides,
-            [serverName]: { enabled: want },
-          },
-        },
-      });
-      return scheduleMcpToggle(serverName, want);
+      servers[serverName] = { ...current, enabled: want };
+      delete nextConfig.mcpProjectOverrides;
+      saveConfigAndAdopt({ ...nextConfig, mcpServers: servers });
+      const status = await scheduleMcpToggle(serverName, want);
+      await publishGlobalChange('mcp');
+      return status;
     },
     skillsStatus() {
       return skillsStatus();
@@ -216,16 +253,44 @@ export function createResourceApi(deps) {
       return skillContent(name);
     },
     async addSkill(input = {}) {
-      const skill = addProjectSkill(input);
+      const skill = addGlobalSkill(input);
+      invalidateSkills?.();
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-skill-add', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('skills');
       return { skill, status: skillsStatus() };
     },
+    async saveSkill(input = {}) {
+      const skill = saveSkillDocument(input);
+      if (skill.originalName !== skill.name) {
+        const disabled = getDisabledSkills?.().disabled;
+        if (Array.isArray(disabled) && disabled.includes(skill.originalName)) {
+          setDisabledSkills?.(disabled.map((name) =>
+            name === skill.originalName ? skill.name : name));
+          flushSkillsSave?.();
+        }
+      }
+      const session = getSession();
+      if (session?.id) mgr.closeSession(session.id, 'cli-skill-save', { tombstone: tombstoneOnClose(session) });
+      await recreateCurrentSessionIfReady();
+      await publishGlobalChange('skills');
+      return { skill, status: skillsStatus() };
+    },
+    async setDisabledSkills(names = []) {
+      const result = setDisabledSkills?.(names);
+      flushSkillsSave?.();
+      invalidateSkills?.();
+      applyGlobalExtensionRecreate('skills');
+      await publishGlobalChange('skills');
+      return result;
+    },
     async reloadSkills() {
+      invalidateSkills?.();
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-skills-reload', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('skills');
       return skillsStatus();
     },
     pluginsStatus() {
@@ -235,23 +300,63 @@ export function createResourceApi(deps) {
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-plugins-reload', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('plugins');
       return pluginsStatus();
     },
     async addPlugin(source) {
       const dataDir = cfgMod.getPluginData?.();
       const plugin = registryAddPlugin(source, { dataDir });
+      invalidateSkills?.();
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-plugin-add', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('plugins');
       return { plugin, status: pluginsStatus() };
     },
     async updatePlugin(plugin = {}) {
       const key = clean(plugin.id || plugin.name || plugin);
       const dataDir = cfgMod.getPluginData?.();
       const updated = registryUpdatePlugin(key, { dataDir });
+      invalidateSkills?.();
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-plugin-update', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('plugins');
+      return { plugin: updated, status: pluginsStatus() };
+    },
+    async setPluginEnabled(plugin = {}, enabled = true) {
+      const key = clean(plugin.id || plugin.name || plugin);
+      const dataDir = cfgMod.getPluginData?.();
+      const updated = registrySetPluginEnabled(key, enabled, { dataDir });
+      const nextConfig = { ...getConfig() };
+      const serverName = pluginMcpServerName(plugin);
+      const prefix = `${serverName}--`;
+      let changedMcp = false;
+      const mcpServers = {};
+      for (const [name, value] of Object.entries(nextConfig.mcpServers || {})) {
+        const config = value && typeof value === 'object' && !Array.isArray(value)
+          ? { ...value }
+          : value;
+        if (name === serverName || name.startsWith(prefix)) {
+          changedMcp = true;
+          if (config && typeof config === 'object' && !Array.isArray(config)) {
+            if (enabled === false) config._mixdogPluginDisabled = true;
+            else delete config._mixdogPluginDisabled;
+          }
+        }
+        mcpServers[name] = config;
+      }
+      if (changedMcp) {
+        nextConfig.mcpServers = mcpServers;
+        saveConfigAndAdopt(nextConfig);
+        await connectConfiguredMcp({ reset: true });
+        invalidatePreSessionToolSurface();
+      }
+      invalidateSkills?.();
+      const session = getSession();
+      if (session?.id) mgr.closeSession(session.id, 'cli-plugin-toggle', { tombstone: tombstoneOnClose(session) });
+      await recreateCurrentSessionIfReady();
+      await publishGlobalChange('plugins');
       return { plugin: updated, status: pluginsStatus() };
     },
     async removePlugin(plugin = {}) {
@@ -273,9 +378,11 @@ export function createResourceApi(deps) {
         await connectConfiguredMcp({ reset: true });
         invalidatePreSessionToolSurface();
       }
+      invalidateSkills?.();
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-plugin-remove', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('plugins');
       return { plugin: removed, status: pluginsStatus() };
     },
     async enablePluginMcp(plugin = {}) {
@@ -304,6 +411,7 @@ export function createResourceApi(deps) {
             MIXDOG_PLUGIN_ROOT: root,
             MIXDOG_PLUGIN_DATA: join(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
           };
+          if (plugin.enabled === false) cfg._mixdogPluginDisabled = true;
           const key = keys.length === 1 ? serverName : `${serverName}--${serverKey}`;
           nextServers[key] = cfg;
         }
@@ -321,6 +429,7 @@ export function createResourceApi(deps) {
               MIXDOG_PLUGIN_ROOT: root,
               MIXDOG_PLUGIN_DATA: join(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
             },
+            ...(plugin.enabled === false ? { _mixdogPluginDisabled: true } : {}),
           },
         };
       }
@@ -330,7 +439,13 @@ export function createResourceApi(deps) {
       const session = getSession();
       if (session?.id) mgr.closeSession(session.id, 'cli-plugin-mcp-enable', { tombstone: tombstoneOnClose(session) });
       await recreateCurrentSessionIfReady();
+      await publishGlobalChange('mcp');
       return { serverName, status };
+    },
+    disposeGlobalExtensionSubscription() {
+      if (globalRefreshTimer) clearTimeout(globalRefreshTimer);
+      globalRefreshTimer = null;
+      globalExtensionSubscription.unsubscribe();
     },
     hooksStatus() {
       return hooks.status();

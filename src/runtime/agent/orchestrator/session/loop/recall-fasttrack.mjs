@@ -1,6 +1,6 @@
 // Recall-fasttrack compaction pipeline (digest injection).
-// Hydrates the session transcript into the memory pipeline (ingest_session),
-// then injects a small newest-first digest + recall pointer into the
+// Reads the session transcript already persisted by the memory watcher, then
+// injects a small newest-first digest + recall pointer into the
 // compacted messages. The former full-dump path (dump_session_roots +
 // synchronous cycle1 drain) was removed 2026-07: the drain ran memory-
 // pipeline LLM chunking calls inside the compaction (11.9s of a measured

@@ -73,6 +73,8 @@ export function useAppPaneChrome({
                   : selection.title || `Pull Request #${selection.number}`)
                 : selection.kind === "studio"
                   ? "Studio"
+                  : selection.kind === "browser"
+                    ? "Browser"
                   : selection.kind === "terminal"
                     ? "Terminal"
                     : selection.kind === "folder"
@@ -87,7 +89,7 @@ export function useAppPaneChrome({
   const activatePaneSurface = (paneSelection: WorkspaceSelection) => {
     if (paneSelection.kind === "studio"
       || paneSelection.kind === "terminal"
-      || paneSelection.kind === "folder"
+      || paneSelection.kind === "folder" || paneSelection.kind === "browser"
       || paneSelection.kind === "diff" || paneSelection.kind === "pull-request") return;
     if (paneSelection.kind === "session") {
       try { window.localStorage.setItem(lastSessionStorageKey, paneSelection.id); } catch {}

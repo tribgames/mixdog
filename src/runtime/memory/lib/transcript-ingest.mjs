@@ -264,7 +264,7 @@ export function createTranscriptIngest({
     _transcriptOffsets = new Map()
   }
 
-  function initTranscriptWatcher() {
+  async function initTranscriptWatcher() {
     const root = projectsRoot()
     const SAFETY_POLL_MS = 5 * 60_000
     const DEBOUNCE_MS = 500
@@ -273,7 +273,6 @@ export function createTranscriptIngest({
     const watchers = []
     const intervals = []
     const polledFiles = new Set()
-    let safetySweepTimeout = null
 
     function isWatchable(relOrBase) {
       const base = path.basename(relOrBase)
@@ -345,13 +344,11 @@ export function createTranscriptIngest({
     async function safetySweep() {
       try {
         const active = await discoverActiveTranscripts()
-        for (const { path: fp } of active) ingestOne(fp)
+        await Promise.all(active.map(({ path: fp }) => ingestOne(fp)))
       } catch (e) {
         log(`[transcript-watch] safety sweep error: ${e.message}\n`)
       }
     }
-
-    safetySweepTimeout = setTimeout(safetySweep, 3_000)
 
     // fs.watch({recursive}) is only reliable on win32.
     // darwin: recursive option unreliable — use flat watch per-entry (glob dirs at start).
@@ -429,9 +426,14 @@ export function createTranscriptIngest({
       intervals.push(setInterval(_patchedSweep, SAFETY_POLL_MS))
     }
 
+    // Runtime readiness includes the first active-transcript sweep. Without
+    // this barrier a lazy-started memory process can answer recall before the
+    // current session's persisted rows exist, causing automatic compaction to
+    // fail during the former three-second startup window.
+    await safetySweep()
+
     return {
       stop() {
-        if (safetySweepTimeout) { clearTimeout(safetySweepTimeout); safetySweepTimeout = null }
         for (const t of pendingByFile.values()) { try { clearTimeout(t) } catch {} }
         pendingByFile.clear()
         for (const i of intervals) { try { clearInterval(i) } catch {} }

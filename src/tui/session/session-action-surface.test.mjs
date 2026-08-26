@@ -36,6 +36,42 @@ test('every advertised session action exists on the session surface', () => {
   assert.deepEqual(missing, []);
 });
 
+test('extension editor actions are advertised and forwarded', async () => {
+  const calls = [];
+  let state = { commandBusy: false, stats: {} };
+  const api = createSessionApi(stubBag({
+    runtime: {
+      getMcpServerConfig: (name) => {
+        calls.push(['getMcpServerConfig', name]);
+        return { name };
+      },
+      saveMcpServer: async (input) => {
+        calls.push(['saveMcpServer', input]);
+        return { name: input.name };
+      },
+      saveSkill: async (input) => {
+        calls.push(['saveSkill', input]);
+        return { skill: { name: input.name } };
+      },
+    },
+    getState: () => state,
+    set: (patch) => { state = { ...state, ...patch }; },
+    routeState: () => ({}),
+  }));
+
+  assert.ok(SESSION_READ_ACTIONS.includes('getMcpServerConfig'));
+  assert.ok(SESSION_CONFIGURE_ACTIONS.includes('saveMcpServer'));
+  assert.ok(SESSION_CONFIGURE_ACTIONS.includes('saveSkill'));
+  assert.deepEqual(api.getMcpServerConfig('UnityMCP'), { name: 'UnityMCP' });
+  await api.saveMcpServer({ name: 'UnityMCP' });
+  await api.saveSkill({ name: 'unity-helper' });
+  assert.deepEqual(calls, [
+    ['getMcpServerConfig', 'UnityMCP'],
+    ['saveMcpServer', { name: 'UnityMCP' }],
+    ['saveSkill', { name: 'unity-helper' }],
+  ]);
+});
+
 test('inheritFrom carries the conversation and rebuilds the heir transcript', async () => {
   const carried = [
     { role: 'system', content: 'target system prompt' },

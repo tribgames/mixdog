@@ -3,6 +3,7 @@ import type { DesktopProjectSummary } from "../shared/contract";
 import { SidebarPanelBoundary } from "./sidebar-panel-surface";
 import { SidebarPanelSection } from "./session-sidebar";
 import type { SidebarPanelKey } from "./app-shell-components";
+import type { ExtensionsSection } from "./ExtensionsView";
 import type { useAppShellPanels } from "./use-app-shell-panels";
 import { useStableEvent } from "./use-stable-event";
 import type { SidebarViewGroup, SidebarViewPlacement } from "./sidebar-view-layout";
@@ -28,10 +29,13 @@ export function useAppSidebarSurface({
   runningAutomationNames,
   projects,
   selectedProjectPath,
+  extensionsSection,
+  onExtensionsSectionChange,
   closeSidebarForNavigation,
   startTask,
   openSession,
   openStudioTab,
+  openBrowserTab,
   openTerminalTab,
   openFolderTab,
   refreshProjects,
@@ -60,10 +64,13 @@ export function useAppSidebarSurface({
   runningAutomationNames: { schedule: Set<string>; webhook: Set<string> };
   projects: DesktopProjectSummary[];
   selectedProjectPath: string;
+  extensionsSection: ExtensionsSection;
+  onExtensionsSectionChange(section: ExtensionsSection): void;
   closeSidebarForNavigation(): void;
   startTask(): unknown;
   openSession(sessionId: string): unknown;
   openStudioTab(): unknown;
+  openBrowserTab(): unknown;
   openTerminalTab(): unknown;
   openFolderTab(): unknown;
   refreshProjects(): Promise<DesktopProjectSummary[]>;
@@ -193,11 +200,13 @@ export function useAppSidebarSurface({
   const ProjectsPane = sidebarPanes.projects;
   const WorkflowsPane = sidebarPanes.workflows;
   const UtilitiesPane = sidebarPanes.utilities;
+  const ExtensionsPane = sidebarPanes.extensions;
   const sidebarPanelTitle = presentedSidebarPanel === "utilities" ? "Utilities"
     : presentedSidebarPanel === "schedules" ? "Schedules"
     : presentedSidebarPanel === "webhooks" ? "Webhooks"
     : presentedSidebarPanel === "projects" ? "Projects"
     : presentedSidebarPanel === "workflows" ? "Workflows"
+    : presentedSidebarPanel === "extensions" ? "Extensions"
     : "";
   // Stable sidebar handlers + memoised panel children: SessionSidebar, its
   // rows, and every rail panel are memoised, but fresh inline closures and a
@@ -217,6 +226,7 @@ export function useAppSidebarSurface({
   // panel stays selected so repeated launches need no re-entry (user: 한번
   // 누르면 세션창으로 이동되는데 그냥 유지되도록).
   const utilitiesOpenStudio = useStableEvent(() => openStudioTab());
+  const utilitiesOpenBrowser = useStableEvent(() => openBrowserTab());
   const utilitiesOpenTerminal = useStableEvent(() => openTerminalTab());
   const utilitiesOpenExplorer = useStableEvent(() => openFolderTab());
   const projectsCreate = useStableEvent(async (path: string, name?: string) => {
@@ -244,10 +254,12 @@ export function useAppSidebarSurface({
       : panel === "schedules" ? "Schedules"
       : panel === "webhooks" ? "Webhooks"
       : panel === "projects" ? "Projects"
+      : panel === "extensions" ? "Extensions"
       : "Workflows";
     const content = panel === "utilities"
       ? <UtilitiesPane active={active}
           onOpenStudio={utilitiesOpenStudio}
+          onOpenBrowser={utilitiesOpenBrowser}
           onOpenTerminal={utilitiesOpenTerminal}
           onOpenExplorer={utilitiesOpenExplorer} />
       : panel === "schedules"
@@ -256,6 +268,9 @@ export function useAppSidebarSurface({
           ? <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />
           : panel === "workflows"
             ? <WorkflowsPane active={active} />
+            : panel === "extensions"
+               ? <ExtensionsPane active={active} section={extensionsSection}
+                   onSectionChange={onExtensionsSectionChange} />
             : <ProjectsPane active={active}
                 projects={projects} selectedProjectPath={selectedProjectPath}
                 onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
@@ -305,6 +320,7 @@ export function useAppSidebarSurface({
     panelSurface("utilities", "Utilities", (active) =>
       <UtilitiesPane active={active}
         onOpenStudio={utilitiesOpenStudio}
+        onOpenBrowser={utilitiesOpenBrowser}
         onOpenTerminal={utilitiesOpenTerminal}
         onOpenExplorer={utilitiesOpenExplorer} />)
     )}
@@ -321,6 +337,11 @@ export function useAppSidebarSurface({
     {mountedSidebarPanels.has("workflows") && (
     panelSurface("workflows", "Workflows", (active) =>
       <WorkflowsPane active={active} />)
+    )}
+    {mountedSidebarPanels.has("extensions") && (
+    panelSurface("extensions", "Extensions", (active) =>
+      <ExtensionsPane active={active} section={extensionsSection}
+        onSectionChange={onExtensionsSectionChange} />)
     )}
     {mountedSidebarPanels.has("projects") && (
     panelSurface("projects", "Projects", (active) =>
@@ -345,6 +366,7 @@ export function useAppSidebarSurface({
     UtilitiesPane,
     WebhooksPane,
     WorkflowsPane,
+    ExtensionsPane,
     activeSidebarPanels,
     getViewDragProps,
     markSidebarPanelFailed,
@@ -357,10 +379,13 @@ export function useAppSidebarSurface({
     retrySidebarPanel,
     runningAutomationNames,
     selectedProjectPath,
+    extensionsSection,
+    onExtensionsSectionChange,
     onMoveView,
     presentedSidebarGroup,
     utilitiesOpenExplorer,
     utilitiesOpenStudio,
+    utilitiesOpenBrowser,
     utilitiesOpenTerminal,
   ]);
 

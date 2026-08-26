@@ -59,7 +59,7 @@ import { createChannelSessionRouter } from './channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
 import { createSessionProtocolClient } from './session-protocol.mjs';
-import { createSessionRuntimeHost } from './session-runtime-host.mjs';
+import { createDaemonSessionRuntimeHost } from './session-runtime-host-factory.mjs';
 import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 import {
   compareRuntimeVersions,
@@ -244,10 +244,10 @@ const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let eventLoopLagTimer = null;
 
-function startMemoryRuntimeEarly() {
-  // Start the isolated memory process immediately after singleton ownership is
-  // established. Do not await it: daemon front-door readiness remains
-  // independent while PG/embedding cold-start overlaps all other boot work.
+function registerMemoryRuntimeLazy() {
+  // Register the shared proxy immediately so daemon shutdown owns its
+  // lifecycle, but keep the isolated process off the startup path. A real
+  // memory call or the post-connect idle warmup starts the exact singleton.
   if (process.env.MIXDOG_DAEMON_SKIP_MEMORY === '1') {
     log('memory runtime skipped (MIXDOG_DAEMON_SKIP_MEMORY=1)');
     return;
@@ -259,9 +259,7 @@ function startMemoryRuntimeEarly() {
       dataDir: DATA_DIR,
       cwd: CWD,
     });
-    void memoryRuntime.init()
-      .then(() => log('memory runtime ready in isolated process'))
-      .catch((e) => log(`memory.start failed (non-fatal): ${e?.message || e}`));
+    log('memory runtime registered for lazy start');
   } catch (e) { log(`memory.start setup failed (non-fatal): ${e?.message || e}`); }
 }
 
@@ -414,11 +412,10 @@ async function main() {
     process.exit(0);
   }
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
-  startMemoryRuntimeEarly();
+  registerMemoryRuntimeLazy();
   agentDispatchBroker = createAgentDispatchBroker({
-    // Memory-cycle agents execute inside the recyclable session runtime
-    // worker: this permanent daemon never loads the orchestrator graph for
-    // them, so its commit stays flat across cycles.
+    // Memory-cycle agents use the same lazy provider/orchestrator graph as
+    // session actors; it stays unloaded until a real cycle requests it.
     dispatchAgent: (payload, options) => {
       if (!sessionRuntimeHost) throw new Error('session runtime host is not ready');
       return sessionRuntimeHost.agentDispatch(payload, options);
@@ -580,13 +577,13 @@ async function main() {
   };
   let sessionRuntimePrewarmStarted = false;
   let sessionRuntimePrewarmPromise = null;
-  sessionRuntimeHost = createSessionRuntimeHost({
+  sessionRuntimeHost = createDaemonSessionRuntimeHost({
     cwd: CWD,
     log,
   });
-  // Codex-style runtime: one process owns independent async session actors and
-  // shared provider/MCP/module state. CPU-heavy work still uses bounded worker
-  // pools; the daemon keeps routing, health and abort dispatch on its own loop.
+  // Codex-style runtime: daemon routing and independent async session actors
+  // share one V8 isolate and module graph. CPU-heavy work stays in bounded
+  // native helpers/worker pools instead of duplicating the whole runtime.
   log(`session runtime mode=${sessionRuntimeHost.status.mode}`);
   function prewarmSessionRuntime() {
     if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;
@@ -596,7 +593,7 @@ async function main() {
       .catch((error) => log(`image pipeline prewarm failed (non-fatal): ${error?.message || error}`));
     sessionRuntimePrewarmPromise = sessionRuntimeHost.prewarm()
       .then(() => {
-        log('session runtime worker/agent-loop/keychain/memory prewarm ready');
+        log('session runtime/agent-loop/keychain prewarm ready');
         return true;
       })
       .catch((error) => {
@@ -676,7 +673,9 @@ async function main() {
       ...eventLoopStatus(),
     }),
     onClientsEmpty: () => { maybeSelfShutdown('no live session clients'); },
-    onClientRegistered: () => { void prewarmSessionRuntime(); },
+    onClientRegistered: () => {
+      void prewarmSessionRuntime();
+    },
     onClientDropped: (token) => { try { sessionService.releaseClient(token); } catch {} },
     onUpgradeRequested: requestDaemonReplacement,
   });
@@ -726,8 +725,8 @@ async function main() {
     if (status.eventLoopP99Ms >= 250) {
       log(`event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`);
     }
-    // Session work runs in runtime shards, not here: daemon lag alone would
-    // report a healthy front door while a shard's loop is saturated.
+    // Legacy external runtime hosts may still report shard-local lag. The
+    // production in-process host is already covered by daemon loop telemetry.
     const shards = sessionRuntimeHost?.status?.shards || [];
     const lagging = shards.filter((shard) => Number(shard?.lag?.p99Ms) >= 250 || shard?.degraded);
     if (lagging.length > 0) {

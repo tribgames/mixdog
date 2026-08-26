@@ -263,27 +263,25 @@
 }
 .mixdog-settings__switch span {
   box-sizing: border-box;
-  width: 24px;
-  height: 16px;
+  width: 32px;
+  height: 20px;
   padding: 2px;
   border: 0;
-  border-radius: var(--mx-radius-sm);
+  border-radius: var(--mx-radius-pill);
   background: linear-gradient(180deg, transparent, var(--mx-alpha-light-20)), var(--mx-bg-layer-3);
   box-shadow: var(--mx-switch-off);
   transition: background var(--mx-motion-ink), opacity var(--mx-motion-ink);
 }
 .mixdog-settings__switch span::after {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   margin: 0;
-  /* v2 thumb: white depth gradient over grey-200, elements shadow. */
   border: .5px solid var(--mx-switch-thumb-border);
-  border-radius: var(--mx-radius-hair);
+  border-radius: 50%;
   background: linear-gradient(180deg, var(--mx-grey-50), transparent), var(--mx-grey-200);
   box-shadow: var(--mx-switch-thumb-shadow);
-  transition: transform var(--mx-motion-ink), width var(--mx-motion-ink), border-radius var(--mx-motion-ink);
+  transition: transform var(--mx-motion-ink);
 }
-.mixdog-settings__switch:hover span::after { width: 13px; border-radius: var(--mx-radius-sm); }
 .mixdog-settings__switch:hover span {
   background: linear-gradient(var(--mx-hover), var(--mx-hover)),
     linear-gradient(180deg, transparent, var(--mx-alpha-light-20)), var(--mx-bg-layer-3);
@@ -299,9 +297,8 @@
 }
 .mixdog-settings__switch input:checked + span::after {
   background: linear-gradient(180deg, var(--mx-grey-50), transparent), var(--mx-grey-300);
-  transform: translateX(8px);
+  transform: translateX(12px);
 }
-.mixdog-settings__switch:hover input:checked + span::after { transform: translateX(7px); }
 .mixdog-settings__switch input:focus-visible + span { outline: 2px solid var(--mx-focus); outline-offset: 2px; }
 .settings-select.mx-select-root {
   width: min(280px, 100%);

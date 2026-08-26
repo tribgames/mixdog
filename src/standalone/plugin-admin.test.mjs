@@ -18,7 +18,9 @@ import {
   _publishManagedPluginRoot,
   addPlugin,
   listRegisteredPlugins,
+  setPluginEnabled,
 } from './plugin-admin.mjs';
+import { hookConfigEntries } from './hook-bus/config.mjs';
 
 test('plugin registry persists atomically with owner-only permissions', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-registry-'));
@@ -33,6 +35,11 @@ test('plugin registry persists atomically with owner-only permissions', () => {
     const registry = JSON.parse(readFileSync(registryPath, 'utf8'));
     assert.equal(registry.plugins.length, 1);
     assert.equal(listRegisteredPlugins({ dataDir })[0].name, 'local-test');
+    assert.equal(listRegisteredPlugins({ dataDir })[0].enabled, true);
+    assert.equal(hookConfigEntries(dataDir, root).some((entry) => entry.sourceType === 'plugin'), true);
+    setPluginEnabled('local-test', false, { dataDir });
+    assert.equal(listRegisteredPlugins({ dataDir })[0].enabled, false);
+    assert.equal(hookConfigEntries(dataDir, root).some((entry) => entry.sourceType === 'plugin'), false);
     if (process.platform !== 'win32') {
       assert.equal(statSync(registryPath).mode & 0o777, 0o600);
     }

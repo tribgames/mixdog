@@ -13,8 +13,9 @@
 //    "namespaceName": "...", "goPackageName": "...",
 //    "topLevelTypes": [...]}
 //
-// Per-file errors are silent — a skipped file is omitted from the graph.
-// There is no JS parse fallback. Exits 0 regardless of partial failures.
+// Files above the documented size cap are intentionally omitted. Every I/O,
+// protocol and serialization failure is fatal so callers never cache a graph
+// that only looks complete. There is no JS parse fallback.
 
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -36,6 +37,30 @@ use mixdog_graph::serve_search;
 // Mirrors CODE_GRAPH_MAX_FILES on the Node side. --walk caps parse work
 // here so large repos don't pay full parse cost before truncation.
 const MAX_FILES: usize = 10_000;
+
+// Task Manager's Processes tab groups rows by AppUserModelID — not by the
+// parent/child chain, and not by the version resource build.rs stamps. This
+// helper is spawned by a Mixdog session shard and is resident for the life of
+// a search session, so with no identity of its own it advertised none and sat
+// at the top level as an unrelated row beside the app that owns it (user:
+// 카테고리 안으로 들어오게). Claiming the desktop app's AUMID — the same
+// io.mixdog.desktop that electron-builder.yml declares as `appId` and that
+// main/index.ts passes to app.setAppUserModelId on Windows — folds it into the
+// existing Mixdog group.
+//
+// Purely cosmetic and best-effort: the identity affects taskbar/Task Manager
+// grouping only, so a failing or unsupported call just leaves the previous
+// ungrouped presentation in place and never blocks the engine from starting.
+#[cfg(windows)]
+fn adopt_desktop_app_identity() {
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    // PCWSTR: UTF-16 and NUL-terminated. Built once, borrowed for the call.
+    let app_id: Vec<u16> = "io.mixdog.desktop\0".encode_utf16().collect();
+    let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+}
+
+#[cfg(not(windows))]
+fn adopt_desktop_app_identity() {}
 
 #[derive(Serialize)]
 struct FileRecord {
@@ -1336,11 +1361,12 @@ struct SrcFile {
 }
 
 // Full parse (tokens/imports/symbols) from an already-collected SrcFile.
-// Returns None for unreadable/non-UTF8 files so the graph isn't poisoned with
-// empty records that masquerade as real parses.
-fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Option<FileRecord> {
+// Unreadable/non-UTF8 files fail the build instead of producing a partial
+// graph that can be mistaken for a complete cache entry.
+fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, String> {
     let lang = src.lang;
-    let text = fs::read_to_string(&src.path).ok()?;
+    let text = fs::read_to_string(&src.path)
+        .map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
     let tokens = extract_tokens(&text, patterns);
     let raw_imports = extract_raw_imports(&text, lang, patterns);
     let package_name = extract_package(&text, lang, patterns);
@@ -1352,7 +1378,7 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Option<FileRecord> {
     };
     let top_level_types = extract_top_level_types(&text, lang, patterns);
     let symbols = extract_source_symbols(&text, lang);
-    Some(FileRecord {
+    Ok(FileRecord {
         rel: src.rel.clone(),
         lang,
         fp: fingerprint_for(&src.rel, src.size, src.mtime_ms),
@@ -1371,19 +1397,23 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Option<FileRecord> {
 
 // Stat-and-parse a single path (used by --files, where paths come from the
 // caller, not the walk). One metadata read, then parse_file_from.
-fn parse_file(path: &Path, root: &Path, patterns: &Patterns) -> Option<FileRecord> {
-    let lang = path
+fn parse_file(path: &Path, root: &Path, patterns: &Patterns) -> Result<Option<FileRecord>, String> {
+    let Some(lang) = path
         .extension()
         .and_then(|s| s.to_str())
-        .and_then(lang_for)?;
-    let meta = fs::metadata(path).ok()?;
+        .and_then(lang_for)
+    else {
+        return Ok(None);
+    };
+    let meta = fs::metadata(path)
+        .map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
     let size = meta.len();
     if size > 2 * 1024 * 1024 {
-        return None;
+        return Ok(None);
     }
     let rel = path
         .strip_prefix(root)
-        .ok()?
+        .map_err(|err| format!("path is outside graph root ({}): {err}", path.display()))?
         .to_string_lossy()
         .replace('\\', "/");
     let mtime_ms = meta
@@ -1402,19 +1432,20 @@ fn parse_file(path: &Path, root: &Path, patterns: &Patterns) -> Option<FileRecor
         },
         patterns,
     )
+    .map(Some)
 }
 
-fn emit_records(records: &[FileRecord]) {
+fn emit_records(records: &[FileRecord]) -> Result<(), String> {
+    use std::io::Write;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    for rec in records {
-        let line = match serde_json::to_string(rec) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        use std::io::Write;
-        let _ = writeln!(handle, "{}", line);
+    for (index, rec) in records.iter().enumerate() {
+        let line = serde_json::to_string(rec)
+            .map_err(|err| format!("serialize failed for record {index}: {err}"))?;
+        writeln!(handle, "{}", line)
+            .map_err(|err| format!("stdout write failed for record {index}: {err}"))?;
     }
+    Ok(())
 }
 
 // Collect source files under root with metadata read exactly once. Applies
@@ -1422,37 +1453,43 @@ fn emit_records(records: &[FileRecord]) {
 // the filtered+sorted list is the single source of truth: run_walk truncates
 // it and run_manifest takes it whole, so run_walk parses exactly the first
 // MAX_FILES of the manifest (JS `indexed`).
-fn collect_source_files(root: &Path) -> Vec<SrcFile> {
+fn collect_source_files(root: &Path) -> Result<Vec<SrcFile>, String> {
     // Phase 1 (sequential walk, no stat): gather candidate paths + lang. The
     // ignore-crate walk is inherently sequential, but doing zero I/O here keeps
     // it cheap.
-    let candidates: Vec<(PathBuf, &'static str)> = WalkBuilder::new(root)
+    let mut candidates: Vec<(PathBuf, &'static str)> = Vec::new();
+    for entry in WalkBuilder::new(root)
         .standard_filters(true)
         .hidden(false)
         .build()
-        .filter_map(Result::ok)
-        .filter(|d| d.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .filter_map(|d| {
-            let path = d.path();
-            let lang = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .and_then(lang_for)?;
-            Some((path.to_path_buf(), lang))
-        })
-        .collect();
+    {
+        let dir_entry = entry.map_err(|err| format!("walk failed under {}: {err}", root.display()))?;
+        if !dir_entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let path = dir_entry.path();
+        let Some(lang) = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .and_then(lang_for)
+        else {
+            continue;
+        };
+        candidates.push((path.to_path_buf(), lang));
+    }
     // Phase 2 (parallel): one stat per candidate for size/mtime + the 2MB gate.
-    let mut files: Vec<SrcFile> = candidates
+    let file_results: Vec<Result<Option<SrcFile>, String>> = candidates
         .par_iter()
-        .filter_map(|(path, lang)| {
-            let meta = fs::metadata(path).ok()?;
+        .map(|(path, lang)| {
+            let meta = fs::metadata(path)
+                .map_err(|err| format!("metadata failed for {}: {err}", path.display()))?;
             let size = meta.len();
             if size > 2 * 1024 * 1024 {
-                return None;
+                return Ok(None);
             }
             let rel = path
                 .strip_prefix(root)
-                .ok()?
+                .map_err(|err| format!("path is outside graph root ({}): {err}", path.display()))?
                 .to_string_lossy()
                 .replace('\\', "/");
             let mtime_ms = meta
@@ -1461,17 +1498,23 @@ fn collect_source_files(root: &Path) -> Vec<SrcFile> {
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
-            Some(SrcFile {
+            Ok(Some(SrcFile {
                 path: path.clone(),
                 rel,
                 lang,
                 size,
                 mtime_ms,
-            })
+            }))
         })
         .collect();
+    let mut files = Vec::with_capacity(file_results.len());
+    for result in file_results {
+        if let Some(file) = result? {
+            files.push(file);
+        }
+    }
     files.par_sort_unstable_by(|a, b| a.path.cmp(&b.path));
-    files
+    Ok(files)
 }
 
 // =====================================================================
@@ -3059,23 +3102,24 @@ fn resolve_and_link(records: &mut [FileRecord], root: &Path, file_set: &HashSet<
     }
 }
 
-fn run_walk(root: &Path) {
+fn run_walk(root: &Path) -> Result<(), String> {
     let patterns = Patterns::new();
-    let mut files = collect_source_files(root);
+    let mut files = collect_source_files(root)?;
     // Cap cold parse work at MAX_FILES so large repos never pay the full
     // native parse cost just to be truncated afterwards.
     files.truncate(MAX_FILES);
-    let mut records: Vec<FileRecord> = files
+    let parsed: Vec<Result<FileRecord, String>> = files
         .par_iter()
-        .filter_map(|s| parse_file_from(s, &patterns))
+        .map(|s| parse_file_from(s, &patterns))
         .collect();
+    let mut records: Vec<FileRecord> = parsed.into_iter().collect::<Result<_, _>>()?;
     // fileSet = every parsed record's rel; resolve imports + dependents.
     let file_set: HashSet<String> = records.iter().map(|r| r.rel.clone()).collect();
     resolve_and_link(&mut records, root, &file_set);
-    emit_records(&records);
+    emit_records(&records)
 }
 
-fn run_files(root: &Path, files: &[String]) {
+fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
     let patterns = Patterns::new();
     let paths: Vec<PathBuf> = files
         .iter()
@@ -3089,26 +3133,41 @@ fn run_files(root: &Path, files: &[String]) {
         })
         .collect();
     // Full-parse the fresh subset (tokens/symbols/imports/package/types).
-    let fresh: Vec<FileRecord> = paths
+    let fresh_results: Vec<Result<Option<FileRecord>, String>> = paths
         .par_iter()
-        .filter_map(|p| parse_file(p.as_path(), root, &patterns))
+        .map(|p| parse_file(p.as_path(), root, &patterns))
         .collect();
+    let mut fresh = Vec::with_capacity(fresh_results.len());
+    for result in fresh_results {
+        if let Some(record) = result? {
+            fresh.push(record);
+        }
+    }
 
     // Design-A protocol: stdin is JSONL, ONE LINE PER REUSED NODE, each a
     // ReusedMeta (rel/lang/rawImports/package/namespace/goPackage/types).
     // Deserialize into lightweight records so the GraphIndex + resolution
-    // see the WHOLE graph, not just the freshly-parsed subset. Malformed
-    // lines are skipped silently (partial input never poisons the graph).
+    // see the WHOLE graph, not just the freshly-parsed subset. Malformed input
+    // is fatal because silently dropping a reused node corrupts graph edges.
     let reused: Vec<FileRecord> = {
         use std::io::Read;
         let mut buf = String::new();
-        let _ = std::io::stdin().read_to_string(&mut buf);
-        buf.lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str::<ReusedMeta>(l).ok())
-            .filter(|m| !m.rel.is_empty())
-            .map(record_from_reused)
-            .collect()
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|err| format!("stdin read failed: {err}"))?;
+        let mut records = Vec::new();
+        for (index, line) in buf.lines().enumerate() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let meta = serde_json::from_str::<ReusedMeta>(line)
+                .map_err(|err| format!("invalid reused JSONL at line {}: {err}", index + 1))?;
+            if meta.rel.is_empty() {
+                return Err(format!("invalid reused JSONL at line {}: rel is empty", index + 1));
+            }
+            records.push(record_from_reused(meta));
+        }
+        records
     };
 
     // ALL nodes = fresh parsed + reused metas. Index + resolution run over
@@ -3116,8 +3175,8 @@ fn run_files(root: &Path, files: &[String]) {
     let mut records: Vec<FileRecord> = fresh;
     records.extend(reused);
 
-    // fileSet = every node's rel (fresh + reused). Empty stdin → fallback to
-    // fresh rels only (subset behaviour, same as before reused metas existed).
+    // fileSet = every node's rel (fresh + reused). Empty stdin means this is an
+    // explicitly requested standalone subset.
     let file_set: HashSet<String> = records.iter().map(|r| r.rel.clone()).collect();
 
     resolve_and_link(&mut records, root, &file_set);
@@ -3125,7 +3184,7 @@ fn run_files(root: &Path, files: &[String]) {
     // Fresh nodes emit a full FileRecord; reused nodes emit a lightweight
     // record (rel + resolvedImports — empty tokens/symbols/rawImports are
     // skipped by serde, importedBy is ignored by JS).
-    emit_records(&records);
+    emit_records(&records)
 }
 
 // Manifest mode: emit fp/rel/size/lang only, no text parsing. Reuses the
@@ -3148,16 +3207,19 @@ fn parse_meta_from(src: &SrcFile) -> FileRecord {
     }
 }
 
-fn run_manifest(root: &Path) {
+fn run_manifest(root: &Path) -> Result<(), String> {
     // Full manifest — every source file, no MAX_FILES cap. fp-only, so even
     // huge repos stay cheap, and the Node side hashes the full set for the
     // change-detect signature.
-    let files = collect_source_files(root);
+    let files = collect_source_files(root)?;
     let records: Vec<FileRecord> = files.par_iter().map(parse_meta_from).collect();
-    emit_records(&records);
+    emit_records(&records)
 }
 
 fn main() {
+    // Before any work: the identity has to be in place while Task Manager is
+    // free to sample this process, and it costs nothing on the CLI paths.
+    adopt_desktop_app_identity();
     let args: Vec<String> = env::args().collect();
     let cwd = match args.get(1) {
         Some(p) if !p.is_empty() => p.clone(),
@@ -3171,11 +3233,21 @@ fn main() {
         eprintln!("mixdog-graph: not a directory: {}", cwd);
         process::exit(2);
     }
-    match args.get(2) {
+    let result = match args.get(2) {
         Some(flag) if flag == "--files" => run_files(root, &args[3..]),
         Some(flag) if flag == "--manifest" => run_manifest(root),
-        Some(flag) if flag == "--serve-search" => serve_search::run(),
-        Some(sym) if !sym.is_empty() => run_search(root, sym),
+        Some(flag) if flag == "--serve-search" => {
+            serve_search::run();
+            Ok(())
+        }
+        Some(sym) if !sym.is_empty() => {
+            run_search(root, sym);
+            Ok(())
+        }
         _ => run_walk(root),
+    };
+    if let Err(error) = result {
+        eprintln!("mixdog-graph: {error}");
+        process::exit(1);
     }
 }

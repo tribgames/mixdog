@@ -4,7 +4,7 @@ import { paneActiveSelection, type PaneLeaf } from "./pane-layout";
 import type { usePaneWorkspace } from "./pane-workspace-state";
 import type { useWorkbenchWorkspace } from "./workbench-workspace";
 import { navigationKey } from "./text-format";
-import { FolderPane } from "./lazy-widgets";
+import { BrowserPane, FolderPane } from "./lazy-widgets";
 import { PullRequestEditor } from "./PullRequestsPane";
 import {
   DeferredPersistentSurface,
@@ -26,13 +26,13 @@ type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 type WorkbenchWorkspace = ReturnType<typeof useWorkbenchWorkspace>;
 
 type UtilitySelection = Extract<WorkspaceSelection, {
-  kind: "studio" | "terminal" | "folder" | "diff" | "pull-request";
+  kind: "studio" | "terminal" | "folder" | "browser" | "diff" | "pull-request";
 }>;
 
 /** Tabs that own a persistent utility surface (one mounted pane each). */
 function isUtilitySelection(selection: WorkspaceSelection): selection is UtilitySelection {
   return selection.kind === "studio" || selection.kind === "terminal"
-    || selection.kind === "folder"
+    || selection.kind === "folder" || selection.kind === "browser"
     || selection.kind === "diff" || selection.kind === "pull-request";
 }
 
@@ -225,6 +225,8 @@ export function useAppPersistentPaneSurfaces({
         ? "Loading diff…"
         : utilitySelection.kind === "terminal"
           ? "Loading terminal…"
+          : utilitySelection.kind === "browser"
+            ? "Loading browser…"
           : utilitySelection.kind === "folder"
             ? "Loading folder…"
             : "Loading pull request…";
@@ -244,6 +246,10 @@ export function useAppPersistentPaneSurfaces({
           : utilitySelection.kind === "terminal"
             ? <ReadyTerminalPane cwd={utilitySelection.cwd || null}
                 terminalId={utilitySelection.id} active={utilityActive} />
+            : utilitySelection.kind === "browser"
+              ? <Suspense fallback={null}>
+                  <BrowserPane paneId={utilitySelection.id} active={utilityActive} />
+                </Suspense>
             : utilitySelection.kind === "folder"
               ? <Suspense fallback={null}>
                   <FolderPane paneId={utilitySelection.id}

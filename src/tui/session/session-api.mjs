@@ -435,6 +435,9 @@ export function createSessionApiA(bag) {
     mcpStatus: () => {
       return runtime.mcpStatus?.() || { servers: [], configuredCount: 0, connectedCount: 0, failedCount: 0 };
     },
+    getMcpServerConfig: (name) => {
+      return runtime.getMcpServerConfig?.(name);
+    },
     reconnectMcp: async () => {
       if (getState().commandBusy) return null;
       set({ commandBusy: true });
@@ -459,6 +462,19 @@ export function createSessionApiA(bag) {
         resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...getState().stats } });
         pushNotice(`mcp added: ${result?.name || input?.name || 'server'}`, 'info');
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    saveMcpServer: async (input) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.saveMcpServer?.(input);
+        resetStatsAndSyncContext();
+        set({ ...routeState(), stats: { ...getState().stats } });
+        pushNotice(`mcp saved: ${result?.name || input?.name || 'server'}`, 'info');
         return result;
       } finally {
         set({ commandBusy: false });
@@ -521,6 +537,19 @@ export function createSessionApiA(bag) {
         set({ commandBusy: false });
       }
     },
+    saveSkill: async (input) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.saveSkill?.(input);
+        resetStatsAndSyncContext();
+        set({ ...routeState(), stats: { ...getState().stats } });
+        pushNotice(`skill saved: ${result?.skill?.name || input?.name || 'skill'}`, 'info');
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     reloadSkills: async () => {
       if (getState().commandBusy) return null;
       set({ commandBusy: true });
@@ -571,6 +600,20 @@ export function createSessionApiA(bag) {
         resetStatsAndSyncContext();
         set({ ...routeState(), stats: { ...getState().stats } });
         pushNotice(`plugin updated: ${result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
+        return result;
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    setPluginEnabled: async (plugin, enabled) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        const result = await runtime.setPluginEnabled?.(plugin, enabled);
+        resetStatsAndSyncContext();
+        set({ ...routeState(), stats: { ...getState().stats } });
+        pushNotice(`plugin ${enabled === false ? 'disabled' : 'enabled'}: ${
+          result?.plugin?.title || result?.plugin?.name || plugin?.name || plugin}`, 'info');
         return result;
       } finally {
         set({ commandBusy: false });

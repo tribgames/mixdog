@@ -778,8 +778,30 @@ html[data-mobile-tab-swipe]::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
 }
+/* The top tab band stays PINNED while the page turns under it (user:
+   스와이프할 때 상단 라벨도 같이 움직여 어색하다). On the phone that band is
+   .workspace-tabs-shell — the strip INSIDE the pane cell — not the desktop
+   .session-header, which the phone never renders. A descendant with its own
+   view-transition-name is captured APART from the sliding surface snapshot,
+   and this group simply never animates: the label swaps in place while the
+   content below carries all the motion. */
+.pane-cell[data-mobile-tab-swipe-surface="true"] .workspace-tabs-shell {
+  view-transition-name: mobile-tab-header;
+}
+html[data-mobile-tab-swipe]::view-transition-group(mobile-tab-header),
+html[data-mobile-tab-swipe]::view-transition-new(mobile-tab-header) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-mobile-tab-swipe]::view-transition-old(mobile-tab-header) {
+  animation: none;
+  opacity: 0;
+}
 @media (prefers-reduced-motion: reduce) {
   .pane-cell[data-mobile-tab-swipe-surface="true"] {
+    view-transition-name: none;
+  }
+  .pane-cell[data-mobile-tab-swipe-surface="true"] .workspace-tabs-shell {
     view-transition-name: none;
   }
 }

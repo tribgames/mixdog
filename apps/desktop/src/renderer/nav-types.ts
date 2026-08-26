@@ -9,6 +9,7 @@ export type NavigationSelection =
 export type WorkspaceSelection =
   | NavigationSelection
   | { kind: "studio"; id: string }
+  | { kind: "browser"; id: string }
   | { kind: "terminal"; id: string; cwd?: string }
   | { kind: "folder"; id: string; path: string }
   | {

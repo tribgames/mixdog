@@ -37,6 +37,7 @@ import {
 } from './sidebar-reference-cache';
 import { acquireTitleBarDim } from './titlebar-dim';
 import { usePersistedListOrder } from './use-persisted-list-order';
+import { CompactSwitch } from './settings/capability-controls';
 
 type RecordValue = Record<string, unknown>;
 export type WorkflowsApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
@@ -78,13 +79,10 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   };
 }
 
-function AgentRouteSummaryView({ summary, disabled = false }: {
+function AgentRouteSummaryView({ summary }: {
   summary: AgentRouteSummary;
   disabled?: boolean;
 }) {
-  if (disabled) {
-    return <small className="agent-route-summary route-trigger-copy">{t('Not used')}</small>;
-  }
   return <small className="agent-route-summary route-trigger-copy">
     <ModelRouteLabel model={summary.model} effort={summary.effort}
       fast={summary.fast} effortLabel={summary.effortLabel} />
@@ -93,25 +91,6 @@ function AgentRouteSummaryView({ summary, disabled = false }: {
 
 // Agents have exactly two states: a pinned model, or off. "Follows Main" is
 // reserved for Web Search, whose row keeps its own default marker route.
-function AgentUsageField({ enabled, busy, onChange }: {
-  enabled: boolean;
-  busy: boolean;
-  onChange(next: boolean): void;
-}) {
-  return <div className="schedules-field">
-    <span>{t('Agent status')}</span>
-    <small>{t('Turning this off hides the agent from the Lead entirely.')}</small>
-    <div className="workflows-agent-mode-field">
-      <OpenSelect ariaLabel={t('Agent status')} value={enabled ? 'on' : 'off'} disabled={busy}
-        options={[
-          { value: 'on', label: t('Active') },
-          { value: 'off', label: t('Inactive') },
-        ]}
-        onChange={(value) => onChange(value === 'on')} />
-    </div>
-  </div>;
-}
-
 // Shared services, not delegation targets: they run behind a tool (web_search,
 // explore) or a background cycle (maintainer), so they carry a model route but
 // no editable definition and never appear in a workflow's agent subset.
@@ -262,7 +241,7 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
 
 // Agent editor dialog: custom agents are created from name, model, and
 // AGENT.md; the runtime derives the internal ID. Editing keeps the existing ID.
-function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCancel, onSave, onDelete }: {
+function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCancel, onSave, onToggle, onDelete }: {
   agent: RecordValue | null;
   deletable: boolean;
   models: DesktopModelOption[];
@@ -270,6 +249,7 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
   error?: string;
   onCancel(): void;
   onSave(payload: RecordValue): void;
+  onToggle?(enabled: boolean, route: RecordValue): void;
   onDelete(): void;
 }) {
   const editing = Boolean(agent);
@@ -293,7 +273,14 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-dialog-title">
       <header>
         <h2 id="agent-dialog-title">{editing ? t('Edit agent') : t('Create agent')}</h2>
-        <button type="button" aria-label={t("Close agent editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        <div className="schedules-dialog-header-actions">
+          <CompactSwitch label={t('Agent status')} checked={enabled} disabled={busy}
+            onChange={(next) => {
+              setEnabled(next);
+              if (editing) onToggle?.(next, route);
+            }} />
+          <button type="button" aria-label={t("Close agent editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        </div>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -325,7 +312,6 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
           <input name="agent-description" data-i18n-skip defaultValue={String(agent?.description || '')}
             placeholder={t('When Mixdog should use this')} disabled={busy} maxLength={160} />
         </label>
-        <AgentUsageField enabled={enabled} busy={busy} onChange={setEnabled} />
         {enabled && <div className="schedules-field">
           <span>{t('Model')}</span>
           <small>{t('Model used when this agent runs.')}</small>
@@ -358,13 +344,14 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
   </div>, document.body);
 }
 
-function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave }: {
+function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave, onToggle }: {
   target: RouteEditorTarget;
   models: DesktopModelOption[];
   busy: boolean;
   error?: string;
   onCancel(): void;
   onSave(route: RecordValue): void;
+  onToggle?(enabled: boolean, route: RecordValue): void;
 }) {
   const [route, setRoute] = useState<RecordValue>(() => target.route);
   const [enabled, setEnabled] = useState(() => target.disabled !== true);
@@ -386,9 +373,16 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
       aria-labelledby="route-dialog-title">
       <header>
         <h2 id="route-dialog-title">{t('Edit {{name}}', { name: target.label })}</h2>
-        <button type="button" aria-label={t("Close route editor")} onClick={onCancel}>
-          <X size={16} aria-hidden="true" />
-        </button>
+        <div className="schedules-dialog-header-actions">
+          {usageEditable && <CompactSwitch label={`${target.label} · ${t('Enabled')}`}
+            checked={enabled} disabled={busy} onChange={(next) => {
+              setEnabled(next);
+              onToggle?.(next, route);
+            }} />}
+          <button type="button" aria-label={t("Close route editor")} onClick={onCancel}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
       </header>
       <form onSubmit={(event) => {
         event.preventDefault();
@@ -404,7 +398,6 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave 
             <input value={t(target.description)} readOnly disabled tabIndex={-1} />
           </label>
         </>}
-        {usageEditable && <AgentUsageField enabled={enabled} busy={busy} onChange={setEnabled} />}
         {(!usageEditable || enabled) && <div className="schedules-field">
           <span>{t('Model')}</span>
           <small>{t('Model used when this built-in agent runs.')}</small>
@@ -598,6 +591,9 @@ export function WorkflowsPane({
       showDesktopToast(`Saved "${routeEditor.label}" route.`, 'success');
     }
   };
+  const setAgentEnabled = (id: string, enabled: boolean, route: RecordValue) => {
+    void run('setAgentRoute', [id, enabled ? route : { disabled: true }]);
+  };
   const renderAgentRow = (agent: AgentSummary) => {
     const Icon = agentIcon(agent.id);
     const row = agents.find((entry) => String(entry.id) === agent.id);
@@ -612,6 +608,9 @@ export function WorkflowsPane({
         <AgentRouteSummaryView summary={agentRouteSummary(route, models)}
           disabled={row?.disabled === true} />
       </button>
+      <CompactSwitch label={`${agent.label} · ${t('Enabled')}`}
+        checked={row?.disabled !== true} disabled={busy}
+        onChange={(enabled) => setAgentEnabled(agent.id, enabled, route)} />
       <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
         aria-label={t('Edit {{name}}', { name: agent.label })}
         onClick={() => void openAgentEditor(agent.id, agent.custom)}>
@@ -638,6 +637,8 @@ export function WorkflowsPane({
           setError('');
           setAgentEditor(null);
         }} onSave={(payload) => void saveAgent(payload)}
+        onToggle={(enabled, route) => setAgentEnabled(
+          String(record(agentEditor.agent).id || ''), enabled, route)}
         onDelete={() => void deleteAgent(String(record(agentEditor.agent).id || ''))} />}
       {active && routeEditor && <RouteEditorDialog key={`${routeEditor.capability}:${routeEditor.id}`}
         target={routeEditor}
@@ -647,6 +648,7 @@ export function WorkflowsPane({
           setError('');
           setRouteEditor(null);
         }}
+        onToggle={(enabled, route) => setAgentEnabled(routeEditor.id, enabled, route)}
         onSave={(route) => void saveRoute(route)} />}
       {loading ? null : <>
       <section className="workflows-models workflows-packs" aria-label={t("Workflows")}>
@@ -742,6 +744,10 @@ export function WorkflowsPane({
               <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)}
                 disabled={exploreRow?.disabled === true} />
             </button>
+            <CompactSwitch label={`${exploreAgent.label} · ${t('Enabled')}`}
+              checked={exploreRow?.disabled !== true} disabled={busy}
+              onChange={(enabled) => setAgentEnabled(
+                exploreAgent.id, enabled, record(exploreRow?.route))} />
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
               aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
               onClick={() => setRouteEditor({
@@ -777,6 +783,10 @@ export function WorkflowsPane({
               <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)}
                 disabled={maintainerRow?.disabled === true} />
             </button>
+            <CompactSwitch label={`${maintainerAgent.label} · ${t('Enabled')}`}
+              checked={maintainerRow?.disabled !== true} disabled={busy}
+              onChange={(enabled) => setAgentEnabled(
+                maintainerAgent.id, enabled, record(maintainerRow?.route))} />
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
               aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
               onClick={() => setRouteEditor({

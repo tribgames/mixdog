@@ -22,6 +22,7 @@ import {
   type GpuFallbackEnvironment,
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
+import { createBrowserHost, type BrowserHost } from './browser-host';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -112,9 +113,6 @@ if (app.isPackaged) {
     MIXDOG_PATCH_NATIVE_BIN: join(nativeToolsDir, `mixdog-patch${executableSuffix}`),
     MIXDOG_SPAWN_SERVER_BIN: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
     MIXDOG_TOKEN_NATIVE_BIN: join(nativeToolsDir, 'mixdog-token.node'),
-    // In-process search engine. Absent installs simply keep the executable
-    // above: the loop below only publishes a path that exists.
-    MIXDOG_SEARCH_SERVER_ADDON: join(nativeToolsDir, 'mixdog-graph.node'),
   };
   for (const [name, path] of Object.entries(nativeOverrides)) {
     if (!process.env[name] && existsSync(path)) process.env[name] = path;
@@ -147,6 +145,25 @@ if (softwareRenderingThisLaunch) {
 // standard Electron workaround; genuine minimize still suspends painting.
 if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+}
+
+// V8 sizes the renderer's old space against what the host can spare, so on a
+// 32 GB machine a working day of sessions left the renderer resident above
+// 1 GB with nothing leaking: the collector simply had no reason to run while
+// 20 GB sat free (the same diagnostics log shows unforced 500 MB drops the
+// moment the host came under pressure). Capping the old space makes V8 run its
+// own major GCs at a size that fits the UI's real working set — transcript
+// virtualization keeps the live set far below this, and the cap is well above
+// the ~550 MB the renderer settles at after a collection. This is the
+// supported lever: forcing a purge through the debugger crashes the renderer
+// (see main/idle-reclaim.ts). MIXDOG_RENDERER_HEAP_MB overrides; 0 restores
+// V8's own default sizing.
+const configuredRendererHeapMb = Number(process.env.MIXDOG_RENDERER_HEAP_MB);
+const rendererHeapMb = Number.isFinite(configuredRendererHeapMb) && configuredRendererHeapMb >= 0
+  ? Math.floor(configuredRendererHeapMb)
+  : 768;
+if (rendererHeapMb > 0) {
+  app.commandLine.appendSwitch('js-flags', `--max-old-space-size=${rendererHeapMb}`);
 }
 
 // Shell/agent launchers may themselves run below normal priority. The desktop
@@ -308,6 +325,7 @@ const settingsStore = new DesktopSettingsStore({
   appPath: app.getAppPath(),
 });
 let mainWindow: BrowserWindow | null = null;
+let browserHost: BrowserHost | null = null;
 let removeIpc: (() => void) | null = null;
 let pendingPrimaryActivation = false;
 function activatePrimaryWindow(): void {
@@ -559,6 +577,7 @@ function disposeDesktopResources(): Promise<void> {
   serviceTerminalManager.disposeAll();
   if (!disposalPromise) {
     const cleanup = Promise.all([
+      browserHost?.dispose(),
       host.dispose(),
       windowStateFlush,
       windowState?.flush(),
@@ -721,6 +740,9 @@ async function createWindow(): Promise<void> {
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
+  // Agent browser bridge: registers this window's browser-pane webviews and
+  // serves the runtime's `browser` tool over a loopback discovery bridge.
+  browserHost = createBrowserHost(window);
   // A dead capture/automation CDP client can leave the renderer frozen at a
   // synthetic viewport (observed 800x600) while the native window resizes —
   // the guard detects the persistent mismatch and self-heals.

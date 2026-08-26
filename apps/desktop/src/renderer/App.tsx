@@ -17,6 +17,7 @@ import {
   Github,
   Layers3,
   MessageSquare,
+  Package,
   PanelsTopLeft,
   Search,
   WandSparkles,
@@ -92,6 +93,7 @@ import {
 } from "./editor-language-store";
 import { loadCommandSurfaceModule } from "./command-surface-loader";
 import {
+  prefetchBrowserPane,
   prefetchDiffView,
   prefetchEditorPane,
   prefetchFolderPane,
@@ -111,7 +113,7 @@ import {
 } from "./renderer-load-metrics";
 import type { SourceControlDiffRequest } from "./SourceControlDock";
 import { shouldFocusComposerFromWindowKey } from "./surface-input-focus";
-import { asRecord, displayProject, navigationKey, newDraftSelection, newFolderSelection, newStudioSelection, newTerminalSelection } from "./text-format";
+import { asRecord, displayProject, navigationKey, newBrowserSelection, newDraftSelection, newFolderSelection, newStudioSelection, newTerminalSelection } from "./text-format";
 import { isMarkdownBodyReady, preloadMarkdownBody } from "./markdown-body-loader";
 import { useEditorNavigation } from "./use-editor-navigation";
 import {
@@ -340,6 +342,9 @@ export function App() {
     left: desktopFeatureEnabled("sessions") ? "sessions" : enabledSidebarViews[0] ?? null,
     right: desktopUtilityDockTabEnabled(dockTab) ? dockTab : null,
   }));
+  const [extensionsSection, setExtensionsSection] = useState<
+    "skills" | "mcp" | "plugins"
+  >("skills");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
@@ -392,6 +397,7 @@ export function App() {
   const startupNavigationSelection = paneWorkspace.restoredFromStorage
     && startupFocusedPaneSelection
     && startupFocusedPaneSelection.kind !== "studio"
+    && startupFocusedPaneSelection.kind !== "browser"
     && startupFocusedPaneSelection.kind !== "terminal"
     && startupFocusedPaneSelection.kind !== "folder"
     && startupFocusedPaneSelection.kind !== "diff"
@@ -1106,6 +1112,20 @@ export function App() {
     requestSessionRead(sessionId)
   ), []);
   const openSettings = useCallback((section: SlashSettingsSection | null = null) => {
+    if (section === "skills" || section === "mcp" || section === "plugins") {
+      if (!desktopFeatureEnabled("extensions")) return;
+      const side = workbenchSideLayout.sideOf("extensions");
+      setExtensionsSection(section);
+      setSettingsOpen(false);
+      setCommandSurface(null);
+      mountSidebarPanel("extensions");
+      trackSidebarPanelModule("extensions", loadSidebarPanelModule.extensions());
+      setActiveSideViews((current) =>
+        current[side] === "extensions" ? current : { ...current, [side]: "extensions" });
+      if (side === "left") applySidebarOpen(true);
+      else applyDockOpen(true);
+      return;
+    }
     // Workflow and web-search-model settings graduated to the main-pane
     // Workflows page: /workflow and /websearch land there.
     if (section === "workflow" || section === "websearch") {
@@ -1121,7 +1141,15 @@ export function App() {
     setCommandSurface(null);
     setSettingsSection(section === "memory" ? "memory-enabled" : section);
     setSettingsOpen(true);
-  }, [openWorkflows, warmSettingsView]);
+  }, [
+    applyDockOpen,
+    applySidebarOpen,
+    mountSidebarPanel,
+    openWorkflows,
+    trackSidebarPanelModule,
+    warmSettingsView,
+    workbenchSideLayout.sideOf,
+  ]);
   /** /clear · /new typed in a session pane: close that session's tab and open
    *  a New Task draft in its exact strip position, seeded from the cleared
    *  session's own project/model/workflow and its remote seat (user rule:
@@ -1359,7 +1387,7 @@ export function App() {
     openSelectionInFocusedPane,
   });
   const openUtilityTab = (
-    utilitySelection: Extract<WorkspaceSelection, { kind: "studio" | "terminal" | "folder" }>,
+    utilitySelection: Extract<WorkspaceSelection, { kind: "studio" | "terminal" | "folder" | "browser" }>,
     title: string,
     leafId = paneWorkspace.focusedLeafId,
   ) => {
@@ -1386,6 +1414,24 @@ export function App() {
     // its own explicit path (Ctrl+` / openTerminalPanel).
     openUtilityTab(newTerminalSelection(activeProjectPath), "Terminal", leafId);
   };
+  const openBrowserTab = (leafId = paneWorkspace.focusedLeafId) => {
+    void prefetchBrowserPane().catch(() => {});
+    openUtilityTab(newBrowserSelection(), "Browser", leafId);
+  };
+  // Agent browser bridge: a `browser` tool call arriving with no live webview
+  // asks the app to present a browser surface. Reuse an existing browser tab
+  // (its persistent webview may simply be waiting for first activation)
+  // before minting a new one.
+  const openBrowserSurfaceForAgent = () => {
+    const existing = tabs.find((tab) => tab.selection.kind === "browser");
+    if (existing) openSelectionInFocusedPane(existing.selection);
+    else openBrowserTab();
+  };
+  const openBrowserSurfaceForAgentRef = useRef(openBrowserSurfaceForAgent);
+  openBrowserSurfaceForAgentRef.current = openBrowserSurfaceForAgent;
+  useEffect(() => window.mixdogDesktop?.onBrowserOpenRequested?.(() => {
+    openBrowserSurfaceForAgentRef.current();
+  }), []);
   // Open Folder pane (Windows-Explorer-style): opens INSTANTLY at the user's
   // home folder — no OS dialog (the parented picker proved unable to present
   // reliably on Windows); navigation happens inside the pane itself.
@@ -1712,10 +1758,13 @@ export function App() {
     runningAutomationNames,
     projects,
     selectedProjectPath,
+    extensionsSection,
+    onExtensionsSectionChange: setExtensionsSection,
     closeSidebarForNavigation,
     startTask,
     openSession,
     openStudioTab,
+    openBrowserTab,
     openTerminalTab,
     openFolderTab,
     refreshProjects,
@@ -1831,6 +1880,8 @@ export function App() {
       onPrefetch: () => prefetchWorkbenchSideView("projects") }],
     ["workflows", { id: "workflows", label: "Workflows", icon: Layers3,
       onPrefetch: () => prefetchWorkbenchSideView("workflows") }],
+    ["extensions", { id: "extensions", label: "Extensions", icon: Package,
+      onPrefetch: () => prefetchWorkbenchSideView("extensions") }],
     ["schedules", { id: "schedules", label: "Schedules", icon: Clock,
       onPrefetch: () => prefetchWorkbenchSideView("schedules") }],
     ["webhooks", { id: "webhooks", label: "Webhooks", icon: Webhook,
@@ -2244,6 +2295,7 @@ export function App() {
         warmPanel("webhooks"),
         warmPanel("projects"),
         warmPanel("workflows"),
+        warmPanel("extensions"),
       ]).catch(() => {});
       }, nativeWindow ? 120 : 0);
     };

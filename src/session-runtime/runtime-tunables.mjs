@@ -5,7 +5,9 @@
 import { envDelayMs, envFlag, envPresent } from './env.mjs';
 
 export function readRuntimeTunables() {
-  const codeGraphPrewarmEnabled = !envFlag('MIXDOG_DISABLE_CODE_GRAPH_PREWARM');
+  const codeGraphPrewarmEager = envFlag('MIXDOG_CODE_GRAPH_PREWARM_EAGER');
+  const codeGraphPrewarmEnabled = !envFlag('MIXDOG_DISABLE_CODE_GRAPH_PREWARM')
+    && (envFlag('MIXDOG_ENABLE_CODE_GRAPH_PREWARM') || codeGraphPrewarmEager);
   const daemonHosted = envFlag('MIXDOG_DAEMON_HOST');
   return {
     providerSetupWarmupDelayMs: envDelayMs('MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS', 300, { min: 0, max: 60_000 }),
@@ -50,12 +52,8 @@ export function readRuntimeTunables() {
       && !envFlag('MIXDOG_DISABLE_MODEL_PREFETCH'),
     codeGraphPrewarmEnabled,
     modelCatalogWarmupEnabled: !envFlag('MIXDOG_DISABLE_MODEL_CATALOG_WARMUP'),
-    // Lazy code-graph prewarm (default ON): do NOT prewarm at startup / on cwd
-    // change — that fired ~250ms after the first frame and, in a large tree,
-    // burned a worker (and felt like a freeze) before the user did anything.
-    // Instead prewarm ONCE on the first real turn, when a code lookup is
-    // actually imminent. MIXDOG_CODE_GRAPH_PREWARM_EAGER=1 restores the old
-    // eager behavior.
-    codeGraphPrewarmLazy: codeGraphPrewarmEnabled && !envFlag('MIXDOG_CODE_GRAPH_PREWARM_EAGER'),
+    // Code-graph parsing is demand-driven by default. Operators may opt into
+    // first-turn warming, or explicitly restore eager cwd warming.
+    codeGraphPrewarmLazy: codeGraphPrewarmEnabled && !codeGraphPrewarmEager,
   };
 }

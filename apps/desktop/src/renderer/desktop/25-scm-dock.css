@@ -139,7 +139,7 @@
    header the panel has. */
 /* Top toolbar: current branch | Push | Fetch, sitting above the
    Changes | History tab row. */
-.dock-scm-toolbar { position: relative; z-index: 6; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-scm-toolbar { box-sizing: border-box; position: relative; z-index: 6; width: 100%; min-width: 0; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--mx-border-muted); }
 /* The three fixed sections are equal thirds. */
 .dock-scm-toolbar-section { min-width: 0; flex: 1 1 0; display: flex; align-items: center; }
 /* Project selection uses this grammar in the Pull Requests context row. */
@@ -151,29 +151,42 @@
 .dock-scm-toolbar-branch { position: relative; flex: 1 1 0; min-width: 76px; }
 .dock-scm-toolbar-push, .dock-scm-toolbar-fetch { position: relative; flex: 1 1 0; min-width: 76px; }
 .dock-scm-branch-button, .dock-scm-remote-button {
+  box-sizing: border-box;
   min-width: 0;
   width: 100%;
   height: 28px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(18px, 1fr) minmax(0, max-content) minmax(18px, 1fr);
   align-items: center;
-  gap: 5px;
+  column-gap: 5px;
   padding: 0 7px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: transparent;
   font-size: var(--mx-font-minor);
-  text-align: left;
+  text-align: center;
+  overflow: hidden;
   cursor: pointer;
 }
 .dock-scm-branch-button:hover:not(:disabled),
 .dock-scm-remote-button:hover:not(:disabled) { background: var(--mx-hover); }
 .dock-scm-branch-button:disabled, .dock-scm-remote-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.dock-scm-branch-button > svg, .dock-scm-remote-button > svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.dock-scm-branch-button > svg, .dock-scm-remote-button > svg { color: var(--mx-icon-muted); }
+.dock-scm-branch-button > svg:first-child,
+.dock-scm-remote-button > svg:first-child { grid-column: 1; justify-self: end; }
+.dock-scm-branch-button > svg:last-child,
+.dock-scm-remote-button > .dock-scm-ahead-behind { grid-column: 3; justify-self: start; }
 /* Only the LABEL may shrink; the ahead/behind badge is a sibling span and
    must keep its intrinsic width. */
-.dock-scm-branch-button > span, .dock-scm-remote-label { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-scm-branch-button > span { flex: 1 1 auto; min-width: 5.5ch; }
+.dock-scm-branch-button > span, .dock-scm-remote-label {
+  grid-column: 2;
+  min-width: 0;
+  justify-self: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .dock-scm-remote-label { display: inline-flex; }
 .dock-scm-remote-verb, .dock-scm-remote-target { white-space: pre; }
 /* Narrow steps, in order. The section is a THIRD of the dock now, so the
@@ -188,7 +201,10 @@
   .dock-scm-ahead-behind > span > svg { display: none; }
   .dock-scm-remote-button { gap: 4px; padding: 0 5px; }
 }
-@container (max-width: 260px) { .dock-scm-remote-label { display: none; } }
+@container (max-width: 260px) {
+  .dock-scm-remote-label { display: none; }
+  .dock-scm-remote-button > svg:first-child { grid-column: 2; justify-self: center; }
+}
 /* Below the product floor (DESKTOP_UTILITY_DOCK_MIN_WIDTH 300px) the name
    floors themselves have to give, or the row would overflow the dock and push
    the ahead/behind badge past the window edge. */

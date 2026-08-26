@@ -18,10 +18,13 @@ import {
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { saveSession } from '../runtime/agent/orchestrator/session/store.mjs';
 
-function resolveResumeCwd(session, currentCwd) {
+export function resolveResumeCwd(session, currentCwd) {
   const desktop = session?.desktopSession;
   if (desktop?.classification === 'project') {
-    return clean(desktop.projectPath) || session?.cwd || currentCwd;
+    // `session.cwd` is the execution source of truth. Older builds updated it
+    // on `cwd set` without updating desktopSession.projectPath, so preferring
+    // the duplicate UI metadata reverted the Project after a restart.
+    return clean(session?.cwd) || clean(desktop.projectPath) || currentCwd;
   }
   if (desktop?.classification === 'task') {
     // Desktop task sessions deliberately stay in the app-managed unclassified
@@ -81,7 +84,7 @@ export function createLifecycleApi(deps) {
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     beginRoutePreparation, clearRoutePreparation,
     notificationListeners, clearRuntimeNotifications,
-    disposeSessionTitles, abortActiveTurns, getReservedSessionId,
+    disposeSessionTitles, disposeGlobalExtensionSubscription, abortActiveTurns, getReservedSessionId,
   } = deps;
   const closeSurfaceSession = (session, reason, options) => {
     if (!session?.id) return false;
@@ -198,6 +201,7 @@ export function createLifecycleApi(deps) {
       // of reaping every session's jobs. CLI exit paths never set this.
       const keepBackgroundWork = options?.keepBackgroundWork === true;
       setCloseRequested(true);
+      try { disposeGlobalExtensionSubscription?.(); } catch {}
       const closingTurnId = getSession()?.id || getReservedSessionId?.() || 'pending';
       try {
         abortActiveTurns?.(new SessionClosedError(

@@ -44,3 +44,6 @@
    stylesheet before the component renders. It still lands after every layer
    here, so its overrides keep winning exactly as they did in this list. */
 @import "./desktop/30-dialogs.css";
+/* Layer 31 (Extensions rail) is imported by ExtensionsView.tsx for the same
+   reason as layer 29: the pane is a lazy chunk whose stylesheet Vite resolves
+   before it renders, and it still lands after every layer listed here. */

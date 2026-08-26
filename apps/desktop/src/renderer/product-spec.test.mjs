@@ -24,7 +24,10 @@ test('remote settings hide desktop-local credential categories', () => {
   assert.equal(settingsCategoriesForSurface(true), settingsCategoriesForSurface(true));
   const remoteCategories = settingsCategoriesForSurface(true).map((category) => category.value);
   assert.equal(remoteCategories.includes('providers'), false);
-  assert.equal(remoteCategories.includes('mcp'), true);
+  assert.equal(remoteCategories.includes('mcp'), false);
+  assert.equal(remoteCategories.includes('skills'), false);
+  assert.equal(remoteCategories.includes('plugins'), false);
   assert.equal(settingsCategoryForSurface('providers', true), 'general');
   assert.equal(settingsCategoryForSurface('providers', false), 'providers');
+  assert.equal(settingsCategoryForSurface('mcp', false), 'general');
 });

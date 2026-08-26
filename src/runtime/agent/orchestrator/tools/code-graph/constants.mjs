@@ -34,7 +34,10 @@ export const CODE_GRAPH_MEMORY_MAX_ENTRIES = Math.max(
   1,
   Math.floor(Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_ENTRIES) || 6),
 );
-export const CODE_GRAPH_MEMORY_MAX_SOURCE_BYTES = Math.max(
+// Total retained graph memory, including nodes, symbols, indexes and source
+// caches. The previous source-cache-only accounting left the much larger base
+// graph unbounded across the six-entry LRU.
+export const CODE_GRAPH_MEMORY_MAX_BYTES = Math.max(
   1 * 1024 * 1024,
   Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_MEMORY_MAX_MB) || 48) * 1024 * 1024),
 );

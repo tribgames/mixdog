@@ -22,9 +22,8 @@ export const SESSION_RUNTIME_SHARD_ENV = 'MIXDOG_SESSION_RUNTIME_SHARDS';
 export const MAX_SESSION_RUNTIME_SHARDS = 16;
 
 /**
- * Production uses one shared runtime process whose sessions are independent
- * async actors. CPU-heavy parsing/search still uses bounded worker pools, but
- * the provider/MCP/module graph is loaded once instead of once per CPU shard.
+ * The external-host compatibility seam defaults to one shared runtime process.
+ * Production sessions now use the daemon's in-process actor host instead.
  *
  * The legacy env is intentionally ignored. Explicit multi-process counts stay
  * available only through createSessionRuntimeHost({ shardCount }) as a test

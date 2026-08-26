@@ -23,17 +23,10 @@ function clean(value) {
 
 export async function prewarmHeadlessSearch(cwd, {
   loadNativeSearch = () => import('./runtime/agent/orchestrator/tools/builtin/native-search-client.mjs'),
-  loadListTool = () => import('./runtime/agent/orchestrator/tools/builtin/list-tool.mjs'),
 } = {}) {
-  const root = clean(cwd) || process.cwd();
-  const [nativeSearch, listTool] = await Promise.all([
-    loadNativeSearch(),
-    loadListTool(),
-  ]);
-  await Promise.all([
-    nativeSearch.warmNativeSearchServer(),
-    listTool.prewarmFindEnumeration(root),
-  ]);
+  void cwd;
+  const nativeSearch = await loadNativeSearch();
+  await nativeSearch.warmNativeSearchServer();
 }
 
 function nonNegativeNumber(value) {

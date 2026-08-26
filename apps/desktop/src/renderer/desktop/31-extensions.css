@@ -1,0 +1,346 @@
+/* Desktop layer 31 — Extensions rail (Skills / MCP / Plugins).
+   Imported by ExtensionsView.tsx rather than ../desktop.css: the pane is a lazy
+   chunk whose stylesheet Vite resolves before it renders, exactly like layer 29
+   (folder pane). It still lands after every layer in that list.
+
+   The pane itself is pure rail grammar — surface, page, filter tags, item row,
+   status dot and the detail trigger all render from layers 10, 20
+   and 30, shared verbatim with Schedules and Webhooks. This layer only states
+   what Extensions alone needs: the capability panels arrive as SETTINGS markup,
+   so their section heads and list bodies have to drop the dialog card frame and
+   join the rail's box line. Nothing here restyles a shared component. */
+
+/* Capability sections stack as rail sections on the shared gap. */
+.extensions-pane .capability-settings-content,
+.extensions-pane .settings-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mx-rail-gap);
+}
+.extensions-pane .capability-settings-content,
+.extensions-pane .settings-group { flex: 1 1 auto; min-height: 0; }
+
+/* Section head opens on the rail BOX LINE (no inset of its own) and wears the
+   rail's category type instead of the settings dialog's group title. */
+.extensions-pane .settings-group > header { display: grid; gap: 2px; padding: 0; }
+.extensions-pane .settings-group > header h3,
+.extensions-pane .settings-group > header p { margin: 0; }
+.extensions-pane .settings-group > header h3 {
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+.extensions-pane .settings-group > header p {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+
+/* The group body is a LIST, not a card — this is the .schedules-list role.
+   Every row already carries the rail item surface, so the settings card frame
+   would draw a second box around the whole list. */
+.extensions-pane .settings-group-body {
+  display: grid;
+  gap: var(--mx-rail-gap);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.extensions-pane .settings-empty {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  text-align: center;
+}
+.extensions-pane .settings-group-body:has(> .settings-empty-list):not(:has(> .extensions-create)) {
+  flex: 1 1 auto;
+  place-items: center;
+}
+
+/* The capability surface gate is a plain block inside the page column: it must
+   not claim the page height or open a second scroller. It also paints
+   --mx-workspace-sheet by default (layer 17), which showed through as a stray
+   plate behind the section head wherever a row card did not cover it
+   (user: 중간에 이상한 백플레이트) — every other host clears it the same way. */
+.extensions-pane .schedules-page > .pane-surface-gate {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  flex: 1 1 auto;
+  display: flex;
+  overflow: visible;
+  background: transparent;
+}
+.extensions-pane .pane-surface-gate > .pane-surface-gate-content {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  flex: 1 1 auto;
+  display: flex;
+  overflow: visible;
+  background: transparent;
+}
+
+/* Extensions uses the same equal-third action rhythm and typography as Source
+   Control. Selection changes ink only, avoiding a darker plate in the rail. */
+.extensions-section-toolbar {
+  box-sizing: border-box;
+  container-type: inline-size;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.extensions-section-toolbar button {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-align: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+.extensions-section-toolbar button:hover { background: var(--mx-hover); }
+.extensions-section-toolbar button.active {
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  font-weight: var(--mx-weight-semibold);
+}
+.extensions-section-toolbar button.active::after {
+  position: absolute;
+  right: 3px;
+  bottom: -5px;
+  left: 3px;
+  height: 2px;
+  border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0;
+  background: var(--mx-text);
+  content: "";
+}
+.extensions-section-toolbar button > svg { flex: 0 0 auto; color: var(--mx-text-soft); }
+.extensions-section-toolbar button.active > svg { color: currentColor; }
+.extensions-section-toolbar button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Create form: opened by the header's +, closed on submit. One column, one
+   primary action, and the same item surface the rail cards wear — no third
+   input grammar in the pane. */
+.extensions-create {
+  display: grid;
+  gap: var(--mx-rail-gap);
+  padding: 12px var(--mx-rail-gutter);
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.extensions-create > header b {
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-semibold);
+}
+.extensions-create input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  font: inherit;
+  font-size: var(--mx-font-ui);
+}
+.extensions-create input:focus {
+  outline: 1px solid var(--mx-focus);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+}
+.extensions-create > footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Detail dialog: the schedules editor card with a facts list where the form
+   would be. The body owns the 20px gutter that card's sticky footer assumes in
+   its negative margin, so the footer plate still reaches both edges. */
+.extensions-dialog-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 0 20px 20px;
+}
+.extensions-dialog-facts { margin: 0; display: grid; gap: 10px; }
+.extensions-dialog-facts > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+}
+.extensions-dialog-facts dt {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.extensions-dialog-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+/* An extension entry carries more actions than a two-button editor footer. */
+.extensions-dialog footer { flex-wrap: wrap; }
+.extensions-dialog .extensions-skill-preview {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+
+/* Standard skill editor: the trigger is prose, while instructions retain the
+   shared Markdown editor grammar used by workflows and agents. */
+.extensions-skill-dialog { width: min(800px, calc(100vw - 32px)); }
+.extensions-skill-dialog .extensions-trigger-field textarea {
+  min-height: 84px;
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.extensions-skill-dialog .extensions-instructions-field textarea { min-height: 320px; }
+.extensions-skill-dialog footer .extensions-skill-toggle { margin-right: auto; }
+
+/* MCP uses transport-specific structured rows instead of exposing JSON. */
+.extensions-mcp-dialog { width: min(800px, calc(100vw - 32px)); }
+.extensions-mcp-dialog form {
+  display: grid;
+  gap: 16px;
+}
+.extensions-mcp-transport {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.extensions-mcp-transport button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: calc(var(--mx-radius-md) - 2px);
+  color: var(--mx-text-muted);
+  background: transparent;
+}
+.extensions-mcp-transport button.active {
+  color: var(--mx-text-primary);
+  background: var(--mx-bg-raised);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+}
+.extensions-mcp-list {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.extensions-mcp-list legend {
+  padding: 0;
+  color: var(--mx-text-primary);
+  font-size: var(--mx-font-ui);
+  font-weight: 600;
+}
+.extensions-mcp-list > small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.extensions-mcp-list-rows {
+  display: grid;
+  gap: 7px;
+}
+.extensions-mcp-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 7px;
+}
+.extensions-mcp-pair-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px;
+}
+.extensions-mcp-list-row > button {
+  padding: 0;
+  color: var(--mx-text-muted);
+}
+.extensions-mcp-list-add {
+  width: 100%;
+  min-height: 30px;
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-raised);
+}
+.extensions-mcp-note {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.extensions-mcp-summary {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+@media (max-width: 560px) {
+  .extensions-mcp-pair-row {
+    grid-template-columns: minmax(0, 1fr) 34px;
+  }
+  .extensions-mcp-pair-row > input:nth-child(2) {
+    grid-column: 1;
+  }
+  .extensions-mcp-pair-row > button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+/* Skill content inside the shared dialog body. */
+.extensions-skill-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--mx-text-muted);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-meta);
+  line-height: 1.5;
+}

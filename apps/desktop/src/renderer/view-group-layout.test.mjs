@@ -22,7 +22,7 @@ const surfaces = [
     moveGroup: moveSidebarViewGroup,
     moveView: moveSidebarView,
     stored: [["workflows", "projects", "workflows"], ["unknown", "schedules"]],
-    normalized: [["workflows", "projects"], ["schedules"], ["webhooks"], ["utilities"]],
+    normalized: [["workflows", "projects"], ["schedules"], ["extensions"], ["webhooks"], ["utilities"]],
     groupMove: {
       groups: [["projects", "workflows"], ["schedules"], ["webhooks"], ["utilities"]],
       root: "projects",

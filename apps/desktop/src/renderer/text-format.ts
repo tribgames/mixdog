@@ -20,6 +20,7 @@ export function navigationKey(selection: WorkspaceSelection) {
       : `file:${selection.project}:${selection.rel}`;
   }
   if (selection.kind === "studio") return `studio:${selection.id}`;
+  if (selection.kind === "browser") return `browser:${selection.id}`;
   if (selection.kind === "terminal") return `terminal:${selection.id}`;
   if (selection.kind === "folder") return `folder:${selection.id}`;
   if (selection.kind === "pull-request") {
@@ -46,6 +47,10 @@ function workspaceInstanceId(): string {
 
 export function newStudioSelection(): Extract<WorkspaceSelection, { kind: "studio" }> {
   return { kind: "studio", id: workspaceInstanceId() };
+}
+
+export function newBrowserSelection(): Extract<WorkspaceSelection, { kind: "browser" }> {
+  return { kind: "browser", id: `browser_tab_${workspaceInstanceId()}` };
 }
 
 export function newTerminalSelection(

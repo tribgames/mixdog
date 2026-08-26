@@ -3,9 +3,8 @@ name = "mixdog-graph"
 version = "0.1.20"
 edition = "2021"
 
-# The engine is a library first: the standalone executable and the in-process
-# Node-API addon (native/mixdog-graph-addon) are two thin front ends over the
-# SAME search/graph code, so neither transport can drift from the other.
+# The resident search engine is a library so the standalone executable and
+# protocol tests share one implementation.
 [lib]
 name = "mixdog_graph"
 path = "src/lib.rs"
@@ -59,6 +58,7 @@ windows-sys = { version = "0.60", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_System_Ioctl",
+    "Win32_UI_Shell",
 ] }
 
 [profile.release]

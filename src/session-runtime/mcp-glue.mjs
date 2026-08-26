@@ -1,33 +1,9 @@
 // MCP config/status/connect glue. Mutable runtime state is dependency-injected
 // through accessors and the caller-owned `state` object.
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
-import { statSync } from 'node:fs';
 import { clean } from './session-text.mjs';
-import { normalizeMcpProjectPathKey, readProjectMcpServers } from './plugin-mcp.mjs';
 import { envFlag } from './env.mjs';
-
-// Cache project-local `.mcp.json` reads by path + mtime so repeated mcpStatus()
-// calls skip existsSync+readFileSync+JSON.parse when the file is unchanged.
-// Invalidated automatically on any mtime change (or create/delete via mtime=0).
-const projectMcpCache = new Map();
-const PROJECT_MCP_CACHE_MAX = 32;
-export function invalidateProjectMcpCache(cwd) {
-  projectMcpCache.delete(resolve(cwd || '.', '.mcp.json'));
-}
-function cachedProjectMcpServers(cwd) {
-  const path = resolve(cwd || '.', '.mcp.json');
-  let mtimeMs = 0;
-  try { mtimeMs = statSync(path).mtimeMs; } catch { mtimeMs = 0; }
-  const hit = projectMcpCache.get(path);
-  if (hit && hit.mtimeMs === mtimeMs) return hit.value;
-  const value = readProjectMcpServers(cwd);
-  // Bound the cache: Map preserves insertion order, so drop the oldest entry.
-  if (!projectMcpCache.has(path) && projectMcpCache.size >= PROJECT_MCP_CACHE_MAX) {
-    projectMcpCache.delete(projectMcpCache.keys().next().value);
-  }
-  projectMcpCache.set(path, { mtimeMs, value });
-  return value;
-}
 
 export function createMcpGlue({
   mcpClient,
@@ -51,27 +27,41 @@ export function createMcpGlue({
   // (precedence: project > user config). `sources[name]` records each server's
   // origin ('config' | 'project') for status reporting.
   function resolveEffectiveMcpServers() {
-    // Benchmark/embedding guard: do not even inspect project `.mcp.json`.
+    // MCP is machine-global. Project `.mcp.json` files and per-project
+    // overrides are intentionally outside the runtime resolution chain.
     if (envFlag('MIXDOG_DISABLE_MCP')) return { servers: {}, sources: {} };
     const config = getConfig();
     const configured = config?.mcpServers && typeof config.mcpServers === 'object'
       ? config.mcpServers
       : {};
-    const projectKey = normalizeMcpProjectPathKey(getCurrentCwd());
-    const overrides = config?.mcpProjectOverrides?.[projectKey];
-    const foldedConfigured = {};
+    const servers = {};
     for (const [name, cfg] of Object.entries(configured)) {
-      const override = overrides?.[name];
-      foldedConfigured[name] = typeof override?.enabled === 'boolean'
-        ? { ...cfg, enabled: override.enabled }
-        : cfg;
+      servers[name] = {
+        ...cfg,
+        ...(cfg?._mixdogPluginDisabled === true ? { enabled: false } : {}),
+      };
     }
-    const project = cachedProjectMcpServers(getCurrentCwd());
-    const servers = { ...foldedConfigured, ...project };
     const sources = {};
     for (const name of Object.keys(configured)) sources[name] = 'config';
-    for (const name of Object.keys(project)) sources[name] = 'project';
     return { servers, sources };
+  }
+
+  function getMcpServerConfig(name) {
+    const serverName = clean(name);
+    if (!serverName) throw new Error('MCP server name is required');
+    const { servers } = resolveEffectiveMcpServers();
+    const effective = servers[serverName];
+    if (!effective) throw new Error(`MCP server not configured: ${serverName}`);
+    const raw = getConfig()?.mcpServers?.[serverName];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`MCP server config is unavailable: ${serverName}`);
+    }
+    return {
+      name: serverName,
+      source: 'config',
+      enabled: effective.enabled !== false,
+      config: { ...raw },
+    };
   }
 
   function mcpStatus() {
@@ -94,6 +84,7 @@ export function createMcpGlue({
         transport: mcpTransportLabel(cfg),
         toolCount: live?.toolCount || 0,
         tools: live?.tools || [],
+        capabilities: live?.capabilities || { tools: false, prompts: false, resources: false },
         error: fail?.msg || null,
         source: sources[name] || 'config',
       });
@@ -118,10 +109,10 @@ export function createMcpGlue({
     const target = clean(name);
     if (!target) return;
     const { servers } = resolveEffectiveMcpServers();
-    // The toggle is applied to whichever source drives this name: project
-    // `.mcp.json` entries persist their `enabled` flag in that file (project >
-    // config precedence) and config entries in mixdog-config, so acting on the
-    // effective entry here keeps live state in sync with the durable flag.
+    // Definitions stay in their original source. Enabled state is folded from
+    // Mixdog's per-project override for both global and `.mcp.json` entries, so
+    // acting on the effective entry keeps live state aligned without rewriting
+    // a shared project file.
     // Changing this server's state clears any stale failure record for it.
     if (Array.isArray(state.mcpFailures)) {
       state.mcpFailures = state.mcpFailures.filter((row) => row.name !== target);
@@ -228,9 +219,16 @@ export function createMcpGlue({
       }
       return Object.keys(out).length > 0 ? out : null;
     };
+    const coerceStringArray = (value) => Array.isArray(value)
+      ? value.map((entry) => clean(entry)).filter(Boolean)
+      : [];
     const withOptionalHeaders = (config) => {
       const headers = coerceStringRecord(input.headers);
       if (headers) config.headers = headers;
+      const bearerTokenEnvVar = clean(input.bearer_token_env_var || input.bearerTokenEnvVar);
+      if (bearerTokenEnvVar) config.bearer_token_env_var = bearerTokenEnvVar;
+      const envHeaders = coerceStringRecord(input.env_http_headers || input.envHttpHeaders);
+      if (envHeaders) config.env_http_headers = envHeaders;
       return config;
     };
     const url = clean(input.url);
@@ -259,15 +257,18 @@ export function createMcpGlue({
       ? input.args.map((v) => String(v)).filter(Boolean)
       : clean(input.args).split(/\s+/).filter(Boolean);
     const requestedCwd = clean(input.cwd);
-    const cwdForServer = requestedCwd ? resolve(currentCwd, requestedCwd) : currentCwd;
-    const root = resolve(currentCwd);
-    const resolvedCwd = resolve(cwdForServer);
-    if (resolvedCwd !== root && !resolvedCwd.startsWith(`${root}\\`) && !resolvedCwd.startsWith(`${root}/`)) {
-      throw new Error('MCP server cwd must stay under the current project');
-    }
-    const config = { type: 'stdio', command, args, cwd: resolvedCwd };
+    const expandedCwd = requestedCwd.replace(/^~(?=$|[\\/])/, homedir());
+    const resolvedCwd = expandedCwd ? resolve(currentCwd, expandedCwd) : '';
+    const config = {
+      type: 'stdio',
+      command,
+      args,
+      ...(resolvedCwd ? { cwd: resolvedCwd } : {}),
+    };
     const env = coerceStringRecord(input.env);
     if (env) config.env = env;
+    const envVars = coerceStringArray(input.env_vars || input.envVars);
+    if (envVars.length > 0) config.env_vars = envVars;
     return { name, config };
   }
 
@@ -309,6 +310,7 @@ export function createMcpGlue({
     mcpTransportLabel,
     resolveEffectiveMcpServers,
     mcpStatus,
+    getMcpServerConfig,
     connectConfiguredMcp,
     awaitInitialMcpConnect,
     normalizeMcpServerInput,

@@ -34,11 +34,9 @@ function dispatchSignature(agent, params) {
  * The memory process keeps PG, embeddings, and recall, and forwards only
  * cycle LLM calls here. The broker owns admission (fair scheduler), callId
  * idempotency, and cancellation; actual agent execution is delegated through
- * dispatchAgent to the recyclable session runtime worker so orchestrator and
- * provider churn never accumulates in the permanent daemon process. A
- * singleton is NOT a serial lane: every call gets its own AbortController and
- * the fair scheduler starts calls in parallel unless an operator explicitly
- * configures a finite active limit.
+ * dispatchAgent to the session runtime host. A singleton is NOT a serial lane:
+ * every call gets its own AbortController and the fair scheduler starts calls
+ * in parallel unless an operator explicitly configures a finite active limit.
  */
 export function createAgentDispatchBroker({
   dispatchAgent,
@@ -99,10 +97,8 @@ export function createAgentDispatchBroker({
     const run = async () => {
       if (controller.signal.aborted) throw abortError(controller.signal);
       const timeout = Number(params.timeout);
-      // Execution happens in the recyclable session runtime worker, not in
-      // this permanent daemon process: provider/orchestrator churn from
-      // memory-cycle agents returns to the OS at the worker's next memory
-      // recycle instead of accumulating in daemon commit forever.
+      // The host owns whether execution is in-process or isolated; the broker
+      // keeps scheduling, cancellation, and call identity transport-neutral.
       return dispatchAgent({
         dispatchId: id,
         agent,

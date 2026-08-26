@@ -18,7 +18,15 @@ import { CategoryPanel } from "./capability-panels";
 export { getCachedCapabilitySettings, preloadCapabilitySettings, type CachedCapabilitySettings } from "./capability-data";
 export { OAuthControl } from "./capability-panels";
 
-export function CapabilitySettings({ api, category, onCompose, onOpenCategory }: CapabilitySettingsProps) {
+export function CapabilitySettings({
+  api,
+  category,
+  refreshNonce = 0,
+  onCompose,
+  onOpenCategory,
+  createOpen = false,
+  onCreateOpenChange,
+}: CapabilitySettingsProps) {
   const initialCache = getCachedCapabilitySettings(api);
   const [data, setData] = useState<Record<string, unknown>>(() => initialCache?.data || {});
   const [hydrating, setHydrating] = useState(() => !initialCache);
@@ -70,9 +78,9 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
     // happened: a settings panel showing a minute-old snapshot (or a value that
     // was still warming up when it was cached) is the worse trade.
     const stale = Boolean(cached && Date.now() - cached.loadedAt >= 2_000);
-    void load(revision > 0 || stale);
+    void load(revision > 0 || refreshNonce > 0 || stale);
     return () => { loadSequence.current += 1; };
-  }, [api, load, revision]);
+  }, [api, load, refreshNonce, revision]);
   useEffect(() => {
     let live = true;
     void api.getSnapshot?.().then((snapshot) => { if (live) setLiveSnapshot(snapshot); }).catch(() => {});
@@ -210,12 +218,14 @@ export function CapabilitySettings({ api, category, onCompose, onOpenCategory }:
   }, []);
 
   const effectivePending = hydrating ? 'settings-hydrating' : pending;
+  const closeCreate = useCallback(() => onCreateOpenChange?.(false), [onCreateOpenChange]);
   const context = useMemo<PanelContext>(() => ({
     api, data, snapshot: liveSnapshot, pending: effectivePending, run, route, setFast, confirm, notice: pushNotice,
     updaterState, checkDesktopUpdate, installDesktopUpdate,
     compose: onCompose, openCategory: onOpenCategory,
-  }), [api, checkDesktopUpdate, confirm, data, effectivePending, installDesktopUpdate, liveSnapshot, onCompose,
-    onOpenCategory, pushNotice, route, run, setFast, updaterState]);
+    createOpen, closeCreate,
+  }), [api, checkDesktopUpdate, closeCreate, confirm, createOpen, data, effectivePending, installDesktopUpdate,
+    liveSnapshot, onCompose, onOpenCategory, pushNotice, route, run, setFast, updaterState]);
 
   return <PaneSurfaceGate ready label="Loading settings…">
     <div className="capability-settings-content">

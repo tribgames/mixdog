@@ -81,6 +81,7 @@ function pluginHookConfigEntries(dataDir) {
   }
   const entries = [];
   for (const plugin of plugins || []) {
+    if (plugin?.enabled === false) continue;
     const root = String(plugin?.root || '').trim();
     if (!root || !existsSync(root)) continue;
     const id = cleanHookId(plugin.id || plugin.name || plugin.title || root.split(/[\\/]/).pop());

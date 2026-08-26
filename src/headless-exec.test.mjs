@@ -9,7 +9,7 @@ import { prewarmHeadlessSearch, runHeadlessExec } from './headless-exec.mjs';
 import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
 
-test('headless search prewarm starts the native server and Project inventory together', async () => {
+test('headless search prewarm starts only the canonical native server', async () => {
   const calls = [];
   await prewarmHeadlessSearch('/app/project', {
     loadNativeSearch: async () => ({
@@ -18,13 +18,8 @@ test('headless search prewarm starts the native server and Project inventory tog
         return true;
       },
     }),
-    loadListTool: async () => ({
-      async prewarmFindEnumeration(root) {
-        calls.push(`index:${root}`);
-      },
-    }),
   });
-  assert.deepEqual(calls.sort(), ['index:/app/project', 'server']);
+  assert.deepEqual(calls, ['server']);
 });
 
 test('pristine headless execution binds Cursor OAuth credentials in process', async () => {

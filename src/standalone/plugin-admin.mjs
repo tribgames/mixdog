@@ -242,6 +242,7 @@ function enrichEntry(entry) {
   const name = clean(manifest.name) || clean(manifest.id) || clean(entry.name) || displayNameFromUrl(entry.source);
   return {
     ...entry,
+    enabled: entry.enabled !== false,
     name,
     title: clean(manifest.title) || clean(manifest.displayName) || clean(entry.title) || name,
     version: clean(manifest.version) || clean(entry.version) || null,
@@ -280,6 +281,7 @@ export function addPlugin(sourceInput, { dataDir = resolvePluginData(), name } =
       title: clean(manifest.title) || clean(manifest.displayName) || clean(name) || displayNameFromUrl(normalized.displaySource),
       version: clean(manifest.version) || null,
       description: clean(manifest.description),
+      enabled: true,
       installedAt: nowIso(),
       updatedAt: nowIso(),
     };
@@ -335,6 +337,21 @@ export function updatePlugin(idOrName, { dataDir = resolvePluginData() } = {}) {
     const currentIndex = registry.plugins.findIndex((plugin) => plugin.id === id);
     if (currentIndex < 0) throw new Error(`plugin not registered: ${key}`);
     return updatePluginLocked(registry.plugins[currentIndex], dataDir);
+  });
+}
+
+export function setPluginEnabled(idOrName, enabled, { dataDir = resolvePluginData() } = {}) {
+  const key = clean(idOrName);
+  if (!key) throw new Error('plugin id/name is required');
+  return mutateRegistry(dataDir, (registry) => {
+    const index = pluginIndex(registry, key);
+    if (index < 0) throw new Error(`plugin not registered: ${key}`);
+    const next = {
+      ...registry.plugins[index],
+      enabled: enabled !== false,
+    };
+    registry.plugins[index] = next;
+    return enrichEntry(next);
   });
 }
 

@@ -13,6 +13,7 @@ export type SidebarViewPlacement = ViewGroupPlacement;
 export const DEFAULT_SIDEBAR_VIEW_ORDER: readonly SidebarPanelKey[] = [
   "projects",
   "workflows",
+  "extensions",
   "schedules",
   "webhooks",
   "utilities",

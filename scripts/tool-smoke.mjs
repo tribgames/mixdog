@@ -703,7 +703,6 @@ if (!/must be a boolean/.test(String(findNoiseTypeErr))) {
 }
 
 {
-  let targetedEnumerationCalls = 0;
   const timeout = Object.assign(
     new Error('native fuzzy search timed out after 20000ms. Fuzzy ranking requires a complete file inventory; narrow cwd or set max depth.'),
     { code: 'NATIVE_SEARCH_TIMEOUT' },
@@ -713,55 +712,14 @@ if (!/must be a boolean/.test(String(findNoiseTypeErr))) {
     root,
     {
       __tryServeFuzzySearch: async () => { throw timeout; },
-      __runRg: async (args) => {
-        targetedEnumerationCalls += 1;
-        if (!args.includes('--iglob')) throw new Error(`timeout recovery must use a targeted path scan: ${JSON.stringify(args)}`);
-        return 'scripts/tool-smoke-timeout.mjs\n';
-      },
     },
   );
-  // A deadline before any fuzzy response must not repeat the complete
-  // inventory. It performs one query-targeted path scan and returns its real
-  // candidate in the same tool call.
-  if (targetedEnumerationCalls !== 1
-      || /^Error[\s:[]/.test(String(out).trimStart())
-      || !/scripts\/tool-smoke-timeout\.mjs/.test(String(out))
-      || !/targeted path matches shown/.test(String(out))) {
-    throw new Error(`find fuzzy timeout must recover through one targeted path scan:\n${out}`);
-  }
-}
-
-// Exercise the test-only rg seam directly so this verifies the in-flight
-// single-flight rather than merely observing cached output from the real tree.
-// TTL=0 rules out persistent broad-enumeration cache reuse; the delayed listing
-// keeps both exact-name workers concurrent while the first sweep is in flight.
-{
-  const previousFindEnumCacheTtl = process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
-  const firstQuery = 'tool-smoke-single-flight-first.mjs';
-  const secondQuery = 'tool-smoke-single-flight-second.mjs';
-  const firstPath = `fixtures/${firstQuery}`;
-  const secondPath = `fixtures/${secondQuery}`;
-  let broadEnumerationCalls = 0;
-  process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS = '0';
-  try {
-    const runRg = async () => {
-        broadEnumerationCalls += 1;
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        return `${firstPath}\n${secondPath}\n`;
-      };
-    const [firstOut, secondOut] = await Promise.all([
-      executeFuzzyFindTool({ query: firstQuery, path: 'scripts/fixtures', head_limit: 5 }, root, { __runRg: runRg }),
-      executeFuzzyFindTool({ query: secondQuery, path: 'scripts/fixtures', head_limit: 5 }, root, { __runRg: runRg }),
-    ]);
-    if (broadEnumerationCalls !== 1) {
-      throw new Error(`parallel scalar find calls must share exactly one broad enumeration, got ${broadEnumerationCalls}`);
-    }
-    if (!String(firstOut).includes(firstPath) || !String(secondOut).includes(secondPath)) {
-      throw new Error(`parallel scalar find calls must retain both exact-name bodies:\n${firstOut}\n${secondOut}`);
-    }
-  } finally {
-    if (previousFindEnumCacheTtl === undefined) delete process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS;
-    else process.env.MIXDOG_FIND_ENUM_CACHE_TTL_MS = previousFindEnumCacheTtl;
+  // A deadline before any fuzzy response returns the bounded native partial.
+  // It never starts a second filesystem walk with different semantics.
+  if (/^Error[\s:[]/.test(String(out).trimStart())
+      || !/no fuzzy match yet/.test(String(out))
+      || !/inventory is still building/.test(String(out))) {
+    throw new Error(`find fuzzy timeout must return one bounded native partial:\n${out}`);
   }
 }
 
@@ -2162,10 +2120,13 @@ try {
     throw new Error(`agent async notify smoke did not start task:\n${notifyStart}`);
   }
   await waitForSmoke(
-    () => ownerNotifications.some((event) => /task_shell_notify_smoke/.test(event.text))
-      && workerQueued.some((event) => /task_shell_notify_smoke/.test(String(event.message?.text || event.message?.content || event.message))),
+    () => workerQueued.some((event) =>
+      /task_shell_notify_smoke/.test(String(event.message?.text || event.message?.content || event.message))),
     'agent child background completion routing',
   );
+  if (ownerNotifications.some((event) => /task_shell_notify_smoke/.test(event.text))) {
+    throw new Error(`agent child shell completion must stay in the worker session: ${JSON.stringify(ownerNotifications)}`);
+  }
   await waitForSmoke(
     () => ownerNotifications.some((event) => /worker completed/.test(event.text)),
     'agent early completion routing',
@@ -2362,8 +2323,8 @@ setInternalToolsProvider({
     if (/(^|\n)# environment/i.test(visible)) {
       throw new Error(`agent BP3 must add no Environment heading: ${visible.slice(0, 1200)}`);
     }
-    if (/(^|\n)- Shell: /i.test(visible)) {
-      throw new Error(`agent BP3 must not add the Lead-only shell preference: ${visible.slice(0, 1200)}`);
+    if ((visible.match(/(^|\n)- Shell: /gi) || []).length !== 1) {
+      throw new Error(`shell-capable agent BP3 must include the shell syntax payload exactly once: ${visible.slice(0, 1200)}`);
     }
     const workerToolNames = (workerSession.tools || []).map((tool) => tool?.name).filter(Boolean);
     if (workerToolNames.includes('load_tool')) {

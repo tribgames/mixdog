@@ -19,6 +19,7 @@ import {
 } from "./utility-dock-state";
 import { DEFAULT_PROBLEMS_PANEL_FILTER, type ProblemsPanelFilter } from "./WorkbenchProblems";
 import {
+  createExtensionsPane,
   createProjectsPane,
   createSchedulesPane,
   createUtilitiesPane,
@@ -349,6 +350,7 @@ export function useAppShellPanels() {
     webhooks: createWebhooksPane(),
     projects: createProjectsPane(),
     workflows: createWorkflowsPane(),
+    extensions: createExtensionsPane(),
   }));
   const markSidebarPanelFailed = useCallback((panel: SidebarPanelKey) => {
     setFailedSidebarPanels((current) => {
@@ -364,6 +366,8 @@ export function useAppShellPanels() {
         ? { ...current, webhooks: createWebhooksPane() }
         : panel === "projects"
           ? { ...current, projects: createProjectsPane() }
+          : panel === "extensions"
+            ? { ...current, extensions: createExtensionsPane() }
           : panel === "utilities"
             ? { ...current, utilities: createUtilitiesPane() }
             : { ...current, workflows: createWorkflowsPane() });

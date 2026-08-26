@@ -29,6 +29,16 @@ export function Group({ title, description, children }: {
 export function ToggleRow({ title, description: _description, checked, disabled, onChange }: {
   title: string; description?: string; checked: boolean; disabled?: boolean; onChange(value: boolean): void;
 }) {
+  const displayTitle = t(title);
+  return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
+    <span className="mixdog-settings__row-title">{displayTitle}</span>
+  </div><div className="settings-row-control"><CompactSwitch label={displayTitle} checked={checked}
+    disabled={disabled} onChange={onChange} /></div></div>;
+}
+
+export function CompactSwitch({ label, checked, disabled, className = '', onChange }: {
+  label: string; checked: boolean; disabled?: boolean; className?: string; onChange(value: boolean): void;
+}) {
   // Optimistic: the switch follows the click immediately and each further click
   // flips the LAST intended value, so a burst is not coalesced against a
   // settings snapshot that has not refreshed yet. The override drops as soon as
@@ -43,15 +53,14 @@ export function ToggleRow({ title, description: _description, checked, disabled,
   // on a disabled control). Writes are serialized and idempotent, so the last
   // click wins.
   const blocked = disabled === true && override === null;
-  const displayTitle = t(title);
-  return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
-    <span className="mixdog-settings__row-title">{displayTitle}</span>
-  </div><div className="settings-row-control"><label className="mixdog-settings__switch"><input type="checkbox" aria-label={displayTitle} checked={value}
+  return <label className={`mixdog-settings__switch compact-switch ${className}`.trim()}>
+    <input type="checkbox" aria-label={label} checked={value}
     disabled={blocked} onChange={(event) => {
       const next = event.currentTarget.checked;
       setOverride(next);
       onChange(next);
-    }} /><span aria-hidden="true" /></label></div></div>;
+    }} /><span aria-hidden="true" />
+  </label>;
 }
 
 export function SelectRow({ title, description: _description, value, disabled, options, onChange }: {

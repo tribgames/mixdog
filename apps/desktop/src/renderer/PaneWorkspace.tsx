@@ -59,6 +59,7 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
     case "session": return selection.id;
     case "file": return selection.rel.split("/").at(-1) || selection.rel;
     case "studio": return "Studio";
+    case "browser": return "Browser";
     case "terminal": return "Terminal";
     case "folder":
       return selection.path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) || selection.path;
@@ -143,7 +144,7 @@ function isConversationSelection(
 function parksConversationBehindSelection(selection: WorkspaceSelection | null): boolean {
   return selection?.kind === "file"
     || selection?.kind === "studio" || selection?.kind === "terminal"
-    || selection?.kind === "folder"
+    || selection?.kind === "folder" || selection?.kind === "browser"
     || selection?.kind === "diff" || selection?.kind === "pull-request";
 }
 

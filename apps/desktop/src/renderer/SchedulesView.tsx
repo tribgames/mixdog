@@ -37,6 +37,7 @@ import {
   type SidebarReferenceKey,
 } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
+import { CompactSwitch } from './settings/capability-controls';
 
 type RecordValue = Record<string, unknown>;
 export type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
@@ -153,7 +154,6 @@ function scheduleMeta(schedule: RecordValue) {
     {scheduleLabel}
     {route && <> · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} /></>}
     {cwdLabel && <> · {cwdLabel}</>}
-    {schedule.enabled === false && <> · {t('paused')}</>}
   </>;
 }
 
@@ -184,7 +184,7 @@ function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
   };
 }
 
-function ScheduleEditor({ draft, editing, busy, models, projects, workflows, error = '', onCancel, onSave }: {
+function ScheduleEditor({ draft, editing, busy, models, projects, workflows, error = '', onCancel, onSave, onToggle }: {
   draft: ScheduleDraft;
   editing: boolean;
   busy: boolean;
@@ -194,6 +194,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
+  onToggle?(enabled: boolean): void;
 }) {
   const [frequency, setFrequency] = useState<FrequencyKind>(draft.frequency);
   const [weekday, setWeekday] = useState(draft.weekday);
@@ -205,6 +206,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
+  const [enabled, setEnabled] = useState(draft.enabled);
   const [formError, setFormError] = useState('');
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
@@ -245,7 +247,14 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
     <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="schedules-dialog-title">
       <header>
         <h2 id="schedules-dialog-title">{editing ? t('Edit scheduled task') : t('Create scheduled task')}</h2>
-        <button type="button" aria-label={t("Close schedule editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        <div className="schedules-dialog-header-actions">
+          <CompactSwitch label={t('Enabled')} checked={enabled} disabled={busy}
+            onChange={(next) => {
+              setEnabled(next);
+              if (editing) onToggle?.(next);
+            }} />
+          <button type="button" aria-label={t("Close schedule editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        </div>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -284,7 +293,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
           ...(workflow ? { workflow } : {}),
           ...(attachments.length ? { attachments } : {}),
           instructions: text('schedule-instructions'),
-          enabled: draft.enabled,
+          enabled,
           ...(editing ? { overwrite: true } : {}),
         });
       }}>
@@ -508,7 +517,8 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
         onCancel={() => {
           setError('');
           setEditor(null);
-        }} onSave={(entry) => void saveSchedule(entry)} />}
+        }} onSave={(entry) => void saveSchedule(entry)}
+        onToggle={(enabled) => void run('setScheduleEnabled', [editor.name, enabled], 'toast')} />}
       {/* No loading flash: the list area stays empty until the first snapshot
           lands, so the empty-state icon never pops in and out on entry. */}
       {loading ? null
@@ -517,28 +527,23 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
           const enabled = schedule.enabled !== false;
           const running = runningNames?.has(name) === true;
           return <div key={name} className="schedules-row" {...scheduleOrder.getReorderProps(name)}>
-            <span className="schedules-row-status" role={running ? 'status' : undefined}
-              aria-label={running ? t("{{name}} is running", { name }) : undefined} aria-hidden={running ? undefined : true}>
-              {running
-                ? <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
-                : <span className={`schedules-row-dot ${enabled ? 'on' : ''}`} />}
-            </span>
+            {running && <span className="schedules-row-status" role="status"
+              aria-label={t("{{name}} is running", { name })}>
+              <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
+            </span>}
             <div className="schedules-row-copy">
               <b>{name}</b>
               <small>{scheduleMeta(schedule)}</small>
             </div>
+            <CompactSwitch label={`${name} · ${t('Enabled')}`} checked={enabled}
+              disabled={busy} onChange={(next) =>
+                void run('setScheduleEnabled', [name, next], 'toast')} />
             <RowOverflowMenu label={`Actions for ${name}`} width={148} items={[
               {
                 id: 'run',
                 label: runningName === name ? 'Running…' : 'Run now',
                 disabled: busy || Boolean(runningName),
                 onSelect: () => void runNow(name),
-              },
-              {
-                id: 'toggle-enabled',
-                label: enabled ? 'Pause' : 'Resume',
-                disabled: busy,
-                onSelect: () => void run('setScheduleEnabled', [name, !enabled], 'toast'),
               },
               {
                 id: 'edit',

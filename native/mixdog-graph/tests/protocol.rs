@@ -60,6 +60,31 @@ fn run(root: &std::path::Path, args: &[&str], stdin: Option<&str>) -> Vec<serde_
 }
 
 #[test]
+fn files_mode_rejects_malformed_reused_jsonl() {
+    let root = fixture();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mixdog-graph"))
+        .arg(&root)
+        .args(["--files", "src/main.ts"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"{not-json}\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("invalid reused JSONL at line 1"),
+        "{output:?}",
+    );
+}
+
+#[test]
 fn manifest_files_walk_and_search_remain_jsonl() {
     let root = fixture();
 

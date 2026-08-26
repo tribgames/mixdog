@@ -1,12 +1,10 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { homedir } from 'os';
-import { dirname, join } from 'path';
+import { basename, dirname, join } from 'path';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
-import {
-    parseMarkdownFrontmatter,
-    readMarkdownDocument,
-} from '../../../shared/markdown-frontmatter.mjs';
+import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
+import { parseSkillDocument } from '../../../shared/skill-document.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 
 function skillsDisabled() {
@@ -14,8 +12,8 @@ function skillsDisabled() {
 }
 
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
-// Project-local:  <cwd>/.mixdog/<kind>
-// Data-local:     <mixdogData>/<kind>   (standalone default: ~/.mixdog/data/<kind>)
+// Skills are machine-global under <mixdogData>/skills. Project-local skill
+// directories are intentionally outside the runtime resolution chain.
 function mixdogHome() {
     return process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
 }
@@ -27,16 +25,8 @@ function mixdogGlobalDir(kind) {
         return join(process.env.MIXDOG_DATA_DIR || join(mixdogHome(), 'data'), kind);
     }
 }
-function mixdogProjectDir(projectDir, kind) {
-    return projectDir ? join(projectDir, '.mixdog', kind) : null;
-}
-/** Ordered asset search dirs for a kind: project-local first, then global. */
-function mixdogAssetDirs(projectDir, kind) {
-    const dirs = [];
-    const local = mixdogProjectDir(projectDir, kind);
-    if (local) dirs.push(local);
-    dirs.push(mixdogGlobalDir(kind));
-    return dirs;
+function mixdogAssetDirs(_projectDir, kind) {
+    return [mixdogGlobalDir(kind)];
 }
 /**
  * Absolute path to the plugin registry file, or null when the data dir is
@@ -70,6 +60,8 @@ function pluginSkillDirs() {
         return [];
     const dirs = [];
     for (const entry of registry.plugins) {
+        if (entry?.enabled === false)
+            continue;
         const root = entry && typeof entry.root === 'string' ? entry.root : null;
         if (!root || !existsSync(root))
             continue;
@@ -85,19 +77,11 @@ function pluginSkillDirs() {
  */
 export function collectSkills(cwd) {
     if (skillsDisabled()) return [];
-    // When cwd is null/missing (e.g. agent maintenance callers that pass
-    // cwd:null on purpose so provider-cache shards don't fork per caller
-    // workspace), skip project-scoped skills entirely — DO NOT fall back
-    // to process.cwd(), which would leak the MCP launch dir into the
-    // shard key and fragment the cache.
-    const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
+    void cwd;
     const skills = [];
-    // mixdog-owned only (never .claude): project-local <cwd>/.mixdog/skills
-    // first, then user-global. When cwd is missing, only the global dir is
-    // searched.
-    const dirs = mixdogAssetDirs(projectDir, 'skills');
-    // Plugin-provided skills load last so project-local and global mixdog
-    // skill dirs keep precedence; `seen` below dedupes by frontmatter name.
+    const dirs = mixdogAssetDirs(null, 'skills');
+    // Plugin-provided skills load last so user-global skills keep precedence;
+    // `seen` below dedupes by frontmatter name.
     dirs.push(...pluginSkillDirs());
     const seen = new Set();
     for (const dir of dirs) {
@@ -106,21 +90,27 @@ export function collectSkills(cwd) {
         try {
             const files = readdirSync(dir, { recursive: true });
             for (const f of files) {
-                if (!String(f).endsWith('.md'))
+                if (basename(String(f)) !== 'SKILL.md')
                     continue;
                 const filePath = join(dir, String(f));
                 const content = readSafe(filePath);
                 if (!content)
                     continue;
-                const fm = parseMarkdownFrontmatter(content);
-                if (!fm.name)
+                let skill;
+                try {
+                    skill = parseSkillDocument(content);
+                } catch {
                     continue;
-                if (seen.has(fm.name))
+                }
+                // Agent Skills requires the manifest name to match its folder.
+                if (basename(dirname(filePath)) !== skill.name)
                     continue;
-                seen.add(fm.name);
+                if (seen.has(skill.name))
+                    continue;
+                seen.add(skill.name);
                 skills.push({
-                    name: fm.name,
-                    description: fm.description || '',
+                    name: skill.name,
+                    description: skill.description,
                     filePath,
                 });
             }
@@ -167,10 +157,10 @@ const _mtimeCache = new Map();
 const _MTIME_TTL_MS = 2000;
 export function collectSkillsCached(cwd) {
     if (skillsDisabled()) return [];
-    const key = cwd ?? '';
-    const projectDir = (typeof cwd === 'string' && cwd.length > 0) ? cwd : null;
+    void cwd;
+    const key = 'global';
     // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
-    const skillsDirs = mixdogAssetDirs(projectDir, 'skills');
+    const skillsDirs = mixdogAssetDirs(null, 'skills');
     skillsDirs.push(...pluginSkillDirs());
     // registry.json itself gates plugin add/remove: removal deletes the
     // plugin's skills dir (so no dir mtime advances), but saveRegistry()
@@ -200,6 +190,11 @@ export function collectSkillsCached(cwd) {
     }
     return skills;
 }
+export function invalidateSkillsCache(cwd) {
+    void cwd;
+    _skillsCache.clear();
+    _mtimeCache.clear();
+}
 /**
  * Load full skill content by name.
  */
@@ -209,7 +204,12 @@ function loadSkillContent(name, cwd) {
     if (!skill)
         return null;
     const content = readSafe(skill.filePath);
-    return content == null ? null : readMarkdownDocument(content).body;
+    if (content == null) return null;
+    try {
+        return parseSkillDocument(content).body;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -226,11 +226,15 @@ export function loadSkillResource(name, cwd) {
     const content = readSafe(skill.filePath);
     if (content == null)
         return null;
-    return {
-        content: readMarkdownDocument(content).body,
-        dir: dirname(skill.filePath),
-        filePath: skill.filePath,
-    };
+    try {
+        return {
+            content: parseSkillDocument(content).body,
+            dir: dirname(skill.filePath),
+            filePath: skill.filePath,
+        };
+    } catch {
+        return null;
+    }
 }
 
 function escapeSkillXmlText(value) {

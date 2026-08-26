@@ -66,7 +66,7 @@
     "test:native-edit-wire": "node scripts/native-edit-wire-test.mjs",
     "test:release-critical": "npm run test:release-assets && npm run smoke:patch && npm run test:providers",
     "test:spec-advisory": "node scripts/advisory-spec-test.mjs && npm run test:spec-advisory --prefix apps/desktop",
-    "test:session-transport": "node --test scripts/session-transport-test.mjs scripts/daemon-bootstrap-test.mjs src/runtime/shared/child-spawn-remote.test.mjs src/standalone/session-runtime-agent-control-client.test.mjs src/standalone/session-runtime-dispatch-cancel.test.mjs src/standalone/session-runtime-provider-cooldown.test.mjs src/standalone/session-runtime-shard-host.test.mjs src/standalone/session-runtime-shard-router.test.mjs",
+    "test:session-transport": "node --test scripts/session-transport-test.mjs scripts/daemon-bootstrap-test.mjs src/runtime/shared/child-spawn-remote.test.mjs src/standalone/session-runtime-agent-control-client.test.mjs src/standalone/session-runtime-dispatch-cancel.test.mjs src/standalone/session-runtime-host-factory.test.mjs src/standalone/session-runtime-inline-host.test.mjs src/standalone/session-runtime-provider-cooldown.test.mjs src/standalone/session-runtime-shard-host.test.mjs src/standalone/session-runtime-shard-router.test.mjs",
     "test:session": "node --test scripts/runtime-turn-contract-test.mjs scripts/session-save-fault-store-test.mjs scripts/turn-review-revert-test.mjs src/runtime/shared/tool-surface.test.mjs",
     "test:media": "node --test src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs src/runtime/media/adapters/codex-image.test.mjs",
     "failures": "node scripts/tool-failures.mjs",
@@ -139,6 +139,7 @@
     "undici": "^8.5.0",
     "wrap-ansi": "^10.0.0",
     "ws": "^8.21.0",
+    "yaml": "^2.9.0",
     "zod": "^3.25.76"
   },
   "overrides": {

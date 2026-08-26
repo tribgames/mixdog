@@ -36,6 +36,7 @@ import {
   type SidebarReferenceKey,
 } from './sidebar-reference-cache';
 import { copyTextToClipboard } from './text-format';
+import { CompactSwitch } from './settings/capability-controls';
 
 type RecordValue = Record<string, unknown>;
 export type WebhooksApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
@@ -103,7 +104,6 @@ function webhookMeta(webhook: RecordValue) {
     {parser} · {delivery}
     {route && <> · <ModelRouteLabel model={route.model} effort={route.effort} fast={route.fast} /></>}
     {webhook.secretSet !== true && <> · {t('secret missing')}</>}
-    {webhook.enabled === false && <> · {t('paused')}</>}
   </>;
 }
 
@@ -146,7 +146,7 @@ function ConnectionRow({ label, note, value, placeholder, copied, onCopy }: {
   </div>;
 }
 
-function WebhookEditor({ draft, editing, busy, models, projects, workflows, publicBase, secret, error = '', onCancel, onSave }: {
+function WebhookEditor({ draft, editing, busy, models, projects, workflows, publicBase, secret, error = '', onCancel, onSave, onToggle }: {
   draft: WebhookDraft;
   editing: boolean;
   busy: boolean;
@@ -158,12 +158,14 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   error?: string;
   onCancel(): void;
   onSave(entry: RecordValue): void;
+  onToggle?(enabled: boolean): void;
 }) {
   const [parser, setParser] = useState(draft.parser);
   const [cwd, setCwd] = useState(draft.cwd);
   const [workflow, setWorkflow] = useState(draft.workflow);
   const [delivery, setDelivery] = useState(draft.delivery);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
+  const [enabled, setEnabled] = useState(draft.enabled);
   // EDIT never reveals the stored secret; rotation mints a replacement that
   // only persists on Save (user decision).
   const [rotated, setRotated] = useState('');
@@ -226,7 +228,14 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
     <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="webhooks-dialog-title">
       <header>
         <h2 id="webhooks-dialog-title">{editing ? t('Edit webhook') : t('Create webhook')}</h2>
-        <button type="button" aria-label={t("Close webhook editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        <div className="schedules-dialog-header-actions">
+          <CompactSwitch label={t('Enabled')} checked={enabled} disabled={busy}
+            onChange={(next) => {
+              setEnabled(next);
+              if (editing) onToggle?.(next);
+            }} />
+          <button type="button" aria-label={t("Close webhook editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        </div>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -256,7 +265,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
           ...(attachments.length ? { attachments } : {}),
           ...(effectiveSecret ? { secret: effectiveSecret } : {}),
           instructions: text('webhook-instructions'),
-          enabled: draft.enabled,
+          enabled,
           ...(editing ? { overwrite: true } : {}),
         });
       }}>
@@ -488,7 +497,9 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
         onCancel={() => {
           setError('');
           setEditor(null);
-        }} onSave={(entry) => void saveWebhook(entry)} />}
+        }}
+        onSave={(entry) => void saveWebhook(entry)}
+        onToggle={(enabled) => void run('setWebhookEnabled', [editor.name, enabled], 'toast')} />}
       {/* No loading flash: the list area stays empty until the first snapshot
           lands (Schedules-page grammar). */}
       {loading ? null
@@ -497,23 +508,18 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
           const enabled = webhook.enabled !== false;
           const running = runningNames?.has(name) === true;
           return <div key={name} className="schedules-row">
-            <span className="schedules-row-status" role={running ? 'status' : undefined}
-              aria-label={running ? t("{{name}} is running", { name }) : undefined} aria-hidden={running ? undefined : true}>
-              {running
-                ? <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
-                : <span className={`schedules-row-dot ${enabled ? 'on' : ''}`} />}
-            </span>
+            {running && <span className="schedules-row-status" role="status"
+              aria-label={t("{{name}} is running", { name })}>
+              <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
+            </span>}
             <div className="schedules-row-copy">
               <b>{name}</b>
               <small>{webhookMeta(webhook)}</small>
             </div>
+            <CompactSwitch label={`${name} · ${t('Enabled')}`} checked={enabled}
+              disabled={busy} onChange={(next) =>
+                void run('setWebhookEnabled', [name, next], 'toast')} />
             <RowOverflowMenu label={`Actions for ${name}`} items={[
-              {
-                id: 'toggle-enabled',
-                label: enabled ? 'Pause' : 'Resume',
-                disabled: busy,
-                onSelect: () => void run('setWebhookEnabled', [name, !enabled], 'toast'),
-              },
               {
                 id: 'edit',
                 label: 'Edit',

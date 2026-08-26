@@ -1,19 +1,22 @@
 // Windows VERSIONINFO for the helper executable.
 //
-// Task Manager collapses processes into one application row by the image's
-// version-resource ProductName combined with the parent/child relationship. A
-// Rust binary ships NO version resource at all, so these helpers advertised an
-// empty ProductName and listed themselves as separate top-level rows even
-// though their parent is a Mixdog session shard. Stamping the same ProductName
-// the desktop app uses (electron-builder.yml `productName: Mixdog`) lets them
-// join the existing group instead of appearing as unrelated strays.
+// A Rust binary ships NO version resource at all, so this helper was nameless
+// in Explorer's properties dialog and in every process list. Stamping the same
+// ProductName the desktop app uses (electron-builder.yml `productName: Mixdog`)
+// gives it a branded identity wherever Windows reads file metadata.
+//
+// What this does NOT do is merge the process into the app's Task Manager row.
+// That grouping keys off AppUserModelID, which a version resource cannot carry
+// — an earlier version of this comment assumed ProductName plus the
+// parent/child chain was enough, and the helper kept listing itself at the top
+// level. main.rs claims the desktop AUMID at startup to actually fix it.
 #[cfg(windows)]
 fn main() {
     let mut resource = winresource::WindowsResource::new();
     resource
         .set("ProductName", "Mixdog")
         .set("CompanyName", "Mixdog")
-        .set("FileDescription", "Mixdog Code Graph & Search")
+        .set("FileDescription", "Mixdog")
         .set("OriginalFilename", "mixdog-graph.exe")
         .set("LegalCopyright", "Copyright (C) Mixdog")
         .set_icon("../../apps/desktop/build/mixdog.ico");

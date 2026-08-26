@@ -84,6 +84,8 @@ export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'completeOAuthProviderLogin',
   'cancelOAuthProviderLogin',
   'loginOpenCodeGoUsage',
+  'getMcpServerConfig',
+  'saveMcpServer',
   // Media files reach a phone through the media HTTP route, which needs no
   // filesystem paths on the client. Keep the resolver host-side.
   'resolveMediaFile',

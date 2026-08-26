@@ -139,7 +139,7 @@ export function createSessionService({
   // destroying anything, this sweep is the ONLY reclaim path besides shutdown.
   const IDLE_EVICT_MS = Number(idleEvictMs) > 0
     ? Number(idleEvictMs)
-    : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 2 * 60_000);
+    : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 5 * 60_000);
   const EVICT_SWEEP_MS = Number(evictSweepMs) > 0 ? Number(evictSweepMs) : 30_000;
   let evictTimer = null;
 

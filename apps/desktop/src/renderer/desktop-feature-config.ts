@@ -10,6 +10,7 @@ export type DesktopFeatureId =
   | "utilities"
   | "projects"
   | "workflows"
+  | "extensions"
   | "schedules"
   | "webhooks"
   | "usage"
@@ -24,6 +25,7 @@ export const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
   utilities: true,
   projects: true,
   workflows: true,
+  extensions: true,
   schedules: true,
   webhooks: false,
   usage: true,
@@ -39,6 +41,7 @@ export type DesktopSidebarDestination =
   | "utilities"
   | "projects"
   | "workflows"
+  | "extensions"
   | "schedules"
   | "webhooks";
 

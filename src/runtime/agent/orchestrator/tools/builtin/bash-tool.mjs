@@ -401,6 +401,24 @@ const ARTIFACT_RETRY_ATTEMPTS = 10;
 const PENDING_ARTIFACT_PATHS = new Set();
 let artifactExitHookInstalled = false;
 
+export function buildShellSpawnEnv(cwd, baseEnv = process.env) {
+    const spawnEnv = {
+        ...baseEnv,
+        LANG: 'C.UTF-8',
+        LC_ALL: 'C.UTF-8',
+        MIXDOG_SESSION_CWD: String(cwd || ''),
+    };
+    if (process.platform === 'win32') {
+        if (spawnEnv.PYTHONUTF8 === undefined) spawnEnv.PYTHONUTF8 = '1';
+        if (spawnEnv.PYTHONIOENCODING === undefined) spawnEnv.PYTHONIOENCODING = 'utf-8';
+    }
+    scrubProviderSecrets(spawnEnv);
+    scrubLoaderVars(spawnEnv);
+    scrubRuntimeRootVars(spawnEnv);
+    applyShellEgressPolicy(spawnEnv);
+    return spawnEnv;
+}
+
 function removeTransportFile(file) {
     try {
         unlinkSync(file);
@@ -661,16 +679,7 @@ export async function executeBashTool(args, workDir, options = {}) {
 
     try {
         const { shell, shellArg, shellArgs, shellType } = resolvedSpec;
-        const spawnEnv = { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' };
-        if (process.platform === 'win32') {
-            if (spawnEnv.PYTHONUTF8 === undefined) spawnEnv.PYTHONUTF8 = '1';
-            if (spawnEnv.PYTHONIOENCODING === undefined) spawnEnv.PYTHONIOENCODING = 'utf-8';
-        }
-        // R5/R11: same scrub as background/persistent spawn sites (env-scrub.mjs).
-        scrubProviderSecrets(spawnEnv);
-        scrubLoaderVars(spawnEnv);
-        scrubRuntimeRootVars(spawnEnv);
-        applyShellEgressPolicy(spawnEnv);
+        const spawnEnv = buildShellSpawnEnv(bashWorkDir);
         let wrappedCommand;
         let execScript = null;
         let _teePlan = null;

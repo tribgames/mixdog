@@ -15,6 +15,10 @@ unicode-normalization = "0.1"
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
 
+# Solely for the Task Manager identity claimed in main.rs.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = ["Win32_UI_Shell"] }
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -54,9 +54,10 @@ html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] {
   padding: calc(8px * var(--mx-device-scale, 2.5));
   padding-top: max(calc(8px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top));
 }
-/* Trailing cluster (user: ⋮ 말고 숫자·하단·우측 3버튼, 똑같은 사이즈):
-   [home][pill][N][하단][우측] — three equal 40dp boxes with 24dp glyphs;
-   New task stays inside the grid overview. */
+/* Trailing cluster: [home][pill][+][하단][우측] — equal boxes with shared
+   glyph ink. The + IS New task now and the grid overview is retired (user:
+   숫자 대신 +로 바꾸고 목록 전환은 제거 — 세션은 왼쪽 서랍, 옆 탭은
+   스와이프). */
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .workspace-tab-new {
   display: none;
 }
@@ -120,29 +121,24 @@ html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
   width: calc(18px * var(--mx-device-scale, 2.5));
   height: calc(18px * var(--mx-device-scale, 2.5));
 }
-/* Count joins the two panel toggles at ONE control size (user: 똑같은
-   사이즈): a 40dp box like its neighbors, with the Chrome contour drawn as
-   a centered 24dp square so the three glyphs read identical. */
+/* The old count/overview slot is the phone's New task + (user: 처음 들어가면
+   new task에서 출발 안 하니 거기 +로 바꾸자): the Chrome count contour is
+   gone; the box joins the panel toggles' grid centering and the add glyph
+   takes their shared 22dp ink. */
 html[data-mixdog-mobile-tabs] .workspace-tab-count {
   order: 3;
-  position: relative;
-  width: calc(40px * var(--mx-device-scale, 2.5));
-  height: calc(40px * var(--mx-device-scale, 2.5));
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
+  color: var(--mx-text-soft);
+  background: transparent;
   box-shadow: none;
-  font-size: calc(11px * var(--mx-device-scale, 2.5));
+  cursor: pointer;
 }
-html[data-mixdog-mobile-tabs] .workspace-tab-count::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  /* Chrome's measured count box: ~22dp with a 2dp contour. */
-  width: calc(22px * var(--mx-device-scale, 2.5));
-  height: calc(22px * var(--mx-device-scale, 2.5));
-  transform: translate(-50%, -50%);
-  border-radius: calc(5px * var(--mx-device-scale, 2.5));
-  box-shadow: inset 0 0 0 calc(2px * var(--mx-device-scale, 2.5)) currentColor;
+html[data-mixdog-mobile-tabs] .workspace-tab-count .codicon {
+  font-size: calc(22px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .workspace-tabs-trailing {
   order: 6;
@@ -477,7 +473,7 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
   min-width: 0;
   display: flex;
   zoom: var(--mx-device-scale, 2.5);
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: calc(env(safe-area-inset-top, 0px) / var(--mx-device-scale, 2.5));
   background: var(--mx-window-band);
   border-radius: 0 var(--mx-radius-sheet) var(--mx-radius-sheet) 0;
   box-shadow: 24px 0 24px var(--mx-alpha-dark-24);
@@ -544,7 +540,7 @@ html[data-mixdog-mobile-tabs] .sidebar-collapsed .sidebar-drawer-frame > .sideba
   height: 100%;
   flex: 1 1 auto;
   margin: 0;
-  padding: 16px 8px max(8px, env(safe-area-inset-bottom, 0px));
+  padding: 16px 8px var(--mx-mobile-sheet-safe-bottom);
   border: 0;
   border-radius: 0 var(--mx-radius-sheet) var(--mx-radius-sheet) 0;
   background: transparent;
@@ -638,7 +634,7 @@ html[data-mixdog-mobile-tabs]
   min-height: 0;
   transform: scale(var(--mx-device-scale, 2.5));
   transform-origin: top left;
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: calc(env(safe-area-inset-top, 0px) / var(--mx-device-scale, 2.5));
   padding-bottom: var(--mx-mobile-sheet-safe-bottom);
 }
 html[data-mixdog-mobile-tabs]
@@ -669,6 +665,40 @@ html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"]::after {
    corners (user: 둥근 테두리 뒤에 긴 선) — both drawers hide it; the sheet
    width is fixed by ratio on the phone anyway. */
 html[data-mixdog-mobile-tabs] .workbench-side-panel-resize { display: none; }
+/* Desktop's 14px right-edge drop strip (a drag target for restoring a
+   dragged-out view) is invisible on the phone yet still catches edge taps
+   and flashes its hover wash (user: 오른쪽 끝을 누르면 회색이 되는 버그).
+   Phones do not rearrange views by edge drag, so the strip goes away. */
+html[data-mixdog-mobile-tabs] .workbench-side-empty-drop { display: none; }
+/* Mobile scrollbars are overlay feedback, not layout — the transcript already
+   hides its bar. The drawer/sheet lists still painted the 8px desktop bar on
+   their right edge, where it darkens on touch and even drags (user: 오른쪽
+   끝을 누르면 클릭되고 회색으로 변함). Same treatment, list-wide. */
+html[data-mixdog-mobile-tabs] :is(
+  .utility-dock-pane,
+  .agent-activity-page,
+  .dock-scm-scroll,
+  .dock-scm-history,
+  .dock-files,
+  .dock-task-list,
+  .workbench-side-section-body,
+  .session-sidebar-scroll
+) {
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+}
+html[data-mixdog-mobile-tabs] :is(
+  .utility-dock-pane,
+  .agent-activity-page,
+  .dock-scm-scroll,
+  .dock-scm-history,
+  .dock-files,
+  .dock-task-list,
+  .workbench-side-section-body,
+  .session-sidebar-scroll
+)::-webkit-scrollbar {
+  display: none;
+}
 html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock {
   position: fixed;
   z-index: 150;
@@ -683,7 +713,7 @@ html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock {
   max-width: none;
   flex-basis: auto !important;
   zoom: var(--mx-device-scale, 2.5);
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: calc(env(safe-area-inset-top, 0px) / var(--mx-device-scale, 2.5));
   padding-bottom: var(--mx-mobile-sheet-safe-bottom);
   border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
   box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
@@ -836,10 +866,17 @@ html[data-mixdog-mobile-tabs] {
   --mx-mobile-floor-main: calc(8px * var(--mx-device-scale, 2.5));
   /* Android's retractable navigation bar can reduce the live inset to zero
      while the edge-to-edge viewport still reaches behind system UI. Drawers
-     keep the maximum inset so their last row and pinned actions remain usable. */
+     keep the maximum inset so their last row and pinned actions remain
+     usable, with an 8dp breathing floor — NOT a navigation-bar reserve: a
+     24dp guess read as a button-height dead strip on phones whose viewport
+     already stops above the bar (user: 버튼 크기만큼 아래 여백이 더 잡힘).
+     The env() values arrive in page px and are divided back into the dp
+     space every zoomed/scaled sheet pads in (identity on device-width
+     boots, where the scale is 1). */
   --mx-mobile-sheet-safe-bottom: max(
-    env(safe-area-inset-bottom, 0px),
-    env(safe-area-max-inset-bottom, 0px)
+    calc(env(safe-area-inset-bottom, 0px) / var(--mx-device-scale, 2.5)),
+    calc(env(safe-area-max-inset-bottom, 0px) / var(--mx-device-scale, 2.5)),
+    8px
   );
 }
 
@@ -855,6 +892,30 @@ html[data-mixdog-mobile-tabs] :is(.conversation, .studio-shell) {
 }
 html[data-mixdog-mobile-tabs] .composer-region {
   padding-bottom: max(var(--mx-mobile-floor-main), env(safe-area-inset-bottom, 0px));
+}
+/* Agents dock at native dp: the desktop 10px card read too SHORT for a
+   finger row, and the page's 16px tail stacked onto the sheet safe-bottom
+   into a wide strip (user: 버튼이 상하로 작고 아래 여백이 넓다 — PC 같은
+   상하 여백감으로). Cards gain the vertical padding a touch row needs; the
+   page tail drops to the pane's own 8dp rhythm so the sheet closes on the
+   same spacing it opens with. */
+html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page .schedules-row {
+  padding-block: 14px;
+}
+html[data-mixdog-mobile-tabs] .utility-dock .agent-session-heading {
+  min-height: var(--mx-touch-row);
+}
+html[data-mixdog-mobile-tabs] .utility-dock .agent-activity-page {
+  padding-bottom: 8px;
+}
+/* Source Control's ONE action at native dp: the desktop 28px commit row is a
+   fingernail band on a phone (user: 커밋 버튼 하나가 문제 — PC 같은 상하
+   크기로). The row and its full-width button take the 44dp primary tier. */
+html[data-mixdog-mobile-tabs] .utility-dock .dock-scm-commit-split {
+  height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .utility-dock .dock-scm-commit-split > button {
+  min-height: 100%;
 }
 /* Mobile scrollbars are overlay feedback, not layout. Reserving the desktop
    gutter narrowed every transcript row and left a permanent empty strip. */

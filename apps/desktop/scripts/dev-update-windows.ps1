@@ -66,7 +66,6 @@ $daemonDiscovery = Join-Path $runtimeRoot 'daemon.json'
 $mixdogDataDir = if ($env:MIXDOG_DATA_DIR) { $env:MIXDOG_DATA_DIR } else { Join-Path $env:USERPROFILE '.mixdog\data' }
 $tokenManifest = Join-Path $repoRoot 'native\mixdog-token\Cargo.toml'
 $tokenBuild = Join-Path $repoRoot 'native\mixdog-token\target\release\mixdog_token.dll'
-$graphAddonBuild = Join-Path $repoRoot 'native\mixdog-graph-addon\target\release\mixdog_graph_addon.dll'
 $fastDirectHelper = Join-Path $PSScriptRoot 'dev-fast-direct.mjs'
 $fastRendererWatchHelper = Join-Path $PSScriptRoot 'dev-renderer-watch.mjs'
 $fastRendererWatchState = Join-Path $desktopDir '.cache\dev-renderer-watch.json'
@@ -232,24 +231,6 @@ function Install-LocalTokenAddon {
   Get-ChildItem -LiteralPath $tokenDir -Filter 'mixdog-token-*' |
     Where-Object Name -ne $fileName |
     Remove-Item -Force -ErrorAction SilentlyContinue
-}
-
-function Install-LocalGraphAddon {
-  # The in-process search engine. Hosting it inside the app removes the
-  # standalone `mixdog-graph --serve-search` process, and with it the separate
-  # Task Manager row Windows gives every distinctly named executable.
-  #
-  # Unlike the token addon this one lands in the installed tree rather than the
-  # data directory: `resources\native-tools` is where the packaged app already
-  # points MIXDOG_SEARCH_SERVER_ADDON, and a copy that lives inside the install
-  # cannot outlive the deployment that produced it.
-  if (-not (Test-Path -LiteralPath $graphAddonBuild -PathType Leaf)) {
-    throw "Local graph addon is missing: $graphAddonBuild"
-  }
-  $nativeToolsDir = Join-Path $InstallDir 'resources\native-tools'
-  New-Item -ItemType Directory -Path $nativeToolsDir -Force | Out-Null
-  Copy-Item -LiteralPath $graphAddonBuild `
-    -Destination (Join-Path $nativeToolsDir 'mixdog-graph.node') -Force
 }
 
 function Get-AppProcess {
@@ -445,8 +426,6 @@ function Invoke-Build {
       # NSIS compression stages.
       & node (Join-Path $repoRoot 'scripts\build-token-addon.mjs') --build --release
       if ($LASTEXITCODE -ne 0) { throw "mixdog-token addon build exited with $LASTEXITCODE" }
-      & node (Join-Path $repoRoot 'scripts\build-graph-addon.mjs') --build --release
-      if ($LASTEXITCODE -ne 0) { throw "mixdog-graph addon build exited with $LASTEXITCODE" }
       Invoke-FastDirectChangedOutputs $Plan
       & npm.cmd run brand:win
       if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
@@ -1091,10 +1070,6 @@ if ($ViaUpdater) {
       Write-Step 'atomically replacing changed installed artifacts'
       Install-IncrementalBuild $fastPlan
     }
-    # After the swap in both branches: a full deploy replaces the whole
-    # resources tree, so an addon installed before it would be thrown away.
-    Write-Step 'installing the in-process Mixdog search engine addon'
-    Install-LocalGraphAddon
     Write-FastDirectReceipt -Status 'completed'
   } catch {
     Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message

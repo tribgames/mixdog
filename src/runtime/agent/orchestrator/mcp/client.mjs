@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { writeFile } from 'fs/promises';
-import { join } from 'path';
+import { basename, join, resolve } from 'path';
+import { pathToFileURL } from 'url';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
@@ -93,7 +94,7 @@ export function scrubMcpConnectionMessage(value, cfg = {}) {
             }
         } catch { /* invalid URL is reported without echoing it */ }
     }
-    const headers = cfg?.headers && typeof cfg.headers === 'object' ? expandEnvVars(cfg.headers) : {};
+    const headers = resolveMcpHttpHeaders(cfg);
     for (const [name, headerValue] of Object.entries(headers)) {
         if (/authorization|cookie|token|secret|api[-_]?key|signature/i.test(name)) {
             text = replaceSecret(text, headerValue);
@@ -158,12 +159,15 @@ async function loadMcpSdk() {
         import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
         import('@modelcontextprotocol/sdk/client/sse.js'),
         import('@modelcontextprotocol/sdk/client/websocket.js'),
-    ]).then(([clientMod, stdioMod, httpMod, sseMod, wsMod]) => ({
+        import('@modelcontextprotocol/sdk/types.js'),
+    ]).then(([clientMod, stdioMod, httpMod, sseMod, wsMod, typesMod]) => ({
         Client: clientMod.Client,
         StdioClientTransport: stdioMod.StdioClientTransport,
         StreamableHTTPClientTransport: httpMod.StreamableHTTPClientTransport,
         SSEClientTransport: sseMod.SSEClientTransport,
         WebSocketClientTransport: wsMod.WebSocketClientTransport,
+        ListRootsRequestSchema: typesMod.ListRootsRequestSchema,
+        ToolListChangedNotificationSchema: typesMod.ToolListChangedNotificationSchema,
     }));
     return mcpSdkPromise;
 }
@@ -190,6 +194,46 @@ function expandEnvVars(value, env = process.env) {
         return out;
     }
     return value;
+}
+
+const DEFAULT_STDIO_ENV_KEYS = process.platform === 'win32'
+    ? ['APPDATA', 'HOMEDRIVE', 'HOMEPATH', 'LOCALAPPDATA', 'PATH',
+        'PROCESSOR_ARCHITECTURE', 'SYSTEMDRIVE', 'SYSTEMROOT', 'TEMP',
+        'TMP', 'USERDOMAIN', 'USERNAME', 'USERPROFILE']
+    : ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
+
+export function resolveMcpStdioEnvironment(cfg = {}, env = process.env) {
+    const explicit = cfg.env && typeof cfg.env === 'object' && !Array.isArray(cfg.env)
+        ? expandEnvVars(cfg.env, env)
+        : {};
+    if (!Array.isArray(cfg.env_vars)) return { ...env, ...explicit };
+    const inherited = {};
+    const keys = new Set([...DEFAULT_STDIO_ENV_KEYS, ...cfg.env_vars.map((value) => String(value).trim()).filter(Boolean)]);
+    for (const requested of keys) {
+        const actual = process.platform === 'win32'
+            ? Object.keys(env || {}).find((key) => key.toLowerCase() === requested.toLowerCase())
+            : requested;
+        if (actual && env?.[actual] != null) inherited[actual] = String(env[actual]);
+    }
+    return { ...inherited, ...explicit };
+}
+
+export function resolveMcpHttpHeaders(cfg = {}, env = process.env) {
+    const headers = {};
+    const envHeaders = cfg.env_http_headers && typeof cfg.env_http_headers === 'object'
+        && !Array.isArray(cfg.env_http_headers) ? cfg.env_http_headers : {};
+    for (const [header, envName] of Object.entries(envHeaders)) {
+        const value = env?.[String(envName)];
+        if (value != null && String(value)) headers[String(header)] = String(value);
+    }
+    const bearerEnv = String(cfg.bearer_token_env_var || '').trim();
+    if (bearerEnv && env?.[bearerEnv] != null && String(env[bearerEnv])) {
+        headers.Authorization = `Bearer ${String(env[bearerEnv])}`;
+    }
+    const explicit = cfg.headers && typeof cfg.headers === 'object' && !Array.isArray(cfg.headers)
+        ? expandEnvVars(cfg.headers, env)
+        : {};
+    return { ...headers, ...explicit };
 }
 /**
  * Resolve the canonical transport kind for an MCP server config entry.
@@ -260,6 +304,54 @@ export function getMcpTools(scopeId = DEFAULT_MCP_SCOPE_ID) {
     }
     return tools;
 }
+
+function mcpFeatureTools(serverName, capabilities, protocolTools) {
+    const tools = [];
+    const used = new Set(protocolTools.map((tool) => tool.name));
+    const add = (leaf, description, properties, required, operation) => {
+        let name = `mcp__${serverName}__${leaf}`;
+        while (used.has(name)) name += '_';
+        used.add(name);
+        tools.push({
+            name,
+            description,
+            inputSchema: {
+                type: 'object',
+                properties,
+                ...(required?.length ? { required } : {}),
+                additionalProperties: false,
+            },
+            mcpOperation: operation,
+        });
+    };
+    if (capabilities?.resources) {
+        add('mixdog_list_resources', 'List resources exposed by this MCP server.',
+            { cursor: { type: 'string', description: 'Pagination cursor from a previous result.' } },
+            [], 'list-resources');
+        add('mixdog_list_resource_templates', 'List resource URI templates exposed by this MCP server.',
+            { cursor: { type: 'string', description: 'Pagination cursor from a previous result.' } },
+            [], 'list-resource-templates');
+        add('mixdog_read_resource', 'Read one resource exposed by this MCP server.',
+            { uri: { type: 'string', description: 'Resource URI returned by the server.' } },
+            ['uri'], 'read-resource');
+    }
+    if (capabilities?.prompts) {
+        add('mixdog_list_prompts', 'List reusable prompts exposed by this MCP server.',
+            { cursor: { type: 'string', description: 'Pagination cursor from a previous result.' } },
+            [], 'list-prompts');
+        add('mixdog_get_prompt', 'Render one reusable prompt exposed by this MCP server.',
+            {
+                name: { type: 'string', description: 'Prompt name returned by the server.' },
+                arguments: {
+                    type: 'object',
+                    description: 'Prompt argument values.',
+                    additionalProperties: { type: 'string' },
+                },
+            },
+            ['name'], 'get-prompt');
+    }
+    return tools;
+}
 export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
     return scopedServerEntries(scopeId).map(([, server]) => ({
         name: server.name,
@@ -269,6 +361,11 @@ export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
             name: tool.name,
             description: tool.description || '',
         })),
+        capabilities: {
+            tools: Boolean(server.capabilities?.tools),
+            prompts: Boolean(server.capabilities?.prompts),
+            resources: Boolean(server.capabilities?.resources),
+        },
         transport: (() => {
             try {
                 return resolveMcpTransportKind(server.cfg);
@@ -277,6 +374,36 @@ export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
             }
         })(),
     }));
+}
+
+function requireMcpServer(name, options = {}) {
+    const serverName = String(name || '').trim();
+    const server = scopedServer(normalizeMcpScopeId(options), serverName);
+    if (!server) throw new Error(`MCP server "${serverName}" not connected`);
+    return server;
+}
+
+export async function listMcpResources(name, request = {}, options = {}) {
+    return requireMcpServer(name, options).client.listResources(request || {});
+}
+
+export async function listMcpResourceTemplates(name, request = {}, options = {}) {
+    return requireMcpServer(name, options).client.listResourceTemplates(request || {});
+}
+
+export async function readMcpResource(name, uri, options = {}) {
+    return requireMcpServer(name, options).client.readResource({ uri: String(uri || '') });
+}
+
+export async function listMcpPrompts(name, request = {}, options = {}) {
+    return requireMcpServer(name, options).client.listPrompts(request || {});
+}
+
+export async function getMcpPrompt(name, promptName, args = {}, options = {}) {
+    return requireMcpServer(name, options).client.getPrompt({
+        name: String(promptName || ''),
+        arguments: args && typeof args === 'object' && !Array.isArray(args) ? args : {},
+    });
 }
 function positiveInt(value, fallback) {
     const parsed = Math.floor(Number(value));
@@ -376,6 +503,10 @@ export async function executeMcpTool(name, args, options = {}) {
     const server = scopedServer(scopeId, serverName);
     if (!server)
         throw new Error(`MCP server "${serverName}" not connected`);
+    const definition = (server.tools || []).find((tool) => tool.name === name);
+    const dispatch = (target) => definition?.mcpOperation
+        ? _callMcpFeatureWithTimeout(target, definition.mcpOperation, args, callSignal)
+        : _callToolWithTimeout(target, toolName, args, callSignal);
     const gate = callAdmissionFor(server);
     const callSignal = options?.signal || null;
     return gate.run(options?.ownerKey || currentToolExecutionOwner(), async () => {
@@ -389,7 +520,7 @@ export async function executeMcpTool(name, args, options = {}) {
         }
         let result;
         try {
-            result = await _callToolWithTimeout(server, toolName, args, callSignal);
+            result = await dispatch(server);
         } catch (firstErr) {
             const firstMsg = firstErr instanceof Error ? firstErr.message : String(firstErr);
             if (isMcpCallAbortError(firstErr) || callSignal?.aborted) {
@@ -430,7 +561,7 @@ export async function executeMcpTool(name, args, options = {}) {
                 );
             }
             try {
-                result = await _callToolWithTimeout(retryServer, toolName, args, callSignal);
+                result = await dispatch(retryServer);
             } catch (retryErr) {
                 if (isMcpCallAbortError(retryErr) || callSignal?.aborted) throw retryErr;
                 const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
@@ -445,6 +576,53 @@ export async function executeMcpTool(name, args, options = {}) {
     }, {
         signal: callSignal,
     });
+}
+
+async function _callMcpFeatureWithTimeout(server, operation, args, signal = null) {
+    const requestOptions = signal ? { signal } : undefined;
+    const cursor = typeof args?.cursor === 'string' && args.cursor ? { cursor: args.cursor } : {};
+    let request;
+    if (operation === 'list-resources') {
+        request = server.client.listResources(cursor, requestOptions);
+    } else if (operation === 'list-resource-templates') {
+        request = server.client.listResourceTemplates(cursor, requestOptions);
+    } else if (operation === 'read-resource') {
+        request = server.client.readResource({ uri: String(args?.uri || '') }, requestOptions);
+    } else if (operation === 'list-prompts') {
+        request = server.client.listPrompts(cursor, requestOptions);
+    } else if (operation === 'get-prompt') {
+        request = server.client.getPrompt({
+            name: String(args?.name || ''),
+            arguments: args?.arguments && typeof args.arguments === 'object' && !Array.isArray(args.arguments)
+                ? args.arguments
+                : {},
+        }, requestOptions);
+    } else {
+        throw new Error(`Unsupported MCP feature operation: ${operation}`);
+    }
+    let timer;
+    const timeoutMs = resolveMcpCallTimeoutMs(server?.cfg);
+    const abortMessage = `MCP feature call aborted (server="${server?.name}", operation="${operation}")`;
+    const bounded = timeoutMs > 0
+        ? Promise.race([request, new Promise((_, reject) => {
+            timer = setTimeout(() => {
+                try { _closeServer(server).catch(() => {}); } catch { /* ignore */ }
+                const error = new Error(`MCP feature call timed out after ${timeoutMs}ms (server="${server.name}", operation="${operation}")`);
+                error.code = 'EMCPTOOLTIMEOUT';
+                reject(error);
+            }, timeoutMs);
+            if (timer.unref) timer.unref();
+        })])
+        : request;
+    try {
+        const result = await raceMcpAbort(bounded, signal, abortMessage);
+        return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            isError: false,
+        };
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
 }
 
 // Preserve MCP failure metadata across the object→string boundary. The
@@ -746,13 +924,30 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
         StreamableHTTPClientTransport,
         SSEClientTransport,
         WebSocketClientTransport,
+        ListRootsRequestSchema,
+        ToolListChangedNotificationSchema,
     } = await loadMcpSdk();
     if (genAtStart !== currentConnectAbortGeneration(scopeId)) {
         // disconnectAll() ran while the SDK was loading: nothing spawned yet —
         // abort before creating a transport/child at all.
         throw new Error(`MCP server "${name}" connect aborted by shutdown`);
     }
-    const client = new Client({ name: `mixdog-agent/${name}`, version: '1.0.0' });
+    const projectRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
+    const client = new Client(
+        { name: `mixdog-agent/${name}`, version: '1.0.0' },
+        { capabilities: projectRoot ? { roots: { listChanged: false } } : {} },
+    );
+    if (projectRoot && ListRootsRequestSchema) {
+        client.setRequestHandler(ListRootsRequestSchema, async () => {
+            const rootPath = resolve(projectRoot);
+            return {
+                roots: [{
+                    uri: pathToFileURL(rootPath).href,
+                    name: basename(rootPath) || rootPath,
+                }],
+            };
+        });
+    }
     let transport;
     const kind = resolveMcpTransportKind(cfg);
     // When the autoDetect port comes from a discovery advert (not the legacy
@@ -804,7 +999,7 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
     }
     else if (kind === 'http') {
         const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'http');
-        const headers = expandEnvVars(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {});
+        const headers = resolveMcpHttpHeaders(cfg);
         const opts = (headers && Object.keys(headers).length > 0)
             ? { requestInit: { headers } }
             : undefined;
@@ -815,7 +1010,7 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
     }
     else if (kind === 'sse') {
         const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'sse');
-        const headers = expandEnvVars(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {});
+        const headers = resolveMcpHttpHeaders(cfg);
         const opts = (headers && Object.keys(headers).length > 0)
             ? { requestInit: { headers } }
             : undefined;
@@ -835,7 +1030,7 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
             command: expandEnvVars(String(cfg.command ?? '')),
             args: Array.isArray(cfg.args) ? expandEnvVars(cfg.args) : cfg.args,
             cwd: cfg.cwd,
-            env: { ...process.env, ...expandEnvVars(cfg.env && typeof cfg.env === 'object' ? cfg.env : {}) },
+            env: resolveMcpStdioEnvironment(cfg),
             stderr: cfg.stderr ?? 'pipe',
         });
         transport.stderr?.on?.('data', (chunk) => {
@@ -862,11 +1057,13 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
                 ? client.getInstructions()
                 : undefined;
             const instr = typeof instructionsRaw === 'string' ? instructionsRaw.trim() : '';
-            const result = await client.listTools();
-            return { instructions: instr, toolsResult: result };
+            const capabilities = client.getServerCapabilities?.() || {};
+            const result = capabilities.tools ? await client.listTools() : { tools: [] };
+            return { instructions: instr, toolsResult: result, capabilities };
         })();
         let instructions;
         let toolsResult;
+        let capabilities;
         try {
             if (startupTimeoutMs > 0) {
                 const guard = new Promise((_, rej) => {
@@ -877,9 +1074,9 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
                         rej(err);
                     }, startupTimeoutMs);
                 });
-                ({ instructions, toolsResult } = await Promise.race([handshake, guard]));
+                ({ instructions, toolsResult, capabilities } = await Promise.race([handshake, guard]));
             } else {
-                ({ instructions, toolsResult } = await handshake);
+                ({ instructions, toolsResult, capabilities } = await handshake);
             }
         } catch (err) {
             // A discovery-advert port that fails to connect is a corpse (recycled
@@ -910,12 +1107,16 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
             catch { /* ignore */ }
             throw new Error(`MCP server "${name}" connect aborted by shutdown`);
         }
-        const tools = toolsResult.tools.map((t) => ({
+        const protocolTools = toolsResult.tools.map((t) => ({
             name: `mcp__${name}__${t.name}`,
             description: t.description || '',
             inputSchema: (t.inputSchema || { type: 'object', properties: {} }),
             ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
         }));
+        const tools = [
+            ...protocolTools,
+            ...mcpFeatureTools(name, capabilities, protocolTools),
+        ];
         const toolNames = tools.map(t => t.name);
         const registryKey = mcpServerRegistryKey(scopeId, name);
         servers.set(registryKey, {
@@ -927,8 +1128,31 @@ async function connectServer(name, cfg, scopeId = DEFAULT_MCP_SCOPE_ID, genAtSta
             tools,
             cfg,
             instructions,
+            capabilities,
             generation: genAtStart,
         });
+        if (capabilities?.tools?.listChanged && ToolListChangedNotificationSchema) {
+            client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+                const live = servers.get(registryKey);
+                if (!live || live.client !== client) return;
+                try {
+                    const refreshed = await client.listTools();
+                    const refreshedProtocolTools = (refreshed.tools || []).map((tool) => ({
+                        name: `mcp__${name}__${tool.name}`,
+                        description: tool.description || '',
+                        inputSchema: tool.inputSchema || { type: 'object', properties: {} },
+                        ...(tool.annotations && typeof tool.annotations === 'object' ? { annotations: tool.annotations } : {}),
+                    }));
+                    live.tools = [
+                        ...refreshedProtocolTools,
+                        ...mcpFeatureTools(name, capabilities, refreshedProtocolTools),
+                    ];
+                    _invalidateMcpToolFieldMemo();
+                } catch (error) {
+                    mcpLog(`[mcp-client] Failed to refresh tools for "${name}": ${scrubMcpConnectionMessage(error?.message || error, cfg)}\n`);
+                }
+            });
+        }
         _invalidateMcpToolFieldMemo();
         mcpLog(`[mcp] connected: ${tools.length} tools — ${toolNames.join(', ')}\n`);
     }
@@ -948,18 +1172,21 @@ export function _registerMcpServerForTest(scopeId, name, rawTools = [], options 
             : `mcp__${name}__${String(tool?.name || '')}`,
         inputSchema: tool?.inputSchema || { type: 'object', properties: {} },
     }));
+    const capabilities = options.capabilities || {};
     const server = {
         scopeId: normalizedScopeId,
         registryKey,
         name,
-        tools,
+        tools: [...tools, ...mcpFeatureTools(name, capabilities, tools)],
         cfg: options.cfg || {},
         instructions: options.instructions || '',
+        capabilities,
         transport: null,
         client: {
             callTool: typeof options.callTool === 'function'
                 ? options.callTool
                 : async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+            ...(options.client && typeof options.client === 'object' ? options.client : {}),
             // Injectable so a test can stall teardown (and therefore the shared
             // reconnect) without a transport or a child process.
             close: typeof options.close === 'function' ? options.close : async () => {},

@@ -228,20 +228,11 @@
   text-align: left;
   cursor: pointer;
 }
-/* Icon, stacked copy, then the trailing chevron. Copy stays top-aligned while
-   the icon and chevron are vertically centered against the full card height. */
-.session-sidebar-panels .utilities-row { gap: 10px; }
+/* Utility rows stay typographic: stacked copy followed by the trailing
+   chevron, without a decorative leading glyph competing with the title. */
+.session-sidebar-panels .utilities-row { gap: 8px; }
 .session-sidebar-panels .utilities-row-copy { gap: 4px; }
 .session-sidebar-panels .utilities-row .schedules-row-copy b { line-height: 18px; }
-.session-sidebar-panels .utilities-row-icon {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  align-self: center;
-  display: grid;
-  place-items: center;
-  color: var(--mx-text-soft);
-}
 .session-sidebar-panels .utilities-row .schedules-row-copy small {
   display: -webkit-box;
   line-height: 16px;

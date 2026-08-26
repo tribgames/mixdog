@@ -15,6 +15,7 @@ import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../
 import { isVisibleStreamProgress } from '../runtime/shared/stream-progress.mjs';
 import { runAbortable, settleWithin, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 import { interruptTaskWaitForSession } from '../runtime/agent/orchestrator/session/task-wait-control.mjs';
+import { runWithCwdOverride } from '../runtime/shared/user-cwd.mjs';
 
 export function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
@@ -78,6 +79,7 @@ export function createSessionTurnApi(deps) {
       };
     },
     async ask(prompt, options = {}) {
+      return runWithCwdOverride(getCurrentCwd(), async () => {
       // Remote-attach: this surface is a viewer on a session that another
       // live process owns. Never run a turn here — persist the prompt into
       // the shared pending spool; the owner's injection poller submits it as
@@ -134,17 +136,15 @@ export function createSessionTurnApi(deps) {
       startTurnSnapshot(getSession()?.id || getReservedSessionId?.());
       let routeWaitMs = 0;
       setActiveTurnCount(getActiveTurnCount() + 1);
-      try { scheduleSearchRuntimeWarmup?.(0); } catch { /* search warmup is best-effort */ }
       let mcpWaitMs = 0;
       let providerStartedAt = 0;
       let turnTimingStatus = 'error';
       let turnTimingEmitted = false;
-      // Heavy runtime warmup is one-shot and demand-driven: idle desktop panes
-      // never spawn shell/token/search helpers or a code-graph worker. More
-      // importantly, do not start them until the provider has produced visible
-      // text/reasoning/tool progress: transport headers and response-created
-      // acknowledgements arrive earlier and would make PowerShell + graph
-      // workers compete with the actual first-token critical path.
+      // First-turn fallback for hosts that disabled or have not completed the
+      // post-connect idle warmup. Do not start it until the provider has
+      // produced visible text/reasoning/tool progress: transport headers and
+      // response-created acknowledgements arrive earlier and would make
+      // PowerShell + graph workers compete with the first-token critical path.
       const heavyRuntimeWarmupPending = typeof getCodeGraphFirstTurnPrewarmDone === 'function'
         && !getCodeGraphFirstTurnPrewarmDone();
       if (heavyRuntimeWarmupPending) {
@@ -215,7 +215,7 @@ export function createSessionTurnApi(deps) {
         // can update the caller instead of whichever runtime registered the
         // shared internal-tool executor most recently.
         Object.defineProperty(session0, '_applyResolvedCwdForCaller', {
-          value: applyResolvedCwd,
+          value: (nextCwd) => applyResolvedCwd(nextCwd, { persistProjectSelection: true }),
           enumerable: false,
           configurable: true,
           writable: true,
@@ -358,7 +358,13 @@ export function createSessionTurnApi(deps) {
               // after session locking, history shaping and pre-send compact.
               // The old timestamp above mgr.askSession mislabeled all of that
               // Mixdog work as provider latency.
-              if (!providerStartedAt) providerStartedAt = performance.now();
+              if (!providerStartedAt) {
+                providerStartedAt = performance.now();
+                // Warm the two small native helpers only after provider.send
+                // owns the request. Their startup overlaps network/model time
+                // without competing with route, snapshot, or compact work.
+                try { scheduleSearchRuntimeWarmup?.(0); } catch { /* best-effort */ }
+              }
               return options.onProviderSendStarted?.(...args);
             },
             onToolPhaseStarted: options.onToolPhaseStarted,
@@ -448,6 +454,7 @@ export function createSessionTurnApi(deps) {
           scheduleProviderModelWarmup();
         }
       }
+      });
     },
     async clear(options = {}) {
       const session = getSession();
@@ -626,7 +633,7 @@ export function createSessionTurnApi(deps) {
       return { ...result, status: this.toolsStatus() };
     },
     setCwd(path) {
-      applyResolvedCwd(resolveCwdPath(path));
+      applyResolvedCwd(resolveCwdPath(path), { persistProjectSelection: true });
       return getCurrentCwd();
     },
   };

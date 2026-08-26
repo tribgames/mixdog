@@ -86,50 +86,40 @@ test("dispose cancels a pending release", async () => {
   assert.equal(calls.length, 0);
 });
 
-test("purge drops renderer caches and shrinks the V8 heap", async () => {
-  const commands = [];
+test("purge drops renderer caches", async () => {
   const scripts = [];
-  let attached = false;
   await purgeRendererMemory({
     isDestroyed: () => false,
     executeJavaScript: async (code) => { scripts.push(code); return true; },
-    debugger: {
-      isAttached: () => attached,
-      attach: () => { attached = true; },
-      detach: () => { attached = false; },
-      sendCommand: async (method) => { commands.push(method); },
-    },
   });
+  assert.equal(scripts.length, 1);
   assert.ok(scripts[0].includes("mixdog:idle-reclaim"));
-  assert.deepEqual(commands, ["Memory.forciblyPurgeJavaScriptMemory"]);
-  assert.equal(attached, false, "the debugger session must not be left attached");
 });
 
-test("purge stays silent when DevTools owns the debugger", async () => {
-  const scripts = [];
+// Regression guard. Forcing a V8 purge through the debugger (CDP
+// Memory.forciblyPurgeJavaScriptMemory) killed the renderer with
+// ACCESS_VIOLATION every single time it fired, reloading the window under the
+// user. The reclaim must never reach for the debugger again, so a target whose
+// debugger traps on contact has to come through untouched.
+test("purge never touches the debugger", async () => {
+  const trap = () => { throw new Error("the reclaim must not use the debugger"); };
   await purgeRendererMemory({
     isDestroyed: () => false,
-    executeJavaScript: async (code) => { scripts.push(code); return true; },
-    debugger: {
-      isAttached: () => false,
-      attach: () => { throw new Error("Another debugger is already attached"); },
-      detach: () => { throw new Error("not attached"); },
-      sendCommand: async () => { throw new Error("unreachable"); },
-    },
+    executeJavaScript: async () => true,
+    debugger: { isAttached: trap, attach: trap, detach: trap, sendCommand: trap },
   });
-  // The cache drop still ran; only the heap-shrink leg was unavailable.
-  assert.equal(scripts.length, 1);
+});
+
+test("purge survives a document that went away mid-navigation", async () => {
+  await purgeRendererMemory({
+    isDestroyed: () => false,
+    executeJavaScript: async () => { throw new Error("document is gone"); },
+  });
 });
 
 test("purge skips a destroyed window", async () => {
   await purgeRendererMemory({
     isDestroyed: () => true,
     executeJavaScript: async () => { throw new Error("unreachable"); },
-    debugger: {
-      isAttached: () => { throw new Error("unreachable"); },
-      attach: () => { throw new Error("unreachable"); },
-      detach: () => {},
-      sendCommand: async () => { throw new Error("unreachable"); },
-    },
   });
 });

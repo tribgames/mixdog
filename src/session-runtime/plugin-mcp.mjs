@@ -1,5 +1,17 @@
 // Plugin/project MCP server discovery + normalization, and skill-file counting.
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  fsyncSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
@@ -52,39 +64,101 @@ export function readProjectMcpServers(cwd) {
   return out;
 }
 
-// Persist an enable/disable flag for a project-local `.mcp.json` server, in
-// place, preserving the file's shape. Accepts both the standard
-// `{ mcpServers: {...} }` wrapper and a bare name->cfg map. Writes pretty JSON
-// (2-space indent + trailing newline) so the file stays valid + diff-friendly.
-// Throws if the file is missing/unparseable or the server isn't defined there.
-export function setProjectMcpServerEnabled(cwd, name, enabled) {
+const MCP_TRANSPORT_FIELDS = new Set([
+  'type',
+  'transport',
+  'command',
+  'args',
+  'env',
+  'cwd',
+  'url',
+  'headers',
+  'bearer_token_env_var',
+  'env_http_headers',
+  'env_vars',
+  'autoDetect',
+]);
+
+export function mergeMcpServerConfig(existing, next) {
+  const merged = isPlainObject(existing) ? { ...existing } : {};
+  for (const field of MCP_TRANSPORT_FIELDS) delete merged[field];
+  return { ...merged, ...next };
+}
+
+function readProjectMcpDocument(cwd, allowMissing = false) {
   const path = join(cwd || '.', '.mcp.json');
-  const key = clean(name);
-  if (!key) throw new Error('MCP server name is required');
+  if (!existsSync(path)) {
+    if (allowMissing) return { path, raw: { mcpServers: {} }, usesWrapper: true };
+    throw new Error(`MCP config file not found: ${path}`);
+  }
   let raw;
   try {
     raw = JSON.parse(readFileSync(path, 'utf8'));
   } catch (error) {
-    throw new Error(`cannot update ${path}: ${error?.message || String(error)}`);
+    throw new Error(`cannot read ${path}: ${error?.message || String(error)}`);
   }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (!isPlainObject(raw)) throw new Error(`unexpected .mcp.json shape at ${path}`);
+  if (Object.prototype.hasOwnProperty.call(raw, 'mcpServers') && !isPlainObject(raw.mcpServers)) {
     throw new Error(`unexpected .mcp.json shape at ${path}`);
   }
-  const usesWrapper = raw.mcpServers && typeof raw.mcpServers === 'object' && !Array.isArray(raw.mcpServers);
+  const usesWrapper = isPlainObject(raw.mcpServers);
   const map = usesWrapper ? raw.mcpServers : raw;
+  if (!isPlainObject(map)) throw new Error(`unexpected .mcp.json shape at ${path}`);
+  return { path, raw, usesWrapper };
+}
+
+function writeProjectMcpDocument(path, raw) {
+  let mode = 0o644;
+  try { mode = statSync(path).mode; } catch { /* new file */ }
+  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}`;
+  let fd = null;
+  try {
+    fd = openSync(tempPath, 'w', mode);
+    writeFileSync(fd, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = null;
+    chmodSync(tempPath, mode);
+    renameSync(tempPath, path);
+  } catch (error) {
+    if (fd !== null) {
+      try { closeSync(fd); } catch { /* best effort */ }
+    }
+    try { unlinkSync(tempPath); } catch { /* best effort */ }
+    throw error;
+  }
+}
+
+export function readProjectMcpServerConfig(cwd, name) {
+  const { raw, usesWrapper } = readProjectMcpDocument(cwd);
+  const map = usesWrapper ? raw.mcpServers : raw;
+  const key = String(name || '').trim();
   const entryKey = Object.prototype.hasOwnProperty.call(map, key)
     ? key
-    : Object.keys(map).reverse().find((candidate) => clean(candidate) === key);
-  if (!map || typeof map !== 'object' || Array.isArray(map) || !entryKey) {
-    throw new Error(`MCP server not defined in ${path}: ${key}`);
+    : Object.keys(map).find((candidate) => String(candidate || '').trim() === key);
+  return entryKey && isPlainObject(map[entryKey]) ? { name: entryKey, config: { ...map[entryKey] } } : null;
+}
+
+export function saveProjectMcpServer(cwd, { originalName = '', name, config }) {
+  const { path, raw, usesWrapper } = readProjectMcpDocument(cwd, !originalName);
+  const map = usesWrapper ? raw.mcpServers : raw;
+  const target = String(name || '').trim();
+  const original = String(originalName || '').trim();
+  if (!target) throw new Error('MCP server name is required');
+  const entryKey = original
+    ? (Object.prototype.hasOwnProperty.call(map, original)
+      ? original
+      : Object.keys(map).find((candidate) => String(candidate || '').trim() === original))
+    : null;
+  if (original && !entryKey) throw new Error(`MCP server not defined in ${path}: ${original}`);
+  if (target !== entryKey && Object.prototype.hasOwnProperty.call(map, target)) {
+    throw new Error(`MCP server already exists in ${path}: ${target}`);
   }
-  const entry = map[entryKey];
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-    throw new Error(`MCP server is not an object in ${path}: ${key}`);
-  }
-  map[entryKey] = { ...entry, enabled: enabled !== false };
-  writeFileSync(path, `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
-  return raw;
+  const existing = entryKey ? map[entryKey] : {};
+  if (entryKey && entryKey !== target) delete map[entryKey];
+  map[target] = mergeMcpServerConfig(existing, config);
+  writeProjectMcpDocument(path, raw);
+  return { name: target, source: 'project', path, config: { ...map[target] } };
 }
 
 function isPlainObject(value) {

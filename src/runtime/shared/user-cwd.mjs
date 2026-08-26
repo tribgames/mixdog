@@ -6,15 +6,13 @@
  */
 
 /**
- * user-cwd.mjs — shared helper to resolve the user's working directory
- * from the persisted user-cwd.txt sentinel file, with an optional
- * session-cwd override (process.env.MIXDOG_SESSION_CWD) that takes
- * precedence when set.
+ * user-cwd.mjs — shared helper to resolve the user's working directory.
+ * Inline runtimes use AsyncLocalStorage; an inherited
+ * MIXDOG_SESSION_CWD remains only a boot/isolated-process fallback.
  *
  * Single-source-of-truth model:
- *   - captureOriginalUserCwd() reads MIXDOG_SESSION_CWD first (if set
- *     to a valid directory), otherwise user-cwd.txt fresh on every
- *     call. No in-memory freeze.
+ *   - captureOriginalUserCwd() reads the async session scope first, then
+ *     MIXDOG_SESSION_CWD/user-cwd.txt fresh on every call.
  *   - rawUserCwd() reads ONLY user-cwd.txt (no env consult) — exposed
  *     for the cwd-tool auto-init path so the env-var fallback cannot
  *     become self-referential.
@@ -31,6 +29,12 @@ import { homedir } from 'os'
 import { resolvePluginData, mixdogRoot } from './plugin-paths.mjs'
 
 const _cwdOverride = new AsyncLocalStorage()
+
+function _activeCwdOverride() {
+  const store = _cwdOverride.getStore()
+  if (typeof store === 'string') return store
+  return store && typeof store.cwd === 'string' ? store.cwd : null
+}
 
 function _dataFile(name) {
   return join(resolvePluginData(), name)
@@ -75,10 +79,9 @@ function _normalizePlatformCwd(p) {
 
 /**
  * Resolve the session cwd from EXPLICIT signals only:
- *   1. process.env.MIXDOG_SESSION_CWD — session-level override set via
- *      the `cwd` MCP tool. Honoured only when non-empty AND the resolved
- *      directory actually exists.
- *   2. user-cwd.txt — single source of truth maintained by Mixdog
+ *   1. AsyncLocalStorage — current inline-session scope.
+ *   2. process.env.MIXDOG_SESSION_CWD — boot/isolated-process override.
+ *   3. user-cwd.txt — persisted fallback maintained by Mixdog
  *      (rewritten at every session start).
  * Returns null when neither is available.
  *
@@ -89,6 +92,8 @@ function _normalizePlatformCwd(p) {
  * project_id resolution; use pwd() for relative-path resolution.
  */
 export function explicitSessionCwd() {
+  const scoped = _activeCwdOverride()
+  if (scoped) return scoped
   const sessionRaw = process.env.MIXDOG_SESSION_CWD
   if (typeof sessionRaw === 'string' && sessionRaw.length > 0) {
     const normalized = _normalizePlatformCwd(sessionRaw)
@@ -208,8 +213,22 @@ export function readLastSessionCwd(keyPid) {
  * Run fn inside an async context where pwd() returns cwd.
  * All descendant async calls within fn see cwd as their working directory.
  */
-function runWithCwdOverride(cwd, fn) {
-  return _cwdOverride.run(cwd, fn)
+export function runWithCwdOverride(cwd, fn) {
+  const normalized = _normalizePlatformCwd(cwd)
+  return _cwdOverride.run({ cwd: normalized || String(cwd || '') }, fn)
+}
+
+/**
+ * Retarget the current async session after an in-turn `cwd set`.
+ * Other concurrent sessions hold different AsyncLocalStorage records.
+ */
+export function updateCurrentCwdOverride(cwd) {
+  const store = _cwdOverride.getStore()
+  if (!store || typeof store !== 'object') return false
+  const normalized = _normalizePlatformCwd(cwd)
+  if (!normalized) return false
+  store.cwd = normalized
+  return true
 }
 
 /**
@@ -217,5 +236,5 @@ function runWithCwdOverride(cwd, fn) {
  *   override set by runWithCwdOverride (innermost wins) ?? original user cwd.
  */
 export function pwd() {
-  return _cwdOverride.getStore() ?? captureOriginalUserCwd()
+  return _activeCwdOverride() ?? captureOriginalUserCwd()
 }

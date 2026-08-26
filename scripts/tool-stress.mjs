@@ -17,7 +17,6 @@ import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.
 import { normalizeToolEnvelope } from '../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { warmNativeSpawnServer } from '../src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs';
 import { warmNativeSearchServer } from '../src/runtime/agent/orchestrator/tools/builtin/native-search-client.mjs';
-import { prewarmFindEnumeration } from '../src/runtime/agent/orchestrator/tools/builtin/list-tool.mjs';
 
 if (!process.argv.includes('--unsafe-live')) {
   console.error('Refusing high-impact tool stress without --unsafe-live; run `node scripts/tool-search-bench.mjs` for safe exploration diagnostics.');
@@ -66,7 +65,6 @@ try {
   await Promise.all([
     warmNativeSpawnServer(),
     warmNativeSearchServer(),
-    prewarmFindEnumeration(root),
   ]);
   prewarmMs = Date.now() - prewarmStarted;
   // ── Phase A+C: concurrent multi-session waves (search/read/graph/shell +

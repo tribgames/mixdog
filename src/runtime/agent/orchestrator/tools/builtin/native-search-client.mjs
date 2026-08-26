@@ -3,26 +3,20 @@
 // and is the only local-search backend. Unsupported requests and server
 // failures are explicit errors at the caller.
 //
-// The engine is reached through native-search-transport: the in-process
-// `mixdog-graph.node` addon when the install has one, otherwise the
-// `mixdog-graph --serve-search` child process. Everything below this import is
-// written against the shared JSONL protocol and never learns which is
-// attached; "server exited" therefore covers an addon shutdown just as it
-// covered a child process exit.
+// The engine is reached through one crash-isolated
+// `mixdog-graph --serve-search` child process.
 //
 // MIXDOG_SEARCH_SERVER=0 disables; MIXDOG_SEARCH_SERVER_BIN overrides the
-// executable and MIXDOG_SEARCH_SERVER_ADDON the addon (0 forces the child).
+// executable.
 import { existsSync } from 'node:fs';
 import {
   bindChildLifecycle,
   createNativeSearchTransport,
-  resolveNativeSearchAddon,
 } from './native-search-transport.mjs';
 import { reportRuntimeWorkerUnhealthy } from '../../../../shared/session-runtime-health.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary } from '../graph-binary-fetcher.mjs';
-import { fuzzyRank, prepareFuzzyItems } from './fuzzy-match.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
 // Default request budget. Deliberately BELOW the read-only I/O watchdog in
@@ -245,9 +239,6 @@ function _ensureServer() {
   ) return null;
   let transport;
   try {
-    // Binary resolution is NOT a gate: the addon needs no executable, so an
-    // install that ships one must serve searches before the release binary has
-    // ever been fetched.
     transport = createNativeSearchTransport({
       binaryPath: _resolveBinary(),
       cwd: process.cwd(),
@@ -411,10 +402,7 @@ export async function warmNativeSearchServer(timeoutMs = 5_000) {
   if (!_warmPromise) {
     const warm = (async () => {
       try {
-        // With the addon present there is no executable to spawn, so the
-        // release download is skipped rather than fetching a binary this
-        // install would never use.
-        if (!resolveNativeSearchAddon() && !_resolveBinary()) {
+        if (!_resolveBinary()) {
           const mod = await import('../code-graph/graph-binary.mjs');
           let candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
           if (!candidate) candidate = await ensureGraphBinary(getPluginData());
@@ -741,18 +729,8 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
     throw codedError('NATIVE_SEARCH_ERROR', String(response.error));
   }
   if (!Array.isArray(response?.matches)) throw unavailableError();
-  // Parity with the JS scorer's noise floor: the native matcher scores any
-  // subsequence, so a query with no real hit returns scattered junk paths
-  // (hash-named artifacts and the like). Re-rank the returned window through
-  // fuzzyRank, which keeps contiguous/basename hits unconditionally and
-  // drops sub-floor subsequence-only matches instead of surfacing noise.
-  const query = String(args?.query || '');
-  const filtered = query
-    ? fuzzyRank(query, prepareFuzzyItems(response.matches.map(String)))
-      .map((entry) => entry.item.path)
-    : response.matches.map(String);
   return {
-    matches: filtered,
+    matches: response.matches.map(String),
     hasMore: response.hasMore === true,
     totalMatches: Math.max(0, Number(response.totalMatches) || 0),
     totalSeen: Math.max(0, Number(response.totalSeen) || 0),

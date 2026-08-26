@@ -612,7 +612,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
         "--session-sidebar-max-width": `${MAX_SIDEBAR_WIDTH}px`,
         maxWidth: open ? MAX_SIDEBAR_WIDTH : 0,
         /* Full-responsive shell: the open rail yields between its preferred
-           width and the 232px floor before the workbench ever scrolls. */
+           width and the 252px floor before the workbench ever scrolls. */
         flexShrink: open ? 1 : 0,
       } as React.CSSProperties}
     >

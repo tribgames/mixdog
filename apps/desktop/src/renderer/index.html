@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#000000" />
+    <!-- Matches --mx-window-band and the Electron shell's DESKTOP_BACKGROUND_COLOR:
+         pure #000000 made Android paint the system navigation-bar zone a DIFFERENT
+         black under the app's grey band (user: 프레임 아래 검은 띠). -->
+    <meta name="theme-color" content="#151518" />
     <meta name="application-name" content="Mixdog" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

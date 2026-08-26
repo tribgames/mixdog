@@ -216,13 +216,23 @@ async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signa
       }
       const out = [];
       const buf = Buffer.concat(chunks).toString('utf8');
+      let lineNumber = 0;
       for (const line of buf.split('\n')) {
+        lineNumber += 1;
         const trimmed = line.trim();
         if (!trimmed) continue;
         try {
           const rec = JSON.parse(trimmed);
-          if (rec && typeof rec.rel === 'string') out.push(rec);
-        } catch { /* skip malformed line */ }
+          if (!rec || typeof rec.rel !== 'string') {
+            throw new Error('record is missing string rel');
+          }
+          out.push(rec);
+        } catch (error) {
+          reject(new Error(
+            `[code-graph] mixdog-graph emitted invalid JSONL at line ${lineNumber}: ${error?.message || error}`,
+          ));
+          return;
+        }
       }
       resolve(out);
     });

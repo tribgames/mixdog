@@ -164,7 +164,22 @@ enum EntrySlot {
     Failed(FailedEntry),
 }
 
+// Task Manager groups its Processes rows by AppUserModelID, so a helper with no
+// identity of its own lists itself beside the app that spawned it rather than
+// inside it. Claim the desktop app's AUMID (electron-builder.yml `appId`); see
+// mixdog-graph/src/main.rs for the full account. Cosmetic and best-effort.
+#[cfg(windows)]
+fn adopt_desktop_app_identity() {
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+    let app_id: Vec<u16> = "io.mixdog.desktop\0".encode_utf16().collect();
+    let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+}
+
+#[cfg(not(windows))]
+fn adopt_desktop_app_identity() {}
+
 fn main() {
+    adopt_desktop_app_identity();
     if let Err(err) = run() {
         eprintln!("mixdog-patch: {err}");
         std::process::exit(1);

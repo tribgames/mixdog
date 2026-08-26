@@ -22,8 +22,14 @@ export type CapabilityApi = Partial<Pick<DesktopApi,
 export interface CapabilitySettingsProps {
   api: CapabilityApi;
   category: SettingsCategory;
+  refreshNonce?: number;
   onCompose?: (text: string) => void;
   onOpenCategory?: (category: SettingsCategory) => void;
+  /** Extensions rail: the panel HEADER owns the create action, so the add
+   *  form opens from outside the list instead of sitting permanently inside
+   *  it. Hosts that never pass these keep the list-only rendering. */
+  createOpen?: boolean;
+  onCreateOpenChange?: (open: boolean) => void;
 }
 
 export interface PanelContext {
@@ -47,6 +53,9 @@ export interface PanelContext {
   installDesktopUpdate(): Promise<void>;
   compose?: (text: string) => void;
   openCategory?: (category: SettingsCategory) => void;
+  /** Create-form disclosure driven by the host's header action. */
+  createOpen?: boolean;
+  closeCreate?(): void;
 }
 
 export interface SettingsConfirmation {

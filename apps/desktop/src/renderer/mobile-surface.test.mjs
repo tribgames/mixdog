@@ -20,6 +20,30 @@ const mobileRuntimeSource = readFileSync(
   new URL("./mobile-web-runtime.css", import.meta.url),
   "utf8",
 );
+const editorSource = readFileSync(
+  new URL("./desktop/26-editor.css", import.meta.url),
+  "utf8",
+);
+
+test("the narrow-band dock sheet never re-frames the panel-nested dock", () => {
+  // The right panel already IS the phone/narrow sheet; its nested dock must
+  // stay in normal flow. An unqualified `.utility-dock { position: fixed }`
+  // in the ≤940px band turned that nested dock into a SECOND fixed sheet —
+  // titlebar-offset top plus 100% height pushed its last rows 35px past the
+  // panel frame (user: 프레임 안에 들어오는 구조인데 요소만 넘친다).
+  assert.match(
+    editorSource,
+    /\.desktop-body > \.utility-dock\s*\{[^}]*position:\s*fixed;/su,
+  );
+  assert.doesNotMatch(
+    editorSource,
+    /\n\s{2}\.utility-dock\s*\{[^}]*position:\s*fixed;/su,
+  );
+  assert.doesNotMatch(
+    editorSource,
+    /\n\s{2}\.utility-dock(?:\.closing)?\s*\{[^}]*animation:\s*utility-dock-sheet-in/su,
+  );
+});
 
 test("iOS boot preserves device-width and marks the phone before CSS paint", () => {
   const dom = new JSDOM(
@@ -160,7 +184,11 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
   );
   assert.match(
     mobileChromeSource,
-    /--mx-mobile-sheet-safe-bottom:\s*max\(\s*env\(safe-area-inset-bottom,\s*0px\),\s*env\(safe-area-max-inset-bottom,\s*0px\)\s*\);/su,
+    /--mx-mobile-sheet-safe-bottom:\s*max\(\s*calc\(env\(safe-area-inset-bottom,\s*0px\) \/ var\(--mx-device-scale, 2\.5\)\),\s*calc\(env\(safe-area-max-inset-bottom,\s*0px\) \/ var\(--mx-device-scale, 2\.5\)\),\s*8px\s*\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.sidebar-drawer-frame > \.sidebar\.session-sidebar[\s\S]*?\{[^}]*padding:\s*16px 8px var\(--mx-mobile-sheet-safe-bottom\);/u,
   );
   assert.match(
     mobileChromeSource,
