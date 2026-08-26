@@ -22,8 +22,6 @@ process.env.MIXDOG_CHANNEL_ACTIVE_CALLS = '8';
 
 const { createSessionTransport } = await import('../src/standalone/session-transport.mjs');
 const { createSessionService } = await import('../src/standalone/session-service.mjs');
-const { shouldRecycleSessionRuntimeWorker } =
-  await import('../src/standalone/session-runtime-host.mjs');
 const { SESSION_READ_ACTIONS } = await import('../src/standalone/session-protocol.mjs');
 const { createChannelTransport } = await import('../src/standalone/channel-transport.mjs');
 const {
@@ -219,27 +217,6 @@ test('wire-safe runtime state crosses the daemon without a transcript clone', as
   } finally {
     await service.stop('memory retention test');
   }
-});
-
-test('session worker memory recycling requires a fully idle cooldown edge', () => {
-  const ready = {
-    rssBytes: 512 * 1024 * 1024,
-    thresholdBytes: 384 * 1024 * 1024,
-    daemonBusy: 0,
-    pending: 0,
-    activeResources: 0,
-    now: 20 * 60_000,
-    lastRecycleAt: 0,
-    cooldownMs: 15 * 60_000,
-  };
-  assert.equal(shouldRecycleSessionRuntimeWorker(ready), true);
-  assert.equal(shouldRecycleSessionRuntimeWorker({ ...ready, daemonBusy: 1 }), false);
-  assert.equal(shouldRecycleSessionRuntimeWorker({ ...ready, pending: 1 }), false);
-  assert.equal(shouldRecycleSessionRuntimeWorker({ ...ready, activeResources: 1 }), false);
-  assert.equal(shouldRecycleSessionRuntimeWorker({
-    ...ready,
-    now: 10 * 60_000,
-  }), false);
 });
 
 test('a 2k-item tool-card update sends only the changed transcript suffix', () => {
@@ -438,6 +415,81 @@ test('an unknown session subscription is rejected before a session runtime is cr
     );
     assert.equal(creations, 0);
     assert.equal(service.size, 0);
+  } finally {
+    await service.stop('test end');
+  }
+});
+
+test('an agent session publishes through the ordinary subscribed session-state lane', async () => {
+  let publishAgentSession = null;
+  let creations = 0;
+  const frames = [];
+  const service = createSessionService({
+    createSessionRuntime: async () => {
+      creations += 1;
+      throw new Error('a live agent projection must not create another runtime');
+    },
+    readStoredSession: async (sessionId) => ({
+      sessionId,
+      items: [{ id: 'brief', kind: 'user', text: 'worker brief' }],
+      queued: [],
+    }),
+    subscribeExternalSessionStates(listener) {
+      publishAgentSession = listener;
+      return () => { publishAgentSession = null; };
+    },
+    onFrame(frame, targets) {
+      frames.push({ frame, targets: [...(targets || [])] });
+    },
+  });
+  const client = { clientToken: 'desktop-pane' };
+  try {
+    const subscribed = await service.handleCall('session.subscribe', {
+      sessionId: 'agent_child',
+    }, client);
+    assert.equal(subscribed.subscribed, true);
+    assert.equal(subscribed.revision, 0);
+    assert.deepEqual(subscribed.full.items.map((item) => item.id), ['brief']);
+
+    publishAgentSession({
+      sessionId: 'agent_child',
+      snapshot: {
+        sessionId: 'agent_child',
+        items: [
+          { id: 'brief', kind: 'user', text: 'worker brief' },
+          { id: 'tool-1', kind: 'tool', text: 'read source' },
+        ],
+        queued: [],
+        busy: true,
+      },
+    });
+
+    assert.equal(frames.length, 1);
+    assert.equal(frames[0].frame.type, 'session-state');
+    assert.equal(frames[0].frame.sessionId, 'agent_child');
+    assert.deepEqual(frames[0].frame.full.items.map((item) => item.id), ['brief', 'tool-1']);
+    assert.deepEqual(frames[0].targets, ['desktop-pane']);
+    assert.equal(service.status.pendingViewerSessions, 0);
+    assert.equal(creations, 0);
+
+    const reread = await service.handleCall('session.read', {
+      sessionId: 'agent_child',
+    }, client);
+    assert.deepEqual(reread.full.items.map((item) => item.id), ['brief', 'tool-1']);
+
+    await service.handleCall('session.unsubscribe', {
+      sessionId: 'agent_child',
+    }, client);
+    const frameCount = frames.length;
+    publishAgentSession({
+      sessionId: 'agent_child',
+      snapshot: {
+        sessionId: 'agent_child',
+        items: [{ id: 'ignored', kind: 'assistant', text: 'not observed' }],
+        queued: [],
+      },
+    });
+    assert.equal(frames.length, frameCount);
   } finally {
     await service.stop('test end');
   }

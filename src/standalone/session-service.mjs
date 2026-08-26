@@ -97,6 +97,7 @@ export function createSessionService({
   createSessionRuntime = null,
   sessionExists = null,
   readStoredSession = null,
+  subscribeExternalSessionStates = null,
   listSessions = null,
   getRemoteSessionState = null,
   desktopRuntime = null,
@@ -170,6 +171,7 @@ export function createSessionService({
   // the entry the moment one materializes, so its live frames start flowing
   // without a second subscribe round-trip.
   const pendingViewers = new Map(); // sessionId -> Set<clientToken>
+  const externalViewEntries = new Map(); // sessionId -> ordinary projected entry
 
   function trackPendingViewer(sessionId, ctx) {
     const token = subscriberToken(ctx);
@@ -215,6 +217,10 @@ export function createSessionService({
       entry.retainedAt = Date.now();
       startEvictionSweep();
       log(`session ${currentSessionId(entry) || '(creating)'} unwatched (client ${token} gone) — retained`);
+    }
+    for (const [sessionId, entry] of [...externalViewEntries]) {
+      entry.subscribers?.delete(token);
+      if ((entry.subscribers?.size || 0) === 0) externalViewEntries.delete(sessionId);
     }
     for (const service of desktopServicesById.values()) {
       service.subscribers.delete(token);
@@ -428,10 +434,21 @@ export function createSessionService({
       if (entry) entry.indexedSessionId = '';
       return '';
     }
+    // External agent projections use the same frame machinery but are not a
+    // daemon execution owner. Keeping them out of sessionsById lets a later
+    // ordinary session materialization adopt the viewers and take authority.
+    if (entry.externalView === true) return nextId;
     const existing = sessionsById.get(nextId);
     if (existing && existing !== entry && !existing.disposed) {
       // Do not redirect an established address to a second session runtime. The load
       throw new Error(`duplicate session address: ${nextId}`);
+    }
+    const external = externalViewEntries.get(nextId);
+    if (external) {
+      externalViewEntries.delete(nextId);
+      for (const token of external.subscribers || []) {
+        addSubscriber(entry, { clientToken: token });
+      }
     }
     sessionsById.set(nextId, entry);
     entry.indexedSessionId = nextId;
@@ -459,6 +476,54 @@ export function createSessionService({
       ...body,
     }, entry.subscribers);
   }
+
+  function externalEntryForView(sessionId) {
+    return externalViewEntries.get(String(sessionId || '')) || null;
+  }
+
+  function publishExternalSessionState(update) {
+    const sessionId = String(update?.sessionId || '');
+    const snapshot = update?.snapshot;
+    if (!sessionId || !snapshot || typeof snapshot !== 'object') return;
+    // A daemon-owned runtime is the canonical owner if this address was
+    // materialized. External agent projection frames can arrive one tick late
+    // after that promotion and must not overwrite it.
+    if (sessionOwner(sessionId)) return;
+    let entry = externalViewEntries.get(sessionId);
+    if (!entry) {
+      if (!pendingViewers.has(sessionId)) return;
+      let state = { ...snapshot, sessionId };
+      const runtime = {
+        isWireSafe: true,
+        getState: () => state,
+        setState: (next) => { state = next; },
+      };
+      entry = {
+        runtime,
+        subscribers: new Set(),
+        disposed: false,
+        timer: null,
+        lastPublishedAt: 0,
+        publishedSessionId: '',
+        indexedSessionId: '',
+        addressedSessionId: sessionId,
+        revision: revisionEpoch,
+        busy: null,
+        externalView: true,
+      };
+      externalViewEntries.set(sessionId, entry);
+      adoptPendingViewers(entry, sessionId);
+    } else {
+      entry.runtime.setState({ ...snapshot, sessionId });
+    }
+    const step = advance(entry);
+    if (step.changed) publishStep(entry, step);
+  }
+
+  const unsubscribeExternalSessionStates =
+    typeof subscribeExternalSessionStates === 'function'
+      ? subscribeExternalSessionStates(publishExternalSessionState)
+      : () => {};
 
   /** Response body for the CALLER, which announced the revision it holds. */
   function bodyForClient(step, baseRevision) {
@@ -911,7 +976,7 @@ export function createSessionService({
     }
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = await liveEntryForView(id);
+    const live = await liveEntryForView(id) || externalEntryForView(id);
     if (live) {
       const step = advance(live);
       retainUnwatched(live, 'headless session read');
@@ -922,7 +987,7 @@ export function createSessionService({
     }
     if (typeof readStoredSession === 'function') {
       const projection = await storedSessionProjection(id, openHints);
-      const lateOwner = sessionOwner(id);
+      const lateOwner = sessionOwner(id) || externalEntryForView(id);
       if (lateOwner) {
         const step = advance(lateOwner);
         retainUnwatched(lateOwner, 'headless session read');
@@ -952,7 +1017,7 @@ export function createSessionService({
   ) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = await liveEntryForView(id);
+    const live = await liveEntryForView(id) || externalEntryForView(id);
     if (live) {
       addSubscriber(live, ctx);
       const step = advance(live);
@@ -964,7 +1029,7 @@ export function createSessionService({
       // guarantees either adoption or the live re-check below.
       trackPendingViewer(id, ctx);
       const projection = await storedSessionProjection(id, openHints);
-      const lateOwner = sessionOwner(id);
+      const lateOwner = sessionOwner(id) || externalEntryForView(id);
       if (lateOwner) {
         dropPendingViewer(id, ctx);
         addSubscriber(lateOwner, ctx);
@@ -988,7 +1053,15 @@ export function createSessionService({
     if (!id) throw new TypeError('sessionId is required');
     dropPendingViewer(id, ctx);
     const owner = sessionOwner(id);
-    if (!owner) return { sessionId: id, unsubscribed: true };
+    if (!owner) {
+      const external = externalEntryForView(id);
+      if (external) {
+        const token = subscriberToken(ctx);
+        if (token) external.subscribers?.delete(token);
+        if ((external.subscribers?.size || 0) === 0) externalViewEntries.delete(id);
+      }
+      return { sessionId: id, unsubscribed: true };
+    }
     const entry = owner;
     const token = subscriberToken(ctx);
     if (token) entry.subscribers?.delete(token);
@@ -1280,6 +1353,8 @@ export function createSessionService({
 
   async function stop(reason = 'service stop') {
     closed = true;
+    try { unsubscribeExternalSessionStates(); } catch {}
+    externalViewEntries.clear();
     if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
     const services = [...new Set(desktopServicesById.values())];
     desktopServicesById.clear();

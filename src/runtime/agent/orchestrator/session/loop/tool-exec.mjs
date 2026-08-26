@@ -117,6 +117,10 @@ async function runReadOnlyIoWithDeadline(name, parentSignal, run) {
 
 export { runReadOnlyIoWithDeadline as _runReadOnlyIoWithDeadlineForTest };
 
+export function resolveToolCompletionSessionId({ callerSessionId } = {}) {
+    return String(callerSessionId || '').trim();
+}
+
 let codeGraphRuntimePromise = null;
 async function executeCodeGraphToolLazy(name, args, cwd, signal = null, options = {}) {
     codeGraphRuntimePromise ??= import('../../tools/code-graph.mjs');
@@ -170,7 +174,14 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     const toolOpts = scopedCacheOutcome
         ? { ...executeOpts, scopedCacheOutcome }
         : executeOpts;
-    const notificationSessionId = String(executeOpts.notifySessionId || sessionRef?.ownerSessionId || callerSessionId || '').trim();
+    // A background tool belongs to the session that invoked it. Subagent
+    // sessions carry the top-level UI session in ownerSessionId, but routing a
+    // shell completion there leaks the child task into the lead transcript.
+    const notificationSessionId = resolveToolCompletionSessionId({
+        callerSessionId,
+        ownerSessionId: sessionRef?.ownerSessionId,
+        requestedNotificationSessionId: executeOpts.notifySessionId,
+    });
     const notifyFn = typeof executeOpts.notifyFn === 'function'
         ? executeOpts.notifyFn
         : (text, meta = {}) => {

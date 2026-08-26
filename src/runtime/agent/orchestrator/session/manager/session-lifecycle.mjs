@@ -316,9 +316,7 @@ export function createSession(opts) {
         sessionCwdLine
             ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
             : '',
-        !ownerIsAgent
-            ? `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`
-            : '',
+        `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`,
         // A startup inventory of PATH binaries used to sit here; see
         // runtime-capabilities.mjs for why it cannot be stated truthfully
         // before a command has run. Whether the cwd is inside a repository is

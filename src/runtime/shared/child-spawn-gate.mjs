@@ -128,6 +128,19 @@ const SLOW_WAIT_MS = Math.max(
 const SLOW_WARN_THROTTLE_MS = 30000;
 
 let _lastSlowWarnAt = 0;
+let _lastFallbackWarnAt = 0;
+
+function _warnLeaseFallback(error, laneName) {
+  const now = Date.now();
+  if (now - _lastFallbackWarnAt < SLOW_WARN_THROTTLE_MS) return;
+  _lastFallbackWarnAt = now;
+  try {
+    process.stderr.write(
+      `[child-spawn-gate] lane=${laneName} machine spawn budget unavailable`
+      + ` (${error?.message || error}); using this process's bounded local lane\n`,
+    );
+  } catch { /* ignore */ }
+}
 
 function _maybeWarnSlow(waitedMs, laneName, lane) {
   if (waitedMs < SLOW_WAIT_MS) return;
@@ -175,6 +188,10 @@ export function acquire(signal = null, laneName = 'search', options = {}) {
       waitTimeoutMs,
     }).catch((error) => {
       if (error?.code !== 'ELEASEFALLBACK') throw error;
+      // Only a genuinely dead pool channel reaches here (the client re-arms
+      // while the link is alive). Say so loudly: from this point the cap is
+      // per-process, so N shards can hold N× the machine-wide budget.
+      _warnLeaseFallback(error, normalizedLaneName);
       return _acquireLocal(signal, normalizedLaneName, lane, ownerKey, waitTimeoutMs);
     });
   }

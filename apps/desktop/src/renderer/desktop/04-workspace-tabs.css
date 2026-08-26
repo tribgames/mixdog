@@ -224,17 +224,6 @@
 .pane-native-drag-image {
   transform: translate(-10000px, -10000px);
 }
-.session-row-drag-ghost {
-  max-width: min(320px, calc(100vw - 24px));
-  overflow: hidden;
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  text-overflow: ellipsis;
-}
-.session-row-drag-ghost > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .workspace-tab::before {
   content: "";
   position: absolute;

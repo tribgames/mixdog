@@ -60,11 +60,9 @@ import {
 } from './message-sanitize.mjs';
 import { createTurnInterruptionTracker } from './turn-interruption.mjs';
 import {
-    cancelPendingTurnCheckpoint,
     clearTurnCheckpoint,
+    createTurnCheckpointRecorder,
     recoverTurnCheckpoint,
-    turnMessagesForCheckpoint,
-    writeTurnCheckpoint,
 } from './turn-checkpoint.mjs';
 import { _getAgentLoop } from './runtime-loaders.mjs';
 import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
@@ -344,29 +342,30 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         const _turnCheckpointToken = randomUUID();
         const _turnCheckpointStartedAt = Date.now();
         const _codexTurnId = _codexWireSessionId ? mintUuidV7(_turnCheckpointStartedAt) : null;
+        // Coalescing window for streaming-delta flushes. It is no longer a
+        // throttle on a full-snapshot rewrite: each flush now journals only the
+        // delta since the previous one, so the window just bounds syscalls.
         const _TURN_CHECKPOINT_THROTTLE_MS = 150;
         let _turnCheckpointTimer = null;
         let _turnCheckpointStopped = false;
         let _turnCheckpointLastAt = 0;
         let _turnCheckpointWarned = false;
+        // The recorder writes this turn's header synchronously on its first
+        // flush (the crash-durability anchor for the prompt, landing before the
+        // provider runs) and appends bounded deltas afterwards.
+        const _turnCheckpointRecorder = createTurnCheckpointRecorder({
+            sessionId,
+            generation: askGeneration,
+            turnToken: _turnCheckpointToken,
+            startedAt: _turnCheckpointStartedAt,
+        });
         const _flushTurnCheckpoint = () => {
             if (_turnCheckpointStopped || !_turnOutgoing || !cancelledUserTurnContent) return false;
             try {
-                const written = writeTurnCheckpoint({
-                    sessionId,
-                    generation: askGeneration,
-                    turnToken: _turnCheckpointToken,
-                    startedAt: _turnCheckpointStartedAt,
+                const written = _turnCheckpointRecorder.record({
                     currentUserContent: cancelledUserTurnContent,
-                    turnMessages: turnMessagesForCheckpoint(_turnOutgoing, cancelledUserTurnContent),
-                    interruption: _turnInterruption.snapshot(),
-                }, {
-                    // The turn's first checkpoint is the crash-durability
-                    // anchor for the prompt and must land before the provider
-                    // runs; every later streaming/tool-boundary flush moves to
-                    // the async latest-wins lane so serialization+disk never
-                    // stall the engine thread mid-stream.
-                    sync: _turnCheckpointLastAt === 0,
+                    turnOutgoing: _turnOutgoing,
+                    interruption: _turnInterruption,
                 });
                 if (written) _turnCheckpointLastAt = Date.now();
                 return written;
@@ -398,7 +397,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             _turnCheckpointStopped = true;
             if (_turnCheckpointTimer) clearTimeout(_turnCheckpointTimer);
             _turnCheckpointTimer = null;
-            cancelPendingTurnCheckpoint(sessionId);
+            _turnCheckpointRecorder.stop();
         };
         let _interruptionSnapshot = null;
         const _prepareCloseSnapshot = (abortReason) => {

@@ -50,15 +50,13 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
 
   function workerNotifyFn(workerSessionId, notifyContext = {}) {
     const workerId = clean(workerSessionId);
-    const ownerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
     return (text, meta = {}) => {
-      const ownerDelivered = ownerSessionId
-        ? notifyOwner(ownerSessionId, text, meta)
-        : false;
-      const workerDelivered = workerId && workerId !== ownerSessionId
-        ? enqueueCompletionMessage(workerId, text, meta)
-        : ownerDelivered;
-      return ownerSessionId ? ownerDelivered : workerDelivered;
+      // Tool completions produced inside a Subagent belong to that Subagent's
+      // session. Mirroring them to the owner made every promoted shell command
+      // appear as a second Lead-level completion card. Agent task completion
+      // has its own owner delivery path below; only that terminal handoff
+      // crosses the parent boundary.
+      return workerId ? enqueueCompletionMessage(workerId, text, meta) : false;
     };
   }
 

@@ -10,6 +10,10 @@ import keychain from '../lib/keychain-cjs.cjs';
 import './hitch-profile.mjs';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
 import { createStandaloneAgent } from '../standalone/agent-tool.mjs';
+import {
+  executeRemoteAgentControl,
+  remoteAgentControlEnabled,
+} from '../standalone/session-runtime-agent-control-client.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import { createStandaloneChannelWorker } from '../standalone/channel-worker.mjs';
 import { createStandaloneHookBus } from '../standalone/hook-bus.mjs';
@@ -824,6 +828,27 @@ export async function createMixdogSessionRuntime({
       } catch { /* best-effort: subagent hook must never affect worker lifecycle */ }
     },
   });
+  const routedAgentTool = {
+    ...agentTool,
+    execute(args, context = {}) {
+      return remoteAgentControlEnabled()
+        ? executeRemoteAgentControl(args, context)
+        : agentTool.execute(args, context);
+    },
+    closeAll(reason, scope = {}) {
+      if (!remoteAgentControlEnabled()) return agentTool.closeAll(reason, scope);
+      void executeRemoteAgentControl({
+        type: '__close_all',
+        reason: String(reason || 'agent owner closed'),
+      }, {
+        callerCwd: rt.currentCwd,
+        invocationSource: 'runtime-lifecycle',
+        callerSessionId: scope?.callerSessionId || rt.session?.id || null,
+        clientHostPid: rt.session?.clientHostPid || process.pid,
+      }).catch(() => {});
+      return undefined;
+    },
+  };
   bootProfile('agent:ready', { ms: (performance.now() - agentToolStartedAt).toFixed(1) });
   const agentStatusState = () => {
     try {
@@ -991,7 +1016,7 @@ export async function createMixdogSessionRuntime({
       }
       if (name === 'agent') {
         const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
-        return await agentTool.execute(args, {
+        return await routedAgentTool.execute(args, {
           callerCwd,
           invocationSource: 'model-tool',
           callerSessionId,
@@ -1300,7 +1325,7 @@ export async function createMixdogSessionRuntime({
     channelStartDelayMs,
     codeGraphPrewarmEnabled,
     prewarmState,
-    agentTool,
+    agentTool: routedAgentTool,
   });
   const ensureSessionTranscriptWriter = () => remoteTranscript.ensureSessionTranscriptWriter();
 
@@ -1463,7 +1488,7 @@ export async function createMixdogSessionRuntime({
     mgr,
     statusRoutes,
     channels,
-    agentTool,
+    agentTool: routedAgentTool,
     mcpClient,
     warmupTimers,
     prewarmTimers,
@@ -1608,7 +1633,7 @@ export async function createMixdogSessionRuntime({
     scheduleProviderWarmup,
     scheduleProviderModelWarmup,
     invalidateContextStatusCache,
-    agentTool,
+    agentTool: routedAgentTool,
     recreateCurrentSessionIfReady,
     invalidatePreSessionToolSurface,
     activeToolSurface,
@@ -1648,6 +1673,12 @@ export async function createMixdogSessionRuntime({
     ),
     get id() {
       return rt.session?.id || rt.reservedSessionId || null;
+    },
+    deliverToolCompletion(sessionId, text, meta = {}) {
+      const target = String(sessionId || '').trim();
+      const current = String(rt.session?.id || rt.reservedSessionId || '').trim();
+      if (!target || target !== current) return false;
+      return notifySessionCompletion(target, text, meta);
     },
     reserveSessionId(sessionId) {
       const id = String(sessionId || '').trim();

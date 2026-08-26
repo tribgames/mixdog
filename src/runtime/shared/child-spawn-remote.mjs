@@ -16,11 +16,42 @@ import { safeIpcSend } from './safe-ipc-send.mjs';
 const _pending = new Map(); // leaseId -> { grant, fail }
 let _sequence = 0;
 let _listening = false;
-let _broken = false;
+// "Lost" means the parent IPC link is actually gone — never merely slow. A
+// single timed-out or failed lease must NOT latch this process onto the
+// process-local lane: with several runtime shards that silently multiplies the
+// machine-wide child-spawn cap, which is exactly the Windows spawn storm this
+// gate exists to prevent.
+let _channelLost = false;
+// Bounded patience for a busy/recovering daemon. Each expiry re-arms while the
+// link is alive, so IPC latency keeps shards on the machine-wide budget.
+const LEASE_WAIT_EXTENSIONS = Math.max(
+  0,
+  Math.floor(Number(process.env.MIXDOG_SPAWN_LEASE_WAIT_EXTENSIONS) || 3),
+);
+const LEASE_WARN_THROTTLE_MS = 30_000;
+let _lastLeaseWarnAt = 0;
+
+function _warnSlowLease(budgetMs, extensionsLeft) {
+  const now = Date.now();
+  if (now - _lastLeaseWarnAt < LEASE_WARN_THROTTLE_MS) return;
+  _lastLeaseWarnAt = now;
+  try {
+    process.stderr.write(
+      `[child-spawn-remote] machine spawn lease pending >${budgetMs}ms; staying on the daemon budget`
+      + ` (${extensionsLeft} extension(s) left)\n`,
+    );
+  } catch { /* diagnostics only */ }
+}
 
 function _fallbackError(reason) {
   const error = new Error(`machine spawn budget unavailable (${reason}); using the local lane`);
   error.code = 'ELEASEFALLBACK';
+  return error;
+}
+
+function _leaseTimeoutError(reason) {
+  const error = new Error(`machine spawn budget did not answer (${reason}); spawn was not started`);
+  error.code = 'ESPAWNLEASETIMEOUT';
   return error;
 }
 
@@ -42,7 +73,7 @@ function _ensureListener() {
     pending.fail(error);
   });
   process.on('disconnect', () => {
-    _broken = true;
+    _channelLost = true;
     for (const [leaseId, pending] of [..._pending]) {
       _pending.delete(leaseId);
       pending.fail(_fallbackError('pool channel disconnected'));
@@ -50,9 +81,20 @@ function _ensureListener() {
   });
 }
 
+/**
+ * PID-accurate shard detection. MIXDOG_SESSION_RUNTIME_WORKER is inherited by
+ * every grandchild (tools, helpers, spawned nodes), so the plain flag cannot
+ * decide who owns a runtime IPC channel: only the process whose OWN pid matches
+ * the pid-scoped marker is a runtime shard. A grandchild therefore uses its own
+ * bounded local lane, and a real shard is never misread into it.
+ */
+export function isSessionRuntimeWorkerProcess(env = process.env, pid = process.pid) {
+  return String(env.MIXDOG_SESSION_RUNTIME_WORKER_PID || '') === String(pid);
+}
+
 export function remoteSpawnLeasesEnabled(env = process.env) {
-  return !_broken
-    && env.MIXDOG_SESSION_RUNTIME_WORKER === '1'
+  return !_channelLost
+    && isSessionRuntimeWorkerProcess(env)
     && env.MIXDOG_DISABLE_MACHINE_SPAWN_BUDGET !== '1'
     && typeof process.send === 'function'
     && process.connected === true;
@@ -91,7 +133,6 @@ export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs 
       if (settled) return;
       settled = true;
       cleanup();
-      if (error?.code === 'ELEASEFALLBACK') _broken = true;
       reject(error);
     };
     const grant = () => {
@@ -124,8 +165,29 @@ export function acquireRemoteSpawnLease({ lane, ownerKey, signal, waitTimeoutMs 
     // The pool enforces the real waitTimeoutMs; this guard only covers a
     // parent that never answers (bug/kill) so a spawn can never hang forever.
     const budget = Math.max(1_000, Math.floor(Number(waitTimeoutMs) || 0)) + 5_000;
-    safety = setTimeout(() => fail(_fallbackError(`no lease response in ${budget}ms`)), budget);
-    safety.unref?.();
+    let extensionsLeft = LEASE_WAIT_EXTENSIONS;
+    const armSafety = () => {
+      safety = setTimeout(() => {
+        // A busy or recovering daemon is latency, not a broken budget
+        // authority: while the link is alive, keep waiting instead of dropping
+        // to a per-process lane that multiplies the machine-wide cap.
+        if (extensionsLeft > 0 && !_channelLost && process.connected === true) {
+          extensionsLeft -= 1;
+          _warnSlowLease(budget, extensionsLeft);
+          armSafety();
+          return;
+        }
+        // A still-connected authority may be wedged, but bypassing it would
+        // multiply the machine cap by the shard count. Fail this spawn instead;
+        // only an actually lost IPC channel is allowed to use the bounded
+        // process-local fallback lane.
+        fail(process.connected === true && !_channelLost
+          ? _leaseTimeoutError(`no lease response in ${budget}ms`)
+          : _fallbackError(`no lease response in ${budget}ms`));
+      }, budget);
+      safety.unref?.();
+    };
+    armSafety();
     const sent = safeIpcSend(process, {
       type: 'spawn-lease',
       leaseId,

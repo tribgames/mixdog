@@ -25,11 +25,20 @@ import { finalizeTurnInterruptionSnapshot } from '../src/runtime/agent/orchestra
 import { toolErrorDisplay as frameToolError } from '../src/tui/session/tool-result-text.mjs';
 import { createContextState } from '../src/tui/session/context-state.mjs';
 import { isTranscriptCancelledStatusText } from '../src/runtime/shared/tool-execution-contract.mjs';
+import { resolveToolCompletionSessionId } from '../src/runtime/agent/orchestrator/session/loop/tool-exec.mjs';
 
 const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip;
 
 const failAfter = (ms, message) => new Promise((_, reject) => {
   setTimeout(() => reject(new Error(message)), ms);
+});
+
+test('background tool completion stays with the invoking agent session', () => {
+  assert.equal(resolveToolCompletionSessionId({
+    callerSessionId: 'sess_agent',
+    ownerSessionId: 'sess_lead',
+    requestedNotificationSessionId: 'sess_lead',
+  }), 'sess_agent');
 });
 
 test('provider failures expose concise capacity, session-state, and retry reasons', () => {

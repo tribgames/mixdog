@@ -95,11 +95,30 @@ export { parkSessionSnapshotForDrain, unparkSessionSnapshotForDrain } from './st
 // no timer retry and no exit-drain entry survives the unlink. Layering stays
 // intact: the store never imports manager code.
 const _sessionPurgeHooks = new Set();
+const _liveSessionSubscribers = new Set();
 
 export function registerSessionPurgeHook(hook) {
     if (typeof hook !== 'function') return () => {};
     _sessionPurgeHooks.add(hook);
     return () => _sessionPurgeHooks.delete(hook);
+}
+
+/** In-process session publication seam.
+ *
+ * The runtime worker uses this to project agent sessions through the daemon's
+ * ordinary session-state lane. Persistence remains independent: subscribers
+ * observe the same immutable session object that was admitted to the live
+ * cache, before disk debounce or I/O can delay a visible pane. */
+export function subscribeLiveSessions(listener) {
+    if (typeof listener !== 'function') return () => {};
+    _liveSessionSubscribers.add(listener);
+    return () => _liveSessionSubscribers.delete(listener);
+}
+
+function _publishLiveSession(session) {
+    for (const listener of [..._liveSessionSubscribers]) {
+        try { listener(session); } catch { /* observers never affect persistence */ }
+    }
 }
 
 function _runSessionPurgeHooks(id) {
@@ -318,7 +337,10 @@ export function saveSession(session, opts) {
     // summary row. The write itself still travels the normal path, where the
     // strict under-lock admission refuses it and produces the established
     // outcome/markers — only the local "owned" caches are never touched.
-    if (!refusal) setLiveSession(session);
+    if (!refusal) {
+        setLiveSession(session);
+        _publishLiveSession(session);
+    }
     const summaryVersion = refusal ? null : _cacheSessionSummary(session);
     // Identity of THIS attempt: only a landed save at least this new may clear
     // the id's failure/drop markers (see live-state _clearSaveStateIfCurrent),

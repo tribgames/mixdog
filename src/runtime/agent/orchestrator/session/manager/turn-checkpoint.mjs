@@ -1,59 +1,27 @@
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    unlinkSync,
-    writeFileSync,
-} from 'fs';
-import { writeFile } from 'fs/promises';
-import { randomBytes } from 'crypto';
-import { join } from 'path';
-import { getPluginData } from '../../config.mjs';
-import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
-import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
-import { promptContentText } from './prompt-utils.mjs';
+import { existsSync, unlinkSync } from 'fs';
 import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
+import {
+    appendJournalLines,
+    cancelJournalWrites,
+    createTurnJournalEncoder,
+    emptyInterruptionSnapshot,
+    findTurnStart,
+    journalHeadLines,
+    matchingUserMessage,
+    openJournalForTurn,
+    readTurnCheckpointHeader,
+    removeTurnJournal,
+    replayTurnJournal,
+    settleTurnJournalWrites,
+    turnCheckpointPath,
+    turnMessagesForCheckpoint,
+    writeCheckpointHeader,
+} from './turn-checkpoint-journal.mjs';
 
-const TURN_CHECKPOINT_VERSION = 1;
-const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+export { turnCheckpointPath, turnMessagesForCheckpoint };
 
-function checkpointDir() {
-    const dir = join(getPluginData(), 'turn-checkpoints');
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    return dir;
-}
-
-function turnCheckpointPath(sessionId) {
-    if (!SESSION_ID.test(String(sessionId || ''))) {
-        throw new Error(`[turn-checkpoint] invalid session id: ${JSON.stringify(sessionId)}`);
-    }
-    return join(checkpointDir(), `${sessionId}.json`);
-}
-
-function checkpointMessage(message) {
-    if (!message || typeof message !== 'object') return message;
-    const content = sanitizeContentForStoredHistory(message.content);
-    return content === message.content ? message : { ...message, content };
-}
-
-function matchingUserMessage(message, currentUserContent) {
-    return message?.role === 'user'
-        && (message.content === currentUserContent
-            || promptContentText(message.content) === promptContentText(currentUserContent));
-}
-
-export function turnMessagesForCheckpoint(messages, currentUserContent) {
-    const source = Array.isArray(messages) ? messages : [];
-    let start = -1;
-    for (let index = source.length - 1; index >= 0; index -= 1) {
-        if (matchingUserMessage(source[index], currentUserContent)) {
-            start = index;
-            break;
-        }
-    }
-    const turn = start >= 0 ? source.slice(start) : [];
-    return turn.map(checkpointMessage);
-}
+/** Resolve once every queued journal append for a session has been written. */
+export const settleTurnCheckpointWrites = settleTurnJournalWrites;
 
 /** Read-only projection for a turn still owned by another process. Unlike
  * recoverTurnCheckpoint this never mutates the session, clears the checkpoint,
@@ -85,160 +53,110 @@ export function projectTurnCheckpointMessages(session, checkpoint) {
     ];
 }
 
-// ── Async checkpoint writes ──────────────────────────────────────────────────
-// The throttled streaming-delta flushes used to serialize+write synchronously
-// on the engine thread (up to ~6 stalls/second during a tool-heavy turn). The
-// async lane keeps per-session latest-wins coalescing (one in-flight write,
-// one queued payload) with an epoch so clear/stop can retire stale writes —
-// no locks, sessions stay fully parallel. The FIRST write of a turn stays
-// sync (opts.sync) because it is the crash-durability anchor for the prompt.
-const _pendingCheckpointWrites = new Map(); // sessionId → { queued, writing, epoch }
-const _asyncWriteWarned = new Set(); // sessionId — warn once per session
-
-function _warnAsyncWriteOnce(sessionId, error) {
-    if (_asyncWriteWarned.has(sessionId)) return;
-    _asyncWriteWarned.add(sessionId);
-    try {
-        process.stderr.write(`[turn-checkpoint] async write failed session=${sessionId}: ${error?.message || error}\n`);
-    } catch { /* stderr best-effort */ }
-}
-
-/** Retire queued + in-flight async writes for a session (epoch bump). */
-export function cancelPendingTurnCheckpoint(sessionId) {
-    const entry = _pendingCheckpointWrites.get(sessionId);
-    if (!entry) return;
-    entry.queued = null;
-    entry.epoch += 1;
-    if (!entry.writing) _pendingCheckpointWrites.delete(sessionId);
-}
-
-function _pumpCheckpointWrites(sessionId) {
-    const entry = _pendingCheckpointWrites.get(sessionId);
-    if (!entry || entry.writing) return;
-    if (!entry.queued) {
-        _pendingCheckpointWrites.delete(sessionId);
-        return;
-    }
-    const { target, json } = entry.queued;
-    entry.queued = null;
-    entry.writing = true;
-    const epoch = entry.epoch;
-    const temp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
-    writeFile(temp, json, 'utf8')
-        .then(() => {
-            // A clear/stop after this write was dequeued must win: renaming a
-            // retired payload would resurrect a checkpoint the turn already
-            // finalized. The epoch check and rename run in one synchronous
-            // block, so cancel (also synchronous) can never interleave.
-            if (entry.epoch !== epoch) {
-                try { unlinkSync(temp); } catch { /* best-effort */ }
-                return;
+// ── Journal-backed checkpoint writes ─────────────────────────────────────────
+// A turn is checkpointed as a write-once header plus an append-only delta
+// journal (turn-checkpoint-journal.mjs). The recorder owns exactly one turn:
+// the FIRST record() writes the header synchronously — it is the crash
+// durability anchor for the prompt and must land before the provider runs —
+// and every later record() appends ONLY what changed since the previous flush.
+// Per-flush cost is therefore O(new bytes), not O(whole growing turn), so a
+// long tool-heavy turn no longer amplifies into the shared engine thread that
+// every fanned-out agent session shares.
+export function createTurnCheckpointRecorder({ sessionId, generation, turnToken, startedAt }) {
+    const encoder = createTurnJournalEncoder({ turnToken });
+    let opened = false;
+    let stopped = false;
+    return {
+        get opened() { return opened; },
+        /** True when this call wrote or queued durable state. */
+        record({ currentUserContent, turnOutgoing, interruption }) {
+            if (stopped || !sessionId || !turnToken) return false;
+            if (!opened) {
+                const seed = encoder.seed(turnOutgoing, currentUserContent, interruption);
+                writeCheckpointHeader({
+                    sessionId,
+                    generation,
+                    turnToken,
+                    startedAt,
+                    currentUserContent,
+                    turnMessages: seed.turnMessages,
+                    interruption: typeof interruption?.snapshot === 'function'
+                        ? interruption.snapshot()
+                        : emptyInterruptionSnapshot(),
+                });
+                // Opening the journal is part of the anchor: a leftover journal
+                // from an earlier turn of this session must never replay onto
+                // the new header. It lands synchronously when the lane is idle
+                // and is otherwise FENCED behind the older in-flight write, so
+                // an old turn can never appear beneath this turn's token (the
+                // head record's token guards the interim window).
+                openJournalForTurn(sessionId, seed.openLines);
+                opened = true;
+                return true;
             }
-            renameWithRetrySync(temp, target);
-        })
-        .catch((error) => {
-            try { unlinkSync(temp); } catch { /* best-effort */ }
-            _warnAsyncWriteOnce(sessionId, error);
-        })
-        .finally(() => {
-            entry.writing = false;
-            _pumpCheckpointWrites(sessionId);
-        });
+            const lines = encoder.encode({ turnOutgoing, currentUserContent, interruption });
+            if (lines.length === 0) return false;
+            appendJournalLines(sessionId, lines);
+            return true;
+        },
+        stop() {
+            if (stopped) return;
+            stopped = true;
+            cancelPendingTurnCheckpoint(sessionId);
+        },
+    };
 }
 
-// Hard-exit parity with the old sync behavior: a queued-but-unwritten payload
-// is flushed synchronously so a clean process exit never loses the newest
-// checkpoint state (crash loss remains bounded by the caller's throttle).
-process.on('exit', () => {
-    for (const [sessionId, entry] of _pendingCheckpointWrites) {
-        if (!entry.queued) continue;
-        const { target, json } = entry.queued;
-        entry.queued = null;
-        const temp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
-        try {
-            writeFileSync(temp, json, 'utf8');
-            renameWithRetrySync(temp, target);
-        } catch (error) {
-            try { unlinkSync(temp); } catch { /* best-effort */ }
-            _warnAsyncWriteOnce(sessionId, error);
-        }
-    }
-});
+/** Retire queued (not yet written) journal appends for a session. The durable
+ * prefix stays on disk on purpose: between turn commit and clearTurnCheckpoint
+ * a crash must still recover the turn's work, not just its opening header. */
+export function cancelPendingTurnCheckpoint(sessionId) {
+    cancelJournalWrites(sessionId);
+}
 
-export function writeTurnCheckpoint(checkpoint, { sync = true } = {}) {
+/** Full-snapshot write (header + journal reset). The streaming path uses
+ * createTurnCheckpointRecorder; this stays for callers holding a complete
+ * checkpoint object that must become durable in one shot. */
+export function writeTurnCheckpoint(checkpoint) {
     if (!checkpoint?.sessionId || !checkpoint?.turnToken) return false;
-    const target = turnCheckpointPath(checkpoint.sessionId);
-    const payload = {
-        ...checkpoint,
-        version: TURN_CHECKPOINT_VERSION,
-        currentUserContent: sanitizeContentForStoredHistory(checkpoint.currentUserContent),
-        turnMessages: (Array.isArray(checkpoint.turnMessages) ? checkpoint.turnMessages : [])
-            .map(checkpointMessage),
-        updatedAt: Date.now(),
-    };
-    if (!sync) {
-        const json = JSON.stringify(payload);
-        const entry = _pendingCheckpointWrites.get(checkpoint.sessionId)
-            ?? { queued: null, writing: false, epoch: 0 };
-        _pendingCheckpointWrites.set(checkpoint.sessionId, entry);
-        entry.queued = { target, json };
-        _pumpCheckpointWrites(checkpoint.sessionId);
-        return true;
-    }
-    const temp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
-    try {
-        writeFileSync(temp, JSON.stringify(payload), 'utf8');
-        renameWithRetrySync(temp, target);
-        return true;
-    } catch (error) {
-        try { unlinkSync(temp); } catch {}
-        throw error;
-    }
+    writeCheckpointHeader(checkpoint);
+    openJournalForTurn(checkpoint.sessionId, journalHeadLines(checkpoint.turnToken));
+    return true;
 }
 
 export function readTurnCheckpoint(sessionId) {
-    const target = turnCheckpointPath(sessionId);
-    try {
-        const value = JSON.parse(readFileSync(target, 'utf8'));
-        if (value?.version !== TURN_CHECKPOINT_VERSION
-            || value?.sessionId !== sessionId
-            || !value?.turnToken
-            || !Array.isArray(value?.turnMessages)) {
-            return null;
-        }
-        return value;
-    } catch {
-        return null;
-    }
+    const header = readTurnCheckpointHeader(sessionId);
+    if (!header) return null;
+    return replayTurnJournal(header);
 }
 
 export function clearTurnCheckpoint(sessionId, turnToken = null) {
     const target = turnCheckpointPath(sessionId);
-    // Queued async writes are stale the moment the caller decides to clear
-    // this turn's checkpoint; retire them BEFORE the token guard reads disk
-    // so a lagging write can never resurrect the file after the unlink.
+    // Queued appends are stale the moment the caller decides to clear this
+    // turn's checkpoint; retire them BEFORE the token guard reads disk so a
+    // lagging write can never resurrect state after the unlink.
     if (!turnToken) cancelPendingTurnCheckpoint(sessionId);
-    if (!existsSync(target)) return true;
+    if (!existsSync(target)) {
+        // Header already gone: drop any orphan journal (a late in-flight append
+        // can recreate the file after a previous clear).
+        if (!turnToken) removeTurnJournal(sessionId);
+        return true;
+    }
     if (turnToken) {
-        const current = readTurnCheckpoint(sessionId);
+        const current = readTurnCheckpointHeader(sessionId);
         // A token guard prevents an older turn's late terminal save from
         // deleting the checkpoint already created by its queued follow-up.
         if (current?.turnToken && current.turnToken !== turnToken) return false;
         cancelPendingTurnCheckpoint(sessionId);
     }
+    let removed = true;
     try {
         unlinkSync(target);
-        return true;
     } catch {
-        return false;
+        removed = false;
     }
-}
-
-function findPersistedTurnStart(messages, currentUserContent) {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-        if (matchingUserMessage(messages[index], currentUserContent)) return index;
-    }
-    return -1;
+    removeTurnJournal(sessionId);
+    return removed;
 }
 
 /**
@@ -277,7 +195,7 @@ export function recoverTurnCheckpoint(session) {
         abortReason: 'process-crash',
     });
     const current = Array.isArray(session.messages) ? session.messages : [];
-    const start = findPersistedTurnStart(current, checkpoint.currentUserContent);
+    const start = findTurnStart(current, checkpoint.currentUserContent);
     session.messages = [
         ...(start >= 0 ? current.slice(0, start) : current),
         ...finalized.messages,

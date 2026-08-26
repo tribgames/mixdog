@@ -68,10 +68,13 @@ test('an unhealthy runtime worker is replaced and every runtime is recovered', a
   const logs = [];
   await writeFile(workerEntry, WORKER_STUB, 'utf8');
 
+  // Single shard: this covers the recycle/recovery contract INSIDE one shard.
+  // Cross-shard routing and isolation live in session-runtime-shard-host.test.mjs.
   const host = createSessionRuntimeHost({
     workerEntry,
     cwd: dir,
     env: { ...process.env },
+    shardCount: 1,
     log: (line) => logs.push(line),
   });
   try {
@@ -111,6 +114,7 @@ test('omitted trailing arguments stay omitted across the runtime wire', async ()
     workerEntry,
     cwd: dir,
     env: { ...process.env },
+    shardCount: 1,
     log: () => {},
   });
   try {
@@ -139,6 +143,7 @@ test('RSS telemetry never schedules a destructive runtime recycle', async () => 
       MIXDOG_SESSION_WORKER_RECYCLE_RSS_MB: '1',
       MIXDOG_SESSION_WORKER_RECYCLE_INTERVAL_MS: '1',
     },
+    shardCount: 1,
     log: () => {},
   });
   try {

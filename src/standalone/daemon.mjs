@@ -584,6 +584,9 @@ async function main() {
     cwd: CWD,
     log,
   });
+  // Session/agent work is spread over bounded runtime shards; the daemon keeps
+  // only routing, health and abort dispatch on its own loop.
+  log(`session runtime shards=${sessionRuntimeHost.status.shardCount}`);
   function prewarmSessionRuntime() {
     if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;
     sessionRuntimePrewarmStarted = true;
@@ -605,6 +608,8 @@ async function main() {
   }
   sessionService = createSessionService({
     createSessionRuntime: (options) => sessionRuntimeHost.create(options),
+    subscribeExternalSessionStates: (listener) =>
+      sessionRuntimeHost.subscribeAgentSessionStates(listener),
     sessionExists: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();
       return store.storedSessionExists?.(sessionId) === true;
@@ -719,6 +724,17 @@ async function main() {
     const status = eventLoopStatus();
     if (status.eventLoopP99Ms >= 250) {
       log(`event-loop lag p95=${status.eventLoopP95Ms}ms p99=${status.eventLoopP99Ms}ms max=${status.eventLoopMaxMs}ms`);
+    }
+    // Session work runs in runtime shards, not here: daemon lag alone would
+    // report a healthy front door while a shard's loop is saturated.
+    const shards = sessionRuntimeHost?.status?.shards || [];
+    const lagging = shards.filter((shard) => Number(shard?.lag?.p99Ms) >= 250 || shard?.degraded);
+    if (lagging.length > 0) {
+      log(`session runtime shard lag ${lagging.map((shard) => (
+        `#${shard.index}${shard.degraded ? '(quarantined)' : ''}`
+        + ` p95=${shard.lag?.p95Ms ?? -1}ms p99=${shard.lag?.p99Ms ?? -1}ms`
+        + ` max=${shard.lag?.maxMs ?? -1}ms runtimes=${shard.runtimes}`
+      )).join(' ')}`);
     }
     eventLoopDelay.reset();
   }, 30_000);

@@ -23,7 +23,12 @@ import {
     NATIVE_SERVER_TOOL_CALL_BLOCK_TYPES,
     NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES,
 } from './lib/anthropic-native-blocks.mjs';
-import { parseProviderJsonBatch } from './stream-json-pool.mjs';
+import {
+    frameProviderSseChunk,
+    releaseProviderSseStream,
+    retainProviderSseStream,
+} from './stream-json-pool.mjs';
+import { splitSseRegion } from './lib/sse-framing.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS, STREAM_OUTCOME_VERSION } from './lib/stream-outcome.mjs';
 import {
     anthropicFallbackProviderMetadata,
@@ -45,6 +50,11 @@ const SSE_MIDSTREAM_POLICY = {
 };
 
 // --- SSE parser ---
+
+// Per-stream identity for the shared framing pool: every chunk of one stream
+// settles in submission order (and prefers one worker) regardless of whether
+// it was framed inline or offloaded.
+let _sseStreamSequence = 0;
 
 function _captureMidstreamAbort(state, reason) {
     if (!state) return;
@@ -142,6 +152,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
     // do not mistake transport heartbeats for model output.
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    const streamKey = `anthropic-sse#${++_sseStreamSequence}`;
     // Transport-idle window. The legacy semanticIdleTimeoutMs seam remains as
     // a fallback for existing tests/callers, but production uses the shared
     // byte/event inactivity policy.
@@ -430,6 +441,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             if (_c && typeof _c.catch === 'function') _c.catch(() => {});
         } catch {}
     };
+    retainProviderSseStream(streamKey);
     try {
         // Reader ownership begins at getReader() above, so even a signal that
         // was already aborted must pass through this try/finally cleanup path.
@@ -478,36 +490,35 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             if (state?.sawMessageStart) resetIdleTimer();
             try { onStreamDelta?.('transport'); } catch {}
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+            // ONE unit of work per network chunk. The previous loop split the
+            // chunk into a line array and awaited a JSON parse per SSE event,
+            // so a single readable chunk cost O(events) allocations and
+            // O(events) microtask hops on the shared daemon event loop. The
+            // pool now frames + parses the whole chunk (in a worker once it is
+            // worth the round-trip, otherwise inline and synchronously).
+            // Framing rules — `:` keepalive comments, blank record separators,
+            // sticky `event:` names, trimmed `data:` payloads — are unchanged;
+            // `region` holds only complete records and the trailing partial
+            // line stays in `buffer`, exactly as split()/pop() left it.
+            const { region, rest } = splitSseRegion(buffer);
+            buffer = rest;
+            if (!region) continue;
+            // A completed reader.read() owns these frames even if abort races
+            // immediately afterward, so framing is deliberately NOT signal
+            // canceled: the next read observes the cancellation after the
+            // frames of this chunk are relayed.
+            const framed = frameProviderSseChunk(region, { currentEvent, streamKey });
+            const framedChunk = typeof framed?.then === 'function' ? await framed : framed;
+            currentEvent = framedChunk.currentEvent;
 
-            for (const line of lines) {
-                if (line.startsWith(':')) {
-                    // SSE comment frame (Anthropic `:ping` keepalive). The raw
-                    // chunk already refreshed transport activity above; it is
-                    // intentionally not counted as visible model progress.
-                    continue;
-                }
-                // Blank lines are SSE record separators — emitted after EVERY
-                // frame, including `:ping` keepalives — so they are NOT semantic
-                // progress and must not reset the idle timer (else a ping frame's
-                // trailing blank would keep a wedge alive forever).
-                if (line === '') continue;
-                if (line.startsWith('event: ')) {
-                    currentEvent = line.slice(7).trim();
-                    continue;
-                }
-                if (!line.startsWith('data: ')) continue;
-                const data = line.slice(6).trim();
-                if (!data) continue;
-
+            for (const framedEvent of framedChunk.events) {
+                // A malformed record is skipped exactly like the former
+                // per-event JSON.parse throw — and, unlike a whole-batch
+                // rejection, the well-formed records beside it still run.
+                if (framedEvent.error) continue;
+                const event = framedEvent.value;
                 try {
-                    // A completed reader.read() owns this frame even if abort
-                    // races immediately afterward; the next read observes the
-                    // cancellation after this frame is relayed.
-                    const [event] = await parseProviderJsonBatch([data]);
-
-                    if (currentEvent === 'error' || event?.type === 'error' || event?.error) {
+                    if (framedEvent.name === 'error' || event?.type === 'error' || event?.error) {
                         throw _anthropicSseError(event);
                     }
 
@@ -947,6 +958,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
     } finally {
         if (idleTimer) clearTimeout(idleTimer);
         clearFirstMessageTimer();
+        try { releaseProviderSseStream(streamKey); } catch {}
         if (signal) signal.removeEventListener('abort', onAbort);
         // message_stop deliberately exits before EOF because Anthropic may keep
         // sending pings. Cancel the reader so the successful response body and

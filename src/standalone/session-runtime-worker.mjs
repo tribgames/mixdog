@@ -1,8 +1,15 @@
-// Supervised child-process host for all session runtimes.
+// Supervised child process for ONE session runtime shard.
 //
 // Provider parsing, transcript projection, tool execution, and runtime timers
 // stay on this event loop. The machine daemon receives only identity-preserving
 // state deltas and remains free to serve health, input, and abort dispatch.
+//
+// This process is one of a BOUNDED set of identical shards (see
+// session-runtime-host.mjs): the host routes each session/dispatch to a shard
+// deterministically, so a saturated or crashed shard degrades only the work it
+// owns instead of every runtime on the machine. Shard-crossing facts —
+// machine-wide spawn leases and account-wide provider cooldowns — are
+// coordinated through the host, never assumed process-local.
 process.env.MIXDOG_SESSION_RUNTIME_WORKER = '1';
 // Pid-scoped marker: child tools inherit the plain flag, so callers that need
 // the actual runtime worker must also verify this exact pid.
@@ -15,15 +22,32 @@ import { sanitizeForWire } from './session-service.mjs';
 import { disposeSessionRuntimeRecord } from './session-runtime-record.mjs';
 import { diffSessionState } from './session-state-patch.mjs';
 import {
+  applyProviderCooldown,
+  mergeKnownProviderCooldown,
+  providerCooldownAdvanced,
+  readProviderCooldown,
+} from './session-runtime-provider-cooldown.mjs';
+import {
   reportRuntimeAbortListenerPressure,
   SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT,
+  startRuntimeEventLoopLagMonitor,
 } from '../runtime/shared/session-runtime-health.mjs';
+
+// Shard identity. The host runs a BOUNDED set of identical runtime children so
+// that provider parsing, tool results and transcript projection for unrelated
+// sessions no longer share one event loop; this process owns exactly the
+// sessions/dispatches the host routed to this shard index.
+const SHARD_INDEX = Math.max(0, Math.floor(Number(process.env.MIXDOG_SESSION_RUNTIME_SHARD) || 0));
 
 const records = new Map();
 let sessionModulePromise = null;
 let stopping = false;
 let unhealthyDetail = null;
 let unhealthyReported = false;
+let unsubscribeAgentSessionPublisher = null;
+let agentSessionPublisherPromise = null;
+const pendingAgentSessionProjections = new Map();
+const activeAgentSessionProjections = new Set();
 const pendingAbortPressureChecks = new WeakSet();
 const ABORT_PRESSURE_RETENTION_CHECK_MS = 30_000;
 
@@ -38,7 +62,9 @@ function reportUnhealthy() {
 process.on(SESSION_RUNTIME_WORKER_UNHEALTHY_EVENT, (detail) => {
   if (stopping || unhealthyDetail) return;
   unhealthyDetail = sanitizeForWire(detail) || { reason: 'session runtime worker unhealthy' };
-  process.stderr.write(`[session-runtime-health] ${unhealthyDetail.reason || 'unhealthy'}\n`);
+  process.stderr.write(
+    `[session-runtime-health] shard ${SHARD_INDEX}: ${unhealthyDetail.reason || 'unhealthy'}\n`,
+  );
   reportUnhealthy();
 });
 
@@ -65,6 +91,140 @@ function sessionModule() {
 
 function send(message) {
   return safeIpcSend(process, message);
+}
+
+// ── Per-shard event-loop lag ───────────────────────────────────────────────
+// The daemon can only measure its OWN loop; a shard saturated by provider
+// parsing or a runaway tool is invisible there. Sampling here and reporting to
+// the host gives per-shard saturation telemetry and lets the host stop placing
+// NEW work on this shard. It never triggers a kill: this process still owns
+// accepted input and in-flight turns.
+let lastLagSample = null;
+
+const stopEventLoopLagMonitor = startRuntimeEventLoopLagMonitor({
+  onSample: (sample) => {
+    lastLagSample = sample;
+    if (stopping) return;
+    send({ type: 'event-loop-lag', shard: SHARD_INDEX, sample });
+    void publishProviderCooldown();
+  },
+});
+
+// ── Cross-shard provider cooldown ──────────────────────────────────────────
+// Fast-mode capacity cooldown is an ACCOUNT-wide fact held in process-local
+// state. With several shards, one shard discovering the drained pool must not
+// leave siblings hammering it, so cooldowns are published to the host and
+// replayed into every other shard. Only the module's public API is used: a
+// replay is expressed as the same capacity rejection the discovering shard saw.
+let fastModePromise = null;
+let fastModePolicy = null;
+let lastCooldownSent = { untilMs: 0, disabledReason: null };
+let admissionModulePromise = null;
+let cooldownBridgeUnsubscribe = null;
+let cooldownBridgePromise = null;
+
+function fastModeModule() {
+  fastModePromise ??= import('../runtime/agent/orchestrator/providers/anthropic-fast-mode.mjs')
+    .then((policy) => { fastModePolicy = policy; return policy; })
+    .catch(() => null);
+  return fastModePromise;
+}
+
+function admissionSchedulerModule() {
+  admissionModulePromise ??= import('../runtime/agent/orchestrator/providers/admission-scheduler.mjs')
+    .catch(() => null);
+  return admissionModulePromise;
+}
+
+/**
+ * Subscribe to the provider admission scheduler's cooldown events so a 429
+ * observed here reaches sibling shards ON THE EVENT — waiting for the next
+ * telemetry tick would leave every other shard probing a pool this process
+ * already knows is drained. Idempotent and safe to call from any provider
+ * entry point.
+ */
+function ensureProviderCooldownBridge() {
+  if (cooldownBridgeUnsubscribe || cooldownBridgePromise || stopping) return;
+  cooldownBridgePromise = admissionSchedulerModule().then((module) => {
+    if (!module || stopping || cooldownBridgeUnsubscribe) return;
+    cooldownBridgeUnsubscribe = module.providerAdmissionScheduler.onCooldownEvent((event) => {
+      publishProviderCooldownNow(event);
+    });
+  }).catch(() => { /* provider graph is absent in this shard */ })
+    .finally(() => { cooldownBridgePromise = null; });
+}
+
+function normalizeAdmissionCooldownEvent(event) {
+  if (!event || typeof event !== 'object') return null;
+  const type = String(event.type || '');
+  if (type === 'cooldown') {
+    const key = String(event.key || '');
+    const cooldownUntil = Number(event.cooldownUntil) || 0;
+    if (!key || cooldownUntil <= Date.now()) return null;
+    return { type, key, cooldownUntil };
+  }
+  if (type === 'reset') {
+    return { type, provider: event.provider ? String(event.provider) : null };
+  }
+  return null;
+}
+
+/**
+ * Synchronous publish path. Costs one comparison when nothing changed, so it
+ * can be called from provider/runtime boundaries and from the cooldown event
+ * itself without waiting on any import.
+ */
+function publishProviderCooldownNow(admissionEvent = null) {
+  if (stopping) return false;
+  const admission = normalizeAdmissionCooldownEvent(admissionEvent);
+  const observed = fastModePolicy ? readProviderCooldown(fastModePolicy) : null;
+  const advanced = Boolean(observed) && providerCooldownAdvanced(lastCooldownSent, observed);
+  if (!admission && !advanced) return false;
+  if (advanced) lastCooldownSent = mergeKnownProviderCooldown(lastCooldownSent, observed);
+  send({
+    type: 'provider-cooldown',
+    shard: SHARD_INDEX,
+    cooldown: observed || { untilMs: 0, disabledReason: null, observedAt: Date.now() },
+    ...(admission ? { admission } : {}),
+  });
+  return true;
+}
+
+/** Backstop sweep (telemetry tick): loads the policy module if provider work
+ *  has happened, then reuses the synchronous path. */
+async function publishProviderCooldown() {
+  // Only shards that actually run provider work carry cooldown state.
+  if (stopping || (!agentGraphPromise && records.size === 0)) return;
+  const policy = await fastModeModule();
+  if (!policy || stopping) return;
+  publishProviderCooldownNow();
+}
+
+async function applyReplayedProviderCooldown(frame) {
+  const cooldown = frame?.cooldown ?? frame ?? null;
+  const admission = frame?.admission && typeof frame.admission === 'object' ? frame.admission : null;
+  if (admission) {
+    const module = await admissionSchedulerModule();
+    if (module) {
+      // applyExternalCooldown/resetCooldowns are the documented cross-process
+      // seams: neither re-emits for a broadcast that changed nothing, so the
+      // replay cannot loop between shards.
+      if (admission.type === 'cooldown') {
+        module.providerAdmissionScheduler.applyExternalCooldown(
+          String(admission.key || ''),
+          Number(admission.cooldownUntil) || 0,
+        );
+      } else if (admission.type === 'reset') {
+        module.resetProviderAdmissionCooldowns(admission.provider || null);
+      }
+    }
+  }
+  const policy = await fastModeModule();
+  if (!policy) return Boolean(admission);
+  const applied = applyProviderCooldown(policy, cooldown);
+  // A replayed cooldown is not a local discovery: suppress the echo back.
+  lastCooldownSent = mergeKnownProviderCooldown(lastCooldownSent, cooldown);
+  return applied || Boolean(admission);
 }
 
 process.on('mixdog:turn-timing', (row = {}) => {
@@ -101,6 +261,94 @@ function publish(record, forceFull = false) {
   });
 }
 
+function agentOwnedSession(session) {
+  const owner = String(session?.owner || '').trim().toLowerCase();
+  const agent = String(session?.agent || '').trim().toLowerCase();
+  return Boolean(session?.id)
+    && (owner === 'agent' || (agent && agent !== 'lead'));
+}
+
+async function projectAgentSession(session) {
+  const [
+    { restoreTranscriptItems },
+    { getSessionProgressSnapshot },
+  ] = await Promise.all([
+    import('../tui/session/session-api-ext.mjs'),
+    import('../runtime/agent/orchestrator/session/manager.mjs'),
+  ]);
+  const sessionId = String(session.id || '');
+  const status = String(session.status || '').trim().toLowerCase();
+  const progress = getSessionProgressSnapshot?.(sessionId) || null;
+  const stage = String(progress?.stage || '').trim().toLowerCase();
+  const busy = status === 'running' || status === 'queued'
+    || (stage && stage !== 'idle' && stage !== 'done' && stage !== 'closed');
+  return sanitizeForWire({
+    sessionId,
+    items: restoreTranscriptItems(
+      Array.isArray(session.messages) ? session.messages : [],
+      { sessionId, itemLimit: 512 },
+    ),
+    queued: [],
+    busy,
+    commandBusy: false,
+    provider: session.provider || '',
+    model: session.model || '',
+    effort: session.effort || '',
+    fast: session.fast === true,
+    modelParameters: session.modelParameters || {},
+    cwd: session.cwd || '',
+    desktopSession: session.desktopSession || null,
+    workflow: session.workflow || null,
+    ownerClientHostPid: Number(session.clientHostPid) || process.pid,
+  }) || null;
+}
+
+function scheduleAgentSessionProjection(session) {
+  if (!agentOwnedSession(session) || stopping) return;
+  const sessionId = String(session.id);
+  pendingAgentSessionProjections.set(sessionId, session);
+  if (activeAgentSessionProjections.has(sessionId)) return;
+  activeAgentSessionProjections.add(sessionId);
+  queueMicrotask(() => {
+    void (async () => {
+      while (!stopping) {
+        const latest = pendingAgentSessionProjections.get(sessionId);
+        if (!latest) break;
+        pendingAgentSessionProjections.delete(sessionId);
+        const snapshot = await projectAgentSession(latest);
+        if (!snapshot || stopping) continue;
+        send({ type: 'agent-session-state', sessionId, snapshot });
+      }
+    })().catch((error) => {
+      try {
+        process.stderr.write(
+          `[session-runtime-worker] agent session projection failed session=${sessionId}: `
+          + `${error?.message || error}\n`,
+        );
+      } catch {}
+    }).finally(() => {
+      activeAgentSessionProjections.delete(sessionId);
+      if (pendingAgentSessionProjections.has(sessionId) && !stopping) {
+        scheduleAgentSessionProjection(pendingAgentSessionProjections.get(sessionId));
+      }
+    });
+  });
+}
+
+async function ensureAgentSessionPublisher() {
+  if (unsubscribeAgentSessionPublisher) return;
+  agentSessionPublisherPromise ??= import(
+    '../runtime/agent/orchestrator/session/store.mjs'
+  ).then((store) => {
+    unsubscribeAgentSessionPublisher = store.subscribeLiveSessions(
+      scheduleAgentSessionProjection,
+    );
+  }).finally(() => {
+    agentSessionPublisherPromise = null;
+  });
+  await agentSessionPublisherPromise;
+}
+
 async function createRuntime(message) {
   const module = await sessionModule();
   const runtime = await module.createLocalSessionRuntime(message.options || {});
@@ -115,6 +363,9 @@ async function createRuntime(message) {
   records.set(record.id, record);
   record.unsubscribe = runtime.subscribe?.(() => publish(record)) ?? null;
   publish(record, true);
+  // Session turns run providers in this shard too: their cooldowns must reach
+  // sibling shards on the event, not on the next telemetry tick.
+  ensureProviderCooldownBridge();
   return { created: true };
 }
 
@@ -130,6 +381,9 @@ async function callRuntime(message) {
   }
   const value = await target.apply(record.runtime, Array.isArray(message.args) ? message.args : []);
   publish(record);
+  // Cheap synchronous check: a fast-mode cooldown that the admission scheduler
+  // never saw (long provider window) still leaves at the first call boundary.
+  publishProviderCooldownNow();
   return sanitizeForWire(value);
 }
 
@@ -157,6 +411,162 @@ function agentGraph() {
 }
 const agentDispatchers = new Map();
 const agentDispatchRuns = new Map(); // dispatchId -> AbortController
+let distributedAgentToolPromise = null;
+const distributedAgentControlRuns = new Map(); // controlId -> AbortController
+
+function distributedAgentTool() {
+  distributedAgentToolPromise ??= Promise.all([
+    import('../standalone/agent-tool.mjs'),
+    import('../runtime/agent/orchestrator/config.mjs'),
+    import('../runtime/agent/orchestrator/providers/registry.mjs'),
+    import('../runtime/agent/orchestrator/session/manager.mjs'),
+  ]).then(async ([agentModule, cfgMod, reg, mgr]) => {
+    await ensureAgentSessionPublisher();
+    return agentModule.createStandaloneAgent({
+      cfgMod,
+      reg,
+      mgr,
+      dataDir: cfgMod.getPluginData(),
+      cwd: process.cwd(),
+      awaitKeychainPrewarm: async () => {},
+      isKeychainPrewarmReady: () => true,
+      notifySessionCompletion(ownerSessionId, text, meta = {}) {
+        return send({
+          type: 'agent-control-notification',
+          ownerSessionId: String(ownerSessionId || ''),
+          text: String(text || ''),
+          meta: sanitizeForWire(meta) || {},
+        });
+      },
+    });
+  }).catch((error) => {
+    distributedAgentToolPromise = null;
+    throw error;
+  });
+  return distributedAgentToolPromise;
+}
+
+async function runDistributedAgentControl(message) {
+  const controlId = String(message.controlId || '');
+  if (!controlId) throw new Error('agent control id is required');
+  if (distributedAgentControlRuns.has(controlId)) {
+    throw new Error(`agent control ${controlId} is already running`);
+  }
+  const controller = new AbortController();
+  distributedAgentControlRuns.set(controlId, controller);
+  try {
+    const tool = await distributedAgentTool();
+    if (controller.signal.aborted) throw controller.signal.reason;
+    const context = message.context && typeof message.context === 'object'
+      ? message.context
+      : {};
+    if (String(message.args?.type || '') === '__close_all') {
+      tool.closeAll?.(
+        String(message.args?.reason || 'agent owner closed'),
+        { callerSessionId: context.callerSessionId || null },
+      );
+      return 'agent close all: ok';
+    }
+    return await tool.execute(message.args || {}, {
+      callerCwd: context.callerCwd || process.cwd(),
+      invocationSource: context.invocationSource || 'model-tool',
+      callerSessionId: context.callerSessionId || null,
+      clientHostPid: Number(context.clientHostPid) || process.pid,
+      signal: controller.signal,
+    });
+  } finally {
+    distributedAgentControlRuns.delete(controlId);
+  }
+}
+
+async function distributedAgentStatus(message) {
+  const tool = await distributedAgentTool();
+  return tool.getStatus?.(message.context || {}) || { workers: [], jobs: [], scope: null };
+}
+
+function cancelDistributedAgentControl(message) {
+  const controlId = String(message.controlId || '');
+  const controller = distributedAgentControlRuns.get(controlId);
+  if (!controller) return { cancelled: false };
+  abortDispatchController(
+    controller,
+    new Error(String(message.reason || 'agent control canceled')),
+  );
+  return { cancelled: true };
+}
+
+async function deliverDistributedAgentNotification(message) {
+  const ownerSessionId = String(message.ownerSessionId || '');
+  if (!ownerSessionId || !message.text) return false;
+  for (const record of records.values()) {
+    if (record.disposed) continue;
+    try {
+      if (record.runtime?.deliverToolCompletion?.(
+        ownerSessionId,
+        String(message.text),
+        message.meta || {},
+      )) return true;
+    } catch {}
+  }
+  // The owning runtime may be between recycle and recreate. Persist the
+  // completion in its ordinary pending queue so the resumed session still
+  // consumes it exactly once.
+  try {
+    const [mgr, contract] = await Promise.all([
+      import('../runtime/agent/orchestrator/session/manager.mjs'),
+      import('../runtime/shared/tool-execution-contract.mjs'),
+    ]);
+    const visible = contract.modelVisibleToolCompletionMessage(
+      String(message.text),
+      message.meta || {},
+    );
+    return Boolean(visible && mgr.enqueuePendingMessage(
+      ownerSessionId,
+      mgr.markCompletionEntry(visible, {
+        executionId: message.meta?.execution_id,
+      }),
+    ) > 0);
+  } catch {
+    return false;
+  }
+}
+// A cancel can arrive while a dispatch is still in its COLD-START window
+// (orchestrator import + provider init) or even before its own request frame is
+// handled. Answering "not running" there would drop the abort and let the
+// dispatch run anyway, so the cancellation is retained and adopted the moment
+// the dispatch registers.
+const retainedDispatchCancels = new Map(); // dispatchId -> { reason, at }
+const RETAINED_CANCEL_MAX = 256;
+const RETAINED_CANCEL_TTL_MS = 5 * 60_000;
+
+function retainDispatchCancel(dispatchId, reason) {
+  retainedDispatchCancels.delete(dispatchId);
+  retainedDispatchCancels.set(dispatchId, { reason, at: Date.now() });
+  while (retainedDispatchCancels.size > RETAINED_CANCEL_MAX) {
+    const oldest = retainedDispatchCancels.keys().next().value;
+    if (oldest === undefined) break;
+    retainedDispatchCancels.delete(oldest);
+  }
+}
+
+function takeRetainedDispatchCancel(dispatchId) {
+  const entry = retainedDispatchCancels.get(dispatchId);
+  if (!entry) return null;
+  retainedDispatchCancels.delete(dispatchId);
+  // A stale tombstone must never abort an unrelated later dispatch.
+  if (Date.now() - entry.at > RETAINED_CANCEL_TTL_MS) return null;
+  return entry.reason;
+}
+
+function abortDispatchController(controller, reason) {
+  try { controller.abort(reason); } catch { try { controller.abort(); } catch { /* settled */ } }
+}
+
+function throwIfDispatchAborted(controller) {
+  if (!controller.signal.aborted) return;
+  const reason = controller.signal.reason;
+  throw reason instanceof Error ? reason : new Error(String(reason || 'agent dispatch canceled'));
+}
 let preparedProviderSignature = null;
 let providerPreparePromise = null;
 
@@ -187,20 +597,31 @@ async function runAgentDispatch(message) {
   if (agentDispatchRuns.has(dispatchId)) {
     throw new Error(`agent dispatch ${dispatchId} is already running`);
   }
-  const agent = String(message.agent || '');
-  const { dispatch } = await agentGraph();
-  await prepareAgentProviders();
-  let dispatcher = agentDispatchers.get(agent);
-  if (!dispatcher) {
-    dispatcher = dispatch.makeAgentDispatch({
-      agent,
-      ...(message.options && typeof message.options === 'object' ? message.options : {}),
-    });
-    agentDispatchers.set(agent, dispatcher);
-  }
+  // Registration happens BEFORE the first await. The cold-start window (module
+  // graph import + provider init) is exactly when a user abort arrives, and an
+  // unregistered dispatch would answer cancelled:false and then run anyway.
   const controller = new AbortController();
   agentDispatchRuns.set(dispatchId, controller);
+  const retained = takeRetainedDispatchCancel(dispatchId);
+  if (retained) abortDispatchController(controller, retained);
   try {
+    throwIfDispatchAborted(controller);
+    const agent = String(message.agent || '');
+    const { dispatch } = await agentGraph();
+    throwIfDispatchAborted(controller);
+    await ensureAgentSessionPublisher();
+    throwIfDispatchAborted(controller);
+    await prepareAgentProviders();
+    throwIfDispatchAborted(controller);
+    ensureProviderCooldownBridge();
+    let dispatcher = agentDispatchers.get(agent);
+    if (!dispatcher) {
+      dispatcher = dispatch.makeAgentDispatch({
+        agent,
+        ...(message.options && typeof message.options === 'object' ? message.options : {}),
+      });
+      agentDispatchers.set(agent, dispatcher);
+    }
     const params = message.params && typeof message.params === 'object' ? message.params : {};
     const value = await dispatcher({
       prompt: String(params.prompt ?? ''),
@@ -214,15 +635,24 @@ async function runAgentDispatch(message) {
     return { value: sanitizeForWire(value) ?? null };
   } finally {
     agentDispatchRuns.delete(dispatchId);
+    publishProviderCooldownNow();
   }
 }
 
 function cancelAgentDispatch(message) {
-  const controller = agentDispatchRuns.get(String(message.dispatchId || ''));
-  if (!controller) return { cancelled: false };
+  const dispatchId = String(message.dispatchId || '');
   const reason = new Error(String(message.reason || 'agent dispatch canceled'));
-  try { controller.abort(reason); } catch { try { controller.abort(); } catch { /* settled */ } }
-  return { cancelled: true };
+  const controller = agentDispatchRuns.get(dispatchId);
+  if (controller) {
+    abortDispatchController(controller, reason);
+    return { cancelled: true, retained: false };
+  }
+  if (!dispatchId) return { cancelled: false, retained: false };
+  // Not registered yet: retain the cancellation instead of losing it. The
+  // dispatch adopts it at registration, so a cold-start abort can never be
+  // answered "not running" and then keep running.
+  retainDispatchCancel(dispatchId, reason);
+  return { cancelled: true, retained: true };
 }
 
 async function prewarm() {
@@ -247,6 +677,8 @@ async function workloadSnapshot() {
   ]);
   const memory = process.memoryUsage();
   return {
+    shard: SHARD_INDEX,
+    eventLoopLag: lastLagSample,
     runtimes: records.size,
     memory: {
       rssBytes: memory.rss,
@@ -284,9 +716,21 @@ async function exitAfterPendingWrites(code = 0) {
 async function stopAll(reason = 'session runtime worker shutdown') {
   if (stopping) return;
   stopping = true;
+  try { stopEventLoopLagMonitor(); } catch {}
+  try { cooldownBridgeUnsubscribe?.(); } catch {}
+  cooldownBridgeUnsubscribe = null;
+  retainedDispatchCancels.clear();
+  for (const controller of distributedAgentControlRuns.values()) {
+    abortDispatchController(controller, new Error(reason));
+  }
+  distributedAgentControlRuns.clear();
   for (const controller of agentDispatchRuns.values()) {
     try { controller.abort(new Error(reason)); } catch { /* settled */ }
   }
+  try { unsubscribeAgentSessionPublisher?.(); } catch {}
+  unsubscribeAgentSessionPublisher = null;
+  pendingAgentSessionProjections.clear();
+  try { (await distributedAgentToolPromise)?.closeAll?.(); } catch {}
   for (const record of [...records.values()]) {
     try {
       await disposeSessionRuntimeRecord(
@@ -302,7 +746,16 @@ async function stopAll(reason = 'session runtime worker shutdown') {
 process.on('message', (message) => {
   if (!message || typeof message !== 'object') return;
   // token-native.mjs owns daemon-relayed token count responses.
-  if (message.type === 'token-native-result') return;
+  if (message.type === 'token-native-result' || message.type === 'agent-control-result') return;
+  // Fire-and-forget shard coordination: no response frame, no request id.
+  if (message.type === 'provider-cooldown-sync') {
+    void applyReplayedProviderCooldown(message);
+    return;
+  }
+  if (message.type === 'agent-control-notification') {
+    void deliverDistributedAgentNotification(message);
+    return;
+  }
   const requestId = String(message.requestId || '');
   void (async () => {
     if (message.type === 'create') return createRuntime(message);
@@ -317,6 +770,11 @@ process.on('message', (message) => {
     if (message.type === 'workload') return workloadSnapshot();
     if (message.type === 'agent-dispatch') return runAgentDispatch(message);
     if (message.type === 'agent-dispatch-cancel') return cancelAgentDispatch(message);
+    if (message.type === 'agent-control-local') return runDistributedAgentControl(message);
+    if (message.type === 'agent-control-status') return distributedAgentStatus(message);
+    if (message.type === 'agent-control-local-cancel') {
+      return cancelDistributedAgentControl(message);
+    }
     if (message.type === 'shutdown') {
       await stopAll(message.reason);
       return { stopped: true };
