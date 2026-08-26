@@ -549,3 +549,21 @@ test('a single-shard host keeps the historical single-worker behaviour', async (
     assert.equal(host.status.shards.length, 1);
   }, { shardCount: 1 });
 });
+
+test('production ignores the legacy shard env and hosts session actors in one process', async () => {
+  await withShardHost(async ({ host }) => {
+    const first = await host.create({ sessionId: 'actor-a' });
+    const second = await host.create({ sessionId: 'actor-b' });
+    const [a, b] = await Promise.all([
+      first.submitAsync('ping'),
+      second.submitAsync('ping'),
+    ]);
+    assert.equal(a.pid, b.pid);
+    assert.equal(host.status.mode, 'single-runtime');
+    assert.equal(host.status.shardCount, 1);
+    assert.deepEqual(host.status.worker.pids, [a.pid]);
+  }, {
+    shardCount: null,
+    env: { MIXDOG_SESSION_RUNTIME_SHARDS: '8' },
+  });
+});

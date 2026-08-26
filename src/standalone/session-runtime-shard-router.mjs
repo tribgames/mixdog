@@ -18,24 +18,20 @@
 //     it — health changes never migrate live work, which would strand accepted
 //     input in the abandoned child.
 
-import { availableParallelism } from 'node:os';
-
 export const SESSION_RUNTIME_SHARD_ENV = 'MIXDOG_SESSION_RUNTIME_SHARDS';
 export const MAX_SESSION_RUNTIME_SHARDS = 16;
-const DEFAULT_MAX_SHARDS = 4;
 
 /**
- * Bounded shard count. Shards multiply resident workers, so the default stays
- * small and scales with cores; operators may pin it explicitly.
+ * Production uses one shared runtime process whose sessions are independent
+ * async actors. CPU-heavy parsing/search still uses bounded worker pools, but
+ * the provider/MCP/module graph is loaded once instead of once per CPU shard.
+ *
+ * The legacy env is intentionally ignored. Explicit multi-process counts stay
+ * available only through createSessionRuntimeHost({ shardCount }) as a test
+ * seam for recovery and routing contracts.
  */
-export function resolveShardCount(env = process.env, parallelism = availableParallelism()) {
-  const override = Number(env?.[SESSION_RUNTIME_SHARD_ENV]);
-  if (Number.isFinite(override) && override >= 1) {
-    return Math.min(MAX_SESSION_RUNTIME_SHARDS, Math.floor(override));
-  }
-  const cpus = Math.max(1, Math.floor(Number(parallelism) || 1));
-  if (cpus <= 2) return 1;
-  return Math.max(2, Math.min(DEFAULT_MAX_SHARDS, Math.ceil(cpus / 4)));
+export function resolveShardCount() {
+  return 1;
 }
 
 /** FNV-1a (32-bit): stable across processes and daemon restarts. */

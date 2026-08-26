@@ -584,9 +584,10 @@ async function main() {
     cwd: CWD,
     log,
   });
-  // Session/agent work is spread over bounded runtime shards; the daemon keeps
-  // only routing, health and abort dispatch on its own loop.
-  log(`session runtime shards=${sessionRuntimeHost.status.shardCount}`);
+  // Codex-style runtime: one process owns independent async session actors and
+  // shared provider/MCP/module state. CPU-heavy work still uses bounded worker
+  // pools; the daemon keeps routing, health and abort dispatch on its own loop.
+  log(`session runtime mode=${sessionRuntimeHost.status.mode}`);
   function prewarmSessionRuntime() {
     if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;
     sessionRuntimePrewarmStarted = true;

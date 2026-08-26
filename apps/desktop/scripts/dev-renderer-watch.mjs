@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { resolveConfig } from 'electron-vite';
 import { build as viteBuild } from 'vite';
+import { resolveRendererWatchIdleMs } from './dev-renderer-watch-config.mjs';
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const configPath = join(desktopDir, 'electron.vite.config.ts');
@@ -12,7 +13,9 @@ const args = Object.fromEntries(process.argv.slice(2).map((entry) => {
   return match ? [match[1], match[2]] : [entry.replace(/^--/, ''), true];
 }));
 const statePath = resolve(args.state || join(desktopDir, '.cache', 'dev-renderer-watch.json'));
-const idleMs = Math.max(60_000, Number(args['idle-ms']) || 30 * 60_000);
+// Keep the warm incremental compiler briefly for rapid consecutive deploys,
+// then release its large module graph instead of retaining ~1.8 GB for 30 min.
+const idleMs = resolveRendererWatchIdleMs(args['idle-ms']);
 const configMtimeMs = (await stat(configPath)).mtimeMs;
 
 let watcher = null;

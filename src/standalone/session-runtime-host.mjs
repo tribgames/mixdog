@@ -1116,7 +1116,7 @@ export function createSessionRuntimeHost({
     log,
     shardCount: Number(shardCount) > 0
       ? normalizeShardCount(shardCount)
-      : resolveShardCount(env),
+      : resolveShardCount(),
     onAgentSessionState: publishAgentSessionState,
   });
   // One machine-global native counter stays warm in the daemon. Session
@@ -1199,6 +1199,7 @@ export function createSessionRuntimeHost({
       }
       const shards = pool.workloadCache.shards;
       return {
+        mode: pool.shardCount === 1 ? 'single-runtime' : 'multi-runtime-test',
         refreshedAt: pool.workloadCache.refreshedAt,
         machineSpawnBudget: machineSpawnSnapshot(),
         shardCount: pool.shardCount,
@@ -1217,6 +1218,7 @@ export function createSessionRuntimeHost({
     get status() {
       const status = pool.status;
       return {
+        mode: status.shardCount === 1 ? 'single-runtime' : 'multi-runtime-test',
         active: Boolean(status.worker.pid),
         worker: status.worker,
         shards: status.shards,

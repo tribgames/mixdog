@@ -5,6 +5,11 @@ import {
   decidePlan,
   packagingManifestForFingerprint,
 } from './dev-fast-direct.mjs';
+import {
+  DEFAULT_RENDERER_WATCH_IDLE_MS,
+  MIN_RENDERER_WATCH_IDLE_MS,
+  resolveRendererWatchIdleMs,
+} from './dev-renderer-watch-config.mjs';
 
 const groups = Object.fromEntries(
   ['renderer', 'main', 'preload', 'daemon', 'runtime', 'package'].map((name) => [
@@ -18,6 +23,12 @@ const previous = {
     Object.entries(groups).map(([name, value]) => [name, { hash: value.hash }]),
   ),
 };
+
+test('renderer build cache stays warm briefly and then releases memory', () => {
+  assert.equal(resolveRendererWatchIdleMs(undefined), DEFAULT_RENDERER_WATCH_IDLE_MS);
+  assert.equal(resolveRendererWatchIdleMs(1), MIN_RENDERER_WATCH_IDLE_MS);
+  assert.equal(resolveRendererWatchIdleMs(90_000), 90_000);
+});
 
 test('unchanged installed build is a no-op', () => {
   assert.deepEqual(
