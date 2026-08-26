@@ -276,6 +276,11 @@ import {
 } from '../runtime/browser-bridge/client.mjs';
 import { TOOL_DEFS as BROWSER_BRIDGE_TOOL_DEFS } from '../runtime/browser-bridge/tool-defs.mjs';
 import {
+  computerBridgeAvailableSync,
+  executeComputerTool,
+} from '../runtime/computer-bridge/client.mjs';
+import { TOOL_DEFS as COMPUTER_BRIDGE_TOOL_DEFS } from '../runtime/computer-bridge/tool-defs.mjs';
+import {
   dispatchWebSearchRuntimeTool,
   memoryToolArgsForCaller,
   shouldMirrorCompletionToPendingQueue,
@@ -431,10 +436,13 @@ export async function createMixdogSessionRuntime({
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
   const browserToolEnabled = () => featureEnvOverride('MIXDOG_FEATURE_BROWSER')
     ?? browserBridgeAvailableSync();
+  const computerToolEnabled = () => featureEnvOverride('MIXDOG_FEATURE_COMPUTER')
+    ?? computerBridgeAvailableSync();
   const featureDisallowedTools = () => [
     ...(webSearchEnabled() ? [] : ['web_search', 'web_fetch']),
     ...(memoryToolsEnabledFn() ? [] : ['memory', 'recall']),
     ...(browserToolEnabled() ? [] : ['browser']),
+    ...(computerToolEnabled() ? [] : ['computer']),
   ];
 
   async function getMemoryModule() {
@@ -916,6 +924,7 @@ export async function createMixdogSessionRuntime({
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
     ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser'),
+    ...COMPUTER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'computer'),
     ...agentTool.tools,
   ].map(applyStandaloneToolDefaults);
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });
@@ -986,6 +995,12 @@ export async function createMixdogSessionRuntime({
           throw new Error('the browser tool is disabled in this environment');
         }
         return await executeBrowserTool(args);
+      }
+      if (name === 'computer') {
+        if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_COMPUTER') === false) {
+          throw new Error('the computer tool is disabled in this environment');
+        }
+        return await executeComputerTool(args);
       }
       if (name === 'web_search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
         return dispatchWebSearchRuntimeTool(name, args, callerCtx, {

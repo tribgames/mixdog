@@ -62,6 +62,10 @@ export function formatToolStartProgress(name, args = {}) {
             return a.action === 'navigate' && a.url
                 ? `browsing ${_t(a.url)}`
                 : `browser ${_t(a.action || 'command')}`;
+        case 'computer':
+            return a.action === 'snapshot' && a.window
+                ? `reading ${_t(a.window)}`
+                : `computer ${_t(a.action || 'command')}`;
 
         // ── agent module: agent / models ─────────────────────────────────
         case 'agent': {

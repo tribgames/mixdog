@@ -23,6 +23,7 @@ import {
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
 import { createBrowserHost, type BrowserHost } from './browser-host';
+import { createComputerHost, type ComputerHost } from './computer-host';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -326,6 +327,7 @@ const settingsStore = new DesktopSettingsStore({
 });
 let mainWindow: BrowserWindow | null = null;
 let browserHost: BrowserHost | null = null;
+let computerHost: ComputerHost | null = null;
 let removeIpc: (() => void) | null = null;
 let pendingPrimaryActivation = false;
 function activatePrimaryWindow(): void {
@@ -387,7 +389,21 @@ let unsubscribeAwake: (() => void) | null = null;
 let unsubscribeServiceSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
+  applyComputerControlSetting(settings.computerControl === true);
 };
+// Computer control is opt-in and high risk, so the bridge (and thus the agent
+// `computer` tool) exists only while the setting is on. Toggling it starts or
+// tears down the host live; Windows-only for now.
+function applyComputerControlSetting(enabled: boolean): void {
+  if (enabled && process.platform === 'win32') {
+    if (!computerHost) computerHost = createComputerHost();
+    return;
+  }
+  if (computerHost) {
+    void computerHost.dispose().catch(() => {});
+    computerHost = null;
+  }
+}
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
@@ -578,6 +594,7 @@ function disposeDesktopResources(): Promise<void> {
   if (!disposalPromise) {
     const cleanup = Promise.all([
       browserHost?.dispose(),
+      computerHost?.dispose(),
       host.dispose(),
       windowStateFlush,
       windowState?.flush(),

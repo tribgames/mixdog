@@ -155,6 +155,8 @@ export function displayToolName(name, args = {}) {
       return 'Fetch';
     case 'browser':
       return 'Browser';
+    case 'computer':
+      return 'Computer';
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
@@ -281,6 +283,11 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return compactParts([
         String(a.action || ''),
         a.url ? truncateToolText(a.url, max) : a.ref ? String(a.ref) : '',
+      ]);
+    case 'computer':
+      return compactParts([
+        String(a.action || ''),
+        a.window ? truncateToolText(a.window, max) : a.ref ? String(a.ref) : a.app ? truncateToolText(a.app, max) : '',
       ]);
     case 'read_mcp_resource':
       return truncateToolText(a.uri || '', max);
@@ -568,6 +575,8 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Web Research', { count: queryCount(a, 'url', 'urls', 'uri', 'uris') || 1, active: 'Fetching', done: 'Fetched', noun: 'URL', pluralNoun: 'URLs' });
     case 'browser':
       return unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' });
+    case 'computer':
+      return unitDescriptor('Computer', { count: 1, active: 'Operating', done: 'Operated', noun: 'action' });
     case 'fetch': {
       const fetchLimit = Number(a.limit ?? a.messages);
       const fetchCount = Number.isFinite(fetchLimit) && fetchLimit > 0
