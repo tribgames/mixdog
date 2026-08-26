@@ -121,7 +121,7 @@ export function createExtensionPickers({
   };
 
   const openMcpPicker = () => {
-    openMcpServersPicker();
+    return openMcpServersPicker();
   };
 
   const skillsStatus = async () => {

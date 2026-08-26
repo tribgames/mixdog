@@ -1,13 +1,23 @@
 // Resident native search: forwards rg-style windowed line requests to ONE
-// long-lived `mixdog-graph --serve-search` process. The server embeds the
-// ripgrep matcher/searcher/printer crates and is the only local-search backend.
-// Unsupported requests and server failures are explicit errors at the caller.
+// long-lived engine that embeds the ripgrep matcher/searcher/printer crates
+// and is the only local-search backend. Unsupported requests and server
+// failures are explicit errors at the caller.
+//
+// The engine is reached through native-search-transport: the in-process
+// `mixdog-graph.node` addon when the install has one, otherwise the
+// `mixdog-graph --serve-search` child process. Everything below this import is
+// written against the shared JSONL protocol and never learns which is
+// attached; "server exited" therefore covers an addon shutdown just as it
+// covered a child process exit.
+//
 // MIXDOG_SEARCH_SERVER=0 disables; MIXDOG_SEARCH_SERVER_BIN overrides the
-// binary (dev builds).
-import { spawn } from 'node:child_process';
+// executable and MIXDOG_SEARCH_SERVER_ADDON the addon (0 forces the child).
 import { existsSync } from 'node:fs';
-import { createInterface } from 'node:readline';
-import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
+import {
+  bindChildLifecycle,
+  createNativeSearchTransport,
+  resolveNativeSearchAddon,
+} from './native-search-transport.mjs';
 import { reportRuntimeWorkerUnhealthy } from '../../../../shared/session-runtime-health.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
@@ -28,7 +38,7 @@ const PROCESS_FAILURES_BEFORE_BACKOFF = 2;
 const SEARCH_TIMEOUT_RECYCLE_WINDOW_MS = 30_000;
 const SEARCH_TIMEOUT_BURST_MS = 1_000;
 
-let _server = null; // { child, pending: Map, sequence }
+let _server = null; // { transport, exited, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
 let _lastFailureAt = 0;
 let _lastFailure = null;
@@ -149,11 +159,7 @@ function unavailableError() {
 }
 
 function _setServerReferenced(server, referenced) {
-  const method = referenced ? 'ref' : 'unref';
-  try { server?.child?.[method]?.(); } catch {}
-  try { server?.child?.stdin?.[method]?.(); } catch {}
-  try { server?.child?.stdout?.[method]?.(); } catch {}
-  try { server?.child?.stderr?.[method]?.(); } catch {}
+  try { server?.transport?.[referenced ? 'ref' : 'unref']?.(); } catch {}
 }
 
 function _resolveBinary() {
@@ -201,18 +207,18 @@ function _teardown(error, { countFailure = true, detail = '' } = {}) {
   for (const timer of server.cancelWatchdogs?.values?.() || []) clearTimeout(timer);
   server.cancelWatchdogs?.clear?.();
   try { server.resolveReady?.(false); } catch {}
-  try { server.child.kill(); } catch {}
+  try { server.transport.kill(); } catch {}
 }
 
 export async function shutdownNativeSearchServer(reason = 'process-exit', timeoutMs = 1_000) {
   const server = _server;
   if (!server) return true;
-  const child = server.child;
-  const exited = new Promise((resolve) => {
-    child.once('exit', () => resolve(true));
-    child.once('error', () => resolve(true));
-  });
-  try { child.stdin?.end?.(); } catch {}
+  const transport = server.transport;
+  // The exit promise is armed at attach time rather than here: the transport
+  // routes each event to exactly one handler, so a second listener registered
+  // now would displace the teardown wiring.
+  const exited = server.exited;
+  try { transport.end(); } catch {}
   _teardown(new Error(`native search server shutdown (${reason})`), { countFailure: false });
   _warmPromise = null;
   let timer;
@@ -224,20 +230,12 @@ export async function shutdownNativeSearchServer(reason = 'process-exit', timeou
   ]);
   if (timer) clearTimeout(timer);
   if (!stopped) {
-    try { child.kill('SIGKILL'); } catch {}
+    try { transport.kill('SIGKILL'); } catch {}
   }
   return stopped;
 }
 
-export function _bindNativeSearchServerLifecycle(child, { onError, onExit } = {}) {
-  if (!child?.on) return;
-  child.on('error', onError);
-  child.on('exit', onExit);
-  // ChildProcess stdin emits write failures asynchronously. A sync try/catch
-  // around stdin.write cannot catch EPIPE; without this listener the session
-  // runtime worker itself terminates and every active/queued turn is recovered.
-  child.stdin?.on?.('error', onError);
-}
+export { bindChildLifecycle as _bindNativeSearchServerLifecycle };
 
 function _ensureServer() {
   if (_server) return _server;
@@ -245,22 +243,29 @@ function _ensureServer() {
     _consecutiveProcessFailures >= PROCESS_FAILURES_BEFORE_BACKOFF
     && Date.now() - _lastFailureAt < RESTART_BACKOFF_MS
   ) return null;
-  const binary = _resolveBinary();
-  if (!binary) return null;
-  let child;
+  let transport;
   try {
-    child = spawn(binary, [process.cwd(), '--serve-search'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      ...hiddenSpawnOpts,
+    // Binary resolution is NOT a gate: the addon needs no executable, so an
+    // install that ships one must serve searches before the release binary has
+    // ever been fetched.
+    transport = createNativeSearchTransport({
+      binaryPath: _resolveBinary(),
+      cwd: process.cwd(),
     });
   } catch (error) {
     noteProcessFailure(processFailure(error, null, 'spawn failed'));
     return null;
   }
+  if (!transport) return null;
   let resolveReady;
   const ready = new Promise((resolve) => { resolveReady = resolve; });
+  // Armed here, not at shutdown: the transport routes each event to exactly
+  // one handler, so a listener added later would displace the teardown wiring.
+  let markExited;
+  const exited = new Promise((resolve) => { markExited = resolve; });
   const server = {
-    child,
+    transport,
+    exited,
     pending: new Map(),
     cancelWatchdogs: new Map(),
     sequence: 0,
@@ -270,11 +275,10 @@ function _ensureServer() {
     readyWaiters: 0,
     resolveReady,
   };
-  child.stderr?.on?.('data', (chunk) => {
+  transport.on('stderr', (chunk) => {
     server.stderrTail = `${server.stderrTail}${String(chunk || '')}`.slice(-8192);
   });
-  const lines = createInterface({ input: child.stdout });
-  lines.on('line', (line) => {
+  transport.on('line', (line) => {
     let message;
     try { message = JSON.parse(line); } catch { return; }
     if (message?.ready === true) {
@@ -297,24 +301,27 @@ function _ensureServer() {
     clearProcessFailures();
     pending.resolve(message);
   });
-  _bindNativeSearchServerLifecycle(child, {
-    onError: (error) => { if (_server === server) _teardown(error); },
-    onExit: (code, signal) => {
-      if (_server === server) {
-        _teardown(null, {
-          // A clean code-0 exit is the server's own idle self-shutdown
-          // (MIXDOG_SEARCH_SERVER_IDLE_MS), not a fault. Counting it would let
-          // two quiet stretches trip the restart backoff and refuse the next
-          // real search for 30s.
-          countFailure: code !== 0,
-          detail: `exit code=${code ?? 'null'} signal=${signal ?? 'null'}`,
-        });
-      }
-    },
+  transport.on('error', (error) => {
+    markExited(true);
+    if (_server === server) _teardown(error);
   });
-  // A detached child can still pin a one-shot CLI/test through its pipe
-  // handles. Keep the resident server idle-unreferenced, then ref all handles
-  // only while a request is awaiting a response.
+  transport.on('exit', (code, signal) => {
+    markExited(true);
+    if (_server === server) {
+      _teardown(null, {
+        // A clean code-0 exit is the server's own idle self-shutdown
+        // (MIXDOG_SEARCH_SERVER_IDLE_MS), not a fault. Counting it would let
+        // two quiet stretches trip the restart backoff and refuse the next
+        // real search for 30s.
+        countFailure: code !== 0,
+        detail: `exit code=${code ?? 'null'} signal=${signal ?? 'null'}`,
+      });
+    }
+  });
+  // An attached engine must never be the reason a one-shot CLI or test stays
+  // alive — a child's pipe handles and the addon's keep-alive handle both do
+  // that. Keep the resident server idle-unreferenced, then reference it only
+  // while a request is awaiting a response.
   _setServerReferenced(server, false);
   _server = server;
   return server;
@@ -384,7 +391,7 @@ function armNativeCancellationWatchdog(server, request) {
     if (_server === server) {
       _teardown(error, { countFailure: false, detail: 'cancellation grace expired' });
     } else {
-      try { server.child.kill(); } catch {}
+      try { server.transport.kill(); } catch {}
     }
   }, graceMs);
   timer.unref?.();
@@ -404,7 +411,10 @@ export async function warmNativeSearchServer(timeoutMs = 5_000) {
   if (!_warmPromise) {
     const warm = (async () => {
       try {
-        if (!_resolveBinary()) {
+        // With the addon present there is no executable to spawn, so the
+        // release download is skipped rather than fetching a binary this
+        // install would never use.
+        if (!resolveNativeSearchAddon() && !_resolveBinary()) {
           const mod = await import('../code-graph/graph-binary.mjs');
           let candidate = mod.graphBinaryPath?.() || mod.resolveGraphBinaryPath?.() || null;
           if (!candidate) candidate = await ensureGraphBinary(getPluginData());
@@ -464,7 +474,7 @@ async function requestNative(server, request, execOptions, deadlineMs) {
     let onAbort = null;
     let unsubscribeAbort = null;
     const cancelServerWork = () => {
-      try { server.child.stdin.write(`${JSON.stringify({ cancel: request.id })}\n`); } catch {}
+      try { server.transport.write(`${JSON.stringify({ cancel: request.id })}\n`); } catch {}
       armNativeCancellationWatchdog(server, request);
     };
     const settle = (value, cancel = false, error = null) => {
@@ -529,7 +539,7 @@ async function requestNative(server, request, execOptions, deadlineMs) {
     }
     unsubscribeAbort = subscribeAbortSignal(execOptions.signal, onAbort);
     try {
-      server.child.stdin.write(`${JSON.stringify(request)}\n`);
+      server.transport.write(`${JSON.stringify(request)}\n`);
     } catch (error) {
       if (_server === server) _teardown(error);
       else {
@@ -711,6 +721,10 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
       limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
       hidden: args?.hidden !== false,
       includeNoise: args?.includeNoise === true,
+      // A fuzzy deadline returns a truthful partial window. Keep the one
+      // query-independent inventory walk alive so a retry can use its complete
+      // cache instead of starting a second whole-tree enumeration.
+      keepInventory: true,
       ...(Number.isFinite(Number(args?.maxDepth)) && Number(args.maxDepth) > 0
         ? { maxDepth: Math.floor(Number(args.maxDepth)) }
         : {}),

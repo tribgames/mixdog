@@ -52,6 +52,20 @@ test('media assets are organized by kind, provider, model, and local date while 
 
   try {
     const store = await import(`./store.mjs?test=${Date.now()}`);
+    assert.deepEqual(
+      store.mediaOpenCommand('C:\\Media Assets\\clip.mp4', {
+        reveal: true,
+        platform: 'win32',
+      }),
+      ['explorer.exe', ['/select,', 'C:\\Media Assets\\clip.mp4']],
+    );
+    assert.deepEqual(
+      store.mediaOpenCommand('/Users/me/Media Assets/image.png', {
+        reveal: true,
+        platform: 'darwin',
+      }),
+      ['open', ['-R', '/Users/me/Media Assets/image.png']],
+    );
     const beforeMigration = store.listMediaAssets({ limit: 10 }).assets;
     assert.equal(beforeMigration[0].file, 'legacy-image.jpg',
       'read-only listing must not run the write-side layout migration');

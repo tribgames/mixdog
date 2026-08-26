@@ -35,10 +35,10 @@ if (remoteBrowser) {
 }
 
 if (launchApplication) {
-  // Start the rich transcript renderer while the language catalog and remote
-  // handshake are still in flight. TranscriptView keeps the lane covered
-  // until this exact renderer is ready, so the first visible text is already
-  // correctly formatted instead of flashing raw Markdown.
+  // Start the settled transcript renderer after its HTML hint has queued the
+  // shell-critical chunks first. The separate streaming parser Worker and
+  // secondary dialogs remain lazy, so an existing Markdown conversation is
+  // complete at reveal without letting those later surfaces take a boot slot.
   if (remoteBrowser) void preloadMarkdownBody().catch(() => undefined);
   const languageReady = import("./i18n")
     .then((module) => module.initUiLanguage());

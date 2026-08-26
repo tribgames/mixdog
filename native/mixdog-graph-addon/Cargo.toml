@@ -1,0 +1,29 @@
+[package]
+name = "mixdog-graph-addon"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+
+[lib]
+name = "mixdog_graph_addon"
+crate-type = ["cdylib"]
+
+[dependencies]
+# The engine itself. This crate is a transport shim and owns no search logic:
+# every behaviour it exposes is the same code the standalone executable runs.
+mixdog-graph = { path = "../mixdog-graph" }
+napi = { version = "3", features = ["napi8"] }
+napi-derive = "3"
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 8
+strip = true
+# Unwind, NOT abort: a panic inside the engine must surface to the host as a
+# failed call. Aborting would take the whole Mixdog process down with it, which
+# is the one regression an in-process engine cannot afford.
+panic = "unwind"

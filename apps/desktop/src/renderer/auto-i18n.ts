@@ -26,8 +26,6 @@ export function supplementalUiTranslations(language: string): Record<string, str
     return {
       ...Object.fromEntries(keys.map((key, index) => [key, ko[index] || key])),
       "% used": "% 사용",
-      "Connection lost. Reconnecting… Your draft is preserved.":
-        "연결이 끊겼습니다. 다시 연결하는 중입니다. 작성 중인 내용은 유지됩니다.",
       // Keep English: this key is the folder details size AND effort "medium".
       Medium: "Medium",
     };

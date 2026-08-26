@@ -616,6 +616,15 @@ export function createLifecycleApi(deps) {
     async inheritFrom(sourceSessionId) {
       const id = clean(sourceSessionId);
       if (!id) throw new TypeError('inheritFrom: source session id is required');
+      // A daemon-created heir is still only RESERVED when the desktop calls
+      // this: reserveSessionId starts the materializing create in the
+      // background. Join that single-flight instead of rejecting a session
+      // that is about to exist. (The TUI path already ran newSession().)
+      if (!getSession()?.id
+        && clean(getReservedSessionId?.())
+        && typeof createCurrentSession === 'function') {
+        await createCurrentSession('inherit');
+      }
       const target = getSession();
       if (!target?.id) throw new Error('inheritFrom: no session is open');
       if (target.id === id) throw new Error('inheritFrom: a session cannot inherit from itself');

@@ -527,16 +527,6 @@
   background: color-mix(in srgb, var(--mx-scrim) 72%, transparent);
   backdrop-filter: blur(2px);
 }
-/* Compact/phone Settings is a full SCREEN, not a card over the app, so its
-   lazy-chunk cover wears the settings surface instead of a dim scrim: a slow
-   first open then reads as the screen filling in rather than one screen
-   replacing another (user: 처음이 좀 튄다). Same band as settings.css. */
-@media (max-width: 760px), (max-height: 680px) {
-  .desktop-loading-surface--overlay.settings-loading-surface {
-    background: var(--mx-window-band);
-    backdrop-filter: none;
-  }
-}
 /* Sidebar rail panels use the same centered spinner-only grammar without a
    raised card frame. */
 .session-sidebar-panels .desktop-loading-surface {

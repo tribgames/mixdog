@@ -20,7 +20,7 @@ html[data-mixdog-mobile-tabs] body {
   top: var(--vv-offset-top, 0px);
   left: var(--vv-offset-left, 0px);
   width: var(--vvw, 100vw);
-  height: var(--vvh, 100dvh);
+  height: var(--mx-visible-height);
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: pan-x pan-y;

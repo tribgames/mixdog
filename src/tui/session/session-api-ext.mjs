@@ -440,6 +440,37 @@ export function createSessionApiB(bag) {
     runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
   } = bag;
   const oauthFlows = createSessionOAuthFlowRegistry();
+  /**
+   * Session inheritance as ONE addressable session action. THIS session is the
+   * already-created heir, so only the carry step runs here — the desktop
+   * creates and routes the new session first, then calls this by name. The
+   * daemon resolves actions on THIS surface, so `inheritFrom` has to live here
+   * and not only on the runtime beneath it.
+   */
+  const inheritFrom = async (sourceSessionId) => {
+    const result = await runtime.inheritFrom(sourceSessionId);
+    const sessionId = String(result?.sessionId || runtime.sessionId || getState().sessionId || '');
+    // Only model messages travel with the conversation. Rebuild the visible
+    // transcript from them right here so the heir opens showing the carried
+    // conversation; without it the view stays blank until a cold reopen
+    // resumes the session from disk and restores the same items.
+    const carried = runtime.readModelMessages?.(0)?.messages;
+    const items = restoreTranscriptItems(Array.isArray(carried) ? carried : [], { sessionId });
+    resetStatsAndSyncContext();
+    set({
+      sessionId,
+      items: replaceItems(items),
+      toasts: [],
+      queued: [],
+      thinking: null,
+      spinner: null,
+      lastTurn: null,
+      ...routeState(),
+      stats: { ...getState().stats },
+    });
+    flushEmitImmediate();
+    return result;
+  };
   return {
     resolveToolApproval: (id, decision = {}) => {
       const approved = decision === true || decision?.approved === true;
@@ -915,6 +946,7 @@ export function createSessionApiB(bag) {
      * conversation into it. The source session file is left as it is, so the
      * two transcripts share a prefix and then diverge.
      */
+    inheritFrom,
     inheritSession: async () => {
       if (getState().commandBusy) return false;
       const sourceId = getState().sessionId || null;
@@ -922,9 +954,7 @@ export function createSessionApiB(bag) {
       set({ commandBusy: true });
       try {
         await runtime.newSession();
-        const result = await runtime.inheritFrom(sourceId);
-        set({ sessionId: runtime.sessionId ?? getState().sessionId });
-        return result;
+        return await inheritFrom(sourceId);
       } finally {
         set({ commandBusy: false });
       }

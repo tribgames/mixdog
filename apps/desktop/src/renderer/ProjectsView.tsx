@@ -1,5 +1,5 @@
 import { Folder, NotebookPen, Pencil, Plus, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { DesktopProjectSummary } from '../shared/contract';
@@ -60,6 +60,9 @@ export function ProjectsPane({
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState('');
   const [editConfirmRemove, setEditConfirmRemove] = useState(false);
+  const [editOpening, setEditOpening] = useState(false);
+  const editOpenPendingRef = useRef(false);
+  const editOpenRequestRef = useRef(0);
   const [memories, setMemories] = useState<CoreMemoryEntry[]>([]);
   const [memoriesLoading, setMemoriesLoading] = useState(false);
   const [memoryBusy, setMemoryBusy] = useState(false);
@@ -88,15 +91,26 @@ export function ProjectsPane({
   const memoryScope = (path: string | null) => path === null
     ? { project_id: 'common' }
     : { cwd: path };
-  const refreshMemories = async (path: string | null) => {
-    if (!onMemoryControl) return;
+  const readMemories = async (path: string | null): Promise<CoreMemoryEntry[]> => {
+    if (!onMemoryControl) return [];
     const value = await onMemoryControl({ action: 'core', op: 'list', ...memoryScope(path) });
-    const entries = parseCoreMemoryEntries(value);
+    if (value === null || value === undefined) {
+      throw new Error(t('Memory is temporarily unavailable.'));
+    }
+    const failure = memoryResultError(value);
+    if (failure) throw new Error(failure);
+    return parseCoreMemoryEntries(value);
+  };
+  const refreshMemories = async (path: string | null) => {
+    const entries = await readMemories(path);
     setMemories(entries);
     setMemoryDrafts(Object.fromEntries(entries.map((entry) => [entry.id, entry.summary])));
   };
   const openEdit = (path: string | null, title: string) => {
-    setEditTarget({ path, title });
+    if (editOpenPendingRef.current) return;
+    editOpenPendingRef.current = true;
+    const requestId = ++editOpenRequestRef.current;
+    setEditOpening(true);
     setEditName(title);
     setEditIns(null);
     setEditError('');
@@ -105,21 +119,46 @@ export function ProjectsPane({
     setMemoryDrafts({});
     setAddingMemory(false);
     setConfirmDeleteMemory(null);
-    if (canEditInstructions && onReadInstructions) {
-      setEditInsLoading(true);
-      void onReadInstructions(path)
-        .then((text) => setEditIns(String(text ?? '')))
-        .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
-        .finally(() => setEditInsLoading(false));
-    }
-    if (onMemoryControl) {
-      setMemoriesLoading(true);
-      void refreshMemories(path)
-        .catch((reason) => setEditError(reason instanceof Error ? reason.message : String(reason)))
-        .finally(() => setMemoriesLoading(false));
-    }
+    const instructionsRequest: Promise<string | null> = canEditInstructions && onReadInstructions
+      ? onReadInstructions(path).then((text) => String(text ?? ''))
+      : Promise.resolve(null);
+    const memoriesRequest: Promise<CoreMemoryEntry[] | null> = onMemoryControl
+      ? readMemories(path)
+      : Promise.resolve(null);
+    setEditInsLoading(canEditInstructions);
+    setMemoriesLoading(Boolean(onMemoryControl));
+    void Promise.allSettled([instructionsRequest, memoriesRequest])
+      .then(([instructionsResult, memoriesResult]) => {
+        if (editOpenRequestRef.current !== requestId) return;
+        const errors: string[] = [];
+        if (instructionsResult.status === 'fulfilled') {
+          setEditIns(instructionsResult.value);
+        } else {
+          errors.push(instructionsResult.reason instanceof Error
+            ? instructionsResult.reason.message
+            : String(instructionsResult.reason));
+        }
+        if (memoriesResult.status === 'fulfilled') {
+          const entries = memoriesResult.value ?? [];
+          setMemories(entries);
+          setMemoryDrafts(Object.fromEntries(entries.map((entry) => [entry.id, entry.summary])));
+        } else {
+          errors.push(memoriesResult.reason instanceof Error
+            ? memoriesResult.reason.message
+            : String(memoriesResult.reason));
+        }
+        editOpenPendingRef.current = false;
+        setEditOpening(false);
+        setEditInsLoading(false);
+        setMemoriesLoading(false);
+        setEditError(errors.join('\n'));
+        setEditTarget({ path, title });
+      });
   };
   const resetEdit = () => {
+    editOpenRequestRef.current += 1;
+    editOpenPendingRef.current = false;
+    setEditOpening(false);
     setEditTarget(null);
     setEditName('');
     setEditIns(null);
@@ -406,12 +445,12 @@ export function ProjectsPane({
         <div className="schedules-row projects-row">
           <span className="projects-row-icon" aria-hidden="true"><NotebookPen size={16} /></span>
           <button type="button" className="schedules-row-copy projects-row-open"
-            onClick={() => openEdit(null, 'Common Instructions')}>
+            disabled={editOpening} onClick={() => openEdit(null, 'Common Instructions')}>
             <b>{t('Common Instructions')}</b>
             <small>{t('Used for every project.')}</small>
           </button>
           <button type="button" className="session-panel-action projects-instructions-edit"
-            aria-label={t('Edit common instructions')} data-tooltip={t('Edit')}
+            disabled={editOpening} aria-label={t('Edit common instructions')} data-tooltip={t('Edit')}
             onClick={() => openEdit(null, 'Common Instructions')}>
             <Pencil size={14} aria-hidden="true" />
           </button>
@@ -426,6 +465,7 @@ export function ProjectsPane({
           {/* Project rows open their existing editor like Common Instructions;
               they never mint a NEW TASK draft. */}
           <button type="button" className="schedules-row-copy projects-row-label projects-row-open"
+            disabled={editOpening}
             aria-current={selected ? 'page' : undefined}
             aria-label={t('Edit {{name}}', { name: title })}
             onClick={() => openEdit(project.path, title)}>
@@ -435,7 +475,7 @@ export function ProjectsPane({
           {/* Same pencil grammar as the Common Instructions row (user: 공통
               지침과 동일하게) — every mutation lives in the edit dialog. */}
           <button type="button" className="session-panel-action projects-instructions-edit"
-            aria-label={t('Edit {{name}}', { name: title })} data-tooltip={t('Edit')}
+            disabled={editOpening} aria-label={t('Edit {{name}}', { name: title })} data-tooltip={t('Edit')}
             onClick={() => openEdit(project.path, title)}>
             <Pencil size={14} aria-hidden="true" />
           </button>

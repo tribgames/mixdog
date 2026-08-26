@@ -188,6 +188,9 @@ export function createRoutePickers({
 
   const openWorkflowPicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
+      ? options.handoffPanel
+      : null;
     const own = surface.claim();
     let workflows = [];
     try {
@@ -225,21 +228,26 @@ export function createRoutePickers({
         // Clear-and-continue: the flow keeps the surface it just emptied, so
         // the post-ack hop below is bound to THIS keypress. An Esc before the
         // switch acks cancels the hop instead of re-opening Settings.
-        own.paint(null);
+        own.paint(handoffPanel);
         const returnAfterSwitch = own.defer(() => { if (returnTo) returnTo(); });
         void store.setWorkflow?.(workflow.id)
           .then((result) => {
             if (!result) {
               store.pushNotice('Workflow switch is already running.', 'warn');
+              if (handoffPanel) returnAfterSwitch();
               return;
             }
             store.pushNotice(workflowSwitchNotice(result), 'info');
             returnAfterSwitch();
           })
-          .catch((e) => store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error'));
+          .catch((e) => {
+            store.pushNotice(`Couldn’t switch workflow: ${e?.message || e}`, 'error');
+            if (handoffPanel) returnAfterSwitch();
+          });
       },
       onCancel: () => {
-        own.close();
+        if (handoffPanel) own.paint(handoffPanel);
+        else own.close();
         if (returnTo) returnTo();
       },
     });
@@ -247,6 +255,9 @@ export function createRoutePickers({
 
   const openOutputStylePicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
+      ? options.handoffPanel
+      : null;
     // Onboarding mode: Enter (row select) and ConfirmBar Next must both persist
     // the chosen style, then advance. `onboarding.onAdvance/onBack` drive the
     // wizard; the confirm bar is built here so both paths share `saveStyle`.
@@ -284,7 +295,7 @@ export function createRoutePickers({
       // Onboarding advance: keep the current picker visible during the async
       // style switch so the screen never flashes empty between steps; the next
       // step (or finishOnboarding) replaces/clears the picker itself.
-      if (!(advance && onboarding)) own.paint(null);
+      if (!(advance && onboarding)) own.paint(handoffPanel);
       // Post-ack delegation (next onboarding step, or back to the caller):
       // bound after this keypress's own navigation so an Esc while the switch
       // is in flight cannot paint a panel over the new surface.
@@ -301,7 +312,10 @@ export function createRoutePickers({
           }
           advanceAfterSave();
         })
-        .catch((e) => store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error'));
+        .catch((e) => {
+          store.pushNotice(`Couldn’t switch output style: ${e?.message || e}`, 'error');
+          if (handoffPanel) advanceAfterSave();
+        });
     };
     own.paint({
       title: 'Output Style',
@@ -334,7 +348,8 @@ export function createRoutePickers({
         saveStyle(style.id, { advance: Boolean(onboarding) });
       },
       onCancel: () => {
-        own.close();
+        if (handoffPanel) own.paint(handoffPanel);
+        else own.close();
         if (onboarding) onboarding.onCancel?.();
         else if (returnTo) returnTo();
       },

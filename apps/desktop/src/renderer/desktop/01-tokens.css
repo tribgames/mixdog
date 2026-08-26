@@ -340,6 +340,17 @@
      in the tracked visual viewport so the soft keyboard never clips
      dialogs, menus, or sheets. */
   --vvh: 100vh;
+  /* Visible-height CEILING for anything pinned to the screen. --vvh is a JS
+     mirror of visualViewport, and a mirror can over-report: while a mobile URL
+     bar retracts, and on an edge-to-edge viewport that reaches behind system
+     UI, it names more height than the screen actually shows. A sheet that
+     trusts it alone pushes its own bottom — and any pinned footer, like Source
+     Control's commit button — under the browser chrome (user: 오른쪽 사이드바
+     하단이 프레임을 벗어나 내려간다). `dvh` is the browser's OWN answer to the
+     same question, so the smaller of the two always wins: the variable still
+     shrinks a sheet for the soft keyboard, and the unit caps it at what is
+     really on screen. */
+  --mx-visible-height: min(var(--vvh, 100dvh), 100dvh);
 }
 
 /* Reduced motion, at the SOURCE: collapsing the scale itself retimes every

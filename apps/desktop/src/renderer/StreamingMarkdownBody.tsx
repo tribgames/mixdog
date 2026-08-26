@@ -6,6 +6,10 @@ import {
   readCachedStreamingMarkdownAst,
 } from "./markdown-worker-client";
 import MarkdownAstBody from "./MarkdownAstBody";
+import {
+  containsFencedCodeMarkdown,
+  MarkdownSourceFallback,
+} from "./MarkdownSourceFallback";
 
 type MarkdownCopyControl = ComponentType<{
   value: string;
@@ -53,9 +57,14 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const usable = exact
     ?? (rendered && text.startsWith(rendered.source) ? rendered : null);
   const renderedRoot = usable?.root ?? null;
+  // A cold web Worker can trail the first streamed tokens by a network round
+  // trip. Fenced scripts still reserve their final card/mono geometry during
+  // that gap; ordinary prose stays hidden so raw Markdown markers never flash.
+  const showFencedSourceFallback = !renderedRoot && containsFencedCodeMarkdown(text);
+  const fallbackMeasureText = showFencedSourceFallback ? text : "";
   useLayoutEffect(() => {
-    if (renderedRoot) onRendered?.();
-  }, [onRendered, renderedRoot]);
+    if (renderedRoot || fallbackMeasureText) onRendered?.();
+  }, [fallbackMeasureText, onRendered, renderedRoot]);
 
   useEffect(() => {
     if (!parse) return;
@@ -99,14 +108,18 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // the model is typing. Our worker is the pace:
   // the newest completed parse stays mounted (a few tokens behind) instead of
   // dropping the block back to source-shaped text, at settlement too. Before
-  // the first result there is intentionally no visible body: showing source
-  // even for one paint creates the raw-Markdown flash this pipeline forbids.
+  // the first result, ordinary source stays hidden: showing it even for one
+  // paint creates the raw-Markdown flash this pipeline forbids. Fenced scripts
+  // alone use a source projection with their final code-card grammar.
   // `parse` gates only whether NEW parses are requested. A tail past the cap
   // keeps its last completed parse on screen — falling back to source there
   // un-styled markdown that was already rendered, which is the one thing the
   // reader must never see (the projection never shows source either).
   if (usable) {
     return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
+  }
+  if (showFencedSourceFallback) {
+    return <MarkdownSourceFallback text={text} copyControl={copyControl} />;
   }
   return null;
 });

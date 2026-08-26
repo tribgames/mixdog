@@ -3,6 +3,13 @@ name = "mixdog-graph"
 version = "0.1.20"
 edition = "2021"
 
+# The engine is a library first: the standalone executable and the in-process
+# Node-API addon (native/mixdog-graph-addon) are two thin front ends over the
+# SAME search/graph code, so neither transport can drift from the other.
+[lib]
+name = "mixdog_graph"
+path = "src/lib.rs"
+
 [[bin]]
 name = "mixdog-graph"
 path = "src/main.rs"

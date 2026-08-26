@@ -451,8 +451,13 @@
     z-index: 38;
     top: var(--titlebar-height);
     right: 0;
-    bottom: 0;
-    height: auto;
+    /* Anchored to `bottom`, this sheet resolved against the LAYOUT viewport —
+       on a mobile browser the URL-bar-hidden height — so its last rows and its
+       pinned footer sat below the fold, exactly the defect the phone sheets
+       fixed. It takes the same visible-height ceiling, minus the title band it
+       starts below. */
+    bottom: auto;
+    height: calc(var(--mx-visible-height) - var(--titlebar-height));
     box-shadow: var(--mx-overlay);
     /* Narrow desktop windows get the same in/out slide as the phone sheet. */
     transform: translateX(0);

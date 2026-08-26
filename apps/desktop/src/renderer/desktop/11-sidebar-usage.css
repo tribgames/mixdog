@@ -328,13 +328,16 @@
 }
 /* Collapsed section heading keeps the unread signal visible. */
 .sidebar-heading-dot {
-  width: 6px;
-  height: 6px;
-  /* Share the session unread dot's trailing edge: 6px row inset + 4px
-     outer margin keeps every activity marker on one right-hand line. */
-  margin: 0 4px 0 auto;
+  position: absolute;
+  z-index: 2;
+  right: 10.5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  margin: 0;
   border-radius: 50%;
-  background: var(--mx-text-accent);
+  background: var(--mx-accent);
 }
 .session-sidebar .standalone-group,
 .session-sidebar .project-group { max-height: none; overflow: visible; }

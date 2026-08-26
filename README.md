@@ -1,20 +1,27 @@
-# mixdog
+# Mixdog
 
 [![npm](https://img.shields.io/npm/v/mixdog)](https://www.npmjs.com/package/mixdog)
 ![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 Mixdog is a standalone coding agent for orchestrated, multi-provider workflows.
-Use it from a full-screen terminal UI or the Windows desktop app.
+Use it from a full-screen terminal UI or the desktop app on Windows, macOS, and
+Linux. Pair a browser or phone when you want to continue remotely.
 
 ## Get started
 
-### Windows desktop
+### Desktop
 
-[Download Mixdog Desktop for Windows (x64)](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe)
+| Platform | Download |
+| --- | --- |
+| Windows x64 | [Installer](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe) |
+| macOS Apple silicon | [DMG](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg) |
+| macOS Intel | [DMG](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg) |
+| Linux x86_64 | [AppImage](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage) |
+| Linux arm64 | [AppImage](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.AppImage) |
 
-The desktop package is currently unsigned, so Windows SmartScreen may show a
-security warning during installation.
+Desktop packages are currently unsigned, so Windows SmartScreen or macOS
+Gatekeeper may show a security warning.
 
 ### CLI
 
@@ -67,25 +74,28 @@ the harness, presets, and metric scripts that recompute each number above:
 ## Highlights
 
 - **Multi-provider routing** — assign different providers and models by role.
+- **Shared live sessions** — move between the TUI, desktop windows, and paired
+  browsers without starting a second copy of the session.
 - **Efficient context** — cache-aware prompts, compaction, resumable sessions,
   and focused repo-native tools.
 - **Complete coding surface** — read, search, edit, test, review, web search,
   MCP, skills, hooks, and plugins.
 - **Local memory** — semantic and lexical recall with project-scoped context
   and multilingual retrieval.
-- **Remote workflows** — optional web relay, Discord, Telegram, voice, and cron
-  schedules.
-- **Windows desktop app** — agent panes, Monaco editor, git, terminal, file
-  explorer, Studio, automation, and settings in one workbench.
+- **Encrypted remote access** — pair the installable web app with Desktop and
+  use Mixdog from a browser or phone over authenticated E2EE.
+- **Desktop coding app** — agent panes, Monaco editor, Git, terminals, file
+  explorer, Studio, automation, voice input, and settings in one app.
 
 ## Providers
 
 Mixdog supports subscription OAuth and API-key routes, including:
 
-- Anthropic and Claude accounts
-- OpenAI and ChatGPT/Codex accounts
-- Google Gemini
-- xAI Grok
+- Anthropic API keys and Claude account OAuth
+- OpenAI API keys and ChatGPT/Codex account OAuth
+- Google Gemini and Antigravity OAuth
+- xAI API keys and Grok account OAuth
+- Experimental Cursor account OAuth
 - DeepSeek and OpenCode Go
 - OpenAI-compatible APIs
 - Ollama and LM Studio
@@ -143,39 +153,56 @@ stdout; diagnostics remain on stderr.
 ## TUI commands
 
 ```text
-/providers   configure provider authentication and local endpoints
-/model       choose the main provider and model
-/workflow    choose the active workflow
-/agents      inspect agents and model overrides
-/project     switch the current project
-/resume      resume a saved session
-/memory      inspect and edit core memory
-/mcp         manage MCP servers and tools
-/skills      select a skill
-/channels    manage remote channels
-/compact     compact older context
-/setting     open settings
-/update      check for updates
-/doctor      diagnose installation health
+/clear        start a fresh chat
+/project      switch the current project
+/resume       resume a saved chat
+/compact      compact older conversation context
+/autoclear    manage idle-time context clearing
+/context      inspect the current context surface
+/usage        show provider quota and balance
+/providers    configure authentication and local endpoints
+/model        choose the main provider and model
+/websearch    choose the web search route
+/workflow     choose the active workflow
+/agents       inspect agents and model overrides
+/effort       set reasoning effort
+/fast         toggle supported model fast mode
+/OutputStyle  choose the Lead response style
+/theme        change the TUI color theme
+/memory       inspect and edit core memory
+/mcp          manage MCP servers and tools
+/skills       choose a skill for the next request
+/plugins      manage local plugin integrations
+/hooks        manage before-tool hooks and events
+/setting      open runtime settings
+/profile      set your title and response language
+/update       check for updates
+/doctor       diagnose installation health
+/quit         quit the TUI
 ```
 
 Workflows and agents are Markdown definition packs (`WORKFLOW.md`, `AGENT.md`).
 Built-in packs ship with Mixdog; custom packs live under the Mixdog data
 directory.
 
-## Windows desktop app
+## Desktop app
 
-Mixdog Desktop runs the same agent runtime as the CLI in an Electron
-workbench:
+Mixdog Desktop runs the same agent runtime as the CLI:
 
 - Split panes for parallel, independently routed agent sessions
+- Live session handoff between the TUI, desktop windows, and paired browsers
 - Monaco editor, LSP integration, diffs, and turn-by-turn edit review
 - Git staging, commits, branches, and generated commit messages
-- Windows file explorer with previews, thumbnails, and drag-and-drop
-- Integrated PowerShell and ConPTY terminal tabs
+- File explorer with previews, thumbnails, search, and drag-and-drop
+- Integrated terminal tabs using the local system shell
 - Image and video generation Studio with a persistent local gallery
-- Visual workflow, agent, and schedule editors
+- Visual workflow, agent, schedule, and webhook editors
+- Voice dictation with an optional local transcription runtime
 - Provider setup, usage, git identity, and remote pairing settings
+
+The paired remote web app is installable on desktop and mobile browsers. It
+uses an authenticated end-to-end encrypted connection before session state,
+terminal data, files, or operation requests cross the relay.
 
 For desktop development:
 
@@ -218,10 +245,11 @@ Main directories:
 
 ```text
 src/            CLI, TUI, runtime, workflows, agents, and rules
-apps/desktop/   Windows desktop workbench
-apps/relay/     remote web relay
+apps/desktop/   cross-platform desktop app
+apps/relay/     remote web app and relay
 native/         native process, search, patch, and support binaries
 scripts/        tests, diagnostics, benchmarks, and build scripts
+benchmarks/     reproducible benchmark harnesses, results, and raw artifacts
 vendor/         vendored runtime components
 ```
 

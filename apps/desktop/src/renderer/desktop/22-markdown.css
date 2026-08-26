@@ -366,6 +366,8 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   grid-template-columns: 1fr;
   padding-left: var(--live-work-inset);
   color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
 }
 .session-work-indicator[data-active="false"] .live-work-row {
   min-height: 36px;

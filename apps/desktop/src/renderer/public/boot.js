@@ -62,11 +62,36 @@ if (mixdogInstalledApp) {
   var mixdogHints = mixdogHintHost && mixdogHintHost.content
     ? mixdogHintHost.content.querySelectorAll('link')
     : [];
+  // Resolve the same supported locale grammar as i18n.ts before its bundle
+  // runs. Locale chunks stay inert in the template; only this phone's catalog
+  // joins the first network fan-out.
+  var mixdogUiLanguage = 'en';
+  try {
+    var mixdogStoredLanguage = localStorage.getItem('mixdog.desktop.ui-language.v1');
+    var mixdogLanguageValue = mixdogStoredLanguage && mixdogStoredLanguage !== 'system'
+      ? mixdogStoredLanguage
+      : navigator.language;
+    var mixdogLanguageLower = String(mixdogLanguageValue || 'en').toLowerCase();
+    var mixdogLanguageBase = mixdogLanguageLower.split(/[-_]/)[0];
+    var mixdogSimpleLanguages = ['de', 'es', 'fr', 'it', 'ja', 'ko', 'ru', 'vi'];
+    if (mixdogLanguageBase === 'zh') {
+      mixdogUiLanguage = /hant|tw|hk|mo/.test(mixdogLanguageLower) ? 'zh-TW' : 'zh-CN';
+    } else if (mixdogLanguageBase === 'pt') {
+      mixdogUiLanguage = 'pt-BR';
+    } else if (mixdogSimpleLanguages.indexOf(mixdogLanguageBase) >= 0) {
+      mixdogUiLanguage = mixdogLanguageBase;
+    }
+  } catch (error) { /* English needs no catalog and remains the safe fallback. */ }
   for (var mixdogHintIndex = 0; mixdogHintIndex < mixdogHints.length; mixdogHintIndex += 1) {
     var mixdogHint = mixdogHints[mixdogHintIndex];
+    var mixdogHintLocale = mixdogHint.getAttribute('data-mixdog-locale');
+    if (mixdogHintLocale && mixdogHintLocale !== mixdogUiLanguage) continue;
     var mixdogLink = document.createElement('link');
     mixdogLink.rel = mixdogHint.getAttribute('rel');
     if (mixdogHint.hasAttribute('crossorigin')) mixdogLink.crossOrigin = 'anonymous';
+    if (mixdogHint.hasAttribute('fetchpriority')) {
+      mixdogLink.setAttribute('fetchpriority', mixdogHint.getAttribute('fetchpriority'));
+    }
     // Resolved against the DOCUMENT: a template's contents carry no base of
     // their own, and the bundle's module-preload helper skips a dependency only
     // when an existing link's href ATTRIBUTE equals the absolute URL it

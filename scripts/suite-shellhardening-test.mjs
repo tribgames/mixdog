@@ -320,16 +320,17 @@ test('resident native search consumes asynchronous stdin EPIPE', () => {
 
 test('native search request timeout cancels only that request', async () => {
     const writes = [];
-    const child = new EventEmitter();
-    child.stdin = new EventEmitter();
-    child.stdin.write = (line) => {
-        writes.push(String(line));
-        return true;
-    };
     let killed = false;
-    child.kill = () => { killed = true; };
+    // Transport-shaped stub: the client speaks the JSONL protocol and never
+    // learns whether an addon or a child process is attached.
+    const transport = {
+        write: (line) => { writes.push(String(line)); },
+        kill: () => { killed = true; },
+        ref: () => {},
+        unref: () => {},
+    };
     const server = {
-        child,
+        transport,
         pending: new Map(),
         sequence: 1,
         stderrTail: '',
@@ -357,13 +358,15 @@ test('native search request timeout cancels only that request', async () => {
 test('native search cancellation acknowledgement disarms forced recycle', async () => {
     const previous = process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS;
     process.env.MIXDOG_SEARCH_CANCEL_GRACE_MS = '10';
-    const child = new EventEmitter();
-    child.stdin = new EventEmitter();
-    child.stdin.write = () => true;
     let killed = false;
-    child.kill = () => { killed = true; };
+    const transport = {
+        write: () => {},
+        kill: () => { killed = true; },
+        ref: () => {},
+        unref: () => {},
+    };
     const server = {
-        child,
+        transport,
         pending: new Map(),
         cancelWatchdogs: new Map(),
         sequence: 1,

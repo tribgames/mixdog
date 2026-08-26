@@ -8,6 +8,18 @@ const mobileChromeSource = readFileSync(
   new URL("./desktop/07-mobile-chrome.css", import.meta.url),
   "utf8",
 );
+const tokensSource = readFileSync(
+  new URL("./desktop/01-tokens.css", import.meta.url),
+  "utf8",
+);
+const mobileTabsSource = readFileSync(
+  new URL("./desktop/08-mobile-tabs.css", import.meta.url),
+  "utf8",
+);
+const mobileRuntimeSource = readFileSync(
+  new URL("./mobile-web-runtime.css", import.meta.url),
+  "utf8",
+);
 
 test("iOS boot preserves device-width and marks the phone before CSS paint", () => {
   const dom = new JSDOM(
@@ -79,6 +91,47 @@ test("Android Samsung boot preserves device-width like iOS", () => {
   }
 });
 
+test("installed phone boot promotes only its locale and preserves asset priority", () => {
+  const dom = new JSDOM(
+    `<!doctype html><html><head>
+      <meta name="viewport" content="width=device-width">
+      <template id="mixdog-first-screen">
+        <link rel="modulepreload" fetchpriority="high" href="./bootstrap.js">
+        <link rel="modulepreload" data-mixdog-locale="ko" href="./ko.js">
+        <link rel="modulepreload" data-mixdog-locale="ja" href="./ja.js">
+      </template>
+    </head><body><div id="root"></div></body></html>`,
+    { runScripts: "outside-only", url: "https://mixdog.test/d/device/" },
+  );
+  Object.defineProperty(dom.window.navigator, "userAgent", {
+    configurable: true,
+    value: "Mozilla/5.0 (Linux; Android 15; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile",
+  });
+  Object.defineProperty(dom.window.navigator, "language", {
+    configurable: true,
+    value: "ko-KR",
+  });
+  dom.window.matchMedia = (query) => ({
+    matches: query === "(display-mode: standalone)",
+    media: query,
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  try {
+    dom.window.eval(bootSource);
+    const promoted = [...dom.window.document.head.children]
+      .filter((node) => node.tagName === "LINK");
+    assert.deepEqual(
+      promoted.map((link) => new URL(link.href).pathname),
+      ["/d/device/bootstrap.js", "/d/device/ko.js"],
+    );
+    assert.equal(promoted[0].getAttribute("fetchpriority"), "high");
+  } finally {
+    dom.window.mixdogRevealApp?.();
+    dom.window.close();
+  }
+});
+
 test("phone finishing rules keep reading, touch and safe-area geometry aligned", () => {
   assert.match(mobileChromeSource, /--mx-mobile-edge-main:\s*calc\(12px \* var\(--mx-device-scale/u);
   assert.match(
@@ -116,6 +169,46 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
   assert.match(
     mobileChromeSource,
     /\.desktop-body > \.utility-dock\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su,
+  );
+});
+
+test("every screen-pinned sheet takes the visible-height ceiling", () => {
+  // --vvh mirrors visualViewport from JS and can name MORE height than the
+  // screen shows (a retracting URL bar, an edge-to-edge viewport reaching
+  // behind system UI). `dvh` is the browser's own measure of the same height,
+  // so a sheet takes whichever is smaller: the variable still shrinks it for
+  // the soft keyboard, the unit keeps its pinned footer on screen.
+  assert.match(
+    tokensSource,
+    /--mx-visible-height:\s*min\(var\(--vvh, 100dvh\), 100dvh\);/u,
+  );
+  // The phone body is the containing block every fixed sheet resolves against.
+  assert.match(
+    mobileRuntimeSource,
+    /html\[data-mixdog-mobile-tabs\] body\s*\{[^}]*height:\s*var\(--mx-visible-height\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.workbench-side-panel\[data-side="right"\]\s*\{[^}]*height:\s*var\(--mx-visible-height\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.sidebar-drawer-frame\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) \/ var\(--mx-device-scale, 2\.5\)\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.desktop-body > \.utility-dock\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) \/ var\(--mx-device-scale, 2\.5\)\);/su,
+  );
+  // Narrow desktop/tablet band: the same sheet used to anchor to `bottom`,
+  // which resolves against the LAYOUT viewport and dropped its footer below
+  // the fold on every mobile browser.
+  assert.match(
+    mobileTabsSource,
+    /@media \(max-width: 940px\)\s*\{[^}]*\.workbench-side-panel\[data-side="right"\]\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) - var\(--titlebar-height\)\);/su,
+  );
+  assert.doesNotMatch(
+    mobileTabsSource,
+    /\.workbench-side-panel\[data-side="right"\]\s*\{[^}]*bottom:\s*0;/su,
   );
 });
 

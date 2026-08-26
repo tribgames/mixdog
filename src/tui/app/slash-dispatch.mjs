@@ -55,6 +55,44 @@ export function createSlashDispatch({
   runDoctor,
   requestExit,
 }) {
+  const openSlashPanel = (command, title, open) => {
+    const own = surface.claim();
+    if (!own.paint({
+      _kind: `slash-loading:${command}`,
+      title,
+      description: `Loading ${title.toLowerCase()}...`,
+      help: 'Esc Close',
+      indexMode: 'never',
+      pickerKey: `slash-loading:${command}`,
+      loading: true,
+      items: [],
+      onSelect: () => {},
+      onCancel: () => own.close(),
+    })) return;
+    const finishUnclaimedLoading = () => {
+      // A real picker/context/usage surface supersedes this loading identity.
+      // If the opener completed without painting (empty result or failure),
+      // remove only the still-owned placeholder and restore the normal prompt.
+      if (own.owns()) own.close();
+    };
+    try {
+      const opening = open();
+      if (opening && typeof opening.then === 'function') {
+        void Promise.resolve(opening).then(
+          finishUnclaimedLoading,
+          (error) => {
+            finishUnclaimedLoading();
+            store.pushNotice(`${title} panel failed: ${error?.message || error}`, 'error');
+          },
+        );
+      } else {
+        finishUnclaimedLoading();
+      }
+    } catch (error) {
+      finishUnclaimedLoading();
+      store.pushNotice(`${title} panel failed: ${error?.message || error}`, 'error');
+    }
+  };
   const runSlashCommand = (cmd, arg = '') => {
     const rawName = String(cmd || '').toLowerCase();
     cmd = normalizeSlashCommandName(cmd);
@@ -86,12 +124,12 @@ export function createSlashDispatch({
         return true;
       case 'model':
         if (!arg) {
-          openModelPicker();
+          openSlashPanel('model', 'Model', () => openModelPicker());
           return true;
         }
         if (arg.trim().toLowerCase() === 'refresh') {
           // Explicit catalog reload: force a fresh remote provider list.
-          openModelPicker({ refreshModels: true });
+          openSlashPanel('model', 'Model', () => openModelPicker({ refreshModels: true }));
           return true;
         }
         void store.setModel(arg)
@@ -104,14 +142,16 @@ export function createSlashDispatch({
         // in-flight turn, and the same picker is already reachable mid-turn via
         // /settings, so blocking it here was inconsistent.
         if (arg) store.pushNotice('/websearch sets the web-search provider/model; the web_search tool uses that model when called.', 'warn');
-        openWebSearchPicker();
+        openSlashPanel('websearch', 'Web Search Model', () => openWebSearchPicker());
         return true;
       case 'agents':
-        openAgentsPicker(arg.trim().toLowerCase() === 'refresh' ? { refreshModels: true } : {});
+        openSlashPanel('agents', 'Agents', () => openAgentsPicker(
+          arg.trim().toLowerCase() === 'refresh' ? { refreshModels: true } : {},
+        ));
         return true;
       case 'workflow':
         if (!arg) {
-          openWorkflowPicker();
+          openSlashPanel('workflow', 'Workflow', () => openWorkflowPicker());
           return true;
         }
         void store.setWorkflow?.(arg.trim())
@@ -132,7 +172,7 @@ export function createSlashDispatch({
         const value = arg.trim();
         const lower = value.toLowerCase();
         if (!value) {
-          openOutputStylePicker();
+          openSlashPanel('outputstyle', 'Output Style', () => openOutputStylePicker());
           return true;
         }
         if (lower === 'status' || lower === 'current' || lower === 'show') {
@@ -159,7 +199,7 @@ export function createSlashDispatch({
         const value = arg.trim();
         const lower = value.toLowerCase();
         if (!value) {
-          openThemePicker();
+          openSlashPanel('theme', 'Theme', () => openThemePicker());
           return true;
         }
         let themes = [];
@@ -194,7 +234,7 @@ export function createSlashDispatch({
         // turn. Same for /fast below.
         const pendingTurn = state.busy ? ' (applies from the next turn)' : '';
         if (!arg) {
-          openEffortPicker();
+          openSlashPanel('effort', 'Effort', () => openEffortPicker());
           return true;
         }
         void store.setEffort(arg)
@@ -237,23 +277,23 @@ export function createSlashDispatch({
           enterProject(target);
           return true;
         }
-        openProjectPicker();
+        openSlashPanel('project', 'Projects', () => openProjectPicker());
         return true;
       }
       case 'mcp':
-        openMcpPicker();
+        openSlashPanel('mcp', 'MCP Servers', () => openMcpPicker());
         return true;
       case 'skills':
-        openSkillsPicker();
+        openSlashPanel('skills', 'Skills', () => openSkillsPicker());
         return true;
       case 'plugins':
-        openPluginsPicker();
+        openSlashPanel('plugins', 'Plugins', () => openPluginsPicker());
         return true;
       case 'hooks':
-        openHooksPicker();
+        openSlashPanel('hooks', 'Hooks', () => openHooksPicker());
         return true;
       case 'providers':
-        void openProviderSetupPicker();
+        openSlashPanel('providers', 'Providers', () => openProviderSetupPicker());
         return true;
       case 'schedules':
       case 'webhooks':
@@ -263,7 +303,7 @@ export function createSlashDispatch({
         return true;
       case 'memory': {
         if (!arg.trim()) {
-          openMemoryCorePicker({ returnTo: null });
+          openSlashPanel('memory', 'Memory', () => openMemoryCorePicker({ returnTo: null }));
           return true;
         }
         void store.memoryControl?.(parseMemoryCommand(arg))
@@ -273,7 +313,7 @@ export function createSlashDispatch({
       case 'autoclear': {
         const value = arg.trim().toLowerCase();
         if (!value) {
-          openAutoClearPicker();
+          openSlashPanel('autoclear', 'Auto-clear', () => openAutoClearPicker());
           return true;
         }
         // Promise-shaped on a daemon-backed store, so the verdict is reported
@@ -334,14 +374,14 @@ export function createSlashDispatch({
             .then(ok => store.pushNotice(ok ? `Resumed ${arg}` : 'Couldn’t resume chat.', ok ? 'info' : 'warn'))
             .catch((e) => store.pushNotice(`Couldn’t resume chat: ${e?.message || e}`, 'error'));
         } else {
-          openResumePicker();
+          openSlashPanel('resume', 'Resume', () => openResumePicker());
         }
         return true;
       case 'usage':
-        openUsagePanel(arg);
+        openSlashPanel('usage', 'Provider Quotas', () => openUsagePanel(arg));
         return true;
       case 'context':
-        openContextPicker();
+        openSlashPanel('context', 'Context Usage', () => openContextPicker());
         return true;
       case 'inherit':
         if (state.busy) {
@@ -363,13 +403,13 @@ export function createSlashDispatch({
         return true;
       case 'settings':
       case 'config':
-        openSettingsPicker();
+        openSlashPanel('settings', 'Settings', () => openSettingsPicker());
         return true;
       case 'profile':
-        openProfilePicker();
+        openSlashPanel('profile', 'Profile', () => openProfilePicker());
         return true;
       case 'update':
-        openUpdatePicker();
+        openSlashPanel('update', 'Update', () => openUpdatePicker());
         return true;
       case 'doctor':
         if (state.commandBusy) {

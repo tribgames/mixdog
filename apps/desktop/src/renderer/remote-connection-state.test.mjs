@@ -19,6 +19,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const {
   clearRemoteConnectionState,
   currentRemoteConnectionState,
+  remoteConnectionInterruptedError,
   setRemoteConnectionState,
   shouldRunRemoteHeartbeat,
   subscribeRemoteConnectionState,
@@ -45,6 +46,13 @@ test("remote connection state publishes every lifecycle transition", () => {
     unsubscribe();
   }
   assert.deepEqual(states, ["connecting", "connected", "reconnecting", null]);
+});
+
+test("a transient disconnect carries no user-facing wording", () => {
+  const error = remoteConnectionInterruptedError();
+  assert.equal(error.name, "RemoteConnectionInterruptedError");
+  assert.equal(error.code, "MIXDOG_REMOTE_CONNECTION_INTERRUPTED");
+  assert.equal(error.message, "");
 });
 
 test("only a reconnect past the threshold blocks the surface, and it says nothing", async () => {
@@ -100,6 +108,7 @@ test("only a reconnect past the threshold blocks the surface, and it says nothin
     const overlay = document.querySelector(".remote-connection-overlay");
     assert.ok(overlay);
     assert.equal(overlay.textContent, "");
+    assert.equal(overlay.getAttribute("aria-label"), "Retry");
 
     await act(async () => {
       setRemoteConnectionState("connected");

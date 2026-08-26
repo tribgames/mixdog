@@ -16,6 +16,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -617,6 +618,7 @@ struct LiveWalk {
     cancelled: AtomicBool,
     enumeration_done: AtomicBool,
     keep_warm: AtomicBool,
+    keep_inventory: AtomicBool,
     cacheable: AtomicBool,
     walk_errors: AtomicUsize,
     walk_error_details: Mutex<Vec<String>>,
@@ -717,7 +719,11 @@ struct FileMetadataEntry {
 static CONTENT_SIGNATURE_CACHE: OnceLock<
     [Mutex<HashMap<PathBuf, ContentSignatureEntry>>; CONTENT_SIGNATURE_CACHE_SHARDS],
 > = OnceLock::new();
-static CONTENT_SIGNATURE_CACHE_LOADED: OnceLock<()> = OnceLock::new();
+// Not a OnceLock: an in-process server releases this cache on idle and must be
+// able to reload it from the snapshot on the next search, exactly as a fresh
+// standalone process would. A OnceLock can never be re-armed.
+static CONTENT_SIGNATURE_CACHE_LOADED: AtomicBool = AtomicBool::new(false);
+static CONTENT_SIGNATURE_CACHE_LOAD: Mutex<()> = Mutex::new(());
 static CONTENT_SIGNATURE_CACHE_DIRTY: AtomicUsize = AtomicUsize::new(0);
 static CONTENT_SIGNATURE_CACHE_PERSISTING: AtomicBool = AtomicBool::new(false);
 static FILE_METADATA_CACHE: OnceLock<
@@ -894,12 +900,23 @@ fn load_content_signature_cache_binary(path: &Path) -> bool {
 }
 
 fn ensure_content_signature_cache_loaded() {
-    CONTENT_SIGNATURE_CACHE_LOADED.get_or_init(|| {
-        let Some(path) = content_signature_snapshot_path() else {
-            return;
-        };
+    if CONTENT_SIGNATURE_CACHE_LOADED.load(Ordering::Acquire) {
+        return;
+    }
+    let _guard = CONTENT_SIGNATURE_CACHE_LOAD
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    // Re-check under the lock: the snapshot read is expensive enough that two
+    // threads racing here would both pay for it.
+    if CONTENT_SIGNATURE_CACHE_LOADED.load(Ordering::Acquire) {
+        return;
+    }
+    if let Some(path) = content_signature_snapshot_path() {
         let _ = load_content_signature_cache_binary(&path);
-    });
+    }
+    // A missing snapshot path still counts as loaded: there is nothing to read
+    // and retrying per call would probe the environment on every search.
+    CONTENT_SIGNATURE_CACHE_LOADED.store(true, Ordering::Release);
 }
 
 fn persist_content_signature_cache() {
@@ -1494,6 +1511,65 @@ impl FileListStore {
             watched_roots: Mutex::new(HashMap::new()),
             noise_sensitive_roots: Mutex::new(HashSet::new()),
         }
+    }
+
+    /// Drop every warm cache without tearing the server down.
+    ///
+    /// A standalone server reclaims by exiting and letting the OS take the
+    /// pages back. An in-process server has no exit to reclaim through — the
+    /// host owns the process — so the same idle window frees the inventory,
+    /// the fuzzy corpus, the trigram signatures and the OS watchers instead.
+    /// Only cached RESULTS are dropped: walks in flight hold their own Arc and
+    /// finish untouched, and everything persisted first is reloaded on demand,
+    /// exactly as a freshly spawned process would.
+    fn release_caches(&self) {
+        persist_file_list_snapshot(&self.ready);
+        persist_content_signature_cache();
+        self.ready
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        self.fuzzy
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        self.generations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        self.pending_repairs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        self.noise_sensitive_roots
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        // Dropping the watcher unwatches every root at once. An idle server
+        // pinning one OS handle per watched root is exactly the cost this
+        // release exists to remove; the next search re-arms it.
+        *self
+            .watcher
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = None;
+        self.watcher_healthy.store(false, Ordering::Release);
+        self.watched_roots
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        trusted_watch_roots()
+            .write()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        for shard in raw_content_signature_cache() {
+            shard
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clear();
+        }
+        // Re-arm the loader so the next search reads the snapshot just
+        // persisted rather than rebuilding every signature from scratch.
+        CONTENT_SIGNATURE_CACHE_LOADED.store(false, Ordering::Release);
     }
 
     fn new_persistent() -> Self {
@@ -2232,6 +2308,15 @@ impl FileListStore {
     }
 
     fn begin_live(&self, key: WalkKey, keep_warm: bool) -> (Arc<LiveWalk>, bool) {
+        self.begin_live_with_inventory(key, keep_warm, false)
+    }
+
+    fn begin_live_with_inventory(
+        &self,
+        key: WalkKey,
+        keep_warm: bool,
+        keep_inventory: bool,
+    ) -> (Arc<LiveWalk>, bool) {
         // Read the generation before taking the live-map lock; generation()
         // locks the generations mutex and nesting it under `live` invites
         // lock-order inversions with invalidation.
@@ -2240,6 +2325,9 @@ impl FileListStore {
         if let Some(existing) = live.get(&key) {
             if keep_warm {
                 existing.keep_warm.store(true, Ordering::Release);
+            }
+            if keep_inventory {
+                existing.keep_inventory.store(true, Ordering::Release);
             }
             existing.waiters.fetch_add(1, Ordering::Relaxed);
             return (Arc::clone(existing), false);
@@ -2253,6 +2341,7 @@ impl FileListStore {
             cancelled: AtomicBool::new(false),
             enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(keep_warm),
+            keep_inventory: AtomicBool::new(keep_inventory),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
@@ -2273,7 +2362,10 @@ impl FileListStore {
     fn release_live(&self, key: &WalkKey, live: &Arc<LiveWalk>) {
         let previous = live.waiters.fetch_sub(1, Ordering::AcqRel);
         debug_assert!(previous > 0, "live inventory waiter underflow");
-        if previous != 1 || live.keep_warm.load(Ordering::Acquire) {
+        if previous != 1
+            || live.keep_warm.load(Ordering::Acquire)
+            || live.keep_inventory.load(Ordering::Acquire)
+        {
             return;
         }
         let should_cancel = {
@@ -2282,7 +2374,8 @@ impl FileListStore {
                 .get(key)
                 .is_some_and(|current| Arc::ptr_eq(current, live));
             let idle = live.waiters.load(Ordering::Acquire) == 0
-                && !live.keep_warm.load(Ordering::Acquire);
+                && !live.keep_warm.load(Ordering::Acquire)
+                && !live.keep_inventory.load(Ordering::Acquire);
             if same && idle {
                 live_map.remove(key);
             }
@@ -2364,6 +2457,10 @@ struct ServeRequest {
     deadline_ms: Option<u64>,
     #[serde(default, rename = "keepWarm")]
     keep_warm: bool,
+    // Keep only the query-independent path inventory alive after a fuzzy
+    // deadline. Unlike keepWarm this never pre-reads file contents.
+    #[serde(default, rename = "keepInventory")]
+    keep_inventory: bool,
     // Client-supplied breadth hint: broad directory content scans (multi-
     // pattern fan-out combined pass and its speculative prefilter) opt into
     // the bulk lane so they cannot saturate the interactive worker pool.
@@ -3243,12 +3340,7 @@ fn inventory_walk_threads() -> usize {
         .clamp(2, 4)
 }
 
-struct CollectedWalk {
-    files: Vec<PathBuf>,
-}
-
 struct WorkerWalkBatch<'a> {
-    collected: &'a Mutex<CollectedWalk>,
     live: &'a LiveWalk,
     files: Vec<PathBuf>,
     capacity: usize,
@@ -3299,9 +3391,8 @@ fn append_walk_error_details(target: &mut Vec<String>, details: Vec<String>) {
 }
 
 impl<'a> WorkerWalkBatch<'a> {
-    fn new(collected: &'a Mutex<CollectedWalk>, live: &'a LiveWalk, capacity: usize) -> Self {
+    fn new(live: &'a LiveWalk, capacity: usize) -> Self {
         Self {
-            collected,
             live,
             files: Vec::with_capacity(capacity),
             capacity,
@@ -3319,10 +3410,9 @@ impl<'a> WorkerWalkBatch<'a> {
         if self.files.is_empty() {
             return;
         }
-        if let Ok(mut collected) = self.collected.lock() {
-            let start = collected.files.len();
-            collected.files.append(&mut self.files);
-            publish_live_files(self.live, &collected.files[start..]);
+        if let Ok(mut published) = self.live.files.lock() {
+            published.append(&mut self.files);
+            self.live.files_cond.notify_all();
         } else {
             self.files.clear();
         }
@@ -3429,13 +3519,18 @@ fn scan_inventory_subtree(key: &WalkKey, anchor: &Path) -> Result<Vec<PathBuf>, 
         if !path_starts_with(entry.path(), &key.operand) {
             continue;
         }
-        let (is_file, is_dir) = if let Some(kind) = entry.file_type() {
-            (kind.is_file(), kind.is_dir())
+        let (is_file, is_dir, is_symlink) = if let Some(kind) = entry.file_type() {
+            (kind.is_file(), kind.is_dir(), kind.is_symlink())
         } else {
-            let metadata = entry.metadata().map_err(|error| error.to_string())?;
-            (metadata.is_file(), metadata.is_dir())
+            let metadata = std::fs::symlink_metadata(entry.path())
+                .map_err(|error| error.to_string())?;
+            let kind = metadata.file_type();
+            (kind.is_file(), kind.is_dir(), kind.is_symlink())
         };
-        if is_file || key.directories && is_dir && entry.path() != key.operand {
+        if is_file
+            || key.directories
+                && ((is_dir && entry.path() != key.operand) || is_symlink)
+        {
             files.push(entry.into_path());
         }
     }
@@ -3507,13 +3602,11 @@ fn start_live_walk(
             if let Some(overrides) = prune_overrides(&operand, &prune) {
                 walk.overrides(overrides);
             }
-            let collected = Mutex::new(CollectedWalk { files: Vec::new() });
             let publish_batch = inventory_publish_batch();
             walk.build_parallel().run(|| {
-                let collected = &collected;
                 let live = &live;
                 let operand = &operand;
-                let mut batch = WorkerWalkBatch::new(collected, live, publish_batch);
+                let mut batch = WorkerWalkBatch::new(live, publish_batch);
                 Box::new(move |entry| {
                     if live.cancelled.load(Ordering::Acquire) {
                         return ignore::WalkState::Quit;
@@ -3525,11 +3618,14 @@ fn start_live_walk(
                             return ignore::WalkState::Continue;
                         }
                     };
-                    let (is_file, is_dir) = if let Some(kind) = entry.file_type() {
-                        (kind.is_file(), kind.is_dir())
+                    let (is_file, is_dir, is_symlink) = if let Some(kind) = entry.file_type() {
+                        (kind.is_file(), kind.is_dir(), kind.is_symlink())
                     } else {
-                        match entry.metadata() {
-                            Ok(metadata) => (metadata.is_file(), metadata.is_dir()),
+                        match std::fs::symlink_metadata(entry.path()) {
+                            Ok(metadata) => {
+                                let kind = metadata.file_type();
+                                (kind.is_file(), kind.is_dir(), kind.is_symlink())
+                            }
                             Err(error) => {
                                 record_walk_error(live, error);
                                 return ignore::WalkState::Continue;
@@ -3537,7 +3633,8 @@ fn start_live_walk(
                         }
                     };
                     if !is_file
-                        && !(parsed.directories && is_dir && entry.path() != operand.as_path())
+                        && !(parsed.directories
+                            && ((is_dir && entry.path() != operand.as_path()) || is_symlink))
                     {
                         return ignore::WalkState::Continue;
                     }
@@ -3555,10 +3652,11 @@ fn start_live_walk(
             // deterministic sorted cache in the background.
             live.enumeration_done.store(true, Ordering::Release);
             live.files_cond.notify_all();
-            let collected = collected
-                .into_inner()
-                .map_err(|_| "parallel file collector poisoned".to_string())?;
-            let mut files = collected.files;
+            let mut files = live
+                .files
+                .lock()
+                .map_err(|_| "parallel file collector poisoned".to_string())?
+                .clone();
             // Inventory order is deterministic but duplicate paths are
             // equivalent, so stability buys nothing. Parallel unstable sort
             // removes the single-core tail that cold broad finds previously
@@ -4041,7 +4139,11 @@ fn handle_fuzzy(
         let watched = store.watch_root(root, parsed.no_ignore);
         cache_safe = watched;
         let walk_key = key.walk.clone();
-        let (live, owner) = store.begin_live(walk_key.clone(), req.keep_warm);
+        let (live, owner) = store.begin_live_with_inventory(
+            walk_key.clone(),
+            req.keep_warm,
+            req.keep_inventory,
+        );
         if !watched {
             live.cacheable.store(false, Ordering::Release);
         }
@@ -4056,7 +4158,6 @@ fn handle_fuzzy(
             );
         }
         let mut cursor = 0usize;
-        let mut streamed_paths = Vec::new();
         'stream: loop {
             let batch = {
                 let mut files = live.files.lock().unwrap_or_else(|e| e.into_inner());
@@ -4128,7 +4229,6 @@ fn handle_fuzzy(
                     limit,
                     &mut total_matches,
                 );
-                streamed_paths.push(FuzzyIndexedPath { path, ascii_mask });
             }
             rank_ms += rank_started_at.elapsed().as_secs_f64() * 1_000.0;
             if timed_out {
@@ -4142,14 +4242,6 @@ fn handle_fuzzy(
             // The response no longer waits for deterministic inventory sort;
             // retain the completed walk until finish_live installs its cache.
             live.keep_warm.store(true, Ordering::Release);
-        }
-        if walk_complete && walk_errors == 0 && cache_safe {
-            store.remember_fuzzy_corpus(
-                &key,
-                Arc::new(FuzzyCorpus {
-                    paths: streamed_paths,
-                }),
-            );
         }
     }
 
@@ -4910,32 +5002,89 @@ impl ResponseQueue {
             state = self.drained.wait(state).unwrap_or_else(|e| e.into_inner());
         }
     }
+
+    /// Release the writer thread. Queued lines are dropped rather than
+    /// written: a caller reaching teardown has already flushed whatever it
+    /// still cared about, and blocking shutdown behind a writer whose consumer
+    /// may itself be gone is how a hung teardown starts.
+    fn close(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.closed = true;
+        state.control.clear();
+        state.normal.clear();
+        self.changed.notify_all();
+        self.space.notify_all();
+        self.drained.notify_all();
+    }
 }
 
-fn response_queue() -> &'static Arc<ResponseQueue> {
-    static QUEUE: OnceLock<Arc<ResponseQueue>> = OnceLock::new();
-    QUEUE.get_or_init(|| {
-        let queue = Arc::new(ResponseQueue::new(response_queue_capacity()));
-        let writer_queue = Arc::clone(&queue);
-        std::thread::Builder::new()
-            .name("mixdog-search-response-writer".to_string())
-            .spawn(move || writer_queue.run(std::io::stdout()))
-            .expect("mixdog response writer");
-        queue
-    })
+/// The process-wide outbound route for UNSOLICITED events.
+///
+/// Watcher invalidations are emitted deep inside the engine with no request in
+/// hand, so they cannot travel through a per-request sink. That route is
+/// installable rather than hard-wired to stdout: the in-process addon shares
+/// its host's stdout, and writing JSONL there would corrupt whatever the host
+/// is printing. The addon therefore installs its own queue before the engine
+/// can emit anything; an empty slot means the standalone process, which owns
+/// stdout outright.
+static RESPONSE_QUEUE: RwLock<Option<Arc<ResponseQueue>>> = RwLock::new(None);
+
+fn response_queue() -> Arc<ResponseQueue> {
+    if let Some(queue) = RESPONSE_QUEUE
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        return Arc::clone(queue);
+    }
+    let mut slot = RESPONSE_QUEUE.write().unwrap_or_else(|e| e.into_inner());
+    // Another thread may have installed one while this thread upgraded the
+    // lock; a second stdout writer would interleave half-lines.
+    if let Some(queue) = slot.as_ref() {
+        return Arc::clone(queue);
+    }
+    let queue = Arc::new(ResponseQueue::new(response_queue_capacity()));
+    let writer_queue = Arc::clone(&queue);
+    std::thread::Builder::new()
+        .name("mixdog-search-response-writer".to_string())
+        .spawn(move || writer_queue.run(std::io::stdout()))
+        .expect("mixdog response writer");
+    *slot = Some(Arc::clone(&queue));
+    queue
 }
 
-// ── Idle self-exit watchdog ─────────────────────────────────────────────────
-// The resident server normally dies with its owner: when the host's stdin write
-// handle closes, the request loop reads EOF and returns. That signal never
-// arrives if the owner is force-killed while another process still holds the
-// pipe's write end, and Windows reaps nothing on parent exit — so orphaned
-// servers piled up across restarts, each pinning its warm file inventory and
-// signature cache. A side thread ends the process once neither a request nor a
-// response has moved within the idle window; the JS client respawns
-// transparently on the next call. Mirrors the mixdog-patch server watchdog.
+/// Redirect unsolicited events, returning the route that was replaced.
+fn install_response_queue(queue: Option<Arc<ResponseQueue>>) -> Option<Arc<ResponseQueue>> {
+    let mut slot = RESPONSE_QUEUE.write().unwrap_or_else(|e| e.into_inner());
+    std::mem::replace(&mut *slot, queue)
+}
+
+// ── Idle reclaim watchdog ───────────────────────────────────────────────────
+// A resident server that has gone quiet must not keep pinning its warm file
+// inventory and signature cache. How it lets go depends on who owns the
+// process, which is what IdlePolicy selects.
+//
+// Standalone (`--serve-search`): exit. The server normally dies with its owner
+// — when the host's stdin write handle closes, the request loop reads EOF and
+// returns — but that signal never arrives if the owner is force-killed while
+// another process still holds the pipe's write end, and Windows reaps nothing
+// on parent exit, so orphaned servers piled up across restarts. The JS client
+// respawns transparently on the next call. Mirrors the mixdog-patch watchdog.
+//
+// In-process (Node-API addon): the host owns the process, so exiting would
+// take the host down with it. Drop the caches instead and keep serving.
+//
 // Tunable via MIXDOG_SEARCH_SERVER_IDLE_MS (default 300000ms); 0 disables it.
 const DEFAULT_SERVE_SEARCH_IDLE_MS: u64 = 300_000;
+
+/// How a server reclaims once the idle window expires.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IdlePolicy {
+    /// Owns its process: exit and let the OS reclaim every page.
+    ExitProcess,
+    /// Hosted inside someone else's process: release caches, keep serving.
+    ReleaseCaches,
+}
 
 static SERVE_SEARCH_STARTED: OnceLock<Instant> = OnceLock::new();
 static SERVE_SEARCH_LAST_ACTIVITY_MS: AtomicU64 = AtomicU64::new(0);
@@ -4951,7 +5100,11 @@ fn note_serve_search_activity() {
     SERVE_SEARCH_LAST_ACTIVITY_MS.store(serve_search_uptime_ms(), Ordering::Relaxed);
 }
 
-fn start_serve_search_idle_watchdog(file_lists: Arc<FileListStore>) {
+fn start_serve_search_idle_watchdog(
+    file_lists: Arc<FileListStore>,
+    policy: IdlePolicy,
+    alive: Arc<AtomicBool>,
+) {
     let idle_ms = std::env::var("MIXDOG_SEARCH_SERVER_IDLE_MS")
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
@@ -4966,18 +5119,39 @@ fn start_serve_search_idle_watchdog(file_lists: Arc<FileListStore>) {
     let step = Duration::from_millis(idle_ms.clamp(250, 5_000));
     let _ = std::thread::Builder::new()
         .name("mixdog-search-idle-watchdog".to_string())
-        .spawn(move || loop {
-            std::thread::sleep(step);
-            let idle_for = serve_search_uptime_ms()
-                .saturating_sub(SERVE_SEARCH_LAST_ACTIVITY_MS.load(Ordering::Relaxed));
-            if idle_for < idle_ms {
-                continue;
+        .spawn(move || {
+            // Which activity stamp was already reclaimed. A released server
+            // stays idle indefinitely, and repeating the release every step
+            // would re-persist an empty snapshot on a loop.
+            let mut reclaimed: Option<u64> = None;
+            while alive.load(Ordering::Acquire) {
+                std::thread::sleep(step);
+                if !alive.load(Ordering::Acquire) {
+                    return;
+                }
+                let last_activity = SERVE_SEARCH_LAST_ACTIVITY_MS.load(Ordering::Relaxed);
+                let idle_for = serve_search_uptime_ms().saturating_sub(last_activity);
+                if idle_for < idle_ms {
+                    reclaimed = None;
+                    continue;
+                }
+                match policy {
+                    IdlePolicy::ExitProcess => {
+                        // Exit the same way the normal loop-exit path does, so
+                        // the next server starts warm instead of re-walking.
+                        persist_file_list_snapshot(&file_lists.ready);
+                        flush_responses();
+                        std::process::exit(0);
+                    }
+                    IdlePolicy::ReleaseCaches => {
+                        if reclaimed == Some(last_activity) {
+                            continue;
+                        }
+                        reclaimed = Some(last_activity);
+                        file_lists.release_caches();
+                    }
+                }
             }
-            // Exit the same way the normal loop-exit path does, so the next
-            // server starts warm instead of re-walking the whole tree.
-            persist_file_list_snapshot(&file_lists.ready);
-            flush_responses();
-            std::process::exit(0);
         });
 }
 
@@ -4990,16 +5164,8 @@ fn write_response(response: &serde_json::Value) {
     enqueue_response(response, false);
 }
 
-fn write_control_response(response: &serde_json::Value) {
-    enqueue_response(response, true);
-}
-
 fn flush_responses() {
     response_queue().flush();
-}
-
-fn write_cancelled(id: u64) {
-    write_control_response(&serde_json::json!({ "id": id, "event": "cancelled" }));
 }
 
 /// One connected client's outbound channel.
@@ -5031,11 +5197,15 @@ impl ClientSink {
     fn write_cancelled(&self, id: u64) {
         self.write_control(&serde_json::json!({ "id": id, "event": "cancelled" }));
     }
+
+    fn flush(&self) {
+        self.queue.flush();
+    }
 }
 
 fn stdio_sink() -> ClientSink {
     ClientSink {
-        queue: Arc::clone(response_queue()),
+        queue: response_queue(),
     }
 }
 
@@ -5629,24 +5799,131 @@ fn process_snapshot(id: u64) -> serde_json::Value {
     serde_json::json!({ "id": id, "error": "process snapshot is only available on Windows" })
 }
 
-pub fn run() {
-    std::thread::spawn(ensure_content_signature_cache_loaded);
-    write_control_response(&serde_json::json!({ "ready": true }));
+/// The resident search engine, independent of how requests reach it.
+///
+/// `--serve-search` (stdin lines) and the Node-API addon (host calls) are the
+/// same server: request lines go in, JSONL response lines come out. The engine
+/// runs on its own thread, so a host sitting on a JavaScript main thread never
+/// blocks on snapshot loading, scheduling, or teardown.
+pub struct SearchServer {
+    /// Dropped on shutdown; that is what ends the engine's receive loop.
+    requests: Option<Sender<String>>,
+    engine: Option<JoinHandle<()>>,
+    /// Present only when this server created the queue (the addon transport).
+    /// The standalone process shares the stdout-backed process-wide queue and
+    /// must not close it out from under the writer thread.
+    owned_queue: Option<Arc<ResponseQueue>>,
+    alive: Arc<AtomicBool>,
+}
+
+impl SearchServer {
+    /// The standalone `--serve-search` process: responses go to stdout and the
+    /// idle window ends the process.
+    pub fn standalone() -> Self {
+        Self::start(stdio_sink(), None, IdlePolicy::ExitProcess)
+    }
+
+    /// An in-process host (Node-API addon): responses are written as JSONL
+    /// lines into `writer`, and the idle window releases caches rather than
+    /// exiting — the host owns this process.
+    pub fn embedded<W: Write + Send + 'static>(writer: W) -> Self {
+        let queue = Arc::new(ResponseQueue::new(response_queue_capacity()));
+        let writer_queue = Arc::clone(&queue);
+        std::thread::Builder::new()
+            .name("mixdog-search-response-writer".to_string())
+            .spawn(move || writer_queue.run(writer))
+            .expect("mixdog response writer");
+        // Unsolicited watcher events must reach THIS host rather than a stdout
+        // the addon does not own. Installed before the engine starts, so no
+        // event can escape down the wrong route.
+        install_response_queue(Some(Arc::clone(&queue)));
+        let sink = ClientSink {
+            queue: Arc::clone(&queue),
+        };
+        Self::start(sink, Some(queue), IdlePolicy::ReleaseCaches)
+    }
+
+    fn start(
+        sink: ClientSink,
+        owned_queue: Option<Arc<ResponseQueue>>,
+        policy: IdlePolicy,
+    ) -> Self {
+        std::thread::spawn(ensure_content_signature_cache_loaded);
+        // Readiness is announced before the engine touches the disk snapshot,
+        // so a host never waits on inventory load to learn the server is up.
+        sink.write_control(&serde_json::json!({ "ready": true }));
+        let (requests, incoming) = channel::<String>();
+        let alive = Arc::new(AtomicBool::new(true));
+        let engine_alive = Arc::clone(&alive);
+        let engine = std::thread::Builder::new()
+            .name("mixdog-search-engine".to_string())
+            .spawn(move || run_engine(sink, incoming, policy, engine_alive))
+            .expect("mixdog search engine");
+        Self {
+            requests: Some(requests),
+            engine: Some(engine),
+            owned_queue,
+            alive,
+        }
+    }
+
+    /// Queue one request line. Returns false once the engine is gone. Never
+    /// blocks on search work — the caller may be a JavaScript main thread.
+    pub fn dispatch(&self, line: &str) -> bool {
+        note_serve_search_activity();
+        match self.requests.as_ref() {
+            Some(requests) => requests.send(line.to_string()).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Drain, stop, and release. Ordered on purpose: closing the request
+    /// channel ends the engine loop, which persists its snapshot and flushes
+    /// every queued response BEFORE the writer thread is released.
+    pub fn shutdown(&mut self) {
+        self.alive.store(false, Ordering::Release);
+        self.requests = None;
+        if let Some(engine) = self.engine.take() {
+            let _ = engine.join();
+        }
+        let Some(queue) = self.owned_queue.take() else {
+            return;
+        };
+        queue.close();
+        // Only retract the route this server installed: a later server may
+        // already own it.
+        let installed = install_response_queue(None);
+        if let Some(installed) = installed {
+            if !Arc::ptr_eq(&installed, &queue) {
+                install_response_queue(Some(installed));
+            }
+        }
+    }
+}
+
+impl Drop for SearchServer {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+fn run_engine(
+    sink: ClientSink,
+    incoming: Receiver<String>,
+    policy: IdlePolicy,
+    alive: Arc<AtomicBool>,
+) {
     let file_lists = Arc::new(FileListStore::new_persistent());
     file_lists.schedule_noise_prewarm();
     let cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let scheduler = SearchScheduler::new(Arc::clone(&file_lists), Arc::clone(&cancellations));
-    start_serve_search_idle_watchdog(Arc::clone(&file_lists));
-    // The stdio server serves exactly one client, so it owns the reserved id 0
-    // and the stdout-backed sink. A shared server assigns a fresh id and sink
-    // per accepted connection instead.
+    start_serve_search_idle_watchdog(Arc::clone(&file_lists), policy, alive);
+    // One server serves exactly one client, so it owns the reserved id 0 and a
+    // single sink. Request ids are unique only WITHIN a client, which is why
+    // cancellation keys pair the client with the id.
     let client_id = STDIO_CLIENT_ID;
-    let sink = stdio_sink();
-    let stdin = std::io::stdin();
-    for line in stdin.lock().lines() {
-        let Ok(line) = line else { break };
-        note_serve_search_activity();
+    for line in incoming {
         if line.trim().is_empty() {
             continue;
         }
@@ -5656,8 +5933,9 @@ pub fn run() {
                 cwd,
                 list_metadata,
             }) => {
+                let sink = sink.clone();
                 std::thread::spawn(move || {
-                    write_control_response(&list_metadata_response(id, &cwd, &list_metadata));
+                    sink.write_control(&list_metadata_response(id, &cwd, &list_metadata));
                 });
             }
             Ok(WireRequest::Cancel { cancel }) => {
@@ -5674,14 +5952,14 @@ pub fn run() {
                     if let Ok(mut map) = cancellations.lock() {
                         map.remove(&(client_id, cancel));
                     }
-                    write_cancelled(cancel);
+                    sink.write_cancelled(cancel);
                 }
             }
             Ok(WireRequest::ProcessSnapshot {
                 id,
                 process_snapshot: true,
-            }) => write_control_response(&process_snapshot(id)),
-            Ok(WireRequest::ProcessSnapshot { id, .. }) => write_control_response(
+            }) => sink.write_control(&process_snapshot(id)),
+            Ok(WireRequest::ProcessSnapshot { id, .. }) => sink.write_control(
                 &serde_json::json!({ "id": id, "error": "invalid process snapshot request" }),
             ),
             Ok(WireRequest::Search(req)) => {
@@ -5702,7 +5980,7 @@ pub fn run() {
                         map.remove(&(client_id, id));
                     }
                     let telemetry = scheduler.telemetry();
-                    write_response(&serde_json::json!({
+                    sink.write(&serde_json::json!({
                         "id": search.req.id,
                         "error": "native search queue saturated",
                         "saturated": true,
@@ -5710,14 +5988,27 @@ pub fn run() {
                     }));
                 }
             }
-            Err(error) => write_response(
+            Err(error) => sink.write(
                 &serde_json::json!({ "id": 0, "error": format!("bad request: {error}") }),
             ),
         }
     }
     scheduler.shutdown();
     persist_file_list_snapshot(&file_lists.ready);
-    flush_responses();
+    sink.flush();
+}
+
+/// The standalone `--serve-search` transport: one request per stdin line.
+pub fn run() {
+    let mut server = SearchServer::standalone();
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        if !server.dispatch(&line) {
+            break;
+        }
+    }
+    server.shutdown();
 }
 
 #[cfg(test)]
@@ -5734,6 +6025,7 @@ mod tests {
             limit,
             deadline_ms: None,
             keep_warm: false,
+            keep_inventory: false,
             bulk_hint: false,
             mtime_top_k: false,
             fuzzy: None,
@@ -6141,6 +6433,7 @@ mod tests {
             cancelled: AtomicBool::new(false),
             enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
+            keep_inventory: AtomicBool::new(false),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
@@ -6164,6 +6457,7 @@ mod tests {
             cancelled: AtomicBool::new(false),
             enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
+            keep_inventory: AtomicBool::new(false),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
@@ -6277,6 +6571,66 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner())
             .get(&warm_key)
             .is_some());
+
+        let inventory_key = walk_key(Path::new("inventory"), &parsed);
+        let (inventory, owner) =
+            store.begin_live_with_inventory(inventory_key.clone(), false, true);
+        assert!(owner);
+        store.release_live(&inventory_key, &inventory);
+        assert!(!inventory.cancelled.load(Ordering::Acquire));
+        assert!(!inventory.keep_warm.load(Ordering::Acquire));
+        assert!(inventory.keep_inventory.load(Ordering::Acquire));
+        assert!(store
+            .live
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&inventory_key)
+            .is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fuzzy_inventory_includes_symlink_leaves_without_following_symlink_directories() {
+        use std::os::unix::fs::symlink;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("mg-fuzzy-links-{nonce}"));
+        let outside = std::env::temp_dir().join(format!("mg-fuzzy-links-outside-{nonce}"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let outside_file = outside.join("real-tool");
+        std::fs::write(&outside_file, "tool\n").unwrap();
+        std::fs::write(outside.join("nested-only-marker"), "nested\n").unwrap();
+        symlink(&outside_file, root.join("tool-link")).unwrap();
+        symlink(&outside, root.join("external-dir-link")).unwrap();
+
+        let store = Arc::new(FileListStore::new());
+        let cancelled = AtomicBool::new(false);
+        let mut req = request(&[], 10);
+        req.cwd = root.to_string_lossy().into_owned();
+        req.fuzzy = Some("tool-link".to_string());
+        req.hidden = true;
+        req.include_noise = true;
+        req.keep_inventory = true;
+
+        let linked_file = handle_fuzzy(&req, &cancelled, &store, None).unwrap();
+        assert_eq!(linked_file["complete"], true);
+        assert!(linked_file["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|path| path.as_str() == Some("tool-link")));
+
+        req.fuzzy = Some("nested-only-marker".to_string());
+        let linked_directory = handle_fuzzy(&req, &cancelled, &store, None).unwrap();
+        assert_eq!(linked_directory["complete"], true);
+        assert!(linked_directory["matches"].as_array().unwrap().is_empty());
+
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&outside).ok();
     }
 
     #[test]

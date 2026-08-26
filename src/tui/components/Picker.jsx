@@ -94,6 +94,10 @@ export function Picker({
   indexMode = 'auto',
   fillHeight = false,
   visibleCount = MAX_VISIBLE,
+  // Loading panels reserve the same content-row geometry as the real list.
+  // This prevents an `(empty)` row from being replaced by a multi-row menu in
+  // one commit, which reads as the option items jumping into place.
+  loading = false,
   // Onboarding confirm bar: { buttons:[{value,label}], onConfirm(button,index) }.
   // When present, ←/→ and Tab drive button focus (mutually exclusive with
   // onLeft/onRight), and Enter fires onConfirm while a button is focused.
@@ -284,6 +288,11 @@ export function Picker({
   // Clamp selected index when items change length.
   if (items.length === 0) {
     const emptyLine = truncateText(String(description || '').replace(/\s+/g, ' ').trim(), Math.max(0, columns - 4));
+    const loadingRows = loading
+      ? Array.from({ length: visibleLimit }, (_, index) => (
+          <Text key={`loading-${index}`} color={theme.inactive}> </Text>
+        ))
+      : null;
     return (
       <Box flexDirection="column" flexShrink={0} height={fillHeight ? '100%' : undefined}>
         <Box
@@ -303,7 +312,7 @@ export function Picker({
           <Text> </Text>
           <Text color={theme.text}>{emptyLine || ' '}</Text>
           <Text> </Text>
-          <Text color={theme.inactive}>(empty)</Text>
+          {loading ? loadingRows : <Text color={theme.inactive}>(empty)</Text>}
           {hasConfirm ? (
             <>
               <Box flexGrow={1} />

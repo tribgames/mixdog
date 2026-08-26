@@ -60,6 +60,7 @@ import {
 import {
   REMOTE_WAKE_EVENT,
   clearRemoteConnectionState,
+  remoteConnectionInterruptedError,
   setRemoteConnectionState,
   shouldRunRemoteHeartbeat,
 } from './remote-connection-state';
@@ -1427,7 +1428,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
               connectionReady = false;
               setRemoteConnectionState('reconnecting');
               resetDeltaState();
-              const failure = new Error('Mixdog desktop connection restarted.');
+              const failure = remoteConnectionInterruptedError();
               for (const entry of [...pending.values()]) entry.reject(failure);
               pending.clear();
             } else if (secureChannel) {
@@ -1481,7 +1482,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         // Decided BEFORE the rejection sweep empties the map: a keepalive
         // recycle only stays quiet while nothing was waiting on this leg.
         const quietRecycle = quietRecycledSockets.delete(ws) && pending.size === 0;
-        const failure = new Error('Mixdog relay disconnected.');
+        const failure = remoteConnectionInterruptedError();
         for (const entry of [...pending.values()]) entry.reject(failure);
         pending.clear();
         if (!opened) reject(failure);

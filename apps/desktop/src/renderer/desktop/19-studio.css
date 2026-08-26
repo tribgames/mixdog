@@ -502,7 +502,9 @@
 .studio-dock {
   box-sizing: border-box;
   flex: 0 0 auto;
-  width: min(100%, var(--pane-column));
+  /* Studio's gallery stays full-width, but its typing card follows the TASK
+     reading column: fluid below 800px, then centered at the same cap. */
+  width: min(100%, 800px);
   margin: 0 auto;
   /* Same floor gap as .composer-region so a 2×2 split lines the cards up. */
   padding: 0 var(--pane-inset) 16px;
@@ -511,6 +513,9 @@
   z-index: 5;
   display: grid;
   gap: 6px;
+}
+@container studio-pane (min-width: 1536px) {
+  .studio-dock { width: min(100%, 1000px); }
 }
 .studio-status { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 .studio-status-error { color: var(--mx-danger); }

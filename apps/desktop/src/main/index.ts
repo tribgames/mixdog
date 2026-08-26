@@ -111,6 +111,9 @@ if (app.isPackaged) {
     MIXDOG_PATCH_NATIVE_BIN: join(nativeToolsDir, `mixdog-patch${executableSuffix}`),
     MIXDOG_SPAWN_SERVER_BIN: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
     MIXDOG_TOKEN_NATIVE_BIN: join(nativeToolsDir, 'mixdog-token.node'),
+    // In-process search engine. Absent installs simply keep the executable
+    // above: the loop below only publishes a path that exists.
+    MIXDOG_SEARCH_SERVER_ADDON: join(nativeToolsDir, 'mixdog-graph.node'),
   };
   for (const [name, path] of Object.entries(nativeOverrides)) {
     if (!process.env[name] && existsSync(path)) process.env[name] = path;

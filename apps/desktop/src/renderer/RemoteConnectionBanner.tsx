@@ -34,7 +34,7 @@ export function RemoteConnectionBanner() {
   // layer exists to block input against a desktop that cannot answer it. A tap
   // retries at once instead of waiting out the remaining reconnect backoff.
   return <button type="button" className="remote-connection-overlay"
-    aria-label={t("Reconnecting…")}
+    aria-label={t("Retry")}
     onClick={() => window.dispatchEvent(new Event(REMOTE_WAKE_EVENT))}>
     <WifiOff aria-hidden="true" />
   </button>;

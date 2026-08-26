@@ -251,9 +251,8 @@
   --workspace-tab-surface: var(--mx-window-band);
   color: var(--mx-text);
   background: var(--workspace-tab-surface);
-  /* Every pane's active tab carries a stronger side contour; only the focused
-     pane adds the accent band above. The bottom stays open into the sheet. */
-  box-shadow: inset 2px 0 0 var(--mx-border), inset -2px 0 0 var(--mx-border);
+  /* Foreground and focused selection share the top-band grammar below.
+     Avoid a side contour: boxing the label fights the pane hairlines. */
 }
 .workspace-tab.active::after {
   content: "";
@@ -268,12 +267,15 @@
      reverted (user: 완전 이상한데 — 기존으로 롤백); only the height changed. */
   left: 0;
   right: 0;
-  height: 2px;
+  height: 1px;
   border-radius: 0;
-  background: transparent;
+  /* Every pane keeps a quiet foreground marker; the focused pane doubles and
+     accents this same line instead of adding a label frame. */
+  background: var(--mx-border-strong);
   pointer-events: none;
 }
 .workspace-tabs-shell[data-focused="true"] .workspace-tab.active::after {
+  height: 2px;
   background: var(--mx-accent);
 }
 /* Keep the close affordance fully opaque for active and interaction states. */

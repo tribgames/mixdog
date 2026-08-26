@@ -301,6 +301,7 @@ export function renderAppView(ctx) {
                 indexMode={picker.indexMode}
                 visibleCount={pickerVisibleRows}
                 fillHeight={expandedOptionPanel}
+                loading={picker.loading === true}
                 themeEpoch={state.themeEpoch || 0}
                 confirmBar={picker.confirmBar}
               />

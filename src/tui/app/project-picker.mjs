@@ -134,6 +134,7 @@ export function createProjectPicker({
       description: 'Opening folder picker… choose a folder in the dialog window.',
       help: 'Waiting for the system folder dialog…',
       indexMode: 'never',
+      loading: true,
       items: [],
       onSelect: () => {},
       onCancel: () => {},

@@ -19,7 +19,6 @@ import { installMotionVisibility } from "./motion-visibility";
 import { installScrollbarMetrics } from "./scrollbar-metrics";
 import { markBootStage } from "./boot-metrics";
 import { scheduleFontWarmup } from "./font-warmup";
-import { preloadMarkdownBody } from "./markdown-body-loader";
 import { defaultSessionLaneStore } from "./session-lane-store";
 import { installAutoDomI18n } from "./auto-dom-i18n";
 
@@ -52,22 +51,24 @@ window.addEventListener("beforeunload", removeMotionVisibility, { once: true });
 // Listen before React mounts. Persisted pane session ids are not registered
 // here: usePaneWorkspace first authorizes them against the durable catalog.
 defaultSessionLaneStore.start();
-void preloadMarkdownBody().catch(() => undefined);
 
 // Kick the webfont fetches BEFORE the first layout: lazily-triggered loads
 // made the first paint render fallback glyphs and then swap (user: the
 // composer hint "pops" right after entry). Local assets resolve in a few ms,
 // so starting them here lands the real faces by first paint.
+const nativeDesktop = Boolean(window.mixdogDesktop?.bootContext?.bootId);
 let criticalFontsReady: Promise<unknown> = Promise.resolve();
 try {
   criticalFontsReady = Promise.allSettled([
     // Pretendard's dynamic subset splits Hangul away from its Latin face.
     // Supplying Korean text starts a Hangul range before React's first layout.
     document.fonts.load('400 15px "Pretendard Variable"', "한글"),
-    // Restored editor/terminal panes render code at boot: without the mono
-    // face in the reveal gate, Monaco painted fallback glyphs and visibly
-    // re-flowed when JetBrains Mono landed (user: 부트 시 스크립트가 크게 튐).
-    document.fonts.load('400 13px "JetBrains Mono Variable"'),
+    // Only Electron can restore an editor/terminal before the first visible
+    // frame. A phone loads the mono face with that deferred surface instead of
+    // spending one more cold relay request before its shell appears.
+    ...(nativeDesktop
+      ? [document.fonts.load('400 13px "JetBrains Mono Variable"')]
+      : []),
   ]);
 } catch { /* font swap stays a cosmetic fallback */ }
 
@@ -128,9 +129,10 @@ void reactCommitted.then(() => {
   // Pretendard (~2MB variable) lands — the user-visible "폰트 튐" + hitch at
   // entry. Hold the reveal for the critical faces, capped so a broken font
   // fetch can never stall the launch.
+  const fontRevealBudgetMs = nativeDesktop ? 300 : 150;
   const fontsSettled = Promise.race([
     Promise.allSettled([criticalFontsReady, renderedFontsReady]),
-    new Promise((resolve) => window.setTimeout(resolve, 300)),
+    new Promise((resolve) => window.setTimeout(resolve, fontRevealBudgetMs)),
   ]);
   void fontsSettled.then(() => {
     markBootStage("fonts-settled");

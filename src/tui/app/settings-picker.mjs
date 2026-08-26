@@ -41,6 +41,15 @@ export function createSettingsPicker({
   openMemoryCorePicker,
   openUpdatePicker,
 }) {
+  const settingsHandoffPanel = (description = 'Loading settings...') => ({
+    title: 'Settings',
+    description,
+    help: 'Esc Close',
+    indexMode: 'never',
+    pickerKey: 'settings-handoff',
+    loading: true,
+    items: [],
+  });
   // Build generation guard. Every open/refresh takes a ticket and Esc bumps it,
   // so a slow snapshot from a superseded (or already closed) build can never
   // re-open Settings. The ref is owned by App so it survives this per-render
@@ -60,6 +69,10 @@ export function createSettingsPicker({
     // caught here instead.
     const own = surface.claim();
     const light = opts.light === true;
+    // A full Settings open usually follows another option panel. Paint the
+    // destination synchronously before the daemon snapshot so the empty-chat
+    // welcome logo cannot appear between the old panel and Settings.
+    if (!light && !own.paint(settingsHandoffPanel())) return;
     const overrides = opts.overrides || null;
     const heavyCache = light ? settingsHeavyCacheRef.current : null;
     // ONE round-trip for the whole panel: on a daemon-backed store each getter
@@ -448,14 +461,24 @@ export function createSettingsPicker({
         else if (item._action === 'memory-enabled') toggleMemory();
         else if (item._action === 'memory-cycles') toggleMemoryCycles();
         else if (item._action === 'voice') applyVoice();
-        else if (item._action === 'output-style') openOutputStylePicker({ returnTo: openSettingsPicker });
-        else if (item._action === 'theme') openThemePicker({ returnTo: openSettingsPicker });
-        else if (item._action === 'workflow') openWorkflowPicker({ returnTo: openSettingsPicker });
+        else if (item._action === 'output-style') openOutputStylePicker({
+          returnTo: openSettingsPicker,
+          handoffPanel: settingsHandoffPanel('Applying output style...'),
+        });
+        else if (item._action === 'theme') openThemePicker({
+          returnTo: openSettingsPicker,
+          handoffPanel: settingsHandoffPanel('Applying theme...'),
+        });
+        else if (item._action === 'workflow') openWorkflowPicker({
+          returnTo: openSettingsPicker,
+          handoffPanel: settingsHandoffPanel('Switching workflow...'),
+        });
         else if (item._action === 'model') openModelPicker({
           returnTo: openSettingsPicker,
           returnLabel: 'Settings',
           returnOnNestedCancel: true,
           onAfterSelect: openSettingsPicker,
+          handoffPanel: settingsHandoffPanel('Switching model...'),
         });
         else if (item._action === 'websearch') openWebSearchPicker({
           returnTo: openSettingsPicker,

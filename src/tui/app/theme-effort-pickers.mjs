@@ -24,6 +24,9 @@ export function createThemeEffortPickers({
   const openThemePicker = (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const onboarding = options.onboarding || null;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
+      ? options.handoffPanel
+      : null;
     const own = surface.claim();
     let themes = [];
     try {
@@ -60,7 +63,8 @@ export function createThemeEffortPickers({
     // Onboarding: Enter (row) and ConfirmBar Next both persist the highlighted
     // theme, then advance; Back restores the original palette then steps back.
     const saveTheme = (id, { advance = false } = {}) => {
-      own.close();
+      if (handoffPanel) own.paint(handoffPanel);
+      else own.close();
       const applied = applyTheme(id, { persist: true });
       store.pushNotice(themeNotice(applied || { id }), 'info');
       if (advance && onboarding) onboarding.onAdvance?.();
@@ -102,7 +106,8 @@ export function createThemeEffortPickers({
         saveTheme(entry.id, { advance: Boolean(onboarding) });
       },
       onCancel: () => {
-        own.close();
+        if (handoffPanel) own.paint(handoffPanel);
+        else own.close();
         // Restore the theme that was active before the picker opened.
         if (currentId) applyTheme(currentId, { persist: false });
         if (onboarding) onboarding.onCancel?.();

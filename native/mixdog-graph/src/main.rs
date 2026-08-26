@@ -30,11 +30,8 @@ use sha2::{Digest, Sha256};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Parser, Query, QueryCursor};
 
-mod lang;
-mod serve_search;
-mod serve_search_usn;
-
-use lang::{comment_family, lang_for, lang_static, CommentFamily};
+use mixdog_graph::lang::{comment_family, lang_for, lang_static, CommentFamily};
+use mixdog_graph::serve_search;
 
 // Mirrors CODE_GRAPH_MAX_FILES on the Node side. --walk caps parse work
 // here so large repos don't pay full parse cost before truncation.

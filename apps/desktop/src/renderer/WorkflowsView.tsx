@@ -105,13 +105,13 @@ function AgentUsageField({ enabled, busy, onChange }: {
   onChange(next: boolean): void;
 }) {
   return <div className="schedules-field">
-    <span>{t('Use this agent')}</span>
+    <span>{t('Agent status')}</span>
     <small>{t('Turning this off hides the agent from the Lead entirely.')}</small>
     <div className="workflows-agent-mode-field">
-      <OpenSelect ariaLabel={t('Use this agent')} value={enabled ? 'on' : 'off'} disabled={busy}
+      <OpenSelect ariaLabel={t('Agent status')} value={enabled ? 'on' : 'off'} disabled={busy}
         options={[
-          { value: 'on', label: t('Use with the model below') },
-          { value: 'off', label: t('Not used') },
+          { value: 'on', label: t('Active') },
+          { value: 'off', label: t('Inactive') },
         ]}
         onChange={(value) => onChange(value === 'on')} />
     </div>

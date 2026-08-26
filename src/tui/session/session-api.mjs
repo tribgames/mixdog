@@ -381,6 +381,13 @@ export function createSessionApiA(bag) {
         set({ commandBusy: false });
       }
     },
+    // Background-task control (list/read/monitor/cancel) is a CONTROL surface,
+    // not a conversation turn: the desktop stop button fires it WHILE a turn
+    // runs, so it neither waits on commandBusy nor leaves a transcript card.
+    // It must exist here because the daemon addresses actions on this surface.
+    taskControl: (args = {}) => {
+      return runtime.taskControl?.(args) ?? null;
+    },
     toolsStatus: (query = '') => {
       return runtime.toolsStatus?.(query) || { mode: getState().toolMode, count: 0, activeCount: 0, tools: [] };
     },

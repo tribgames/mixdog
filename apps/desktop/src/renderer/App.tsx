@@ -2746,8 +2746,10 @@ export function App() {
         onDiscard={discardAndClosePendingTab}
         onCancel={cancelPendingTabClose} />}
       <Suspense fallback={settingsOpen
-        ? <DesktopLoadingSurface label="Loading view…" overlay
-            className="settings-loading-surface" />
+        // Keep the current workbench visible until the lazy Settings dialog is
+        // ready. A full-window cover made a cold web chunk look like an empty
+        // page before the actual dialog appeared.
+        ? null
         : (commandSurface || onboardingOpen)
           ? <DesktopLoadingSurface label="Loading view…" overlay />
           : null}>

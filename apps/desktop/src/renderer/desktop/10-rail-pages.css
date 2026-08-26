@@ -213,6 +213,13 @@
   background: var(--mx-pressed);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
+/* Projects are editor launchers, not a persistent selection list: keep every
+   row on the same quiet surface at rest, on hover, and for the current path. */
+.session-sidebar-panels .projects-pane .projects-row:hover,
+.session-sidebar-panels .projects-pane .projects-row.selected {
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
 .session-sidebar-panels .schedules-row.utilities-row {
   width: 100%;
   align-items: flex-start;
@@ -793,6 +800,7 @@
 /* AFTER the base heading rules on purpose: the collapsible variant must win
    order-dependent overrides. Same CATEGORY tier as the base heading above. */
 .sidebar-recent-heading.sidebar-heading-toggle {
+  position: relative;
   height: 32px;
   justify-content: flex-start;
   gap: 4px;

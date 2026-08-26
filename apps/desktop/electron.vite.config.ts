@@ -62,30 +62,36 @@ const inlineBootScript: Plugin = {
   },
 };
 
-// The built document names only the 2 KB entry chunk. Everything the first
-// screen needs — the stylesheet, React, the language catalog and the app
-// bundle — is discovered by RUNNING that chunk, so a phone pays four relay
-// round trips in a row before anything can paint (user: 늦게 생성되기도 한다).
-// Name them in the document instead, inside an INERT <template>: a browser tab
-// renders only the install guide, and boot.js moves the hints into the head
-// exactly when the installed app is the surface that will use them.
-const FIRST_SCREEN_CHUNK_NAMES = new Set([
-  'remote-shim',
-  'mobile-surface',
-  'i18n',
+// Keep this order intentional. Production serves HTTP/1.1 and a phone opens
+// six connections: CSS plus the first five modules get the cold-start lane,
+// while everything after them waits for a slot.
+const FIRST_SCREEN_CHUNK_NAMES = [
+  'bootstrap',
   'react-vendor',
   'ui-vendor',
-  'bootstrap',
-  // The transcript is held NEUTRAL until the rich Markdown renderer resolves
-  // (App: transcriptPending). Both chunks are reachable only by RUNNING the
-  // app bundle, so a phone painted its restored session with an empty
-  // transcript and filled it one round trip later (user: 스크립트 뜨는 게 좀
-  // 느리다, 특히 최초 부트). Naming them here fetches them alongside the
-  // bundle; every other dependency of that import is already first-screen.
+  'remote-shim',
+  'i18n',
+  'mobile-surface',
+  // A restored Markdown conversation must be complete when the shell reveals.
+  // These remain in the first fan-out, but follow every shell-critical chunk
+  // so HTTP/1.1 gives bootstrap and React the first connection slots.
   'MarkdownBody',
   'markdown-plugins',
-]);
-const FIRST_SCREEN_STYLE_NAMES = new Set(['bootstrap-styles.css']);
+] as const;
+const FIRST_SCREEN_STYLE_NAMES = ['bootstrap-styles.css'] as const;
+const FIRST_SCREEN_LOCALE_CHUNKS = {
+  de: 'de',
+  es: 'es',
+  fr: 'fr',
+  it: 'it',
+  ja: 'ja',
+  ko: 'ko',
+  'pt-BR': 'pt-BR',
+  ru: 'ru',
+  vi: 'vi',
+  'zh-CN': 'zh-CN',
+  'zh-TW': 'zh-TW',
+} as const;
 
 const firstScreenHints: Plugin = {
   name: 'mixdog-first-screen-hints',
@@ -98,29 +104,46 @@ const firstScreenHints: Plugin = {
       // The dev server has no bundle: the entry is served unhashed and the
       // hints would name files that do not exist yet.
       if (!context.bundle) return html.replace(placeholder, '');
-      const styles: string[] = [];
-      const modules: string[] = [];
+      const outputByName = new Map<string, string>();
       for (const output of Object.values(context.bundle)) {
-        const name = output.name ?? '';
-        if (output.type === 'asset') {
-          if (FIRST_SCREEN_STYLE_NAMES.has(name)) {
-            styles.push(`<link rel="stylesheet" href="./${output.fileName}">`);
-          }
-        } else if (FIRST_SCREEN_CHUNK_NAMES.has(name)) {
-          modules.push(`<link rel="modulepreload" crossorigin href="./${output.fileName}">`);
-        }
+        if (output.name) outputByName.set(output.name, output.fileName);
       }
+      const styles = FIRST_SCREEN_STYLE_NAMES.flatMap((name) => {
+        const fileName = outputByName.get(name);
+        return fileName
+          ? [`<link rel="stylesheet" fetchpriority="high" href="./${fileName}">`]
+          : [];
+      });
+      const modules = FIRST_SCREEN_CHUNK_NAMES.flatMap((name, index) => {
+        const fileName = outputByName.get(name);
+        return fileName
+          ? [`<link rel="modulepreload" crossorigin${index < 3 ? ' fetchpriority="high"' : ''}`
+            + ` href="./${fileName}">`]
+          : [];
+      });
+      // The language is known synchronously in boot.js. Keep every catalog
+      // inert in the template, then move only the resolved locale into <head>
+      // so Korean does not pay a serial request after i18n evaluates.
+      const locales = Object.entries(FIRST_SCREEN_LOCALE_CHUNKS).flatMap(([language, name]) => {
+        const fileName = outputByName.get(name);
+        return fileName
+          ? [`<link rel="modulepreload" crossorigin data-mixdog-locale="${language}"`
+            + ` href="./${fileName}">`]
+          : [];
+      });
       // Renaming a first-screen module is not an error, but silently losing the
       // hint would put the serial boot back without anyone noticing.
-      if (styles.length !== FIRST_SCREEN_STYLE_NAMES.size
-        || modules.length !== FIRST_SCREEN_CHUNK_NAMES.size) {
+      if (styles.length !== FIRST_SCREEN_STYLE_NAMES.length
+        || modules.length !== FIRST_SCREEN_CHUNK_NAMES.length
+        || locales.length !== Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length) {
         console.warn(
-          `[mixdog] first-screen hints matched ${styles.length}/${FIRST_SCREEN_STYLE_NAMES.size}`
-          + ` styles and ${modules.length}/${FIRST_SCREEN_CHUNK_NAMES.size} modules;`
+          `[mixdog] first-screen hints matched ${styles.length}/${FIRST_SCREEN_STYLE_NAMES.length}`
+          + ` styles, ${modules.length}/${FIRST_SCREEN_CHUNK_NAMES.length} modules`
+          + ` and ${locales.length}/${Object.keys(FIRST_SCREEN_LOCALE_CHUNKS).length} locales;`
           + ' the web app boots the missing ones serially.',
         );
       }
-      const hints = [...styles, ...modules].join('');
+      const hints = [...styles, ...modules, ...locales].join('');
       return html.replace(
         placeholder,
         hints ? `<template id="mixdog-first-screen">${hints}</template>` : '',

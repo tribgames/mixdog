@@ -59,6 +59,9 @@ export function createModelPicker({
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const returnLabel = String(options.returnLabel || 'Agents');
     const returnOnNestedCancel = options.returnOnNestedCancel === true;
+    const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object'
+      ? options.handoffPanel
+      : null;
     const cancelModelPicker = () => {
       modelPickerClosed = true;
       if (returnTo) returnTo();
@@ -77,6 +80,7 @@ export function createModelPicker({
         title: options.title || 'Model',
         description: options.loadingDescription || 'Loading models...',
         help: returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back',
+        loading: true,
         items: [],
         onCancel: cancelModelPicker,
       });
@@ -382,7 +386,7 @@ export function createModelPicker({
             if (typeof options.onImmediateSelect === 'function') {
               options.onImmediateSelect(routeInput, selected, effort);
             } else {
-              own.paint(null);
+              own.paint(handoffPanel);
             }
             // Post-ack delegation (return to the caller's panel), bound to the
             // claim AFTER this keypress's own navigation: an Esc between the
@@ -397,10 +401,13 @@ export function createModelPicker({
                 afterSelect();
                 return result;
               })
-              .catch((e) => store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error'));
+              .catch((e) => {
+                store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error');
+                if (handoffPanel) afterSelect();
+              });
             return;
           }
-          own.paint(null);
+          own.paint(handoffPanel);
           const afterSelect = own.defer(() => {
             if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
           });
@@ -415,7 +422,10 @@ export function createModelPicker({
               );
               if (ok) afterSelect();
             })
-            .catch((e) => store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error'));
+            .catch((e) => {
+              store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error');
+              if (handoffPanel) afterSelect();
+            });
         };
         const renderProviderModels = () => {
           const providerModelItems = buildProviderModelItems(models, provider, activeRoute);

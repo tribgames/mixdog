@@ -158,7 +158,7 @@ export function createMaintenancePickers({
     // binds it to the previous owner's epoch, which the open transition (a
     // panel identity change) supersedes — leaving "Latest version" stuck on
     // "checking…". Esc after the paint still closes the panel for good.
-    void Promise.resolve(render({ checking: true }))
+    return Promise.resolve(render({ checking: true }))
       .catch((e) => {
         store.pushNotice(`update panel failed: ${e?.message || e}`, 'error');
         return false;
@@ -308,8 +308,8 @@ export function createMaintenancePickers({
     setSettingsPrompt(null);
     own.context(null);
     closeUsagePanel();
-    if (options.advanced === true) renderAdvanced();
-    else render();
+    return Promise.resolve(options.advanced === true ? renderAdvanced() : render())
+      .catch((e) => store.pushNotice(`auto-clear panel failed: ${e?.message || e}`, 'error'));
   };
 
   const openProfilePicker = async (options = {}) => {

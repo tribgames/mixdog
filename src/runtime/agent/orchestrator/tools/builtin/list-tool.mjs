@@ -64,10 +64,6 @@ const FIND_WALK_TIMEOUT_MS = 20_000;
 // whole-filesystem probes across six benchmark tasks, each burning a turn for
 // an error). At this cap the native search returns its ranked partial instead.
 const FIND_FUZZY_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_FUZZY_TIMEOUT_MS', 1_500);
-// If the fast fuzzy window sees no usable candidate, spend the remainder of
-// the outer 20s read-only budget on a literal query-targeted path scan. This
-// finds real paths without repeating the complete fuzzy inventory.
-const FIND_TARGETED_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_TARGETED_TIMEOUT_MS', 17_000);
 // Same contract for name/glob find: bound the walk and the metadata pass, then
 // SAY the result is partial. The old 20s walk plus a 5s stat deadline silently
 // dropped every path whose stat missed the deadline, so a slow scope reported
@@ -1212,59 +1208,17 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
         }
     }
     if (nativeEmptyPartial) {
-        const targetedStartedAt = performance.now();
-        let targeted;
-        try {
-            targeted = await getTargetedFindEnumeration({
-                queries: queryTokens.length > 0 ? queryTokens : [query],
-                root: fullPath,
-                hidden,
-                depth,
-                includeNoise,
-                runRgImpl,
-                signal: options.signal,
-                timeoutMs: FIND_TARGETED_TIMEOUT_MS,
-            });
-        } catch (error) {
-            if (options.signal?.aborted) throw findEnumerationAbortError(options.signal);
-            recordLocalSearchBackend('native_fuzzy_targeted', performance.now() - targetedStartedAt, 'error');
-            if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
-            return capFindResult([
-                `(no fuzzy match yet for "${query}")`,
-                '... [native fuzzy ranking was partial and the targeted path scan could not complete; narrow path and retry]',
-            ].join('\n'));
-        }
-        const queryTokensLower = queryTokens.map((token) => token.toLowerCase());
-        const targetedPaths = targeted.files.filter((path) => {
-            const lower = path.toLowerCase();
-            return queryTokensLower.every((token) => lower.includes(token));
-        });
-        const rankLimit = headLimit > 0 ? headLimit + 1 : headLimit;
-        const rankedRaw = fuzzyRankMulti(query, prepareFuzzyItems(targetedPaths), rankLimit);
-        const hasMore = headLimit > 0 && rankedRaw.length > headLimit;
-        const ranked = hasMore ? rankedRaw.slice(0, headLimit) : rankedRaw;
-        recordLocalSearchBackend(
-            'native_fuzzy_targeted',
-            performance.now() - targetedStartedAt,
-            ranked.length > 0 ? 'hit' : 'miss',
-        );
         if (options?.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
-        const lines = ranked.length > 0
-            ? ranked.map((entry) => entry.item.path)
-            : [`(no fuzzy match yet for "${query}")`];
-        if (hasMore) lines.push(`... (top ${headLimit}; raise limit for more)`);
-        if (ranked.length > 0) {
-            lines.push('... [native fuzzy ranking was partial; query-targeted path matches shown]');
-        } else {
-            lines.push('... [native fuzzy ranking was partial and the query-targeted path scan found no candidate; narrow path for a complete result]');
-        }
-        if (targeted.truncated || targeted.partial) {
-            lines.push('... [warning] targeted path scan was partial; returned candidates may be incomplete');
-        }
-        if (typeof options?.onProgress === 'function') {
-            try { options.onProgress(`${ranked.length} targeted candidates`); } catch {}
-        }
-        return capFindResult(lines.join('\n'));
+        const scanErrorNote = nativeEmptyPartial.scanErrors > 0
+            ? `; ${nativeEmptyPartial.scanErrors} path(s) could not be enumerated`
+                + (nativeEmptyPartial.walkErrorDetails?.length
+                    ? `: ${nativeEmptyPartial.walkErrorDetails.join('; ')}`
+                    : '')
+            : '';
+        return capFindResult([
+            `(no fuzzy match yet for "${query}")`,
+            `... [native inventory is still building${scanErrorNote}; retry the same scope for complete results]`,
+        ].join('\n'));
     }
     // Common discovery respects .gitignore even outside a Git repository.
     // include_noise deliberately retains the old hardened --no-ignore behavior.

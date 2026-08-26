@@ -401,24 +401,34 @@ export function openMediaAsset(id) {
   return { id, opened: openWithOs(path) };
 }
 
-/** Open one asset's containing directory, or the Studio assets root. */
+/** Reveal one asset in its containing directory, or open the Studio assets root. */
 export function openMediaFolder(id = '') {
   if (id) {
     const path = mediaAssetPath(id);
     if (!path || !existsSync(path)) return { id, path: '', opened: false };
     const folder = dirname(path);
-    return { id, path: folder, opened: openWithOs(folder) };
+    return { id, path: folder, opened: openWithOs(path, { reveal: true }) };
   }
   ensureDirs();
   return { path: assetsDir(), opened: openWithOs(assetsDir()) };
 }
 
-function openWithOs(path) {
-  const [command, args] = process.platform === 'win32'
-    ? ['cmd', ['/c', 'start', '', path]]
-    : process.platform === 'darwin'
-      ? ['open', [path]]
-      : ['xdg-open', [path]];
+export function mediaOpenCommand(path, {
+  reveal = false,
+  platform = process.platform,
+} = {}) {
+  if (reveal && platform === 'win32') return ['explorer.exe', ['/select,', path]];
+  if (reveal && platform === 'darwin') return ['open', ['-R', path]];
+  const target = reveal ? dirname(path) : path;
+  return platform === 'win32'
+    ? ['cmd', ['/c', 'start', '', target]]
+    : platform === 'darwin'
+      ? ['open', [target]]
+      : ['xdg-open', [target]];
+}
+
+function openWithOs(path, options) {
+  const [command, args] = mediaOpenCommand(path, options);
   const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
   child.unref();
   return true;

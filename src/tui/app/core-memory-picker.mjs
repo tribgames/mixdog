@@ -39,6 +39,7 @@ export function createCoreMemoryPicker({
       // Loading state lives in the header description row, not as a fake
       // selectable menu item.
       description: 'Loading memories…',
+      loading: true,
       items: [],
       onSelect: () => {},
       onCancel: closeMemoryCorePicker,
@@ -113,6 +114,7 @@ export function createCoreMemoryPicker({
     paintPanel({
       title: 'Memory · List',
       description: 'Loading memories…',
+      loading: true,
       items: [],
       onSelect: () => {},
       onCancel: () => openMemoryCorePicker(),
