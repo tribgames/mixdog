@@ -150,33 +150,38 @@ npm run dev
 
 ## Terminal-Bench 2.1
 
-Head-to-head runs against other agent CLIs on the same 89 tasks, holding the
-model fixed and changing only the harness. Every run uses the official Harbor
-verifier, fast mode off, a 272k context window, and zero retries.
+Same model, same 89 tasks, same official verifier — only the harness changes.
+Against the native CLI of each model family, Mixdog scores higher while
+spending less to get there.
 
-**GPT-5.6 Sol xhigh — Mixdog vs Codex CLI**
+### GPT-5.6 Sol xhigh — Mixdog vs Codex CLI
 
-- Score: **86.5%** (385/445) vs Codex CLI's **84.3%** (75/89)
-- **1.11×** faster per trial (339s vs 378s)
-- **42%** lower priced cost ($0.641 vs $1.096 per trial)
-- **45%** smaller median final context (18.5k vs 33.5k tokens)
+![Terminal-Bench 2.1: Mixdog with GPT-5.6 Sol xhigh versus Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
 
-**Claude Opus 5 — Mixdog vs Claude Code**
+- **86.5%** (385/445) vs Codex CLI's **84.3%** (75/89)
+- **42%** lower priced cost — $0.641 vs $1.096 per trial
+- **45%** smaller median final context — 18.5k vs 33.5k tokens
+- **1.11×** faster — 339s vs 378s per trial
 
-- Score: **79/89** vs Claude Code's **77/89**
-- **1.15×** faster and **19%** lower priced cost ($104.29 vs $129.21 per run)
-- **28%** smaller median final context (27.6k vs 38.2k tokens)
+### Claude Opus 5 — Mixdog vs Claude Code
 
-Measurement: the Mixdog Sol run follows the same protocol the official
-Terminal-Bench leaderboard requires — all 89 tasks repeated five times
-(`k=5`, 445 trials), scored by the official Harbor verifier. The Codex CLI
-baseline and both Opus-side runs are single passes (`k=1`, 89 trials each).
+![Terminal-Bench 2.1: Mixdog with Claude Opus 5 versus Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
 
-The official leaderboard is not accepting community submissions, so every run
-here ships its raw artifacts instead — Harbor verdicts, official verifier
-output, pinned task checksums, and the usage snapshots behind every cost
-figure — alongside the harness, presets, and metric scripts that recompute
-each number above:
+- **79/89** vs Claude Code's **77/89**
+- **19%** lower priced cost — $104.29 vs $129.21 per run
+- **28%** smaller median final context — 27.6k vs 38.2k tokens
+- **1.15×** faster
+
+Every run uses the official Harbor verifier, fast mode off, a 272k context
+window, and zero retries. The Mixdog Sol run follows the protocol the official
+Terminal-Bench leaderboard requires — all 89 tasks repeated five times (`k=5`,
+445 trials); the Codex CLI baseline and both Opus-side runs are single passes
+(`k=1`, 89 trials each).
+
+The leaderboard is not accepting community submissions, so every run here ships
+its raw artifacts instead — Harbor verdicts, official verifier output, pinned
+task checksums, and the usage snapshots behind every cost figure — alongside
+the harness, presets, and metric scripts that recompute each number above:
 [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
 
 ## Data and configuration
