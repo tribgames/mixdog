@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises';
 import { createHash } from 'crypto';
 import { isAbsolute, resolve } from 'path';
 import { trueCasePath } from './path-utils.mjs';
+import { expandAbsoluteGlobs } from './lib/absolute-glob-expand.mjs';
 import {
     canonicalizeGlobSlashes,
     coerceReadFamilyPathArg,
@@ -409,8 +410,19 @@ export async function executeGlobTool(args, workDir, options = {}) {
             const base = String(rel).split('/').filter(Boolean).pop() || '';
             return base !== '' && !hasGlobMagic(base);
         });
+        // A pattern that NAMES a pruned directory is asking for it: only the
+        // wildcard basename decided this before, so `node_modules/**/index.js`
+        // was answered while `__pycache__/*.pyc` returned "(no files found)"
+        // for a file sitting right there. The yield is per-directory — every
+        // other prune stays on — and a negative pattern never counts as a
+        // request for its own target.
+        const namedDirs = new Set([
+            ...rels.flatMap((rel) => String(rel).replace(/^!/, '').split('/')),
+            ...String(root || '').replace(/\\/g, '/').split('/'),
+        ].filter((segment) => segment && !hasGlobMagic(segment)));
         for (const ex of DEFAULT_IGNORE_GLOBS) {
-            if (explicitBasenames && /^!\*\*\/[^/]+\/\*\*$/.test(ex)) continue;
+            const pruned = /^!\*\*\/([^/]+)\/\*\*$/.exec(ex);
+            if (pruned && (explicitBasenames || namedDirs.has(pruned[1]))) continue;
             rgArgs.push('--glob', ex);
         }
         for (const ex of extraIgnoreGlobs) rgArgs.push('--glob', ex);
@@ -594,6 +606,18 @@ export async function executeGlobTool(args, workDir, options = {}) {
         : (rgStdoutTruncated ? '\n... [truncated at rg stdout cap (20MB); results incomplete]' : '')
             + (rgStdoutPartial ? '\n... [warning] rg exit 2 (partial results); listing may be incomplete' : '');
     const errSuffix = (rgErrors.length > 0 ? `\n... [warning] ${rgErrors.join(' | ')}` : '') + truncSuffix;
+    // An absolute pattern that enumerated nothing may still have real matches
+    // the inventory walker cannot see: it does not follow symlinked
+    // directories, and /sys, /proc and friends are made of them. Expand those
+    // patterns straight off the filesystem before declaring the miss.
+    if (capped.length === 0 && rgErrors.length === 0) {
+        const direct = await expandAbsoluteGlobs(patterns, {
+            limit: headLimit === Infinity ? 50 : offset + headLimit,
+        });
+        const window = offset > 0 ? direct.slice(offset) : direct;
+        const shown = headLimit === Infinity ? window : window.slice(0, headLimit);
+        if (shown.length > 0) return globPatternCapNote + shown.join('\n');
+    }
     let emptyDiag = '';
     if (capped.length === 0 && rgErrors.length === 0) {
         const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);

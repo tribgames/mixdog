@@ -1033,6 +1033,14 @@ export function createRunTurn(bag) {
             invalidateExact: compactChanged,
             compactedEstimateTokens: compactChanged ? event?.afterTokens : null,
           });
+          // syncContextStats only STAGES its patch on the draft (context-state
+          // mjs stages through updateState); publication is the caller's, and
+          // every other compact path already follows with this exact set. The
+          // auto path did not, so the post-compact gauge reached React only if
+          // some later mutation happened to carry it — the manual path
+          // repainted immediately while auto looked stuck on the pre-compact
+          // number (user: 오토 컴팩트 이후에 컨텍스트 원형바가 동기화가 안됨).
+          set({ ...routeState(), stats: { ...getState().stats } });
         },
         onStageChange: async (stage, detail = null) => {
           if (!markTurnProgress(`stage:${String(stage || '')}`)) return;
@@ -1200,6 +1208,10 @@ export function createRunTurn(bag) {
         finalizeToolHeaders();
         flushStreamBatch(); // force-flush any batched streaming text before finalization writes
         syncContextStats({ allowEstimated: true });
+        // Terminal reading for the turn. Without its own publication the last
+        // gauge number React ever saw is the one the previous usage delta
+        // carried, so an idle session sat on a stale count until the next turn.
+        set({ stats: { ...getState().stats } });
 
         const finalText = result?.content != null ? String(result.content) : '';
         // Strip text already sealed as its own item(s) this turn (a tool

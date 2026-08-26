@@ -1,9 +1,10 @@
 import { fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFile } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFile } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appendBuffered } from '../runtime/shared/buffered-appender.mjs';
+import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
@@ -33,6 +34,34 @@ function logLine(path, line) {
 
 const CHANNEL_WORKER_EXIT_CLEANUPS = new Set();
 let channelWorkerExitHookInstalled = false;
+
+export function pruneStaleChannelClientHeartbeats(clientDir, {
+  now = Date.now(),
+  maxAgeMs = 30_000,
+  pidAlive = isPidAlive,
+} = {}) {
+  let removed = 0;
+  try {
+    for (const name of readdirSync(clientDir)) {
+      if (!/^\d+\.json$/.test(name)) continue;
+      const target = join(clientDir, name);
+      let row = null;
+      try { row = JSON.parse(readFileSync(target, 'utf8')); } catch {}
+      const pid = Number(row?.pid);
+      const updatedAt = Number(row?.updatedAt);
+      const stale = !Number.isInteger(pid) || pid <= 0
+        || !Number.isFinite(updatedAt)
+        || now - updatedAt > Math.max(5_000, Number(maxAgeMs) || 30_000)
+        || !pidAlive(pid);
+      if (!stale) continue;
+      try {
+        rmSync(target, { force: true });
+        removed += 1;
+      } catch {}
+    }
+  } catch {}
+  return removed;
+}
 
 function registerChannelWorkerExitCleanup(cleanup) {
   if (typeof cleanup !== 'function') return () => {};
@@ -82,6 +111,7 @@ export function createStandaloneChannelWorker({
     try {
       if (!clientDirReady) {
         mkdirSync(clientDir, { recursive: true });
+        pruneStaleChannelClientHeartbeats(clientDir);
         clientDirReady = true;
       }
       writeFile(clientPath, JSON.stringify({

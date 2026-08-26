@@ -1,0 +1,115 @@
+{
+    "id": "c20ea9b7-1ad8-43d0-badd-c484325a2bd3",
+    "task_name": "terminal-bench/git-leak-recovery",
+    "trial_name": "git-leak-recovery__iK9Y8JU",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/git-leak-recovery__iK9Y8JU",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "git-leak-recovery",
+        "ref": "sha256:22a9ec10dbd4cd8b99477b70e1944103775ca41de9b9e0025ec4898cd17bd334"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "45308cc1d3e5c665486621c50d95a4789861f41066e85e572eb7ccddb7932720",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/git-leak-recovery",
+            "ref": "sha256:22a9ec10dbd4cd8b99477b70e1944103775ca41de9b9e0025ec4898cd17bd334",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "git-leak-recovery__iK9Y8JU",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 243000,
+        "n_cache_tokens": 233414,
+        "n_output_tokens": 5063,
+        "cost_usd": 0.33903700000000003,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T12:13:30.040500Z",
+    "finished_at": "2026-08-02T12:15:56.706199Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T12:13:30.077360Z",
+        "finished_at": "2026-08-02T12:13:34.766216Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T12:13:34.766233Z",
+        "finished_at": "2026-08-02T12:14:08.013758Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T12:14:08.013803Z",
+        "finished_at": "2026-08-02T12:15:29.760590Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T12:15:29.766634Z",
+        "finished_at": "2026-08-02T12:15:53.808439Z"
+    },
+    "step_results": null
+}

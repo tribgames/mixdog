@@ -1,0 +1,364 @@
+Hit:1 http://deb.debian.org/debian bookworm InRelease
+Hit:2 http://deb.debian.org/debian bookworm-updates InRelease
+Hit:3 http://deb.debian.org/debian-security bookworm-security InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (7.88.1-10+deb12u15).
+0 upgraded, 0 newly installed, 0 to remove and 30 not upgraded.
+downloading uv 0.9.5 x86_64-unknown-linux-gnu
+no checksums to verify
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+Downloading pygments (1.2MiB)
+ Downloading pygments
+Installed 6 packages in 11ms
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.4.1, pluggy-1.6.0
+rootdir: /tests
+plugins: json-ctrf-0.3.5
+collected 1 item
+
+../tests/test_outputs.py .                                               [100%]
+
+==================================== PASSES ====================================
+_________________________________ test_interp __________________________________
+----------------------------- Captured stdout call -----------------------------
+Scheme Interpreter Verification
+==================================================
+Running tests through both interp.py and eval.scm
+
+
+Testing: /tests/shadow_test/01-factorial.scm
+----------------------------------------
+takes 0.10184812545776367
+PASSED: OK
+
+Testing: /tests/shadow_test/02-fibonacci.scm
+----------------------------------------
+takes 2.0900418758392334
+PASSED: OK
+
+Testing: /tests/shadow_test/03-list-operations.scm
+----------------------------------------
+takes 0.09437942504882812
+PASSED: OK
+
+Testing: /tests/shadow_test/04-higher-order.scm
+----------------------------------------
+takes 0.09417510032653809
+PASSED: OK
+
+Testing: /tests/shadow_test/05-simple-io.scm
+----------------------------------------
+takes 0.07040214538574219
+takes 1.8298203945159912
+PASSED: OK
+
+Testing: /tests/shadow_test/06-interactive-io.scm
+----------------------------------------
+takes 0.025831937789916992
+PASSED: OK
+
+Testing: /tests/shadow_test/08-progn-sequencing.scm
+----------------------------------------
+takes 0.03664827346801758
+PASSED: OK
+
+Testing: /tests/shadow_test/09-mutual-recursion.scm
+----------------------------------------
+takes 0.21002650260925293
+PASSED: OK
+
+Testing: /tests/shadow_test/10-advanced-features.scm
+----------------------------------------
+takes 0.20633816719055176
+PASSED: OK
+
+Testing: /tests/shadow_test/accumulator_patterns.scm
+----------------------------------------
+takes 0.11309242248535156
+PASSED: OK
+
+Testing: /tests/shadow_test/binary_tree.scm
+----------------------------------------
+takes 0.18733453750610352
+PASSED: OK
+
+Testing: /tests/shadow_test/church_numerals.scm
+----------------------------------------
+takes 0.08502316474914551
+PASSED: OK
+
+Testing: /tests/shadow_test/closures.scm
+----------------------------------------
+takes 0.022390365600585938
+takes 2.8994410037994385
+PASSED: OK
+
+Testing: /tests/shadow_test/continuation_passing.scm
+----------------------------------------
+takes 0.31282997131347656
+PASSED: OK
+
+Testing: /tests/shadow_test/currying.scm
+----------------------------------------
+takes 0.08228754997253418
+PASSED: OK
+
+Testing: /tests/shadow_test/filter_operations.scm
+----------------------------------------
+takes 0.19415926933288574
+PASSED: OK
+
+Testing: /tests/shadow_test/fold_operations.scm
+----------------------------------------
+takes 0.09940028190612793
+PASSED: OK
+
+Testing: /tests/shadow_test/function_composition.scm
+----------------------------------------
+takes 0.034223318099975586
+PASSED: OK
+
+Testing: /tests/shadow_test/lazy_evaluation.scm
+----------------------------------------
+takes 0.3195915222167969
+PASSED: OK
+
+Testing: /tests/shadow_test/list_operations.scm
+----------------------------------------
+takes 0.23072457313537598
+PASSED: OK
+
+Testing: /tests/shadow_test/map_operations.scm
+----------------------------------------
+takes 0.16999220848083496
+PASSED: OK
+
+Testing: /tests/shadow_test/memoization.scm
+----------------------------------------
+takes 0.11273694038391113
+PASSED: OK
+
+Testing: /tests/shadow_test/mutual_recursion.scm
+----------------------------------------
+takes 3.193634033203125
+PASSED: OK
+
+Testing: /tests/shadow_test/nested_defines.scm
+----------------------------------------
+takes 0.09154629707336426
+PASSED: OK
+
+Testing: /tests/shadow_test/oeis_sequences.scm
+----------------------------------------
+takes 4.895415544509888
+PASSED: OK
+
+Testing: /tests/shadow_test/oeis_sequences2.scm
+----------------------------------------
+takes 0.9432010650634766
+PASSED: OK
+
+Testing: /tests/shadow_test/oeis_sequences3.scm
+----------------------------------------
+takes 3.1840689182281494
+PASSED: OK
+
+Testing: /tests/shadow_test/recursive_structures.scm
+----------------------------------------
+takes 0.304044246673584
+PASSED: OK
+
+Testing: /tests/shadow_test/test_read.scm
+----------------------------------------
+takes 0.07518339157104492
+PASSED: OK
+
+Testing: /tests/shadow_test/variadic_functions.scm
+----------------------------------------
+takes 0.18809819221496582
+PASSED: OK
+
+Testing: /tests/shadow_test/y_combinator.scm
+----------------------------------------
+takes 1.1077699661254883
+PASSED: OK
+
+Testing: /tests/test/01-factorial.scm
+----------------------------------------
+takes 0.1106255054473877
+PASSED: OK
+
+Testing: /tests/test/02-fibonacci.scm
+----------------------------------------
+takes 0.8681957721710205
+PASSED: OK
+
+Testing: /tests/test/03-list-operations.scm
+----------------------------------------
+takes 0.0896615982055664
+PASSED: OK
+
+Testing: /tests/test/04-higher-order.scm
+----------------------------------------
+takes 0.0900580883026123
+PASSED: OK
+
+Testing: /tests/test/05-simple-io.scm
+----------------------------------------
+takes 0.019867658615112305
+takes 1.8678786754608154
+PASSED: OK
+
+Testing: /tests/test/06-interactive-io.scm
+----------------------------------------
+takes 0.017127037048339844
+PASSED: OK
+
+Testing: /tests/test/08-progn-sequencing.scm
+----------------------------------------
+takes 0.030597686767578125
+PASSED: OK
+
+Testing: /tests/test/09-mutual-recursion.scm
+----------------------------------------
+takes 0.24048519134521484
+PASSED: OK
+
+Testing: /tests/test/10-advanced-features.scm
+----------------------------------------
+takes 0.09376788139343262
+PASSED: OK
+
+Testing: /tests/test/accumulator_patterns.scm
+----------------------------------------
+takes 0.10658454895019531
+PASSED: OK
+
+Testing: /tests/test/binary_tree.scm
+----------------------------------------
+takes 0.17716693878173828
+PASSED: OK
+
+Testing: /tests/test/calculator.scm
+----------------------------------------
+takes 0.06852221488952637
+takes 0.9201831817626953
+PASSED: OK
+
+Testing: /tests/test/church_numerals.scm
+----------------------------------------
+takes 0.0922091007232666
+PASSED: OK
+
+Testing: /tests/test/closures.scm
+----------------------------------------
+takes 0.07649111747741699
+takes 2.925168037414551
+PASSED: OK
+
+Testing: /tests/test/continuation_passing.scm
+----------------------------------------
+takes 0.1379995346069336
+PASSED: OK
+
+Testing: /tests/test/currying.scm
+----------------------------------------
+takes 0.0967857837677002
+PASSED: OK
+
+Testing: /tests/test/filter_operations.scm
+----------------------------------------
+takes 0.2080841064453125
+PASSED: OK
+
+Testing: /tests/test/fold_operations.scm
+----------------------------------------
+takes 0.10168170928955078
+PASSED: OK
+
+Testing: /tests/test/function_composition.scm
+----------------------------------------
+takes 0.10116028785705566
+PASSED: OK
+
+Testing: /tests/test/lazy_evaluation.scm
+----------------------------------------
+takes 0.306851863861084
+PASSED: OK
+
+Testing: /tests/test/list_operations.scm
+----------------------------------------
+takes 0.28966546058654785
+PASSED: OK
+
+Testing: /tests/test/map_operations.scm
+----------------------------------------
+takes 0.12712359428405762
+PASSED: OK
+
+Testing: /tests/test/memoization.scm
+----------------------------------------
+takes 0.28077101707458496
+PASSED: OK
+
+Testing: /tests/test/mutual_recursion.scm
+----------------------------------------
+takes 1.8764846324920654
+PASSED: OK
+
+Testing: /tests/test/nested_defines.scm
+----------------------------------------
+takes 0.08493804931640625
+PASSED: OK
+
+Testing: /tests/test/oeis_sequences.scm
+----------------------------------------
+takes 3.8908793926239014
+PASSED: OK
+
+Testing: /tests/test/oeis_sequences2.scm
+----------------------------------------
+takes 1.8764445781707764
+PASSED: OK
+
+Testing: /tests/test/oeis_sequences3.scm
+----------------------------------------
+takes 3.505816698074341
+PASSED: OK
+
+Testing: /tests/test/recursive_structures.scm
+----------------------------------------
+takes 0.31614136695861816
+PASSED: OK
+
+Testing: /tests/test/test_read.scm
+----------------------------------------
+takes 0.02066206932067871
+PASSED: OK
+
+Testing: /tests/test/variadic_functions.scm
+----------------------------------------
+takes 0.2659156322479248
+PASSED: OK
+
+Testing: /tests/test/y_combinator.scm
+----------------------------------------
+takes 0.4968993663787842
+PASSED: OK
+
+==================================================
+Summary: 63 passed, 0 failed out of 63 tests
+=========================== short test summary info ============================
+PASSED ../tests/test_outputs.py::test_interp
+============================== 1 passed in 47.71s ==============================

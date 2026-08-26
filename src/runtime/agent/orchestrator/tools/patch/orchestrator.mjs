@@ -33,10 +33,11 @@ import {
 } from './paths.mjs';
 import { ensureNativePatchBinaryAvailable } from './native-server.mjs';
 import { assertPathReachable } from '../builtin/fs-reachability.mjs';
+import { symlinkWriteTarget } from '../builtin/atomic-write.mjs';
 import { findBySuffixStrip, findFileByBasename } from '../builtin/path-diagnostics.mjs';
 import { resolveReadPathRedirect } from '../builtin/snapshot-store.mjs';
 import { dispatchNativePatch, dispatchJsPatchEntries } from './dispatch.mjs';
-import { patchTargetUsesUtf16 } from './matcher.mjs';
+import { patchTargetUsesUtf16, splitTextLinesForPatch } from './matcher.mjs';
 import { nativePatchSessionSatisfiesContract } from './native-server.mjs';
 import {
   planV4ARenameSections,
@@ -202,21 +203,29 @@ async function applyParsedWave({ parsed: wparsed, entries: wentries, headerRewri
   // included — so the whole wave takes the JS writer.
   const codecNeedsJs = (fullPath, kind) => kind !== 'create' && kind !== 'delete'
     && patchTargetUsesUtf16(fullPath);
-  const needsJsCodec = (fullPath, kind) => !engineContractOk || codecNeedsJs(fullPath, kind);
+  // A symlinked target takes the JS writer too: the native engine renames its
+  // output over the path it was handed, which would replace the link with a
+  // regular file. The JS writer resolves the link and rewrites the file it
+  // points at. Delete is exempt — removing the link itself is correct there.
+  const symlinkNeedsJs = (fullPath, kind) => kind !== 'create' && kind !== 'delete'
+    && symlinkWriteTarget(fullPath) !== null;
+  const needsJsWriter = (fullPath, kind) => !engineContractOk
+    || codecNeedsJs(fullPath, kind)
+    || symlinkNeedsJs(fullPath, kind);
   const nativeEntries = wentries.filter(
     (entry) => entry.kind !== 'create'
       && !isResolvedPathOutsideBase(entry.fullPath, basePath)
-      && !needsJsCodec(entry.fullPath, entry.kind),
+      && !needsJsWriter(entry.fullPath, entry.kind),
   );
   const jsEntries = wentries.filter(
     (entry) => entry.kind === 'create'
       || isResolvedPathOutsideBase(entry.fullPath, basePath)
-      || needsJsCodec(entry.fullPath, entry.kind),
+      || needsJsWriter(entry.fullPath, entry.kind),
   );
   const parsedInside = (wparsed || []).filter(
     (entry) => classifyEntry(entry) !== 'create'
       && !isResolvedPathOutsideBase(parsedEntryResolvedPath(entry, basePath), basePath)
-      && !needsJsCodec(parsedEntryResolvedPath(entry, basePath), classifyEntry(entry)),
+      && !needsJsWriter(parsedEntryResolvedPath(entry, basePath), classifyEntry(entry)),
   );
   const executor = jsEntries.length > 0
     ? (nativeEntries.length > 0 ? 'native+js-patch' : 'js-patch')
@@ -802,6 +811,44 @@ function salvageShatteredV4APatchArgs(args) {
   return cleaned;
 }
 
+// A whole-file rewrite is naturally written as "delete the old file, add the
+// new one", and that pair has exactly ONE possible outcome: the file ends up
+// holding the Add body. Rejecting it as a conflicting target cost a full turn
+// for a patch that was never ambiguous. Collapse it instead — into a full-file
+// Update when the target exists, so every ordinary update guard (special
+// files, reachability, verification, write locks) still runs, or into the
+// plain Add when it does not exist and the Delete had nothing to remove.
+// Everything else (Update+Delete, Add+Add, renames) keeps rejecting: those
+// pairs genuinely describe two different end states.
+function collapseDeleteThenAddSection(prior, section, fullPath) {
+    if (prior?.kind !== 'delete' || section?.kind !== 'add') return null;
+    if (prior.movePath || section.movePath) return null;
+    const added = Array.isArray(section.lines) ? [...section.lines] : [];
+    let raw;
+    try {
+        raw = readFileSync(fullPath);
+    } catch (error) {
+        if (error?.code !== 'ENOENT') return null;
+        return { ...section, lines: added, hunks: [] };
+    }
+    // A binary target has no line model to rewrite; leave it to the existing
+    // conflict error rather than inventing one.
+    if (raw.includes(0)) return null;
+    const current = splitTextLinesForPatch(raw.toString('utf8'));
+    return {
+        kind: 'update',
+        path: section.path,
+        lines: [],
+        hunks: [{
+            anchors: [],
+            lines: [
+                ...[...current].map((line) => `-${line}`),
+                ...added.map((line) => `+${line}`),
+            ],
+        }],
+    };
+}
+
 function coalesceCompatibleV4ASections(sections, basePath) {
   const out = [];
   const indexByPath = new Map();
@@ -823,6 +870,11 @@ function coalesceCompatibleV4ASections(sections, basePath) {
       continue;
     }
     const prior = out[priorIndex];
+    const replaced = collapseDeleteThenAddSection(prior, section, fullPath);
+    if (replaced) {
+      out[priorIndex] = replaced;
+      continue;
+    }
     const mergeable = prior?.kind === 'update'
       && section.kind === 'update'
       && !prior.movePath

@@ -1,0 +1,115 @@
+{
+    "id": "a12f43b5-ac65-4fc1-a291-24e2d1ba5abe",
+    "task_name": "terminal-bench/winning-avg-corewars",
+    "trial_name": "winning-avg-corewars__Mgada24",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/winning-avg-corewars__Mgada24",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "winning-avg-corewars",
+        "ref": "sha256:a9f2c630fb7d656e96f3a42ade600a8abcb500631d153d62d5ceb2df073bc256"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "ef26211fb0bfc03ae2fddb937acce4df425861a40090d627a267edb3fb15e356",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/winning-avg-corewars",
+            "ref": "sha256:a9f2c630fb7d656e96f3a42ade600a8abcb500631d153d62d5ceb2df073bc256",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "winning-avg-corewars__Mgada24",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 5591206,
+        "n_cache_tokens": 5415024,
+        "n_output_tokens": 150987,
+        "cost_usd": 8.243557,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T12:11:44.022157Z",
+    "finished_at": "2026-08-02T12:50:56.008944Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T12:11:44.080980Z",
+        "finished_at": "2026-08-02T12:11:46.457491Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T12:11:46.457511Z",
+        "finished_at": "2026-08-02T12:12:16.345291Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T12:12:16.345337Z",
+        "finished_at": "2026-08-02T12:50:43.799331Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T12:50:43.818481Z",
+        "finished_at": "2026-08-02T12:50:52.524834Z"
+    },
+    "step_results": null
+}

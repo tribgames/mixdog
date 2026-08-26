@@ -58,6 +58,13 @@ build-out*.txt
 baseline-dom.txt
 apps/desktop/scripts/tmp-*.mjs
 benchmarks/terminal-bench-2.1/jobs-*
+# Published verification artifacts (analysis/export-raw.mjs) live under
+# raw-runs/ and are committed, so they must survive the generic artifacts/
+# rule above.
+!benchmarks/terminal-bench-2.1/raw-runs/**/artifacts/
+# One-off probe scripts written during a run investigation; the published
+# metric scripts next to them are committed under their own names.
+benchmarks/terminal-bench-2.1/analysis/_tmp-*
 benchmarks/terminal-bench-2.1/harness/__pycache__/
 benchmarks/terminal-bench-2.1/tb-src-snap-*
 benchmarks/terminal-bench-2.1/cc-bin/

@@ -1,0 +1,112 @@
+{
+    "id": "6f65cf4f-a9e5-4369-96fe-685cb5e26977",
+    "task_name": "terminal-bench/winning-avg-corewars",
+    "trial_name": "winning-avg-corewars__EnnsHRy",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-sol-xhigh-k5-20260825-182921/2026-08-26__03-29-24/winning-avg-corewars__EnnsHRy",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "winning-avg-corewars",
+        "ref": "sha256:a9f2c630fb7d656e96f3a42ade600a8abcb500631d153d62d5ceb2df073bc256"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "ef26211fb0bfc03ae2fddb937acce4df425861a40090d627a267edb3fb15e356",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/winning-avg-corewars",
+            "ref": "sha256:a9f2c630fb7d656e96f3a42ade600a8abcb500631d153d62d5ceb2df073bc256",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "winning-avg-corewars__EnnsHRy",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-sol-xhigh-k5-20260825-182921\\2026-08-26__03-29-24",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "route_profile": "sol-xhigh-nofast"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c2536a8d-4044-4108-95fd-e9efaf2ae3c9"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.150",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 2016971,
+        "n_cache_tokens": 1872896,
+        "n_output_tokens": 48290,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-25T20:47:18.392653Z",
+    "finished_at": "2026-08-25T21:13:08.370904Z",
+    "environment_setup": {
+        "started_at": "2026-08-25T20:47:18.400707Z",
+        "finished_at": "2026-08-25T20:47:20.512643Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-25T20:47:20.512660Z",
+        "finished_at": "2026-08-25T20:47:32.507638Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-25T20:47:32.507690Z",
+        "finished_at": "2026-08-25T21:12:46.368108Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-25T21:12:46.369165Z",
+        "finished_at": "2026-08-25T21:12:56.575802Z"
+    },
+    "step_results": null
+}

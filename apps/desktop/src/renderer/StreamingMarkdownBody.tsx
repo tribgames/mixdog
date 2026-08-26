@@ -1,7 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 
 import type { MarkdownAstRoot } from "./markdown-ast";
-import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import {
   LatestMarkdownAstQueue,
   readCachedStreamingMarkdownAst,
@@ -54,15 +53,9 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   const usable = exact
     ?? (rendered && text.startsWith(rendered.source) ? rendered : null);
   const renderedRoot = usable?.root ?? null;
-  // Before the first worker result, the source fallback is the visible DOM.
-  // Its text can wrap onto a new line without changing renderedRoot, so key
-  // the layout notification to that visible source as well. Otherwise only
-  // ResizeObserver notices the growth one frame later and the bottom anchor
-  // corrects after paint, which appears as a one-off vertical transcript kick.
-  const fallbackMeasureText = renderedRoot ? "" : text;
   useLayoutEffect(() => {
-    onRendered?.();
-  }, [fallbackMeasureText, onRendered, renderedRoot]);
+    if (renderedRoot) onRendered?.();
+  }, [onRendered, renderedRoot]);
 
   useEffect(() => {
     if (!parse) return;
@@ -106,8 +99,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // the model is typing. Our worker is the pace:
   // the newest completed parse stays mounted (a few tokens behind) instead of
   // dropping the block back to source-shaped text, at settlement too. Before
-  // the first result, or for a tail too large to reparse per frame, the source
-  // fallback still applies.
+  // the first result there is intentionally no visible body: showing source
+  // even for one paint creates the raw-Markdown flash this pipeline forbids.
   // `parse` gates only whether NEW parses are requested. A tail past the cap
   // keeps its last completed parse on screen — falling back to source there
   // un-styled markdown that was already rendered, which is the one thing the
@@ -115,7 +108,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   if (usable) {
     return <MarkdownAstBody root={usable.root} copyControl={copyControl} />;
   }
-  return <MarkdownSourceFallback text={text} copyControl={copyControl} />;
+  return null;
 });
 
 const StreamingMarkdownBody = memo(function StreamingMarkdownBody({

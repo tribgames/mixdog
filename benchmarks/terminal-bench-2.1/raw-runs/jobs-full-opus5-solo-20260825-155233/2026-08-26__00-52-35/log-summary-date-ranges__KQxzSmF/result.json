@@ -1,0 +1,112 @@
+{
+    "id": "7fb90a25-15fa-4691-93db-db11bb7b9aa5",
+    "task_name": "terminal-bench/log-summary-date-ranges",
+    "trial_name": "log-summary-date-ranges__KQxzSmF",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-opus5-solo-20260825-155233/2026-08-26__00-52-35/log-summary-date-ranges__KQxzSmF",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "log-summary-date-ranges",
+        "ref": "sha256:27b074a2f10fff7606e096f3abd8dced418ad8fda0f53d88acbe477f2d9ceaf6"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "c833c594814ec7b8cb32eba3b9cb5ed648171efe5a074767aa64c25ea060f08f",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/log-summary-date-ranges",
+            "ref": "sha256:27b074a2f10fff7606e096f3abd8dced418ad8fda0f53d88acbe477f2d9ceaf6",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "log-summary-date-ranges__KQxzSmF",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-opus5-solo-20260825-155233\\2026-08-26__00-52-35",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "route_profile": "opus5-solo"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "1d46b649-f944-48a9-8be1-2e87f8748559"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.150",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 806,
+        "n_cache_tokens": 29230,
+        "n_output_tokens": 1503,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-25T15:55:34.631056Z",
+    "finished_at": "2026-08-25T15:56:32.429976Z",
+    "environment_setup": {
+        "started_at": "2026-08-25T15:55:34.636704Z",
+        "finished_at": "2026-08-25T15:55:36.734964Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-25T15:55:36.734981Z",
+        "finished_at": "2026-08-25T15:55:47.362414Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-25T15:55:47.362464Z",
+        "finished_at": "2026-08-25T15:56:11.386724Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-25T15:56:11.387686Z",
+        "finished_at": "2026-08-25T15:56:20.420434Z"
+    },
+    "step_results": null
+}

@@ -1,4 +1,4 @@
-import { statSync, createWriteStream } from 'fs';
+import { statSync, lstatSync, realpathSync, createWriteStream } from 'fs';
 import * as fsPromises from 'fs/promises';
 import { basename, dirname, join } from 'path';
 import { performance } from 'perf_hooks';
@@ -73,6 +73,21 @@ async function cleanupEmptyWxTarget(targetPath) {
     } catch { /* already gone or unreadable — leave it */ }
 }
 
+// The real file a write aimed at `targetPath` must land on when the leaf is a
+// symlink, or null when it is not a link (or is dangling, so there is nothing
+// to resolve). Writers rename a temp file into place, which would replace the
+// LINK itself with a regular file and silently detach layouts like nginx's
+// sites-enabled/default from sites-available/default. Engines that write a
+// path themselves use this as "do not hand this target to the engine".
+export function symlinkWriteTarget(targetPath) {
+    try {
+        if (!lstatSync(targetPath).isSymbolicLink()) return null;
+        return realpathSync(targetPath);
+    } catch {
+        return null;
+    }
+}
+
 export async function atomicWrite(targetPath, content, {
     mode,
     signal,
@@ -95,12 +110,16 @@ export async function atomicWrite(targetPath, content, {
     };
     if (resolvedSignal?.aborted) throw abortReason();
 
-    const dir = dirname(targetPath);
+    // Write THROUGH a leaf symlink: resolve it first so the rename replaces the
+    // file the link points at, not the link. Resolving also keeps the temp file
+    // beside the real target, so the rename stays on one filesystem.
+    const writeTarget = symlinkWriteTarget(targetPath) ?? targetPath;
+    const dir = dirname(writeTarget);
     const rnd = randomBytes(4).toString('hex');
-    const tmp = join(dir, `.${basename(targetPath)}.mixdog-tmp-${rnd}`);
+    const tmp = join(dir, `.${basename(writeTarget)}.mixdog-tmp-${rnd}`);
     let effectiveMode = mode;
     let existingStat = null;
-    try { existingStat = statSync(targetPath); } catch { /* target doesn't exist */ }
+    try { existingStat = statSync(writeTarget); } catch { /* target doesn't exist */ }
     if (effectiveMode === undefined && existingStat) {
         effectiveMode = existingStat.mode & 0o777;
     }
@@ -165,7 +184,7 @@ export async function atomicWrite(targetPath, content, {
     if (flags === 'wx') {
         let excl = null;
         try {
-            excl = await fsPromises.open(targetPath, 'wx');
+            excl = await fsPromises.open(writeTarget, 'wx');
             await excl.close();
         } catch (exclErr) {
             if (excl) try { await excl.close(); } catch { /* already closed */ }
@@ -179,7 +198,7 @@ export async function atomicWrite(targetPath, content, {
 
     if (resolvedSignal?.aborted) {
         try { await fsPromises.unlink(tmp); } catch { /* already gone */ }
-        if (flags === 'wx') await cleanupEmptyWxTarget(targetPath);
+        if (flags === 'wx') await cleanupEmptyWxTarget(writeTarget);
         throw abortReason();
     }
 
@@ -188,16 +207,16 @@ export async function atomicWrite(targetPath, content, {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (expectedTargetSnapshot) {
             let currentStat = null;
-            try { currentStat = statSync(targetPath); } catch { currentStat = null; }
+            try { currentStat = statSync(writeTarget); } catch { currentStat = null; }
             if (expectedTargetSnapshotChanged(currentStat, expectedTargetSnapshot)) {
                 try { await fsPromises.unlink(tmp); } catch { /* already gone */ }
-                const err = new Error(`target changed between preflight and rename (TOCTOU): ${targetPath}`);
+                const err = new Error(`target changed between preflight and rename (TOCTOU): ${writeTarget}`);
                 err.code = 'ESTALE_TARGET';
                 throw err;
             }
         }
         try {
-            await fsPromises.rename(tmp, targetPath);
+            await fsPromises.rename(tmp, writeTarget);
             // When fsync is requested, also fsync the parent directory so
             // the rename itself is durable across power-loss. Directory
             // fsync is a no-op / unsupported on Windows; swallow EPERM /
@@ -231,6 +250,6 @@ export async function atomicWrite(targetPath, content, {
         }
     }
     try { await fsPromises.unlink(tmp); } catch { /* already gone */ }
-    if (flags === 'wx') await cleanupEmptyWxTarget(targetPath);
+    if (flags === 'wx') await cleanupEmptyWxTarget(writeTarget);
     throw lastErr;
 }

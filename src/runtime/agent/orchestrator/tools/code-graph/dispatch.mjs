@@ -365,6 +365,47 @@ function _boundedExactFileAggregateRoot(args, baseCwd) {
   return roots.size === 1 ? [...roots][0] : null;
 }
 
+// A sentinel-free working directory that HOLDS a project (a container's /app
+// with one cloned repo under it) answered every anchored call with a refusal:
+// the caller wrote the anchor the way the repo's own docs do
+// (`tools/compute_image_mean.cpp`), it does not exist under /app, and no root
+// could be derived from a path that resolves nowhere. The relative anchor is
+// still unambiguous whenever exactly ONE child project holds it — that project
+// is the answer, and adopting it is the same recovery read and grep already
+// perform for a misplaced path. Ambiguity (several holders, none, an absolute
+// anchor, a wildcard) keeps refusing.
+function _relocateAggregateAnchorsUnderChildProject(args, baseCwd) {
+  if (!_hasAggregateFileArgs(args)) return null;
+  const files = _collectGraphFileList(args);
+  if (files.length === 0) return null;
+  for (const file of files) {
+    if (_AGGREGATE_FILE_WILDCARD_RE.test(file) || isAbsolute(file)) return null;
+    if (existsSync(pathResolve(baseCwd, file))) return null;
+  }
+  const holders = _childProjectRoots(baseCwd, { cap: 8 })
+    .filter((root) => pathResolve(root) !== pathResolve(baseCwd))
+    .filter((root) => files.every((file) => {
+      try {
+        return statSync(pathResolve(root, file)).isFile();
+      } catch {
+        return false;
+      }
+    }));
+  if (holders.length !== 1) return null;
+  const root = pathResolve(holders[0]);
+  const remap = (file) => pathResolve(root, String(file || '').trim());
+  return {
+    root,
+    args: {
+      ...args,
+      file: typeof args?.file === 'string' && args.file.trim() ? remap(args.file) : args?.file,
+      files: Array.isArray(args?.files)
+        ? args.files.map(remap)
+        : (typeof args?.files === 'string' && args.files.trim() ? remap(args.files) : args?.files),
+    },
+  };
+}
+
 export function _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd) {
   if (!_hasAggregateFileArgs(args)) return null;
   const base = pathResolve(baseCwd);
@@ -1045,13 +1086,23 @@ async function executeCodeGraphToolRaw(name, args, cwd, signal = null, options =
       stopAtUserBoundary: !explicitCwdArg,
     }) || _resolveBoundedSentinelFreeAggregateRootForTest(args, baseCwd)
       || _boundedExactFileAggregateRoot(args, baseCwd);
-    if (!aggregateRoot) {
+    const relocated = aggregateRoot ? null : _relocateAggregateAnchorsUnderChildProject(args, baseCwd);
+    if (!aggregateRoot && !relocated) {
+      // Name the projects that DO sit under this cwd: the refusal is only
+      // actionable if the caller learns where to anchor instead.
+      const candidates = _childProjectRoots(baseCwd, { cap: 5 })
+        .filter((root) => pathResolve(root) !== pathResolve(baseCwd))
+        .map((root) => `"${pathBasename(root)}"`);
       throw new Error(
         `${name}: cwd '${baseCwd}' is not inside a project and aggregate file anchors do not all `
-        + `exist under exactly one detectable project root. Refusing to index an arbitrary tree.`,
+        + `exist under exactly one detectable project root. Refusing to index an arbitrary tree.`
+        + (candidates.length
+          ? ` Project roots under this cwd: ${candidates.join(', ')} — anchor the call inside one of them.`
+          : ''),
       );
     }
-    effectiveCwd = aggregateRoot;
+    effectiveCwd = relocated ? relocated.root : aggregateRoot;
+    if (relocated) args = relocated.args;
     args = _absolutizeAggregateFileArgs(args, baseCwd);
   }
   if (fileArg && !hasAggregateFileArgs) {

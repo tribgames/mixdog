@@ -10,6 +10,16 @@ import { coerceReadFamilyPathArg, hasGlobMagic } from './path-utils.mjs';
 import { readIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
 import { currentToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 
+// Per-entry status in a batch. A conclusively missing file is not a failed
+// read — that is why its body is `[path absent]` and not `Error:` — but it is
+// not `ok` either: the header said `missing.png [ok]` above a body saying the
+// file does not exist, which is the one line a skimming reader trusts. Absence
+// gets its own tag so the header and the body agree.
+function batchEntryStatus(body, failed, textBody) {
+    if (failed) return 'error';
+    return /^\s*\[path absent\]/.test(String(textBody ?? body ?? '')) ? 'absent' : 'ok';
+}
+
 function hasLineCoordinate(path) {
     return typeof path === 'string' && /(?:#L\d+|:\d+(?:-\d+)?(?::|$))/i.test(path);
 }
@@ -538,12 +548,18 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
         // reject_partial:true — when the caller asked for all-or-none,
         // refuse to return a mixed payload that downstream parsers
         // would have to disambiguate per-entry.
-        if (failedReads > 0 && args.reject_partial === true) {
-            const reasons = orderedResults
-                .filter((r) => bodyFailed(r.body))
+        // All-or-none is about DELIVERY: an entry that returned no content did
+        // not deliver, whether it failed outright or was conclusively absent.
+        // Counting only hard failures let a batch with a missing file through
+        // as a mixed payload — exactly what the caller asked not to receive.
+        const undelivered = orderedResults.filter(
+            (r) => batchEntryStatus(r.body, bodyFailed(r.body), bodyTextFor(r.body)) !== 'ok',
+        );
+        if (undelivered.length > 0 && args.reject_partial === true) {
+            const reasons = undelivered
                 .map((r) => `${normalizeOutputPath(r.path)}: ${bodyTextFor(r.body).split('\n')[0] || 'structured media read failed'}`)
                 .join('; ');
-            return `Error: batch read rejected (${failedReads} of ${orderedResults.length} failed; reject_partial:true) — ${reasons}`;
+            return `Error: batch read rejected (${undelivered.length} of ${orderedResults.length} failed; reject_partial:true) — ${reasons}`;
         }
         // Default: surface per-entry status tags ([ok]/[error]) so a
         // downstream classifyResultKind treats the aggregate as a
@@ -564,8 +580,8 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
                 const mode = r.n !== undefined ? `${r.mode} n=${r.n}` : r.mode;
                 // Default full mode carries no information — tag only non-default modes.
                 const modeTag = mode && mode !== 'full' ? ` [${mode}]` : '';
-                const status = bodyFailed(r.body) ? 'error' : 'ok';
                 const textBody = bodyTextFor(r.body);
+                const status = batchEntryStatus(r.body, bodyFailed(r.body), textBody);
                 const match = /\[TRUNCATED (?:—|-) file is (\d+) lines \/ (\d+) KB\./.exec(textBody);
                 const suffix = match ? ` (truncated ${match[1]}L/${match[2]}KB)` : '';
                 const entryHeader = `${path}${modeTag} [${status}]${suffix}`;
@@ -608,7 +624,11 @@ export async function executeReadTool(args, workDir, readStateScope, executeChil
             const path = normalizeOutputPath(r.path);
             const mode = r.n !== undefined ? `${r.mode} n=${r.n}` : r.mode;
             const modeTag = mode && mode !== 'full' ? ` [${mode}]` : '';
-            const status = classifyResultKind(String(r.body || '')) === 'error' ? 'error' : 'ok';
+            const status = batchEntryStatus(
+                r.body,
+                classifyResultKind(String(r.body || '')) === 'error',
+                String(r.body || ''),
+            );
             const dupKey = JSON.stringify([path, mode, r.body || '']);
             const priorIdx = _seenEntryBody.get(dupKey);
             if (priorIdx !== undefined) {

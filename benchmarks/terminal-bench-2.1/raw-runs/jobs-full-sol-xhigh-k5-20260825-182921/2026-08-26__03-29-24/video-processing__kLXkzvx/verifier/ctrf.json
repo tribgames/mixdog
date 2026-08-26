@@ -1,0 +1,68 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 5,
+            "passed": 4,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787693992.4216375,
+            "stop": 1787693994.884598
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_example_video_exists",
+                "status": "passed",
+                "duration": 0.0003661439986899495,
+                "start": 1787693992.4472978,
+                "stop": 1787693992.4479716,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_test_video_exists",
+                "status": "passed",
+                "duration": 0.00025284500588895753,
+                "start": 1787693992.4481127,
+                "stop": 1787693992.448574,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_example_video",
+                "status": "passed",
+                "duration": 0.8571339620029903,
+                "start": 1787693992.4487011,
+                "stop": 1787693993.3061314,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_test_video",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 1.5672151709950413,
+                "start": 1787693993.3063126,
+                "stop": 1787693994.8818932,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_jump_analyzer_test_video():\n        \"\"\"Test jump_analyzer.py against test_video.mp4 using explicit frame ranges.\"\"\"\n>       _test_jump_analyzer_video(\n            \"/tests/test_video.mp4\",\n            takeoff_range=(219, 223),\n            landing_range=(231, 234),\n        )\n\n/tests/test_outputs.py:104: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nvideo_path = '/tests/test_video.mp4', takeoff_range = (219, 223)\nlanding_range = (231, 234)\n\n    def _test_jump_analyzer_video(\n        video_path,\n        takeoff_range=None,\n        landing_range=None,\n    ):\n        \"\"\"Helper for running jump_analyzer.py and validating outputs.\n    \n        Frame validation uses inclusive ranges only: provide (min_frame, max_frame)\n        for both takeoff_range and landing_range.\n        \"\"\"\n    \n        # Check that the video file exists before running the test\n        video_file = Path(video_path)\n        assert video_file.exists(), f\"Video file {video_path} does not exist\"\n    \n        # Run jump_analyzer.py on the specified video\n        result = subprocess.run(\n            [sys.executable, \"/app/jump_analyzer.py\", video_path],\n            capture_output=True,\n            text=True,\n            cwd=\"/app\",\n        )\n    \n>       assert result.returncode == 0, (\n            f\"jump_analyzer.py failed with error: {result.stderr}\"\n        )\nE       AssertionError: jump_analyzer.py failed with error: Traceback (most recent call last):\nE           File \"/app/jump_analyzer.py\", line 216, in <module>\nE             main()\nE             ~~~~^^\nE           File \"/app/jump_analyzer.py\", line 203, in main\nE             takeoff_frame, landing_frame = analyze_video(video_path)\nE                                            ~~~~~~~~~~~~~^^^^^^^^^^^^\nE           File \"/app/jump_analyzer.py\", line 171, in analyze_video\nE             runner_start, runner_end, _ = _moving_runner_interval(\nE                                           ~~~~~~~~~~~~~~~~~~~~~~~^\nE                 motion,\nE                 ^^^^^^^\nE                 fps,\nE                 ^^^^\nE                 (motion_bottom - motion_top) * width,\nE                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE             )\nE             ^\nE           File \"/app/jump_analyzer.py\", line 36, in _moving_runner_interval\nE             raise ValueError(\"The detected runner interval is too short\")\nE         ValueError: The detected runner interval is too short\nE         \nE       assert 1 == 0\nE        +  where 1 = CompletedProcess(args=['/root/.cache/uv/archive-v0/_qZeO0qy_MiHGgBgq8LB6/bin/python', '/app/jump_analyzer.py', '/tests...aise ValueError(\"The detected runner interval is too short\")\\nValueError: The detected runner interval is too short\\n').returncode\n\n/tests/test_outputs.py:35: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_imports",
+                "status": "passed",
+                "duration": 0.001996409017010592,
+                "start": 1787693994.8820524,
+                "stop": 1787693994.8843179,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

@@ -1,0 +1,115 @@
+{
+    "id": "7d3f8209-fd82-461a-a6b4-8a8852e51421",
+    "task_name": "terminal-bench/db-wal-recovery",
+    "trial_name": "db-wal-recovery__waSy8rj",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/db-wal-recovery__waSy8rj",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "db-wal-recovery",
+        "ref": "sha256:07e9193513bfce038b9f9d84962ecc85683eee0a642d14ee6fb7104b086ddab4"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "c18abdc4fdc3a01bf374c55a9700708fe6a9662077d29db81abb692f0a3c5f6f",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/db-wal-recovery",
+            "ref": "sha256:07e9193513bfce038b9f9d84962ecc85683eee0a642d14ee6fb7104b086ddab4",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "db-wal-recovery__waSy8rj",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 615545,
+        "n_cache_tokens": 587890,
+        "n_output_tokens": 17943,
+        "cost_usd": 1.0188849999999998,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 0.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T11:46:43.700845Z",
+    "finished_at": "2026-08-02T11:52:34.900388Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T11:46:43.746589Z",
+        "finished_at": "2026-08-02T11:46:46.307998Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T11:46:46.308019Z",
+        "finished_at": "2026-08-02T11:47:59.585124Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T11:47:59.585180Z",
+        "finished_at": "2026-08-02T11:52:19.091880Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T11:52:19.103220Z",
+        "finished_at": "2026-08-02T11:52:31.741916Z"
+    },
+    "step_results": null
+}

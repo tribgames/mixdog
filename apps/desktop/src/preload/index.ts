@@ -455,6 +455,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.revealFile, cwd, path, accessToken),
   openFilePath: (cwd, path, accessToken) =>
     ipcRenderer.invoke(DESKTOP_IPC.openFilePath, cwd, path, accessToken),
+  openAttachmentImage: (dataUrl, name) =>
+    ipcRenderer.invoke(DESKTOP_IPC.openAttachmentImage, dataUrl, name),
   getUpdaterState: () => ipcRenderer.invoke(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, state: DesktopUpdaterState): void => {

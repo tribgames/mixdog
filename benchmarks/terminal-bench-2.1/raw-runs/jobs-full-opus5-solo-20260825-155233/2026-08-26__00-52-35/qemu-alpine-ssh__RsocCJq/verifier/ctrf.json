@@ -1,0 +1,29 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 1,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787673635.2847703,
+            "stop": 1787673635.6992862
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_sshpass",
+                "status": "passed",
+                "duration": 0.38005797800360597,
+                "start": 1787673635.3184943,
+                "stop": 1787673635.6989782,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

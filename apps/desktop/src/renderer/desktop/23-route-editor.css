@@ -882,19 +882,12 @@
   padding: 6px 8px;
   border-radius: var(--mx-radius-md);
 }
-.session-context-popover > div:not(.context-popover-header) {
-  background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
-}
-.session-context-popover > div:not(.context-popover-header):hover { background: var(--mx-hover); }
 .session-context-popover > .context-popover-header {
   min-height: 30px;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 7px;
   padding-block: 0;
   color: var(--mx-text-muted);
-  background: color-mix(in srgb, var(--mx-text) 3%, transparent);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .context-popover-header > span { font-weight: var(--mx-weight-semibold); }
 .session-context-popover span {

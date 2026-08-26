@@ -1,0 +1,115 @@
+{
+    "id": "15618642-61bd-40cf-9da7-4de25c07e215",
+    "task_name": "terminal-bench/password-recovery",
+    "trial_name": "password-recovery__DkXTghK",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/password-recovery__DkXTghK",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "password-recovery",
+        "ref": "sha256:9b5c6bdce0cf03f075b21f6a7af5030b825ce07d7b16b37610f3964217ab84a4"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "a8b12d116b3a8e03e946f0db92b77e789cfa26ecb49a56be5723ff47a03a532d",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/password-recovery",
+            "ref": "sha256:9b5c6bdce0cf03f075b21f6a7af5030b825ce07d7b16b37610f3964217ab84a4",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "password-recovery__DkXTghK",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 460608,
+        "n_cache_tokens": 436365,
+        "n_output_tokens": 12447,
+        "cost_usd": 0.7716375000000001,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T11:32:56.276149Z",
+    "finished_at": "2026-08-02T11:37:07.898557Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T11:32:56.331540Z",
+        "finished_at": "2026-08-02T11:32:58.873403Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T11:32:58.873420Z",
+        "finished_at": "2026-08-02T11:33:39.397015Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T11:33:39.397063Z",
+        "finished_at": "2026-08-02T11:36:50.776079Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T11:36:50.793346Z",
+        "finished_at": "2026-08-02T11:37:05.147990Z"
+    },
+    "step_results": null
+}

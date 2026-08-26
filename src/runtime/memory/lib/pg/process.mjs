@@ -444,7 +444,7 @@ export async function stopPg({ runtimeDir, pgdataDir }) {
   })
 
   if (r.status !== 0) {
-    const msg = r.stderr?.toString() || r.stdout?.toString() || ''
+    const msg = r.error?.message || r.stderr?.toString() || r.stdout?.toString() || ''
     // Stale postmaster.pid — PG is already down; clean up and continue.
     if (
       msg.includes('no server running') ||
@@ -453,9 +453,15 @@ export async function stopPg({ runtimeDir, pgdataDir }) {
     ) {
       __mixdogMemoryLog(`[pg-process] stopPg: already stopped (${msg.slice(0, 80)})\n`)
       try { rmSync(join(pgdataDir, 'postmaster.pid'), { force: true }) } catch {}
+      return
     } else {
       __mixdogMemoryLog(`[pg-process] pg_ctl stop warning: ${msg}\n`)
+      throw new Error(`pg_ctl stop failed${msg ? `: ${msg.trim()}` : ''}`)
     }
+  }
+  const remaining = readPostmasterInfo(pgdataDir)
+  if (remaining.pid && isPidAlive(remaining.pid)) {
+    throw new Error(`postgres postmaster pid=${remaining.pid} survived pg_ctl stop`)
   }
 }
 
@@ -494,6 +500,7 @@ export function classifyOrphanTempPostmaster({
   args,
   uptimeSec,
   tempRoot,
+  ownerAlive = false,
   minUptimeSec = ORPHAN_TEMP_PG_MIN_UPTIME_SEC,
 }) {
   const commandLine = String(args || '')
@@ -506,7 +513,22 @@ export function classifyOrphanTempPostmaster({
   const root = normalizePathForMatch(tempRoot).replace(/\/+$/, '')
   if (!root || !dataDir.startsWith(`${root}/`)) return false
   if (!dataDir.includes('mixdog')) return false
+  if (ownerAlive) return false
   return Number(uptimeSec) >= Math.max(60, Number(minUptimeSec) || ORPHAN_TEMP_PG_MIN_UPTIME_SEC)
+}
+
+function tempPostmasterOwnerAlive(args) {
+  const commandLine = String(args || '')
+  const dataDirMatch = commandLine.match(/(?:^|\s)-D\s+"?([^"]+?)"?(?:\s|$)/)
+  if (!dataDirMatch) return false
+  const dataRoot = join(dataDirMatch[1], '..')
+  for (const name of ['memory-runtime-owner.json', 'daemon-owner.json']) {
+    try {
+      const owner = JSON.parse(readFileSync(join(dataRoot, name), 'utf8'))
+      if (Number(owner?.pid) > 0 && isPidAlive(Number(owner.pid))) return true
+    } catch {}
+  }
+  return false
 }
 
 function listPostmasterRows() {
@@ -545,7 +567,12 @@ export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
     const root = tempRoot || os.tmpdir()
     for (const row of listPostmasterRows()) {
       if (!row.pid || row.pid === process.pid) continue
-      if (!classifyOrphanTempPostmaster({ ...row, tempRoot: root, minUptimeSec })) continue
+      if (!classifyOrphanTempPostmaster({
+        ...row,
+        tempRoot: root,
+        ownerAlive: tempPostmasterOwnerAlive(row.args),
+        minUptimeSec,
+      })) continue
       try {
         process.kill(row.pid)
         reaped += 1

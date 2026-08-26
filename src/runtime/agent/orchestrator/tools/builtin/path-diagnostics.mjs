@@ -61,20 +61,36 @@ export async function listSiblingsAsync(dir, limit = 12) {
 // and hard-capped on directories scanned, and returns up to `limit` real
 // locations so the error can name them directly. Pure best-effort; any error
 // returns [].
+// A directory-count cap is not a time cap: on a slow or synthetic tree each
+// readdir costs milliseconds, and one missing path burned 17.5s of a turn in
+// this BFS — three times in a row — before the caller ever saw its answer.
+// The hint is an optional courtesy, so it gets a wall-clock budget and reports
+// an out-of-time walk as inconclusive rather than as a proven absence.
+const BASENAME_SCAN_DEADLINE_MS = 750;
 const BASENAME_SCAN_SKIP_DIRS = new Set([
     'node_modules', '.git', '.hg', '.svn', 'dist', 'build', 'out',
     'coverage', '.next', '.nuxt', '.turbo', '.cache', 'vendor',
     'target', '.venv', 'venv', '__pycache__', '.idea', '.vscode',
 ]);
-export function findFileByBasename(searchRoot, fullPath, { limit = 3, maxDirs = 6000 } = {}) {
+export function findFileByBasename(
+    searchRoot,
+    fullPath,
+    { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {},
+) {
     try {
         if (typeof searchRoot !== 'string' || !searchRoot) return [];
         const target = basename(fullPath).toLowerCase();
         if (!target) return [];
         const matches = [];
         const queue = [searchRoot];
+        const stopAt = Date.now() + Math.max(1, deadlineMs);
         let scanned = 0;
+        let expired = false;
         while (queue.length && matches.length < limit && scanned < maxDirs) {
+            if (Date.now() >= stopAt) {
+                expired = true;
+                break;
+            }
             const dir = queue.shift();
             scanned++;
             let entries;
@@ -96,9 +112,10 @@ export function findFileByBasename(searchRoot, fullPath, { limit = 3, maxDirs = 
                 }
             }
         }
-        // Queue drained without hitting maxDirs/limit → the walk covered the
-        // whole (non-vendor, non-hidden) tree; a miss is conclusive.
-        matches.exhaustive = queue.length === 0;
+        // Queue drained without hitting maxDirs/limit/deadline → the walk
+        // covered the whole (non-vendor, non-hidden) tree; a miss is
+        // conclusive. A walk that ran out of time proves nothing.
+        matches.exhaustive = queue.length === 0 && !expired;
         return matches;
     } catch { return []; }
 }
@@ -146,15 +163,25 @@ export function findBySuffixStrip(searchRoot, fullPath, { maxIterations = 12 } =
 
 // Same as findFileByBasename but for directories sharing the missing path's
 // final segment name (e.g. guessed `src/shared` → the real `lib/shared`).
-export function findDirectoryByBasename(searchRoot, fullPath, { limit = 3, maxDirs = 6000 } = {}) {
+export function findDirectoryByBasename(
+    searchRoot,
+    fullPath,
+    { limit = 3, maxDirs = 6000, deadlineMs = BASENAME_SCAN_DEADLINE_MS } = {},
+) {
     try {
         if (typeof searchRoot !== 'string' || !searchRoot) return [];
         const target = basename(fullPath).toLowerCase();
         if (!target) return [];
         const matches = [];
         const queue = [searchRoot];
+        const stopAt = Date.now() + Math.max(1, deadlineMs);
         let scanned = 0;
+        let expired = false;
         while (queue.length && matches.length < limit && scanned < maxDirs) {
+            if (Date.now() >= stopAt) {
+                expired = true;
+                break;
+            }
             const dir = queue.shift();
             scanned++;
             let entries;
@@ -176,7 +203,7 @@ export function findDirectoryByBasename(searchRoot, fullPath, { limit = 3, maxDi
                 }
             }
         }
-        matches.exhaustive = queue.length === 0;
+        matches.exhaustive = queue.length === 0 && !expired;
         return matches;
     } catch { return []; }
 }

@@ -899,7 +899,12 @@ if (!/must be a boolean/.test(String(findNoiseTypeErr))) {
     const missingRead = await executeBuiltinTool('read', {
       path: join(fixtureRoot, 'missing.mjs'),
     }, fixtureRoot);
-    if (!/^Error/.test(String(missingRead)) || !/ENOENT|does not exist|not found/i.test(String(missingRead))) {
+    // Conclusive absence is the read's ANSWER, not a tool failure (see
+    // read-single-tool.mjs and absence-absorption.test.mjs): `[path absent]`
+    // is the current envelope, and only a non-conclusive failure keeps
+    // `Error:`. Either shape must still name the cause.
+    if (!/^(?:Error|\[path absent\])/.test(String(missingRead))
+      || !/ENOENT|does not exist|not found/i.test(String(missingRead))) {
       throw new Error(`read ENOENT contract failed:\n${missingRead}`);
     }
 
@@ -994,7 +999,10 @@ if (!/^Error[\s:[]/.test(String(readDirOut)) || !/read expects a file/i.test(Str
       .join('\n');
     if (mixedParts.filter((part) => part?.type === 'image').length !== 1
       || !/batch text body/.test(mixedText)
-      || !/missing\.png \[error\]/.test(mixedText)
+      // A conclusively missing entry is tagged `[absent]`, not `[error]`:
+      // absence is the read's answer (absence-absorption.test.mjs), and the
+      // entry header must agree with its `[path absent]` body.
+      || !/missing\.png \[absent\]/.test(mixedText)
       || !/\[= entry #1, identical result omitted\]/.test(mixedText)) {
       throw new Error(`mixed read batch must preserve text, per-entry errors, and rich duplicate elision: ${JSON.stringify(mixedBatch)}`);
     }
@@ -2248,9 +2256,8 @@ setInternalToolsProvider({
         throw new Error(`lead skill manifest missing compact skill listing: ${visible.slice(0, 1200)}`);
       }
       if ((visible.match(/(^|\n)- Shell: /g) || []).length !== 1
-        || (visible.match(/Shell startup environment/g) || []).length !== 1
         || /(^|\n)# Environment\n/i.test(visible)) {
-        throw new Error(`Lead BP3 must relocate each existing shell payload exactly once without a new heading: ${visible.slice(0, 1200)}`);
+        throw new Error(`Lead BP3 must relocate the shell payload exactly once without a new heading: ${visible.slice(0, 1200)}`);
       }
       const skillToolNames = (skillSession.tools || []).map((tool) => tool?.name).filter(Boolean);
       if (!skillToolNames.includes('Skill')) {
@@ -2352,8 +2359,8 @@ setInternalToolsProvider({
     if (/available-skills/i.test(userReminderVisible)) {
       throw new Error(`agent skill manifest must stay in system BP2, not user reminders: ${userReminderVisible.slice(0, 1200)}`);
     }
-    if (!/Shell startup environment/i.test(visible) || /(^|\n)# environment/i.test(visible)) {
-      throw new Error(`agent BP3 must relocate the existing startup payload without adding an Environment heading: ${visible.slice(0, 1200)}`);
+    if (/(^|\n)# environment/i.test(visible)) {
+      throw new Error(`agent BP3 must add no Environment heading: ${visible.slice(0, 1200)}`);
     }
     if (/(^|\n)- Shell: /i.test(visible)) {
       throw new Error(`agent BP3 must not add the Lead-only shell preference: ${visible.slice(0, 1200)}`);
@@ -2680,7 +2687,7 @@ if (/line\+context/i.test(readDescription) || !/Known-file contents or line rang
 if (readProps.file_path?.type !== 'string'
   || readProps.file_path?.minLength !== undefined
   || readProps.file_path?.anyOf
-  || readProps.file_path?.description !== 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10, newest first); literal-named files win over expansion.'
+  || readProps.file_path?.description !== 'Known file path as plain text. A glob (e.g. "logs/*.log") fans out to per-file results (cap 10 files, newest first; limit applies per file and is capped at 25 lines; all files share a 10 KB output budget); literal-named files win over expansion.'
   || readProps.path
   || JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])) {
   throw new Error('read schema must expose only the canonical scalar file_path');
@@ -2690,7 +2697,7 @@ if (readProps.offset?.type !== 'integer'
   || readProps.offset?.description !== '1-based start line as a bare integer; default 1.'
   || readProps.limit?.type !== 'integer'
   || readProps.limit?.minimum !== 1
-  || readProps.limit?.description !== 'Maximum line count as a bare integer; default 500.') {
+  || readProps.limit?.description !== 'Maximum line count as a bare integer; default 500 for one exact file, capped at 25 per file for glob expansion.') {
   throw new Error('read range args must use the scalar integer contract with Mixdog descriptions');
 }
 if (Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit'].includes(key))
@@ -3437,7 +3444,9 @@ if (!/known directory's immediate entries/i.test(listTool?.description || '')
     || listTool?.inputSchema?.properties?.path?.minLength !== undefined
     || !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '')
     || !/default 100/i.test(listLimitDescription)
-    || !/0 unlimited/i.test(listLimitDescription)
+    // list's 0 sentinel drops the PAGE cap only; the absolute cap still
+    // applies, and the description says so.
+    || !/0 = no page cap/i.test(listLimitDescription)
     || listTool?.inputSchema?.properties?.limit?.maximum !== 100
     || listTool?.inputSchema?.properties?.path?.anyOf) {
   throw new Error('list description must state its known-directory immediate-entry contract');

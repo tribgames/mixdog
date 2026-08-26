@@ -62,6 +62,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   let activeChecks = 0;
   let boundaryCleaned = false;
   let runtimeClosed = false;
+  const daemonCleanupCalls = [];
   const cleanupOrder = [];
   try {
     const code = await runHeadlessExec({
@@ -75,6 +76,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       write: (text) => output.push(text),
       writeErr: (text) => errors.push(text),
       boundaryFactory: () => ({
+        runtimeRoot: join(root, 'runtime-root'),
         loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
         cleanup: () => {
           boundaryCleaned = true;
@@ -106,6 +108,10 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       memoryRuntimeCleanup: async () => {
         cleanupOrder.push('memory');
       },
+      daemonRuntimeCleanup: async (runtimeRoot, options) => {
+        daemonCleanupCalls.push({ runtimeRoot, options });
+        cleanupOrder.push('daemon');
+      },
       hasActiveTasks: (scope) => {
         activeScopes.push(scope);
         activeChecks += 1;
@@ -128,7 +134,11 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     });
     assert.equal(boundaryCleaned, true);
     assert.equal(runtimeClosed, true);
-    assert.deepEqual(cleanupOrder, ['runtime', 'memory', 'boundary']);
+    assert.deepEqual(cleanupOrder, ['runtime', 'daemon', 'memory', 'boundary']);
+    assert.deepEqual(daemonCleanupCalls, [{
+      runtimeRoot: join(root, 'runtime-root'),
+      options: { waitForExit: true, timeoutMs: 8_000 },
+    }]);
     const usage = JSON.parse(readFileSync(usageLogPath, 'utf8'));
     assert.deepEqual(usage.sessions[0].models, ['gpt-test', 'gpt-fallback']);
     assert.deepEqual(usage.totals, {
@@ -141,6 +151,39 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('headless exec preserves the pristine root when isolated daemon shutdown fails', async () => {
+  const errors = [];
+  let cleanupOptions = null;
+  const code = await runHeadlessExec({
+    message: 'done',
+    provider: 'openai-oauth',
+    model: 'gpt-test',
+    usageLogPath: '',
+    write() {},
+    writeErr: (text) => errors.push(text),
+    boundaryFactory: () => ({
+      runtimeRoot: '/isolated/runtime',
+      loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
+      cleanup: (options) => { cleanupOptions = options; },
+    }),
+    runtimeFactory: async () => ({
+      id: 'sess_cleanup_failure',
+      model: 'gpt-test',
+      clientHostPid: 123,
+      async ask() { return { result: { content: 'done' } }; },
+      async close() {},
+    }),
+    daemonRuntimeCleanup: async () => { throw new Error('daemon stuck'); },
+    memoryRuntimeCleanup: async () => {},
+    hasActiveTasks: () => false,
+    installSignalCleanupFn: () => ({ uninstall() {} }),
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(cleanupOptions, { preserveRoot: true });
+  assert.ok(errors.some((line) => line.includes('shutdown failed: daemon stuck')));
 });
 
 test('headless exec flushes the usage snapshot mid-session, before any exit path', async () => {

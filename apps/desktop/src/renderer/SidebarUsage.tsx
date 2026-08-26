@@ -189,8 +189,8 @@ function resetExpiryText(value: unknown): string {
 }
 
 /** Every quota window carries its OWN schedule (user: 각각 항목마다 초기화시간
- *  개별로 하나씩): a compact duration that fits the meter row between the bar
- *  and the percentage, with the full sentence kept in the row tooltip.
+ *  개별로 하나씩): a compact duration that closes the meter row after the
+ *  percentage, with the full sentence kept in the row tooltip.
  *  The duration units are notation, not prose, so they stay untranslated like
  *  the 5d/13h reading itself. */
 function resetShortText(value: unknown): string {
@@ -428,8 +428,8 @@ export function SidebarUsage({
                   key={quotaWindowKey(window, index)}>
                   <small>{windowLabel(window)}</small>
                   <i><i style={{ width: `${percent ?? 0}%` }} /></i>
-                  <em title={resetSentence || undefined}>{resetShortText(window.resetAt)}</em>
                   <b>{displayedPercent === null ? "—" : `${displayedPercent}%`}</b>
+                  <em title={resetSentence || undefined}>{resetShortText(window.resetAt)}</em>
                 </span>;
               })}
               {windows.length === 0 && <span className="sidebar-usage-meter sidebar-usage-meter-empty">

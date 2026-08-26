@@ -1,0 +1,56 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 4,
+            "passed": 4,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787697091.6851485,
+            "stop": 1787697117.6468399
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_immortal_game",
+                "status": "passed",
+                "duration": 5.711038496003312,
+                "start": 1787697091.7637007,
+                "stop": 1787697097.4752731,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_game_of_century",
+                "status": "passed",
+                "duration": 10.061553824998555,
+                "start": 1787697097.4754918,
+                "stop": 1787697107.5361032,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_naroditsky_ivanchuk",
+                "status": "passed",
+                "duration": 10.107139377003477,
+                "start": 1787697107.5364017,
+                "stop": 1787697117.6440501,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_not_long",
+                "status": "passed",
+                "duration": 0.0017916839933604933,
+                "start": 1787697117.6442702,
+                "stop": 1787697117.6463149,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

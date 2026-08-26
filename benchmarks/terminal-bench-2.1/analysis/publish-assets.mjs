@@ -58,12 +58,24 @@ function panel(spec, subtitle, ours, baseline, baselineLabel) {
 function chart(entry, figures) {
     const { modelLabel, baselineLabel, subtitle } = entry;
     const { score, speed, context, cost } = figures;
+    // A k>1 run is paired against a k=1 baseline by repeating that baseline
+    // across the extra trials, so its scaled pass count (75/89 -> 375/445) is
+    // not a figure anyone actually measured. Quote the baseline's own trial
+    // count instead, and state the gap in points rather than in tasks.
+    const scaled = score.baselineTotal !== score.total;
+    const oursPct = (score.ours / score.total) * 100;
+    const basePct = (score.baseline / score.total) * 100;
     const delta = score.ours - score.baseline;
-    const deltaText = delta === 0
-        ? 'tie'
-        : `${delta > 0 ? '+' : ''}${delta} task${Math.abs(delta) === 1 ? '' : 's'}`;
+    const deltaText = scaled
+        ? `${oursPct >= basePct ? '+' : ''}${(oursPct - basePct).toFixed(1)}pp`
+        : delta === 0
+            ? 'tie'
+            : `${delta > 0 ? '+' : ''}${delta} task${Math.abs(delta) === 1 ? '' : 's'}`;
+    const scoreCounts = scaled
+        ? `${score.ours}/${score.total} vs ${score.baselinePassed}/${score.baselineTotal}`
+        : `${score.ours} vs ${score.baseline} of ${score.total} tasks`;
     const title = `Terminal-Bench 2.1: mixdog with ${modelLabel} versus ${baselineLabel}`;
-    const desc = `Across ${score.total} tasks in matched-model solo runs, mixdog scored ${score.ours} of ${score.total} versus ${baselineLabel} at ${score.baseline} of ${score.total}, ran at ${speed.ratio.toFixed(2)} times the speed, finished tasks with a ${Math.round(context.reduction * 100)} percent smaller median context, and cost ${Math.round(cost.reduction * 100)} percent less across all ${score.total} tasks.`;
+    const desc = `In matched-model solo runs, mixdog scored ${oursPct.toFixed(1)} percent over ${score.total} trials versus ${baselineLabel} at ${basePct.toFixed(1)} percent over ${score.baselineTotal} trials, ran at ${speed.ratio.toFixed(2)} times the speed, finished tasks with a ${Math.round(context.reduction * 100)} percent smaller median context, and cost ${Math.round(cost.reduction * 100)} percent less.`;
     return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="t d" font-family="Styrene A,Segoe UI Variable Display,Segoe UI,Inter,Helvetica Neue,Arial,sans-serif">
   <title id="t">${title}</title>
   <desc id="d">${desc}</desc>
@@ -84,7 +96,7 @@ function chart(entry, figures) {
 
 ${panel(
         PANELS.score,
-        `${score.ours} vs ${score.baseline} of ${score.total} tasks · ${deltaText}`,
+        `${scoreCounts} · ${deltaText}`,
         { value: score.ours / score.total, text: `${((score.ours / score.total) * 100).toFixed(1)}%` },
         { value: score.baseline / score.total, text: `${((score.baseline / score.total) * 100).toFixed(1)}%` },
         baselineLabel,
@@ -129,7 +141,13 @@ function figuresFor(jobsDir) {
         clean: report.result.clean,
         errors: report.result.errors,
         retries: report.result.retries,
-        score: { ours: pair.ours.passed, baseline: pair.baseline.passed, total: pair.sharedTasks },
+        score: {
+            ours: pair.ours.passed,
+            baseline: pair.baseline.passed,
+            total: pair.sharedTasks,
+            baselinePassed: pair.baseline.fullPassed ?? pair.baseline.passed,
+            baselineTotal: pair.baseline.fullTotal ?? pair.sharedTasks,
+        },
         speed: { ratio: pair.ratios.speedup },
         context: {
             ours: pair.ours.finalContextMedianTokens,

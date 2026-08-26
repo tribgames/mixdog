@@ -69,6 +69,10 @@ import { runGrepPathFanout } from './lib/grep-path-fanout.mjs';
 import { runGrepPatternFanout } from './lib/grep-pattern-fanout.mjs';
 import { runGrepChunkMerge } from './lib/grep-chunk-merge.mjs';
 import { runGrepFixedStringFallback } from './lib/grep-fixed-fallback.mjs';
+import {
+    MAX_RESCUE_BYTES as GREP_RESCUE_MAX_BYTES,
+    runGrepSingleFileRescue,
+} from './lib/grep-single-file-rescue.mjs';
 
 // A single glob string may pack multiple filters
 // separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
@@ -94,6 +98,15 @@ function _grepDefaultHeadLimit() {
     const parsed = parseInt(process.env.MIXDOG_GREP_DEFAULT_HEAD_LIMIT ?? '', 10);
     return parsed > 0 ? parsed : 250;
 }
+
+// One explicit FILE is scanned directly by the native server — there is no tree
+// to walk — so a long deadline on a file scope can only ever be spent QUEUED
+// behind another request's walk. A scope rooted in a virtual filesystem
+// (/proc, /sys) is exactly that walk, and it starved the searches behind it:
+// a six-line /proc/self/status failed after 17.7s while a plain read of the
+// same file answered in 7ms. Bound the file case to a fraction of the turn and
+// let the JS rescue below answer it instead of spending the turn waiting.
+const SINGLE_FILE_SEARCH_DEADLINE_MS = 2_500;
 
 function _grepContextCharBudget(options = {}) {
     const explicit = Number(options?._grepContextCharBudget);
@@ -542,7 +555,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 fileType,
                 onlyMatching: false,
             });
-            const probeOut = await runRg(probeArgs, { cwd: rgSpawnCwd, signal: sharedSignal });
+            const probeOut = await runRg(probeArgs, searchExecOptions);
             if (String(probeOut).split('\n').some(Boolean)) {
                 return ' (case-insensitive would match — try -i)';
             }
@@ -560,6 +573,18 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         : null;
 
     const GREP_CONTENT_HARD_CAP = 300;
+    const singleFileScope = grepStat.isFile();
+    // Bound ONLY the file sizes the JS rescue below can actually answer. A
+    // bigger file keeps the full budget, so the short deadline can never cost
+    // a caller an answer it would otherwise have received. (A procfs file
+    // reports size 0 and is therefore always bounded — exactly the case that
+    // motivated the bound.)
+    const boundSingleFile = singleFileScope && Number(grepStat.size) <= GREP_RESCUE_MAX_BYTES;
+    const searchExecOptions = {
+        cwd: rgSpawnCwd,
+        signal: sharedSignal,
+        ...(boundSingleFile ? { timeout: SINGLE_FILE_SEARCH_DEADLINE_MS } : {}),
+    };
     try {
         const callerExplicitUnlimited = headLimitCoerced === 0;
         const effectiveHeadLimit = headLimit === Infinity
@@ -620,7 +645,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 let ctxPartialSuffix = '';
                 const streamed = await runRgWindowedLines(
                     anchorArgs,
-                    { cwd: rgSpawnCwd, signal: sharedSignal },
+                    searchExecOptions,
                     { offset: 0, limit: anchorCap, summaryLimit: 0 },
                 );
                 let ctxTotalKnown = streamed.complete;
@@ -689,7 +714,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 ? GREP_CONTEXT_LINE_HARD_CAP
                 : Math.min(GREP_CONTEXT_LINE_HARD_CAP, Math.max(200, blockBudget * Math.max(1, perBlock) + 8));
             let ctxPartialSuffix = '';
-            const streamed = await runRgWindowedLines(rgArgs, { cwd: rgSpawnCwd, signal: sharedSignal }, { offset: 0, limit: lineCap, summaryLimit: 0 });
+            const streamed = await runRgWindowedLines(rgArgs, searchExecOptions, { offset: 0, limit: lineCap, summaryLimit: 0 });
             const allLines = streamed.lines;
             let ctxTotalKnown = streamed.complete;
             if (streamed.partial) {
@@ -739,7 +764,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         let rgPartialSuffix = '';
         if (effectiveHeadLimit !== Infinity) {
             const summaryLimit = outputMode === 'content' ? 120 : 0;
-            const streamed = await runRgWindowedLines(rgArgs, { cwd: rgSpawnCwd, signal: sharedSignal }, {
+            const streamed = await runRgWindowedLines(rgArgs, searchExecOptions, {
                 offset,
                 limit: effectiveHeadLimit,
                 summaryLimit,
@@ -757,7 +782,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                     : '\n[warning] rg exit 2 (partial results)';
             }
         } else {
-            const stdout = await runRg(rgArgs, { cwd: rgSpawnCwd, signal: sharedSignal });
+            const stdout = await runRg(rgArgs, searchExecOptions);
             const allLines = String(stdout).split('\n').filter(Boolean);
             windowed = offset > 0 ? allLines.slice(offset) : allLines;
             totalWindowed = windowed.length;
@@ -857,6 +882,36 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     }
     catch (err) {
         if (sharedSignal?.aborted) throw err;
+        // A file scope the native server could not serve is answered by reading
+        // the file; only a scanner that cannot reproduce the request declines.
+        const nativeMissed = err?.code === 'NATIVE_SEARCH_TIMEOUT'
+            || err?.code === 'NATIVE_SEARCH_UNAVAILABLE'
+            || err?.code === 'NATIVE_SEARCH_UNSUPPORTED';
+        if (nativeMissed && singleFileScope) {
+            const rescued = await runGrepSingleFileRescue({
+                filePath: grepResolvedPath,
+                searchPath,
+                patterns,
+                caseInsensitive,
+                multilineMode,
+                onlyMatching: args['-o'] === true,
+                fileType,
+                outputMode,
+                showLineNumbers,
+                withFilename: forceGrepFilename,
+                filenameOmitted,
+                beforeN,
+                afterN,
+                contextN,
+                headLimit,
+                offset,
+                workDir,
+                grepResolvedPath,
+                patternCapNote,
+                globPatterns: normalizedGlobPatterns,
+            });
+            if (rescued !== null) return rescued;
+        }
         if (isRgRegexParseError(err) && !multilineMode) {
             // Fixed-string rescue lives in lib/grep-fixed-fallback.mjs;
             // null falls through to the original rg error below.

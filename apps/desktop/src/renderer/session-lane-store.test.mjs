@@ -22,6 +22,88 @@ test('inactive lane updates do not retain notification keys', () => {
   assert.equal(store.stats().notificationKeys, 0);
 });
 
+// Background shell jobs are injected by the desktop host, never by the session
+// runtime: a snapshot returned by a runtime call (slash command, model/Fast
+// switch, workflow change) omits the field entirely, and adopting it whole
+// blanked the live-work card while a shell was still running.
+test('a frame that omits shell jobs keeps the last host bucket', () => {
+  const store = createSessionLaneStore({ decorator });
+  const running = { count: 1, jobs: [{ taskId: 'task-1', command: 'run.ps1', startedAt: 1 }] };
+  store.apply({
+    sessionId: 'session',
+    snapshot: { sessionId: 'session', shellJobs: running },
+    frameSource: 'live',
+  });
+  store.apply({
+    sessionId: 'session',
+    snapshot: { sessionId: 'session', model: 'gpt-5.6-sol' },
+    frameSource: 'live',
+  });
+  assert.deepEqual(store.get('session').shellJobs, running);
+  // A host frame ALWAYS names the bucket, so a finished shell still clears.
+  store.apply({
+    sessionId: 'session',
+    snapshot: { sessionId: 'session', shellJobs: { count: 0, jobs: [] } },
+    frameSource: 'live',
+  });
+  assert.equal(store.get('session').shellJobs.count, 0);
+  store.clear();
+});
+
+// The session runtime republishes the DERIVED context-window fields as 0 — not
+// absent — whenever its own route comparison misses, and a 0 denominator made
+// the gauge fall back to its last complete reading: after an auto-compact it
+// then froze on the pre-compact number for the rest of the session.
+test('a frame that zeroes the context window keeps the last known limit', () => {
+  const store = createSessionLaneStore({ decorator });
+  store.apply({
+    sessionId: 'session',
+    snapshot: {
+      sessionId: 'session',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      stats: { currentEstimatedContextTokens: 258_500 },
+      contextWindow: 272_000,
+      displayContextWindow: 272_000,
+      autoCompactTokenLimit: 272_000,
+    },
+    frameSource: 'live',
+  });
+  store.apply({
+    sessionId: 'session',
+    snapshot: {
+      sessionId: 'session',
+      provider: 'anthropic',
+      model: 'claude-opus-5',
+      stats: { currentEstimatedContextTokens: 25_000 },
+      contextWindow: 0,
+      displayContextWindow: 0,
+      autoCompactTokenLimit: 0,
+    },
+    frameSource: 'live',
+  });
+  const compacted = store.get('session');
+  assert.equal(compacted.autoCompactTokenLimit, 272_000);
+  assert.equal(compacted.displayContextWindow, 272_000);
+  assert.equal(compacted.stats.currentEstimatedContextTokens, 25_000);
+
+  // A real route change drops the previous window instead of dividing the new
+  // model's usage by the old model's limit.
+  store.apply({
+    sessionId: 'session',
+    snapshot: {
+      sessionId: 'session',
+      provider: 'openai',
+      model: 'gpt-5.6-sol',
+      stats: { currentEstimatedContextTokens: 25_000 },
+      autoCompactTokenLimit: 0,
+    },
+    frameSource: 'live',
+  });
+  assert.equal(Number(store.get('session').autoCompactTokenLimit) || 0, 0);
+  store.clear();
+});
+
 test('a daemon eviction or transport loss keeps the cached lane', () => {
   const store = createSessionLaneStore({ decorator });
   const seen = [];

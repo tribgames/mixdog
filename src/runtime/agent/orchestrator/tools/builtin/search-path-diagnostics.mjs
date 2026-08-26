@@ -4,7 +4,7 @@
  * thin executor; search-tool.mjs re-exports these for unchanged importers.
  */
 import { statSync } from 'fs';
-import { basename, isAbsolute, join, resolve } from 'path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 import { findBySuffixStrip, findDirectoryByBasename, findFileByBasename, listSiblings } from './path-diagnostics.mjs';
 import { normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 
@@ -18,6 +18,9 @@ import { normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 // indexed file exists or the glob child is unavailable.
 export async function _suggestIndexedPaths(missingPath, executeChildBuiltinTool, workDir) {
     if (typeof executeChildBuiltinTool !== 'function') return '';
+    // An outside path has no indexed twin worth proposing; the project-wide
+    // glob would only spend the turn.
+    if (missingPathIsOutsideProject(workDir, missingPath)) return '';
     const base = String(missingPath).replace(/\\/g, '/').split('/').pop();
     // Skip when there is no usable basename or it carries glob magic (the
     // pattern, not a literal filename, would not map to a real file).
@@ -90,6 +93,50 @@ function cachedFileByBasename(workDir, missingPath, cache) {
     return cache.fileHits;
 }
 
+// A missing ABSOLUTE path that resolves outside the project cannot be
+// corrected by anything inside it: `/sys/block/sd*/size` is not a misplaced
+// project file, and scanning the tree for a file named `size` only spends the
+// turn (measured: three such reads burned 17.5s each and left the shared
+// search server saturated for the calls behind them). The honest recovery for
+// an outside path is its own filesystem: name the nearest directory that does
+// exist and what it holds.
+function missingPathIsOutsideProject(workDir, missingPath) {
+    const raw = String(missingPath || '');
+    if (!raw || !isAbsolute(raw)) return false;
+    if (typeof workDir !== 'string' || !workDir) return false;
+    const rel = relative(resolve(workDir), resolve(raw));
+    return !rel || rel === '..' || rel.startsWith(`..${sep}`) || rel.startsWith('../') || isAbsolute(rel);
+}
+
+function nearestExistingRealParent(missingPath) {
+    try {
+        let dir = dirname(resolve(String(missingPath)));
+        for (let depth = 0; depth < 24; depth += 1) {
+            try {
+                if (statSync(dir).isDirectory()) return dir;
+            } catch { /* keep climbing */ }
+            const parent = dirname(dir);
+            if (!parent || parent === dir) break;
+            dir = parent;
+        }
+    } catch { /* fall through */ }
+    return null;
+}
+
+function outsideProjectNotFoundHint(missingPath, actionVerb) {
+    const parent = nearestExistingRealParent(missingPath);
+    if (!parent) return ' Not found, and no parent directory of it exists either.';
+    const entries = listSiblings(parent, 12).slice(0, 5);
+    const where = `"${normalizeOutputPath(parent)}"`;
+    if (entries.length === 0) {
+        return ` Not found; ${where} exists but is empty — nothing under it to ${actionVerb.toLowerCase()}.`;
+    }
+    const magic = /[*?[\]{}]/.test(String(missingPath))
+        ? ' The path carries a glob pattern; name one of those entries directly.'
+        : '';
+    return ` Not found; the nearest existing directory ${where} holds: ${entries.map((n) => `"${n}"`).join(', ')}.${magic}`;
+}
+
 function isDirectoryPathGuess(missingPath) {
     const base = basename(String(missingPath || '').replace(/\\/g, '/'));
     if (!base || /[*?[\]{}]/.test(base)) return false;
@@ -137,6 +184,9 @@ export function finalizeReadFamilyEnoentTail(hint, requestedPath, errCode = 'ENO
 
 function resolveUniqueEnoentRedirect(workDir, missingPath, errCode = 'ENOENT', cache = null) {
     if (!NOT_FOUND_CODES.has(String(errCode || 'ENOENT'))) return null;
+    // Redirecting an outside path INTO the project would answer a different
+    // question than the one asked.
+    if (missingPathIsOutsideProject(workDir, missingPath)) return null;
     const suffixHit = cachedSuffixStrip(workDir, missingPath, cache);
     if (suffixHit) return suffixHit;
     const elsewhere = cachedFileByBasename(workDir, missingPath, cache);
@@ -182,6 +232,9 @@ export function buildNotFoundHint(workDir, missingPath, actionVerb, errCode = 'E
     const rawMissing = String(missingPath || '');
     if (/^[A-Za-z]:(?![\\/])[^\\/]/.test(rawMissing.replace(/\\/g, '\\'))) {
         return ` The path has a drive letter but no separator after it — the backslashes were probably lost in escaping. Re-issue with forward slashes (e.g. "C:/tmp/smp").`;
+    }
+    if (missingPathIsOutsideProject(workDir, missingPath)) {
+        return outsideProjectNotFoundHint(missingPath, actionVerb);
     }
     if (resolveUniqueEnoentRedirect(workDir, missingPath, errCode, cache)) return '';
     const elsewhere = cachedFileByBasename(workDir, missingPath, cache);

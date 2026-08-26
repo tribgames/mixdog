@@ -598,9 +598,13 @@ export function validateV4ARenameSection(section, basePath, seenDestKeys) {
       return `apply_patch: V4A rename destination unreadable: ${normalizeOutputPath(section.movePath)} (${err?.code || err?.message || String(err)})`;
     }
   }
-  if (!section.hunks?.length) {
-    return `apply_patch: V4A rename for ${normalizeOutputPath(section.path)} has no update hunks`;
-  }
+  // A rename with no hunks is a PURE MOVE — `git mv` in V4A form — and its
+  // outcome is fully specified by the two paths: the file arrives at the
+  // destination byte-identical and leaves the source. Demanding an edit made
+  // the one unambiguous shape the only rejected one (measured: a Makefile.config
+  // move cost a turn and a fallback shell `mv`). The hunk applier already
+  // treats an empty hunk list as "no change", so the move runs through the
+  // same guarded write/unlink path as any other rename.
   return null;
 }
 

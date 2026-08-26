@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "sessionId": "exec_1601a1e97a2c46ddbd65856118bf6db5",
+      "agentRole": "primary",
+      "models": [
+        "gpt-5.6-sol"
+      ],
+      "inputTokens": 232836,
+      "cacheTokens": 192000,
+      "cacheWriteTokens": 0,
+      "outputTokens": 5760,
+      "toolCallCountApprox": 22
+    }
+  ],
+  "totals": {
+    "inputTokens": 232836,
+    "cacheTokens": 192000,
+    "cacheWriteTokens": 0,
+    "outputTokens": 5760,
+    "toolCallCountApprox": 22
+  }
+}

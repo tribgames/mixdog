@@ -10,15 +10,18 @@ import type {
   Shell,
 } from 'electron';
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
+  mkdir as fsMkdir,
   readFile as fsReadFile,
   stat as fsStat,
+  writeFile as fsWriteFile,
 } from 'node:fs/promises';
 import {
   basename as pathBasename,
   dirname as pathDirname,
   isAbsolute as pathIsAbsolute,
+  join as joinPath,
   relative as pathRelative,
   sep as pathSep,
   resolve as resolvePath,
@@ -73,8 +76,10 @@ import {
 } from './state-delta';
 import { TerminalDataBufferer } from './terminal-data-buffer';
 import {
+  attachmentImageBaseName,
   projectDisplayName,
   requiredAbortOptions,
+  requiredAttachmentImage,
   requiredCommitMessageFiles,
   requiredDesktopCapabilityReadRequests,
   requiredDesktopCapabilityRequest,
@@ -1588,6 +1593,26 @@ export function registerDesktopIpc(
       : resolveInsideProject(cwd, path);
     const failure = await shell.openPath(absolute);
     if (failure) throw new Error(`Unable to open file: ${failure}`);
+  });
+  // Transcript attachment chip: the renderer holds a submitted image only as a
+  // session-lifetime preview data URL, so the bytes arrive here. The temp file
+  // handed to the OS viewer is named from our own digest — no caller-supplied
+  // path reaches the shell, and reopening one image reuses a single file
+  // instead of littering the temp directory.
+  handle(DESKTOP_IPC.openAttachmentImage, async (_event, dataUrl, name) => {
+    const image = requiredAttachmentImage(dataUrl);
+    const temp = typeof app.getPath === 'function' ? app.getPath('temp') : '';
+    if (!temp) throw new Error('Unable to open image: no temporary directory.');
+    const directory = joinPath(temp, 'mixdog-attachments');
+    await fsMkdir(directory, { recursive: true });
+    const digest = createHash('sha256').update(image.bytes).digest('hex').slice(0, 16);
+    const file = joinPath(
+      directory,
+      `${attachmentImageBaseName(name)}-${digest}.${image.extension}`,
+    );
+    await fsWriteFile(file, image.bytes, { mode: 0o600 });
+    const failure = await shell.openPath(file);
+    if (failure) throw new Error(`Unable to open image: ${failure}`);
   });
   const onTermWrite = (event: Electron.IpcMainEvent, id: unknown, data: unknown): void => {
     if (!validTermSender(event)) return;

@@ -1,0 +1,38 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 2,
+            "passed": 2,
+            "failed": 0,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787699696.6381526,
+            "stop": 1787699698.2366393
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_accuracy",
+                "status": "passed",
+                "duration": 1.5910873630054994,
+                "start": 1787699696.6440752,
+                "stop": 1787699698.235598,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_model_size",
+                "status": "passed",
+                "duration": 0.0002855529965017922,
+                "start": 1787699698.2357903,
+                "stop": 1787699698.2363062,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

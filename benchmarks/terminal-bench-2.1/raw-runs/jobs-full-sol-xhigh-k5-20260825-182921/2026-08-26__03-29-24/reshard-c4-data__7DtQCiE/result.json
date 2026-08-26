@@ -1,0 +1,112 @@
+{
+    "id": "c498805d-367d-45b4-89c4-af565c52a0ca",
+    "task_name": "terminal-bench/reshard-c4-data",
+    "trial_name": "reshard-c4-data__7DtQCiE",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-sol-xhigh-k5-20260825-182921/2026-08-26__03-29-24/reshard-c4-data__7DtQCiE",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "reshard-c4-data",
+        "ref": "sha256:a402bbfede73dd04168d697de9b9146026f69e14c8cd333b6a91fc87e44ecd4b"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "89d8d86b48c2619328d2eb1a86c33a93d1f641fbfb59c4e0626535e246715b65",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/reshard-c4-data",
+            "ref": "sha256:a402bbfede73dd04168d697de9b9146026f69e14c8cd333b6a91fc87e44ecd4b",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "reshard-c4-data__7DtQCiE",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-sol-xhigh-k5-20260825-182921\\2026-08-26__03-29-24",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "route_profile": "sol-xhigh-nofast"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c2536a8d-4044-4108-95fd-e9efaf2ae3c9"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.150",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 281072,
+        "n_cache_tokens": 232448,
+        "n_output_tokens": 20868,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-25T19:08:58.372832Z",
+    "finished_at": "2026-08-25T19:19:51.170116Z",
+    "environment_setup": {
+        "started_at": "2026-08-25T19:08:58.433022Z",
+        "finished_at": "2026-08-25T19:09:00.620598Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-25T19:09:00.620615Z",
+        "finished_at": "2026-08-25T19:09:10.462335Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-25T19:09:10.462398Z",
+        "finished_at": "2026-08-25T19:18:00.879576Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-25T19:18:00.880612Z",
+        "finished_at": "2026-08-25T19:19:38.470110Z"
+    },
+    "step_results": null
+}

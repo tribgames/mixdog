@@ -1,0 +1,68 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 5,
+            "passed": 4,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787689501.8195658,
+            "stop": 1787689507.7336252
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_example_video_exists",
+                "status": "passed",
+                "duration": 0.0004038300030515529,
+                "start": 1787689501.847224,
+                "stop": 1787689501.8481562,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_test_video_exists",
+                "status": "passed",
+                "duration": 0.00020844999380642548,
+                "start": 1787689501.848296,
+                "stop": 1787689501.8487902,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_example_video",
+                "status": "passed",
+                "duration": 1.8427988269977504,
+                "start": 1787689501.84889,
+                "stop": 1787689503.6920986,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_test_video",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 4.032565181012615,
+                "start": 1787689503.6923501,
+                "stop": 1787689507.7312984,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_jump_analyzer_test_video():\n        \"\"\"Test jump_analyzer.py against test_video.mp4 using explicit frame ranges.\"\"\"\n>       _test_jump_analyzer_video(\n            \"/tests/test_video.mp4\",\n            takeoff_range=(219, 223),\n            landing_range=(231, 234),\n        )\n\n/tests/test_outputs.py:104: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nvideo_path = '/tests/test_video.mp4', takeoff_range = (219, 223)\nlanding_range = (231, 234)\n\n    def _test_jump_analyzer_video(\n        video_path,\n        takeoff_range=None,\n        landing_range=None,\n    ):\n        \"\"\"Helper for running jump_analyzer.py and validating outputs.\n    \n        Frame validation uses inclusive ranges only: provide (min_frame, max_frame)\n        for both takeoff_range and landing_range.\n        \"\"\"\n    \n        # Check that the video file exists before running the test\n        video_file = Path(video_path)\n        assert video_file.exists(), f\"Video file {video_path} does not exist\"\n    \n        # Run jump_analyzer.py on the specified video\n        result = subprocess.run(\n            [sys.executable, \"/app/jump_analyzer.py\", video_path],\n            capture_output=True,\n            text=True,\n            cwd=\"/app\",\n        )\n    \n>       assert result.returncode == 0, (\n            f\"jump_analyzer.py failed with error: {result.stderr}\"\n        )\nE       AssertionError: jump_analyzer.py failed with error: Error: Could not identify takeoff and landing contacts\nE         \nE       assert 1 == 0\nE        +  where 1 = CompletedProcess(args=['/root/.cache/uv/archive-v0/L54VWo2BMLTJallBkTd_6/bin/python', '/app/jump_analyzer.py', '/tests/test_video.mp4'], returncode=1, stdout='', stderr='Error: Could not identify takeoff and landing contacts\\n').returncode\n\n/tests/test_outputs.py:35: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_jump_analyzer_imports",
+                "status": "passed",
+                "duration": 0.0016530549983144738,
+                "start": 1787689507.73145,
+                "stop": 1787689507.7333689,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

@@ -458,6 +458,7 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
         // patchActiveInstance) so a concurrent restart/owner change is not
         // clobbered by this reuse-time snapshot.
         _restampReuseOwner({ pgdata, port: existingPort });
+        scheduleOrphanTempPostmasterSweep();
         return { host: '127.0.0.1', port: existingPort, runtimeDir: existingRtDir, pgdataDir: pgdata };
       }
     } catch {}
@@ -475,6 +476,7 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
           pg_pgdata: pgdata,
           pg_runtime_dir: runtimeDir,
         }, { timeoutMs: 1000, background: true });
+        scheduleOrphanTempPostmasterSweep();
         return { host: '127.0.0.1', port: pm.port, runtimeDir, pgdataDir: pgdata };
       }
     } catch {}
@@ -674,6 +676,7 @@ export async function stopPgForShutdown() {
       __mixdogMemoryLog(`[supervisor-pg] PG stopped (via active-instance.json) on shutdown\n`);
     } catch (e) {
       __mixdogMemoryLog(`[supervisor-pg] stopPg error on shutdown (no _live): ${e?.message}\n`);
+      throw e;
     }
     // Bounded sync clear (<=4s: 2s + one 2s retry). A residual stale pg_port is
     // tolerated — readers healthcheck-verify the port before reuse.
@@ -681,14 +684,15 @@ export async function stopPgForShutdown() {
     return;
   }
   const snap = _live;
-  _live = null;
   _ensureInFlight = null;
   try {
     const { stopPg } = await _getPgProc();
     await stopPg({ runtimeDir: snap.runtimeDir, pgdataDir: snap.pgdata });
+    _live = null;
     __mixdogMemoryLog(`[supervisor-pg] PG stopped gracefully on shutdown\n`);
   } catch (e) {
     __mixdogMemoryLog(`[supervisor-pg] stopPg error on shutdown: ${e?.message}\n`);
+    throw e;
   }
   // Bounded sync clear (<=4s: 2s + one 2s retry). A residual stale pg_port is
   // tolerated — readers healthcheck-verify the port before reuse.

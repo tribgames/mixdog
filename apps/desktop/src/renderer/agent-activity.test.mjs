@@ -530,6 +530,26 @@ test("new task header ignores the previous session lane cache", async () => {
     });
     assert.match(document.body.textContent, /4%/);
 
+    // routeState republishes the derived window fields as 0 whenever its route
+    // comparison misses. A 0 denominator is "unresolved", not "no window": the
+    // gauge keeps dividing by the last known limit instead of repainting the
+    // whole reading it held before the compaction.
+    await act(async () => {
+      defaultSessionLaneStore.apply({
+        sessionId: "session-context",
+        frameSource: "live",
+        snapshot: {
+          sessionId: "session-context",
+          stats: { currentEstimatedContextTokens: 192_000 },
+          contextWindow: 0,
+          displayContextWindow: 0,
+          autoCompactTokenLimit: 0,
+        },
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+    });
+    assert.match(document.body.textContent, /50%/);
+
     await act(async () => {
       dom.root.render(React.createElement(PaneStatusIsland, {
         ...props,

@@ -41,11 +41,7 @@ import { ensureCodexWireSessionId, mintSessionId, mintUuidV7 } from './session-i
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
 import { IMPLICIT_APPROVAL_MODE } from '../approval-mode.mjs';
-import {
-    describeGitStartupState,
-    describeShellStartupPolicy,
-    detectPathCapabilities,
-} from '../../tools/builtin/runtime-capabilities.mjs';
+import { describeGitStartupState } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
 
@@ -315,12 +311,7 @@ export function createSession(opts) {
     // resolves explicit session signals first and never leaks the daemon's
     // install root (user-cwd.mjs safe fallback chain).
     const sessionCwdLine = opts.cwd || captureOriginalUserCwd();
-    const wantsShellStartupLine = toolsForRouting.some((tool) => tool?.name === 'shell');
     const wantsGitStartupLine = toolsForRouting.some((tool) => tool?.name === 'git');
-    // One PATH walk feeds every startup line below.
-    const startupCapabilities = wantsShellStartupLine || wantsGitStartupLine
-        ? detectPathCapabilities()
-        : null;
     const shellEnvironmentContext = [
         sessionCwdLine
             ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
@@ -328,18 +319,15 @@ export function createSession(opts) {
         !ownerIsAgent
             ? `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`
             : '',
-        wantsShellStartupLine
-            ? describeShellStartupPolicy({ capabilities: startupCapabilities })
-            : '',
-        // Whether the cwd is inside a repository is the fact the git tool
-        // needs and cannot infer: a PATH listing only says the binary exists.
-        // Without it a session spends a call discovering `exited 128`, and
+        // A startup inventory of PATH binaries used to sit here; see
+        // runtime-capabilities.mjs for why it cannot be stated truthfully
+        // before a command has run. Whether the cwd is inside a repository is
+        // different: it is a property of this directory, true at startup and
+        // observable without spawning anything, and the git tool cannot infer
+        // it. Without it a session spends a call discovering `exited 128`, and
         // repeats it per candidate path.
         wantsGitStartupLine
-            ? describeGitStartupState({
-                capabilities: startupCapabilities,
-                ...(sessionCwdLine ? { cwd: sessionCwdLine } : {}),
-            })
+            ? describeGitStartupState(sessionCwdLine ? { cwd: sessionCwdLine } : {})
             : '',
     ].filter(Boolean).join('\n');
     const { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment } = composeSystemPrompt({

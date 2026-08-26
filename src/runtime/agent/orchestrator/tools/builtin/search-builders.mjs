@@ -137,11 +137,22 @@ export function buildGrepRgArgs(parts) {
     // globs (no trailing /**) always apply. searchPath is normalized to forward
     // slashes and de-trailing-slashed for the comparison.
     const _sp = String(searchPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    // A positive --glob filter that NAMES a pruned directory is asking to
+    // search inside it; only the path operand used to count, so
+    // `glob:"__pycache__/*.pyc"` matched nothing while the files were there.
+    // Negative filters never re-admit their own target.
+    const _namedByGlobs = new Set(
+        (Array.isArray(globPatterns) ? globPatterns : [])
+            .filter((g) => typeof g === 'string' && g && !g.startsWith('!'))
+            .flatMap((g) => g.replace(/\\/g, '/').split('/'))
+            .filter((segment) => segment && !/[*?[\]{}]/.test(segment)),
+    );
     for (const ex of DEFAULT_IGNORE_GLOBS) {
         const m = /^!\*\*\/([^/]+)\/\*\*$/.exec(ex);
         if (m) {
             const name = m[1];
             if (_sp === name || _sp.endsWith(`/${name}`) || _sp.includes(`/${name}/`) || _sp.startsWith(`${name}/`)) continue;
+            if (_namedByGlobs.has(name)) continue;
         }
         rgArgs.push('--glob', ex);
     }

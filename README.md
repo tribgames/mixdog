@@ -150,17 +150,34 @@ npm run dev
 
 ## Terminal-Bench 2.1
 
-Controlled single-model runs on the same 89 tasks produced:
+Head-to-head runs against other agent CLIs on the same 89 tasks, holding the
+model fixed and changing only the harness. Every run uses the official Harbor
+verifier, fast mode off, a 272k context window, and zero retries.
 
-- **82/89** with Claude Opus 5 vs Claude Code's **77/89**
-- **79/89** with GPT-5.6 Sol xhigh vs Codex CLI's **75/89**
-- **1.21×** faster vs Claude Code and **1.15×** faster vs Codex CLI
-- **31–47%** smaller median final context
-- **16%** lower priced cost vs Claude Code and **41%** lower vs Codex CLI
+**GPT-5.6 Sol xhigh — Mixdog vs Codex CLI**
 
-These are self-reported single runs (`k=1`, 2026-08-23), not leaderboard
-submissions. Raw artifacts, commands, comparison charts, and metric scripts
-live under [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
+- Score: **86.5%** (385/445) vs Codex CLI's **84.3%** (75/89)
+- **1.11×** faster per trial (339s vs 378s)
+- **42%** lower priced cost ($0.641 vs $1.096 per trial)
+- **45%** smaller median final context (18.5k vs 33.5k tokens)
+
+**Claude Opus 5 — Mixdog vs Claude Code**
+
+- Score: **79/89** vs Claude Code's **77/89**
+- **1.15×** faster and **19%** lower priced cost ($104.29 vs $129.21 per run)
+- **28%** smaller median final context (27.6k vs 38.2k tokens)
+
+Measurement: the Mixdog Sol run follows the same protocol the official
+Terminal-Bench leaderboard requires — all 89 tasks repeated five times
+(`k=5`, 445 trials), scored by the official Harbor verifier. The Codex CLI
+baseline and both Opus-side runs are single passes (`k=1`, 89 trials each).
+
+The official leaderboard is not accepting community submissions, so every run
+here ships its raw artifacts instead — Harbor verdicts, official verifier
+output, pinned task checksums, and the usage snapshots behind every cost
+figure — alongside the harness, presets, and metric scripts that recompute
+each number above:
+[`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
 
 ## Data and configuration
 

@@ -18,6 +18,12 @@
       "prove-plus-comm"
     ],
     "full": [],
+    "readprobe": [
+      "kv-store-grpc",
+      "mteb-retrieve",
+      "pytorch-model-cli",
+      "db-wal-recovery"
+    ],
     "retry15": [
       "adaptive-rejection-sampler",
       "configure-git-webserver",
@@ -55,7 +61,7 @@
   },
   "published": {
     "opus": {
-      "jobsDir": "jobs-full-opus5-solo-20260823-144706",
+      "jobsDir": "jobs-full-opus5-solo-20260825-155233",
       "chart": "tb21-opus-vs-claude-code.svg",
       "modelLabel": "Claude Opus 5",
       "baselineLabel": "Claude Code",
@@ -63,7 +69,7 @@
       "docHeading": "Claude Opus 5 vs Claude Code"
     },
     "sol": {
-      "jobsDir": "jobs-full-sol-xhigh-20260823-182305",
+      "jobsDir": "jobs-full-sol-xhigh-k5-20260825-182921",
       "chart": "tb21-sol-vs-codex.svg",
       "modelLabel": "GPT-5.6 Sol xhigh",
       "baselineLabel": "Codex CLI",
@@ -134,6 +140,11 @@
       "suite": "full",
       "routeProfile": "opus5-solo",
       "compareTo": "claude-code-opus5"
+    },
+    "readprobe-opus5": {
+      "suite": "readprobe",
+      "routeProfile": "opus5-solo",
+      "attempts": 2
     },
     "regexchess-opus5-solo": {
       "suite": "regex-chess",

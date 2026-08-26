@@ -1,0 +1,115 @@
+{
+    "id": "9a3f497b-258d-4814-8cda-0a814180f6a4",
+    "task_name": "terminal-bench/feal-linear-cryptanalysis",
+    "trial_name": "feal-linear-cryptanalysis__Va7rwz2",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/feal-linear-cryptanalysis__Va7rwz2",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "feal-linear-cryptanalysis",
+        "ref": "sha256:0f3234c5fde85f9dc610d94cfefd4c892afb75c9e571f21f18fee66972b67332"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "d0b41813a535b13144fc12f12242e1aa9b2ae6088d13afbd5276c8240eec403d",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/feal-linear-cryptanalysis",
+            "ref": "sha256:0f3234c5fde85f9dc610d94cfefd4c892afb75c9e571f21f18fee66972b67332",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "feal-linear-cryptanalysis__Va7rwz2",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 174552,
+        "n_cache_tokens": 156243,
+        "n_output_tokens": 11696,
+        "cost_usd": 0.5535515000000001,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T12:05:35.870240Z",
+    "finished_at": "2026-08-02T12:08:45.237942Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T12:05:35.939474Z",
+        "finished_at": "2026-08-02T12:05:38.580189Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T12:05:38.580225Z",
+        "finished_at": "2026-08-02T12:06:07.298703Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T12:06:07.298753Z",
+        "finished_at": "2026-08-02T12:08:36.617944Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T12:08:36.629761Z",
+        "finished_at": "2026-08-02T12:08:42.734130Z"
+    },
+    "step_results": null
+}

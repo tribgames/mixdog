@@ -119,6 +119,95 @@ test('manual manager recall-fasttrack succeeds locally after Memory browse', asy
   assert.ok(session.messages.some((message) => message.content === 'current request stays verbatim'));
 });
 
+test('shared recall-fasttrack keeps the newest five turns verbatim', async () => {
+  const sessionId = 'compact-five-tail-turns';
+  const messages = [{ role: 'system', content: 'system rules' }];
+  for (let i = 1; i <= 7; i += 1) {
+    messages.push(
+      { role: 'user', content: `turn ${i} request` },
+      { role: 'assistant', content: `turn ${i} answer` },
+    );
+  }
+  const session = {
+    id: sessionId,
+    provider: 'compact-five-tail-test',
+    model: 'fake-model',
+    contextWindow: 20_000,
+    compactBoundaryTokens: 20_000,
+    messages,
+    tools: [],
+    compaction: {
+      type: 'recall-fasttrack',
+      compactType: 'recall-fasttrack',
+      tailTurns: 1,
+    },
+  };
+  await runSessionCompaction(session, {
+    mode: 'manual',
+    force: true,
+    sessionId,
+    provider: {
+      name: 'compact-five-tail-test',
+      async send() {
+        throw new Error('semantic provider must not run');
+      },
+    },
+    executeInternalToolFn: async () => ({
+      text: Array.from({ length: 7 }, (_, index) => {
+        const turn = index + 1;
+        return `[2026-08-16 10:0${index}] u: turn ${turn} request`;
+      }).reverse().join('\n'),
+    }),
+  });
+  assert.deepEqual(
+    session.messages
+      .filter((message) => /^turn \d+ request$/.test(String(message?.content || '')))
+      .map((message) => message.content),
+    ['turn 3 request', 'turn 4 request', 'turn 5 request', 'turn 6 request', 'turn 7 request'],
+  );
+});
+
+test('recall-fasttrack failure never invokes semantic fallback', async () => {
+  const session = {
+    id: 'compact-no-semantic-fallback',
+    provider: 'compact-no-semantic-fallback',
+    model: 'fake-model',
+    contextWindow: 20_000,
+    compactBoundaryTokens: 20_000,
+    messages: [
+      { role: 'system', content: 'system rules' },
+      { role: 'user', content: 'older request' },
+      { role: 'assistant', content: 'older answer' },
+      { role: 'user', content: 'current request' },
+    ],
+    tools: [],
+    compaction: {
+      type: 'recall-fasttrack',
+      compactType: 'recall-fasttrack',
+    },
+  };
+  let providerCalls = 0;
+  const result = await runSessionCompaction(session, {
+    mode: 'manual',
+    force: true,
+    provider: {
+      name: 'compact-no-semantic-fallback',
+      async send() {
+        providerCalls += 1;
+        return { content: 'semantic output must not be used' };
+      },
+    },
+    executeInternalToolFn: async () => {
+      throw new Error('memory unavailable');
+    },
+  });
+  assert.equal(providerCalls, 0);
+  assert.equal(result.changed, false);
+  assert.equal(result.recallFastTrack, false);
+  assert.match(result.error, /stored session memory unavailable/);
+  assert.ok(session.messages.some((message) => message.content === 'older request'));
+});
+
 // ==== from compact-file-reattach-test.mjs ====
 const dir = mkdtempSync(join(tmpdir(), 'reattach-'));
 const fileA = join(dir, 'a.mjs'); writeFileSync(fileA, 'export const A = 1;\n'.repeat(50));
@@ -274,7 +363,7 @@ console.log('compact file-reattach test passed \u2713');
   console.log('compact handoff shaping passed \u2713');
 }
 
-test('runner-level repeated compaction carries bounded prior context and working files', () => {
+test('runner-level repeated compaction rebuilds context from Memory without prior-summary carryover', () => {
     const readCall = (id, path) => ({
         role: 'assistant',
         content: '',
@@ -282,7 +371,6 @@ test('runner-level repeated compaction carries bounded prior context and working
     });
     const toolResult = (id) => ({ role: 'tool', toolCallId: id, content: 'body' });
     let messages = [{ role: 'system', content: 'rules' }];
-    let previousLatest = '';
     const requirements = [];
     const files = [];
     for (let cycle = 0; cycle < 5; cycle += 1) {
@@ -300,11 +388,13 @@ test('runner-level repeated compaction carries bounded prior context and working
             { role: 'assistant', content: `cycle ${cycle} done` },
         );
         const recallRows = [
-            `[2026-01-0${cycle + 1}] a: cycle ${cycle} done`,
-            `[2026-01-0${cycle + 1}] u: ${latest}`,
-            `[2026-01-0${cycle + 1}] u: ${mid}`,
-        ];
-        if (previousLatest) recallRows.push(`[2026-01-0${cycle + 1}] u: ${previousLatest}`);
+            ...requirements.map((requirement, index) => (
+                `[2026-01-0${cycle + 1}] u: ${requirement} #${index + 1}`
+            )),
+            ...files.map((workingFile, index) => (
+                `[2026-01-0${cycle + 1}] a: worked on ${workingFile} #${100 + index}`
+            )),
+        ].reverse();
         const result = recallFastTrackCompactMessages(messages, 12_000, {
             force: true,
             recallText: recallRows.join('\n'),
@@ -325,10 +415,9 @@ test('runner-level repeated compaction carries bounded prior context and working
             typeof message.content === 'string' && message.content.includes('[context compacted')
         ));
         const summaryBody = String(summary?.content || '');
-        assert.equal((summaryBody.match(/<prior-compacted-context>/g) || []).length <= 1, true);
+        assert.equal((summaryBody.match(/<prior-compacted-context>/g) || []).length, 0);
         assert.equal((summaryBody.match(/## Working files/g) || []).length, 1);
         messages = result.messages;
-        previousLatest = latest;
     }
 });
 
@@ -595,7 +684,7 @@ assert.ok(compact.some((row) => row.content === nearPlan), 'newest near-duplicat
 assert.ok(compact.some((row) => row.content === 'distinct completed result'), 'distinct state survives');
 
 const handoffRows = compactHandoffRows([
-  { id: 10, ts: 600, is_root: 1, element: 'classified decision', members: [{ id: 99 }] },
+  { id: 10, ts: 600, is_root: 1, element: 'classified decision', summary: 'classified decision summary', members: [{ id: 99 }] },
   { id: 9, ts: 500, source_turn: 5, role: 'assistant', content: 'second final', is_root: 0, chunk_root: null },
   { id: 8, ts: 450, source_turn: 4, role: 'assistant', content: 'second progress', is_root: 0, chunk_root: null },
   { id: 7, ts: 400, source_turn: 3, role: 'user', content: 'second question', is_root: 0, chunk_root: null },
@@ -603,8 +692,87 @@ const handoffRows = compactHandoffRows([
   { id: 5, ts: 250, source_turn: 1, role: 'assistant', content: 'first progress', is_root: 0, chunk_root: null },
   { id: 4, ts: 200, source_turn: 0, role: 'user', content: 'first question', is_root: 0, chunk_root: null },
 ], 20);
-assert.deepEqual(handoffRows.map((row) => row.id), [10, 9, 7, 6, 4], 'handoff keeps roots and event endpoints');
+assert.deepEqual(handoffRows.map((row) => row.id), [10, 9, 8, 7, 6, 5, 4], 'handoff keeps summary roots and every unprocessed raw row');
 assert.equal(Object.hasOwn(handoffRows[0], 'members'), false, 'handoff renders classified roots as summaries');
+
+const summaryFirstRows = compactHandoffRows([
+  {
+    id: 30,
+    ts: 700,
+    is_root: 1,
+    element: 'classified',
+    summary: 'authoritative summary',
+    members: [{ id: 31, ts: 690, role: 'user', content: 'raw hidden by summary', is_root: 0, chunk_root: 30 }],
+  },
+  {
+    id: 20,
+    ts: 600,
+    is_root: 1,
+    element: 'not enough without summary',
+    summary: '',
+    members: [
+      { id: 21, ts: 580, role: 'user', content: 'raw question fallback', is_root: 0, chunk_root: 20 },
+      { id: 22, ts: 590, role: 'assistant', content: 'raw answer fallback', is_root: 0, chunk_root: 20 },
+    ],
+  },
+]);
+assert.deepEqual(summaryFirstRows.map((row) => row.id), [30, 22, 21], 'summary wins; missing summary expands every raw member');
+assert.doesNotMatch(renderEntryLines(summaryFirstRows, { pendingMarks: false }), /raw hidden by summary/);
+assert.match(renderEntryLines(summaryFirstRows, { pendingMarks: false }), /raw question fallback/);
+assert.match(renderEntryLines(summaryFirstRows, { pendingMarks: false }), /raw answer fallback/);
+
+const allRawRows = compactHandoffRows(Array.from({ length: 150 }, (_, index) => ({
+  id: 1000 + index,
+  ts: 1000 + index,
+  source_turn: index,
+  role: index % 2 ? 'assistant' : 'user',
+  content: `unprocessed raw ${index}`,
+  is_root: 0,
+  chunk_root: null,
+})));
+assert.equal(allRawRows.length, 150, 'compact handoff has no pre-compaction row cap');
+
+const handoffDb = {
+  async query(sql) {
+    if (/chunk_root = ANY/.test(sql)) {
+      return {
+        rows: [
+          { id: 41, ts: 810, role: 'user', content: 'fallback member question', is_root: 0, chunk_root: 40 },
+          { id: 42, ts: 820, role: 'assistant', content: 'fallback member answer', is_root: 0, chunk_root: 40 },
+          { id: 51, ts: 910, role: 'user', content: 'member hidden by root summary', is_root: 0, chunk_root: 50 },
+        ],
+      };
+    }
+    if (/FROM entries/.test(sql)) {
+      assert.doesNotMatch(sql, /\bLIMIT\b/, 'compact handoff fetches every root/raw row before fitting');
+      return {
+        rows: [
+          { id: 50, ts: 900, is_root: 1, element: 'classified', summary: 'stored root summary' },
+          { id: 40, ts: 800, is_root: 1, element: 'summary pending', summary: '' },
+        ],
+      };
+    }
+    return { rows: [] };
+  },
+};
+const handoffHandlers = createQueryHandlers({
+  getDb: () => handoffDb,
+  log: () => {},
+  resolveProjectScope: () => null,
+  embeddingWarmupCanStart: () => false,
+  getBootTimestamp: () => 0,
+  getTraceDb: () => null,
+});
+const fullHandoff = await handoffHandlers.handleSearch({
+  sessionId: 'compact-full-handoff',
+  includeMembers: true,
+  includeRaw: true,
+  compactHandoff: true,
+});
+assert.match(fullHandoff.text, /stored root summary/);
+assert.doesNotMatch(fullHandoff.text, /member hidden by root summary/);
+assert.match(fullHandoff.text, /fallback member question/);
+assert.match(fullHandoff.text, /fallback member answer/);
 
 const normalText = renderEntryLines(compact);
 assert.match(normalText, /\[pending\]/, 'normal recall keeps raw-row pipeline status');

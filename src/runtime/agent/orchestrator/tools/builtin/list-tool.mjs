@@ -1038,7 +1038,40 @@ async function getTargetedFindEnumeration({
 // list via `rg --files`, then rank by subsequence score. `list.fuzzy` still
 // routes here for hidden backward compatibility, but the model-facing tool is
 // `find`.
+// A pruned tree cannot report what it never enumerated. Dependency and cache
+// directories are skipped by DEFAULT, so a file that exists only inside one —
+// a __pycache__ artifact, a vendored source, a build cache — came back as
+// "(no fuzzy match for X)", which reads as PROVEN ABSENCE and ends the search.
+// A second, noise-including pass turns that into the truth, but the default
+// answer still may not list dependency paths (that is the point of the
+// default), so the miss keeps its body and gains the one fact it was missing:
+// a match exists, and which flag surfaces it. Only a CLEAN miss retries — a
+// partial or timed-out pass says "no fuzzy match YET" and is already telling
+// the caller to narrow, so it never pays for a second walk.
 export async function executeFuzzyFindTool(args, workDir, options = {}) {
+    const startedAt = performance.now();
+    const result = await runFuzzyFindPass(args, workDir, options);
+    const text = String(result ?? '');
+    if (!/^\(no fuzzy match for /.test(text)) return result;
+    if (args?.include_noise === true || options?._findNoiseWidened === true) return result;
+    // The retry walks the same tree again. A miss that was already expensive
+    // pays for itself twice, so only a cheap pass earns the second look.
+    if (performance.now() - startedAt > FIND_NOISE_WIDEN_BUDGET_MS) return result;
+    const widened = String(await runFuzzyFindPass(
+        { ...args, include_noise: true },
+        workDir,
+        { ...options, _findNoiseWidened: true },
+    ) ?? '');
+    if (!widened || /^\(no fuzzy match/.test(widened)) return result;
+    const hits = widened.split('\n').filter((line) => line && !line.startsWith('... [') && !line.startsWith('[')).length;
+    return `${text}\n[notice] ${hits} match${hits === 1 ? '' : 'es'} exist inside dependency/cache trees the default scan skips`
+        + ' — pass include_noise:true to list them.';
+}
+
+/** A miss cheaper than this earns the one widening retry below. */
+const FIND_NOISE_WIDEN_BUDGET_MS = 2_000;
+
+async function runFuzzyFindPass(args, workDir, options = {}) {
     const query = String(args.query ?? args.fuzzy ?? '').trim();
     if (!query) return 'Error: find requires query.';
     const inputPath = normalizeInputPath(args.path) || '.';

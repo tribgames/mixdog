@@ -136,7 +136,7 @@ export function createQueryHandlers({
     // Over-fetch before compact-only dedupe so duplicated legacy rows cannot
     // consume the requested page and hide distinct older context.
     const fetchLimit = compactHandoff
-      ? Math.min(1000, Math.max(limit, limit * 10))
+      ? null
       : compactDigest
         ? Math.min(100, Math.max(limit, limit * 4))
         : limit
@@ -189,16 +189,17 @@ export function createQueryHandlers({
       })
       where.push(`(${clauses.join(' OR ')})`)
     }
-    params.push(fetchLimit)
+    if (fetchLimit != null) params.push(fetchLimit)
+    const limitClause = fetchLimit == null ? '' : `LIMIT $${params.length}`
     let rows = (await db.query(`
       SELECT id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,
              element, category, summary, status, score, last_seen_at, project_id
       FROM entries
       WHERE ${where.join(' AND ')}
       ORDER BY ts DESC, source_turn DESC NULLS LAST, id DESC
-      LIMIT $${params.length}
+      ${limitClause}
     `, params)).rows
-    if (rows.length < fetchLimit) {
+    if (fetchLimit != null && rows.length < fetchLimit) {
       const seen = new Set(rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id)))
       const fillLimit = Math.max(0, fetchLimit - rows.length)
       const fillWhere = ['session_id = $1', 'id <> ALL($2::bigint[])', '(is_root = 1 OR chunk_root IS NULL OR chunk_root = id)']
@@ -220,7 +221,7 @@ export function createQueryHandlers({
         : []
       if (fillRows.length > 0) rows = [...rows, ...fillRows]
     }
-    if (args.includeMembers === true && !compactHandoff) {
+    if (args.includeMembers === true) {
       const rootIds = rows
         .filter((row) => Number(row.is_root) === 1)
         .map((row) => Number(row.id))
@@ -243,7 +244,7 @@ export function createQueryHandlers({
         }
       }
     }
-    if (compactHandoff) rows = compactHandoffRows(rows, limit)
+    if (compactHandoff) rows = compactHandoffRows(rows)
     else if (compactDigest) rows = compactDigestRows(rows, limit)
     return { text: renderEntryLines(rows, { pendingMarks: !compactDigest && !compactHandoff }) }
   }

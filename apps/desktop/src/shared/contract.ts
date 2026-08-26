@@ -165,6 +165,7 @@ export const DESKTOP_IPC = {
   updateGitPreferences: 'mixdog:update-git-preferences',
   revealFile: 'mixdog:reveal-file',
   openFilePath: 'mixdog:open-file-path',
+  openAttachmentImage: 'mixdog:open-attachment-image',
   getUpdaterState: 'mixdog:get-updater-state',
   checkForDesktopUpdate: 'mixdog:check-for-desktop-update',
   showDesktopUpdate: 'mixdog:show-desktop-update',
@@ -1661,6 +1662,10 @@ export interface DesktopApi {
   /** Review file context menu: OS-level reveal/open for a project-relative file. */
   revealFile?(cwd: string, path: string, accessToken?: string): Promise<void>;
   openFilePath?(cwd: string, path: string, accessToken?: string): Promise<void>;
+  /** Transcript attachment chip: hand a submitted image to the OS viewer. The
+   *  renderer holds those bytes only as a session-lifetime preview data URL, so
+   *  they travel here and the main process owns the temp file. */
+  openAttachmentImage?(dataUrl: string, name?: string): Promise<void>;
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;

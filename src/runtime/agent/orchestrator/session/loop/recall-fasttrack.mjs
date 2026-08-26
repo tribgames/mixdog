@@ -19,43 +19,11 @@ import {
     compactDebugLog,
 } from './compact-debug.mjs';
 import { positiveTokenInt } from './env.mjs';
-import { TOOL_OUTPUT_MAX_BYTES } from '../../tools/builtin/tool-output-limit.mjs';
 
 // ── Digest injection ────────────────────────────────────────────────────────
-// Inject a small newest-first digest plus an instruction telling the model to
-// pull details lazily via recall(sessionId/query/period). The memory DB holds
-// the full session (ingest_session below), and raw rows are embedded
-// synchronously at ingest, so recall serves everything the old full-dump
-// injection used to carry.
-// Default digest cap = the SHARED tool-output limit (TOOL_OUTPUT_MAX_BYTES,
-// 50KB default, env MIXDOG_TOOL_OUTPUT_MAX_BYTES) — the digest injection is
-// budgeted like any other tool result, not a special context share.
-// compaction.recallDigestMaxKb still overrides per-session.
-export const DIGEST_DEFAULT_MAX_KB = Math.max(1, Math.floor(TOOL_OUTPUT_MAX_BYTES / 1024));
-
-// Byte-capped line-boundary truncation. Digest source is newest-first, so
-// keeping the HEAD keeps the newest turns.
-// Exported for manager/compaction-runner.mjs (manual//clear digest path) so
-// both digest producers share one cap implementation.
-export function truncateToKb(text, maxKb) {
-    const maxBytes = Math.max(1, maxKb) * 1024;
-    const s = String(text || '');
-    if (Buffer.byteLength(s, 'utf8') <= maxBytes) return s;
-    const lines = s.split('\n');
-    const marker = '[digest truncated at ' + maxKb + 'KB]';
-    const contentBudget = maxBytes - Buffer.byteLength(marker, 'utf8');
-    const out = [];
-    let used = 0;
-    for (const line of lines) {
-        const cost = Buffer.byteLength(line, 'utf8') + 1;
-        if (used + cost > contentBudget) break;
-        out.push(line);
-        used += cost;
-    }
-    return out.length ? out.join('\n') + '\n' + marker : marker;
-}
-
-function buildRecallDigestText(sessionId, digestBody, maxKb) {
+// Memory provides every available summary/raw row. Only the final compaction
+// budget is allowed to reduce the handoff.
+function buildRecallDigestText(sessionId, digestBody) {
     // No recall-usage instruction block here: the recall tool description
     // already carries the usage-pattern cheatsheet (tool-defs.mjs), so
     // repeating it per-compaction would be redundant injected tokens. The
@@ -64,7 +32,7 @@ function buildRecallDigestText(sessionId, digestBody, maxKb) {
     return [
         `[context compacted — session ${sessionId}]`,
         `Recent digest (newest first):`,
-        truncateToKb(digestBody, maxKb),
+        String(digestBody || '').trim(),
     ].join('\n');
 }
 
@@ -88,7 +56,17 @@ export function isUsableRecallDigestText(value) {
     return !!trimmed && !/^\((?:no results|no current session)\)$/i.test(trimmed);
 }
 
-export async function runRecallFastTrackCompact({ sessionRef, messages, compactBudgetTokens, compactPolicy, sessionId, signal }) {
+export const RECALL_FAST_TRACK_TAIL_TURNS = 5;
+
+export async function runRecallFastTrackCompact({
+    sessionRef,
+    messages,
+    compactBudgetTokens,
+    compactPolicy,
+    sessionId,
+    signal,
+    executeMemorySearch,
+}) {
     if (!sessionId) throw new Error('recall-fasttrack requires a session id');
     const startedAt = Date.now();
     const diagnostics = {
@@ -126,14 +104,15 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
     // watcher already persisted. Do not retransmit the live transcript through
     // the memory RPC: that duplicates canonical history and can exceed the
     // bounded HTTP request body before compaction gets a chance to run.
-    const digestMaxKb = positiveTokenInt(sessionRef?.compaction?.recallDigestMaxKb) || DIGEST_DEFAULT_MAX_KB;
     let digestBody = '';
     t0 = Date.now();
     try {
-        const browsed = await executeInternalTool('memory', {
+        const searchMemory = typeof executeMemorySearch === 'function'
+            ? executeMemorySearch
+            : (args, ctx) => executeInternalTool('memory', args, ctx);
+        const browsed = await searchMemory({
             action: 'search',
             sessionId,
-            limit: positiveTokenInt(sessionRef?.compaction?.recallDigestLimit) || 100,
             includeMembers: true,
             includeRaw: true,
             compactHandoff: true,
@@ -171,7 +150,7 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
         try { process.stderr.write(`[loop] recall-fasttrack fail-safe abort (sess=${sessionId || 'unknown'}): stored session unavailable — keeping full history, no recall notice injected\n`); } catch {}
         throw new Error(`recall-fasttrack aborted: stored session memory unavailable; head preserved`);
     }
-    const digestText = buildRecallDigestText(sessionId, digestBody, digestMaxKb);
+    const digestText = buildRecallDigestText(sessionId, digestBody);
     diagnostics.finalRecallChars = digestText.length;
     diagnostics.finalRecallBytes = compactByteLength(digestText);
     const contextWindow = positiveTokenInt(compactPolicy?.contextWindow)
@@ -192,7 +171,7 @@ export async function runRecallFastTrackCompact({ sessionRef, messages, compactB
         // Empty/sentinel browse output was rejected above, so the handoff always
         // contains real stored session context.
         allowEmptyRecall: false,
-        tailTurns: compactPolicy.tailTurns,
+        tailTurns: RECALL_FAST_TRACK_TAIL_TURNS,
         keepTokens: compactPolicy.keepTokens,
         preserveRecentTokens: compactPolicy.preserveRecentTokens,
         recallTokenCap,

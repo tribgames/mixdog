@@ -1,0 +1,50 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 3,
+            "passed": 2,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787693703.1708193,
+            "stop": 1787693704.484687
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_vm_execution",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 1.0087590370094404,
+                "start": 1787693703.2640843,
+                "stop": 1787693704.2789998,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_vm_execution():\n        \"\"\"Test that vm.js starts and displays the DOOM initialization text.\"\"\"\n        # Create a temporary file to capture stdout\n        with tempfile.NamedTemporaryFile(mode=\"w+\", delete=False) as tmp_stdout:\n            # Start vm.js in a subprocess\n            process = subprocess.Popen(\n                [\"node\", \"/app/vm.js\"],\n                stdout=tmp_stdout,\n                stderr=subprocess.STDOUT,\n                text=True,\n            )\n    \n            # Wait for the frame.bmp file to be created\n            frame_path = Path(\"/tmp/frame.bmp\")\n            timeout = 30  # 30 seconds timeout\n            start_time = time.time()\n    \n            while not frame_path.exists():\n                if time.time() - start_time > timeout:\n                    process.kill()\n                    raise TimeoutError(\"Timeout waiting for frame.bmp to be created\")\n                time.sleep(0.1)\n    \n            # Wait a moment to ensure the frame is fully written\n            time.sleep(1)\n    \n            # Terminate the process\n            process.terminate()\n            try:\n                process.wait(timeout=5)\n            except subprocess.TimeoutExpired:\n                process.kill()\n                process.wait()\n    \n            # Read the captured stdout\n            tmp_stdout.flush()\n    \n        with open(tmp_stdout.name, \"rb\") as f:\n            stdout_content = f.read()\n    \n        # Clean up temporary file\n        os.unlink(tmp_stdout.name)\n    \n        # Check that the DOOM initialization text is present\n        expected_text = b\"I_InitGraphics: DOOM screen size: w x h: 320 x 200\"\n        error_msg = \"Expected text not found in output\"\n>       assert expected_text in stdout_content, error_msg\nE       AssertionError: Expected text not found in output\nE       assert b'I_InitGraphics: DOOM screen size: w x h: 320 x 200' in b\"DoomGeneric initialized. Frames will be saved to /tmp/frame.bmp\\n                           Doom Generic 0.1\\nZ_Init...======\\nI_Init: Setting up machine state.\\nM_Init: Init miscellaneous info.\\nR_Init: Init DOOM refresh daemon - ......\"\n\n/tests/test_outputs.py:58: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_frame_bmp_exists",
+                "status": "passed",
+                "duration": 0.00023425300605595112,
+                "start": 1787693704.279148,
+                "stop": 1787693704.279658,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_frame_bmp_similar_to_reference",
+                "status": "passed",
+                "duration": 0.20342769399576355,
+                "start": 1787693704.2797642,
+                "stop": 1787693704.4842074,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

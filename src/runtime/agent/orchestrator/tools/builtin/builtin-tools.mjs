@@ -44,7 +44,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges. Read only lines not already returned by another tool, using the smallest anchored range needed; never read an entire file when an existing result provides the relevant location. Do not read an output artifact after a still-valid passed check has established the needed facts. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges, bounded to the narrowest range that answers the question — when the answer depends on content not yet seen, read the wider range once instead of deciding from a partial view. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {

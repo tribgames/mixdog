@@ -1,6 +1,5 @@
 import { estimateTokens } from '../context-utils.mjs';
 
-const CONVERSATION_LINE_CHARS = 800;
 const TOOL_OUTCOME_CHARS = 80;
 
 function textOf(m) {
@@ -339,7 +338,7 @@ export function conversationLinesFromMemoryText(text) {
             .replace(/\s+#\d+\s*$/, '')
             .trim();
         if (body && body !== '.' && body !== '…') {
-            rows.push(`${current.role}: ${body.slice(0, CONVERSATION_LINE_CHARS)}`);
+            rows.push(`${current.role}: ${body}`);
         }
         current = null;
     };
@@ -372,8 +371,7 @@ export function excludeTailFromConversation(lines, tailMessages) {
         if (m?.role !== 'user' && m?.role !== 'assistant') continue;
         const body = String(typeof m.content === 'string' ? m.content : '')
             .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, CONVERSATION_LINE_CHARS);
+            .trim();
         if (body) tails.push(body);
     }
     if (!tails.length) return Array.isArray(lines) ? lines : [];

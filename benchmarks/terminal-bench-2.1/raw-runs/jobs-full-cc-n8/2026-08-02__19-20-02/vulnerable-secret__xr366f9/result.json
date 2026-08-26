@@ -1,0 +1,115 @@
+{
+    "id": "2562bc60-bacf-4992-9888-682a73a91b2c",
+    "task_name": "terminal-bench/vulnerable-secret",
+    "trial_name": "vulnerable-secret__xr366f9",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/vulnerable-secret__xr366f9",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "vulnerable-secret",
+        "ref": "sha256:d76dfa9e256487c5542905b892156f694137aeef784e1abf3f41e15a8c946eac"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "08ff9cb3cd416576bed330e9b92191ce0acbf5322f64714b6955ea6638361256",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/vulnerable-secret",
+            "ref": "sha256:d76dfa9e256487c5542905b892156f694137aeef784e1abf3f41e15a8c946eac",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "vulnerable-secret__xr366f9",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 257458,
+        "n_cache_tokens": 244340,
+        "n_output_tokens": 4369,
+        "cost_usd": 0.3992035,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T10:58:04.668865Z",
+    "finished_at": "2026-08-02T11:00:06.477396Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T10:58:04.708818Z",
+        "finished_at": "2026-08-02T10:58:07.366291Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T10:58:07.366314Z",
+        "finished_at": "2026-08-02T10:58:38.762691Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T10:58:38.762742Z",
+        "finished_at": "2026-08-02T10:59:56.786145Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T10:59:56.795666Z",
+        "finished_at": "2026-08-02T11:00:04.062137Z"
+    },
+    "step_results": null
+}

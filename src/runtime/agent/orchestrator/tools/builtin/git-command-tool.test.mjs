@@ -229,6 +229,34 @@ test('git availability probes answer instead of erroring', async (t) => {
     assert.match(probe, /git version/i);
 });
 
+// git dispatches any `git-*` executable on PATH as a subcommand, so a finite
+// allowlist could only ever go stale. An unknown name must reach git itself —
+// whatever git answers is actionable, an "unsupported subcommand" refusal was
+// not, and the shell tool ran the same command anyway.
+test('git forwards unknown subcommands to git instead of pre-rejecting them', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-open-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    for (const command of ['git filter-repo --version', 'git fast-export --help']) {
+        assert.doesNotMatch(String(await executeGitTool({ command }, repo)), /unsupported git subcommand/);
+    }
+});
+
+// The only commands this tool cannot host are the ones that never return: a
+// GUI blocks on a window nobody can click, and a resident server burns the
+// full timeout by working correctly. The server case is a routing hint, not a
+// verdict — shell can hold it as a background task.
+test('git refuses only non-returning subcommands and routes servers to shell', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-deny-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    assert.match(String(await executeGitTool({ command: 'git mergetool' }, repo)), /interactive GUI/i);
+    assert.match(String(await executeGitTool({ command: 'git daemon --export-all' }, repo)), /shell tool/i);
+    assert.match(String(await executeGitTool({ command: 'git' }, repo)), /requires a subcommand/i);
+});
+
 test('git stages selected change IDs and rejects stale diff snapshots without touching the index', async (t) => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog-git-stage-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));

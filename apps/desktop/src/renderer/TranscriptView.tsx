@@ -1,11 +1,9 @@
 import { ChevronRight, Code2, FileDiff, FoldVertical, GitFork, Layers3, ListTree, X } from "lucide-react";
 import React, { Component, Suspense, lazy, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
 import { t, tExisting } from "./i18n";
 import { DiffView } from "./lazy-widgets";
-import { MarkdownSourceFallback } from "./MarkdownSourceFallback";
 import { preloadMarkdownBody } from "./markdown-body-loader";
 import { useMobileBack } from "./mobile-back";
 import { MxIcon } from "./MxIcon";
@@ -22,7 +20,6 @@ import {
 import StreamingMarkdownBody from "./StreamingMarkdownBody";
 import { touchPrimaryPointer } from "./surface-input-focus";
 import { asRecord, copyTextToClipboard, formatElapsed, oneLine, publicThinkingSummary } from "./text-format";
-import { acquireTitleBarDim } from "./titlebar-dim";
 import {
   createTranscriptRowMeasureScheduler,
   requestTranscriptRowMeasure,
@@ -209,17 +206,32 @@ function contextMetrics(snapshot: Snapshot) {
   // Cost-only and transport-bootstrap stats objects are incomplete, not a
   // context reset. Only an explicit reading with a resolved limit may replace
   // the remembered value; explicit zero still clears correctly after /clear.
-  if (hasContextReading && usage.limit > 0) {
+  const remembered = rememberedContextUsage.get(sessionId);
+  // A frame CAN carry a real context reading and still resolve no limit: the
+  // session runtime republishes the derived window fields as 0 whenever its
+  // route comparison misses (context-state.mjs: routeState). Repainting the
+  // WHOLE remembered reading there froze the gauge on the pre-compact number
+  // for the rest of the session after an auto-compact (user: 오토 컴팩트
+  // 이후에 컨텍스트 원형바가 동기화가 안됨). Only the denominator is unknown,
+  // so keep the remembered one and let the fresh usage through.
+  const resolved = hasContextReading && usage.limit <= 0 && remembered && remembered.limit > 0
+    ? resolveContextDisplayUsage({
+      sessionId,
+      stats: snapshot.stats,
+      autoCompactTokenLimit: remembered.limit,
+    })
+    : usage;
+  if (hasContextReading && resolved.limit > 0) {
     rememberedContextUsage.delete(sessionId);
-    rememberedContextUsage.set(sessionId, usage);
+    rememberedContextUsage.set(sessionId, resolved);
     while (rememberedContextUsage.size > CONTEXT_USAGE_MEMORY_LIMIT) {
       const oldest = rememberedContextUsage.keys().next().value;
       if (typeof oldest !== "string") break;
       rememberedContextUsage.delete(oldest);
     }
-    return usage;
+    return resolved;
   }
-  return rememberedContextUsage.get(sessionId) ?? usage;
+  return remembered ?? usage;
 }
 
 export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenChange, onInherit }: {
@@ -662,7 +674,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
   // immediately and the scroll owner locks the resulting layout.
   const markdownParts = resolveStreamingMarkdownChunks(text, streaming, markdownCache.current);
   const renderedChunks = markdownParts.stableChunks.map((chunk, index) => (
-    <Suspense fallback={<MarkdownSourceFallback text={chunk} copyControl={CopyControl} />}
+    <Suspense fallback={null}
       key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current
         ? <StreamingMarkdownBody text={chunk}
@@ -678,7 +690,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
       : markdownParts.unstableText;
     renderedChunks.push(
       <Suspense
-        fallback={<MarkdownSourceFallback text={markdownParts.unstableText} copyControl={CopyControl} />}
+        fallback={null}
         key={markdownParts.unstableKey}>
         {workerPipeline.current
           ? <StreamingMarkdownBody
@@ -848,52 +860,6 @@ export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boole
   );
 }
 
-function TranscriptImagePreview({
-  src,
-  name,
-  onClose,
-}: {
-  src: string;
-  name: string;
-  onClose(): void;
-}) {
-  const closeButton = useRef<HTMLButtonElement>(null);
-  useMobileBack(true, onClose);
-  useEffect(() => acquireTitleBarDim(), []);
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    closeButton.current?.focus({ preventScroll: true });
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      previousFocus?.focus({ preventScroll: true });
-    };
-  }, [onClose]);
-  return createPortal(
-    <div className="message-image-preview-layer" role="presentation"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}>
-      <section className="message-image-preview-dialog" role="dialog" aria-modal="true"
-        aria-label={t("Image preview")}>
-        <img src={src} alt={name} />
-        <button ref={closeButton} type="button" aria-label={t("Close preview")}
-          onClick={onClose}>
-          <X size={18} aria-hidden="true" />
-        </button>
-      </section>
-    </div>,
-    document.body,
-  );
-}
-
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
@@ -908,8 +874,6 @@ export const TranscriptRow = memo(function TranscriptRow({
   disclosureScope?: string;
 }) {
   const previousStreaming = useRef(Boolean(item.streaming));
-  const [openImage, setOpenImage] = useState<{ src: string; name: string } | null>(null);
-  const closeImage = useCallback(() => setOpenImage(null), []);
   const announceSettled = previousStreaming.current && !item.streaming;
   useEffect(() => {
     previousStreaming.current = Boolean(item.streaming);
@@ -965,12 +929,16 @@ export const TranscriptRow = memo(function TranscriptRow({
               {attachedImages.map((image, index) => {
                 const preview = imagePreviewCache.get(imagePreviewKey(image.id, image.bytes));
                 const name = image.name || t('Attached image');
+                // The chip hands the image to the OS viewer. An in-app lightbox
+                // sat here and could only re-show the same preview larger, with
+                // no zoom, no pan, and no way out to a real image tool.
                 return preview
                   ? <button type="button" className="message-image-chip message-image-chip-button"
                     key={`${image.id ?? 'img'}-${index}`} title={name}
                     aria-label={t("Open image")}
                     onPointerDown={(event) => event.stopPropagation()}
-                    onClick={() => setOpenImage({ src: preview, name })}>
+                    onClick={() => void window.mixdogDesktop?.openAttachmentImage?.(preview, name)
+                      ?.catch(() => undefined)}>
                     <img src={preview} alt={name} />
                   </button>
                   : <span className="message-image-chip" key={`${image.id ?? 'img'}-${index}`}
@@ -1023,8 +991,6 @@ export const TranscriptRow = memo(function TranscriptRow({
             className="message-actions response-copy" />}
         </footer>}
       </article>
-      {openImage && <TranscriptImagePreview src={openImage.src} name={openImage.name}
-        onClose={closeImage} />}
       {announceSettled && !completion && <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         Mixdog response complete.
       </p>}

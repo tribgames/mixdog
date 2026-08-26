@@ -148,7 +148,7 @@
   line-height: var(--mx-line-micro);
 }
 /* Detail-style quota block: each window is one row — label, progress
-   track, its OWN reset schedule, percentage (user: 리셋이 3번째, %가 마지막).
+   track, percentage, its OWN reset schedule (user: 리셋날짜랑 % 좌우로 자리바꿔).
    Fixed side columns keep every bar the same length across rows. */
 .sidebar-usage-meters {
   display: grid;
@@ -160,12 +160,12 @@
 .sidebar-usage-meter {
   min-width: 0;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 54px 32px;
+  grid-template-columns: 40px minmax(0, 1fr) 32px 54px;
   align-items: center;
   gap: 7px;
 }
 /* Per-window reset reading: quiet, right-aligned so "5d 13h" and "12h" share
-   one edge next to the percentage. */
+   the row's trailing edge just past the percentage. */
 .sidebar-usage-meter > em {
   min-width: 0;
   overflow: hidden;

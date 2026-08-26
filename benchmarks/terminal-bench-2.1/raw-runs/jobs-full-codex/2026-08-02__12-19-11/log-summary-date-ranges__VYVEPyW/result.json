@@ -1,0 +1,115 @@
+{
+    "id": "e43d07d2-d619-41e4-94c8-c60bc2cb65c8",
+    "task_name": "terminal-bench/log-summary-date-ranges",
+    "trial_name": "log-summary-date-ranges__VYVEPyW",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-codex/2026-08-02__12-19-11/log-summary-date-ranges__VYVEPyW",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "log-summary-date-ranges",
+        "ref": "sha256:27b074a2f10fff7606e096f3abd8dced418ad8fda0f53d88acbe477f2d9ceaf6"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "c833c594814ec7b8cb32eba3b9cb5ed648171efe5a074767aa64c25ea060f08f",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/log-summary-date-ranges",
+            "ref": "sha256:27b074a2f10fff7606e096f3abd8dced418ad8fda0f53d88acbe477f2d9ceaf6",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "log-summary-date-ranges__VYVEPyW",
+        "trials_dir": "jobs-full-codex\\2026-08-02__12-19-11",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": "codex",
+            "import_path": null,
+            "model_name": "gpt-5.6-sol",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "xhigh"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "dcb66133-368e-4818-9250-200779908398"
+    },
+    "agent_info": {
+        "name": "codex",
+        "version": "0.146.0",
+        "model_info": {
+            "name": "gpt-5.6-sol",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 100967,
+        "n_cache_tokens": 78336,
+        "n_output_tokens": 1514,
+        "cost_usd": 0.197743,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T03:40:54.404604Z",
+    "finished_at": "2026-08-02T03:42:20.486542Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T03:40:54.450140Z",
+        "finished_at": "2026-08-02T03:40:58.547285Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T03:40:58.547303Z",
+        "finished_at": "2026-08-02T03:41:23.184205Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T03:41:23.184262Z",
+        "finished_at": "2026-08-02T03:42:12.791120Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T03:42:12.795379Z",
+        "finished_at": "2026-08-02T03:42:18.398615Z"
+    },
+    "step_results": null
+}

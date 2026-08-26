@@ -5,6 +5,26 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Editing a symbolic link now changes the file it points at instead of being
+  refused: patch and edit follow the link through every engine, write
+  atomically beside the real target, and leave the link itself intact.
+- Headless and benchmark runs no longer leave temporary databases and processes
+  behind. Each run gets an isolated runtime root, shutdown waits for the session
+  daemon instead of reporting success ahead of it, and orphaned clusters are
+  swept on the way out.
+- Conversation compaction keeps everything it should. Automatic, manual, and
+  cleared compaction share one path, the stored summary leads with full raw
+  history behind it, and the most recent turns survive verbatim instead of being
+  trimmed by a row or size cap.
+- Exploration reads the original file before deciding how to parse, count, or
+  summarize it, so a format guess no longer drives the answer.
+- Desktop polish: attached images open in the system viewer, the usage panel's
+  quota rows read in a natural order, and context and route panels lose their
+  leftover frames and focus outlines.
+- Terminal-Bench 2.1 results are republished from a `k=5` run of all 89 tasks,
+  with the raw verification artifacts for every published run committed
+  alongside the harness and metric scripts.
+
 ## v0.9.150 - 2026-08-25
 
 - Tool results stay scannable and honest about size: search output and

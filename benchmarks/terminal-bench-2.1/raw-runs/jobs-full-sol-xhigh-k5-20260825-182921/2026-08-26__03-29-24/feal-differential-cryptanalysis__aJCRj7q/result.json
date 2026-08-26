@@ -1,0 +1,112 @@
+{
+    "id": "f2b477b7-19a7-4345-ba42-7f6db5cc2456",
+    "task_name": "terminal-bench/feal-differential-cryptanalysis",
+    "trial_name": "feal-differential-cryptanalysis__aJCRj7q",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-sol-xhigh-k5-20260825-182921/2026-08-26__03-29-24/feal-differential-cryptanalysis__aJCRj7q",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "feal-differential-cryptanalysis",
+        "ref": "sha256:8ea56995fcc43fb94f0e4e15adb12dd28836bf3e9c766b2cc7ae78a7ce90341f"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "edacb57935c0b4181a115ac309d3b0e7c26c7cf49ccadf69762822068445df78",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/feal-differential-cryptanalysis",
+            "ref": "sha256:8ea56995fcc43fb94f0e4e15adb12dd28836bf3e9c766b2cc7ae78a7ce90341f",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "feal-differential-cryptanalysis__aJCRj7q",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-sol-xhigh-k5-20260825-182921\\2026-08-26__03-29-24",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "route_profile": "sol-xhigh-nofast"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c2536a8d-4044-4108-95fd-e9efaf2ae3c9"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.150",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 47233,
+        "n_cache_tokens": 36864,
+        "n_output_tokens": 5028,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-26T00:17:39.182151Z",
+    "finished_at": "2026-08-26T00:21:02.912364Z",
+    "environment_setup": {
+        "started_at": "2026-08-26T00:17:39.189677Z",
+        "finished_at": "2026-08-26T00:17:41.485388Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-26T00:17:41.485409Z",
+        "finished_at": "2026-08-26T00:17:52.782046Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-26T00:17:52.782096Z",
+        "finished_at": "2026-08-26T00:20:21.652765Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-26T00:20:21.653569Z",
+        "finished_at": "2026-08-26T00:20:51.707028Z"
+    },
+    "step_results": null
+}

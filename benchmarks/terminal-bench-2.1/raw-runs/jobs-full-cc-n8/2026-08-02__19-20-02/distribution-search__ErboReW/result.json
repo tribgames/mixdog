@@ -1,0 +1,115 @@
+{
+    "id": "b9be49ab-6fdf-4e17-8abb-18a7eea90f14",
+    "task_name": "terminal-bench/distribution-search",
+    "trial_name": "distribution-search__ErboReW",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/distribution-search__ErboReW",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "distribution-search",
+        "ref": "sha256:8787d3004ac4dd9d78f0c14f5b5ef94a4ad3e69d8828d7d35b9fbd7828a69ed1"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "b92a6ca622e24a97dce2720f090562d729f8423aa03b8e77875c1a217c71ea4c",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/distribution-search",
+            "ref": "sha256:8787d3004ac4dd9d78f0c14f5b5ef94a4ad3e69d8828d7d35b9fbd7828a69ed1",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "distribution-search__ErboReW",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 215573,
+        "n_cache_tokens": 201261,
+        "n_output_tokens": 10707,
+        "cost_usd": 0.5113504999999999,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T12:14:29.321390Z",
+    "finished_at": "2026-08-02T12:17:41.283116Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T12:14:29.355566Z",
+        "finished_at": "2026-08-02T12:14:31.732539Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T12:14:31.732557Z",
+        "finished_at": "2026-08-02T12:15:01.899680Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T12:15:01.899729Z",
+        "finished_at": "2026-08-02T12:17:29.151022Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T12:17:29.184232Z",
+        "finished_at": "2026-08-02T12:17:37.599610Z"
+    },
+    "step_results": null
+}

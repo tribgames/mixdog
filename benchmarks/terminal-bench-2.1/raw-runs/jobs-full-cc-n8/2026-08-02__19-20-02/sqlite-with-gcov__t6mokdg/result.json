@@ -1,0 +1,115 @@
+{
+    "id": "c9d50d85-7680-4598-8f37-9ef9879ba315",
+    "task_name": "terminal-bench/sqlite-with-gcov",
+    "trial_name": "sqlite-with-gcov__t6mokdg",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/sqlite-with-gcov__t6mokdg",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "sqlite-with-gcov",
+        "ref": "sha256:9f9bd57fbf9f4831e9031755e83aea6b9d60d2b2d54e8a12d48cff4dca3c231d"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "243352f9b742b39a4a21fe51a1d88c04cc45ede977e83cc968c9becfaf3f1de2",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/sqlite-with-gcov",
+            "ref": "sha256:9f9bd57fbf9f4831e9031755e83aea6b9d60d2b2d54e8a12d48cff4dca3c231d",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "sqlite-with-gcov__t6mokdg",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 562666,
+        "n_cache_tokens": 546815,
+        "n_output_tokens": 7786,
+        "cost_usd": 0.6263575,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T12:02:20.260937Z",
+    "finished_at": "2026-08-02T12:07:47.283788Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T12:02:20.327043Z",
+        "finished_at": "2026-08-02T12:02:22.600304Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T12:02:22.600323Z",
+        "finished_at": "2026-08-02T12:03:04.959561Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T12:03:04.959611Z",
+        "finished_at": "2026-08-02T12:07:32.058069Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T12:07:32.068857Z",
+        "finished_at": "2026-08-02T12:07:44.534257Z"
+    },
+    "step_results": null
+}

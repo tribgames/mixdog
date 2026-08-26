@@ -19,6 +19,10 @@
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
 
+# Published benchmark artifacts are evidence: keep every byte exactly as the
+# harness wrote it, with no end-of-line normalization on checkout or commit.
+benchmarks/terminal-bench-2.1/raw-runs/** -text
+
 # Binary
 *.png binary
 *.jpg binary

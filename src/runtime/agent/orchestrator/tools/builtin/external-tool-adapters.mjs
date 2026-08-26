@@ -13,7 +13,7 @@
 // the existing EXTERNAL_TOOL_REDIRECTS guidance message in that case.
 import { readFileSync, mkdirSync, existsSync, lstatSync, realpathSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { atomicWrite } from './atomic-write.mjs';
+import { atomicWrite, symlinkWriteTarget } from './atomic-write.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
 import { normalizeInputPath, resolveAgainstCwd, normalizeOutputPath } from './path-utils.mjs';
 import { isUncPath, isWindowsDevicePath, hasUnsafeWin32Component, isBlockedDevicePath, isSpecialFileStat } from './device-paths.mjs';
@@ -587,7 +587,11 @@ async function adaptStrReplace(args, workDir, options) {
     // An unverified native edit session never receives work: the in-process
     // apply below is the fallback, so a stale/spoofed engine cannot touch bytes.
     const nativeEditVerified = await nativeEditSessionSatisfiesContract();
-    if (!nativeEditVerified || fileEnc.encoding !== 'utf8' || editPlan.rebased || !editPlan.uniform) {
+    // A symlinked target never reaches the native engine either: it writes the
+    // path it is handed, which would replace the link with a regular file. The
+    // in-process apply goes through atomicWrite, which writes through the link.
+    const symlinkedTarget = symlinkWriteTarget(fullPath) !== null;
+    if (!nativeEditVerified || symlinkedTarget || fileEnc.encoding !== 'utf8' || editPlan.rebased || !editPlan.uniform) {
         const occurrences = editPlan.positions.length;
         if (occurrences === 0) {
             const message = 'old_string not found';

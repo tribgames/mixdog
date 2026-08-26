@@ -1,0 +1,115 @@
+{
+    "id": "a6cf6a52-fa11-4bd3-a4fd-0970dd41bfa5",
+    "task_name": "terminal-bench/qemu-startup",
+    "trial_name": "qemu-startup__ncoGWVi",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-cc-n8/2026-08-02__19-20-02/qemu-startup__ncoGWVi",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "qemu-startup",
+        "ref": "sha256:8e58263747da7dc688ad470688fb72825c4ba2c1c40443fa0f52963645bbd999"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "bd03967ee678917f663b6e6b6957432d5cc136a01693275ba26519e38b7821dc",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/qemu-startup",
+            "ref": "sha256:8e58263747da7dc688ad470688fb72825c4ba2c1c40443fa0f52963645bbd999",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "qemu-startup__ncoGWVi",
+        "trials_dir": "jobs-full-cc-n8\\2026-08-02__19-20-02",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": 4.0,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.claude_code_prebaked:ClaudeCodePrebaked",
+            "model_name": "claude-opus-5",
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "reasoning_effort": "high"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "c8b47bf8-bbba-4913-88b2-220a91cee986"
+    },
+    "agent_info": {
+        "name": "claude-code-prebaked",
+        "version": "2.1.220",
+        "model_info": {
+            "name": "claude-opus-5",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 551078,
+        "n_cache_tokens": 529041,
+        "n_output_tokens": 16278,
+        "cost_usd": 0.8916505,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-02T11:23:45.769619Z",
+    "finished_at": "2026-08-02T11:30:30.826618Z",
+    "environment_setup": {
+        "started_at": "2026-08-02T11:23:48.661327Z",
+        "finished_at": "2026-08-02T11:24:13.333441Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-02T11:24:13.333464Z",
+        "finished_at": "2026-08-02T11:24:49.944212Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-02T11:24:49.944273Z",
+        "finished_at": "2026-08-02T11:30:15.376351Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-02T11:30:15.382513Z",
+        "finished_at": "2026-08-02T11:30:27.424036Z"
+    },
+    "step_results": null
+}

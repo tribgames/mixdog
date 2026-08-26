@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "preset": "full-opus5-solo",
+  "fingerprint": "sha256:a612e5bd4af339b5f820ff8e888b343f92c9d55c5e30d2de706877fd7eb4c826",
+  "contract": {
+    "schemaVersion": 2,
+    "workflow": "headless",
+    "disabledTools": [
+      "web_search",
+      "web_fetch",
+      "memory",
+      "recall"
+    ],
+    "rulesHash": "sha256:85ef48f3743828a359bbd6920a50e4d17b8bf01386a1cc6c47aa840494531288",
+    "rulesFiles": 18,
+    "rulesBytes": 17295,
+    "promptSurfaceHash": "sha256:c6cb71913c2ac1586ee2e8d16baea55489433775d5188c0a7b8f8d3ad2360692",
+    "promptSurfaceBytes": 20997,
+    "toolContractHash": "sha256:7ea19a66ba6b716e7f2ff0065a58eeaf1eeadf07f49531758676b17d65945ff2",
+    "toolContractBytes": 79875,
+    "routeContracts": {
+      "lead": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-5",
+        "providerMode": "native",
+        "toolCatalogHash": "sha256:812ebe4bdcb366b35cf8635bb620be23460c3a3f4b2c4ec0c287972e224cdc7a",
+        "toolCatalogCount": 13,
+        "toolCatalogBytes": 14367,
+        "toolCatalogNames": [
+          "code_graph",
+          "cwd",
+          "edit",
+          "find",
+          "git",
+          "git_stage",
+          "glob",
+          "grep",
+          "list",
+          "load_tool",
+          "read",
+          "shell",
+          "task"
+        ],
+        "activeToolHash": "sha256:8da6b62163460e71a1d70fb04eead63f296531b72321a1147c4f9f7eaa711758",
+        "activeToolCount": 11,
+        "activeToolNames": [
+          "code_graph",
+          "edit",
+          "find",
+          "git",
+          "glob",
+          "grep",
+          "list",
+          "load_tool",
+          "read",
+          "shell",
+          "task"
+        ],
+        "providerToolHash": "sha256:7d2b282c454ed5067ef31f20b3f7f40c75d45feae3da195004f0011e834dc5c2",
+        "providerToolCount": 13,
+        "providerToolBytes": 12370,
+        "promptSurfaceHash": "sha256:961a1f4b1245e3a8ce7e489b015b38096b0d79c9ea210306d8234a97fc18064d",
+        "promptSurfaceBytes": 10488
+      },
+      "leadFallback": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-8",
+        "providerMode": "native",
+        "toolCatalogHash": "sha256:812ebe4bdcb366b35cf8635bb620be23460c3a3f4b2c4ec0c287972e224cdc7a",
+        "toolCatalogCount": 13,
+        "toolCatalogBytes": 14367,
+        "toolCatalogNames": [
+          "code_graph",
+          "cwd",
+          "edit",
+          "find",
+          "git",
+          "git_stage",
+          "glob",
+          "grep",
+          "list",
+          "load_tool",
+          "read",
+          "shell",
+          "task"
+        ],
+        "activeToolHash": "sha256:8da6b62163460e71a1d70fb04eead63f296531b72321a1147c4f9f7eaa711758",
+        "activeToolCount": 11,
+        "activeToolNames": [
+          "code_graph",
+          "edit",
+          "find",
+          "git",
+          "glob",
+          "grep",
+          "list",
+          "load_tool",
+          "read",
+          "shell",
+          "task"
+        ],
+        "providerToolHash": "sha256:35f8b8ff1efb9c649cc87d39e3f56ae0736050090de933b6ab3c73f215dbaae2",
+        "providerToolCount": 13,
+        "providerToolBytes": 12372,
+        "promptSurfaceHash": "sha256:961a1f4b1245e3a8ce7e489b015b38096b0d79c9ea210306d8234a97fc18064d",
+        "promptSurfaceBytes": 10488
+      }
+    },
+    "toolCatalogHash": "sha256:812ebe4bdcb366b35cf8635bb620be23460c3a3f4b2c4ec0c287972e224cdc7a",
+    "toolCount": 13,
+    "toolSchemaBytes": 14367,
+    "activeToolHash": "sha256:8da6b62163460e71a1d70fb04eead63f296531b72321a1147c4f9f7eaa711758",
+    "activeToolCount": 11,
+    "providerToolHash": "sha256:7d2b282c454ed5067ef31f20b3f7f40c75d45feae3da195004f0011e834dc5c2",
+    "providerToolCount": 13,
+    "providerToolBytes": 12370
+  },
+  "startedAt": "2026-08-25T15:52:33.4811409Z",
+  "definition": {
+    "dataset": "terminal-bench/terminal-bench-2-1",
+    "suite": "full",
+    "tasks": [],
+    "routeProfile": "opus5-solo",
+    "routes": {
+      "lead": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-5",
+        "effort": "high",
+        "fast": false
+      }
+    },
+    "leadFallback": {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-8",
+      "effort": "high",
+      "fast": false
+    },
+    "concurrent": 8,
+    "attempts": 1,
+    "maxRetries": 2
+  },
+  "comparison": {
+    "name": "claude-code-opus5",
+    "baseline": {
+      "label": "Claude Code · Claude Opus 5 high",
+      "jobsDir": "jobs-full-cc-n8/2026-08-02__19-20-02",
+      "harness": "claude-code",
+      "model": "claude-opus-5",
+      "finalContextMedianTokens": 38177,
+      "costDetails": "cc-baseline-plus.json",
+      "costLowerBound": false
+    }
+  },
+  "completedAt": "2026-08-25T18:29:20.3693387Z",
+  "exitCode": 0
+}

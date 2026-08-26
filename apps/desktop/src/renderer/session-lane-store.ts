@@ -244,6 +244,61 @@ export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapsho
   return changed ? merged : next;
 }
 
+// The context WINDOW fields are DERIVED session state, and the session runtime
+// republishes them as 0 — not absent — whenever its own route comparison misses
+// (context-state.mjs: routeState). A 0 therefore means "not resolved on this
+// frame", never "this session has no window": adopting it dropped the gauge's
+// denominator, and the gauge then fell back to its last complete reading and
+// froze on the PRE-compact number for the rest of the session (user: 오토
+// 컴팩트 이후에 컨텍스트 원형바가 동기화가 안됨). Only a frame that stays on
+// the SAME provider+model may inherit them, so a real model switch still drops
+// the previous window instead of painting it against a new one.
+const LANE_CONTEXT_WINDOW_FIELDS: ReadonlyArray<
+  "contextWindow" | "displayContextWindow" | "autoCompactTokenLimit"
+> = ["contextWindow", "displayContextWindow", "autoCompactTokenLimit"];
+
+export function laneFrameWithRetainedContextWindow(
+  prior: Snapshot | null,
+  next: Snapshot,
+): Snapshot {
+  if (!prior) return next;
+  const priorSessionId = String(prior.sessionId || "");
+  const nextSessionId = String(next.sessionId || "");
+  if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
+  if (laneRouteText(prior, "provider") !== laneRouteText(next, "provider")
+    || laneRouteText(prior, "model") !== laneRouteText(next, "model")) return next;
+  let merged: Snapshot | null = null;
+  for (const field of LANE_CONTEXT_WINDOW_FIELDS) {
+    const value = Number(next[field]) || 0;
+    const retained = Number(prior[field]) || 0;
+    if (value > 0 || retained <= 0) continue;
+    merged ??= { ...next };
+    merged[field] = retained;
+  }
+  return merged ?? next;
+}
+
+// Background shell jobs are HOST-injected (session-host: snapshotWithShellJobs):
+// the session runtime state carries none, so every snapshot returned by a
+// runtime CALL — slash command, model/Fast switch, workflow change, new-task
+// submit — reaches this lane with the field absent. Adopting such a frame
+// whole blanked the work card to "No background work" while a shell was still
+// running, until the next host frame refilled it (user: 간헐적으로 작업중인
+// 셸이 있는데 호버하면 작업중인게 없다고 뜸). A host frame ALWAYS names the
+// bucket, empty ones included, so retaining the last known jobs for a frame
+// that omits the field entirely can never keep a finished shell on screen.
+export function laneFrameWithRetainedShellJobs(
+  prior: Snapshot | null,
+  next: Snapshot,
+): Snapshot {
+  if (!prior) return next;
+  const priorSessionId = String(prior.sessionId || "");
+  const nextSessionId = String(next.sessionId || "");
+  if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
+  if (next.shellJobs != null || prior.shellJobs == null) return next;
+  return { ...next, shellJobs: prior.shellJobs };
+}
+
 export function laneFrameRetainingSettledRows(
   prior: Snapshot | null,
   next: Snapshot,
@@ -325,6 +380,13 @@ export function decideSessionLaneFrame(
   const revision = typeof provenance.contentRevision === "number"
     ? provenance.contentRevision
     : null;
+  // Host-only read-outs and the unresolved context denominator are restored
+  // BEFORE any branch decides, so every accepted frame carries the pane's live
+  // work and a gauge limit it can actually divide by.
+  const frame = laneFrameWithRetainedContextWindow(
+    prior,
+    laneFrameWithRetainedShellJobs(prior, next),
+  );
   if (prior) {
     const rejected = rejectedSessionLaneRevision(priorRevision, provenance);
     if (rejected) return { accept: false, reason: rejected, revision: priorRevision };
@@ -334,7 +396,7 @@ export function decideSessionLaneFrame(
       // and growth land as published.
       return {
         accept: true,
-        snapshot: laneFrameWithRetainedRoute(prior, next),
+        snapshot: laneFrameWithRetainedRoute(prior, frame),
         revision,
         reason: "newer-generation",
       };
@@ -342,8 +404,8 @@ export function decideSessionLaneFrame(
     if (revision !== null && priorRevision !== null && revision === priorRevision) {
       const priorItems = laneTranscript(prior);
       const snapshot = priorItems
-        ? mergedLaneFrame(prior, next, priorItems, true)
-        : next;
+        ? mergedLaneFrame(prior, frame, priorItems, true)
+        : frame;
       // Same-generation OWNER frames still carry fresh busy/queue/tail state,
       // but their settled transcript is byte-for-byte the generation already
       // painted. Reuse its array identity so focus churn cannot remount rows.
@@ -355,8 +417,8 @@ export function decideSessionLaneFrame(
       };
     }
   }
-  const snapshot = laneFrameRetainingSettledRows(prior, next);
-  const reason = snapshot === next ? "adopted" : "aligned";
+  const snapshot = laneFrameRetainingSettledRows(prior, frame);
+  const reason = snapshot === frame ? "adopted" : "aligned";
   return {
     accept: true,
     snapshot: laneFrameWithRetainedRoute(prior, snapshot),

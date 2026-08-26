@@ -1848,11 +1848,14 @@ impl FileListStore {
     }
 
     fn watch_root(self: &Arc<Self>, operand: &Path, include_noise: bool) -> bool {
-        let watch_operand = if operand.is_file() {
-            operand.parent().unwrap_or(operand)
-        } else {
-            operand
-        };
+        // Watching is an optional cache optimization, never a prerequisite for
+        // searching. An exact-file operand is already cheap to scan; watching
+        // its parent recursively can block indefinitely on virtual, network, or
+        // otherwise non-watchable filesystems. Serve the search uncached instead.
+        if operand.is_file() {
+            return false;
+        }
+        let watch_operand = operand;
         if !watch_operand.is_dir() {
             return false;
         }
@@ -6029,6 +6032,49 @@ mod tests {
         assert!(prune.iter().any(|glob| glob == "!**/.git/**"));
         let inside = prune_globs(Path::new("repo/.git"), &parsed);
         assert!(inside.is_empty());
+    }
+
+    #[test]
+    fn exact_file_search_skips_parent_watch_and_stays_complete() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("mixdog-exact-file-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("mountinfo");
+        std::fs::write(&file, "overlay / overlay\n").unwrap();
+        let store = Arc::new(FileListStore::new());
+        let cancelled = AtomicBool::new(false);
+        let req = request(
+            &[
+                "--no-heading",
+                "--line-number",
+                "-e",
+                "overlay",
+                "--",
+                &file.to_string_lossy(),
+            ],
+            20,
+        );
+
+        let response = handle(&req, &cancelled, &store, None).unwrap();
+
+        assert_eq!(response["complete"], true);
+        assert_eq!(response["partial"], false);
+        assert_eq!(response["cacheSafe"], false);
+        assert!(response["lines"]
+            .as_array()
+            .is_some_and(|lines| lines.iter().any(|line| {
+                line.as_str()
+                    .is_some_and(|value| value.contains("overlay / overlay"))
+            })));
+        assert!(store
+            .watched_roots
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_empty());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

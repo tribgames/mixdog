@@ -571,6 +571,46 @@ export function requiredExternalUrl(value: unknown): string {
   return url.toString();
 }
 
+const ATTACHMENT_IMAGE_EXTENSIONS = new Map<string, string>([
+  ['image/png', 'png'],
+  ['image/jpeg', 'jpg'],
+  ['image/webp', 'webp'],
+  ['image/gif', 'gif'],
+  ['image/bmp', 'bmp'],
+]);
+const ATTACHMENT_IMAGE_DATA_URL_RE = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
+export const MAX_ATTACHMENT_IMAGE_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Transcript attachment chip → OS viewer. Only a base64 data URL carrying a
+ * raster image passes: SVG and every other markup-bearing type stay out,
+ * because their OS handler can be a browser, which would then run script from
+ * a file this process itself just wrote.
+ */
+export function requiredAttachmentImage(value: unknown): { bytes: Buffer; extension: string } {
+  if (typeof value !== 'string') throw new TypeError('image must be a string.');
+  const match = ATTACHMENT_IMAGE_DATA_URL_RE.exec(value.trim());
+  const extension = match && ATTACHMENT_IMAGE_EXTENSIONS.get(match[1].toLowerCase());
+  if (!match || !extension) throw new TypeError('image data URL is unsupported.');
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length === 0 || bytes.length > MAX_ATTACHMENT_IMAGE_BYTES) {
+    throw new TypeError('image data URL is invalid.');
+  }
+  return { bytes, extension };
+}
+
+/**
+ * Filename stem for that temp copy. The submitted name is a label only: it is
+ * stripped to word characters, so no separator, extension, or traversal
+ * segment from the renderer survives into the path.
+ */
+export function attachmentImageBaseName(value: unknown): string {
+  const label = typeof value === 'string'
+    ? value.replace(/\.[^./\\]*$/, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+    : '';
+  return label || 'image';
+}
+
 export function requiredZoomFactor(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0.2 || value > 10) {
     throw new TypeError('zoom factor is invalid.');

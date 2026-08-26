@@ -244,7 +244,9 @@ export function createPristineExecutionBoundary({
   };
   const rootDir = mkdtempSync(join(tmpdir(), 'mixdog-headless-pristine-'));
   const dataDir = join(rootDir, 'data');
+  const runtimeRoot = join(rootDir, 'runtime-root');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 });
   let cleaned = false;
   let restoreAuthBindings = () => {};
   const cleanup = ({ preserveRoot = false, tolerateRootRemovalFailure = false } = {}) => {
@@ -259,7 +261,7 @@ export function createPristineExecutionBoundary({
     // process exits; rmSync retries absorb that EBUSY/EPERM window.
     if (!preserveRoot) {
       try {
-        rmSync(rootDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        rmSync(rootDir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
       } catch (error) {
         if (tolerateRootRemovalFailure) return { rootRemovalError: error };
         throw error;
@@ -306,6 +308,7 @@ export function createPristineExecutionBoundary({
     }
     setEnv('MIXDOG_HOME', rootDir);
     setEnv('MIXDOG_DATA_DIR', dataDir);
+    setEnv('MIXDOG_RUNTIME_ROOT', runtimeRoot);
     for (const [name, value] of Object.entries({
       ...inheritedExecutionEnv,
       ...approvedExecutionEnv,
@@ -358,7 +361,7 @@ export function createPristineExecutionBoundary({
       authMode,
       catalogCount,
     });
-    return { rootDir, dataDir, config, audit, loadConfig, cleanup };
+    return { rootDir, dataDir, runtimeRoot, config, audit, loadConfig, cleanup };
   } catch (error) {
     cleanup();
     throw error;

@@ -166,6 +166,7 @@ export function createLifecycleApi(deps) {
   // them later). Never loads the memory runtime just for this — a null
   // module promise means memory was never used this run, so skip.
   async function ingestSessionIntoMemory(session) {
+    if (process.env.MIXDOG_DISABLE_MEMORY_INGEST === '1') return;
     try {
       const messages = Array.isArray(session?.messages) ? session.messages : [];
       if (!session?.id || messages.length === 0) return;

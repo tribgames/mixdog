@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "sessionId": "exec_2594a1371fb74826ad58b2b2a83db6d0",
+      "agentRole": "primary",
+      "models": [
+        "claude-opus-5"
+      ],
+      "inputTokens": 26,
+      "cacheTokens": 208047,
+      "cacheWriteTokens": 14669,
+      "outputTokens": 12799,
+      "toolCallCountApprox": 18
+    }
+  ],
+  "totals": {
+    "inputTokens": 26,
+    "cacheTokens": 208047,
+    "cacheWriteTokens": 14669,
+    "outputTokens": 12799,
+    "toolCallCountApprox": 18
+  }
+}

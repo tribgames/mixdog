@@ -24,9 +24,7 @@ import {
 import { BUILTIN_TOOLS } from '../src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
 import {
     appendGitStartupState,
-    appendShellStartupPolicy,
     describeGitStartupState,
-    describeShellStartupPolicy,
 } from '../src/runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { checkExecPolicyMessage } from '../src/runtime/agent/orchestrator/tools/bash-policy-scan.mjs';
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -778,42 +776,6 @@ test('C: shell surface keeps execution contract separate from the platform comma
     assert.match(shellTool.description, /Select-String/);
     assert.match(commandDescription, /PowerShell:/);
     assert.match(commandDescription, /\$PID is reserved/);
-});
-
-test('C: shell startup policy reports environment and PATH candidates in fixed order', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'mixdog-shell-runtime-capabilities-'));
-    try {
-        const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
-        const perlName = process.platform === 'win32' ? 'perl.exe' : 'perl';
-        for (const name of [nodeName, perlName]) {
-            const file = join(dir, name);
-            writeFileSync(file, '');
-            if (process.platform !== 'win32') chmodSync(file, 0o755);
-        }
-        assert.equal(
-            describeShellStartupPolicy({
-                candidates: ['node', 'python3', 'perl'],
-                pathValue: dir,
-                platform: process.platform,
-                os: 'test-os',
-                shell: 'test-shell',
-            }),
-            '- Shell startup environment: OS=test-os; shell=test-shell; available=node, perl; unavailable=python3. For shell commands, treat every unavailable entry as absent. Invoke one only if the same command first installs it or exposes it on PATH.',
-        );
-        assert.match(
-            appendShellStartupPolicy('# Tool Use', [{ name: 'shell' }], {
-                candidates: ['node', 'python3', 'perl'],
-                pathValue: dir,
-                platform: process.platform,
-                os: 'test-os',
-                shell: 'test-shell',
-            }),
-            /^# Tool Use\n- Shell startup environment:/,
-        );
-        assert.equal(appendShellStartupPolicy('# Tool Use', [{ name: 'read' }]), '# Tool Use');
-    } finally {
-        rmSync(dir, { recursive: true, force: true });
-    }
 });
 
 test('C: git startup state reports repository presence, not just the binary', () => {

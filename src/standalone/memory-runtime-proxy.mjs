@@ -650,9 +650,12 @@ export function createStandaloneMemoryRuntime({
     const ownedChild = child;
     const childExit = waitForExit && ownedChild && ownedChild.exitCode == null
       ? new Promise((resolveExit, rejectExit) => {
-          const onExit = () => {
+          const onExit = (code, signal) => {
             clearTimeout(timer);
-            resolveExit(true);
+            if (code === 0) resolveExit(true);
+            else rejectExit(new Error(
+              `memory runtime exited unsuccessfully (${signal || code || 'unknown'})`,
+            ));
           };
           const timer = setTimeout(() => {
             ownedChild.off('exit', onExit);

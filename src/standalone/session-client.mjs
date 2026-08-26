@@ -677,15 +677,35 @@ export async function attachSession({
 
 /** Ask a live daemon to exit. Used by dev/test teardown; normal clients just
  *  detach and let the client-grace shutdown fire. */
-export async function shutdownDaemon(discovery = readSessionDiscovery()) {
+export async function shutdownDaemon(discovery = readSessionDiscovery(), {
+  waitForExit = false,
+  timeoutMs = 15_000,
+} = {}) {
   if (!discovery?.port) return false;
+  const daemonPid = Number(discovery.pid);
   try {
     await request({
       port: discovery.port, token: discovery.token, method: 'POST',
       path: '/shutdown', body: {}, timeoutMs: 3000, control: true,
     });
-    return true;
-  } catch { return false; }
+  } catch {
+    return Number.isInteger(daemonPid) && daemonPid > 0 && !isPidAlive(daemonPid);
+  }
+  if (!waitForExit || !Number.isInteger(daemonPid) || daemonPid <= 0) return true;
+  const deadline = Date.now() + Math.max(1, Number(timeoutMs) || 15_000);
+  while (isPidAlive(daemonPid) && Date.now() < deadline) await delay(50);
+  if (isPidAlive(daemonPid)) {
+    throw new Error(`session daemon pid=${daemonPid} did not exit within ${timeoutMs}ms`);
+  }
+  return true;
+}
+
+export async function shutdownDaemonForRuntimeRoot(root, options = {}) {
+  const runtimeRoot = String(root || '').trim();
+  if (!runtimeRoot) return false;
+  const discovery = readSessionDiscovery(path.join(path.resolve(runtimeRoot), 'daemon.json'));
+  if (!discovery) return false;
+  return shutdownDaemon(discovery, options);
 }
 
 // ── Shared per-process attachment ────────────────────────────────────────────

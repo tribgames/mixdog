@@ -1,460 +1,996 @@
 {
-  "generated": "2026-08-24",
+  "generated": "2026-08-26",
   "runs": {
     "opus5": {
-      "jobs_dir": "jobs-full-opus5-solo-20260823-144706",
-      "score": "82/89"
+      "jobs_dir": "jobs-full-opus5-solo-20260825-155233",
+      "k": 1,
+      "score": "79/89"
     },
     "sol-xhigh": {
-      "jobs_dir": "jobs-full-sol-xhigh-20260823-182305",
-      "score": "79/89"
+      "jobs_dir": "jobs-full-sol-xhigh-k5-20260825-182921",
+      "k": 5,
+      "score": "385/445"
     }
   },
   "tasks": [
     {
       "task": "adaptive-rejection-sampler",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "bn-fit-modify",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "break-filter-js-from-html",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "build-cython-ext",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 4,
+        "total": 5
+      }
     },
     {
       "task": "build-pmars",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "build-pov-ray",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "caffe-cifar-10",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 4,
+        "total": 5
+      }
     },
     {
       "task": "cancel-async-tasks",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "chess-best-move",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "circuit-fibsqrt",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "cobol-modernization",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "code-from-image",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "compile-compcert",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "configure-git-webserver",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "constraints-scheduling",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "count-dataset-tokens",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "crack-7z-hash",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "custom-memory-heap-crash",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "db-wal-recovery",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "distribution-search",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "dna-assembly",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "dna-insert",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 0,
+        "total": 5
+      }
     },
     {
       "task": "extract-elf",
-      "opus5": "fail",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "extract-moves-from-video",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 0,
+        "total": 5
+      }
     },
     {
       "task": "feal-differential-cryptanalysis",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "feal-linear-cryptanalysis",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "filter-js-from-html",
-      "opus5": "fail",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 0,
+        "total": 5
+      }
     },
     {
       "task": "financial-document-processor",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "fix-code-vulnerability",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "fix-git",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "fix-ocaml-gc",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "gcode-to-text",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "git-leak-recovery",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "git-multibranch",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "gpt2-codegolf",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "headless-terminal",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "hf-model-inference",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "install-windows-3.11",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "kv-store-grpc",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 2,
+        "total": 5
+      }
     },
     {
       "task": "large-scale-text-editing",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "largest-eigenval",
-      "opus5": "fail",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "llm-inference-batching-scheduler",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "log-summary-date-ranges",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "mailman",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "make-doom-for-mips",
-      "opus5": "fail",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 1,
+        "total": 5
+      }
     },
     {
       "task": "make-mips-interpreter",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 4,
+        "total": 5
+      }
     },
     {
       "task": "mcmc-sampling-stan",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "merge-diff-arc-agi-task",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "model-extraction-relu-logits",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "modernize-scientific-stack",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "mteb-leaderboard",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 1,
+        "total": 5
+      }
     },
     {
       "task": "mteb-retrieve",
-      "opus5": "fail",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "multi-source-data-merger",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "nginx-request-logging",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "openssl-selfsigned-cert",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "overfull-hbox",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 4,
+        "total": 5
+      }
     },
     {
       "task": "password-recovery",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "path-tracing",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "path-tracing-reverse",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "polyglot-c-py",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "polyglot-rust-c",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "portfolio-optimization",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "protein-assembly",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "prove-plus-comm",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "pypi-server",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "pytorch-model-cli",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 4,
+        "total": 5
+      }
     },
     {
       "task": "pytorch-model-recovery",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 1,
+        "total": 5
+      }
     },
     {
       "task": "qemu-alpine-ssh",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "qemu-startup",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "query-optimize",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "raman-fitting",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 4,
+        "total": 5
+      }
     },
     {
       "task": "regex-chess",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "regex-log",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "reshard-c4-data",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "rstan-to-pystan",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "sam-cell-seg",
-      "opus5": "pass",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "sanitize-git-repo",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 1,
+        "total": 5
+      }
     },
     {
       "task": "schemelike-metacircular-eval",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "sparql-university",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "sqlite-db-truncate",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "sqlite-with-gcov",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "torch-pipeline-parallelism",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 3,
+        "total": 5
+      }
     },
     {
       "task": "torch-tensor-parallelism",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 4,
+        "total": 5
+      }
     },
     {
       "task": "train-fasttext",
-      "opus5": "fail",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "tune-mjcf",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "video-processing",
-      "opus5": "fail",
-      "sol_xhigh": "fail"
+      "opus5": {
+        "pass": 0,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 2,
+        "total": 5
+      }
     },
     {
       "task": "vulnerable-secret",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "winning-avg-corewars",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     },
     {
       "task": "write-compressor",
-      "opus5": "pass",
-      "sol_xhigh": "pass"
+      "opus5": {
+        "pass": 1,
+        "total": 1
+      },
+      "sol_xhigh": {
+        "pass": 5,
+        "total": 5
+      }
     }
   ]
 }

@@ -1813,6 +1813,25 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     githubCliAccount: () => call('githubCliAccount'),
     revealFile: () => Promise.resolve(),
     openFilePath: () => Promise.resolve(),
+    // A browser tab owns no OS handler, so a blob tab is the closest
+    // equivalent. The data URL cannot be opened directly: Chrome blocks a
+    // top-level navigation to `data:`.
+    openAttachmentImage: (dataUrl) => {
+      try {
+        const value = String(dataUrl);
+        const separator = value.indexOf(',');
+        const type = /^data:([^;,]+)/.exec(value.slice(0, separator))?.[1] || 'image/png';
+        const binary = atob(value.slice(separator + 1));
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        const url = URL.createObjectURL(new Blob([bytes], { type }));
+        window.open(url, '_blank', 'noopener');
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch { /* popup blocked or a malformed preview */ }
+      return Promise.resolve();
+    },
     getUpdaterState: () => Promise.resolve(DISABLED_UPDATER),
     subscribeUpdaterState: () => () => {},
     checkForDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),

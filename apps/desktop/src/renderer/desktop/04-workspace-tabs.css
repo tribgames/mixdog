@@ -251,11 +251,9 @@
   --workspace-tab-surface: var(--mx-window-band);
   color: var(--mx-text);
   background: var(--workspace-tab-surface);
-  /* Chrome-style contour (user: 선택 라벨 좌우 윤곽선이 없어 구분이 안
-     된다): the cell carries its OWN side hairlines, so it reads against
-     sliver neighbors even at the small band↔sheet surface delta. The
-     bottom stays open into the sheet like Chrome's tab shape. */
-  box-shadow: inset 1px 0 0 var(--mx-border), inset -1px 0 0 var(--mx-border);
+  /* Every pane's active tab carries a stronger side contour; only the focused
+     pane adds the accent band above. The bottom stays open into the sheet. */
+  box-shadow: inset 2px 0 0 var(--mx-border), inset -2px 0 0 var(--mx-border);
 }
 .workspace-tab.active::after {
   content: "";

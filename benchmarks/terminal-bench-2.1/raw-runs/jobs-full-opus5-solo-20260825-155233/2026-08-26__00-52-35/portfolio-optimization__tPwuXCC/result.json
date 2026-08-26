@@ -1,0 +1,112 @@
+{
+    "id": "3d75f84c-e52b-4261-b53b-97f3ec81d7bf",
+    "task_name": "terminal-bench/portfolio-optimization",
+    "trial_name": "portfolio-optimization__tPwuXCC",
+    "trial_uri": "file:///C:/Project/mixdog/benchmarks/terminal-bench-2.1/jobs-full-opus5-solo-20260825-155233/2026-08-26__00-52-35/portfolio-optimization__tPwuXCC",
+    "task_id": {
+        "org": "terminal-bench",
+        "name": "portfolio-optimization",
+        "ref": "sha256:d112f8945600f18ec47bbbe76935dc05953173cc3d0a375a7aa2712b091584e4"
+    },
+    "source": "terminal-bench/terminal-bench-2-1",
+    "task_checksum": "43497eefff71e8fe8730c3e3e97d29cd9720123be046b9722a7c538bf8a67255",
+    "config": {
+        "task": {
+            "path": null,
+            "git_url": null,
+            "git_commit_id": null,
+            "name": "terminal-bench/portfolio-optimization",
+            "ref": "sha256:d112f8945600f18ec47bbbe76935dc05953173cc3d0a375a7aa2712b091584e4",
+            "overwrite": false,
+            "download_dir": null,
+            "source": "terminal-bench/terminal-bench-2-1"
+        },
+        "trial_name": "portfolio-optimization__tPwuXCC",
+        "trials_dir": "C:\\Project\\mixdog\\benchmarks\\terminal-bench-2.1\\jobs-full-opus5-solo-20260825-155233\\2026-08-26__00-52-35",
+        "timeout_multiplier": 1.0,
+        "agent_timeout_multiplier": null,
+        "verifier_timeout_multiplier": null,
+        "agent_setup_timeout_multiplier": null,
+        "environment_build_timeout_multiplier": null,
+        "agent": {
+            "name": null,
+            "import_path": "harness.mixdog_agent:MixdogAgent",
+            "model_name": null,
+            "skills": [],
+            "override_timeout_sec": null,
+            "override_setup_timeout_sec": null,
+            "max_timeout_sec": null,
+            "extra_allowed_hosts": [],
+            "kwargs": {
+                "route_profile": "opus5-solo"
+            },
+            "env": {},
+            "mcp_servers": []
+        },
+        "environment": {
+            "type": "docker",
+            "import_path": null,
+            "force_build": false,
+            "delete": true,
+            "cpu_enforcement_policy": "auto",
+            "memory_enforcement_policy": "auto",
+            "override_cpus": null,
+            "override_memory_mb": null,
+            "override_storage_mb": null,
+            "override_gpus": null,
+            "override_tpu": null,
+            "mounts": null,
+            "extra_docker_compose": [],
+            "env": {},
+            "kwargs": {},
+            "extra_allowed_hosts": []
+        },
+        "verifier": {
+            "override_timeout_sec": null,
+            "max_timeout_sec": null,
+            "env": {},
+            "disable": false
+        },
+        "artifacts": [],
+        "extra_instruction_paths": [],
+        "job_id": "1d46b649-f944-48a9-8be1-2e87f8748559"
+    },
+    "agent_info": {
+        "name": "mixdog",
+        "version": "mixdog-0.9.150",
+        "model_info": null
+    },
+    "agent_result": {
+        "n_input_tokens": 22,
+        "n_cache_tokens": 219028,
+        "n_output_tokens": 15828,
+        "cost_usd": null,
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-08-25T17:40:14.765304Z",
+    "finished_at": "2026-08-25T17:44:49.769744Z",
+    "environment_setup": {
+        "started_at": "2026-08-25T17:40:14.825278Z",
+        "finished_at": "2026-08-25T17:40:16.856793Z"
+    },
+    "agent_setup": {
+        "started_at": "2026-08-25T17:40:16.856810Z",
+        "finished_at": "2026-08-25T17:40:27.227530Z"
+    },
+    "agent_execution": {
+        "started_at": "2026-08-25T17:40:27.227579Z",
+        "finished_at": "2026-08-25T17:43:57.062337Z"
+    },
+    "verifier": {
+        "started_at": "2026-08-25T17:43:57.063287Z",
+        "finished_at": "2026-08-25T17:44:38.323797Z"
+    },
+    "step_results": null
+}

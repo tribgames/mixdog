@@ -6,22 +6,17 @@
 import { createHash } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
 import {
-    recallFastTrackCompactMessages,
     semanticCompactMessages,
     pruneToolOutputsUnanchored,
     effectiveBudget as compactEffectiveBudget,
     compactTypeIsRecallFastTrack,
     compactTypeIsSemantic,
     normalizeCompactType,
-    CONTEXT_SHARE_RATIO,
-    RECALL_TOKEN_CAP_FLOOR_TOKENS,
 } from '../compact.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage, resolveCompactBufferRatio } from '../context-utils.mjs';
 import { executeInternalTool } from '../../internal-tools.mjs';
 import {
-    truncateToKb,
-    DIGEST_DEFAULT_MAX_KB,
-    isUsableRecallDigestText,
+    runRecallFastTrackCompact,
 } from '../loop/recall-fasttrack.mjs';
 import {
     positiveContextWindow,
@@ -159,58 +154,6 @@ async function callMemoryBounded(args, callerCtx, timeoutMs, executeMemory = exe
         try { outer?.removeEventListener?.('abort', onOuterAbort); } catch {}
     }
 }
-async function runRecallFastTrackForSession(session, sessionId, opts = {}) {
-    if (!sessionId) throw new Error('recall-fasttrack requires a session id');
-    const query = `session:${sessionId}:all-chunks`;
-    const querySha = createHash('sha256').update(query).digest('hex').slice(0, 16);
-    const callerCtx = {
-        callerSessionId: sessionId,
-        callerCwd: session?.cwd || undefined,
-        routingSessionId: sessionId,
-        clientHostPid: session?.clientHostPid,
-        signal: opts.signal || null,
-    };
-    const memoryTimeoutMs = recallMemoryTimeoutMs(session);
-    const executeMemory = typeof opts.executeInternalToolFn === 'function'
-        ? opts.executeInternalToolFn
-        : executeInternalTool;
-    // The transcript watcher already persists this session incrementally.
-    // Manual/clear compaction reads those rows directly instead of sending the
-    // entire live message array through the memory RPC again.
-    let recallText = '';
-    try {
-        const browsed = await callMemoryColdStart({
-            action: 'search',
-            sessionId,
-            limit: positiveContextWindow(session?.compaction?.recallDigestLimit) || 100,
-            includeMembers: true,
-            includeRaw: true,
-            compactHandoff: true,
-        }, callerCtx, memoryTimeoutMs, executeMemory);
-        recallText = typeof browsed === 'string' ? browsed : String(browsed?.text ?? browsed ?? '');
-        if (!isUsableRecallDigestText(recallText)) {
-            throw new Error('memory has no stored history for this session');
-        }
-    } catch (err) {
-        // Without real stored context we cannot safely replace the live head.
-        // Bail to the semantic fallback rather than injecting a false recall
-        // handoff.
-        try { process.stderr.write(`[session] recall-digest browse failed — bailing (sess=${sessionId}): ${err?.message || err}\n`); } catch {}
-        throw new Error(`recall-fasttrack search failed: ${err?.message || err}`);
-    }
-    return {
-        query,
-        querySha,
-        recallText: [
-            `session_id=${sessionId}`,
-            // Same byte cap as the loop digest path (recallDigestMaxKb,
-            // default = shared tool-output limit) — without it the memory
-            // renderer bounds the browse at ~200 rows × 1000 chars, letting a
-            // manual//clear compact process a far larger digest than loop's.
-            truncateToKb(recallText, positiveContextWindow(session?.compaction?.recallDigestMaxKb) || DIGEST_DEFAULT_MAX_KB),
-        ].map(v => String(v || '').trim()).filter(Boolean).join('\n\n'),
-    };
-}
 // Element-identity change detection (same approach as loop.mjs messagesArrayChanged): two
 // arrays are "unchanged" only when same length AND every slot is the same object
 // reference. Used to reject a no-op prune (which returns a fresh array whose
@@ -307,27 +250,27 @@ export async function runSessionCompaction(session, opts = {}) {
     let recallFastTrackError = null;
     if (compactTypeIsRecallFastTrack(compactType)) {
         try {
-            const recallPayload = await runRecallFastTrackForSession(session, resolvedSessionId, opts);
             const contextWindow = positiveContextWindow(session.contextWindow) || boundary;
-            const recallTokenCap = Math.max(
-                RECALL_TOKEN_CAP_FLOOR_TOKENS,
-                Math.floor(contextWindow * CONTEXT_SHARE_RATIO),
-            );
-            recallFastTrackResult = recallFastTrackCompactMessages(messages, budget, {
-                reserveTokens,
-                force: true,
-                recallText: recallPayload.recallText,
-                query: recallPayload.query,
-                querySha: recallPayload.querySha,
-                cwd: session.cwd,
-                // The stored-memory browse above returned real session context;
-                // empty/sentinel output already threw into semantic fallback.
-                allowEmptyRecall: false,
-                tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 1,
-                keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
-                preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
-                recallTokenCap,
+            const memoryTimeoutMs = recallMemoryTimeoutMs(session);
+            const executeMemory = typeof opts.executeInternalToolFn === 'function'
+                ? opts.executeInternalToolFn
+                : executeInternalTool;
+            recallFastTrackResult = await runRecallFastTrackCompact({
+                sessionRef: session,
+                messages,
+                compactBudgetTokens: budget,
+                compactPolicy: {
+                    reserveTokens,
+                    contextWindow,
+                    boundaryTokens: boundary,
+                    keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
+                    preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+                },
                 sessionId: resolvedSessionId,
+                signal: opts.signal || null,
+                executeMemorySearch: (args, callerCtx) => (
+                    callMemoryColdStart(args, callerCtx, memoryTimeoutMs, executeMemory)
+                ),
             });
             if (Array.isArray(recallFastTrackResult?.messages)) {
                 compacted = recallFastTrackResult.messages;
@@ -338,54 +281,6 @@ export async function runSessionCompaction(session, opts = {}) {
             try {
                 process.stderr.write(`[session] recall-fasttrack ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
             } catch { /* best-effort */ }
-            // Degraded-compact fallback: recall-fasttrack failed (empty recall,
-            // ingest error, fit failure). Before recording a hard failure, try
-            // the semantic path once so auto-clear/manual compaction still makes
-            // progress WITHOUT shipping an empty-recall summary. History is only
-            // replaced when the semantic summary actually succeeds.
-            if (semanticCompactionEnabledForSession(session)
-                && provider && typeof provider.send === 'function') {
-                try {
-                    semanticCompactResult = await semanticCompactMessages(
-                        provider,
-                        messages,
-                        opts.model || resolveSemanticSummaryModel(session, { budgetTokens: budget }) || session.model,
-                        budget,
-                        {
-                            reserveTokens,
-                            providerName: session.provider || provider?.name || null,
-                            sessionId: resolvedSessionId,
-                            cwd: session.cwd,
-                            signal: opts.signal || null,
-                            // Carries the session's wire identity so the
-                            // summary request stays on the session's own
-                            // prefix-cache slot instead of opening a second one.
-                            sendOpts: { session },
-                            promptCacheKey: session.promptCacheKey || null,
-                            providerCacheKey: session.promptCacheKey || null,
-                            timeoutMs: semanticCompactTimeoutMs(session, beforeMessageTokens),
-                            tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
-                            keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
-                            preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
-                            filterOldHistoryForIngest: opts.filterOldHistoryForIngest === true,
-                            force: true,
-                        },
-                    );
-                    if (Array.isArray(semanticCompactResult?.messages)) {
-                        compacted = semanticCompactResult.messages;
-                        compactError = null;
-                        addCompactUsageToSession(session, semanticCompactResult.usage);
-                        try {
-                            process.stderr.write(`[session] degraded compact: recall-fasttrack failed, semantic fallback succeeded (sess=${session.id || 'unknown'}, mode=${mode})\n`);
-                        } catch { /* best-effort */ }
-                    }
-                } catch (fallbackErr) {
-                    semanticCompactError = fallbackErr;
-                    try {
-                        process.stderr.write(`[session] degraded compact: semantic fallback also failed (sess=${session.id || 'unknown'}): ${fallbackErr?.message || fallbackErr}\n`);
-                    } catch { /* best-effort */ }
-                }
-            }
         }
     } else if (compactTypeIsSemantic(compactType)) {
         try {

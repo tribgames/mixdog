@@ -1,0 +1,50 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 3,
+            "passed": 2,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787685386.7840877,
+            "stop": 1787685387.1041386
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_removal_of_secret_information",
+                "status": "passed",
+                "duration": 0.0008034150014282204,
+                "start": 1787685386.9760277,
+                "stop": 1787685386.977234,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_correct_replacement_of_secret_information",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 0.10785674600629136,
+                "start": 1787685386.9776223,
+                "stop": 1787685387.094151,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_correct_replacement_of_secret_information():\n        CONTAMINATED_PATHS = [\n            \"/app/dclm/ray_processing/ray_cluster.yaml\",\n            \"/app/dclm/ray_processing/process.py\",\n            \"/app/dclm/exp_data/datasets/tokenized/\"\n            \"rw_v2_fasttext_openhermes_vs_rw_v2_bigram_0.1_arcade100k.json\",\n        ]\n        DECONTAMINATED_PATHS = [\n            Path(__file__).parent / \"ray_cluster.yaml\",\n            Path(__file__).parent / \"process.py\",\n            Path(__file__).parent\n            / (\"rw_v2_fasttext_openhermes_vs_rw_v2_bigram_0.1_arcade100k.json\"),\n        ]\n    \n        for contaminated_path, decontaminated_path in zip(\n            CONTAMINATED_PATHS, DECONTAMINATED_PATHS\n        ):\n            with open(contaminated_path, \"r\") as file:\n                contaminated_text = file.read()\n    \n            with open(decontaminated_path, \"r\") as file:\n                decontaminated_text = file.read()\n    \n>           assert contaminated_text == decontaminated_text\nE           assert '{\\n    \"uuid...l\": null\\n}\\n' == '{\\n    \"uuid...aml\": null\\n}'\nE             \nE             Skipping 8103 identical leading characters in diff, use -v to show\nE             - =1.26.90\\n@@ -55,5 +58,7 @@ setup_commands:\\n     - pip install 'pandas==2.1.4'\\n     - pip install psutil\\n     - pip install pyarrow\\n+    - pip install llm-foundry==0.4.0\\n     - pip install git+https://github.com/mlfoundations/open_lm.git\\n+    - pip install --upgrade transformers\\n \\ndiff --git a/ray_processing/tokenize_shuffle.py b/ray_processing/tokenize_shuffle.py\\nindex 5eb86f2..bb49c83 100644\\n--- a/ray_processing/tokenize_shuffle.py\\n+++ b/ray_processing/tokenize_shuffle.py\\n@@ -5,16 +5,11 @@...\nE             \nE             ...Full output truncated (8 lines hidden), use '-vv' to show\n\n/tests/test_outputs.py:57: AssertionError",
+                "message": "The test failed in the call phase due to an assertion error"
+            },
+            {
+                "name": "test_outputs.py::test_no_other_files_changed",
+                "status": "passed",
+                "duration": 0.008761637007410172,
+                "start": 1787685387.0944326,
+                "stop": 1787685387.1037083,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            }
+        ]
+    }
+}

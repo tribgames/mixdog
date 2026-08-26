@@ -27,7 +27,8 @@
   locator searches. Within the current project, pass project-relative paths and
   omit optional scopes equal to its root; explicit paths may be outside cwd
   only for targets outside the project.
-- Inspect source content only when its format is required and unknown.
+- Before deciding how to parse, count, transform, or summarize files whose
+  format has not been inspected, inspect the original content itself.
 - Returned declarations, bodies, usages, relations, and contextual spans from
   any tool — not only `read` — are source context; `read` covers only omitted
   lines or missing anchored ranges.

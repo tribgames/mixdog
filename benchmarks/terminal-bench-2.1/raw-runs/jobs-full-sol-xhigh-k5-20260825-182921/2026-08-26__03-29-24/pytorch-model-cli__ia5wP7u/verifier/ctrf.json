@@ -1,0 +1,77 @@
+{
+    "results": {
+        "tool": {
+            "name": "pytest",
+            "version": "8.4.1"
+        },
+        "summary": {
+            "tests": 6,
+            "passed": 5,
+            "failed": 1,
+            "skipped": 0,
+            "pending": 0,
+            "other": 0,
+            "start": 1787690293.995839,
+            "stop": 1787690331.834775
+        },
+        "tests": [
+            {
+                "name": "test_outputs.py::test_weights_file_exists",
+                "status": "passed",
+                "duration": 0.00041103598778136075,
+                "start": 1787690298.9570885,
+                "stop": 1787690298.9581695,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_cli_tool_exists",
+                "status": "passed",
+                "duration": 0.00034697400406003,
+                "start": 1787690298.9585757,
+                "stop": 1787690298.9593716,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_prediction_file_exists",
+                "status": "passed",
+                "duration": 0.00024968299840111285,
+                "start": 1787690298.959657,
+                "stop": 1787690298.9601846,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_prediction_file_content",
+                "status": "passed",
+                "duration": 0.0007033260044408962,
+                "start": 1787690298.960475,
+                "stop": 1787690298.9614763,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_cli_tool_executable",
+                "status": "passed",
+                "duration": 0.003965148993302137,
+                "start": 1787690298.9617796,
+                "stop": 1787690298.966261,
+                "retries": 0,
+                "file_path": "test_outputs.py"
+            },
+            {
+                "name": "test_outputs.py::test_cli_tool_output",
+                "status": "failed",
+                "raw_status": "call_failed",
+                "duration": 32.775428923006984,
+                "start": 1787690298.9697704,
+                "stop": 1787690331.8346183,
+                "retries": 0,
+                "file_path": "test_outputs.py",
+                "trace": "def test_cli_tool_output():\n        # When running the weights of the model on the first 50 images of the MNIST dataset\n        # The following predictions are made\n        TRUE_PRED_CLASSES = [\n            2,\n            2,\n            1,\n            0,\n            4,\n            1,\n            4,\n            9,\n            6,\n            9,\n            0,\n            8,\n            9,\n            0,\n            1,\n            8,\n            9,\n            7,\n            8,\n            4,\n            9,\n            8,\n            7,\n            5,\n            4,\n            6,\n            9,\n            4,\n            3,\n            1,\n            3,\n            1,\n            8,\n            6,\n            2,\n            2,\n            7,\n            1,\n            2,\n            1,\n            1,\n            7,\n            4,\n            2,\n            8,\n            8,\n            1,\n            2,\n            4,\n            4,\n            6,\n            3,\n        ]\n        SAVE_DIR = \"/app/images\"\n    \n        # Now first download the first 50 images of the MNIST dataset\n        # and save them in the /app/images directory\n    \n>       dataset = datasets.MNIST(\n            root=\"./data\",\n            train=False,\n            download=True,\n            transform=transforms.ToTensor(),\n        )\n\n/tests/test_outputs.py:110: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n/root/.cache/uv/archive-v0/PXAhJwgxdbFTmlWiMT6WZ/lib/python3.13/site-packages/torchvision/datasets/mnist.py:100: in __init__\n    self.download()\n/root/.cache/uv/archive-v0/PXAhJwgxdbFTmlWiMT6WZ/lib/python3.13/site-packages/torchvision/datasets/mnist.py:188: in download\n    download_and_extract_archive(url, download_root=self.raw_folder, filename=filename, md5=md5)\n/root/.cache/uv/archive-v0/PXAhJwgxdbFTmlWiMT6WZ/lib/python3.13/site-packages/torchvision/datasets/utils.py:391: in download_and_extract_archive\n    download_url(url, download_root, filename, md5)\n/root/.cache/uv/archive-v0/PXAhJwgxdbFTmlWiMT6WZ/lib/python3.13/site-packages/torchvision/datasets/utils.py:121: in download_url\n    url = _get_redirect_url(url, max_hops=max_redirect_hops)\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/root/.cache/uv/archive-v0/PXAhJwgxdbFTmlWiMT6WZ/lib/python3.13/site-packages/torchvision/datasets/utils.py:66: in _get_redirect_url\n    with urllib.request.urlopen(urllib.request.Request(url, headers=headers)) as response:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.13/urllib/request.py:189: in urlopen\n    return opener.open(url, data, timeout)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.13/urllib/request.py:489: in open\n    response = self._open(req, data)\n               ^^^^^^^^^^^^^^^^^^^^^\n/usr/local/lib/python3.13/urllib/request.py:506: in _open\n    result = self._call_chain(self.handle_open, protocol, protocol +\n/usr/local/lib/python3.13/urllib/request.py:466: in _call_chain\n    result = func(*args)\n             ^^^^^^^^^^^\n/usr/local/lib/python3.13/urllib/request.py:1367: in https_open\n    return self.do_open(http.client.HTTPSConnection, req,\n/usr/local/lib/python3.13/urllib/request.py:1323: in do_open\n    r = h.getresponse()\n        ^^^^^^^^^^^^^^^\n/usr/local/lib/python3.13/http/client.py:1430: in getresponse\n    response.begin()\n/usr/local/lib/python3.13/http/client.py:331: in begin\n    version, status, reason = self._read_status()\n                              ^^^^^^^^^^^^^^^^^^^\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = <http.client.HTTPResponse object at 0x749dd7cee470>\n\n    def _read_status(self):\n        line = str(self.fp.readline(_MAXLINE + 1), \"iso-8859-1\")\n        if len(line) > _MAXLINE:\n            raise LineTooLong(\"status line\")\n        if self.debuglevel > 0:\n            print(\"reply:\", repr(line))\n        if not line:\n            # Presumably, the server closed the connection before\n            # sending a valid response.\n>           raise RemoteDisconnected(\"Remote end closed connection without\"\n                                     \" response\")\nE           http.client.RemoteDisconnected: Remote end closed connection without response\n\n/usr/local/lib/python3.13/http/client.py:300: RemoteDisconnected",
+                "message": "The test failed in the call phase"
+            }
+        ]
+    }
+}

@@ -2,7 +2,7 @@
 // verbatim from patch.mjs; native protocol, cache/snapshot side effects, and
 // output formatting are unchanged.
 
-import { readFileSync, lstatSync, mkdirSync } from 'node:fs';
+import { readFileSync, lstatSync, statSync, realpathSync, mkdirSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -393,6 +393,38 @@ function lstatRegularPatchFile(fullPath, displayPath) {
   return st;
 }
 
+// A symlinked target is patched THROUGH the link. atomicWrite compares the
+// live target with statSync, which FOLLOWS a leaf symlink, so the expected
+// snapshot must be taken the same way: an lstat describes the LINK inode
+// (size = target path length, its own mtime/ino) and can never equal the
+// followed stat, which failed every patch aimed at a symlinked file with
+// "changed on disk during the patch". Writing to the resolved real path also
+// keeps the link intact — the atomic rename would otherwise replace the
+// symlink itself with a regular file.
+function resolvePatchWriteTarget(fullPath, displayPath, lst) {
+  if (!lst?.isSymbolicLink?.()) return { writePath: fullPath, snapshotStat: lst };
+  let writePath;
+  let snapshotStat;
+  try {
+    writePath = realpathSync(fullPath);
+    snapshotStat = statSync(fullPath);
+  } catch (err) {
+    throw new Error(
+      `apply_patch: symlink target missing or unreadable: ${normalizeOutputPath(displayPath)}`
+      + ` (${err?.code || err?.message || String(err)})`,
+    );
+  }
+  if (isSpecialFileStat(snapshotStat)) {
+    throw new Error(
+      `apply_patch: cannot patch special file (FIFO / character / block device / socket): ${normalizeOutputPath(displayPath)}`,
+    );
+  }
+  if (!snapshotStat.isFile()) {
+    throw new Error(`apply_patch: symlink target is not a regular file: ${normalizeOutputPath(displayPath)}`);
+  }
+  return { writePath, snapshotStat };
+}
+
 function assertAddTargetAbsent(fullPath, displayPath) {
   try {
     lstatSync(fullPath);
@@ -466,6 +498,7 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
   }
 
   const preMutationStat = lstatRegularPatchFile(fullPath, displayPath);
+  const { writePath, snapshotStat } = resolvePatchWriteTarget(fullPath, displayPath, preMutationStat);
   // Rewrite path: decode by BOM, re-encode into the same codec, and keep every
   // untouched line's own terminator (spliceTextLinesForPatch).
   // `toString('utf8')` here transcoded non-UTF-8 files and mangled UTF-16.
@@ -482,14 +515,14 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
     // rewrote this file after we read it, the write fails instead of silently
     // clobbering it (and instead of inheriting a stale "body delivered" claim).
     try {
-      await atomicWrite(fullPath, content, {
+      await atomicWrite(writePath, content, {
         sessionId: readStateScope,
-        expectedTargetSnapshot: preMutationStat ? {
+        expectedTargetSnapshot: snapshotStat ? {
           exists: true,
-          size: preMutationStat.size,
-          mtimeMs: preMutationStat.mtimeMs,
-          ctimeMs: preMutationStat.ctimeMs,
-          ino: preMutationStat.ino,
+          size: snapshotStat.size,
+          mtimeMs: snapshotStat.mtimeMs,
+          ctimeMs: snapshotStat.ctimeMs,
+          ino: snapshotStat.ino,
         } : undefined,
       });
     } catch (err) {
@@ -498,12 +531,13 @@ async function applyJsParsedEntry(entry, basePath, { dryRun, fuzzy, readStateSco
       }
       throw err;
     }
-    invalidateBuiltinResultCache([fullPath]);
-    markCodeGraphDirtyPaths([fullPath]);
+    const touchedPaths = writePath === fullPath ? [fullPath] : [fullPath, writePath];
+    invalidateBuiltinResultCache(touchedPaths);
+    markCodeGraphDirtyPaths(touchedPaths);
     recordReadSnapshotForPath(fullPath, readStateScope, {
       source: 'apply_patch_js',
       isPartialView: false,
-      preMutationStat,
+      preMutationStat: snapshotStat,
     });
   }
   const { added, removed } = countHunkChanges(entry.hunks);

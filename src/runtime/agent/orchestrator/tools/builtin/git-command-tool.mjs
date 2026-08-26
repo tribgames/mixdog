@@ -21,21 +21,31 @@ import {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_CAPTURE_BYTES = 128 * 1024 * 1024;
 const GIT_OUTPUT_LIMIT_MAX = 200;
-const SUPPORTED = new Set([
-    'add', 'am', 'apply', 'archive', 'bisect', 'blame', 'branch', 'bundle',
-    'cat-file', 'check-attr', 'check-ignore', 'check-ref-format', 'checkout',
-    'cherry', 'cherry-pick', 'clean', 'clone', 'commit', 'config',
-    'count-objects', 'describe', 'diff', 'diff-files', 'diff-index', 'diff-tree',
-    'fetch', 'filter-branch', 'for-each-ref', 'format-patch', 'fsck', 'gc',
-    'grep', 'hash-object', 'help', 'init', 'log', 'ls-files', 'ls-remote',
-    'ls-tree', 'maintenance', 'merge', 'merge-base', 'merge-tree', 'mv',
-    'name-rev', 'notes', 'pack-refs', 'prune', 'pull', 'push', 'range-diff',
-    'rebase', 'reflog', 'remote', 'repack', 'replace', 'reset', 'restore',
-    'revert', 'rev-list', 'rev-parse', 'rm', 'shortlog', 'show', 'show-branch',
-    'show-ref', 'sparse-checkout', 'stash', 'status', 'submodule', 'switch',
-    'symbolic-ref', 'tag', 'update-ref', 'verify-commit', 'verify-pack',
-    'verify-tag', 'version', 'whatchanged', 'worktree', 'write-tree',
-]);
+// git's subcommand namespace is open-ended: any `git-*` executable on PATH
+// (git-filter-repo, git-lfs, in-house wrappers) dispatches as a subcommand, so
+// a finite allowlist can never keep up. It rejected `git filter-repo` as an
+// "unsupported subcommand" while the shell tool still ran the very same
+// command unblocked — buying no safety and costing a whole turn. So nothing is
+// pre-rejected for being unknown: git itself reports a genuinely unknown
+// subcommand, and that error tells the model what to do next.
+//
+// Destructive history/tree rewrites stay allowed on purpose. They are usually
+// the actual job, reflog and loose objects make most of them recoverable, and
+// the workflow already gates destructive git work.
+//
+// What this tool genuinely cannot host is a command that never returns, since
+// each call occupies one synchronous turn. The classic hangs are already dead
+// via the pinned GIT_PAGER / GIT_EDITOR / GIT_SEQUENCE_EDITOR /
+// GIT_TERMINAL_PROMPT environment in runProcess, which leaves two shapes.
+//
+// A GUI subcommand blocks on a window or a stdin prompt that this process has
+// no way to satisfy.
+const GUI_OPERATIONS = new Set(['gui', 'citool', 'gitk', 'difftool', 'mergetool']);
+// A resident server's correct behaviour IS to keep running, so it can only
+// burn the full timeout here. It is not a bad command, just one in the wrong
+// tool: shell promotes a long-running process to a background task, so point
+// there instead of failing it outright.
+const SERVER_OPERATIONS = new Set(['daemon', 'instaweb']);
 // `git --version` / `git --help` are the standard availability probes and
 // arrive in global-flag position, not as subcommands. Map them onto their
 // subcommand form so the probe answers instead of erroring out.
@@ -197,7 +207,13 @@ function parseCommand(command, workDir) {
     }
     const rawOperation = String(tokens[index] || '').toLowerCase();
     const operation = OPERATION_ALIASES.get(rawOperation) ?? rawOperation;
-    if (!SUPPORTED.has(operation)) throw new Error(`unsupported git subcommand: ${rawOperation || '(missing)'}`);
+    if (!operation) throw new Error('git requires a subcommand');
+    if (GUI_OPERATIONS.has(operation)) {
+        throw new Error(`git ${operation} opens an interactive GUI and would never return here; use its non-interactive form (diff, merge, add -p)`);
+    }
+    if (SERVER_OPERATIONS.has(operation)) {
+        throw new Error(`git ${operation} is a long-running server; start it with the shell tool so it becomes a background task`);
+    }
     return { command: String(command), cwd, globalArgs, operation, args: tokens.slice(index + 1) };
 }
 

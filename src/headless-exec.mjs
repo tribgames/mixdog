@@ -14,6 +14,7 @@ import {
 import { hasActiveBackgroundTasks } from './runtime/shared/background-tasks.mjs';
 import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
 import { stopStandaloneMemoryRuntimesForProcess } from './standalone/memory-runtime-proxy.mjs';
+import { shutdownDaemonForRuntimeRoot } from './standalone/session-client.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
 
 function clean(value) {
@@ -558,6 +559,7 @@ export async function runHeadlessExec({
   boundaryFactory = createPristineExecutionBoundary,
   runtimeFactory = null,
   memoryRuntimeCleanup = stopStandaloneMemoryRuntimesForProcess,
+  daemonRuntimeCleanup = shutdownDaemonForRuntimeRoot,
   hasActiveTasks = hasActiveBackgroundTasks,
   installSignalCleanupFn = installProcessSignalCleanup,
 } = {}) {
@@ -616,17 +618,28 @@ export async function runHeadlessExec({
       } catch (error) {
         errors.push(error);
       }
-      let memoryCleanupFailed = false;
+      let resourceCleanupFailed = false;
+      if (boundary?.runtimeRoot) {
+        try {
+          await daemonRuntimeCleanup(boundary.runtimeRoot, {
+            waitForExit: true,
+            timeoutMs: 8_000,
+          });
+        } catch (error) {
+          resourceCleanupFailed = true;
+          errors.push(error);
+        }
+      }
       if (boundary) {
         try {
           await memoryRuntimeCleanup({ waitForExit: true, timeoutMs: 10_000 });
         } catch (error) {
-          memoryCleanupFailed = true;
+          resourceCleanupFailed = true;
           errors.push(error);
         }
       }
       try {
-        const cleanupResult = boundary?.cleanup(memoryCleanupFailed
+        const cleanupResult = boundary?.cleanup(resourceCleanupFailed
           ? { preserveRoot: true }
           : { tolerateRootRemovalFailure: true });
         if (cleanupResult?.rootRemovalError) {

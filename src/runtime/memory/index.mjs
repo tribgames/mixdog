@@ -691,10 +691,8 @@ export async function stop() {
     // closeDatabase() only ends the client pool; without this the child
     // postmaster keeps running after the unified daemon exits.
     if (!memorySecondaryMode()) {
-      try {
-        const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
-        await stopPgForShutdown()
-      } catch {}
+      const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs')
+      await stopPgForShutdown()
     } else {
       __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n')
     }

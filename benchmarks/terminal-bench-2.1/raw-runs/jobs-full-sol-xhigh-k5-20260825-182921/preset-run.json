@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "preset": "full-sol-xhigh-k5",
+  "fingerprint": "sha256:a3f2f26419d1a90352d3a535dae6b3a715b58330b8c78f63442795b532c66229",
+  "contract": {
+    "schemaVersion": 2,
+    "workflow": "headless",
+    "disabledTools": [
+      "web_search",
+      "web_fetch",
+      "memory",
+      "recall"
+    ],
+    "rulesHash": "sha256:85ef48f3743828a359bbd6920a50e4d17b8bf01386a1cc6c47aa840494531288",
+    "rulesFiles": 18,
+    "rulesBytes": 17295,
+    "promptSurfaceHash": "sha256:92764373e352510ee731c7e78f6e851d51abfb743d36398c5456fabbd6ff6ade",
+    "promptSurfaceBytes": 10289,
+    "toolContractHash": "sha256:0cc3680e6c9e200444223feca933fa8577d9cb27e51801b9145ab2a2d8d8238a",
+    "toolContractBytes": 40743,
+    "routeContracts": {
+      "lead": {
+        "provider": "openai-oauth",
+        "model": "gpt-5.6-sol",
+        "providerMode": "native",
+        "toolCatalogHash": "sha256:df5affad7d1d6a81c1f93c4985b53ff8fd9dd0ade92661689db924bf2f12ddbe",
+        "toolCatalogCount": 13,
+        "toolCatalogBytes": 14987,
+        "toolCatalogNames": [
+          "apply_patch",
+          "code_graph",
+          "cwd",
+          "find",
+          "git",
+          "git_stage",
+          "glob",
+          "grep",
+          "list",
+          "load_tool",
+          "read",
+          "shell",
+          "task"
+        ],
+        "activeToolHash": "sha256:2d88566f6158929677ed3ad8d3f07d673b9d828bae85f943629f5af76803295f",
+        "activeToolCount": 11,
+        "activeToolNames": [
+          "apply_patch",
+          "code_graph",
+          "find",
+          "git",
+          "glob",
+          "grep",
+          "list",
+          "load_tool",
+          "read",
+          "shell",
+          "task"
+        ],
+        "providerToolHash": "sha256:7c49f67ee309c245b5c9e68c38e110bad8b181972c768a62477bd8194a5976e6",
+        "providerToolCount": 11,
+        "providerToolBytes": 11942,
+        "promptSurfaceHash": "sha256:d9be9d9eed9399f971e95ff0450552cbef38173086dda7eedf3502a1f45b9685",
+        "promptSurfaceBytes": 10284
+      }
+    },
+    "toolCatalogHash": "sha256:df5affad7d1d6a81c1f93c4985b53ff8fd9dd0ade92661689db924bf2f12ddbe",
+    "toolCount": 13,
+    "toolSchemaBytes": 14987,
+    "activeToolHash": "sha256:2d88566f6158929677ed3ad8d3f07d673b9d828bae85f943629f5af76803295f",
+    "activeToolCount": 11,
+    "providerToolHash": "sha256:7c49f67ee309c245b5c9e68c38e110bad8b181972c768a62477bd8194a5976e6",
+    "providerToolCount": 11,
+    "providerToolBytes": 11942
+  },
+  "startedAt": "2026-08-25T18:29:21.7334622Z",
+  "definition": {
+    "dataset": "terminal-bench/terminal-bench-2-1",
+    "suite": "full",
+    "tasks": [],
+    "routeProfile": "sol-xhigh-nofast",
+    "routes": {
+      "lead": {
+        "provider": "openai-oauth",
+        "model": "gpt-5.6-sol",
+        "effort": "xhigh",
+        "fast": false
+      }
+    },
+    "leadFallback": null,
+    "concurrent": 8,
+    "attempts": 5,
+    "maxRetries": 2
+  },
+  "comparison": {
+    "name": "codex-gpt56-sol",
+    "baseline": {
+      "label": "Codex CLI · GPT-5.6 Sol xhigh",
+      "jobsDir": "jobs-full-codex/2026-08-02__12-19-11",
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "finalContextMedianTokens": 33454,
+      "costLowerBound": false
+    }
+  },
+  "completedAt": "2026-08-26T01:06:33.8594991Z",
+  "exitCode": 0
+}

@@ -1,13 +1,11 @@
 import { accessSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import {
-    basename,
     delimiter as pathDelimiter,
     dirname as pathDirname,
     join as pathJoin,
     resolve as pathResolveAbsolute,
 } from 'node:path';
-import { resolveShellFor } from './shell-runtime.mjs';
 
 export const SHELL_RUNTIME_CANDIDATES = Object.freeze([
     'node',
@@ -28,31 +26,6 @@ export const SHELL_RUNTIME_CANDIDATES = Object.freeze([
     'pwsh',
     'powershell',
     'bash',
-]);
-
-export const SHELL_DEPENDENCY_CANDIDATES = Object.freeze([
-    'git',
-    'rg',
-    'jq',
-    'curl',
-    'wget',
-    'gcc',
-    'clang',
-    'make',
-    'cmake',
-    'ninja',
-    'cargo',
-    'sqlite3',
-    'psql',
-    'docker',
-    'kubectl',
-    'openssl',
-    'tar',
-]);
-
-export const SHELL_CAPABILITY_CANDIDATES = Object.freeze([
-    ...SHELL_RUNTIME_CANDIDATES,
-    ...SHELL_DEPENDENCY_CANDIDATES,
 ]);
 
 function _pathDirectory(value) {
@@ -96,35 +69,12 @@ export function findPathExecutable(name, {
     return null;
 }
 
-export function detectPathCapabilities({
-    candidates = SHELL_CAPABILITY_CANDIDATES,
-    ...pathOptions
-} = {}) {
-    const available = [];
-    const unavailable = [];
-    for (const name of candidates) {
-        (findPathExecutable(name, pathOptions) ? available : unavailable).push(name);
-    }
-    return { available, unavailable };
-}
-
-export function describeShellStartupPolicy({
-    os = process.platform,
-    shell = null,
-    // Accept a pre-computed scan so a caller emitting several startup lines
-    // walks PATH once instead of once per line.
-    capabilities = null,
-    ...pathOptions
-} = {}) {
-    const { available, unavailable } = capabilities ?? detectPathCapabilities(pathOptions);
-    const resolvedShell = shell || basename(String(resolveShellFor('default')?.shell || 'unknown'));
-    // Shell networking is independent from the web-search tool surface:
-    // applyShellEgressPolicy leaves the spawn env untouched, so package
-    // managers, source-control clients, and proxies keep working even with
-    // MIXDOG_FEATURE_WEB_SEARCH=0. This line therefore never claims an
-    // egress block the runtime does not enforce.
-    return `- Shell startup environment: OS=${os}; shell=${resolvedShell}; available=${available.join(', ') || 'none'}; unavailable=${unavailable.join(', ') || 'none'}. For shell commands, treat every unavailable entry as absent. Invoke one only if the same command first installs it or exposes it on PATH.`;
-}
+// A startup PATH inventory is deliberately not rendered into the prompt: it
+// would be measured in this process's PATH while commands run under the
+// login-shell snapshot (shell-snapshot.mjs), which does not exist until the
+// first shell call, and it would freeze at session start while an install
+// during the session changes the answer. bash-tool's _exitClassDiagnostic
+// reports a missing command after it has run, from the environment that ran it.
 
 // Walk up for a `.git` marker instead of shelling out to `git rev-parse`: it
 // costs no process spawn, and it still answers on images where the git binary
@@ -190,12 +140,9 @@ function _repositoryChangeState(root) {
 // rather than forbidding calls.
 export function describeGitStartupState({
     cwd = process.cwd(),
-    capabilities = null,
     ...pathOptions
 } = {}) {
-    const installed = capabilities
-        ? capabilities.available.includes('git')
-        : Boolean(findPathExecutable('git', pathOptions));
+    const installed = Boolean(findPathExecutable('git', pathOptions));
     if (!installed) {
         return '- Git startup state: git is not installed here; git tool calls fail until something installs it.';
     }
@@ -212,10 +159,4 @@ export function appendGitStartupState(rules, tools, options = {}) {
     const text = String(rules || '').trimEnd();
     if (!text || !Array.isArray(tools) || !tools.some((tool) => tool?.name === 'git')) return text;
     return `${text}\n${describeGitStartupState(options)}`;
-}
-
-export function appendShellStartupPolicy(rules, tools, options = {}) {
-    const text = String(rules || '').trimEnd();
-    if (!text || !Array.isArray(tools) || !tools.some((tool) => tool?.name === 'shell')) return text;
-    return `${text}\n${describeShellStartupPolicy(options)}`;
 }

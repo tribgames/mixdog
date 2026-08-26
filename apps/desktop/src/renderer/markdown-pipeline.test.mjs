@@ -89,7 +89,7 @@ test("markdown chunk promotions coalesce into one transcript row measurement", a
   assert.equal(measurements, 1);
 });
 
-test("streaming source fallback remeasures on every visible text change", async () => {
+test("streaming markdown never exposes source while its first AST is pending", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
     url: "http://localhost/",
   });
@@ -113,7 +113,8 @@ test("streaming source fallback remeasures on every visible text change", async 
         onRendered,
       }));
     });
-    assert.equal(measurements, 1);
+    assert.equal(dom.window.document.getElementById("root").innerHTML, "");
+    assert.equal(measurements, 0);
 
     await act(async () => {
       root.render(React.createElement(StreamingMarkdownBody, {
@@ -123,7 +124,8 @@ test("streaming source fallback remeasures on every visible text change", async 
         onRendered,
       }));
     });
-    assert.equal(measurements, 2);
+    assert.equal(dom.window.document.getElementById("root").innerHTML, "");
+    assert.equal(measurements, 0);
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

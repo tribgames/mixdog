@@ -399,16 +399,21 @@ export function compactDigestRows(rows, limit = 30) {
     .slice(0, cap)
 }
 
-export function compactHandoffRows(rows, limit = 100) {
-  const cap = Math.max(1, Math.floor(Number(limit) || 100))
-  const deduped = collapseNearDuplicateRows(collapseExactDuplicateRows(Array.isArray(rows) ? rows : []))
-    .filter((row) => !row?._dupStub)
+export function compactHandoffRows(rows) {
+  const deduped = Array.isArray(rows) ? rows : []
   const roots = []
   const raw = []
   for (const row of deduped) {
     if (Number(row?.is_root) === 1) {
-      const { members: _members, ...summaryRow } = row
-      roots.push(summaryRow)
+      if (String(row?.summary ?? '').trim()) {
+        const { members: _members, ...summaryRow } = row
+        roots.push(summaryRow)
+      } else if (Array.isArray(row?.members) && row.members.length > 0) {
+        raw.push(...row.members)
+      } else {
+        const { members: _members, ...rawRoot } = row
+        raw.push(rawRoot)
+      }
     } else if (row?.chunk_root == null || Number(row.chunk_root) === Number(row.id)) {
       raw.push(row)
     }
@@ -419,32 +424,9 @@ export function compactHandoffRows(rows, limit = 100) {
     || (Number(a?.ts) || 0) - (Number(b?.ts) || 0)
     || (Number(a?.id) || 0) - (Number(b?.id) || 0)
   ))
-  const endpoints = []
-  let userRow = null
-  let assistantRow = null
-  let fallbackRow = null
-  const flushEvent = () => {
-    if (assistantRow || fallbackRow) endpoints.push(assistantRow || fallbackRow)
-    if (userRow) endpoints.push(userRow)
-    userRow = null
-    assistantRow = null
-    fallbackRow = null
-  }
-  for (const row of raw) {
-    if (row?.role === 'user') {
-      flushEvent()
-      userRow = row
-    } else if (row?.role === 'assistant') {
-      assistantRow = row
-    } else {
-      fallbackRow = row
-    }
-  }
-  flushEvent()
-
-  const selected = [...roots, ...endpoints]
+  const selected = [...roots, ...raw]
   selected.sort(compareRecallNewestFirst)
-  return compactDigestRows(selected, cap)
+  return selected
 }
 
 // Compact session label for group headers: keep short ids verbatim, shorten
