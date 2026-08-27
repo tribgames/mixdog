@@ -1,26 +1,26 @@
 {
-  "version": "0.1.20",
+  "version": "0.1.21",
   "_comment": "Synced from immutable graph-v release assets.",
   "assets": {
     "darwin-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.20/mixdog-graph-darwin-arm64",
-      "sha256": "d059f2ab33cb7f97b7c96b4e21e3d16880cc44baf1400ce81374a1031a11ddd9"
+      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.21/mixdog-graph-darwin-arm64",
+      "sha256": "eb769db0b397d9ffe3b92df9ed8a48d376de8288bf3eb6c1a1dad7035038079d"
     },
     "darwin-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.20/mixdog-graph-darwin-x64",
-      "sha256": "c91873322ce6390a7103daa4b872e31de1abbe7e922967727f41b5b7b2f21373"
+      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.21/mixdog-graph-darwin-x64",
+      "sha256": "1c51097ae759a648ddd86dc1bb317508a4c8fd40b6fa6369122f4a21bb146e50"
     },
     "linux-arm64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.20/mixdog-graph-linux-arm64",
-      "sha256": "e8183e1a36aae1887245bd55b94fae6d3fa874bb350559de95ea6ca65a14c6a0"
+      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.21/mixdog-graph-linux-arm64",
+      "sha256": "fd1edd1fd8daa3d86e7c35a7d3edb663195f8ae1c981efb6b12d8128e933f7a5"
     },
     "linux-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.20/mixdog-graph-linux-x64",
-      "sha256": "40142ad17359cc2eb490f639de7c358c4449ca36dc7bbb966bff9a21f81df40f"
+      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.21/mixdog-graph-linux-x64",
+      "sha256": "e6425a8dcf62b921f447d42359f3e222b94ac3bc44b2fbb2a5184c9cc463ba7e"
     },
     "win32-x64": {
-      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.20/mixdog-graph-win32-x64.exe",
-      "sha256": "a727ca6ea385d715232ce246c2519037ccd74b509e57d97ad7c1b4a61c26aade"
+      "url": "https://github.com/tribgames/mixdog/releases/download/graph-v0.1.21/mixdog-graph-win32-x64.exe",
+      "sha256": "9da34a6006681dc017f374923c9a699dfc8c6836570605bb6d4b800ae0e0d8bd"
     }
   }
 }
