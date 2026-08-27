@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.152 - 2026-08-27
+
 - Goal mode can now carry a long-running objective across turns with durable
   completion conditions, pause and resume controls, time limits, automatic
   continuation, model-facing management tools, and a session-scoped Desktop
