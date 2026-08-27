@@ -327,6 +327,9 @@ const settingsStore = new DesktopSettingsStore({
 });
 let mainWindow: BrowserWindow | null = null;
 let browserHost: BrowserHost | null = null;
+// Last-known Browser Use opt-in: the host is created with the window, which
+// may happen before or after the initial settings read, so both sides apply.
+let browserControlEnabled = false;
 let computerHost: ComputerHost | null = null;
 let removeIpc: (() => void) | null = null;
 let pendingPrimaryActivation = false;
@@ -390,8 +393,10 @@ let unsubscribeServiceSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
   applyComputerControlSetting(settings.computerControl === true);
+  browserControlEnabled = settings.browserControl === true;
+  browserHost?.setBridgeEnabled(browserControlEnabled);
 };
-// Computer control is opt-in and high risk, so the bridge (and thus the agent
+// Computer use is opt-in and high risk, so the bridge (and thus the agent
 // `computer` tool) exists only while the setting is on. Toggling it starts or
 // tears down the host live; Windows-only for now.
 function applyComputerControlSetting(enabled: boolean): void {
@@ -757,9 +762,11 @@ async function createWindow(): Promise<void> {
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
-  // Agent browser bridge: registers this window's browser-pane webviews and
-  // serves the runtime's `browser` tool over a loopback discovery bridge.
+  // Browser pane host: registers this window's browser-pane webviews. The
+  // agent bridge (the runtime's `browser` tool) is opt-in and only serves
+  // while the Browser Use setting is on, mirroring Computer Use.
   browserHost = createBrowserHost(window);
+  browserHost.setBridgeEnabled(browserControlEnabled);
   // A dead capture/automation CDP client can leave the renderer frozen at a
   // synthetic viewport (observed 800x600) while the native window resizes —
   // the guard detects the persistent mismatch and self-heals.

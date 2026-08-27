@@ -1,4 +1,5 @@
 import {
+  ChevronRight,
   X,
 } from 'lucide-react';
 import React, { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
@@ -725,42 +726,36 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
   </>;
 }
 
-/** Baseline extension row for MCP and plugins. The switch owns enabled state;
- *  the leading dot is reserved for a real connection failure. */
-function ExtensionRow({ title, enabled, busy, onOpen, onToggle }: {
+/** Every extension list row is one drill-in action. Enabled state stays
+ *  visible as metadata; its switch lives in the detail surface. */
+function ExtensionRow({ title, enabled, busy, onOpen }: {
   title: string;
   enabled: boolean;
   busy: boolean;
   onOpen(): void;
-  onToggle(enabled: boolean): void;
 }) {
-  return <div className="schedules-row extensions-row">
-    <button type="button" className="schedules-row-copy projects-row-open"
-      aria-label={title} onClick={onOpen}>
+  return <button type="button" className="schedules-row utilities-row extensions-row"
+    aria-label={title} disabled={busy} onClick={onOpen}>
+    <span className={`sidebar-resource-status ${enabled ? 'on' : 'off'}`} aria-hidden="true" />
+    <span className="schedules-row-copy utilities-row-copy">
       <b>{title}</b>
-    </button>
-    <CompactSwitch label={`${title} · ${t('Enabled')}`} checked={enabled}
-      disabled={busy} onChange={onToggle} />
-  </div>;
+      <small><span className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
+        {t(enabled ? 'Enabled' : 'Disabled')}
+      </span></small>
+    </span>
+    <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+  </button>;
 }
 
 /** Skills follow the Workflows row grammar: identity first, short source/status
  *  metadata second, and the full description only in the detail dialog. */
-function SkillRow({ title, disabled, busy, onOpen, onToggle }: {
+function SkillRow({ title, disabled, busy, onOpen }: {
   title: string;
   disabled: boolean;
   busy: boolean;
   onOpen(): void;
-  onToggle(enabled: boolean): void;
 }) {
-  return <div className="schedules-row extensions-row extensions-skill-row">
-    <button type="button" className="schedules-row-copy projects-row-open"
-      aria-label={title} onClick={onOpen}>
-      <b>{title}</b>
-    </button>
-    <CompactSwitch label={`${title} · ${t('Enabled')}`} checked={!disabled}
-      disabled={busy} onChange={onToggle} />
-  </div>;
+  return <ExtensionRow title={title} enabled={!disabled} busy={busy} onOpen={onOpen} />;
 }
 
 /** The detail card every section shares: facts, optional content, then the
@@ -963,7 +958,9 @@ function McpStringListEditor({ label, description, values, placeholder, busy, on
             onChange(next);
           }} />
         <button type="button" aria-label={t('Remove')} disabled={busy || (!value && values.length === 0)}
-          onClick={() => onChange(visible.filter((_, rowIndex) => rowIndex !== index))}>×</button>
+          onClick={() => onChange(visible.filter((_, rowIndex) => rowIndex !== index))}>
+          <X size={14} aria-hidden="true" />
+        </button>
       </div>)}
     </div>
     <button type="button" className="extensions-mcp-list-add" disabled={busy}
@@ -1002,7 +999,9 @@ function McpPairListEditor({ label, description, values, keyPlaceholder, valuePl
             onChange(next);
           }} />
         <button type="button" aria-label={t('Remove')} disabled={busy || (!row.key && !row.value && values.length === 0)}
-          onClick={() => onChange(visible.filter((_, rowIndex) => rowIndex !== index))}>×</button>
+          onClick={() => onChange(visible.filter((_, rowIndex) => rowIndex !== index))}>
+          <X size={14} aria-hidden="true" />
+        </button>
       </div>)}
     </div>
     <button type="button" className="extensions-mcp-list-add" disabled={busy}
@@ -1093,26 +1092,28 @@ function McpEditorDialog({ server, busy, onClose, onSave, onToggle, onRemove }: 
         {editing && <p className="extensions-mcp-summary">
           {String(server?.status || 'unknown')}{server?.error ? ` · ${String(server.error)}` : ''}
         </p>}
-        <label className="schedules-field"><span>{t('Name')}</span>
-          <small>{t('Shown in the MCP server list.')}</small>
-          <input name="mcp-name" defaultValue={String(server?.name || '')}
-            required autoFocus={!editing} disabled={busy || autoDetect} maxLength={80}
-            pattern="[a-z0-9_.-]+" />
-        </label>
-        <div className="schedules-field">
-          <span>{t('Transport')}</span>
-          <small>{t('How Mixdog connects to this MCP server.')}</small>
-          {autoDetect ? <p className="extensions-mcp-note">{t('Auto-detect')}</p>
-            : <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
-              <button type="button" className={transport === 'stdio' ? 'active' : ''}
-                aria-pressed={transport === 'stdio'} disabled={busy}
-                onClick={() => setTransport('stdio')}>{t('stdio')}</button>
-              <button type="button" className={transport === 'http' ? 'active' : ''}
-                aria-pressed={transport === 'http'} disabled={busy}
-                onClick={() => setTransport('http')}>{t('Streamable HTTP')}</button>
-            </div>}
-        </div>
-        {transport === 'stdio' ? <>
+        <section className="extensions-mcp-card extensions-mcp-identity-card">
+          <label className="schedules-field"><span>{t('Name')}</span>
+            <small>{t('Shown in the MCP server list.')}</small>
+            <input name="mcp-name" defaultValue={String(server?.name || '')}
+              required autoFocus={!editing} disabled={busy || autoDetect} maxLength={80}
+              pattern="[a-z0-9_.-]+" />
+          </label>
+          <div className="schedules-field extensions-mcp-transport-field">
+            <span>{t('Transport')}</span>
+            <small>{t('How Mixdog connects to this MCP server.')}</small>
+            {autoDetect ? <p className="extensions-mcp-note">{t('Auto-detect')}</p>
+              : <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
+                <button type="button" className={transport === 'stdio' ? 'active' : ''}
+                  aria-pressed={transport === 'stdio'} disabled={busy}
+                  onClick={() => setTransport('stdio')}>{t('stdio')}</button>
+                <button type="button" className={transport === 'http' ? 'active' : ''}
+                  aria-pressed={transport === 'http'} disabled={busy}
+                  onClick={() => setTransport('http')}>{t('Streamable HTTP')}</button>
+              </div>}
+          </div>
+        </section>
+        {transport === 'stdio' ? <section className="extensions-mcp-card extensions-mcp-config-card">
           <label className="schedules-field"><span>{t('Command')}</span>
             <small>{t('Executable used to start the stdio server.')}</small>
             <input name="mcp-command" defaultValue={String(config.command || '')}
@@ -1131,7 +1132,7 @@ function McpEditorDialog({ server, busy, onClose, onSave, onToggle, onRemove }: 
             <input name="mcp-cwd" defaultValue={String(config.cwd || '')}
               placeholder="~/code" disabled={busy} spellCheck={false} />
           </label>
-        </> : !autoDetect && <>
+        </section> : !autoDetect && <section className="extensions-mcp-card extensions-mcp-config-card">
           <label className="schedules-field"><span>{t('URL')}</span>
             <small>{t('Streamable HTTP server endpoint.')}</small>
             <input name="mcp-url" type="url" defaultValue={String(config.url || '')}
@@ -1151,7 +1152,7 @@ function McpEditorDialog({ server, busy, onClose, onSave, onToggle, onRemove }: 
             description="Map each HTTP header to an environment variable name."
             values={envHeaders} keyPlaceholder="Header" valuePlaceholder="VARIABLE_NAME"
             busy={busy} onChange={setEnvHeaders} />
-        </>}
+        </section>}
         {autoDetect && <p className="extensions-mcp-note">
           {t('Built-in auto-detect servers keep their managed connection settings.')}
         </p>}
@@ -1225,8 +1226,7 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
       const enabled = server.enabled !== false;
       return <ExtensionRow key={name} title={name}
         enabled={enabled} busy={busy}
-        onOpen={() => void openEditor(name)}
-        onToggle={(next) => void run('setMcpServerEnabled', [name, next])} />;
+        onOpen={() => void openEditor(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'mcp')
       ? 'No MCP servers configured.' : 'Loading MCP servers…'} />}
     {openName && openServer && <McpEditorDialog key={openName}
@@ -1292,8 +1292,7 @@ function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelConte
       const name = String(skill.name);
       const off = disabled.has(name);
       return <SkillRow key={name} title={name} disabled={off}
-        busy={busy} onOpen={() => openDetail(name)}
-        onToggle={() => toggle(name)} />;
+        busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
       ? 'No skills found.' : 'Loading skills…'} />}
     {detail && open && <SkillEditorDialog key={detail.name} skill={open}
@@ -1321,8 +1320,7 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
       const enabled = plugin.enabled !== false;
       return <ExtensionRow key={id} title={label(plugin)}
         enabled={enabled} busy={busy}
-        onOpen={() => setOpenId(id)}
-        onToggle={(next) => void run('setPluginEnabled', [plugin, next])} />;
+        onOpen={() => setOpenId(id)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'plugins')
       ? 'No plugins installed.' : 'Loading plugins…'} />}
     {open && <ExtensionDetailDialog title={label(open)}
@@ -1437,6 +1435,55 @@ function DesktopPowerGroup() {
   </Group>;
 }
 
+// Desktop-local Computer Use opt-in (Windows only): exposes the agent
+// `computer` tool that reads UI Automation trees and drives real windows.
+// High risk, so default off; the main process starts/stops the bridge live.
+function DesktopComputerUseGroup() {
+  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api?.readSettings?.().then((settings) => {
+      if (live) setEnabled(settings.computerControl === true);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [api]);
+  if (enabled === null || !api?.updateSetting) return null;
+  if (!navigator.userAgent.includes('Windows')) return null;
+  return <Group title="Computer Use"
+    description="Let agents read app UI and operate real windows on this PC. Windows only.">
+    <ToggleRow title="Enable Computer Use" checked={enabled}
+      onChange={(value) => {
+        setEnabled(value);
+        void api.updateSetting?.('computerControl', value).catch(() => {});
+      }} />
+  </Group>;
+}
+
+// Browser Use opt-in: exposes the agent `browser` tool that drives the in-app
+// browser. Only the agent bridge starts/stops with this toggle — the browser
+// window itself stays available to the user either way.
+function DesktopBrowserUseGroup() {
+  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api?.readSettings?.().then((settings) => {
+      if (live) setEnabled(settings.browserControl === true);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [api]);
+  if (enabled === null || !api?.updateSetting) return null;
+  return <Group title="Browser Use"
+    description="Let agents drive the in-app browser to visit and operate web pages.">
+    <ToggleRow title="Enable Browser Use" checked={enabled}
+      onChange={(value) => {
+        setEnabled(value);
+        void api.updateSetting?.('browserControl', value).catch(() => {});
+      }} />
+  </Group>;
+}
+
 function SystemPanelBody(context: PanelContext) {
   const { pending, run } = context;
   const busy = Boolean(pending);
@@ -1445,6 +1492,8 @@ function SystemPanelBody(context: PanelContext) {
         a persistent on/off button next to the context indicator. */}
     <UpdatePanel {...context} />
     <DesktopPowerGroup />
+    <DesktopBrowserUseGroup />
+    <DesktopComputerUseGroup />
     <Group title="Doctor">
       <ResourceRow title="Diagnostics" description="Check the runtime, providers, integrations, and local installation."
         actions={<ActionButton disabled={busy} onClick={() => void run('runDoctor')}>Run doctor</ActionButton>} />

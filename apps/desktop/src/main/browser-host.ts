@@ -11,16 +11,17 @@
  * data directory. The runtime tool reads that file, so the tool surface only
  * exists while this desktop app runs — no daemon protocol changes.
  *
- * background:true commands run against a hidden offscreen BrowserWindow on the
- * SAME partition, so the agent can work invisibly while staying logged in.
+ * background:true commands run against hidden offscreen BrowserWindows on the
+ * SAME partition (named through `tab` for parallel pages), so the agent can
+ * work invisibly while staying logged in.
  */
 import { randomBytes } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { WebContents } from 'electron';
-import { BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
 
 import { DESKTOP_IPC } from '../shared/contract';
 
@@ -55,6 +56,11 @@ interface BrowserCommand {
   key?: string;
   dy?: number;
   maxChars?: number;
+  /** wait ceiling in milliseconds (500–30000; default 10000). */
+  timeoutMs?: number;
+  /** Tab target: "v1"/"v2"… = visible tabs (list_tabs order); any other name
+   *  = a named background page, created on demand with background:true. */
+  tab?: string;
   /** Run against a hidden offscreen page instead of the visible tab. Shares
    *  the same partition, so cookies/logins carry over. */
   background?: boolean;
@@ -85,6 +91,15 @@ interface SnapshotPayload {
   elements: SnapshotElement[];
   headings: string[];
   text: string;
+}
+
+interface TrackedDownload {
+  file: string;
+  path: string;
+  url: string;
+  state: string;
+  received: number;
+  total: number;
 }
 
 function mixdogDataDirectory(): string {
@@ -204,6 +219,10 @@ function formatSnapshot(payload: SnapshotPayload): string {
 }
 
 export interface BrowserHost {
+  /** Opt-in agent bridge: on serves the runtime's `browser` tool, off tears
+   *  it down (server, discovery file, agent offscreen pages). The browser
+   *  pane infrastructure stays live either way. */
+  setBridgeEnabled(enabled: boolean): void;
   dispose(): Promise<void>;
 }
 
@@ -226,6 +245,37 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   browserPartitionSession.setPermissionRequestHandler((_contents, permission, callback) => {
     callback(permission === 'fullscreen' || permission === 'clipboard-sanitized-write');
   });
+
+  // Agent-visible download ledger: downloads auto-save into the user's
+  // Downloads folder (no dialog), and the `downloads` action reports them.
+  const downloads: TrackedDownload[] = [];
+  const onWillDownload = (_event: Electron.Event, item: Electron.DownloadItem): void => {
+    const directory = app.getPath('downloads');
+    const base = item.getFilename() || 'download';
+    const savePath = existsSync(join(directory, base))
+      ? join(directory, `${Date.now().toString(36)}-${base}`)
+      : join(directory, base);
+    item.setSavePath(savePath);
+    const entry: TrackedDownload = {
+      file: base,
+      path: savePath,
+      url: item.getURL(),
+      state: 'in_progress',
+      received: 0,
+      total: item.getTotalBytes(),
+    };
+    downloads.unshift(entry);
+    if (downloads.length > 20) downloads.length = 20;
+    item.on('updated', () => {
+      entry.received = item.getReceivedBytes();
+      entry.total = item.getTotalBytes();
+    });
+    item.once('done', (_doneEvent, state) => {
+      entry.state = state;
+      entry.received = item.getReceivedBytes();
+    });
+  };
+  browserPartitionSession.on('will-download', onWillDownload);
 
   // Only the browser pane's own partition may attach a webview, and never
   // with a preload or node access, no matter what the renderer asked for.
@@ -268,12 +318,18 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     return currentGuest;
   }
 
-  // Background target: a never-shown BrowserWindow on the SAME partition, so
-  // the offscreen page is logged in exactly like the visible tab. Reused
-  // across background commands; created lazily on first use.
-  let offscreenWindow: BrowserWindow | null = null;
-  function ensureOffscreen(): WebContents {
-    if (offscreenWindow && !offscreenWindow.isDestroyed()) return offscreenWindow.webContents;
+  /** Visible pane guests in stable attach order (list_tabs "v1", "v2", …). */
+  function visibleGuests(): WebContents[] {
+    return [...guests].filter((guest) => !guest.isDestroyed());
+  }
+
+  // Background targets: never-shown BrowserWindows on the SAME partition, so
+  // offscreen pages are logged in exactly like the visible tab. Keyed by tab
+  // name ("bg" by default) for parallel pages; created lazily on first use.
+  const offscreenPages = new Map<string, BrowserWindow>();
+  function ensureOffscreen(name = 'bg'): WebContents {
+    const existing = offscreenPages.get(name);
+    if (existing && !existing.isDestroyed()) return existing.webContents;
     // Never shown: the page runs fully (navigate/click/snapshot are JS, not
     // frames). Screenshots go through CDP Page.captureScreenshot, which renders
     // server-side in the Blink compositor and does not need an on-screen
@@ -296,8 +352,8 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       if (/^https?:/i.test(url)) void win.webContents.loadURL(url).catch(() => undefined);
       return { action: 'deny' };
     });
-    win.once('closed', () => { if (offscreenWindow === win) offscreenWindow = null; });
-    offscreenWindow = win;
+    win.once('closed', () => { if (offscreenPages.get(name) === win) offscreenPages.delete(name); });
+    offscreenPages.set(name, win);
     return win.webContents;
   }
 
@@ -315,7 +371,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       attached,
       new Promise<null>((resolve) => setTimeout(() => resolve(null), OPEN_SURFACE_TIMEOUT_MS)),
     ]);
-    if (!guest) throw new Error('the browser pane did not open; open Utilities → Browser in the Mixdog desktop app');
+    if (!guest) throw new Error('the browser pane did not open; open Utilities → Browser Use in the Mixdog desktop app');
     return guest;
   }
 
@@ -480,16 +536,78 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     throw new Error('screenshot capture failed');
   }
 
+  /** Resolve the page a command targets; null means the default visible tab. */
+  function resolveTargetGuest(background: boolean, tab: string): WebContents | null {
+    if (background) {
+      if (/^v\d+$/i.test(tab)) throw new Error('background tab names may not use the reserved v1/v2… form');
+      return ensureOffscreen(tab || 'bg');
+    }
+    if (!tab) return null;
+    const visibleMatch = /^v(\d+)$/i.exec(tab);
+    if (visibleMatch) {
+      const list = visibleGuests();
+      const picked = list[Number(visibleMatch[1]) - 1];
+      if (!picked) throw new Error(`no visible tab "${tab}" (${list.length} open); call list_tabs`);
+      currentGuest = picked;
+      return picked;
+    }
+    const page = offscreenPages.get(tab);
+    if (!page || page.isDestroyed()) {
+      throw new Error(`unknown tab "${tab}"; call list_tabs, or pass background:true to create it`);
+    }
+    return page.webContents;
+  }
+
+  function listTabs(): BrowserCommandResult {
+    const lines: string[] = [];
+    visibleGuests().forEach((guest, index) => {
+      const marker = guest === currentGuest ? ' (active)' : '';
+      lines.push(`- v${index + 1}${marker}: ${guest.getTitle() || '(untitled)'} — ${guest.getURL() || 'about:blank'}`);
+    });
+    for (const [name, page] of offscreenPages) {
+      if (page.isDestroyed()) continue;
+      const contents = page.webContents;
+      lines.push(`- "${name}" (background): ${contents.getTitle() || '(untitled)'} — ${contents.getURL() || 'about:blank'}`);
+    }
+    if (lines.length === 0) {
+      return { text: 'No tabs are open. navigate opens the visible tab; background:true opens a hidden page.' };
+    }
+    return { text: `Tabs:\n${lines.join('\n')}` };
+  }
+
+  function listDownloads(): BrowserCommandResult {
+    if (downloads.length === 0) return { text: 'No downloads this session.' };
+    const lines = downloads.map((entry) => {
+      const bytes = entry.total > 0 ? entry.total : entry.received;
+      return `- ${entry.file} — ${entry.state}, ${Math.max(1, Math.round(bytes / 1024))} KB → ${entry.path}\n  from ${entry.url}`;
+    });
+    return { text: `Downloads this session (newest first):\n${lines.join('\n')}` };
+  }
+
+  function closeBackgroundTab(tab: string): BrowserCommandResult {
+    if (!tab) throw new Error('close_tab requires tab (a background tab name)');
+    const page = offscreenPages.get(tab);
+    if (!page || page.isDestroyed()) throw new Error(`unknown background tab "${tab}"; call list_tabs`);
+    try { page.destroy(); } catch { /* already gone */ }
+    offscreenPages.delete(tab);
+    return { text: `Closed background tab "${tab}".` };
+  }
+
   async function runCommand(command: BrowserCommand): Promise<BrowserCommandResult> {
     const action = String(command.action || '').trim().toLowerCase();
     if (!action) throw new Error('browser command requires action');
     // Foreground drives the visible tab (auto-opened if needed); background
     // drives a hidden offscreen page on the same partition.
     const background = command.background === true;
-    const guest = background ? ensureOffscreen() : await ensureGuest();
+    const tab = String(command.tab || '').trim();
+    // Tab-less bookkeeping actions never open or create a page.
+    if (action === 'list_tabs') return listTabs();
+    if (action === 'downloads') return listDownloads();
+    if (action === 'close_tab') return closeBackgroundTab(tab);
+    const guest = resolveTargetGuest(background, tab) ?? await ensureGuest();
     switch (action) {
       case 'open':
-        return { text: background ? 'Background browser page is ready.' : 'Browser pane is open.' };
+        return { text: background ? 'Background browser page is ready.' : 'Browser Use pane is open.' };
       case 'navigate': {
         const url = normalizeAgentUrl(command.url || '');
         const load = guest.loadURL(url).catch((error: Error & { errno?: number }) => {
@@ -614,6 +732,37 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
           : '';
         return { text: `Page: ${page.title}\nURL: ${page.url}\n\n${page.text}${truncated}` };
       }
+      case 'wait': {
+        const wantText = typeof command.text === 'string' && command.text.trim() ? command.text.trim() : '';
+        const wantUrl = typeof command.url === 'string' && command.url.trim() ? command.url.trim() : '';
+        if (!wantText && !wantUrl) throw new Error('wait requires text and/or url (a substring to wait for)');
+        const timeoutMs = Math.min(30_000, Math.max(500,
+          Number.isFinite(command.timeoutMs) ? Math.trunc(command.timeoutMs as number) : 10_000));
+        const startedAt = Date.now();
+        for (;;) {
+          const urlOk = !wantUrl || guest.getURL().toLowerCase().includes(wantUrl.toLowerCase());
+          let textOk = !wantText;
+          if (urlOk && wantText) {
+            textOk = await evaluate<boolean>(
+              guest,
+              `(document.body ? document.body.innerText : '').toLowerCase().includes(${JSON.stringify(wantText.toLowerCase())})`,
+            ).catch(() => false);
+          }
+          if (urlOk && textOk) {
+            const outcome = await snapshotResult(guest);
+            return { text: `Condition met after ${Date.now() - startedAt}ms.\n\n${outcome.text}` };
+          }
+          if (Date.now() - startedAt >= timeoutMs) {
+            const waited = [
+              wantText && `text ${JSON.stringify(wantText)}`,
+              wantUrl && `url ${JSON.stringify(wantUrl)}`,
+            ].filter(Boolean).join(' and ');
+            const outcome = await snapshotResult(guest).catch(() => ({ text: '' }));
+            return { text: `Wait timed out after ${timeoutMs}ms without matching ${waited}.\n\n${outcome.text}` };
+          }
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
       default:
         throw new Error(`unknown browser action "${action}"`);
     }
@@ -682,7 +831,13 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     }
   }
 
-  const listening = new Promise<void>((resolve) => {
+  // Agent bridge: loopback command server + discovery file — the pair that
+  // exposes the runtime's `browser` tool. Opt-in via Settings, mirroring
+  // Computer Use; the pane infrastructure above runs regardless of the toggle.
+  let bridgeWanted = false;
+
+  function startBridge(): void {
+    if (server || disposed) return;
     server = createServer((request, response) => {
       void (async () => {
         if (request.method !== 'POST' || request.url !== '/command') {
@@ -716,46 +871,59 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     server.listen(0, '127.0.0.1', () => {
       const address = server?.address();
       const port = address && typeof address === 'object' ? address.port : 0;
-      if (port) {
-        try {
-          writeDiscovery(port);
-          heartbeat = setInterval(() => heartbeatDiscovery(port), HEARTBEAT_MS);
-          heartbeat.unref?.();
-        } catch (error) {
-          console.error('browser bridge discovery write failed:', error);
-        }
+      if (!port || !server) return;
+      try {
+        writeDiscovery(port);
+        heartbeat = setInterval(() => heartbeatDiscovery(port), HEARTBEAT_MS);
+        heartbeat.unref?.();
+      } catch (error) {
+        console.error('browser bridge discovery write failed:', error);
       }
-      resolve();
     });
-  });
-  void listening;
+  }
+
+  async function stopBridge(): Promise<void> {
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = null;
+    // Agent-only surfaces die with the bridge; visible pane tabs belong to
+    // the user and stay open.
+    for (const [, page] of offscreenPages) {
+      if (!page.isDestroyed()) { try { page.destroy(); } catch { /* already gone */ } }
+    }
+    offscreenPages.clear();
+    if (discoveryPath) {
+      // Only remove the file while it still describes THIS bridge.
+      try {
+        const current = JSON.parse(readFileSync(discoveryPath, 'utf8')) as { token?: string };
+        if (current?.token === token) unlinkSync(discoveryPath);
+      } catch { /* replaced or already gone */ }
+      discoveryPath = null;
+    }
+    const closing = server;
+    server = null;
+    await new Promise<void>((resolve) => {
+      if (!closing) {
+        resolve();
+        return;
+      }
+      closing.close(() => resolve());
+      // Idle keep-alive sockets must not hold shutdown hostage.
+      closing.closeAllConnections?.();
+    });
+  }
 
   return {
+    setBridgeEnabled(enabled: boolean): void {
+      if (disposed || bridgeWanted === enabled) return;
+      bridgeWanted = enabled;
+      if (enabled) startBridge();
+      else void stopBridge().catch(() => {});
+    },
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
-      if (heartbeat) clearInterval(heartbeat);
-      heartbeat = null;
-      if (offscreenWindow && !offscreenWindow.isDestroyed()) {
-        try { offscreenWindow.destroy(); } catch { /* already gone */ }
-      }
-      offscreenWindow = null;
-      if (discoveryPath) {
-        // Only remove the file while it still describes THIS bridge.
-        try {
-          const current = JSON.parse(readFileSync(discoveryPath, 'utf8')) as { token?: string };
-          if (current?.token === token) unlinkSync(discoveryPath);
-        } catch { /* replaced or already gone */ }
-      }
-      await new Promise<void>((resolve) => {
-        if (!server) {
-          resolve();
-          return;
-        }
-        server.close(() => resolve());
-        // Idle keep-alive sockets must not hold shutdown hostage.
-        server.closeAllConnections?.();
-      });
+      browserPartitionSession.removeListener('will-download', onWillDownload);
+      await stopBridge();
     },
   };
 }

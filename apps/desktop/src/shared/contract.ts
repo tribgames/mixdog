@@ -723,7 +723,7 @@ export interface DesktopCapabilityResult<T = unknown> {
   snapshot: SessionSnapshot;
 }
 
-export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake' | 'usagePinned' | 'computerControl';
+export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake' | 'usagePinned' | 'computerControl' | 'browserControl';
 
 export interface DesktopSettings {
   autoClear: boolean;
@@ -735,6 +735,9 @@ export interface DesktopSettings {
   /** Opt-in: expose the agent `computer` tool that controls the local desktop
    *  (Windows). Default off — full-PC control is high risk. */
   computerControl: boolean;
+  /** Opt-in: expose the agent `browser` tool over the in-app browser bridge.
+   *  Default off; the browser pane itself stays available either way. */
+  browserControl: boolean;
 }
 
 /** Settings → Git: GitHub CLI presence and auth, probed through gh itself. */
