@@ -1,6 +1,6 @@
 [package]
 name = "mixdog-graph"
-version = "0.1.20"
+version = "0.1.21"
 edition = "2021"
 
 # The resident search engine is a library so the standalone executable and
