@@ -154,6 +154,7 @@
 .session-panel-action {
   width: 28px;
   height: 28px;
+  flex: 0 0 28px;
   display: grid;
   place-items: center;
   padding: 0;

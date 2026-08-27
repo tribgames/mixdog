@@ -14,6 +14,7 @@
 import { randomUUID, createHash } from 'crypto';
 import { withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
+import { createProviderReplay } from './lib/provider-replay.mjs';
 import {
     createPassthroughSignal,
     createTimeoutSignal,
@@ -353,6 +354,10 @@ export class AntigravityOAuthProvider {
             ? textLeakGuard.scrubAssistantText(rawContent)
             : rawContent;
         const leakedToolCalls = textLeakGuard?.getLeakedToolCalls() ?? [];
+        const providerReplay = createProviderReplay(
+            'antigravity',
+            leakedToolCalls.length ? [] : responseParts,
+        );
         let nativeToolCalls = parseToolCalls(responseParts);
         if (textLeakGuard?.enabled) nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
         let toolCalls = nativeToolCalls;
@@ -373,6 +378,7 @@ export class AntigravityOAuthProvider {
                 finishReason,
                 partialContent: content,
                 partialToolCalls: toolCalls,
+                partialProviderReplay: providerReplay,
                 providerMetadata,
                 model: useModel,
                 rawUsage: response.usageMetadata || null,
@@ -407,6 +413,7 @@ export class AntigravityOAuthProvider {
             model: useModel,
             toolCalls,
             citations: citations.length ? citations : undefined,
+            providerReplay,
             providerMetadata,
             providerState: opts.providerState,
             usage,

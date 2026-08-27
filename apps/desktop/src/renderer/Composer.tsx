@@ -748,6 +748,22 @@ export const Composer = memo(function Composer({
     else if (name === 'project') onOpenProjects();
     else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
     else if (name === 'compact') await commandCapability('compact');
+    else if (name === 'goal') {
+      if (draftMode) {
+        if (!argument) {
+          setAttachmentError('Usage: /goal <objective> [--time 1h]');
+          return false;
+        }
+        const accepted = await submit(argument, {
+          displayText: argument,
+          goalCommand: argument,
+        });
+        if (accepted !== true) return false;
+      } else {
+        const result = asRecord(await commandCapability<unknown>('goalControl', [{ command: argument }]));
+        if (!invocationFailed) showComposerNotice(String(result?.message || 'Goal updated.'));
+      }
+    }
     else if (name === 'doctor') onOpenCommandSurface('doctor');
     else if (name === 'settings') onOpenSettings();
     // Desktop /quit leaves THIS task, not the app (user): it rides the same

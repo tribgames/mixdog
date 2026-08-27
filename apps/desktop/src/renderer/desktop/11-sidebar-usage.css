@@ -330,7 +330,7 @@
 .sidebar-heading-dot {
   position: absolute;
   z-index: 2;
-  right: 10.5px;
+  right: 16.5px;
   top: 50%;
   transform: translateY(-50%);
   width: 7px;
@@ -378,13 +378,11 @@
 /* Unread activity dot: the session gained messages while it
    was not the viewed conversation. */
 .session-row-unread-dot {
-  /* Anchored like .session-row-status so the dot CENTER rides the same
-     right column as the spinner and the header "+" (user: 세션 리스트
-     닷도 + 스피너 라인에 맞추고): status center = right 8 + 6, dot is 7px
-     → right 10.5 lands both on one axis. */
+  /* The 7px dot and 12px spinner share the 20px trailing centerline used by
+     the header "+", section "…", and framed resource chevrons. */
   position: absolute;
   z-index: 2;
-  right: 10.5px;
+  right: 16.5px;
   top: 50%;
   transform: translateY(-50%);
   width: 7px;

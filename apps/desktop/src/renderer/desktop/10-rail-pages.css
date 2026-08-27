@@ -127,10 +127,18 @@
   margin-top: 0;
   padding-top: 0;
 }
-/* Decorative row glyphs are dropped at rail width (user: 공간 없으면 아이콘을
-   다 빼든가) — only the schedules/webhooks state dot stays, since it carries
-   enabled/paused/running. */
-.session-sidebar-panels .projects-row-icon { display: none; }
+/* Resource rows reserve one fixed leading column for a semantic icon or live
+   status, so labels and trailing chevrons share the same axes across panels. */
+.session-sidebar-panels .projects-row-icon,
+.session-sidebar-panels .sidebar-resource-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  color: var(--mx-icon-muted);
+}
 /* Controls: rail heights, app type sizes. The search field wears the SAME
    item surface as the cards below it — 6% wash + 14% inset ring — instead
    of the darker sheet + border it had, which made it pop out of the rail
@@ -228,24 +236,79 @@
   text-align: left;
   cursor: pointer;
 }
-/* Utility rows stay typographic: stacked copy followed by the trailing
-   chevron, without a decorative leading glyph competing with the title. */
+/* Settings-style resources use one functional glyph, one title/status line,
+   one supporting line, then one trailing chevron. */
 .session-sidebar-panels .utilities-row { gap: 8px; }
+.session-sidebar-panels .utilities-pane .utilities-row-icon {
+  flex: 0 0 16px;
+  align-self: center;
+  color: var(--mx-icon-muted);
+}
 .session-sidebar-panels .utilities-row-copy { gap: 4px; }
 .session-sidebar-panels .utilities-row .schedules-row-copy b { line-height: 18px; }
-.session-sidebar-panels .utilities-row .schedules-row-copy small {
-  display: -webkit-box;
+.session-sidebar-panels .sidebar-resource-title {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.session-sidebar-panels .sidebar-resource-title > b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-sidebar-panels .utilities-row-copy > small {
+  min-height: 16px;
+  display: block;
+  min-width: 0;
   line-height: 16px;
   overflow: hidden;
   color: var(--mx-text-soft);
-  white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-sidebar-panels .sidebar-resource-state {
+  flex: 0 0 auto;
+  font-size: var(--mx-font-meta);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.session-sidebar-panels .sidebar-resource-state.is-enabled {
+  color: var(--mx-success);
+}
+.session-sidebar-panels .sidebar-resource-state.is-disabled {
+  color: var(--mx-text-muted);
+}
+.session-sidebar-panels .sidebar-resource-row {
+  border: 0;
+  font: inherit;
 }
 .session-sidebar-panels .utilities-row-chevron {
-  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   align-self: center;
+  margin-left: auto;
   color: var(--mx-text-faint);
+}
+.session-sidebar-panels .sidebar-resource-running {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+}
+.session-sidebar-panels .agent-route-summary {
+  max-width: 100%;
+  overflow: hidden;
+}
+.session-sidebar-panels .agent-route-summary > .model-route-label {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .session-sidebar-panels .utilities-row:hover .utilities-row-chevron { color: var(--mx-text-soft); }
 .session-sidebar-panels .row-overflow-trigger { width: var(--mx-control-xs); height: var(--mx-control-xs); border-radius: var(--mx-radius-md); }
@@ -468,6 +531,7 @@
 .session-sidebar-panels .workflows-packs > .workflows-section-head { padding-top: 0; }
 .session-sidebar-panels .workflows-section-head { align-items: center; gap: 8px; padding: 6px 0 0; }
 .session-sidebar-panels .workflows-section-head h2 { flex: 1; margin: 0; }
+.session-sidebar-panels .workflows-section-head > .schedules-new { margin-right: 6px; }
 /* Workflow and agent lists share the same two-line summary row. Model, effort,
    and fast are edited only in the overflow-owned dialog. */
 .session-sidebar-panels .workflows-agent-summary-row > .row-overflow {
@@ -534,13 +598,10 @@
   position: absolute;
   z-index: 3;
   top: 2px;
-  /* Sits exactly where the unread dot lives (user: same spot — the dot
-     hides on hover and the archive button takes its place). right:3px puts
-     the 24px button's center on the dot center (~13.5px from the edge).
-     NOTE the earlier mass-archive incident (right:2px under the scrollbar):
-     the 1px-wider inset plus the dot-swap behavior keeps the button off the
-     scrollbar's live band — watch for accidental archives regardless. */
-  right: 3px;
+  /* The hover action replaces the unread dot on the shared 20px trailing
+     centerline. Keeping the 24px button 8px inboard also leaves a safer gap
+     from the scrollbar than the old edge-hugging placement. */
+  right: 8px;
   height: 24px;
   padding-left: 12px;
   display: flex;
@@ -832,6 +893,7 @@
 .sidebar-category-header > .row-overflow .row-overflow-trigger {
   width: 28px;
   height: 28px;
+  margin-right: 6px;
 }
 /* Empty-state line matches the section rows' type (user). */
 .sidebar-section-empty {

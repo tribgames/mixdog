@@ -2,6 +2,7 @@ import { providerNativeToolPrefixCount } from '../../../../../session-runtime/pr
 import { isNativeServerToolBlockType } from './anthropic-native-blocks.mjs';
 import { sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../../session/context-utils.mjs';
 import { normalizeContentForAnthropic } from '../media-normalization.mjs';
+import { createProviderReplay, providerReplayItems } from './provider-replay.mjs';
 import {
     anthropicFallbackProviderMetadata,
     parseAnthropicFallbackBlock,
@@ -93,9 +94,14 @@ export function toAnthropicMessages(messages) {
     for (let idx = 0; idx < messages.length; idx++) {
         const m = messages[idx];
         if (m.role === 'system') continue;
-        if (m.role === 'assistant' && (m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
+        const orderedReplay = m.role === 'assistant'
+            ? providerReplayItems(m, 'anthropic')
+            : undefined;
+        if (m.role === 'assistant' && (orderedReplay?.length || m.toolCalls?.length || m.assistantBlocks?.length || m.thinkingBlocks?.length)) {
             let content;
-            if (m.assistantBlocks?.length) {
+            if (orderedReplay?.length) {
+                content = orderedReplay;
+            } else if (m.assistantBlocks?.length) {
                 content = m.assistantBlocks.slice();
             } else {
                 content = [];
@@ -211,6 +217,7 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
             || (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0)
         ))
         : [];
+    const replayableBlocks = blocks.filter((block) => block && typeof block === 'object');
     const usage = message?.usage || {};
     const input = Number(usage.input_tokens) || 0;
     const cacheRead = Number(usage.cache_read_input_tokens) || 0;
@@ -224,6 +231,7 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
         contentBlockTypes: blocks.map((block) => block?.type).filter(Boolean),
         thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
         assistantBlocks: nativeAssistantBlocks.length ? nativeAssistantBlocks : undefined,
+        providerReplay: createProviderReplay('anthropic', replayableBlocks),
         providerMetadata: anthropicFallbackProviderMetadata(fallbackEvents),
         usage: {
             inputTokens: input,

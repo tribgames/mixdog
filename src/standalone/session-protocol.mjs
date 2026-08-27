@@ -80,6 +80,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'deleteWorkflow',
   'enablePluginMcp',
   'forgetProviderAuth',
+  'goalControl',
   'inheritFrom',
   'loginOAuthProvider',
   'loginOpenCodeGoUsage',

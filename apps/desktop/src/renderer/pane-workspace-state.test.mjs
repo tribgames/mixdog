@@ -34,62 +34,8 @@ const mobileStored = {
   focusedLeafId: "right",
 };
 
-test("a phone cold open restores session tabs into one pane", () => {
-  const restored = mobilePaneWorkspaceState(mobileStored);
-  assert.equal(restored.layout.type, "leaf");
-  assert.deepEqual(
-    restored.layout.tabs.map((tab) => `${tab.kind}:${tab.id ?? tab.rel}`),
-    ["session:session-a", "session:session-b"],
-  );
-  assert.equal(restored.focusedLeafId, restored.layout.id);
-});
-
-test("a phone cold open keeps the tab the phone last viewed active", () => {
-  assert.equal(
-    mobilePaneWorkspaceState(mobileStored).layout.activeKey,
-    "session:session-b",
-  );
-});
-
-test("terminal and file tabs never resurrect on a phone", () => {
-  const restored = mobilePaneWorkspaceState(mobileStored);
-  assert.equal(
-    restored.layout.tabs.some((tab) => tab.kind === "terminal" || tab.kind === "file"),
-    false,
-  );
-});
-
-test("a phone with only unsupported tabs restores nothing", () => {
-  assert.equal(mobilePaneWorkspaceState({
-    layout: {
-      type: "leaf",
-      id: "only",
-      tabs: [{ kind: "terminal", id: "term-1" }],
-      activeKey: "terminal:term-1",
-    },
-    focusedLeafId: "only",
-  }), null);
-});
-
-test("the phone tab cap keeps the last viewed tab", () => {
-  const tabs = Array.from({ length: 6 }, (_, index) => ({
-    kind: "session",
-    id: `session-${index}`,
-  }));
-  const restored = mobilePaneWorkspaceState({
-    layout: {
-      type: "leaf",
-      id: "only",
-      tabs,
-      activeKey: "session:session-5",
-    },
-    focusedLeafId: "only",
-  }, 3);
-  assert.equal(restored.layout.tabs.length, 3);
-  assert.equal(restored.layout.activeKey, "session:session-5");
-});
-
-test("an empty phone store falls through to the normal startup path", () => {
+test("a phone restart resets every stored pane and tab", () => {
+  assert.equal(mobilePaneWorkspaceState(mobileStored), null);
   assert.equal(mobilePaneWorkspaceState(null), null);
 });
 

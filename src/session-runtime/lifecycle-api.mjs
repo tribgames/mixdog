@@ -83,7 +83,7 @@ export function createLifecycleApi(deps) {
     computeContextStatus, invalidateContextStatusCache, invalidatePreSessionToolSurface,
     applyResolvedCwd, resolveRoute, applyDeferredToolSurface, getStandaloneTools,
     beginRoutePreparation, clearRoutePreparation,
-    notificationListeners, clearRuntimeNotifications,
+    notificationListeners, clearRuntimeNotifications, goalRuntime,
     disposeSessionTitles, disposeGlobalExtensionSubscription, abortActiveTurns, getReservedSessionId,
   } = deps;
   const closeSurfaceSession = (session, reason, options) => {
@@ -352,6 +352,7 @@ export function createLifecycleApi(deps) {
       invalidateContextStatusCache();
       if (typeof clearRuntimeNotifications === 'function') clearRuntimeNotifications();
       else notificationListeners?.clear?.();
+      try { goalRuntime?.close?.(); } catch {}
       const shellJobsStop = teardownReapsWork && globalThis.__mixdogShellJobsRuntimeLoaded === true
         ? import('../runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs')
           .then((mod) => mod?.shutdownShellJobs?.(reason, {

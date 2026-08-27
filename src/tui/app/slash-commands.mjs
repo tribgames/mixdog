@@ -7,6 +7,7 @@ export const SLASH_COMMANDS = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat' },
   { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], showAliasUsage: false, params: '[path]', description: 'Switch working directory (project)' },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
+  { name: 'goal', usage: '/goal', params: '[objective --time 1h|status|pause|resume|edit|complete|clear]', description: 'Run and manage a durable session Goal' },
   { name: 'autoclear', usage: '/autoclear', params: '[on|off|duration]', description: 'Reduce cache-miss cost after long idle gaps' },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat' },
   { name: 'context', usage: '/context', description: 'Show current context surface' },

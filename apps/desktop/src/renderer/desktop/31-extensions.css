@@ -59,8 +59,20 @@
   text-align: center;
 }
 .extensions-pane .settings-group-body:has(> .settings-empty-list):not(:has(> .extensions-create)) {
+  min-width: 0;
+  min-height: 0;
   flex: 1 1 auto;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.extensions-pane .settings-empty-list {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
 }
 
 /* The capability surface gate is a plain block inside the page column: it must
@@ -93,11 +105,13 @@
   box-sizing: border-box;
   container-type: inline-size;
   width: 100%;
+  height: 30px;
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
-  padding-bottom: 4px;
+  align-items: center;
+  gap: 0;
+  padding: 2px 0 4px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
 .extensions-section-toolbar button {
@@ -105,25 +119,27 @@
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  height: 28px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 0 7px;
+  padding: 0 8px;
   border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
   background: transparent;
   font-family: inherit;
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
   text-align: center;
-  overflow: hidden;
   cursor: pointer;
 }
-.extensions-section-toolbar button:hover { background: var(--mx-hover); }
+.extensions-section-toolbar button:hover {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
 .extensions-section-toolbar button.active {
   color: var(--mx-text);
   background: transparent;
@@ -133,12 +149,16 @@
 .extensions-section-toolbar button.active::after {
   position: absolute;
   right: 3px;
-  bottom: -5px;
+  bottom: -4px;
   left: 3px;
   height: 2px;
   border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0;
   background: var(--mx-text);
   content: "";
+}
+.extensions-section-toolbar button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
 }
 .extensions-section-toolbar button > svg { flex: 0 0 auto; color: var(--mx-text-soft); }
 .extensions-section-toolbar button.active > svg { color: currentColor; }
@@ -148,6 +168,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.extensions-row {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.extensions-row:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.extensions-row .sidebar-resource-status {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  margin-inline: 4px;
+  border-radius: 50%;
+  background: var(--mx-text-faint);
+}
+.extensions-row .sidebar-resource-status.on { background: var(--mx-success); }
 /* Create form: opened by the header's +, closed on submit. One column, one
    primary action, and the same item surface the rail cards wear — no third
    input grammar in the pane. */
@@ -244,14 +284,47 @@
 .extensions-skill-dialog footer .extensions-skill-toggle { margin-right: auto; }
 
 /* MCP uses transport-specific structured rows instead of exposing JSON. */
-.extensions-mcp-dialog { width: min(800px, calc(100vw - 32px)); }
+.extensions-mcp-dialog { width: min(760px, calc(100vw - 32px)); }
 .extensions-mcp-dialog form {
   display: grid;
-  gap: 16px;
+  gap: 10px;
+}
+.extensions-mcp-card {
+  min-width: 0;
+  display: grid;
+  overflow: hidden;
+  border-radius: var(--mx-radius-xl);
+  background: var(--mx-bg-raised);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.extensions-mcp-card > .schedules-field,
+.extensions-mcp-card > .extensions-mcp-list {
+  min-width: 0;
+  padding: 12px;
+}
+.extensions-mcp-card > * + * {
+  border-top: 1px solid var(--mx-border-muted);
+}
+.extensions-mcp-dialog input {
+  height: 36px;
+}
+.extensions-mcp-transport-field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+}
+.extensions-mcp-transport-field > span,
+.extensions-mcp-transport-field > small {
+  grid-column: 1;
+}
+.extensions-mcp-transport-field > .extensions-mcp-transport,
+.extensions-mcp-transport-field > .extensions-mcp-note {
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 .extensions-mcp-transport {
   display: inline-flex;
-  align-self: flex-start;
+  align-self: center;
   padding: 3px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
@@ -301,14 +374,38 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px;
 }
 .extensions-mcp-list-row > button {
+  width: 34px;
+  height: 36px;
+  display: grid;
+  place-items: center;
   padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
 }
+.extensions-mcp-list-row > button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.extensions-mcp-list-row > button:disabled { opacity: var(--mx-op-disabled); }
 .extensions-mcp-list-add {
   width: 100%;
   min-height: 30px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
-  background: var(--mx-bg-raised);
+  background: var(--mx-hover);
+  box-shadow: none;
+  font: inherit;
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+.extensions-mcp-list-add:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
 }
 .extensions-mcp-note {
   margin: 0;
@@ -322,6 +419,16 @@
   font-size: var(--mx-font-meta);
 }
 @media (max-width: 560px) {
+  .extensions-mcp-transport-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .extensions-mcp-transport-field > .extensions-mcp-transport,
+  .extensions-mcp-transport-field > .extensions-mcp-note {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: stretch;
+  }
+  .extensions-mcp-transport { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .extensions-mcp-pair-row {
     grid-template-columns: minmax(0, 1fr) 34px;
   }

@@ -49,6 +49,32 @@ export type Toast = RecordValue & {
   message?: string;
   tone?: string;
 };
+export type GoalCriterion = {
+  id?: string;
+  text?: string;
+  satisfied?: boolean;
+  evidence?: string;
+};
+export type GoalSnapshot = {
+  id?: string;
+  sessionId?: string;
+  objective?: string;
+  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete';
+  criteria?: GoalCriterion[];
+  criteriaCompleted?: number;
+  criteriaTotal?: number;
+  progressSummary?: string;
+  blocker?: string;
+  completionEvidence?: string;
+  timeLimitMs?: number;
+  timeUsedMs?: number;
+  remainingMs?: number;
+  deadlineAt?: number | null;
+  createdAt?: number;
+  updatedAt?: number;
+  lastStartedAt?: number | null;
+  completedAt?: number | null;
+};
 export type Snapshot = RecordValue & {
   items?: TranscriptItem[];
   streamingTail?: TranscriptItem | null;
@@ -73,6 +99,7 @@ export type Snapshot = RecordValue & {
   thinking?: unknown;
   spinner?: RecordValue | null;
   commandStatus?: RecordValue | null;
+  goal?: GoalSnapshot | null;
   promptHistoryList?: unknown[];
   desktopSessionTitle?: string;
   stats?: RecordValue;

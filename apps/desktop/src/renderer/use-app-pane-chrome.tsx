@@ -74,7 +74,7 @@ export function useAppPaneChrome({
                 : selection.kind === "studio"
                   ? "Studio"
                   : selection.kind === "browser"
-                    ? "Browser"
+                    ? "Browser Use"
                   : selection.kind === "terminal"
                     ? "Terminal"
                     : selection.kind === "folder"

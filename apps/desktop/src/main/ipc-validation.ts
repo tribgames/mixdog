@@ -43,7 +43,7 @@ const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
   'setMcpServerEnabled', 'setPluginEnabled', 'setHookRuleEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
 ]);
 const SUBMIT_OPTION_KEYS = new Set([
-  'id', 'submittedAt', 'displayText', 'priority', 'pastedImages', 'pastedTexts',
+  'id', 'submittedAt', 'displayText', 'goalCommand', 'priority', 'pastedImages', 'pastedTexts',
 ]);
 const ABORT_OPTION_KEYS = new Set(['restorePrompt', 'submissionId']);
 const NEW_TASK_DRAFT_KEYS = new Set(['projectPath', 'route', 'workflowId']);
@@ -60,7 +60,7 @@ const CAPABILITY_ARITY = {
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
   setRecapEnabled: [1, 1], getToolModuleSettings: [0, 0], setWebSearchEnabled: [1, 1], setMemoryToolsEnabled: [1, 1],
   getVoiceStatus: [0, 0], toggleVoice: [0, 0],
-  agentControl: [0, 2], taskControl: [0, 1], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
+  agentControl: [0, 2], taskControl: [0, 1], goalControl: [0, 1], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
   setSystemShell: [1, 1], mcpStatus: [0, 0], getMcpServerConfig: [1, 1], reconnectMcp: [0, 0], addMcpServer: [1, 1],
   saveMcpServer: [1, 1],
   removeMcpServer: [1, 1], setMcpServerEnabled: [2, 2], getDisabledSkills: [0, 0],
@@ -286,6 +286,11 @@ export function requiredSubmitOptions(value: unknown): DesktopSubmitOptions {
   if (input.displayText !== undefined &&
     (typeof input.displayText !== 'string' || input.displayText.length > MAX_PROMPT_LENGTH)) {
     throw new TypeError('submit display text is invalid.');
+  }
+  if (input.goalCommand !== undefined &&
+    (typeof input.goalCommand !== 'string' || !input.goalCommand.trim() ||
+      input.goalCommand.length > MAX_PROMPT_LENGTH)) {
+    throw new TypeError('goal command is invalid.');
   }
   return value as DesktopSubmitOptions;
 }

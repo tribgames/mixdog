@@ -1,4 +1,4 @@
-import { AlarmClock, Plus, Search, X } from 'lucide-react';
+import { AlarmClock, ChevronRight, Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -16,7 +16,6 @@ import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
-import { RowOverflowMenu } from './RowOverflowMenu';
 import {
   AutomationAttachButton,
   AutomationAttachmentChips,
@@ -184,10 +183,25 @@ function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
   };
 }
 
-function ScheduleEditor({ draft, editing, busy, models, projects, workflows, error = '', onCancel, onSave, onToggle }: {
+function ScheduleEditor({
+  draft,
+  editing,
+  busy,
+  running = false,
+  models,
+  projects,
+  workflows,
+  error = '',
+  onCancel,
+  onSave,
+  onToggle,
+  onRun,
+  onDelete,
+}: {
   draft: ScheduleDraft;
   editing: boolean;
   busy: boolean;
+  running?: boolean;
   models: DesktopModelOption[];
   projects: DesktopProjectSummary[];
   workflows: Array<{ value: string; label: string }>;
@@ -195,6 +209,8 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   onCancel(): void;
   onSave(entry: RecordValue): void;
   onToggle?(enabled: boolean): void;
+  onRun?(): void;
+  onDelete?(): void;
 }) {
   const [frequency, setFrequency] = useState<FrequencyKind>(draft.frequency);
   const [weekday, setWeekday] = useState(draft.weekday);
@@ -208,6 +224,7 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
   const [enabled, setEnabled] = useState(draft.enabled);
   const [formError, setFormError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
   const modelId = slash > 0 ? model.slice(slash + 1) : '';
@@ -368,6 +385,17 @@ function ScheduleEditor({ draft, editing, busy, models, projects, workflows, err
         </div>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {editing && onRun && <button type="button" disabled={busy || running}
+            onClick={onRun}>{running ? t('Running…') : t('Run now')}</button>}
+          {editing && onDelete && <button type="button"
+            className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
+            onClick={() => {
+              if (!confirmDelete) {
+                setConfirmDelete(true);
+                return;
+              }
+              onDelete();
+            }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
           <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
@@ -386,8 +414,8 @@ const SCHEDULE_REFERENCE_KEYS = [
   'workflows',
 ] as const satisfies readonly SidebarReferenceKey[];
 
-// Scheduled-tasks panel (rail -> Schedules): a compact list with search and
-// active/paused filters in the session-panel area, plus a popup editor.
+// Scheduled-tasks panel (rail -> Schedules): a compact searchable list in the
+// session-panel area, plus a popup editor.
 export function SchedulesPane({ api = window.mixdogDesktop, active = true, runningNames }: {
   api?: SchedulesApi;
   active?: boolean;
@@ -412,16 +440,13 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [editor, setEditor] = useState<{ name: string; draft: ScheduleDraft } | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState('');
   const [runningName, setRunningName] = useState('');
   // The editor portals to document.body, so the sidebar's inert/aria-hidden
   // does not reach it: a collapsed sidebar — or another destination taking the
   // panel area — must close it explicitly. Search/filter state is untouched.
   useSidebarPanelDismiss(active, () => {
     setEditor(null);
-    setConfirmingDelete('');
   });
   const busy = Boolean(pending) || loading;
   useEffect(() => {
@@ -479,9 +504,6 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   };
   const text = query.trim().toLowerCase();
   const visible = orderedSchedules.filter((schedule) => {
-    const enabled = schedule.enabled !== false;
-    if (filter === 'active' && !enabled) return false;
-    if (filter === 'paused' && enabled) return false;
     if (!text) return true;
     return [schedule.name, schedule.description, schedule.time, schedule.model]
       .map((value) => String(value || '').toLowerCase()).join(' ').includes(text);
@@ -507,17 +529,20 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
         <input aria-label={t("Search schedules")} placeholder={t("Search schedules…")} value={query}
           onChange={(event) => setQuery(event.currentTarget.value)} />
       </div>
-      <div className="schedules-filters" aria-label={t("Schedule filter")}>
-        {([['all', 'All'], ['active', 'Active'], ['paused', 'Paused']] as const).map(([value, label]) =>
-          <button key={value} type="button" className={filter === value ? 'active' : ''}
-            aria-pressed={filter === value} onClick={() => setFilter(value)}>{t(label)}</button>)}
-      </div>
       {active && editor && <ScheduleEditor key={editor.name || '(new)'} draft={editor.draft} editing={Boolean(editor.name)}
-        busy={busy} models={models} projects={projects} workflows={workflows} error={error}
+        busy={busy} running={runningName === editor.name}
+        models={models} projects={projects} workflows={workflows} error={error}
         onCancel={() => {
           setError('');
           setEditor(null);
-        }} onSave={(entry) => void saveSchedule(entry)}
+        }}
+        onRun={editor.name ? () => void runNow(editor.name) : undefined}
+        onDelete={editor.name ? () => {
+          const name = editor.name;
+          setEditor(null);
+          void run('deleteSchedule', [name], 'toast');
+        } : undefined}
+        onSave={(entry) => void saveSchedule(entry)}
         onToggle={(enabled) => void run('setScheduleEnabled', [editor.name, enabled], 'toast')} />}
       {/* No loading flash: the list area stays empty until the first snapshot
           lands, so the empty-state icon never pops in and out on entry. */}
@@ -526,52 +551,28 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
           const name = String(schedule.name);
           const enabled = schedule.enabled !== false;
           const running = runningNames?.has(name) === true;
-          return <div key={name} className="schedules-row" {...scheduleOrder.getReorderProps(name)}>
-            {running && <span className="schedules-row-status" role="status"
+          return <button type="button" key={name}
+            className="schedules-row utilities-row sidebar-resource-row"
+            disabled={busy} onClick={() => {
+              setError('');
+              setEditor({ name, draft: scheduleDraft(schedule) });
+            }} {...scheduleOrder.getReorderProps(name)}>
+            <span className="schedules-row-copy utilities-row-copy">
+              <span className="sidebar-resource-title">
+                <b>{name}</b>
+                <span
+                  className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
+                  {t(enabled ? 'Enabled' : 'Disabled')}
+                </span>
+              </span>
+              <small>{scheduleMeta(schedule)}</small>
+            </span>
+            {running && <span className="sidebar-resource-running" role="status"
               aria-label={t("{{name}} is running", { name })}>
               <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
             </span>}
-            <div className="schedules-row-copy">
-              <b>{name}</b>
-              <small>{scheduleMeta(schedule)}</small>
-            </div>
-            <CompactSwitch label={`${name} · ${t('Enabled')}`} checked={enabled}
-              disabled={busy} onChange={(next) =>
-                void run('setScheduleEnabled', [name, next], 'toast')} />
-            <RowOverflowMenu label={`Actions for ${name}`} width={148} items={[
-              {
-                id: 'run',
-                label: runningName === name ? 'Running…' : 'Run now',
-                disabled: busy || Boolean(runningName),
-                onSelect: () => void runNow(name),
-              },
-              {
-                id: 'edit',
-                label: 'Edit',
-                disabled: busy,
-                onSelect: () => {
-                  setConfirmingDelete('');
-                  setError('');
-                  setEditor({ name, draft: scheduleDraft(schedule) });
-                },
-              },
-              {
-                id: 'delete',
-                label: confirmingDelete === name ? 'Confirm delete' : 'Delete',
-                disabled: busy,
-                danger: true,
-                closeOnSelect: confirmingDelete === name,
-                onSelect: () => {
-                  if (confirmingDelete !== name) {
-                    setConfirmingDelete(name);
-                    return;
-                  }
-                  setConfirmingDelete('');
-                  void run('deleteSchedule', [name], 'toast');
-                },
-              },
-            ]} />
-          </div>;
+            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+          </button>;
         })}</div>
         : <div className="schedules-empty">
           <AlarmClock size={40} strokeWidth={1.5} aria-hidden="true" />

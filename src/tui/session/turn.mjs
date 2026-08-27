@@ -1384,6 +1384,7 @@ export function createRunTurn(bag) {
     flushEmit?.();
     _publishedThinkingActive = false; // turn teardown cleared getState().thinking
     const finalStatus = cancelled ? 'cancelled' : (failed ? 'failed' : 'done');
+    try { bag.onGoalTurnSettled?.(finalStatus); } catch {}
     tuiDebug(`runTurn end turn=${turnIndex} status=${finalStatus} elapsedMs=${Date.now() - startedAt} pending=${pending.length}`);
     return finalStatus;
   }

@@ -972,6 +972,27 @@ export class SessionHost implements DesktopService {
           );
         }
       }
+      const goalCommand = String(options.goalCommand || '').trim();
+      if (goalCommand) {
+        const goalResult = await this.invokeSession(sessionId, 'goalControl', [{
+          command: goalCommand,
+        }]);
+        const goalValue = goalResult.value && typeof goalResult.value === 'object'
+          ? goalResult.value as Record<string, unknown>
+          : null;
+        const goal = goalValue?.goal && typeof goalValue.goal === 'object'
+          ? goalValue.goal as Record<string, unknown>
+          : null;
+        if (goalValue?.ok !== true || !goal) {
+          throw new Error(String(goalValue?.message || 'Goal could not be created.'));
+        }
+        const objective = String(goal?.objective || goalCommand).trim();
+        await this.sessionMetadata.load();
+        this.sessionMetadata.rememberGeneratedTitle(sessionId, objective);
+        this.pendingCatalogSessionIds.delete(sessionId);
+        void this.publishCatalogs();
+        return { accepted: true, sessionId, snapshot: goalResult.snapshot };
+      }
       const submissionId = String(options.id || '').trim()
         || `desktop-submit-${sessionId}-${Date.now()}`;
       const prior = this.sessionProjections.get(sessionId);

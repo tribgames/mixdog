@@ -19,7 +19,6 @@ import {
   SWIPE_LOCK_AXIS_RATIO,
   SWIPE_LOCK_DISTANCE,
   SWIPE_VIEW_TRANSITION_READY_TIMEOUT_MS,
-  swipeGestureAllowed,
   swipeIntent,
   swipeProgress,
   swipeTransitionFallbackCommits,
@@ -349,6 +348,23 @@ export function installMobileTabSwipe({
     current.activateTab(leaf.id, keys[targetIndex]);
     onFocusSelection(selection);
   };
+  /** Most pane surfaces are physical descendants of their pane. Menus and
+   *  dialogs may portal to body, so a touch painted over a visible pane falls
+   *  back to that pane's geometry. App chrome outside every pane stays out. */
+  const paneCellAt = (target: Element, x: number, y: number): HTMLElement | null => {
+    const direct = target.closest<HTMLElement>("[data-pane-id]");
+    if (direct) return direct;
+    const cells = document.querySelectorAll<HTMLElement>("[data-pane-id]");
+    for (const cell of cells) {
+      if (cell.hasAttribute("inert") || cell.dataset.carouselActive === "false") continue;
+      const rect = cell.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        return cell;
+      }
+    }
+    return null;
+  };
   function onTouchStart(event: TouchEvent): void {
     if (activeTransition || tracking) return;
     tracking = false;
@@ -358,14 +374,15 @@ export function installMobileTabSwipe({
     velocityX = 0;
     if (event.touches.length !== 1) return;
     const target = event.target instanceof Element ? event.target : null;
-    if (!target || !swipeGestureAllowed(target)) return;
-    const cell = target?.closest<HTMLElement>("[data-pane-id]") ?? null;
+    if (!target) return;
+    const touch = event.touches[0];
+    const cell = paneCellAt(target, touch.clientX, touch.clientY);
     const id = cell?.dataset.paneId || "";
     if (!id) return;
     leafId = id;
     gestureCell = cell;
-    startX = event.touches[0].clientX;
-    startY = event.touches[0].clientY;
+    startX = touch.clientX;
+    startY = touch.clientY;
     lastX = startX;
     lastTime = event.timeStamp;
     tracking = true;

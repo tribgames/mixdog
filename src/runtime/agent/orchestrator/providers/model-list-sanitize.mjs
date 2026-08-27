@@ -25,7 +25,7 @@ const CODING_UNFIT_ID_RE = /-search(-preview)?(\b|-|$)|-(audio|realtime)-preview
 const HOSTED_PROVIDERS = new Set([
   'openai', 'openai-oauth', 'openai-ws', 'anthropic', 'anthropic-oauth',
   'gemini', 'google', 'xai', 'grok-oauth', 'deepseek', 'groq', 'mistral',
-  'opencode-go', 'azure',
+  'opencode-go', 'openrouter', 'azure',
 ]);
 
 // (a) Non-chat modality ids. Matched as whole word-ish tokens on the id so we
@@ -166,9 +166,9 @@ function _stalenessFamily(row, id) {
 
 function _staleMonths() {
   const raw = process.env.MIXDOG_MODEL_STALE_MONTHS;
-  if (raw == null || raw === '') return 12;
+  if (raw == null || raw === '') return 9;
   const n = Number(raw);
-  return Number.isFinite(n) ? n : 12;
+  return Number.isFinite(n) ? n : 9;
 }
 
 // Apply catalog-driven staleness to the already-filtered `kept` rows.

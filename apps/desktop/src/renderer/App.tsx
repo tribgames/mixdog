@@ -1416,7 +1416,7 @@ export function App() {
   };
   const openBrowserTab = (leafId = paneWorkspace.focusedLeafId) => {
     void prefetchBrowserPane().catch(() => {});
-    openUtilityTab(newBrowserSelection(), "Browser", leafId);
+    openUtilityTab(newBrowserSelection(), "Browser Use", leafId);
   };
   // Agent browser bridge: a `browser` tool call arriving with no live webview
   // asks the app to present a browser surface. Reuse an existing browser tab

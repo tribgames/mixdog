@@ -589,11 +589,34 @@ function withoutRecallReplayMetadata(message) {
     return copy;
 }
 
+function hasAtomicReplayState(message) {
+    if (!message || message.role !== 'assistant') return false;
+    if (Array.isArray(message.providerReplay?.items) && message.providerReplay.items.length) return true;
+    if (Array.isArray(message.assistantBlocks) && message.assistantBlocks.length) return true;
+    if (Array.isArray(message.thinkingBlocks) && message.thinkingBlocks.length) return true;
+    if (Array.isArray(message.reasoningItems) && message.reasoningItems.length) return true;
+    if (Array.isArray(message.providerMetadata?.gemini?.thoughtParts)
+        && message.providerMetadata.gemini.thoughtParts.length) return true;
+    if (Array.isArray(message.providerMetadata?.gemini?.textParts)
+        && message.providerMetadata.gemini.textParts.length) return true;
+    if (Array.isArray(message.toolCalls)
+        && message.toolCalls.some((call) => typeof call?.thoughtSignature === 'string' && call.thoughtSignature)) {
+        return true;
+    }
+    if (typeof message.reasoningContent === 'string' && message.reasoningContent) return true;
+    const openRouter = message.providerMetadata?.openrouter;
+    const reasoningDetails = openRouter?.reasoning_details ?? openRouter?.reasoningDetails;
+    return Array.isArray(reasoningDetails) && reasoningDetails.length > 0;
+}
+
 function fitRecallMessageToCap(message, cap, rawText = null) {
     const text = rawText == null
         ? (typeof message?.content === 'string' ? message.content : extractText(message))
         : String(rawText);
-    for (const base of [message, withoutRecallReplayMetadata(message)]) {
+    const bases = hasAtomicReplayState(message)
+        ? [message]
+        : [message, withoutRecallReplayMetadata(message)];
+    for (const base of bases) {
         if (!base || typeof base !== 'object') continue;
         if (estimateMessagesTokens([{ ...base, content: text }]) <= cap) {
             return { ...base, content: text };

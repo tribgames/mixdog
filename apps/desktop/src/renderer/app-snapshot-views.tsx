@@ -37,6 +37,7 @@ import {
   conversationMarkdownPending,
 } from "./first-submit-stability";
 import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
+import { SessionGoalIsland } from "./SessionGoalIsland";
 import { SessionStatusIsland } from "./SessionStatusIsland";
 import { TranscriptRow } from "./TranscriptView";
 
@@ -414,7 +415,10 @@ export function PaneStatusIsland({ sessionId, hidden, onInherit }: {
   const visibleSnapshot = hidden || !sessionId
     ? EMPTY_SNAPSHOT
     : lane ?? EMPTY_SNAPSHOT;
-  return <SessionStatusIsland snapshot={visibleSnapshot} onInherit={onInherit} />;
+  return <>
+    <SessionGoalIsland snapshot={visibleSnapshot} />
+    <SessionStatusIsland snapshot={visibleSnapshot} onInherit={onInherit} />
+  </>;
 }
 
 

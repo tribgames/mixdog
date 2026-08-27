@@ -81,6 +81,9 @@ function applyCompactFailurePersistToSession(activeSession, {
     if (!messagesAdvanced) {
         activeSession.messages = sanitized;
         activeSession.providerState = undefined;
+        // Sanitized replacement can rewrite/shrink the transcript; the
+        // provider prefix snapshot must re-baseline with it.
+        delete activeSession._providerPrefixGuardState;
     }
     activeSession.updatedAt = Date.now();
     activeSession.lastUsedAt = Date.now();

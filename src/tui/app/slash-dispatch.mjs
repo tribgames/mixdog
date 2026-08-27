@@ -364,6 +364,17 @@ export function createSlashDispatch({
           })
           .catch((error) => store.pushNotice(compactFailureNotice(error), 'error'));
         return true;
+      case 'goal':
+        void Promise.resolve(store.goalControl?.({ command: arg }))
+          .then((result) => {
+            if (!result) {
+              store.pushNotice('Goal is unavailable.', 'warn');
+              return;
+            }
+            store.pushNotice(result.message || 'Goal updated.', 'info');
+          })
+          .catch((error) => store.pushNotice(`Goal failed: ${error?.message || error}`, 'error'));
+        return true;
       case 'resume':
         if (state.busy) {
           store.pushNotice('wait for the current turn to finish before /resume', 'warn');

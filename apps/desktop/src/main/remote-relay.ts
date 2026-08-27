@@ -186,7 +186,7 @@ export function clientReadsLane(lanes: ReadonlySet<string> | null, lane: string)
 // its own prior reasoning back verbatim. No renderer reads them, and in a long
 // session they are a THIRD of the stored transcript — bytes a phone pays for on
 // every join and can never show.
-const REMOTE_TRANSCRIPT_DROP_FIELDS = ['thinkingBlocks'] as const;
+const REMOTE_TRANSCRIPT_DROP_FIELDS = ['thinkingBlocks', 'providerReplay'] as const;
 // Item identity is what makes the delta encoder cheap: it compares elements by
 // reference, so an unchanged item MUST project to the same object every time.
 const projectedTranscriptItems = new WeakMap<object, object>();

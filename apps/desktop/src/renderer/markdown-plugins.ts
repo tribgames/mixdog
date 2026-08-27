@@ -12,12 +12,66 @@ interface HastLikeNode {
 
 const adjacentStrongPunctuation =
   /(\*\*(?!\s)([^*\n]*?[^\s\p{L}\p{N}*])\*\*|__(?!\s)([^_\n]*?[^\s\p{L}\p{N}_])__)(?=[\p{L}\p{N}])/gu;
+const strongBeforeInlineCode =
+  /(\*\*(?!\s)([^*\n]*)|__(?!\s)([^_\n]*))$/u;
+
+function escapedAt(value: string, index: number): boolean {
+  let slashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) {
+    slashes += 1;
+  }
+  return slashes % 2 === 1;
+}
+
+function repairStrongAroundInlineCode(children: HastLikeNode[]): HastLikeNode[] {
+  const repaired: HastLikeNode[] = [];
+  for (let index = 0; index < children.length; index += 1) {
+    const before = children[index];
+    const code = children[index + 1];
+    const after = children[index + 2];
+    if (
+      before?.type !== "text"
+      || typeof before.value !== "string"
+      || code?.type !== "inlineCode"
+      || after?.type !== "text"
+      || typeof after.value !== "string"
+    ) {
+      repaired.push(before);
+      continue;
+    }
+    const opening = strongBeforeInlineCode.exec(before.value);
+    if (!opening || escapedAt(before.value, opening.index)) {
+      repaired.push(before);
+      continue;
+    }
+    const marker = opening[1].startsWith("**") ? "**" : "__";
+    if (!after.value.startsWith(marker)
+      || !/[\p{L}\p{N}]/u.test(after.value[marker.length] || "")) {
+      repaired.push(before);
+      continue;
+    }
+    const prefix = before.value.slice(0, opening.index);
+    const body = opening[2] ?? opening[3] ?? "";
+    const suffix = after.value.slice(marker.length);
+    if (prefix) repaired.push({ type: "text", value: prefix });
+    repaired.push({
+      type: "strong",
+      children: [
+        ...(body ? [{ type: "text", value: body }] : []),
+        code,
+      ],
+    });
+    if (suffix) repaired.push({ type: "text", value: suffix });
+    index += 2;
+  }
+  return repaired;
+}
 
 // CommonMark does not close `**0.118%**이며` because punctuation immediately
 // precedes the closing delimiter and a Korean suffix immediately follows it.
-// Repair that natural-language boundary in mdast text nodes; code and already
-// parsed emphasis remain untouched, and both desktop markdown pipelines share
-// the same result.
+// The same boundary can split into text → inlineCode → text when code ends the
+// strong span. Repair both natural-language forms; code content and already
+// parsed emphasis stay untouched, and both markdown pipelines share the result.
 export function repairAdjacentStrongPunctuation() {
   return (tree: HastLikeNode) => {
     const visit = (node: HastLikeNode) => {
@@ -25,7 +79,7 @@ export function repairAdjacentStrongPunctuation() {
       const children = node.children;
       if (!children) return;
       const repaired: HastLikeNode[] = [];
-      for (const child of children) {
+      for (const child of repairStrongAroundInlineCode(children)) {
         if (child.type !== "text" || typeof child.value !== "string") {
           visit(child);
           repaired.push(child);

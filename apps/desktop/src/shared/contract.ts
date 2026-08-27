@@ -276,6 +276,34 @@ export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> 
   name?: string;
 }
 
+export interface DesktopGoalCriterion extends Readonly<Record<string, unknown>> {
+  id?: string;
+  text?: string;
+  satisfied?: boolean;
+  evidence?: string;
+}
+
+export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
+  id?: string;
+  sessionId?: string;
+  objective?: string;
+  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete';
+  criteria?: DesktopGoalCriterion[];
+  criteriaCompleted?: number;
+  criteriaTotal?: number;
+  progressSummary?: string;
+  blocker?: string;
+  completionEvidence?: string;
+  timeLimitMs?: number;
+  timeUsedMs?: number;
+  remainingMs?: number;
+  deadlineAt?: number | null;
+  createdAt?: number;
+  updatedAt?: number;
+  lastStartedAt?: number | null;
+  completedAt?: number | null;
+}
+
 export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   items?: DesktopTranscriptItem[];
   streamingTail?: DesktopTranscriptItem | null;
@@ -285,6 +313,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   thinking?: unknown;
   spinner?: DesktopActivityState | null;
   commandStatus?: DesktopActivityState | null;
+  goal?: DesktopGoalState | null;
   progressHint?: { text?: string; tone?: string } | null;
   fast?: boolean;
   fastCapable?: boolean;
@@ -490,6 +519,8 @@ export interface DesktopSubmitOptions {
   /** Wall-clock submit time for privacy-safe queue/steering latency diagnostics. */
   submittedAt?: number;
   displayText?: string;
+  /** Create a new task as a Goal without emitting a visible bootstrap prompt. */
+  goalCommand?: string;
   priority?: DesktopPromptPriority;
   pastedImages?: Record<string, DesktopPromptAttachment>;
   pastedTexts?: Record<string, DesktopPastedText>;
@@ -545,6 +576,7 @@ export const DESKTOP_CAPABILITIES = [
   'toggleVoice',
   'agentControl',
   'taskControl',
+  'goalControl',
   'toolsStatus',
   'selectTools',
   'getSystemShell',

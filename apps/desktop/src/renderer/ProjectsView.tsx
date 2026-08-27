@@ -1,4 +1,4 @@
-import { Folder, NotebookPen, Pencil, Plus, X } from 'lucide-react';
+import { ChevronRight, Folder, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -51,7 +51,7 @@ export function ProjectsPane({
   const [addError, setAddError] = useState('');
   const [addBusy, setAddBusy] = useState(false);
   // Project editor: name, instructions, and existing memories share the one
-  // pencil action. editIns === null means the
+  // row action. editIns === null means the
   // instructions never loaded (unsupported or failed) and stays untouched.
   const [editTarget, setEditTarget] = useState<{ path: string | null; title: string } | null>(null);
   const [editName, setEditName] = useState('');
@@ -442,44 +442,31 @@ export function ProjectsPane({
         </section>
       </div>, document.body)}
       {canEditInstructions && <div className="schedules-list projects-list projects-common-instructions">
-        <div className="schedules-row projects-row">
-          <span className="projects-row-icon" aria-hidden="true"><NotebookPen size={16} /></span>
-          <button type="button" className="schedules-row-copy projects-row-open"
-            disabled={editOpening} onClick={() => openEdit(null, 'Common Instructions')}>
+        <button type="button" className="schedules-row utilities-row projects-row"
+          disabled={editOpening} onClick={() => openEdit(null, 'Common Instructions')}>
+          <span className="schedules-row-copy utilities-row-copy">
             <b>{t('Common Instructions')}</b>
             <small>{t('Used for every project.')}</small>
-          </button>
-          <button type="button" className="session-panel-action projects-instructions-edit"
-            disabled={editOpening} aria-label={t('Edit common instructions')} data-tooltip={t('Edit')}
-            onClick={() => openEdit(null, 'Common Instructions')}>
-            <Pencil size={14} aria-hidden="true" />
-          </button>
-        </div>
+          </span>
+          <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+        </button>
       </div>}
       {visible.length ? <div className="schedules-list projects-list">{visible.map((project) => {
         const title = project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path);
         const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
-        return <div key={project.path} className={`schedules-row projects-row${selected ? ' selected' : ''}`}
+        return <button type="button" key={project.path}
+          className={`schedules-row utilities-row projects-row${selected ? ' selected' : ''}`}
+          disabled={editOpening}
+          aria-current={selected ? 'page' : undefined}
+          aria-label={t('Edit {{name}}', { name: title })}
+          onClick={() => openEdit(project.path, title)}
           {...projectOrder.getReorderProps(project.path)}>
-          <span className="projects-row-icon" aria-hidden="true"><Folder size={16} /></span>
-          {/* Project rows open their existing editor like Common Instructions;
-              they never mint a NEW TASK draft. */}
-          <button type="button" className="schedules-row-copy projects-row-label projects-row-open"
-            disabled={editOpening}
-            aria-current={selected ? 'page' : undefined}
-            aria-label={t('Edit {{name}}', { name: title })}
-            onClick={() => openEdit(project.path, title)}>
+          <span className="schedules-row-copy utilities-row-copy projects-row-label">
             <b>{title}</b>
             <small>{project.path}</small>
-          </button>
-          {/* Same pencil grammar as the Common Instructions row (user: 공통
-              지침과 동일하게) — every mutation lives in the edit dialog. */}
-          <button type="button" className="session-panel-action projects-instructions-edit"
-            disabled={editOpening} aria-label={t('Edit {{name}}', { name: title })} data-tooltip={t('Edit')}
-            onClick={() => openEdit(project.path, title)}>
-            <Pencil size={14} aria-hidden="true" />
-          </button>
-        </div>;
+          </span>
+          <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+        </button>;
       })}</div>
         : <div className="schedules-empty">
           <Folder size={40} strokeWidth={1.5} aria-hidden="true" />

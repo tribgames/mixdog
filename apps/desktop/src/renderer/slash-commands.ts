@@ -16,7 +16,7 @@ export interface DesktopSlashCommand {
   desktopDescription?: string;
   settingsRow?: SettingsSection;
   surface?: CommandSurface;
-  action?: 'clear' | 'compact' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task';
+  action?: 'clear' | 'compact' | 'goal' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task';
 }
 
 // Public fields mirror src/tui/app/slash-commands.mjs exactly. Desktop routing
@@ -25,6 +25,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'clear', usage: '/clear', aliases: ['new'], aliasUsage: ['new'], description: 'Start a fresh chat', action: 'clear' },
   { name: 'project', usage: '/project', aliases: ['projects'], aliasUsage: ['projects'], showAliasUsage: false, params: '[path]', description: 'Switch working directory (project)', action: 'project' },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context', action: 'compact' },
+  { name: 'goal', usage: '/goal', params: '[objective --time 1h|status|pause|resume|edit|complete|clear]', description: 'Run and manage a durable session Goal', action: 'goal' },
   { name: 'autoclear', usage: '/autoclear', params: '[on|off|duration]', description: 'Reduce cache-miss cost after long idle gaps', settingsRow: 'autoclear' },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat', action: 'resume' },
   { name: 'context', usage: '/context', description: 'Show current context surface', surface: 'context' },

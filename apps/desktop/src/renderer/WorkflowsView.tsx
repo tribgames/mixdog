@@ -1,10 +1,7 @@
 import {
   ChevronRight,
-  Compass,
-  Globe,
   Layers3,
   Plus,
-  Wrench,
   X,
 } from 'lucide-react';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
@@ -16,7 +13,6 @@ import type {
   DesktopModelOption,
   DesktopModelSelection,
 } from '../shared/contract';
-import { agentIcon } from './agent-icons';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
@@ -79,9 +75,20 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   };
 }
 
+function SidebarResourceTitle({ label, disabled }: {
+  label: string;
+  disabled: boolean;
+}) {
+  return <span className="sidebar-resource-title">
+    <b>{label}</b>
+    <span className={`sidebar-resource-state ${disabled ? 'is-disabled' : 'is-enabled'}`}>
+      {t(disabled ? 'Disabled' : 'Enabled')}
+    </span>
+  </span>;
+}
+
 function AgentRouteSummaryView({ summary }: {
   summary: AgentRouteSummary;
-  disabled?: boolean;
 }) {
   return <small className="agent-route-summary route-trigger-copy">
     <ModelRouteLabel model={summary.model} effort={summary.effort}
@@ -595,22 +602,16 @@ export function WorkflowsPane({
     void run('setAgentRoute', [id, enabled ? route : { disabled: true }]);
   };
   const renderAgentRow = (agent: AgentSummary) => {
-    const Icon = agentIcon(agent.id);
     const row = agents.find((entry) => String(entry.id) === agent.id);
     const route = record(row?.route);
-    return <div key={agent.id} className="schedules-row workflows-agent-summary-row"
+    return <div key={agent.id} className="schedules-row utilities-row workflows-agent-summary-row"
       {...agentOrder.getReorderProps(agent.id)}>
-      <span className="projects-row-icon"><Icon size={16} aria-hidden="true" /></span>
-      <button type="button" className="schedules-row-copy projects-row-open"
+      <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
         title={agent.description || agent.label}
         onClick={() => void openAgentEditor(agent.id, agent.custom)}>
-        <b>{agent.label}</b>
-        <AgentRouteSummaryView summary={agentRouteSummary(route, models)}
-          disabled={row?.disabled === true} />
+        <SidebarResourceTitle label={agent.label} disabled={row?.disabled === true} />
+        <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
       </button>
-      <CompactSwitch label={`${agent.label} · ${t('Enabled')}`}
-        checked={row?.disabled !== true} disabled={busy}
-        onChange={(enabled) => setAgentEnabled(agent.id, enabled, route)} />
       <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
         aria-label={t('Edit {{name}}', { name: agent.label })}
         onClick={() => void openAgentEditor(agent.id, agent.custom)}>
@@ -667,9 +668,8 @@ export function WorkflowsPane({
           const id = String(workflow.id || '');
           const name = String(workflow.name || id);
           const custom = String(workflow.source || '') === 'user';
-          return <div key={id} className="schedules-row" {...workflowOrder.getReorderProps(id)}>
-            <span className="projects-row-icon"><Layers3 size={16} aria-hidden="true" /></span>
-            <button type="button" className="schedules-row-copy projects-row-open"
+          return <div key={id} className="schedules-row utilities-row" {...workflowOrder.getReorderProps(id)}>
+            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
               aria-label={t("Edit workflow {{name}}", { name })}
               onClick={() => void openEditor(id, custom)}>
               <b>{name}</b>
@@ -692,11 +692,10 @@ export function WorkflowsPane({
         <h2>{t('Default agents')}</h2>
         <p>{t('Shared models without editable agent definitions.')}</p>
         <div className="schedules-list">
-          <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row"
+          <div className="schedules-row utilities-row workflows-agent-summary-row workflows-default-agent-summary-row"
             style={{ order: defaultAgentOrder.orderedIds.indexOf('web-search') }}
             {...defaultAgentOrder.getReorderProps('web-search')}>
-            <span className="projects-row-icon"><Globe size={16} aria-hidden="true" /></span>
-            <button type="button" className="schedules-row-copy projects-row-open"
+            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
               title={t('Use when Mixdog runs the web_search tool.')}
               onClick={() => setRouteEditor({
                 id: 'web-search',
@@ -724,11 +723,10 @@ export function WorkflowsPane({
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>
-          {exploreAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row"
+          {exploreAgent && <div className="schedules-row utilities-row workflows-agent-summary-row workflows-default-agent-summary-row"
             style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
             {...defaultAgentOrder.getReorderProps(exploreAgent.id)}>
-            <span className="projects-row-icon"><Compass size={16} aria-hidden="true" /></span>
-            <button type="button" className="schedules-row-copy projects-row-open"
+            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
               title={exploreAgent.description || exploreAgent.label}
               onClick={() => setRouteEditor({
                 id: exploreAgent.id,
@@ -740,14 +738,10 @@ export function WorkflowsPane({
                 description: exploreAgent.description,
                 readOnlyDefinition: true,
               })}>
-              <b>{exploreAgent.label}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)}
+              <SidebarResourceTitle label={exploreAgent.label}
                 disabled={exploreRow?.disabled === true} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
             </button>
-            <CompactSwitch label={`${exploreAgent.label} · ${t('Enabled')}`}
-              checked={exploreRow?.disabled !== true} disabled={busy}
-              onChange={(enabled) => setAgentEnabled(
-                exploreAgent.id, enabled, record(exploreRow?.route))} />
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
               aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
               onClick={() => setRouteEditor({
@@ -763,11 +757,10 @@ export function WorkflowsPane({
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>}
-          {maintainerAgent && <div className="schedules-row workflows-agent-summary-row workflows-default-agent-summary-row"
+          {maintainerAgent && <div className="schedules-row utilities-row workflows-agent-summary-row workflows-default-agent-summary-row"
             style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
             {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}>
-            <span className="projects-row-icon"><Wrench size={16} aria-hidden="true" /></span>
-            <button type="button" className="schedules-row-copy projects-row-open"
+            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
               title={maintainerAgent.description || maintainerAgent.label}
               onClick={() => setRouteEditor({
                 id: maintainerAgent.id,
@@ -779,14 +772,10 @@ export function WorkflowsPane({
                 description: maintainerAgent.description,
                 readOnlyDefinition: true,
               })}>
-              <b>{maintainerAgent.label}</b>
-              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)}
+              <SidebarResourceTitle label={maintainerAgent.label}
                 disabled={maintainerRow?.disabled === true} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
             </button>
-            <CompactSwitch label={`${maintainerAgent.label} · ${t('Enabled')}`}
-              checked={maintainerRow?.disabled !== true} disabled={busy}
-              onChange={(enabled) => setAgentEnabled(
-                maintainerAgent.id, enabled, record(maintainerRow?.route))} />
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
               aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
               onClick={() => setRouteEditor({

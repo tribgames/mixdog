@@ -229,6 +229,9 @@ export async function clearSessionMessages(sessionId, options = {}) {
         }
     }
     session.messages = keep;
+    // Clear truncates the transcript wholesale; drop the provider prefix
+    // snapshot so the next send re-baselines instead of history_shrink.
+    delete session._providerPrefixGuardState;
     resetSessionBp3Environment(session);
     session.totalInputTokens = 0;
     session.totalOutputTokens = 0;
@@ -340,8 +343,10 @@ export async function rewindSessionMessagesTo(sessionId, options = {}) {
     if (start < 0) return null;
     const removed = messages.length - start;
     session.messages = messages.slice(0, start);
-    // The provider cache is keyed on the exact prefix we just truncated.
+    // The provider cache is keyed on the exact prefix we just truncated;
+    // the prefix-guard snapshot describes it too and must go with it.
     session.providerState = undefined;
+    delete session._providerPrefixGuardState;
     session.updatedAt = Date.now();
     session.lastUsedAt = Date.now();
     await saveSessionAsync(session, { expectedGeneration: session.generation });

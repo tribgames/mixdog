@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Files, Globe, Sparkles, SquareTerminal } from "lucide-react";
 
 import { t } from "./i18n";
 import { usePersistedListOrder } from "./use-persisted-list-order";
@@ -20,21 +20,25 @@ export function UtilitiesPane({
     {
       label: "Studio",
       description: "Generate images and videos with AI.",
+      icon: Sparkles,
       run: onOpenStudio,
     },
     {
       label: "Terminal",
       description: "Open a shell in the current project.",
+      icon: SquareTerminal,
       run: onOpenTerminal,
     },
     {
       label: "Explorer",
       description: "Browse and edit project files.",
+      icon: Files,
       run: onOpenExplorer,
     },
     {
       label: "Browser",
       description: "Browse the web in a tab agents can drive.",
+      icon: Globe,
       run: onOpenBrowser,
     },
   ] as const;
@@ -51,9 +55,10 @@ export function UtilitiesPane({
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page">
       <div className="schedules-list utilities-list">
-        {orderedItems.map(({ label, description, run }) => (
+        {orderedItems.map(({ label, description, icon: Icon, run }) => (
           <button type="button" className="schedules-row utilities-row"
             key={label} onClick={run} {...order.getReorderProps(label)}>
+            <Icon className="utilities-row-icon" size={16} aria-hidden="true" />
             <span className="schedules-row-copy utilities-row-copy">
               <b>{t(label)}</b>
               <small>{t(description)}</small>

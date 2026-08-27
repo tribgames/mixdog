@@ -20,6 +20,7 @@ import {
 import {
     customToolCallFromResponseItem,
 } from './custom-tool-wire.mjs';
+import { providerReplayItems } from './lib/provider-replay.mjs';
 
 export function positiveTokenInt(value) {
     const n = Number(value);
@@ -407,6 +408,13 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
         const m = messages[messageIndex];
         if (!includeSystem && m.role === 'system') continue;
         if (m.role !== 'tool') flushToolMedia();
+        const orderedReplay = m.role === 'assistant'
+            ? providerReplayItems(m, 'xai-responses')
+            : undefined;
+        if (orderedReplay?.length) {
+            input.push(...orderedReplay);
+            continue;
+        }
         const reasoningItems = reasoningByMessageIndex.get(messageIndex);
         if (reasoningItems) input.push(...reasoningItems);
         if (dropToolHistory && m.role === 'tool') continue;

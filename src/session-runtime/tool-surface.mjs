@@ -81,8 +81,20 @@ export function createToolSurface({
     return surface;
   }
 
+  function activateTools(names) {
+    const session = getSession();
+    if (!session) return null;
+    const surfaceMode = deferredSurfaceModeForLead(mode);
+    applyDeferredToolSurface(session, surfaceMode, modelStandaloneTools(), {
+      provider: getRoute().provider,
+      model: getRoute().model,
+    });
+    return selectDeferredTools(session, names, surfaceMode);
+  }
+
   return {
     modelStandaloneTools,
+    activateTools,
     invalidatePreSessionToolSurface() {
       preSessionSurface = null;
     },

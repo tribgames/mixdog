@@ -59,7 +59,7 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
     case "session": return selection.id;
     case "file": return selection.rel.split("/").at(-1) || selection.rel;
     case "studio": return "Studio";
-    case "browser": return "Browser";
+    case "browser": return "Browser Use";
     case "terminal": return "Terminal";
     case "folder":
       return selection.path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) || selection.path;
@@ -335,8 +335,8 @@ export function PaneWorkspace({
   }, []);
   // Phone: a horizontal swipe across the work area steps to the neighbouring
   // tab, giving the projected surface the same tab traversal the desktop gets
-  // from its keyboard (user: 좌우 스와이프로 pc 컨트롤 방향키처럼). Surfaces
-  // that scroll sideways themselves opt out inside swipeGestureAllowed.
+  // from its keyboard (user: 좌우 스와이프로 pc 컨트롤 방향키처럼). Every
+  // element painted inside a pane participates; vertical scrolling stays native.
   const swipeWorkspace = useRef(workspace);
   swipeWorkspace.current = workspace;
   const swipeFocusSelection = useRef(onFocusSelection);

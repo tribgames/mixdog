@@ -33,6 +33,7 @@ import {
     streamStalledError,
 } from '../stall-policy.mjs';
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
+import { createProviderReplay } from './lib/provider-replay.mjs';
 import { _wsErrLabel, WS_MAX_INCOMING_FRAME_BYTES } from './openai-ws-pool.mjs';
 import {
     _sansInput,
@@ -675,6 +676,10 @@ export async function _streamResponse({
             try {
                 err.partialContent = content;
                 err.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
+                err.partialProviderReplay = createProviderReplay(
+                    traceProvider === 'xai' ? 'xai-responses' : 'openai-responses',
+                    responseItemsAdded,
+                );
                 err.pendingToolUse = pendingCalls.size > 0
                     || activeToolItems.size > 0
                     || _toolInFlight === true;
@@ -794,6 +799,10 @@ export async function _streamResponse({
                 model,
                 reasoningItems: reasoningItems.length ? reasoningItems : undefined,
                 responseItems: responseItemsAdded.length ? responseItemsAdded : undefined,
+                providerReplay: createProviderReplay(
+                    traceProvider === 'xai' ? 'xai-responses' : 'openai-responses',
+                    responseItemsAdded,
+                ),
                 // Dedupe by name+args (Fix 2, array side) so an identical
                 // synthetic-leaked + native pair can't run the tool twice.
                 toolCalls: toolCalls.length ? dedupeToolCallList(toolCalls) : undefined,

@@ -11,6 +11,7 @@
 import { SchemaType } from '@google/generative-ai';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 import { normalizeContentForGeminiParts, splitToolContentForGemini } from './media-normalization.mjs';
+import { providerReplayItems } from './lib/provider-replay.mjs';
 
 function explicitGeminiMediaPart(part) {
     if (!part || typeof part !== 'object') return null;
@@ -617,6 +618,12 @@ function toGeminiToolContent(message, toolNameByCallId, capabilities) {
 
 function toGeminiContent(message, toolNameByCallId, capabilities) {
     if (!message || message.role === 'system') return null;
+    const orderedReplay = message.role === 'assistant'
+        ? providerReplayItems(message, ['gemini', 'antigravity'])
+        : undefined;
+    if (orderedReplay?.length) {
+        return { role: 'model', parts: orderedReplay };
+    }
     if (message.role === 'assistant' && message.toolCalls?.length) {
         const parts = geminiThoughtPartsFromMetadata(message);
         if (message.content) {

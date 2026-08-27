@@ -29,6 +29,7 @@ import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
 import { _getPendingMessagesForSession } from './pending-messages.mjs';
 import { isSessionCompactionBlocked } from './runtime-liveness.mjs';
+import { resetReadStateAfterCompaction } from '../read-dedup.mjs';
 import {
     compactTargetBudget as compactTargetBudgetForPolicy,
     currentContextEstimateTokens,
@@ -449,6 +450,7 @@ export async function runSessionCompaction(session, opts = {}) {
     const unchangedReason = changed ? null : (force ? 'nothing to compact' : 'below threshold');
     const now = Date.now();
     session.messages = compacted;
+    if (changed) resetReadStateAfterCompaction(resolvedSessionId);
     // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
     // lets an in-flight turn's sidecars survive until a later compaction/close.
     const pruneSessionId = resolvedSessionId;

@@ -20,7 +20,7 @@ const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 45_000;
 
 const BRIDGE_UNAVAILABLE_MESSAGE =
-  'browser bridge is unavailable; open the Mixdog desktop app (the browser tool drives its Utilities → Browser pane)';
+  'browser use is unavailable; open the Mixdog desktop app (the browser tool drives its Utilities → Browser Use pane)';
 
 function discoveryPath() {
   const dataDir = process.env.MIXDOG_DATA_DIR

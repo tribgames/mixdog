@@ -185,6 +185,9 @@ function mergedLaneFrame(
   for (const field of LANE_PRESENTATION_FIELDS) {
     if (merged[field] == null && prior[field] != null) merged[field] = prior[field];
   }
+  if (!Object.prototype.hasOwnProperty.call(next, "goal") && prior.goal != null) {
+    merged.goal = prior.goal;
+  }
   return merged;
 }
 

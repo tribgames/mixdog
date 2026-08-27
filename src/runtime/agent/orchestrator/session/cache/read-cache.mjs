@@ -260,6 +260,19 @@ export function clearReadDedupSession(sessionId) {
     clearScopedCounters(sessionId);
 }
 
+/**
+ * Start a fresh read epoch after compaction removes prior tool results from
+ * the active context. Both layers must reset together: retaining the result
+ * cache can bypass snapshot recreation, while retaining the persisted
+ * snapshot can make a fresh read answer only "[file unchanged]".
+ */
+export function resetReadStateAfterCompaction(sessionId) {
+    if (!sessionId) return;
+    _bySession.delete(sessionId);
+    _reverseIdx.delete(sessionId);
+    releaseReadSnapshotScope(sessionId, { deletePersisted: true, persist: false });
+}
+
 registerSessionPurgeHook((sessionId) => {
     clearReadDedupSession(sessionId);
     releaseReadSnapshotScope(sessionId, { deletePersisted: true, persist: false });

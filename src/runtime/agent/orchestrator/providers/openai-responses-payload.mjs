@@ -17,6 +17,7 @@ import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { makeModelCache } from './model-cache.mjs';
+import { providerReplayItems } from './lib/provider-replay.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
@@ -175,6 +176,18 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
             continue;
         }
         flushToolMedia();
+        const orderedReplay = replayEncryptedReasoning && m.role === 'assistant'
+            ? providerReplayItems(m, 'openai-responses')
+            : undefined;
+        if (orderedReplay?.length) {
+            for (const item of orderedReplay) {
+                if (item?.type === 'custom_tool_call' && item.call_id) {
+                    customToolCallNameById.set(item.call_id, item.name || '');
+                }
+                out.push(item);
+            }
+            continue;
+        }
         pushReasoningItems(m, 'before');
         if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
             // Default path deliberately omits reasoning replay: openai-oauth

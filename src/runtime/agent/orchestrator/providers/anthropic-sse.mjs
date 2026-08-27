@@ -30,6 +30,7 @@ import {
 } from './stream-json-pool.mjs';
 import { splitSseRegion } from './lib/sse-framing.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS, STREAM_OUTCOME_VERSION } from './lib/stream-outcome.mjs';
+import { createProviderReplay } from './lib/provider-replay.mjs';
 import {
     anthropicFallbackProviderMetadata,
     parseAnthropicFallbackBlock,
@@ -210,15 +211,20 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
         .filter(([index]) => !pendingNativeToolInputs.has(index));
     const _orderedAssistantBlocks = () => {
         const nativeBlocks = _completedNativeBlocks();
-        if (!nativeBlocks.length) return undefined;
-        return [
+        const entries = [
             ...[...thinkingBlocks.entries()],
             ...[...textBlocks.entries()]
                 .filter(([, text]) => typeof text === 'string' && text.length > 0)
                 .map(([index, text]) => [index, { type: 'text', text }]),
             ...nativeBlocks,
             ...[...clientToolUseBlocks.entries()],
-        ]
+        ];
+        if (!entries.length) return undefined;
+        // A leaked plain-text tool call has no provider content_block index.
+        // Falling back to the legacy flattened projection is safer than
+        // claiming an exact replay while silently omitting that synthetic call.
+        if (toolCalls.length > 0 && clientToolUseBlocks.size !== toolCalls.length) return undefined;
+        return entries
             .sort((a, b) => a[0] - b[0])
             .map(([, block]) => block);
     };
@@ -908,6 +914,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
                 err.partialHasThinking = hasThinkingContent;
                 err.partialThinkingBlocks = _orderedThinkingBlocks();
                 err.partialAssistantBlocks = _orderedAssistantBlocks();
+                err.partialProviderReplay = createProviderReplay('anthropic', err.partialAssistantBlocks);
                 err.partialStopReason = stopReason || undefined;
             } catch { /* best-effort enrichment */ }
             // Truncation is a continuation, never a terminal turn. A pending
@@ -932,6 +939,7 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             throw err;
         }
 
+        const assistantBlocks = _orderedAssistantBlocks();
         return {
             content,
             model,
@@ -952,7 +960,8 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
             // replays this list verbatim (see toAnthropicMessages'
             // assistantBlocks branch). Absent for every ordinary turn, which
             // keeps the existing text/thinking/tool_use lowering untouched.
-            assistantBlocks: _orderedAssistantBlocks(),
+            assistantBlocks,
+            providerReplay: createProviderReplay('anthropic', assistantBlocks),
             providerMetadata: anthropicFallbackProviderMetadata(fallbackEvents),
         };
     } finally {

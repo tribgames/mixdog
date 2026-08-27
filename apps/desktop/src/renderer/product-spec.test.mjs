@@ -14,6 +14,7 @@ test('current slash-command and settings product choices', () => {
   const quitAlias = resolveDesktopSlashCommand('q');
   assert.equal(quitAlias?.action, 'close-task');
   assert.equal(desktopSlashCommandDescription(quitAlias), 'Close this task');
+  assert.equal(resolveDesktopSlashCommand('goal')?.action, 'goal');
   assert.equal(
     SETTINGS_CATEGORIES.find((category) => category.value === 'context')?.items.includes('memory-cycles'),
     false,

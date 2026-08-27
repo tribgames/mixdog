@@ -121,17 +121,15 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // Advisory drift check: update these anchors when the rule text
   // intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
-  assert.match(full, /Minimize tool turns through maximal useful parallelism/i);
-  assert.match(full, /In each round, issue every necessary non-overlapping call whose inputs are\s+already known/i);
-  assert.match(full, /Determine the required outcome and its gaps/i);
-  assert.match(full, /gather only what is missing, act, then verify the affected facets/i);
-  assert.match(full, /Investigate, build, and verify only what the requested outcome requires, at\s+the level it requires/i);
+  assert.match(full, /Determine the required outcome and missing evidence/i);
+  assert.match(full, /Before exploration or implementation, consult prior work, current external\s+information, or repository state only when needed/i);
+  assert.match(full, /Minimize tool turns by batching only calls that are independently necessary/i);
+  assert.match(full, /A call whose necessity or scope can change after\s+another result waits for that result/i);
+  assert.match(full, /Respect tool\/schema limits, never omit required fanout/i);
   assert.match(full, /A check runs at the strictness the task requires; never raise a tool's own\s+severity beyond it/i);
-  assert.match(full, /Cost is counted in\s+rounds, not calls/i);
-  assert.match(full, /defer a call only when its target or arguments require an\s+earlier result/i);
   assert.match(full, /Route each evidence facet once to its primary owner/i);
-  assert.match(full, /enumeration is not a prerequisite when that operation's/i);
-  assert.match(full, /apply\s+one analysis to many targets as one parameterized call/i);
+  assert.match(full, /A summary,\s+overview, or enumeration is not a prerequisite to an operation whose complete\s+inputs are already known/i);
+  assert.match(full, /apply one analysis\s+to many targets as one parameterized call/i);
   assert.match(full, /Evidence or artifacts available only through program execution, calculation,\s+data transformation, generated output, or unsupported-format decoding→`shell`/i);
   assert.match(full, /an already-open shell is never a routing reason/i);
   assert.match(full, /Route the missing evidence to its primary owner/i);
@@ -144,9 +142,9 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /literal, regex, or text location→`grep`;\s+known-file content, range, or image→`read`/i);
   assert.match(full, /is never re-found, re-derived, or\s+re-verified at any granularity/i);
   assert.match(full, /Mine each returned result fully before opening the next round/i);
-  assert.match(full, /Evidence that determines the answer, edit, or deliverable ends retrieval/i);
+  assert.match(full, /Stop exploring once sufficient evidence determines the next action required\s+by the request/i);
   assert.match(full, /Enter Verification only after all planned work is complete/i);
-  assert.match(full, /use an umbrella suite only when the user explicitly requests it\s+or a documented project or release process requires it/i);
+  assert.match(full, /Use an umbrella suite only when explicitly requested or required by the\s+documented project or release process/i);
   assert.match(full, /If verification fails, collect all failures, leave Verification/i);
   assert.match(full, /A successful verification closes the task unless later changes affect it/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
@@ -233,6 +231,30 @@ test('modelStandaloneTools hides agent and disabled web-search/memory tools', ()
     standalone,
   });
   assert.deepEqual(modelStandaloneTools().map((tool) => tool.name), ['read']);
+});
+
+test('activateTools refreshes a stale session catalog before selecting new runtime tools', () => {
+  const read = { name: 'read', annotations: { readOnlyHint: true } };
+  const updateGoal = { name: 'update_goal', annotations: { readOnlyHint: false } };
+  const session = {
+    provider: 'grok-oauth',
+    messages: [{ role: 'system', content: '# Existing session' }],
+    tools: [read],
+    deferredToolCatalog: [read],
+    deferredCallableTools: ['read'],
+    deferredSelectedTools: ['read'],
+    deferredToolBp2Applied: true,
+  };
+  const surface = surfaceFor({ session, standalone: [read, updateGoal] });
+  const result = surface.activateTools(['update_goal']);
+  assert.deepEqual(result.missing, []);
+  assert.equal(
+    new Set([
+      ...session.tools.map((tool) => tool.name),
+      ...(session.deferredCallableTools || []),
+    ]).has('update_goal'),
+    true,
+  );
 });
 
 test('empty session refresh strips denied tools and BP1 routes', async () => {

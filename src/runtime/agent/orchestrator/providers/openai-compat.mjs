@@ -64,6 +64,7 @@ import {
     writeXaiResponsesCacheTrace,
 } from './openai-compat-xai.mjs';
 import { envFlag as _envFlag } from './lib/env-utils.mjs';
+import { createProviderReplay } from './lib/provider-replay.mjs';
 
 const requireOpenAI = createRequire(import.meta.url);
 let _OpenAI = null;
@@ -910,6 +911,7 @@ export class OpenAICompatProvider {
         // any rejection as a provider-side drop.)
         const nextPreviousResponseId = response.id;
         const encryptedReasoningItems = encryptedXaiReasoningItems(response.output);
+        const providerReplay = createProviderReplay('xai-responses', response.output);
         const encryptedReasoningHistory = [
             ...(Array.isArray(opts.providerState?.xaiResponses?.encryptedReasoningHistory)
                 ? opts.providerState.xaiResponses.encryptedReasoningHistory
@@ -930,6 +932,7 @@ export class OpenAICompatProvider {
             ...(streamed.stopReason === 'length' && (streamed.content || '').length > 0 ? { truncated: true } : {}),
             citations: searchSources.citations.length ? searchSources.citations : undefined,
             webSearchCalls: searchSources.webSearchCalls.length ? searchSources.webSearchCalls : undefined,
+            providerReplay,
             providerState: {
                 ...(opts.providerState || {}),
                 xaiResponses: {
@@ -1048,6 +1051,7 @@ export class OpenAICompatProvider {
         // Same rationale as the HTTP path above: `length` stop keeps the chain.
         const nextPreviousResponseId = responseId;
         const encryptedReasoningItems = encryptedXaiReasoningItems(result.responseItems);
+        const providerReplay = createProviderReplay('xai-responses', result.responseItems);
         const encryptedReasoningHistory = [
             ...(Array.isArray(opts.providerState?.xaiResponses?.encryptedReasoningHistory)
                 ? opts.providerState.xaiResponses.encryptedReasoningHistory
@@ -1106,6 +1110,7 @@ export class OpenAICompatProvider {
             // P1 audit fix: same truncated signal as the HTTP path (see
             // _doSendXaiResponses above) for the WebSocket transport.
             ...(result.stopReason === 'length' && (result.content || '').length > 0 ? { truncated: true } : {}),
+            providerReplay,
             providerState: {
                 ...(opts.providerState || {}),
                 xaiResponses: {

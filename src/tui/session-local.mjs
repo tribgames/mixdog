@@ -31,6 +31,7 @@ import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from './markdown/streaming-markdown.mjs';
 import { bootProfile } from './session/boot-profile.mjs';
 import { createSessionStats, applyUsageDelta } from './session/session-stats.mjs';
+import { createGoalContinuation } from './session/goal-continuation.mjs';
 import {
   pickVerb,
   pickDoneVerb,
@@ -896,6 +897,14 @@ export async function createLocalSessionRuntime({
     kickExecutionPendingResume, flushDeferredExecutionPendingResumeKick, scheduleExecutionPendingResumeKick, discardExecutionPendingResume, updateAgentJobCard, subscribeRuntimeNotifications,
   });
   Object.assign(bag, createSessionFlow(bag));
+  Object.assign(bag, createGoalContinuation({
+    runtime,
+    flags,
+    getState: () => state,
+    set,
+    getPending: () => pending,
+    enqueue: (...args) => bag.enqueue(...args),
+  }));
   bag.runTurn = createRunTurn(bag);
   const api = createSessionApi(bag);
   // Cross-surface share: presence + the durable pending spool remain the
@@ -1069,6 +1078,9 @@ export async function createLocalSessionRuntime({
     const base = api[method].bind(api);
     api[method] = async (...args) => {
       const result = await base(...args);
+      bag.cancelQueuedGoalContinuations?.();
+      bag.refreshGoalState?.();
+      bag.scheduleGoalContinuation?.();
       reconcileLiveShareNow();
       if (method === 'resume' && result === true && state.sessionRemoteAttached) {
         const id = String(state.sessionId || '');
@@ -1165,6 +1177,8 @@ export async function createLocalSessionRuntime({
     } catch { /* best-effort */ }
   }, 3000);
   remoteAttachTimer.unref?.();
-  void bag.restoreLeadSteeringFromDisk();
+  void Promise.resolve(bag.restoreLeadSteeringFromDisk())
+    .catch(() => {})
+    .finally(() => bag.scheduleGoalContinuation?.());
   return api;
 }

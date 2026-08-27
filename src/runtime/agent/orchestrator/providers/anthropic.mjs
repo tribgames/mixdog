@@ -318,6 +318,7 @@ export class AnthropicProvider {
                 assistantBlocks: Array.isArray(parseResult.assistantBlocks) && parseResult.assistantBlocks.length
                     ? parseResult.assistantBlocks
                     : undefined,
+                ...(parseResult.providerReplay ? { providerReplay: parseResult.providerReplay } : {}),
                 ...(parseResult.providerMetadata && typeof parseResult.providerMetadata === 'object'
                     ? { providerMetadata: parseResult.providerMetadata }
                     : {}),

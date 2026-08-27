@@ -6,6 +6,7 @@
 import { createHash, randomUUID } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
 import { readStreamOutcome } from '../../providers/lib/stream-outcome.mjs';
+import { cloneProviderReplay } from '../../providers/lib/provider-replay.mjs';
 import { classifyError } from '../../providers/retry-classifier.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { loadSession, saveSession, saveSessionAsync, saveSessionAsyncDeferred, readSessionLifecycleFromDisk } from '../store.mjs';
@@ -405,6 +406,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (!activeSession) return null;
             _stopTurnCheckpoint();
             activeSession.liveTurnMessages = null;
+            // Interruption finalize below rewrites the transcript; the
+            // mid-turn provider prefix snapshot must not survive it.
+            delete activeSession._providerPrefixGuardState;
             _turnInterruption.restoreTombstonedText();
             const finalized = _turnInterruption.finalize({
                 turnOutgoing: _turnOutgoing || activeSession.messages,
@@ -847,6 +851,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     ? result.historyContent
                     : (result.content || '');
                 const _terminalStop = result?.stopReason ?? result?.stop_reason ?? null;
+                const _providerReplay = cloneProviderReplay(result.providerReplay);
                 session.messages.push({
                     role: 'assistant',
                     // Keep content as-is in memory (model-visible). Image bytes,
@@ -854,6 +859,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     // time inside the session store (store.mjs _sessionForDisk).
                     content: persistedAssistantContent,
                     ...(_assistantTranscriptMeta ? { meta: { transcript: _assistantTranscriptMeta } } : {}),
+                    ...(_providerReplay
+                        ? { providerReplay: _providerReplay }
+                        : {}),
                     ...(typeof result.reasoningContent === 'string' && result.reasoningContent
                         ? { reasoningContent: result.reasoningContent }
                         : {}),
@@ -1087,6 +1095,12 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             if (activeSession) {
                 activeSession.liveTurnMessages = null;
                 delete activeSession.activeTurnCheckpoint;
+                // The provider prefix snapshot commits per successful send
+                // INSIDE the turn, while the transcript unwinds to its
+                // pre-turn/finalized shape below. A surviving mid-turn
+                // snapshot flags every retry as history_shrink ("Session
+                // state changed unexpectedly."), so it unwinds with the turn.
+                delete activeSession._providerPrefixGuardState;
             }
             // Restore before ANY finalization path. In particular, cancellation
             // can race the acknowledged non-streaming restart and surface as a

@@ -13,7 +13,10 @@ import {
 
 const dom = new JSDOM(
   '<!doctype html><html><body><div class="pane-cell" data-pane-id="leaf-1">'
-  + '<div class="surface"></div><pre class="code"></pre></div></body></html>',
+  + '<div class="surface"></div><input class="field"><textarea class="editor"></textarea>'
+  + '<pre class="code"></pre><table class="table"><tbody><tr><td>cell</td></tr></tbody></table>'
+  + '<div class="monaco-editor"></div><div class="xterm"></div></div>'
+  + '<div class="pane-portal"></div></body></html>',
   { url: "https://mixdog.test/" },
 );
 globalThis.window = dom.window;
@@ -26,6 +29,7 @@ const root = dom.window.document.documentElement;
 const cell = dom.window.document.querySelector("[data-pane-id]");
 const surface = dom.window.document.querySelector(".surface");
 const codeBlock = dom.window.document.querySelector(".code");
+const panePortal = dom.window.document.querySelector(".pane-portal");
 
 function touch(target, type, x, y, time) {
   const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
@@ -465,12 +469,47 @@ test("a mostly vertical drag never switches tabs", () => {
   }
 });
 
-test("a surface that owns horizontal gestures keeps the swipe", () => {
+test("every element displayed inside a pane can start tab traversal", () => {
+  for (const selector of [
+    ".surface",
+    ".field",
+    ".editor",
+    ".code",
+    ".table",
+    ".monaco-editor",
+    ".xterm",
+  ]) {
+    const target = dom.window.document.querySelector(selector);
+    const { activations, uninstall } = swipeHarness();
+    try {
+      touch(target, "touchstart", 300, 200, 0);
+      touch(target, "touchmove", 180, 202, 16);
+      touch(target, "touchend", 160, 202, 32);
+      assert.deepEqual(activations, [["leaf-1", "session:b"]], selector);
+    } finally {
+      uninstall();
+    }
+  }
+});
+
+test("a body portal painted over the pane traverses that pane", () => {
   const { activations, uninstall } = swipeHarness();
   try {
-    touch(codeBlock, "touchstart", 300, 200, 0);
-    touch(codeBlock, "touchmove", 180, 202, 16);
-    touch(codeBlock, "touchend", 160, 202, 32);
+    touch(panePortal, "touchstart", 300, 200, 0);
+    touch(panePortal, "touchmove", 180, 202, 16);
+    touch(panePortal, "touchend", 160, 202, 32);
+    assert.deepEqual(activations, [["leaf-1", "session:b"]]);
+  } finally {
+    uninstall();
+  }
+});
+
+test("app chrome outside pane geometry does not traverse pane tabs", () => {
+  const { activations, uninstall } = swipeHarness();
+  try {
+    touch(panePortal, "touchstart", 500, 200, 0);
+    touch(panePortal, "touchmove", 380, 202, 16);
+    touch(panePortal, "touchend", 360, 202, 32);
     assert.deepEqual(activations, []);
   } finally {
     uninstall();

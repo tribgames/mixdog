@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { canFallbackNonStreaming, withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage, appendAgentTrace } from '../agent-trace.mjs';
+import { createProviderReplay } from './lib/provider-replay.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_MAX_BEFORE_WARN_MS,
@@ -907,6 +908,10 @@ export class GeminiProvider {
             ? textLeakGuard.scrubAssistantText(rawContent)
             : rawContent;
         const leakedToolCalls = textLeakGuard?.getLeakedToolCalls() ?? [];
+        const providerReplay = createProviderReplay(
+            'gemini',
+            leakedToolCalls.length ? [] : responseParts,
+        );
         let nativeToolCalls = parseToolCalls(candidate?.content?.parts ?? []);
         if (textLeakGuard?.enabled) {
             nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
@@ -943,6 +948,7 @@ export class GeminiProvider {
                     finishReason,
                     partialContent: content,
                     partialToolCalls: toolCalls,
+                    partialProviderReplay: providerReplay,
                     providerMetadata,
                     model: useModel,
                     rawUsage: response.usageMetadata || null,
@@ -1015,6 +1021,7 @@ export class GeminiProvider {
             model: useModel,
             toolCalls,
             citations: citations.length ? citations : undefined,
+            providerReplay,
             providerMetadata,
             providerState: opts.providerState,
             // Use the same normalized usage object traceAgentUsage recorded,

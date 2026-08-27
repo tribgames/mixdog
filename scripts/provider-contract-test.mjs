@@ -13,6 +13,7 @@ import {
     compatReportedCostUsd,
     parseToolCalls,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat.mjs';
+import { sanitizeModelList } from '../src/runtime/agent/orchestrator/providers/model-list-sanitize.mjs';
 import {
     consumeCompatChatCompletionStream,
     consumeCompatResponsesStream,
@@ -53,6 +54,60 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { providerCachedModelMetadataSync } from '../src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { readRuntimeTunables } from '../src/session-runtime/runtime-tunables.mjs';
+
+test('OpenRouter model sanitizer applies hosted filters with a nine-month default cutoff', () => {
+    const previousStaleMonths = process.env.MIXDOG_MODEL_STALE_MONTHS;
+    delete process.env.MIXDOG_MODEL_STALE_MONTHS;
+    try {
+        const releaseDate = (monthsAgo) => new Date(
+            Date.now() - monthsAgo * 30.4375 * 24 * 60 * 60 * 1000,
+        ).toISOString().slice(0, 10);
+        const models = [
+            { id: 'vendor/current-text', mode: 'chat' },
+            { id: 'vendor/ten-month-text', mode: 'chat' },
+            { id: 'vendor/image-model', mode: 'chat' },
+            { id: 'vendor/no-tools', mode: 'chat' },
+        ];
+        const catalog = {
+            openrouter: {
+                models: {
+                    'vendor/current-text': {
+                        family: 'current-text',
+                        release_date: releaseDate(1),
+                        tool_call: true,
+                        modalities: { output: ['text'] },
+                    },
+                    'vendor/ten-month-text': {
+                        family: 'ten-month-text',
+                        release_date: releaseDate(10),
+                        tool_call: true,
+                        modalities: { output: ['text'] },
+                    },
+                    'vendor/image-model': {
+                        family: 'image-model',
+                        release_date: releaseDate(1),
+                        tool_call: true,
+                        modalities: { output: ['image'] },
+                    },
+                    'vendor/no-tools': {
+                        family: 'no-tools',
+                        release_date: releaseDate(1),
+                        tool_call: false,
+                        modalities: { output: ['text'] },
+                    },
+                },
+            },
+        };
+
+        assert.deepEqual(
+            sanitizeModelList(models, { provider: 'openrouter', _testCatalog: catalog }).map((row) => row.id),
+            ['vendor/current-text'],
+        );
+    } finally {
+        if (previousStaleMonths === undefined) delete process.env.MIXDOG_MODEL_STALE_MONTHS;
+        else process.env.MIXDOG_MODEL_STALE_MONTHS = previousStaleMonths;
+    }
+});
 import { effortOptionsFor } from '../src/session-runtime/effort.mjs';
 import {
     consumeOpenAICodexResetCredit,

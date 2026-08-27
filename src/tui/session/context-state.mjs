@@ -48,6 +48,7 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     webSearchRoute: runtime.getWebSearchRoute?.() || runtime.webSearchRoute || null,
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
+    goal: runtime.goalStatus?.() || null,
   });
 
   const routeState = () => {

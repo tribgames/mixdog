@@ -163,9 +163,14 @@ test('crash recovery matches the live finalize path (text reset, tool pairing)',
         updatedAt: 0,
         messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: prompt }],
         activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
+        _providerPrefixGuardState: { messageHashes: ['stale'], requestPrefixHash: 'stale' },
     };
     const recovery = recoverTurnCheckpoint(session);
     assert.equal(recovery.recovered, true);
+    // A recovered (rewritten) transcript must never keep the mid-turn provider
+    // prefix snapshot: a stale one flags every following send as
+    // history_shrink ("Session state changed unexpectedly.").
+    assert.equal(Object.prototype.hasOwnProperty.call(session, '_providerPrefixGuardState'), false);
     const expected = finalizeTurnInterruptionSnapshot({
         turnOutgoing: checkpoint.turnMessages,
         currentUserContent: checkpoint.currentUserContent,

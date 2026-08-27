@@ -16,6 +16,7 @@ import {
   desktopCancelOutcome,
 } from "../shared/agent-activity.ts";
 import { LiveWorkIndicator, SessionStatusIsland } from "./SessionStatusIsland.tsx";
+import { SessionGoalIsland } from "./SessionGoalIsland.tsx";
 import { PaneStatusIsland } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
@@ -312,6 +313,81 @@ test("header snapshot equality ignores unrelated stats but tracks visible contex
     ...base,
     stats: { ...base.stats, costUsd: 0.5 },
   }), false);
+  assert.equal(desktopHeaderSnapshotsEqual(base, {
+    ...base,
+    goal: { id: "goal-1", status: "active", objective: "Finish it" },
+  }), false);
+});
+
+test("Goal island uses condition counts only for multi-condition Goals", async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(SessionGoalIsland, {
+        snapshot: {
+          sessionId: "goal-session",
+          goal: {
+            id: "goal-simple",
+            objective: "Simple Goal",
+            status: "active",
+            criteriaTotal: 1,
+            criteriaCompleted: 0,
+            remainingMs: 60 * 60 * 1000,
+            deadlineAt: Date.now() + 60 * 60 * 1000,
+          },
+        },
+      }));
+    });
+    assert.match(document.body.textContent, /Simple Goal/);
+    assert.match(document.body.textContent, /in progress/);
+    assert.doesNotMatch(document.body.textContent, /0\/1/);
+
+    await act(async () => {
+      dom.root.render(React.createElement(SessionGoalIsland, {
+        snapshot: {
+          sessionId: "goal-session",
+          goal: {
+            id: "goal-multi",
+            objective: "Multi Goal",
+            status: "active",
+            criteriaTotal: 4,
+            criteriaCompleted: 2,
+            remainingMs: 30 * 60 * 1000,
+            deadlineAt: Date.now() + 30 * 60 * 1000,
+          },
+        },
+      }));
+    });
+    assert.match(document.body.textContent, /2\/4/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("completed Goal island labels elapsed time instead of in-progress work", async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(SessionGoalIsland, {
+        snapshot: {
+          sessionId: "goal-session",
+          goal: {
+            id: "goal-complete",
+            objective: "Completed Goal",
+            status: "complete",
+            timeUsedMs: 60 * 1000,
+          },
+        },
+      }));
+    });
+    const time = document.querySelector(".session-goal-time")?.textContent || "";
+    assert.match(time, /elapsed/);
+    assert.doesNotMatch(time, /in progress/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
 });
 
 test("running background agent jobs drive the header icon until terminal", async () => {

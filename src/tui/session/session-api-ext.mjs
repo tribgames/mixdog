@@ -437,7 +437,7 @@ export function sessionContextSnapshotProjection(session, contextStatus) {
 
 export function createSessionApiB(bag) {
   const {
-    runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
+    runtime, nextId, flags, lifecycle, listeners, getState, set, flushEmitImmediate, disposeEmit, replaceItems, pushNotice, removeNotice, setProgressHint, clearToastTimers, disposeTranscriptSpill, disposeGoalContinuation, routeState, syncContextStats, finishToolApproval, denyAllToolApprovals, restoreLeadSteeringFromDisk, resetStats, clearUiActivityBeforeContextSync, resetTuiForPendingSessionReset, snapshotTuiBeforeSessionReset, restoreTuiAfterFailedSessionReset, commitTuiSessionReset, resetStatsAndSyncContext,
   } = bag;
   const oauthFlows = createSessionOAuthFlowRegistry();
   /**
@@ -1101,6 +1101,7 @@ export function createSessionApiB(bag) {
       try { runtime.clearSessionPresence?.(); } catch { /* best-effort */ }
       clearToastTimers();
       disposeTranscriptSpill?.();
+      disposeGoalContinuation?.();
       try { clearInterval(lifecycle.runtimePulseTimer); } catch {}
       try { lifecycle.unsubscribeRuntimeNotifications?.(); } catch {}
       lifecycle.unsubscribeRuntimeNotifications = null;

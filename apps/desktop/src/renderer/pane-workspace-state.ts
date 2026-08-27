@@ -122,53 +122,13 @@ function readStoredPaneLayout(storage: StorageLike | null): PaneWorkspaceState |
   }
 }
 
-/** Tabs a phone may carry across a cold open. Terminal/file/folder/diff/PR/
- *  studio surfaces are deliberately absent: resurrecting them is what made a
- *  phone entry open a terminal it never asked for. */
-const MOBILE_RESTORABLE_TAB_KINDS = new Set(["session", "new"]);
-const MOBILE_RESTORE_TAB_LIMIT = 16;
-
-/** Reshape a persisted desktop workspace into the ONE pane a phone renders.
- *  Tab order and the last active tab survive; splits, and every surface the
- *  phone cannot own, do not. */
+/** A phone launch is a fresh task boundary. The live page keeps its tabs
+ *  through transient relay reconnects, but a page restart never revives the
+ *  PANE/tab list from the previous run. */
 export function mobilePaneWorkspaceState(
-  stored: PaneWorkspaceState | null,
-  limit: number = MOBILE_RESTORE_TAB_LIMIT,
+  _stored: PaneWorkspaceState | null,
 ): PaneWorkspaceState | null {
-  if (!stored) return null;
-  const leaves = paneLeaves(stored.layout);
-  const focused = leaves.find((leaf) => leaf.id === stored.focusedLeafId) ?? leaves[0] ?? null;
-  const activeKeyCandidate = focused
-    ? navigationKey(paneActiveSelection(focused) ?? focused.tabs[0])
-    : "";
-  const tabs: WorkspaceSelection[] = [];
-  const seen = new Set<string>();
-  for (const leaf of leaves) {
-    for (const tab of leaf.tabs) {
-      if (!MOBILE_RESTORABLE_TAB_KINDS.has(tab.kind)) continue;
-      const key = navigationKey(tab);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      tabs.push(tab);
-    }
-  }
-  if (tabs.length === 0) return null;
-  // Keep the last active tab even when the cap would have cut it off.
-  const kept = tabs.slice(0, Math.max(1, limit));
-  const active = tabs.find((tab) => navigationKey(tab) === activeKeyCandidate);
-  if (active && !kept.some((tab) => navigationKey(tab) === activeKeyCandidate)) {
-    kept[kept.length - 1] = active;
-  }
-  const leaf = createPaneLeaf(kept[0]);
-  const layout: PaneLeaf = {
-    ...leaf,
-    tabs: kept,
-    activeKey: kept.some((tab) => navigationKey(tab) === activeKeyCandidate)
-      ? activeKeyCandidate
-      : navigationKey(kept[0]),
-    previewKey: undefined,
-  };
-  return { layout, focusedLeafId: layout.id };
+  return null;
 }
 
 export function initialPaneWorkspaceState(
@@ -187,14 +147,17 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
     requiresSessionValidation: boolean;
   } | null>(null);
   if (!startupRestore.current) {
-    // The phone continues its OWN last visit (user: 마지막으로 열었던 게
-    // 승계되도록): the stored tree is reshaped into a single pane holding
-    // only session/new tabs, so nothing resurrects a terminal or file tab
-    // the phone never asked for. Session addressing is verified in the
-    // background — a phone never sees the restore gate.
     const mobile = isMobileRemoteSurface();
-    const raw = readStoredPaneLayout(safeLocalStorage());
+    const storage = safeLocalStorage();
+    const raw = readStoredPaneLayout(storage);
     const stored = mobile ? mobilePaneWorkspaceState(raw) : raw;
+    if (mobile) {
+      try {
+        storage?.removeItem(PANE_LAYOUT_KEY);
+      } catch {
+        // A fresh in-memory New task still wins when storage is unavailable.
+      }
+    }
     startupRestore.current = {
       stored,
       mobile,

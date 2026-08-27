@@ -69,6 +69,7 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "agentWorkers",
   "agentJobs",
   "activeTools",
+  "goal",
 ];
 
 const DOCK_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [

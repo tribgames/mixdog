@@ -5,7 +5,7 @@
  * commands on 127.0.0.1 and advertises { port, token } through a heartbeated
  * discovery file. This runtime half is a sync availability probe that gates the
  * `computer` tool surface plus the async executor behind tool calls. The bridge
- * only exists while the desktop app runs with computer control enabled.
+ * only exists while the desktop app runs with Computer Use enabled.
  */
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -18,7 +18,7 @@ const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 
 const BRIDGE_UNAVAILABLE_MESSAGE =
-  'computer control is unavailable; open the Mixdog desktop app and enable computer control in settings';
+  'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
 function discoveryPath() {
   const dataDir = process.env.MIXDOG_DATA_DIR

@@ -351,6 +351,11 @@ test("a remote transcript drops provider replay blocks and keeps item identity",
     role: "assistant",
     content: "answer",
     thinkingBlocks: [{ type: "thinking", thinking: "x".repeat(4_000), signature: "sig" }],
+    providerReplay: {
+      version: 1,
+      provider: "anthropic",
+      items: [{ type: "thinking", thinking: "x".repeat(4_000), signature: "sig" }],
+    },
   };
   const snapshot = { sessionId: "s", items: [plain, heavy], status: "idle" };
   const projected = remoteTranscriptSnapshot(snapshot);
@@ -358,6 +363,7 @@ test("a remote transcript drops provider replay blocks and keeps item identity",
   assert.notEqual(projected, snapshot);
   assert.equal(projected.items[0], plain, "an untouched item is passed through by reference");
   assert.equal(Object.hasOwn(projected.items[1], "thinkingBlocks"), false);
+  assert.equal(Object.hasOwn(projected.items[1], "providerReplay"), false);
   assert.equal(projected.items[1].content, "answer");
   assert.ok(
     JSON.stringify(projected).length * 4 < JSON.stringify(snapshot).length,

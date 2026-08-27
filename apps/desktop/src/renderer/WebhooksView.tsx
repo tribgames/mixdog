@@ -1,4 +1,4 @@
-import { Check, Copy, Plus, Search, Webhook, X } from 'lucide-react';
+import { Check, ChevronRight, Copy, Plus, Search, Webhook, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -16,7 +16,6 @@ import { dismissDesktopToast, showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
-import { RowOverflowMenu } from './RowOverflowMenu';
 import {
   AutomationAttachButton,
   AutomationAttachmentChips,
@@ -146,7 +145,21 @@ function ConnectionRow({ label, note, value, placeholder, copied, onCopy }: {
   </div>;
 }
 
-function WebhookEditor({ draft, editing, busy, models, projects, workflows, publicBase, secret, error = '', onCancel, onSave, onToggle }: {
+function WebhookEditor({
+  draft,
+  editing,
+  busy,
+  models,
+  projects,
+  workflows,
+  publicBase,
+  secret,
+  error = '',
+  onCancel,
+  onSave,
+  onToggle,
+  onDelete,
+}: {
   draft: WebhookDraft;
   editing: boolean;
   busy: boolean;
@@ -159,6 +172,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   onCancel(): void;
   onSave(entry: RecordValue): void;
   onToggle?(enabled: boolean): void;
+  onDelete?(): void;
 }) {
   const [parser, setParser] = useState(draft.parser);
   const [cwd, setCwd] = useState(draft.cwd);
@@ -190,6 +204,7 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
   const [fast, setFast] = useState(initialModel.fast);
   const [modelParameters, setModelParameters] = useState(initialModel.modelParameters);
   const [formError, setFormError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const slash = model.indexOf('/');
   const modelProvider = slash > 0 ? model.slice(0, slash) : '';
   const modelId = slash > 0 ? model.slice(slash + 1) : '';
@@ -361,6 +376,15 @@ function WebhookEditor({ draft, editing, busy, models, projects, workflows, publ
         </div>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {editing && onDelete && <button type="button"
+            className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
+            onClick={() => {
+              if (!confirmDelete) {
+                setConfirmDelete(true);
+                return;
+              }
+              onDelete();
+            }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
           <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
@@ -406,12 +430,10 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'paused'>('all');
   const [editor, setEditor] = useState<{ name: string; draft: WebhookDraft; secret: string } | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState('');
   // The editor portals to document.body: a hidden panel must never leave that
   // layer interactive above the workspace (search/filter state stays).
   useSidebarPanelDismiss(active, () => {
     setEditor(null);
-    setConfirmingDelete('');
   });
 
   const busy = Boolean(pending) || loading;
@@ -463,7 +485,6 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
   // Edit never reads the stored secret (user decision): rotation via the
   // editor's Regenerate button is the only way to obtain a copyable value.
   const openEditor = (name: string, draft: WebhookDraft) => {
-    setConfirmingDelete('');
     setError('');
     setEditor({ name, draft, secret: '' });
   };
@@ -498,6 +519,11 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
           setError('');
           setEditor(null);
         }}
+        onDelete={editor.name ? () => {
+          const name = editor.name;
+          setEditor(null);
+          void run('deleteWebhook', [name], 'toast');
+        } : undefined}
         onSave={(entry) => void saveWebhook(entry)}
         onToggle={(enabled) => void run('setWebhookEnabled', [editor.name, enabled], 'toast')} />}
       {/* No loading flash: the list area stays empty until the first snapshot
@@ -507,42 +533,26 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
           const name = String(webhook.name);
           const enabled = webhook.enabled !== false;
           const running = runningNames?.has(name) === true;
-          return <div key={name} className="schedules-row">
-            {running && <span className="schedules-row-status" role="status"
-              aria-label={t("{{name}} is running", { name })}>
-              <ProgressSpinner size={12} className="schedules-row-spinner" aria-hidden="true" />
-            </span>}
-            <div className="schedules-row-copy">
-              <b>{name}</b>
+          return <button type="button" key={name}
+            className="schedules-row utilities-row sidebar-resource-row"
+            disabled={busy} onClick={() => openEditor(name, webhookDraft(webhook))}>
+            <span className="sidebar-resource-icon" aria-hidden="true">
+              {running
+                ? <ProgressSpinner size={12} className="schedules-row-spinner" />
+                : <Webhook size={16} />}
+            </span>
+            <span className="schedules-row-copy utilities-row-copy">
+              <span className="sidebar-resource-title">
+                <b>{name}</b>
+                <span
+                  className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
+                  {t(enabled ? 'Enabled' : 'Disabled')}
+                </span>
+              </span>
               <small>{webhookMeta(webhook)}</small>
-            </div>
-            <CompactSwitch label={`${name} · ${t('Enabled')}`} checked={enabled}
-              disabled={busy} onChange={(next) =>
-                void run('setWebhookEnabled', [name, next], 'toast')} />
-            <RowOverflowMenu label={`Actions for ${name}`} items={[
-              {
-                id: 'edit',
-                label: 'Edit',
-                disabled: busy,
-                onSelect: () => openEditor(name, webhookDraft(webhook)),
-              },
-              {
-                id: 'delete',
-                label: confirmingDelete === name ? 'Confirm delete' : 'Delete',
-                disabled: busy,
-                danger: true,
-                closeOnSelect: confirmingDelete === name,
-                onSelect: () => {
-                  if (confirmingDelete !== name) {
-                    setConfirmingDelete(name);
-                    return;
-                  }
-                  setConfirmingDelete('');
-                  void run('deleteWebhook', [name], 'toast');
-                },
-              },
-            ]} />
-          </div>;
+            </span>
+            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+          </button>;
         })}</div>
         : <div className="schedules-empty">
           <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />

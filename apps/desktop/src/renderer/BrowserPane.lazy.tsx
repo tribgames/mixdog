@@ -1,4 +1,4 @@
-// In-app Chromium browser pane (Utilities → Browser). Hosts one <webview>
+// In-app Chromium browser pane (Utilities → Browser Use). Hosts one <webview>
 // guest on the shared persistent partition, so login sessions survive app
 // restarts and the agent bridge in the main process can drive the same page
 // the user sees. The pane owns only the chrome (address bar, nav buttons);

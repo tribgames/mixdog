@@ -372,13 +372,17 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     if (bulkAction || targets.length === 0) return;
     setBulkAction(action);
     try {
-      for (const session of targets) {
+      /* Start every row mutation before awaiting any of them. Each row action
+         applies its optimistic state synchronously, so React paints one bulk
+         transition instead of visibly walking the list item by item. A failed
+         row still owns its existing rollback while the rest continue. */
+      await Promise.all(targets.map(async (session) => {
         try {
           await onArchiveSession(session.id, archived);
         } catch {
           // The row-level action restores failures; continue with the rest.
         }
-      }
+      }));
     } finally {
       setBulkAction("");
     }

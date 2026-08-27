@@ -202,6 +202,7 @@ export function recoverTurnCheckpoint(session) {
     ];
     delete session.activeTurnCheckpoint;
     delete session.providerState;
+    delete session._providerPrefixGuardState;
     session.updatedAt = Date.now();
     session.lastUsedAt = Date.now();
     return {

@@ -198,14 +198,9 @@ export function aggregateGeminiStreamChunks(responses) {
                         };
                     }
                     for (const part of candidate.content.parts) {
-                        const newPart = {};
-                        if (part.text) newPart.text = part.text;
-                        if (part.thought === true) newPart.thought = true;
-                        if (part.functionCall) newPart.functionCall = part.functionCall;
-                        if (part.thoughtSignature) newPart.thoughtSignature = part.thoughtSignature;
-                        if (part.thought_signature) newPart.thought_signature = part.thought_signature;
-                        if (part.executableCode) newPart.executableCode = part.executableCode;
-                        if (part.codeExecutionResult) newPart.codeExecutionResult = part.codeExecutionResult;
+                        let newPart;
+                        try { newPart = structuredClone(part); }
+                        catch { newPart = { ...part }; }
                         if (Object.keys(newPart).length === 0) newPart.text = '';
                         aggCand.content.parts.push(newPart);
                     }

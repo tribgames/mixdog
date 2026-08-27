@@ -728,20 +728,23 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
 
 /** Every extension list row is one drill-in action. Enabled state stays
  *  visible as metadata; its switch lives in the detail surface. */
-function ExtensionRow({ title, enabled, busy, onOpen }: {
+function ExtensionRow({ title, description, enabled, busy, onOpen }: {
   title: string;
+  description: string;
   enabled: boolean;
   busy: boolean;
   onOpen(): void;
 }) {
   return <button type="button" className="schedules-row utilities-row extensions-row"
     aria-label={title} disabled={busy} onClick={onOpen}>
-    <span className={`sidebar-resource-status ${enabled ? 'on' : 'off'}`} aria-hidden="true" />
     <span className="schedules-row-copy utilities-row-copy">
-      <b>{title}</b>
-      <small><span className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
-        {t(enabled ? 'Enabled' : 'Disabled')}
-      </span></small>
+      <span className="sidebar-resource-title">
+        <b>{title}</b>
+        <span className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
+          {t(enabled ? 'Enabled' : 'Disabled')}
+        </span>
+      </span>
+      <small>{description}</small>
     </span>
     <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
   </button>;
@@ -749,13 +752,15 @@ function ExtensionRow({ title, enabled, busy, onOpen }: {
 
 /** Skills follow the Workflows row grammar: identity first, short source/status
  *  metadata second, and the full description only in the detail dialog. */
-function SkillRow({ title, disabled, busy, onOpen }: {
+function SkillRow({ title, description, disabled, busy, onOpen }: {
   title: string;
+  description: string;
   disabled: boolean;
   busy: boolean;
   onOpen(): void;
 }) {
-  return <ExtensionRow title={title} enabled={!disabled} busy={busy} onOpen={onOpen} />;
+  return <ExtensionRow title={title} description={description}
+    enabled={!disabled} busy={busy} onOpen={onOpen} />;
 }
 
 /** The detail card every section shares: facts, optional content, then the
@@ -910,6 +915,17 @@ function mcpTransport(config: RecordValue): string {
   if (explicit === 'stdio') return 'stdio';
   if (['http', 'sse', 'ws'].includes(explicit)) return 'http';
   return config.url ? 'http' : 'stdio';
+}
+
+function mcpRowDescription(server: RecordValue): string {
+  const nested = record(server.config);
+  const config = Object.keys(nested).length ? nested : server;
+  const transport = mcpTransport(config);
+  if (transport === 'autoDetect') return t('Auto-detect');
+  if (transport === 'http') {
+    return [t('Streamable HTTP'), String(config.url || '').trim()].filter(Boolean).join(' · ');
+  }
+  return ['STDIO', String(config.command || '').trim()].filter(Boolean).join(' · ');
 }
 
 type McpPair = { key: string; value: string };
@@ -1225,6 +1241,7 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
       const name = String(server.name);
       const enabled = server.enabled !== false;
       return <ExtensionRow key={name} title={name}
+        description={mcpRowDescription(server)}
         enabled={enabled} busy={busy}
         onOpen={() => void openEditor(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'mcp')
@@ -1291,7 +1308,8 @@ function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelConte
     {skills.length ? skills.map((skill) => {
       const name = String(skill.name);
       const off = disabled.has(name);
-      return <SkillRow key={name} title={name} disabled={off}
+      const description = String(skill.description || '').trim() || t('Skill instructions');
+      return <SkillRow key={name} title={name} description={description} disabled={off}
         busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
       ? 'No skills found.' : 'Loading skills…'} />}
@@ -1318,7 +1336,12 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
     {plugins.length ? plugins.map((plugin) => {
       const id = String(plugin.id || plugin.name);
       const enabled = plugin.enabled !== false;
+      const description = String(plugin.description || '').trim()
+        || [String(plugin.version || '').trim(), String(plugin.sourceType || plugin.source || '').trim()]
+          .filter(Boolean).join(' · ')
+        || t('Installed plugin');
       return <ExtensionRow key={id} title={label(plugin)}
+        description={description}
         enabled={enabled} busy={busy}
         onOpen={() => setOpenId(id)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'plugins')

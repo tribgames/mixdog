@@ -5,6 +5,26 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Goal mode can now carry a long-running objective across turns with durable
+  completion conditions, pause and resume controls, time limits, automatic
+  continuation, model-facing management tools, and a session-scoped Desktop
+  status island.
+- Browser Use and Windows Computer Use are available as opt-in built-in
+  capabilities. Browser Use can inspect and operate in-app or background pages,
+  while Computer Use combines UI Automation, screenshots, keyboard, pointer,
+  scroll, and window actions with DPI-aware input and safety guards.
+- Provider recovery now preserves the original order of reasoning, text, and
+  tool calls across Anthropic, Gemini, OpenAI, and compatible streams, including
+  retries, stalled turns, saved sessions, remote projection, and compaction.
+- Compaction starts a fresh read-cache epoch after it changes the transcript,
+  and existing sessions synchronize newly available runtime tools at turn
+  boundaries instead of keeping a stale tool catalog.
+- Desktop and mobile navigation is cleaner and more predictable: mobile
+  relaunches start from one New task while reconnects retain the current panes,
+  pane swipes work across rich content and overlays, and side pages, extensions,
+  Markdown, status labels, and trailing actions share tighter responsive
+  layouts.
+
 ## v0.9.151 - 2026-08-26
 
 - Editing a symbolic link now changes the file it points at instead of being

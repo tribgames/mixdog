@@ -33,6 +33,12 @@ test("strong closes against a punctuation + letter boundary", () => {
   assert.match(ast("**0.118%**tail"), /strong\("0\.118%"\)/);
 });
 
+test("strong containing inline code closes before a Korean suffix", () => {
+  const rendered = ast("현재 Chrome은 **디시인사이드 `AI 활용 마이너 갤러리`**를 보고 있습니다.");
+  assert.match(rendered, /strong\("디시인사이드 ",code\("AI 활용 마이너 갤러리"\)\)/);
+  assert.match(rendered, /"를 보고 있습니다\."/);
+});
+
 test("strikethrough is pair-only", () => {
   assert.match(ast("~~gone~~ kept"), /del\("gone"\)/);
   assert.equal(ast("1~2 range").includes("del("), false);

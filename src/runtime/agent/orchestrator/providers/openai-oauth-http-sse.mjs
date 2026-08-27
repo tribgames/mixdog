@@ -38,6 +38,7 @@ import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './ant
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
+import { createProviderReplay } from './lib/provider-replay.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { envFlag as _envFlag } from './lib/env-utils.mjs';
 export { envPositiveInt as _envPositiveInt } from './lib/env-utils.mjs';
@@ -504,6 +505,8 @@ export async function sendViaHttpSse({
     const clearActiveToolItem = _toolTracker.clear;
     let _toolInFlight = false;
     const reasoningItems = [];
+    const responseItems = [];
+    const responseItemKeys = new Set();
     const citations = [];
     const citationKeys = new Set();
     const webSearchCalls = [];
@@ -663,6 +666,16 @@ export async function sendViaHttpSse({
             });
         }
     };
+    const pushResponseItem = (item) => {
+        if (!item || typeof item !== 'object') return;
+        let fallbackKey = '';
+        try { fallbackKey = JSON.stringify(item); } catch {}
+        const key = `${item.type || 'unknown'}:${item.id || item.call_id || fallbackKey}`;
+        if (responseItemKeys.has(key)) return;
+        responseItemKeys.add(key);
+        try { responseItems.push(structuredClone(item)); }
+        catch { responseItems.push({ ...item }); }
+    };
     const pushToolSearchCall = (item) => {
         if (!item || item.type !== 'tool_search_call') return;
         const callId = item.call_id || item.id || '';
@@ -800,6 +813,7 @@ export async function sendViaHttpSse({
                 break;
             case 'response.output_item.done': {
                 const item = event.item || {};
+                pushResponseItem(item);
                 pushReasoningItem(item);
                 pushWebSearchCall(item);
                 if (item.type === 'function_call') {
@@ -852,6 +866,7 @@ export async function sendViaHttpSse({
                 }
                 let reportedBundleProgress = false;
                 for (const item of resp.output || []) {
+                    pushResponseItem(item);
                     if (item.type === 'message') {
                         for (const part of item.content || []) {
                             if (!content && part.type === 'output_text') {
@@ -1060,6 +1075,11 @@ export async function sendViaHttpSse({
         // trailing text is never lost (streamed-text path).
         flushLeak();
     } catch (err) {
+        if (err && !err.partialProviderReplay) {
+            try {
+                err.partialProviderReplay = createProviderReplay('openai-responses', responseItems);
+            } catch {}
+        }
         // Live-text invariant: once a non-empty chunk has been relayed it
         // cannot be withdrawn — flag the error so no upstream layer retries.
         if (emittedText && err) { try { err.liveTextEmitted = true; err.unsafeToRetry = true; } catch {} }
@@ -1100,6 +1120,7 @@ export async function sendViaHttpSse({
         try {
             err.partialContent = content;
             err.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
+            err.partialProviderReplay = createProviderReplay('openai-responses', responseItems);
             err.partialModel = model || undefined;
             err.pendingToolUse = pendingCalls.size > 0 || activeToolItems.size > 0 || _toolInFlight === true;
         } catch { /* best-effort enrichment */ }
@@ -1141,6 +1162,7 @@ export async function sendViaHttpSse({
         content,
         model: liveModel,
         reasoningItems: reasoningItems.length ? reasoningItems : undefined,
+        providerReplay: createProviderReplay('openai-responses', responseItems),
         toolCalls: _returnedToolCalls,
         citations: citations.length ? citations : undefined,
         webSearchCalls: webSearchCalls.length ? webSearchCalls : undefined,

@@ -17,6 +17,7 @@ import {
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
+import { cloneProviderReplay } from '../providers/lib/provider-replay.mjs';
 
 import {
     _stripMcpPrefix,
@@ -310,6 +311,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const reasoningItems = Array.isArray(resp.reasoningItems) && resp.reasoningItems.length
             ? resp.reasoningItems
             : null;
+        const providerReplay = cloneProviderReplay(resp.providerReplay);
         const thinkingBlocks = Array.isArray(resp.thinkingBlocks) && resp.thinkingBlocks.length
             ? resp.thinkingBlocks
             : null;
@@ -335,18 +337,19 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             : null;
         // A native-only turn (server tool blocks, no flattened text) is real
         // assistant output and must stay committable — not treated as empty.
-        if (!content && !reasoningContent && !reasoningItems && !thinkingBlocks && !assistantBlocks) return false;
+        if (!content && !reasoningContent && !reasoningItems && !thinkingBlocks && !assistantBlocks && !providerReplay) return false;
         const message = attachAssistantTranscriptMetadata({
             role: 'assistant',
             content,
+            ...(providerReplay ? { providerReplay } : {}),
             // assistantBlocks already contains the thinking blocks verbatim in
             // stream order, so thinkingBlocks is redundant (and would be
             // double-counted by the context estimator) when it is present.
-            ...(assistantBlocks ? { assistantBlocks } : {}),
+            ...(assistantBlocks && !providerReplay ? { assistantBlocks } : {}),
             // Anthropic adaptive-thinking signatures must be replayed verbatim
             // before the continuation turn, just like tool-call trajectories.
-            ...(thinkingBlocks && !assistantBlocks ? { thinkingBlocks } : {}),
-            ...(reasoningItems ? { reasoningItems } : {}),
+            ...(thinkingBlocks && !assistantBlocks && !providerReplay ? { thinkingBlocks } : {}),
+            ...(reasoningItems && !providerReplay ? { reasoningItems } : {}),
             ...(reasoningContent ? { reasoningContent } : {}),
             ...(providerMetadata ? { providerMetadata } : {}),
             ...(stopReason ? { stopReason } : {}),
@@ -1011,6 +1014,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // every assistant message body.
         recordToolBatch(sessionId, calls.length);
         await Promise.resolve(onToolCall?.(iterations, calls));
+        const _providerReplay = cloneProviderReplay(response.providerReplay);
         // Append assistant message with tool calls. reasoningItems is the
         // OpenAI Responses API replay payload (encrypted_content blobs);
         // providers that ignore it just see an extra field and drop it,
@@ -1030,6 +1034,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // the whole request uncached — so a model that patches twice in a
             // row also never sees a marker where its own last patch should be.
             toolCalls: compactToolCallsForHistory(calls, { deferBodies: true }),
+            ...(_providerReplay
+                ? { providerReplay: _providerReplay }
+                : {}),
             // MIXED Anthropic turn (native server tools + client tool_use):
             // the ordered `server_tool_use` / `*_tool_result` blocks exist ONLY
             // in this verbatim list and are order-bound (a result block is
@@ -1040,6 +1047,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // text/thinking/tool_use blocks), so nothing is emitted twice and
             // non-Anthropic providers simply ignore the field.
             ...(Array.isArray(response.assistantBlocks) && response.assistantBlocks.length
+                && !_providerReplay
                 ? { assistantBlocks: response.assistantBlocks }
                 : {}),
             // Anthropic adaptive thinking: prior-turn thinking blocks must be
@@ -1051,9 +1059,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // second copy would double-count in the context estimator.
             ...(Array.isArray(response.thinkingBlocks) && response.thinkingBlocks.length
                 && !(Array.isArray(response.assistantBlocks) && response.assistantBlocks.length)
+                && !_providerReplay
                 ? { thinkingBlocks: response.thinkingBlocks }
                 : {}),
             ...(Array.isArray(response.reasoningItems) && response.reasoningItems.length
+                && !_providerReplay
                 ? { reasoningItems: response.reasoningItems }
                 : {}),
             ...(typeof response.reasoningContent === 'string' && response.reasoningContent

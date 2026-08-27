@@ -449,6 +449,11 @@
      dot/spinner axis (row edge − 14px). The old 5px bezel put it 1px off. */
   padding-inline: 4px;
 }
+/* Every trailing rail control shares the framed rows' 20px centerline. A 28px
+   header action would otherwise center at 14px, so move its box 6px inward. */
+.session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
+  margin-right: 6px;
+}
 /* In-card trailing actions (⋯/✎) close flush on the card edge, so every
    action pill in the rail shares one right column with the boxes. */
 .session-sidebar-panels .schedules-row .row-overflow-trigger,

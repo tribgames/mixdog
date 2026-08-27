@@ -88,30 +88,3 @@ export function shouldCommitSwipe(
 export function swipeTransitionFallbackCommits(pendingCommit: boolean | null): boolean {
   return pendingCommit === true;
 }
-
-/** Surfaces that own horizontal gestures themselves. */
-const SWIPE_OPT_OUT_SELECTOR = [
-  ".xterm",
-  ".monaco-editor",
-  "pre",
-  "table",
-  "input",
-  "textarea",
-  "[data-swipe-ignore]",
-  "[role='slider']",
-].join(",");
-
-export function swipeGestureAllowed(target: Element | null): boolean {
-  if (!target) return true;
-  if (target.closest(SWIPE_OPT_OUT_SELECTOR)) return false;
-  // An element that can actually scroll sideways keeps its own gesture.
-  for (let node: Element | null = target; node; node = node.parentElement) {
-    if (node.scrollWidth - node.clientWidth > 8) {
-      const overflowX = typeof getComputedStyle === "function"
-        ? getComputedStyle(node).overflowX
-        : "visible";
-      if (overflowX === "auto" || overflowX === "scroll") return false;
-    }
-  }
-  return true;
-}

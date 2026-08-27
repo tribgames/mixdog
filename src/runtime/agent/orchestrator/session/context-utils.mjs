@@ -336,20 +336,26 @@ function messageEstimateText(m) {
         try { text += `\n${JSON.stringify(m.toolCalls)}`; }
         catch { text += `\n[${m.toolCalls.length} tool calls]`; }
     }
+    const providerReplayItems = m.role === 'assistant' && Array.isArray(m.providerReplay?.items)
+        ? m.providerReplay.items
+        : null;
+    if (providerReplayItems?.length) {
+        text += `\n${nativeBlocksEstimateText(providerReplayItems)}`;
+    }
     // Anthropic adaptive-thinking blocks round-trip verbatim (thinking text +
     // signature / redacted data) and are re-sent on tool-continuation turns, so
     // they consume real input tokens. Count them or trim/compact undercounts.
-    if (m.role === 'assistant' && Array.isArray(m.thinkingBlocks) && m.thinkingBlocks.length) {
+    if (!providerReplayItems && m.role === 'assistant' && Array.isArray(m.thinkingBlocks) && m.thinkingBlocks.length) {
         text += `\n${nativeBlocksEstimateText(m.thinkingBlocks)}`;
     }
     // Some provider adapters replay their native assistant representation
     // instead of content/toolCalls. Project it through the media normalizer so
     // text/tool metadata and opaque reasoning are counted without base64 image
     // bytes dominating the estimate.
-    if (m.role === 'assistant' && Array.isArray(m.assistantBlocks) && m.assistantBlocks.length) {
+    if (!providerReplayItems && m.role === 'assistant' && Array.isArray(m.assistantBlocks) && m.assistantBlocks.length) {
         text += `\n${nativeBlocksEstimateText(m.assistantBlocks)}`;
     }
-    if (m.role === 'assistant' && Array.isArray(m.reasoningItems) && m.reasoningItems.length) {
+    if (!providerReplayItems && m.role === 'assistant' && Array.isArray(m.reasoningItems) && m.reasoningItems.length) {
         text += `\n${nativeBlocksEstimateText(m.reasoningItems)}`;
     }
     // Provider-scoped replay metadata is never sent to a different provider,
@@ -357,7 +363,7 @@ function messageEstimateText(m) {
     const geminiThoughtParts = m.role === 'assistant'
         ? m.providerMetadata?.gemini?.thoughtParts
         : null;
-    if (Array.isArray(geminiThoughtParts) && geminiThoughtParts.length) {
+    if (!providerReplayItems && Array.isArray(geminiThoughtParts) && geminiThoughtParts.length) {
         text += `\n${nativeBlocksEstimateText(geminiThoughtParts)}`;
     }
     if (m.role === 'tool' && m.toolCallId) text += `\n${m.toolCallId}`;
@@ -384,6 +390,7 @@ function messageImageDescriptors(m) {
     return [
         ...contentImageDescriptors(m.content),
         ...(m.role === 'assistant' ? contentImageDescriptors(m.assistantBlocks) : []),
+        ...(m.role === 'assistant' ? contentImageDescriptors(m.providerReplay?.items) : []),
     ];
 }
 function messageImageAllowance(m) {
@@ -441,6 +448,7 @@ function contextMessageFingerprint(message) {
             assistantBlocks: contextValueFingerprint(null),
             reasoningItems: contextValueFingerprint(null),
             providerMetadata: contextValueFingerprint(null),
+            providerReplay: contextValueFingerprint(null),
             toolCallId: null,
         };
     }
@@ -452,6 +460,7 @@ function contextMessageFingerprint(message) {
         assistantBlocks: contextValueFingerprint(message.assistantBlocks),
         reasoningItems: contextValueFingerprint(message.reasoningItems),
         providerMetadata: contextValueFingerprint(message.providerMetadata),
+        providerReplay: contextValueFingerprint(message.providerReplay),
         toolCallId: message?.toolCallId || null,
     };
 }
@@ -468,6 +477,7 @@ function sameContextMessageFingerprint(a, b) {
         && sameContextValueFingerprint(a.assistantBlocks, b.assistantBlocks)
         && sameContextValueFingerprint(a.reasoningItems, b.reasoningItems)
         && sameContextValueFingerprint(a.providerMetadata, b.providerMetadata)
+        && sameContextValueFingerprint(a.providerReplay, b.providerReplay)
         && a.toolCallId === b.toolCallId;
 }
 

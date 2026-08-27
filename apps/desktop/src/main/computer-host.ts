@@ -47,6 +47,18 @@ interface ComputerCommand {
   app?: string;
   /** drag destination ref. */
   to?: string;
+  /** click family without ref, and move_window: physical screen coordinates. */
+  x?: number;
+  y?: number;
+  /** move_window size in physical pixels. */
+  width?: number;
+  height?: number;
+  /** click family: modifier keys held during the click, e.g. "ctrl+shift". */
+  modifiers?: string;
+  /** wait: seconds to pause (0..30). */
+  duration?: number;
+  /** zoom: [x0, y0, x1, y1] region in physical screen pixels. */
+  region?: number[];
   /** screenshot display index (0-based) for multi-monitor setups. */
   screen?: number;
   quality?: number;
@@ -61,7 +73,7 @@ interface ComputerCommandResult {
 interface PowerShellResponse {
   id: number;
   ok: boolean;
-  result?: { text?: string; title?: string; width?: number; height?: number };
+  result?: { text?: string; title?: string; x?: number; y?: number; width?: number; height?: number };
   error?: string;
 }
 
@@ -92,6 +104,7 @@ public class MixWin32 {
   [DllImport("user32.dll")] public static extern IntPtr FindWindow(string c, string n);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int w, int height, bool repaint);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
@@ -136,7 +149,7 @@ public class MixWin32 {
   public static void MakeDpiAware() {
     if (!SetProcessDpiAwarenessContext(new IntPtr(-4))) SetProcessDPIAware();
   }
-  public const uint LDOWN = 0x02, LUP = 0x04, RDOWN = 0x08, RUP = 0x10, WHEEL = 0x0800;
+  public const uint LDOWN = 0x02, LUP = 0x04, RDOWN = 0x08, RUP = 0x10, WHEEL = 0x0800, MDOWN = 0x20, MUP = 0x40;
   public static void Click(int x, int y) {
     SetCursorPos(x, y); System.Threading.Thread.Sleep(40);
     mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
@@ -148,6 +161,16 @@ public class MixWin32 {
   public static void RightClick(int x, int y) {
     SetCursorPos(x, y); System.Threading.Thread.Sleep(40);
     mouse_event(RDOWN,0,0,0,IntPtr.Zero); mouse_event(RUP,0,0,0,IntPtr.Zero);
+  }
+  public static void MiddleClick(int x, int y) {
+    SetCursorPos(x, y); System.Threading.Thread.Sleep(40);
+    mouse_event(MDOWN,0,0,0,IntPtr.Zero); mouse_event(MUP,0,0,0,IntPtr.Zero);
+  }
+  public static void TripleClick(int x, int y) {
+    Click(x, y); System.Threading.Thread.Sleep(60);
+    mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
+    System.Threading.Thread.Sleep(60);
+    mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
   }
   public static void Drag(int x1, int y1, int x2, int y2) {
     SetCursorPos(x1, y1); System.Threading.Thread.Sleep(60);
@@ -221,6 +244,17 @@ public class MixWin32 {
   public static void KeyTap(ushort vk) {
     List<INPUT> list = new List<INPUT>();
     AddVk(list, vk, false); AddVk(list, vk, true);
+    Dispatch(list);
+  }
+  /// Hold or release one VK; wraps modifier-held clicks (ctrl+click etc.).
+  public static void KeyDown(ushort vk) {
+    List<INPUT> list = new List<INPUT>();
+    AddVk(list, vk, false);
+    Dispatch(list);
+  }
+  public static void KeyUp(ushort vk) {
+    List<INPUT> list = new List<INPUT>();
+    AddVk(list, vk, true);
     Dispatch(list);
   }
   /// Literal text entry (no grammar): every character lands exactly as given.
@@ -391,16 +425,61 @@ function Get-ElPoint($ref) {
   return @($x, $y)
 }
 
-function Do-DoubleClick($ref) {
-  $p = Get-ElPoint $ref
-  [MixWin32]::DoubleClick($p[0], $p[1])
-  return @{ text = "double-clicked $ref" }
+# ref resolves to the occlusion-guarded element center; raw x/y are physical
+# screen coordinates (a raw click hits whatever the model sees on top there).
+function Get-PointArg($req) {
+  if ($req.ref) { return Get-ElPoint $req.ref }
+  if ($null -eq $req.x -or $null -eq $req.y) { throw "$($req.action) requires ref or x/y screen coordinates" }
+  return @([int]$req.x, [int]$req.y)
 }
 
-function Do-RightClick($ref) {
-  $p = Get-ElPoint $ref
-  [MixWin32]::RightClick($p[0], $p[1])
-  return @{ text = "right-clicked $ref" }
+function Get-ModifierVks($modifiers) {
+  if (-not $modifiers) { return @() }
+  $vks = @()
+  foreach ($part in ([string]$modifiers).ToLower().Split('+')) {
+    switch ($part.Trim()) {
+      'ctrl'  { $vks += 0x11 }
+      'shift' { $vks += 0x10 }
+      'alt'   { $vks += 0x12 }
+      'win'   { $vks += 0x5B }
+      'super' { $vks += 0x5B }
+      ''      { }
+      default { throw "unknown modifier: $part (use ctrl, shift, alt, win)" }
+    }
+  }
+  return $vks
+}
+
+function Do-ClickFamily($req, $kind) {
+  $p = Get-PointArg $req
+  $vks = Get-ModifierVks $req.modifiers
+  foreach ($vk in $vks) { [MixWin32]::KeyDown([ushort]$vk) }
+  try {
+    switch ($kind) {
+      'click'  { [MixWin32]::Click($p[0], $p[1]) }
+      'double' { [MixWin32]::DoubleClick($p[0], $p[1]) }
+      'right'  { [MixWin32]::RightClick($p[0], $p[1]) }
+      'middle' { [MixWin32]::MiddleClick($p[0], $p[1]) }
+      'triple' { [MixWin32]::TripleClick($p[0], $p[1]) }
+    }
+  } finally {
+    for ($i = $vks.Count - 1; $i -ge 0; $i--) { [MixWin32]::KeyUp([ushort]$vks[$i]) }
+  }
+  $held = if ($vks.Count -gt 0) { ' holding ' + $req.modifiers } else { '' }
+  return @{ text = "$kind-clicked at $($p[0]),$($p[1])$held" }
+}
+
+function Do-MouseMove($req) {
+  $p = Get-PointArg $req
+  [void][MixWin32]::SetCursorPos($p[0], $p[1])
+  return @{ text = "moved cursor to $($p[0]),$($p[1])" }
+}
+
+function Do-Wait($req) {
+  $s = if ($null -ne $req.duration) { [double]$req.duration } else { 1 }
+  if ($s -lt 0 -or $s -gt 30) { throw 'wait duration must be 0..30 seconds' }
+  Start-Sleep -Milliseconds ([int]($s * 1000))
+  return @{ text = ('waited ' + $s + 's') }
 }
 
 function Do-Drag($ref, $to) {
@@ -459,6 +538,8 @@ function Get-WindowBounds($title) {
   return @{
     text = ('window bounds: ' + $win.Current.Name)
     title = $win.Current.Name
+    x = [math]::Round($r.X)
+    y = [math]::Round($r.Y)
     width = [math]::Round($r.Width)
     height = [math]::Round($r.Height)
   }
@@ -506,6 +587,42 @@ function Do-Key($keys) {
   else { Send-KeysGuarded $keys }
   return @{ text = 'sent keys' }
 }
+# Clipboard passthrough: clipboard_write + key ^v pastes bulk text faster and
+# more reliably than keystrokes; clipboard_read extracts content after ^c.
+function Do-ClipboardRead {
+  $text = [System.Windows.Forms.Clipboard]::GetText()
+  if (-not $text) { return @{ text = 'Clipboard is empty or not text.' } }
+  if ($text.Length -gt 30000) { $text = $text.Substring(0, 30000) + '... (truncated)' }
+  return @{ text = $text }
+}
+
+function Do-ClipboardWrite($text) {
+  if ($null -eq $text -or ([string]$text).Length -eq 0) {
+    [System.Windows.Forms.Clipboard]::Clear()
+    return @{ text = 'cleared clipboard' }
+  }
+  [System.Windows.Forms.Clipboard]::SetText([string]$text)
+  return @{ text = ('clipboard set: ' + ([string]$text).Length + ' chars') }
+}
+
+# Move/resize a top-level window; omitted fields keep the current bounds. Also
+# the agent's remedy when the occlusion guard reports a covered element.
+function Do-MoveWindow($req) {
+  $win = Find-Window $req.window
+  if (-not $win) { throw "window not found: $($req.window)" }
+  $h = New-Object IntPtr($win.Current.NativeWindowHandle)
+  $r = $win.Current.BoundingRectangle
+  $x = if ($null -ne $req.x) { [int]$req.x } else { [int]$r.X }
+  $y = if ($null -ne $req.y) { [int]$req.y } else { [int]$r.Y }
+  $w = if ($null -ne $req.width) { [int]$req.width } else { [int]$r.Width }
+  $hh = if ($null -ne $req.height) { [int]$req.height } else { [int]$r.Height }
+  [void][MixWin32]::ShowWindow($h, 9)
+  if (-not [MixWin32]::MoveWindow($h, $x, $y, $w, $hh, $true)) {
+    throw "could not move window: $($win.Current.Name)"
+  }
+  return @{ text = ('moved: ' + $win.Current.Name + ' to ' + $x + ',' + $y + ' size ' + $w + 'x' + $hh) }
+}
+
 function Do-Launch($app) { Start-Process $app; return @{ text = ('launched ' + $app) } }
 
 function Handle($req) {
@@ -515,13 +632,21 @@ function Handle($req) {
     'invoke'       { return Do-Invoke $req.ref }
     'set_value'    { return Do-SetValue $req.ref $req.text }
     'toggle'       { return Do-Toggle $req.ref }
-    'double_click' { return Do-DoubleClick $req.ref }
-    'right_click'  { return Do-RightClick $req.ref }
+    'click'        { return Do-ClickFamily $req 'click' }
+    'double_click' { return Do-ClickFamily $req 'double' }
+    'right_click'  { return Do-ClickFamily $req 'right' }
+    'middle_click' { return Do-ClickFamily $req 'middle' }
+    'triple_click' { return Do-ClickFamily $req 'triple' }
+    'mouse_move'   { return Do-MouseMove $req }
+    'wait'         { return Do-Wait $req }
     'drag'         { return Do-Drag $req.ref $req.to }
     'scroll'       { return Do-Scroll $req.ref $req.dy }
     'focus_window' { return Do-Focus $req.window }
     'window_bounds'{ return Get-WindowBounds $req.window }
+    'move_window'  { return Do-MoveWindow $req }
     'key'          { return Do-Key $req.keys }
+    'clipboard_read'  { return Do-ClipboardRead }
+    'clipboard_write' { return Do-ClipboardWrite $req.text }
     'launch'       { return Do-Launch $req.app }
     default        { throw "unknown action: $($req.action)" }
   }
@@ -676,6 +801,11 @@ export function createComputerHost(): ComputerHost {
     let sourceWidth: number;
     let sourceHeight: number;
     let targetDisplayId = '';
+    // Physical-pixel origin and width of the captured surface, so the caption
+    // can state the exact image-to-screen coordinate mapping for click x/y.
+    let originX = 0;
+    let originY = 0;
+    let physicalWidth = 0;
     if (command.window?.trim()) {
       const bounds = await callPowerShell({ action: 'window_bounds', window: command.window.trim() });
       if (!bounds.ok) throw new Error(bounds.error || 'window bounds lookup failed');
@@ -686,6 +816,9 @@ export function createComputerHost(): ComputerHost {
       if (!Number.isFinite(sourceWidth) || sourceWidth <= 0 || !Number.isFinite(sourceHeight) || sourceHeight <= 0) {
         throw new Error(`window has no capturable bounds: ${sourceTitle}`);
       }
+      originX = Math.round(Number(bounds.result?.x) || 0);
+      originY = Math.round(Number(bounds.result?.y) || 0);
+      physicalWidth = sourceWidth;
     } else {
       const displays = screen.getAllDisplays();
       const primaryIndex = Math.max(0, displays.findIndex((display) => display.id === screen.getPrimaryDisplay().id));
@@ -694,6 +827,10 @@ export function createComputerHost(): ComputerHost {
       targetDisplayId = String(display.id);
       sourceWidth = display.size.width;
       sourceHeight = display.size.height;
+      const nativeOrigin = display.nativeOrigin ?? { x: display.bounds.x, y: display.bounds.y };
+      originX = nativeOrigin.x;
+      originY = nativeOrigin.y;
+      physicalWidth = Math.round(display.size.width * display.scaleFactor);
       if (displays.length > 1) sourceTitle = `screen ${index + 1}/${displays.length}`;
     }
     const scale = Math.min(1, maxWidth / Math.max(1, sourceWidth));
@@ -716,7 +853,73 @@ export function createComputerHost(): ComputerHost {
     return {
       image: { mimeType: 'image/jpeg', data: jpeg.toString('base64') },
       description: `Screenshot of ${sourceType === 'window' ? `window "${source.name}"` : sourceTitle}`
-        + ` (${thumbnailSize.width}x${thumbnailSize.height}, ${jpeg.length} bytes, JPEG quality ${quality})`,
+        + ` (${thumbnailSize.width}x${thumbnailSize.height}, ${jpeg.length} bytes, JPEG quality ${quality});`
+        + ` screen coords = image px x ${(physicalWidth / Math.max(1, thumbnailSize.width)).toFixed(3)} + (${originX},${originY})`,
+    };
+  }
+
+  /** Full-resolution crop of one display region — the model's magnifier for
+   *  small text a downscaled screenshot cannot resolve. Region uses physical
+   *  screen coordinates, the same space as click x/y. */
+  async function captureZoom(command: ComputerCommand): Promise<{
+    image: { mimeType: string; data: string };
+    description: string;
+  } | null> {
+    const quality = screenshotInteger(command.quality, DEFAULT_SCREENSHOT_QUALITY, 0, 100, 'quality');
+    const maxWidth = screenshotInteger(
+      command.maxWidth,
+      DEFAULT_SCREENSHOT_MAX_WIDTH,
+      MIN_SCREENSHOT_MAX_WIDTH,
+      MAX_SCREENSHOT_MAX_WIDTH,
+      'maxWidth',
+    );
+    const region = command.region;
+    if (!Array.isArray(region) || region.length !== 4 || region.some((value) => !Number.isInteger(value))) {
+      throw new Error('zoom requires region [x0, y0, x1, y1] in physical screen pixels');
+    }
+    const [x0, y0, x1, y1] = region;
+    if (x1 - x0 < 8 || y1 - y0 < 8) throw new Error('zoom region must be at least 8x8 pixels');
+    const centerX = (x0 + x1) / 2;
+    const centerY = (y0 + y1) / 2;
+    const physical = screen.getAllDisplays().map((display) => {
+      const origin = display.nativeOrigin ?? { x: display.bounds.x, y: display.bounds.y };
+      return {
+        display,
+        originX: origin.x,
+        originY: origin.y,
+        width: Math.round(display.size.width * display.scaleFactor),
+        height: Math.round(display.size.height * display.scaleFactor),
+      };
+    });
+    const target = physical.find((entry) => centerX >= entry.originX && centerX < entry.originX + entry.width
+      && centerY >= entry.originY && centerY < entry.originY + entry.height) ?? physical[0];
+    if (!target) return null;
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: target.width, height: target.height },
+    });
+    const source = sources.find((candidate) => candidate.display_id === String(target.display.id)) || sources[0];
+    if (!source) return null;
+    const shot = source.thumbnail;
+    const shotSize = shot.getSize();
+    if (!shotSize.width || !shotSize.height) return null;
+    const kx = shotSize.width / target.width;
+    const ky = shotSize.height / target.height;
+    const cropX = Math.min(shotSize.width - 1, Math.max(0, Math.round((x0 - target.originX) * kx)));
+    const cropY = Math.min(shotSize.height - 1, Math.max(0, Math.round((y0 - target.originY) * ky)));
+    const cropW = Math.min(shotSize.width - cropX, Math.max(1, Math.round((x1 - x0) * kx)));
+    const cropH = Math.min(shotSize.height - cropY, Math.max(1, Math.round((y1 - y0) * ky)));
+    let image = shot.crop({ x: cropX, y: cropY, width: cropW, height: cropH });
+    if (image.getSize().width > maxWidth) image = image.resize({ width: maxWidth });
+    const finalSize = image.getSize();
+    const jpeg = image.toJPEG(quality);
+    if (!jpeg || jpeg.length === 0) return null;
+    const factor = (x1 - x0) / Math.max(1, finalSize.width);
+    return {
+      image: { mimeType: 'image/jpeg', data: jpeg.toString('base64') },
+      description: `Zoom of screen region (${x0},${y0})-(${x1},${y1})`
+        + ` (${finalSize.width}x${finalSize.height}, ${jpeg.length} bytes, JPEG quality ${quality});`
+        + ` screen coords = image px x ${factor.toFixed(3)} + (${x0},${y0})`,
     };
   }
 
@@ -731,6 +934,11 @@ export function createComputerHost(): ComputerHost {
       if (!screenshot) throw new Error(command.window ? `window capture failed: ${command.window}` : 'screen capture failed');
       return { text: screenshot.description, image: screenshot.image };
     }
+    if (action === 'zoom') {
+      const zoom = await captureZoom(command);
+      if (!zoom) throw new Error('zoom capture failed');
+      return { text: zoom.description, image: zoom.image };
+    }
     const response = await callPowerShell({
       action,
       window: command.window ?? null,
@@ -740,6 +948,12 @@ export function createComputerHost(): ComputerHost {
       keys: command.keys ?? null,
       dy: command.dy ?? null,
       app: command.app ?? null,
+      x: command.x ?? null,
+      y: command.y ?? null,
+      width: command.width ?? null,
+      height: command.height ?? null,
+      modifiers: command.modifiers ?? null,
+      duration: command.duration ?? null,
     });
     if (!response.ok) throw new Error(response.error || 'computer command failed');
     const text = String(response.result?.text || 'OK');

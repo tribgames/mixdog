@@ -388,7 +388,7 @@
 .session-row-status {
   position: absolute;
   z-index: 2;
-  right: 8px;
+  right: 14px;
   top: 50%;
   width: 12px;
   height: 12px;

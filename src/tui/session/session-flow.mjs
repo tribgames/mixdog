@@ -88,6 +88,8 @@ export function createSessionFlow(bag) {
         : [],
       steeringPersistId: options.steeringPersistId || null,
       steeringPersistRestored: options.steeringPersistRestored === true,
+      isMeta: options.isMeta === true,
+      goalId: options.goalId || null,
     };
   }
 
@@ -215,6 +217,10 @@ export function createSessionFlow(bag) {
         });
         firstBatch = false;
         if (batch.length === 0) break;
+        if (batch[0]?.mode === 'goal-continuation'
+          && bag.shouldRunGoalContinuation?.(batch[0]) !== true) {
+          continue;
+        }
         tuiDebug(`busy-queue drain batch=${batch.length} remaining=${pending.length}`);
         const ids = new Set(batch.map((e) => e.id));
         const merged = mergePromptContents(batch);

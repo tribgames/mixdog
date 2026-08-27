@@ -252,6 +252,7 @@ import { createToolSurface } from './tool-surface.mjs';
 import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
 import { readRuntimeTunables } from './runtime-tunables.mjs';
 import { createSessionTurnApi } from './session-turn-api.mjs';
+import { createGoalRuntime } from './goal-runtime.mjs';
 import { providerInitCacheKey } from './provider-init-key.mjs';
 import { createRoutePreparationGate } from './route-preparation.mjs';
 import {
@@ -709,6 +710,7 @@ export async function createMixdogSessionRuntime({
   // Notification fan-out (listener broadcast + pending-queue mirroring of
   // terminal completions) lives in notification-bus.mjs.
   let sessionTurnApi = null;
+  let goalRuntime = null;
   const completionWakeups = new Set();
   const wakeQueuedCompletion = ({ sessionId, executionId, enqueuedAt } = {}) => {
     const ownerSessionId = String(sessionId || '').trim();
@@ -767,6 +769,7 @@ export async function createMixdogSessionRuntime({
     if (v?.id) {
       rt.reservedSessionId = null;
       bindRuntimeNotificationSession(v.id);
+      goalRuntime?.watchSession(v.id);
     }
   };
 
@@ -888,6 +891,12 @@ export async function createMixdogSessionRuntime({
       return { agentWorkers: [], agentJobs: [], agentScope: null };
     }
   };
+  goalRuntime = createGoalRuntime({
+    dataDir: cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
+  });
+  if (rt.session?.id || rt.reservedSessionId) {
+    goalRuntime.watchSession(rt.session?.id || rt.reservedSessionId);
+  }
   const channelsStartedAt = performance.now();
   const channels = createStandaloneChannelWorker({
     rootDir: STANDALONE_ROOT,
@@ -925,6 +934,7 @@ export async function createMixdogSessionRuntime({
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
     ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser'),
     ...COMPUTER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'computer'),
+    ...goalRuntime.tools,
     ...agentTool.tools,
   ].map(applyStandaloneToolDefaults);
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });
@@ -938,6 +948,7 @@ export async function createMixdogSessionRuntime({
   // replay) lives in tool-surface.mjs.
   const {
     modelStandaloneTools,
+    activateTools: activateRuntimeTools,
     invalidatePreSessionToolSurface,
     activeToolSurface,
     applyPreSessionToolSelection,
@@ -1050,6 +1061,11 @@ export async function createMixdogSessionRuntime({
       }
       if (name === 'Skill') {
         return skillToolContent(args?.name);
+      }
+      if (name === 'get_goal' || name === 'create_goal' || name === 'update_goal') {
+        return await goalRuntime.executeTool(name, args || {}, {
+          callerSessionId: callerCtx?.callerSessionId || rt.session?.id || rt.reservedSessionId || null,
+        });
       }
       if (name === 'agent') {
         const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
@@ -1550,6 +1566,7 @@ export async function createMixdogSessionRuntime({
     // workflow's agent-tool gate, not reuse the boot-time array.
     getStandaloneTools: modelStandaloneTools,
     clearRuntimeNotifications,
+    goalRuntime,
     disposeSessionTitles: () => sessionTitles.disposeAll(),
     disposeGlobalExtensionSubscription: () => disposeGlobalExtensionSubscription(),
   });
@@ -1735,6 +1752,7 @@ export async function createMixdogSessionRuntime({
       }
       rt.reservedSessionId = id;
       bindRuntimeNotificationSession(id);
+      goalRuntime?.watchSession(id);
       // Reservation is the earliest safe point to prepare keychain, memory,
       // provider metadata, hooks, and the provider transport. This starts no
       // model response and therefore incurs no inference/token usage. The first
@@ -1745,6 +1763,39 @@ export async function createMixdogSessionRuntime({
         });
       });
       return id;
+    },
+    goalStatus() {
+      const sessionId = rt.session?.id || rt.reservedSessionId || null;
+      return sessionId ? goalRuntime.snapshot(sessionId) : null;
+    },
+    async goalControl(args = {}) {
+      let sessionId = rt.session?.id || rt.reservedSessionId || null;
+      if (!sessionId) {
+        await createCurrentSession('goal');
+        sessionId = rt.session?.id || rt.reservedSessionId || null;
+      }
+      if (!sessionId) throw new Error('goal: session could not be created');
+      const result = await goalRuntime.control(sessionId, args);
+      if (result?.goal?.status === 'active') {
+        activateRuntimeTools(goalRuntime.tools.map((tool) => tool.name));
+      }
+      return result;
+    },
+    goalContinuation() {
+      const sessionId = rt.session?.id || rt.reservedSessionId || null;
+      if (!sessionId) return { run: false, reason: 'missing-session', goal: null };
+      const continuation = goalRuntime.continuation(sessionId, { agentStatus: agentStatusState() });
+      if (continuation.run) {
+        activateRuntimeTools(goalRuntime.tools.map((tool) => tool.name));
+      }
+      return continuation;
+    },
+    archiveCompletedGoalOnUserInput() {
+      const sessionId = rt.session?.id || rt.reservedSessionId || null;
+      return sessionId ? goalRuntime.archiveCompletedOnUserInput(sessionId) : null;
+    },
+    onGoalStatusChange(listener) {
+      return goalRuntime.subscribe(listener);
     },
     get provider() {
       return rt.route.provider;

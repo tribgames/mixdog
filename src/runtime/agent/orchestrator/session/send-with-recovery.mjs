@@ -24,6 +24,7 @@ import {
 } from './image-strip-recovery.mjs';
 import { setTimeout as sleepMs } from 'timers/promises';
 import { readStreamOutcome } from '../providers/lib/stream-outcome.mjs';
+import { cloneProviderReplay } from '../providers/lib/provider-replay.mjs';
 import { resolveWorkerCompactPolicy } from './loop/compact-policy.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
@@ -262,6 +263,7 @@ export async function sendWithRecovery(ctx) {
                 && outcome.toolCallsStarted !== true
                 && outcome.sideEffectDispatched !== true
             ) {
+                const partialProviderReplay = cloneProviderReplay(sendErr.partialProviderReplay);
                 response = {
                     content: sendErr.partialContent,
                     model: sendErr.model || model,
@@ -269,6 +271,7 @@ export async function sendWithRecovery(ctx) {
                     usage: normalizedIncompleteUsage(sendErr.rawUsage),
                     stopReason: sendErr.finishReason,
                     truncated: true,
+                    ...(partialProviderReplay ? { providerReplay: partialProviderReplay } : {}),
                     providerMetadata: sendErr.providerMetadata,
                     providerState: opts.providerState,
                     providerIncompleteRecovery: true,
@@ -393,6 +396,7 @@ export async function sendWithRecovery(ctx) {
                         partialContentLen: typeof sendErr.partialContent === 'string' ? sendErr.partialContent.length : 0,
                     });
                 } catch { /* best-effort */ }
+                const partialProviderReplay = cloneProviderReplay(sendErr.partialProviderReplay);
                 response = {
                     content: typeof sendErr.partialContent === 'string' ? sendErr.partialContent : '',
                     model: sendErr.partialModel || model,
@@ -415,6 +419,9 @@ export async function sendWithRecovery(ctx) {
                         : {}),
                     ...(Array.isArray(sendErr.partialAssistantBlocks) && sendErr.partialAssistantBlocks.length
                         ? { assistantBlocks: sendErr.partialAssistantBlocks }
+                        : {}),
+                    ...(partialProviderReplay
+                        ? { providerReplay: partialProviderReplay }
                         : {}),
                     providerMetadata: sendErr.providerMetadata,
                     partialToolRecovery: true,

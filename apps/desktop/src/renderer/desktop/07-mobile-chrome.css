@@ -416,6 +416,7 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .
   width: 44px;
   height: 44px;
   min-width: 44px;
+  flex-basis: 44px;
 }
 html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .session-panel-action > svg {
   width: 22px;
@@ -428,7 +429,7 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .
    only, so a slot holding two actions keeps its own gap. */
 html[data-mixdog-mobile-tabs]
   .session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
-  margin-right: calc((28px - 44px) / 2);
+  margin-right: calc((28px - 44px) / 2 + 6px);
 }
 /* Chrome has NO hairlines above/below its toolbar (user: 상하 테두리 없네);
    the toolbar band runs uninterrupted into the sheet on mobile. The pills
@@ -925,6 +926,11 @@ html[data-mixdog-mobile-tabs] .transcript {
   touch-action: pan-y;
 }
 html[data-mixdog-mobile-tabs] .transcript::-webkit-scrollbar { display: none; }
+/* Horizontal touch belongs to pane tab traversal everywhere in the pane,
+   including controls and horizontally scrollable content. */
+html[data-mixdog-mobile-tabs] .pane-cell {
+  touch-action: pan-y;
+}
 /* The jump pill is a primary phone action, so its hit frame follows the same
    44dp tier as composer and toolbar controls. */
 html[data-mixdog-mobile-tabs] .jump-to-latest {
@@ -934,9 +940,8 @@ html[data-mixdog-mobile-tabs] .jump-to-latest {
   font-size: calc(14px * var(--mx-device-scale, 2.5));
   line-height: calc(20px * var(--mx-device-scale, 2.5));
 }
-/* Code/table surfaces own horizontal touch once the swipe router has opted
-   them out. Keep their native momentum but hide tracks that otherwise flash
-   over the final line of content. */
+/* Code/table surfaces keep vertical momentum while horizontal touch traverses
+   pane tabs. Hide tracks that otherwise flash over the final line of content. */
 html[data-mixdog-mobile-tabs] :is(
   .markdown-code > pre,
   .markdown-table,
@@ -945,7 +950,7 @@ html[data-mixdog-mobile-tabs] :is(
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-inline: contain;
   scrollbar-width: none;
-  touch-action: pan-x pan-y;
+  touch-action: pan-y;
 }
 html[data-mixdog-mobile-tabs] :is(
   .markdown-code > pre,
@@ -1146,23 +1151,21 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-row {
 html[data-mixdog-mobile-tabs] .session-sidebar .session-row-actions {
   top: calc((var(--mx-touch-row) - 24px) / 2);
 }
-/* Horizontally the three marks that share this column did NOT agree (user:
-   닷하고 위치도 맞아야 하고): measured from the row's right edge the dot
-   centres on 14 (right 10.5 + half of 7), the spinner on 14 (right 8 + half
-   of 12), and the archive button on 15 (right 3 + half of 24). The button is
-   the one that cannot move — right:2 is the inset that caused the
-   mass-archive incident recorded in 10-rail-pages.css, because it puts the
-   button under the scrollbar's live band. So the two indicators move onto the
-   button's axis instead, and dot, spinner and archive all centre on 15. */
-html[data-mixdog-mobile-tabs] .session-row-unread-dot { right: 11.5px; }
-html[data-mixdog-mobile-tabs] .sidebar-heading-dot { right: 11.5px; }
-html[data-mixdog-mobile-tabs] .session-row-status { right: 9px; }
+/* Desktop and phone now share one 20px trailing centerline; touch targets grow
+   around that center instead of pulling their glyphs toward the edge. */
+html[data-mixdog-mobile-tabs] .session-row-unread-dot { right: 16.5px; }
+html[data-mixdog-mobile-tabs] .sidebar-heading-dot { right: 16.5px; }
+html[data-mixdog-mobile-tabs] .session-row-status { right: 14px; }
 html[data-mixdog-mobile-tabs] .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .session-sidebar-panels .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-pin {
   width: var(--mx-touch-row);
   height: var(--mx-touch-row);
   flex-basis: var(--mx-touch-row);
+}
+html[data-mixdog-mobile-tabs]
+  .sidebar-category-header > .row-overflow .row-overflow-trigger {
+  margin-right: 0;
 }
 html[data-mixdog-mobile-tabs] .sidebar-section-heading,
 html[data-mixdog-mobile-tabs] .project-group-heading,

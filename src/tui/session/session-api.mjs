@@ -85,6 +85,9 @@ export function createSessionApiA(bag) {
     // turn or the background task. The returned running snapshot creates the
     // normal post-tool boundary, where this queued prompt is injected.
     if (accepted !== false) {
+      if ((intake.queueOptions.mode || 'prompt') === 'prompt') {
+        bag.archiveCompletedGoalOnUserInput?.();
+      }
       try { runtime.interruptTaskWait?.('user-message'); } catch {}
     }
     return accepted;
@@ -387,6 +390,11 @@ export function createSessionApiA(bag) {
     // It must exist here because the daemon addresses actions on this surface.
     taskControl: (args = {}) => {
       return runtime.taskControl?.(args) ?? null;
+    },
+    goalControl: async (args = {}) => {
+      const result = await runtime.goalControl?.(args);
+      set({ goal: runtime.goalStatus?.() || result?.goal || null });
+      return result;
     },
     toolsStatus: (query = '') => {
       return runtime.toolsStatus?.(query) || { mode: getState().toolMode, count: 0, activeCount: 0, tools: [] };
