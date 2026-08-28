@@ -6,7 +6,12 @@ import { loadSession, saveSessionAsync, setLiveSession, evictLiveSession, listSt
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
 import { normalizeCompactType, DEFAULT_COMPACT_TYPE, SUMMARY_PREFIX } from '../compact.mjs';
 import { runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
-import { resolveGaugeContextTokens } from '../loop/compact-policy.mjs';
+import {
+    currentContextEstimateTokens,
+    invalidateContextUsageSnapshot,
+    recordContextUsageSnapshot,
+    resolveGaugeContextTokens,
+} from '../loop/compact-policy.mjs';
 import { hasUserConversationMessage, promptContentText, resetSessionBp3Environment } from './prompt-utils.mjs';
 import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
@@ -161,7 +166,10 @@ export async function clearSessionMessages(sessionId, options = {}) {
     const beforeTokens = (clearPolicy
         ? resolveGaugeContextTokens(beforeMessageTokens, clearPolicy, { messages, sessionRef: session })
         : 0) || estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
-    const afterTokens = estimateTranscriptContextUsage(keep, session.tools || [], { provider: session.provider });
+    const postClearPolicy = resolveSessionCompactionPolicy(session, keep);
+    const afterTokens = postClearPolicy
+        ? currentContextEstimateTokens(afterMessageTokens, postClearPolicy)
+        : estimateTranscriptContextUsage(keep, session.tools || [], { provider: session.provider });
     const now = Date.now();
     // --- Fork the outgoing transcript to a separate resumable session BEFORE
     // the wipe below. Runs for every clear path (plain /clear, auto-clear,
@@ -264,6 +272,17 @@ export async function clearSessionMessages(sessionId, options = {}) {
         lastClearCompactType: clearCompactType || session.compaction?.compactType || null,
         lastClearCompactError: clearCompactError?.message || null,
     };
+    if (summaryCarriedForward && postClearPolicy) {
+        recordContextUsageSnapshot(session, postClearPolicy, {
+            messages: keep,
+            usedTokens: afterTokens,
+            messageTokensEst: afterMessageTokens,
+            source: 'post_clear',
+            updatedAt: now,
+        });
+    } else {
+        invalidateContextUsageSnapshot(session);
+    }
     session.updatedAt = now;
     await saveSessionAsync(session, { expectedGeneration: session.generation });
     return session;

@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Copy,
+  Crosshair,
   FileClock,
   FileText,
   FlaskConical,
@@ -28,7 +29,6 @@ import {
   SkipForward,
   Square,
   StepForward,
-  Target,
   Terminal,
   Trash2,
   Undo2,
@@ -54,7 +54,11 @@ const GLYPHS: Record<string, ComponentType<SVGProps<SVGSVGElement> & { size?: nu
   edit: Pencil,
   'file-clock': FileClock,
   folder: Folder,
-  goal: Target,
+  // Crosshair, not Target: the bullseye's three concentric rings collapse at
+  // the 15px chip size and read as a status dot (CircleDot already means
+  // in-progress/breakpoint here). One circle + cross keeps the aim semantics
+  // legible on the 1px pixel-snapped stroke.
+  goal: Crosshair,
   history: History,
   'in-progress': CircleDot,
   loading: LoaderCircle,

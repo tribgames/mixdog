@@ -1,20 +1,28 @@
-import { ChevronRight, Files, Sparkles, SquareTerminal } from "lucide-react";
+import { ChevronRight, Files, Globe, Sparkles, SquareTerminal } from "lucide-react";
 
 import { t } from "./i18n";
 import { usePersistedListOrder } from "./use-persisted-list-order";
 
 export function UtilitiesPane({
   active = true,
+  onOpenBrowser,
   onOpenStudio,
   onOpenTerminal,
   onOpenExplorer,
 }: {
   active?: boolean;
+  onOpenBrowser(): void;
   onOpenStudio(): void;
   onOpenTerminal(): void;
   onOpenExplorer(): void;
 }) {
   const items = [
+    {
+      label: "Browser",
+      description: "Browse the web in a tab agents can drive.",
+      icon: Globe,
+      run: onOpenBrowser,
+    },
     {
       label: "Studio",
       description: "Generate images and videos with AI.",

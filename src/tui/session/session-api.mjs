@@ -775,7 +775,6 @@ export function createSessionApiA(bag) {
         syncContextStats({
           allowEstimated: true,
           invalidateExact: compactChanged,
-          compactedEstimateTokens: compactChanged ? result.afterTokens : null,
         });
         set({ ...routeState(), stats: { ...getState().stats } });
         if (result) {

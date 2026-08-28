@@ -38,6 +38,13 @@ fn argument(args: &[String], name: &str) -> Option<String> {
         .map(|pair| pair[1].clone())
 }
 
+fn upstream_browser_name(browser: &str) -> Option<&'static str> {
+    match browser {
+        "chrome" => Some("Chrome"),
+        _ => None,
+    }
+}
+
 fn read_transport_key() -> Result<[u8; 32], ()> {
     let mut encoded = String::new();
     io::stdin()
@@ -81,10 +88,13 @@ fn fail(message: &str, code: i32) -> ! {
 async fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let profile = argument(&args, "--profile");
+    let upstream_browser = argument(&args, "--browser")
+        .as_deref()
+        .and_then(upstream_browser_name);
     let valid = args
         .first()
         .is_some_and(|value| value == "import-passwords")
-        && argument(&args, "--browser").as_deref() == Some("chrome")
+        && upstream_browser.is_some()
         && args.iter().any(|value| value == "--json")
         && profile.as_ref().is_some_and(|value| {
             !value.is_empty() && value.len() <= 120 && !value.contains('/') && !value.contains('\\')
@@ -94,9 +104,13 @@ async fn main() {
     }
 
     let key = read_transport_key().unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
-    let results = import_logins("chrome", profile.as_deref().unwrap_or_default(), false)
-        .await
-        .unwrap_or_else(|_| fail("Chrome password import failed.", 1));
+    let results = import_logins(
+        upstream_browser.unwrap_or_default(),
+        profile.as_deref().unwrap_or_default(),
+        false,
+    )
+    .await
+    .unwrap_or_else(|_| fail("Chrome password import failed.", 1));
 
     let mut failures = 0_usize;
     let credentials = results
@@ -127,6 +141,12 @@ async fn main() {
 mod tests {
     use super::*;
     use aes_gcm::aead::Aead;
+
+    #[test]
+    fn maps_cli_chrome_to_the_upstream_browser_key() {
+        assert_eq!(upstream_browser_name("chrome"), Some("Chrome"));
+        assert_eq!(upstream_browser_name("Chrome"), None);
+    }
 
     #[test]
     fn envelope_round_trip_keeps_plaintext_out_of_stdout() {

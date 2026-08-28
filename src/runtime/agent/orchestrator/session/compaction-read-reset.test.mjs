@@ -9,6 +9,7 @@ import { COMPACT_TYPE_SEMANTIC } from './compact.mjs';
 import { runSessionCompaction } from './manager/compaction-runner.mjs';
 import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
+import { createContextStatus } from '../../../../session-runtime/context-status.mjs';
 
 const SUMMARY = [
     '## Goal',
@@ -68,13 +69,26 @@ function semanticProvider(name) {
     };
 }
 
+function contextStatusFor(session) {
+    return createContextStatus({
+        getSession: () => session,
+        getRoute: () => ({
+            provider: session.provider,
+            model: session.model,
+            contextWindow: session.contextWindow,
+        }),
+        getCurrentCwd: () => session.cwd || process.cwd(),
+        getMode: () => 'full',
+    }).contextStatus();
+}
+
 test('manual compaction starts a fresh read epoch', async (t) => {
     const fx = fixture(t, 'manual');
     await establishUnchangedSnapshot(fx);
 
     const session = {
         id: fx.sessionId,
-        provider: 'compact-read-manual',
+        provider: 'anthropic-oauth',
         model: 'fake-model',
         contextWindow: 100_000,
         compactBoundaryTokens: 100_000,
@@ -84,7 +98,18 @@ test('manual compaction starts a fresh read epoch', async (t) => {
             { role: 'assistant', content: 'older answer with file details' },
             { role: 'user', content: 'current request remains verbatim' },
         ],
-        tools: [],
+        tools: [
+            { name: 'read', description: 'Read files', inputSchema: { type: 'object' } },
+        ],
+        deferredNativeTools: true,
+        deferredDiscoveredTools: ['recall'],
+        deferredToolCatalog: [
+            {
+                name: 'recall',
+                description: 'Recall stored context '.repeat(80),
+                inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+            },
+        ],
         compaction: {
             type: COMPACT_TYPE_SEMANTIC,
             compactType: COMPACT_TYPE_SEMANTIC,
@@ -100,6 +125,12 @@ test('manual compaction starts a fresh read epoch', async (t) => {
     });
 
     assert.equal(result.changed, true);
+    const liveStatus = contextStatusFor(session);
+    const repeatedStatus = contextStatusFor(session);
+    const restartedStatus = contextStatusFor(JSON.parse(JSON.stringify(session)));
+    assert.equal(liveStatus.usedTokens, result.afterTokens);
+    assert.equal(repeatedStatus.usedTokens, result.afterTokens);
+    assert.equal(restartedStatus.usedTokens, result.afterTokens);
     const reread = String(await executeBuiltinTool('read', { path: fx.file }, fx.dir, { sessionId: fx.sessionId }));
     assert.doesNotMatch(reread, /file unchanged/);
     assert.match(reread, /alpha/);

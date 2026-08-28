@@ -547,6 +547,18 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
       { op: 'align_shapes', slide: 1, shapes: [2, 3], align: 'top' },
       { op: 'set_hyperlink', slide: 1, shape: 2, address: 'https://mix.dog' },
       { op: 'z_order', slide: 1, shape: 2, command: 'front' },
+      {
+        op: 'add_chart',
+        slide: 1,
+        chartType: 'column',
+        title: 'One series',
+        categories: ['May', 'June', 'July'],
+        series: [{ name: 'Revenue', values: [10, 12, 15] }],
+        left: 540,
+        top: 410,
+        width: 300,
+        height: 120,
+      },
       { op: 'set_notes', slide: 1, text: 'Owner {{owner}}' },
       { op: 'fill_template', tokens: { title: '실제 템플릿', owner: 'Mixdog' }, strict: true },
     ],
@@ -574,6 +586,8 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   assert.equal(chart.chart.series[0].hasErrorBars, true);
   assert.equal(chart.chart.series[1].chartType, 4);
   assert.equal(chart.chart.series[1].axisGroup, 2);
+  const oneSeriesChart = powerpointSnapshot.document.slides[0].shapes.find((shape) => shape.chart?.title === 'One series');
+  assert.equal(oneSeriesChart.chart.seriesCount, 1);
   assert.equal(powerpointSnapshot.document.slides[0].comments.length, 1);
   assert.equal(powerpointSnapshot.document.slides[0].animations.length, 1);
   assert.notEqual(powerpointSnapshot.document.slides[0].transition.effect, 0);
@@ -600,6 +614,23 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   assert.equal(powerpointValidation.ok, true, JSON.stringify(powerpointValidation));
   assert.equal(powerpointValidation.native.opened, true);
   value(await executeOfficeTool({ action: 'close', session: powerpoint.session }, { cwd }));
+  const persistedPowerPoint = value(await executeOfficeTool({
+    action: 'open',
+    path: join(cwd, '발표.pptx'),
+    output: join(cwd, '발표-재열기.pptx'),
+    mode: 'background',
+  }, { cwd }));
+  const persistedSnapshot = value(await executeOfficeTool({
+    action: 'snapshot',
+    session: persistedPowerPoint.session,
+  }, { cwd }));
+  const persistedChart = persistedSnapshot.document.slides[0].shapes.find((shape) => shape.chart);
+  assert.equal(persistedChart.chart.seriesCount, 2);
+  assert.deepEqual(persistedChart.chart.series.map((series) => series.name), ['Actual', 'Plan']);
+  const persistedOneSeriesChart = persistedSnapshot.document.slides[0].shapes.find((shape) => shape.chart?.title === 'One series');
+  assert.equal(persistedOneSeriesChart.chart.seriesCount, 1);
+  assert.deepEqual(persistedOneSeriesChart.chart.series.map((series) => series.name), ['Revenue']);
+  value(await executeOfficeTool({ action: 'close', session: persistedPowerPoint.session }, { cwd }));
   const importedPowerPoint = value(await executeOfficeTool({
     action: 'create',
     path: join(cwd, '가져오기.pptx'),

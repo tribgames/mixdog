@@ -488,11 +488,13 @@ export const ModelSelector = memo(function ModelSelector({
     }
     setOptimisticFast(enabled);
     routingGuard.current = true;
+    let accepted = false;
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
       if (next !== undefined) {
+        accepted = next?.fast === enabled;
         applySnapshot(next);
-        if (provider && model) {
+        if (accepted && provider && model) {
           onRoutePreferenceApplied?.({
             provider,
             model,
@@ -502,7 +504,11 @@ export const ModelSelector = memo(function ModelSelector({
         }
       }
     } finally {
-      setOptimisticFast(null);
+      // A successful snapshot still needs one React commit to reach `fast`.
+      // Keep the optimistic value through that handoff so the control never
+      // flashes back to the previous speed between IPC completion and paint.
+      // Errors or an authoritative mismatch roll back immediately.
+      if (!accepted) setOptimisticFast(null);
       routingGuard.current = false;
     }
   };

@@ -34,9 +34,11 @@ import {
     compactTargetBudget as compactTargetBudgetForPolicy,
     currentContextEstimateTokens,
     invalidateProviderContextBaseline,
+    recordContextUsageSnapshot,
     resolveGaugeContextTokens,
     resolveWorkerCompactPolicy,
 } from '../loop/compact-policy.mjs';
+import { snapshotProviderRequestTools } from '../../../../../session-runtime/tool-catalog.mjs';
 
 // 'compacting' is a transient in-flight stage written just before semantic /
 // recall-fasttrack compaction runs. If the process crashes or only partially
@@ -58,12 +60,19 @@ export function normalizeStaleCompactingStage(session) {
 
 // Manual/auto-clear compaction needs the same threshold and post-compact
 // target math as the loop, even when automatic compaction is disabled.
-export function resolveSessionCompactionPolicy(session) {
+export function resolveSessionCompactionPolicy(session, messages = session?.messages) {
     if (!session) return null;
+    const requestTools = snapshotProviderRequestTools({
+        provider: session.provider,
+        tools: session.tools || [],
+        nativeTools: [],
+        messages: Array.isArray(messages) ? messages : [],
+        session,
+    });
     return resolveWorkerCompactPolicy({
         ...session,
         compaction: { ...(session.compaction || {}), auto: true },
-    }, session.tools || []);
+    }, requestTools);
 }
 function addCompactUsageToSession(session, usage) {
     if (!session || !usage) return;
@@ -438,11 +447,12 @@ export async function runSessionCompaction(session, opts = {}) {
     try { beforeEncoded = JSON.stringify(messages); } catch { beforeEncoded = ''; }
     try { afterEncoded = JSON.stringify(compacted); } catch { afterEncoded = ''; }
     const afterMessageTokens = estimateMessagesTokens(compacted);
+    const postCompactPolicy = resolveSessionCompactionPolicy(session, compacted) || alignedPolicy;
     // Same scale as beforeTokens: compaction invalidates the provider baseline,
     // so the gauge's post-compact number is the calibrated transcript estimate
     // plus the request reserve. The raw sum reported roughly half of that.
-    const afterTokens = alignedPolicy
-        ? currentContextEstimateTokens(afterMessageTokens, alignedPolicy)
+    const afterTokens = postCompactPolicy
+        ? currentContextEstimateTokens(afterMessageTokens, postCompactPolicy)
         : afterMessageTokens + reserveTokens;
     const changed = beforeEncoded && afterEncoded
         ? beforeEncoded !== afterEncoded
@@ -471,7 +481,8 @@ export async function runSessionCompaction(session, opts = {}) {
         triggerTokens,
         bufferTokens,
         bufferRatio,
-        reserveTokens,
+        requestReserveTokens: postCompactPolicy?.requestReserveTokens || 0,
+        reserveTokens: postCompactPolicy?.reserveTokens ?? reserveTokens,
         type: compactType,
         compactType,
         lastCompactType: compactType,
@@ -503,7 +514,18 @@ export async function runSessionCompaction(session, opts = {}) {
         } : null,
         compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
     };
-    if (changed) invalidateProviderContextBaseline(session);
+    if (changed) {
+        invalidateProviderContextBaseline(session);
+        if (postCompactPolicy) {
+            recordContextUsageSnapshot(session, postCompactPolicy, {
+                messages: compacted,
+                usedTokens: afterTokens,
+                messageTokensEst: afterMessageTokens,
+                source: 'post_compact',
+                updatedAt: now,
+            });
+        }
+    }
     // Observability parity with the loop's pre-send pass: record the
     // out-of-loop mutation as compact_meta and park a one-shot intent so the
     // next turn's first send tags its cache break instead of logging an

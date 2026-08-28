@@ -547,6 +547,10 @@ const api: DesktopApi = {
   },
   browserHistorySearch: (query) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserHistorySearch, query),
+  browserCredentialSuggestions: () =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions),
+  browserCredentialFill: (credentialId) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, credentialId),
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),
   // Byte lane for gallery media: a plain URL the DOM fetches itself (cached

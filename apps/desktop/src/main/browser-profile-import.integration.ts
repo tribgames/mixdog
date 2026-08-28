@@ -256,6 +256,35 @@ public static class MixdogBrowserCloseFixture {
   assert.equal(vault.credentials?.[0]?.username, 'fixture-user');
   assert.equal(vault.credentials?.[0]?.password, 'fixture-password');
 
+  const credentialSuggestions = await service.credentialSuggestions(
+    'https://accounts.example.test/login',
+  );
+  assert.equal(credentialSuggestions.length, 1);
+  assert.match(credentialSuggestions[0].label, /^f.*r$/);
+  assert.doesNotMatch(JSON.stringify(credentialSuggestions), /fixture-user|fixture-password/);
+  assert.deepEqual(
+    await service.credentialSuggestions('http://accounts.example.test/login'),
+    [],
+  );
+  const fillResult = await service.useCredential(
+    'https://accounts.example.test/login',
+    credentialSuggestions[0].id,
+    async (credential) => {
+      assert.equal(credential.username, 'fixture-user');
+      assert.equal(credential.password, 'fixture-password');
+      return { usernameFilled: true, passwordFilled: true };
+    },
+  );
+  assert.deepEqual(fillResult, { usernameFilled: true, passwordFilled: true });
+  await assert.rejects(
+    service.useCredential(
+      'https://other.example.test/login',
+      credentialSuggestions[0].id,
+      async () => undefined,
+    ),
+    /does not match the current page origin/,
+  );
+
   const suggestions = await service.searchHistory('dashboard');
   assert.equal(suggestions.length, 1);
   assert.equal(suggestions[0].url, 'https://accounts.example.test/dashboard');

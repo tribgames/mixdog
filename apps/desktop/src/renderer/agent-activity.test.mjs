@@ -356,7 +356,8 @@ test("Goal island gives title, task progress, and elapsed time dedicated header 
       }));
     });
     assert.equal(document.querySelector(".session-goal-objective")?.textContent, "Short Goal Title");
-    assert.ok(document.querySelector(".session-goal-glyph .mx-icon.lucide-target"));
+    assert.ok(document.querySelector(".session-goal-glyph .mx-icon.lucide-crosshair"));
+    assert.equal(document.querySelector(".session-goal-glyph .lucide-target"), null);
     assert.equal(document.querySelector(".session-goal-glyph .lucide-flag"), null);
     assert.equal(document.querySelector(".session-goal-glyph .lucide-flag-triangle-right"), null);
     assert.equal(document.querySelector(".session-goal-progress")?.textContent, "1/3");
@@ -366,7 +367,10 @@ test("Goal island gives title, task progress, and elapsed time dedicated header 
     await act(async () => {
       document.querySelector(".session-goal-trigger")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
-    assert.match(document.body.textContent, /Tasks 1\/3/);
+    // The task count lives in its own right-aligned span so the section
+    // header reads "Tasks" left / "1/3" right (matches the trigger meta).
+    assert.match(document.querySelector(".session-goal-tasks > b")?.textContent || "", /^Tasks/);
+    assert.equal(document.querySelector(".session-goal-tasks .session-goal-task-count")?.textContent, "1/3");
     assert.equal(document.querySelector(".session-goal-popover-glyph"), null);
     assert.equal(document.querySelectorAll(".session-goal-task-list > li").length, 3);
     assert.equal(document.querySelectorAll(".session-goal-task-list > li .mx-icon").length, 3);

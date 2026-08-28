@@ -1083,7 +1083,6 @@ export function createRunTurn(bag) {
           syncContextStats({
             allowEstimated: true,
             invalidateExact: compactChanged,
-            compactedEstimateTokens: compactChanged ? event?.afterTokens : null,
           });
           // syncContextStats only STAGES its patch on the draft (context-state
           // mjs stages through updateState); publication is the caller's, and

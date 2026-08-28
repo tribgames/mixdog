@@ -56,12 +56,18 @@ const repoPackageManifest = join(repoRoot, 'package.json');
 // native binding cannot be dlopen'd from inside the archive, so an incremental
 // artifact that repacks it leaves the installed app with no terminals at all.
 const ptyPackageSegments = ['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'];
+const browserImportNativeFileNames = [
+  'mixdog-browser-import.exe',
+  'bitwarden_chromium_import_helper.exe',
+  'LICENSE_GPL.txt',
+  'browser-import-NOTICE.txt',
+];
 const ignoredSource = /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
 const fileContents = new Map();
 const fileMetadata = new Map();
 const inputFiles = new Map();
 
-const targetInputs = {
+export const targetInputs = {
   renderer: [
     join(desktopDir, 'src', 'renderer'),
     join(desktopDir, 'src', 'shared'),
@@ -94,6 +100,7 @@ const targetInputs = {
     join(repoRoot, 'scripts', 'prune-embedding-runtime.mjs'),
     join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs'),
     join(desktopDir, 'scripts', 'prepare-runtime.mjs'),
+    join(repoRoot, 'native', 'mixdog-browser-import'),
   ],
   package: [
     join(desktopDir, 'package.json'),
@@ -218,6 +225,25 @@ async function hashFile(path) {
   const hash = createHash('sha256');
   const contents = await contentsForFile(path);
   hash.update(contents);
+  return hash.digest('hex');
+}
+
+export async function hashBrowserImportNativeTools(nativeToolsDir) {
+  const hash = createHash('sha256');
+  for (const fileName of browserImportNativeFileNames) {
+    hash.update(fileName);
+    hash.update('\0');
+    try {
+      const contents = await readFile(join(nativeToolsDir, fileName));
+      hash.update('present');
+      hash.update('\0');
+      hash.update(contents);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      hash.update('missing');
+      hash.update('\0');
+    }
+  }
   return hash.digest('hex');
 }
 
@@ -373,6 +399,9 @@ async function installedHashes(installDir) {
   return {
     appAsar: await hashFile(appAsar),
     runtimeAsar: await hashFile(runtimeAsar),
+    browserImportNativeTools: await hashBrowserImportNativeTools(
+      join(resources, 'native-tools'),
+    ),
   };
 }
 
@@ -431,7 +460,8 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     previous
     && previous.installDir === resolve(installDir)
     && previous.installed?.appAsar === hashes.appAsar
-    && previous.installed?.runtimeAsar === hashes.runtimeAsar,
+    && previous.installed?.runtimeAsar === hashes.runtimeAsar
+    && previous.installed?.browserImportNativeTools === hashes.browserImportNativeTools,
   );
   const bootstrap = previous ? null : await bootstrapFreshness(installDir);
   const decision = decidePlan({

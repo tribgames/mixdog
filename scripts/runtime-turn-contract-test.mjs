@@ -67,7 +67,7 @@ test('provider failures expose concise capacity, session-state, and retry reason
   );
 });
 
-test('auto-compact completion estimate wins over stale runtime context usage', () => {
+test('canonical runtime context snapshot wins over stale published stats', () => {
   let state = {
     sessionId: 'context-session',
     provider: 'test-provider',
@@ -88,10 +88,10 @@ test('auto-compact completion estimate wins over stale runtime context usage', (
     provider: 'test-provider',
     model: 'test-model',
     contextStatus: () => ({
-      usedSource: 'last_api_request',
-      usedTokens: 90_000,
-      currentEstimatedTokens: 90_000,
-      lastApiRequestTokens: 90_000,
+      usedSource: 'estimated',
+      usedTokens: 12_000,
+      currentEstimatedTokens: 12_000,
+      lastApiRequestTokens: 0,
       messages: { count: 3 },
       compaction: {},
     }),
@@ -106,7 +106,6 @@ test('auto-compact completion estimate wins over stale runtime context usage', (
   context.syncContextStats({
     allowEstimated: true,
     invalidateExact: true,
-    compactedEstimateTokens: 12_000,
   });
 
   assert.equal(state.stats.currentContextTokens, 0);

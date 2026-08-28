@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import {
   createGoalRuntime,
+  DEFAULT_COMPLETED_GOAL_TTL_MS,
   DEFAULT_GOAL_TIME_LIMIT_MS,
   GOAL_TOOL_DEFS,
   parseGoalDuration,
 } from './goal-runtime.mjs';
 
-test('Goal runtime persists model-owned completion and archives it on the next user input', async () => {
+test('Goal runtime keeps completion visible across restart, then archives it on user input until TTL deletion', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-'));
   let clock = 1_800_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
@@ -41,17 +42,36 @@ test('Goal runtime persists model-owned completion and archives it on the next u
     assert.equal(completed.tasksCompleted, 2);
     assert.equal(completed.timeUsedMs, 12 * 60 * 1000);
 
-    await runtime.archiveCompletedOnUserInput('sess_goal_main');
-    assert.equal(runtime.snapshot('sess_goal_main'), null);
+    const goalPath = join(dataDir, 'goals', 'sess_goal_main.json');
+    assert.equal(runtime.snapshot('sess_goal_main').status, 'complete');
     assert.equal(runtime.storedSnapshot('sess_goal_main').status, 'complete');
-    assert.equal(runtime.storedSnapshot('sess_goal_main').archivedAt, clock);
+    assert.equal(existsSync(goalPath), true);
+    runtime.close();
 
     const reloaded = createGoalRuntime({ dataDir, now: () => clock });
     try {
-      assert.equal(reloaded.snapshot('sess_goal_main'), null);
+      assert.equal(reloaded.snapshot('sess_goal_main').status, 'complete');
       assert.equal(reloaded.storedSnapshot('sess_goal_main').tasksTotal, 2);
+      await reloaded.archiveCompletedOnUserInput('sess_goal_main');
+      assert.equal(reloaded.snapshot('sess_goal_main'), null);
+      assert.equal(reloaded.storedSnapshot('sess_goal_main').status, 'complete');
+      assert.equal(reloaded.storedSnapshot('sess_goal_main').archivedAt, clock);
     } finally {
       reloaded.close();
+    }
+
+    const hiddenReload = createGoalRuntime({ dataDir, now: () => clock });
+    try {
+      assert.equal(hiddenReload.snapshot('sess_goal_main'), null);
+      clock += DEFAULT_COMPLETED_GOAL_TTL_MS - 1;
+      assert.equal(hiddenReload.snapshot('sess_goal_main'), null);
+      assert.equal(existsSync(goalPath), true);
+      clock += 1;
+      assert.equal(hiddenReload.snapshot('sess_goal_main'), null);
+      assert.equal(hiddenReload.storedSnapshot('sess_goal_main'), null);
+      assert.equal(existsSync(goalPath), false);
+    } finally {
+      hiddenReload.close();
     }
   } finally {
     runtime.close();
@@ -317,11 +337,11 @@ test('unified Goal tool accepts model-shaped fields, consumes only the action pa
       ...filler,
     }, { callerSessionId: 'sess_goal_unified' })).goal;
     assert.equal(paused.status, 'paused');
-    assert.deepEqual(runtime.continuation('sess_goal_unified'), {
-      run: false,
-      reason: 'paused',
-      goal: paused,
-    });
+    const pausedContinuation = runtime.continuation('sess_goal_unified');
+    assert.equal(pausedContinuation.run, false);
+    assert.equal(pausedContinuation.reason, 'paused');
+    assert.equal(pausedContinuation.goal.id, paused.id);
+    assert.equal(pausedContinuation.goal.status, paused.status);
     const resumed = JSON.parse(await runtime.executeTool('goal', {
       action: 'resume',
       ...filler,

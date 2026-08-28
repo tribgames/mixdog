@@ -34,6 +34,7 @@ export function useAppSidebarSurface({
   closeSidebarForNavigation,
   startTask,
   openSession,
+  openBrowserTab,
   openStudioTab,
   openTerminalTab,
   openFolderTab,
@@ -68,6 +69,7 @@ export function useAppSidebarSurface({
   closeSidebarForNavigation(): void;
   startTask(): unknown;
   openSession(sessionId: string): unknown;
+  openBrowserTab(): unknown;
   openStudioTab(): unknown;
   openTerminalTab(): unknown;
   openFolderTab(): unknown;
@@ -223,6 +225,7 @@ export function useAppSidebarSurface({
   // Utilities rows launch tabs WITHOUT resetting the rail to Sessions: the
   // panel stays selected so repeated launches need no re-entry (user: 한번
   // 누르면 세션창으로 이동되는데 그냥 유지되도록).
+  const utilitiesOpenBrowser = useStableEvent(() => openBrowserTab());
   const utilitiesOpenStudio = useStableEvent(() => openStudioTab());
   const utilitiesOpenTerminal = useStableEvent(() => openTerminalTab());
   const utilitiesOpenExplorer = useStableEvent(() => openFolderTab());
@@ -255,6 +258,7 @@ export function useAppSidebarSurface({
       : "Workflows";
     const content = panel === "utilities"
       ? <UtilitiesPane active={active}
+          onOpenBrowser={utilitiesOpenBrowser}
           onOpenStudio={utilitiesOpenStudio}
           onOpenTerminal={utilitiesOpenTerminal}
           onOpenExplorer={utilitiesOpenExplorer} />
@@ -315,6 +319,7 @@ export function useAppSidebarSurface({
     {mountedSidebarPanels.has("utilities") && (
     panelSurface("utilities", "Utilities", (active) =>
       <UtilitiesPane active={active}
+        onOpenBrowser={utilitiesOpenBrowser}
         onOpenStudio={utilitiesOpenStudio}
         onOpenTerminal={utilitiesOpenTerminal}
         onOpenExplorer={utilitiesOpenExplorer} />)
@@ -378,6 +383,7 @@ export function useAppSidebarSurface({
     onExtensionsSectionChange,
     onMoveView,
     presentedSidebarGroup,
+    utilitiesOpenBrowser,
     utilitiesOpenExplorer,
     utilitiesOpenStudio,
     utilitiesOpenTerminal,

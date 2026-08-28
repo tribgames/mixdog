@@ -45,27 +45,27 @@ const CATALOG = {
       font: ['name', 'size', 'bold', 'italic', 'color'],
       page: ['orientation', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
       headerFooter: ['section', 'kind', 'header', 'text'],
-      table: ['style', 'columnWidths', 'borders', 'shading', 'alignment'],
-      tableCell: ['fillColor', 'verticalAlignment', 'width', 'bold', 'italic', 'color'],
-      paragraphFormat: ['alignment', 'spacingBefore', 'spacingAfter', 'lineSpacing', 'keepWithNext', 'pageBreakBefore', 'border', 'tabStops'],
+      table: ['style', 'textStyle', 'fontName', 'fontSize', 'color', 'spacingAfter', 'columnWidths', 'borders', 'shading', 'alignment'],
+      tableCell: ['fillColor', 'verticalAlignment', 'width', 'fontName', 'fontSize', 'bold', 'italic', 'color'],
+      paragraphFormat: ['alignment', 'spacingBefore', 'spacingAfter', 'lineSpacing', 'keepWithNext', 'pageBreakBefore', 'border', 'tabStops', 'listKind', 'listLevel'],
       comment: ['author', 'initials', 'date', 'text', 'anchoredText', 'resolved', 'replies'],
       contentControl: ['tag', 'title', 'lock', 'text'],
       revision: ['author', 'date', 'type', 'typeCode', 'text', 'resolution'],
       fields: ['toc', 'page', 'numPages', 'pageBreak', 'sectionBreak'],
       links: ['address', 'subAddress', 'display', 'bookmark'],
       provenance: ['source.document', 'source.target', 'source.label'],
-      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'review'],
+      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'review'],
     },
   },
   xlsx: {
     paths: ['/sheet[NAME]', '/sheet[NAME]/cell[A1]', '/sheet[NAME]/range[A1:C10]'],
     operations: {
       common: ['replace_text', 'set_cell', 'set_formula', 'set_range', 'append_row', 'clear_cell'],
-      office: ['compose_sheet', 'add_sheet', 'copy_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'add_note', 'delete_note', 'add_image', 'add_table', 'add_chart', 'add_conditional_format', 'delete_conditional_formats', 'add_validation', 'freeze_panes', 'add_pivot_table', 'autofit_range', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'merge_cells', 'unmerge_cells', 'set_autofilter', 'set_hyperlink', 'define_name', 'delete_name', 'protect_sheet', 'unprotect_sheet', 'add_provenance'],
+      office: ['compose_sheet', 'add_sheet', 'copy_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'add_note', 'delete_note', 'add_image', 'add_table', 'add_chart', 'add_conditional_format', 'delete_conditional_formats', 'add_validation', 'freeze_panes', 'add_pivot_table', 'autofit_range', 'set_page_setup', 'set_sheet_view', 'set_sheet_visibility', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'merge_cells', 'unmerge_cells', 'set_autofilter', 'set_hyperlink', 'define_name', 'delete_name', 'protect_sheet', 'unprotect_sheet', 'add_provenance'],
       portable: [],
     },
     properties: {
-      cellStyle: ['fontName', 'fontSize', 'bold', 'italic', 'color', 'fillColor', 'numberFormat'],
+      cellStyle: ['fontName', 'fontSize', 'bold', 'italic', 'color', 'fillColor', 'numberFormat', 'horizontalAlignment', 'verticalAlignment', 'wrapText'],
       chart: ['chartType', 'left', 'top', 'width', 'height', 'title'],
       table: ['name', 'style'],
       pivot: ['source', 'destination', 'name', 'rows', 'columns', 'values'],
@@ -74,8 +74,10 @@ const CATALOG = {
       links: ['address', 'text'],
       protection: ['password', 'allowFormattingCells', 'allowSorting', 'allowFiltering'],
       audit: ['conditionalFormats', 'formulaLineage', 'checksSheet', 'hardcodeSource', 'rogueHardcode'],
+      pageSetup: ['printArea', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
+      sheetView: ['showGridlines', 'zoom'],
       provenance: ['source.document', 'source.target', 'source.label'],
-      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'review'],
+      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'review'],
     },
   },
   pptx: {
@@ -90,7 +92,7 @@ const CATALOG = {
       chart: ['chartType', 'left', 'top', 'width', 'height', 'title', 'series', 'axis', 'dataLabels', 'seriesType', 'secondaryAxis', 'trendline', 'errorBars'],
       slide: ['background', 'layout', 'layoutName'],
       placeholder: ['type', 'index'],
-      table: ['rows', 'columns', 'values'],
+      table: ['rows', 'columns', 'values', 'fontName', 'fontSize', 'color', 'headerFillColor', 'headerColor', 'bodyFillColor', 'headerRowHeight', 'bodyRowHeight'],
       template: ['tokens', 'strict'],
       authoring: ['shapeType', 'paragraphs', 'bullet', 'level', 'hyperlink', 'zOrder', 'align', 'distribute', 'group', 'crop', 'theme', 'footer', 'slideNumber'],
       transition: ['effect', 'duration', 'advanceOnTime', 'advanceTime'],
@@ -98,7 +100,7 @@ const CATALOG = {
       media: ['kind', 'link', 'embed', 'poster'],
       comment: ['author', 'initials', 'left', 'top'],
       provenance: ['source.document', 'source.target', 'source.label'],
-      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'template', 'deck.backgroundMode', 'deck.dominantColorRole', 'deck.motif', 'deck.spacingScale', 'deck.sectionSlides', 'deck.roles', 'deck.requireSlidePlan', 'deck.templateMode', 'review', 'reviewed', 'reviewToken', 'critique'],
+      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'template', 'deck.backgroundMode', 'deck.dominantColorRole', 'deck.motif', 'deck.spacingScale', 'deck.sectionSlides', 'deck.roles', 'deck.requireSlidePlan', 'deck.templateMode', 'review', 'reviewed', 'reviewToken', 'critique'],
     },
   },
   pdf: {
@@ -141,12 +143,12 @@ const COMMON_SIGNATURES = {
 
 const FORMAT_SIGNATURES = {
   docx: {
-    compose_document: signature(['title'], ['subtitle', 'sections', 'footer', 'orientation', 'pageNumbers'], {
+    compose_document: signature(['title'], ['claimId', 'subtitle', 'summary', 'meta', 'sections', 'footer', 'orientation', 'pageNumbers'], {
       propertySets: ['design'],
       notes: 'Semantic create-time composition. Content is mapped to native Word title, heading, paragraph, list, table, section, and footer operations.',
     }),
     append_text: signature(['text'], ['style', 'properties'], {
-      propertySets: ['paragraph', 'font'],
+      propertySets: ['paragraph', 'font', 'paragraphFormat'],
       notes: 'Creates one real paragraph.',
     }),
     set_paragraph_text: signature(['paragraph', 'text']),
@@ -188,7 +190,7 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['paragraph', 'source'], [], { propertySets: ['provenance'] }),
   },
   xlsx: {
-    compose_sheet: signature(['rows'], ['sheet', 'title', 'subtitle', 'headers', 'tableName', 'tableStyle', 'chart'], {
+    compose_sheet: signature(['rows'], ['claimId', 'sheet', 'kind', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
       propertySets: ['design'],
       notes: 'Semantic Excel composition with title hierarchy, native table styling, frozen headers, chart placement, and autofit.',
     }),
@@ -221,6 +223,15 @@ const FORMAT_SIGNATURES = {
     autofit_range: signature(['range'], ['sheet', 'rows'], {
       notes: 'Accepts cell, whole-column, or whole-row ranges such as A1:D5, A:D, or 2:8.',
     }),
+    set_page_setup: signature([], ['sheet', 'printArea', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'], {
+      propertySets: ['pageSetup'],
+    }),
+    set_sheet_view: signature([], ['sheet', 'showGridlines', 'zoom'], {
+      propertySets: ['sheetView'],
+    }),
+    set_sheet_visibility: signature(['sheet', 'visibility'], [], {
+      notes: 'visibility is visible, hidden, or very_hidden; keep at least one worksheet visible.',
+    }),
     insert_rows: signature(['row'], ['sheet', 'count']),
     delete_rows: signature(['row'], ['sheet', 'count']),
     insert_columns: signature(['column'], ['sheet', 'count']),
@@ -236,9 +247,9 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['cell', 'source'], ['sheet'], { propertySets: ['provenance'] }),
   },
   pptx: {
-    compose_slide: signature(['kind', 'title'], ['subtitle', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'meta', 'notes', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
+    compose_slide: signature(['kind'], ['claimId', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
       propertySets: ['design'],
-      notes: 'Template-first semantic slide. Approved sample slides preserve native masters/layouts; deck.templateMode:"strict" rejects scratch fallback. Kinds: cover, statement, content, split, comparison, metrics, process, closing.',
+      notes: 'Template-first semantic slide. Use a declarative title as the takeaway, subject-specific evidence, and source notes for material numbers. Approved sample slides preserve native masters/layouts; deck.templateMode:"strict" rejects scratch fallback. Kinds: cover, statement, content, split, comparison, metrics, process, chart, table, closing.',
     }),
     set_text: signature(['slide', 'shape', 'text']),
     add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'properties'], { propertySets: ['shape', 'authoring'] }),
@@ -266,7 +277,7 @@ const FORMAT_SIGNATURES = {
     apply_theme: signature(['path']),
     set_transition: signature(['slide'], ['effect', 'duration', 'advanceOnTime', 'advanceTime'], { propertySets: ['transition'] }),
     add_animation: signature(['slide', 'shape'], ['effect', 'trigger', 'duration', 'delay'], { propertySets: ['animation'] }),
-    add_chart: signature(['slide'], ['chartType', 'title', 'left', 'top', 'width', 'height'], { propertySets: ['chart'] }),
+    add_chart: signature(['slide'], ['chartType', 'title', 'categories', 'series', 'left', 'top', 'width', 'height'], { propertySets: ['chart'] }),
     fit_text: signature(['slide', 'shape'], ['minFontSize', 'allowNoChange']),
     add_shape: signature(['slide', 'shapeType'], ['text', 'paragraphs', 'left', 'top', 'width', 'height', 'fillColor', 'lineColor', 'properties'], { propertySets: ['shape', 'authoring'] }),
     add_table: signature(['slide', 'values'], ['rows', 'columns', 'left', 'top', 'width', 'height', 'properties'], { propertySets: ['table'] }),

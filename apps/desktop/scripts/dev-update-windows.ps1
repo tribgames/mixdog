@@ -846,8 +846,13 @@ function Install-IncrementalBuild {
         -Destination (Join-Path $installedResources 'app.asar.unpacked') -Recurse -Force
     }
     if ($runtimeChanged) {
+      $runtimeNativeTools = Join-Path $desktopDir '.runtime\native-tools'
+      if (-not (Test-Path -LiteralPath $runtimeNativeTools -PathType Container)) {
+        throw "Prepared runtime native tools are missing: $runtimeNativeTools"
+      }
       Backup-InstalledArtifact (Join-Path $installedResources 'runtime.asar') 'runtime.asar'
       Backup-InstalledArtifact (Join-Path $installedResources 'runtime.asar.unpacked') 'runtime.asar.unpacked'
+      Backup-InstalledArtifact (Join-Path $installedResources 'native-tools') 'native-tools'
       Copy-Item -LiteralPath (Join-Path $desktopDir '.runtime\runtime.asar') `
         -Destination (Join-Path $installedResources 'runtime.asar') -Force
       $runtimeSidecar = Join-Path $desktopDir '.runtime\runtime.asar.unpacked'
@@ -855,6 +860,8 @@ function Install-IncrementalBuild {
         Copy-Item -LiteralPath $runtimeSidecar `
           -Destination (Join-Path $installedResources 'runtime.asar.unpacked') -Recurse -Force
       }
+      Copy-Item -LiteralPath $runtimeNativeTools `
+        -Destination (Join-Path $installedResources 'native-tools') -Recurse -Force
     }
 
     if (-not $NoLaunch) {

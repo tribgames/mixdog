@@ -18,7 +18,10 @@ test("side panel background reads do not escalate into red notifications", async
   }
   assert.doesNotMatch(app, /void invoke\(refreshProjects\)/);
   assert.match(app, /refreshSessions\(\)\.catch\(\(\) => undefined\)/);
-  assert.match(app, /refreshProjects\(\)\.catch\(\(\) => \[\]\)/);
+  assert.match(
+    app,
+    /refreshProjects\(\{[\s\S]*?acceptEmpty:\s*!isMobileRemoteSurface\(\),[\s\S]*?\}\)\.catch\(\(\) => \[\]\)/,
+  );
 });
 
 test("right side background reads stay neutral while action failures remain alerts", async () => {

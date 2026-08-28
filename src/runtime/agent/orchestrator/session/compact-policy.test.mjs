@@ -4,10 +4,12 @@ import test from 'node:test';
 import {
     compactionTelemetryPressureTokens,
     currentContextEstimateTokens,
+    recordContextUsageSnapshot,
     recordProviderContextBaseline,
     rememberCompactTelemetry,
     resolveCompactionPressureTokens,
     resolveContextTokens,
+    resolveContextUsageSnapshot,
     resolveGaugeContextTokens,
     resolveWorkerCompactPolicy,
     shouldCompactForSession,
@@ -240,5 +242,47 @@ test('a restarted tool surface adjusts only schema reserve instead of discarding
             sessionRef: session,
         }),
         currentContextEstimateTokens(wholeTranscriptEstimate, policy),
+    );
+});
+
+test('post-compact context snapshot survives serialization and invalidates on the next turn', () => {
+    const messages = [
+        { role: 'user', content: 'compacted summary' },
+        { role: 'assistant', content: 'retained answer' },
+    ];
+    const tools = [
+        { name: 'read', description: 'Read files', inputSchema: { type: 'object' } },
+    ];
+    const session = {
+        provider: 'openai-oauth',
+        model: 'gpt-5.6-sol',
+        contextWindow: 272_000,
+        compactBoundaryTokens: 272_000,
+        usageMetricsTurnId: 'turn-7',
+        usageMetricsEpoch: 2,
+        messages,
+        tools,
+        compaction: { auto: true },
+    };
+    const policy = resolveWorkerCompactPolicy(session, tools);
+    const usedTokens = currentContextEstimateTokens(estimateMessagesTokens(messages), policy);
+    recordContextUsageSnapshot(session, policy, {
+        messages,
+        usedTokens,
+        source: 'post_compact',
+    });
+
+    const restarted = JSON.parse(JSON.stringify(session));
+    const restartedPolicy = resolveWorkerCompactPolicy(restarted, restarted.tools);
+    assert.equal(
+        resolveContextUsageSnapshot(restarted, restartedPolicy, { messages: restarted.messages })?.usedTokens,
+        usedTokens,
+    );
+
+    restarted.usageMetricsTurnId = 'turn-8';
+    restarted.messages.push({ role: 'user', content: 'new request' });
+    assert.equal(
+        resolveContextUsageSnapshot(restarted, restartedPolicy, { messages: restarted.messages }),
+        null,
     );
 });

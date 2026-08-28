@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  DEFAULT_COMPLETED_GOAL_TTL_MS,
   listStoredActiveGoalSessionIds,
   readStoredGoalSnapshot,
 } from '../session-runtime/goal-runtime.mjs';
@@ -12,6 +13,7 @@ import { createSessionService } from './session-service.mjs';
 
 function writeGoal(dataDir, sessionId, status, {
   archivedAt = null,
+  completedAt = undefined,
   clock = 2_200_000_000_000,
 } = {}) {
   const root = join(dataDir, 'goals');
@@ -36,7 +38,9 @@ function writeGoal(dataDir, sessionId, status, {
       createdAt: clock - 10_000,
       updatedAt: clock - 5_000,
       lastStartedAt: status === 'active' ? clock - 5_000 : null,
-      completedAt: status === 'complete' ? clock - 5_000 : null,
+      completedAt: completedAt === undefined
+        ? status === 'complete' ? clock - 5_000 : null
+        : completedAt,
       archivedAt,
     },
   }));
@@ -81,7 +85,7 @@ function fakeRuntimeFactory({ dataDir, storedSessions, created, resumed, clock }
   };
 }
 
-test('recreated session service projects every visible Goal cold and resumes only active Goals', async () => {
+test('recreated session service projects every unexpired Goal cold and resumes only active Goals', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-session-goal-restart-'));
   const clock = 2_200_000_000_000;
   const ids = {
@@ -90,10 +94,12 @@ test('recreated session service projects every visible Goal cold and resumes onl
     blocked: 'sess_goal_restart_blocked',
     complete: 'sess_goal_restart_complete',
     archived: 'sess_goal_restart_archived',
+    expired: 'sess_goal_restart_expired',
   };
   for (const [status, sessionId] of Object.entries(ids)) {
-    writeGoal(dataDir, sessionId, status === 'archived' ? 'complete' : status, {
+    writeGoal(dataDir, sessionId, ['archived', 'expired'].includes(status) ? 'complete' : status, {
       archivedAt: status === 'archived' ? clock - 1_000 : null,
+      completedAt: status === 'expired' ? clock - DEFAULT_COMPLETED_GOAL_TTL_MS : undefined,
       clock,
     });
   }
@@ -155,6 +161,15 @@ test('recreated session service projects every visible Goal cold and resumes onl
     assert.equal(created.length, 1);
     assert.deepEqual(resumed, [ids.active]);
     assert.equal(service.status.live, 1);
+    const expired = await service.subscribeSession(
+      { sessionId: ids.expired },
+      { clientToken: 'viewer-expired' },
+    );
+    assert.equal(expired.full.goal, null);
+    assert.equal(
+      existsSync(join(dataDir, 'goals', `${ids.expired}.json`)),
+      false,
+    );
   } finally {
     await service.stop('test complete');
     rmSync(dataDir, { recursive: true, force: true });

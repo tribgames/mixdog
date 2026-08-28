@@ -217,6 +217,12 @@ test('browser password import uses only packaged native-tools without a certific
   assert.doesNotMatch(trustBoundary, /process\.cwd\(\)/);
   assert.doesNotMatch(importer, /Authenticode|Get-AuthenticodeSignature|authenticodeBundleIsTrusted/);
   assert.match(nativeTransport, /stdio:\s*\['pipe',\s*'pipe',\s*'pipe'\]/);
+  assert.ok(
+    nativeTransport.indexOf('const exitCodePromise = new Promise<number>')
+      < nativeTransport.indexOf("child.stdin?.end(transportKey.toString('base64'))"),
+    'the native child exit listener must be attached before stdin can trigger a fast exit',
+  );
+  assert.match(nativeTransport, /const exitCode = await exitCodePromise/);
   assert.match(nativeTransport, /createDecipheriv\('aes-256-gcm'/);
   assert.match(nativeTransport, /transportKey\.fill\(0\)/);
   assert.doesNotMatch(nativeTransport, /return JSON\.parse\(Buffer\.concat\(stdout\)/);
@@ -229,7 +235,14 @@ test('browser password import uses only packaged native-tools without a certific
     runtimePreparation,
     /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|assertBrowserImportAuthenticode|Get-AuthenticodeSignature/,
   );
-  assert.match(nativeBuild, /ENABLE_SIGNATURE_VALIDATION: bool = false/);
+  assert.match(
+    nativeBuild,
+    /\$signatureValidationEnabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = true;'[\s\S]*\$signatureValidationDisabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'[\s\S]*\$config\.Replace\(\s*\$signatureValidationEnabled,\s*\$signatureValidationDisabled\s*\)/,
+  );
+  assert.doesNotMatch(
+    nativeBuild,
+    /\.Replace\(\s*'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;',\s*'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'/,
+  );
   assert.doesNotMatch(
     nativeBuild,
     /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|MIXDOG_CODE_SIGN|Get-AuthenticodeSignature|signtool/,
@@ -269,10 +282,17 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(packageJson.scripts['update:dev:fast'], /dev-update-windows\.ps1 -FastDirect$/);
   assert.match(packageJson.scripts['update:dev:reinstall'], /dev-update-windows\.ps1$/);
   assert.match(packageJson.scripts['update:dev:plan'], /dev-update-windows\.ps1 -ViaUpdater -DryRun$/);
-  assert.match(devUpdate, /electron-builder --dir --win --x64 --publish never/);
+  assert.match(
+    devUpdate,
+    /Start-Process -FilePath \$npx[\s\S]*'electron-builder', '--dir', '--win', '--x64', '--publish', 'never'/,
+  );
   assert.match(devUpdate,
     /installedUpdateMetadata[\s\S]*Copy-Item[\s\S]*verify-update-metadata\.mjs/);
   assert.match(devUpdate, /fast deploy failed; restoring the previous installation/);
+  assert.match(
+    devUpdate,
+    /Prepared runtime native tools are missing:[\s\S]*Backup-InstalledArtifact \(Join-Path \$installedResources 'native-tools'\) 'native-tools'[\s\S]*Copy-Item -LiteralPath \$runtimeNativeTools[\s\S]*-Destination \(Join-Path \$installedResources 'native-tools'\) -Recurse -Force/,
+  );
   assert.match(devUpdate, /FastDirectWorker/);
   assert.match(devUpdate, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create/);
   assert.match(devUpdate, /-WindowStyle Hidden/);

@@ -392,6 +392,14 @@ async function snapshotDocx(zip, options = {}) {
     tableCount: model.tables.length,
     paragraphs: paged ? model.paragraphs.filter((paragraph) => paragraphIndexes.has(paragraph.index)) : model.paragraphs,
     tables: paged ? model.tables.filter((table) => tableIndexes.has(table.index)) : model.tables,
+    blockOrder: selectedBlocks.map((block) => ({
+      type: block.name === 'w:p' ? 'paragraph' : 'table',
+      index: block.logicalIndex,
+      path: block.name === 'w:p'
+        ? `/body/p[${block.logicalIndex}]`
+        : `/body/tbl[${block.logicalIndex}]`,
+      start: block.start,
+    })),
     parts: paged && model.blocks.length > limit
       ? content.map((part) => ({ part: part.part, chars: part.text.length }))
       : content,
@@ -694,12 +702,22 @@ async function snapshotPptx(zip, options = {}) {
       path: `/slide[${index}]`,
       index,
       text: paragraphTexts(xml, 'a:t'),
-      shapes: shapeBlocks.map((shape, shapeIndex) => ({
-        path: `/slide[${index}]/shape[${shapeIndex + 1}]`,
-        index: shapeIndex + 1,
-        type: shape.name,
-        text: paragraphTexts(shape.xml, 'a:t').join(''),
-      })),
+      shapes: shapeBlocks.map((shape, shapeIndex) => {
+        const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/i.exec(shape.xml);
+        const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/i.exec(shape.xml);
+        return {
+          path: `/slide[${index}]/shape[${shapeIndex + 1}]`,
+          index: shapeIndex + 1,
+          type: shape.name,
+          text: paragraphTexts(shape.xml, 'a:t').join(''),
+          ...(offset && extent ? {
+            left: Number(offset[1]) / 12_700,
+            top: Number(offset[2]) / 12_700,
+            width: Number(extent[1]) / 12_700,
+            height: Number(extent[2]) / 12_700,
+          } : {}),
+        };
+      }),
     });
   }
   const layoutPaths = Object.keys(zip.files)
@@ -715,9 +733,13 @@ async function snapshotPptx(zip, options = {}) {
       packagePart: path,
     });
   }
+  const presentationXml = await zipText(zip, 'ppt/presentation.xml');
+  const slideSize = /<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/i.exec(presentationXml);
   return {
     format: 'pptx',
     slideCount: slidePaths.length,
+    slideWidth: slideSize ? Number(slideSize[1]) / 12_700 : 0,
+    slideHeight: slideSize ? Number(slideSize[2]) / 12_700 : 0,
     slides,
     layoutCount: layouts.length,
     layouts,

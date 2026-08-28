@@ -1,7 +1,14 @@
+import { reviewOfficeStructure } from './assurance.mjs';
+import {
+  bindOfficeContent,
+  normalizeOfficeContentModel,
+  summarizeOfficeContentModel,
+} from './content-model.mjs';
+
 const FORMATS = new Set(['docx', 'xlsx', 'pptx', 'pdf', 'csv', 'tsv']);
 const PPTX_BACKGROUND_MODES = new Set(['sandwich', 'light', 'dark', 'custom']);
 const PPTX_TEMPLATE_MODES = new Set(['prefer', 'strict', 'scratch']);
-const PPTX_VISUAL_TYPES = new Set(['statement', 'typography', 'comparison', 'process', 'metrics', 'image', 'diagram', 'matrix']);
+const PPTX_VISUAL_TYPES = new Set(['statement', 'typography', 'comparison', 'process', 'metrics', 'chart', 'table', 'image', 'diagram', 'matrix']);
 const PPTX_FOCAL_REGIONS = new Set(['full', 'left', 'right', 'center', 'top', 'bottom']);
 const PPTX_CRITIQUE_AXES = Object.freeze(['hierarchy', 'balance', 'legibility', 'cohesion', 'evidence']);
 
@@ -133,6 +140,8 @@ const PPTX_COMPONENTS = Object.freeze([
   'comparison',
   'metrics',
   'process',
+  'chart',
+  'table',
   'closing',
 ]);
 
@@ -283,6 +292,7 @@ function compactDesign(design) {
     tokens: design.tokens,
     format: design.format,
     deck: design.deck,
+    content: summarizeOfficeContentModel(design.content),
     slidePlans: design.slidePlans,
     review: design.review,
   };
@@ -309,6 +319,7 @@ function compactLibrary(library) {
       id: String(library.template.id || ''),
       version: String(library.template.version || ''),
       source: String(library.template.source || ''),
+      ...(library.coverage ? { coverage: clone(library.coverage) } : {}),
     } : null,
     templateIndexRevision: String(library.templateIndexRevision || ''),
     pinned: library.pinned === true,
@@ -380,6 +391,7 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
       : 'balanced',
     signature: String(input.signature || ''),
     source: String(input.source || library?.source || 'mixdog-starter'),
+    content: normalizeOfficeContentModel(input.content),
     library: compactLibrary(library),
     layouts: Array.isArray(library?.layouts) ? clone(library.layouts) : [],
     tokens,
@@ -408,13 +420,109 @@ function pptxRequiredCapabilities(operation) {
   return output;
 }
 
+function pptxOperationText(operation) {
+  return [
+    operation.title,
+    operation.subtitle,
+    operation.takeaway,
+    operation.eyebrow,
+    operation.visualText,
+    operation.chart?.title,
+    ...strings(operation.body),
+    ...strings(operation.bullets),
+    ...strings(operation.meta),
+    ...(operation.metrics || []).flatMap((entry) => [entry?.value, entry?.label, entry?.detail]),
+    ...(operation.columns || []).flatMap((entry) => [entry?.title, ...strings(entry?.items || entry?.body)]),
+    ...(operation.steps || []).flatMap((entry) => [entry?.title || entry?.label, entry?.detail || entry?.body]),
+  ].filter((entry) => entry !== undefined && entry !== null).map(String);
+}
+
+function pptxOperationDemand(operation, design) {
+  const text = pptxOperationText(operation);
+  const textChars = text.reduce((total, entry) => total + entry.length, 0);
+  const explicitDensity = String(operation.density || '').toLowerCase();
+  const density = ['light', 'balanced', 'dense'].includes(explicitDensity)
+    ? explicitDensity
+    : textChars > 340 ? 'dense' : textChars > 120 ? 'balanced' : design.density;
+  return {
+    density,
+    textChars,
+    textItems: text.filter((entry) => entry.trim()).length,
+    metrics: Array.isArray(operation.metrics) ? operation.metrics.length : 0,
+    columns: Array.isArray(operation.columns) ? operation.columns.length : 0,
+    steps: Array.isArray(operation.steps) ? operation.steps.length : 0,
+    capabilities: pptxRequiredCapabilities(operation),
+  };
+}
+
+function layoutNumberedGroups(layout, prefix) {
+  return new Set((layout.slots || []).flatMap((slot) => {
+    const match = new RegExp(`^${prefix}-(?:value|label|detail|title|body)-(\\d+)$`).exec(String(slot.role || ''));
+    return match ? [Number(match[1])] : [];
+  })).size;
+}
+
+function densityDistance(left, right) {
+  const order = ['light', 'balanced', 'dense'];
+  const leftIndex = order.indexOf(left);
+  const rightIndex = order.indexOf(right);
+  return leftIndex >= 0 && rightIndex >= 0 ? Math.abs(leftIndex - rightIndex) : 1;
+}
+
+function pptxLayoutFit(layout, operation, design, usage) {
+  const demand = pptxOperationDemand(operation, design);
+  const slots = Array.isArray(layout.slots) ? layout.slots : [];
+  const capacity = layout.capacity || {};
+  const available = {
+    metrics: Math.max(Number(capacity.metricGroups) || 0, layoutNumberedGroups(layout, 'metric')),
+    columns: Math.max(Number(capacity.columnGroups) || 0, layoutNumberedGroups(layout, 'column')),
+    steps: Math.max(Number(capacity.stepGroups) || 0, layoutNumberedGroups(layout, 'step')),
+  };
+  const missingGroups = Object.entries({
+    metrics: Math.max(0, demand.metrics - available.metrics),
+    columns: Math.max(0, demand.columns - available.columns),
+    steps: Math.max(0, demand.steps - available.steps),
+  }).filter(([, count]) => count > 0);
+  const nativeSample = Boolean(layout.templatePath && Number(layout.sourceSlide) > 0);
+  const densityPenalty = densityDistance(layout.density || design.density, demand.density);
+  const textSlots = Math.max(Number(capacity.textSlots) || 0, slots.filter((slot) => slot.type === 'text').length);
+  const textSlotShortfall = nativeSample ? Math.max(0, demand.textItems - textSlots) : 0;
+  const score = (
+    (layout.profile === design.profile ? 4 : 0)
+    + (layout.density === demand.density ? 7 : 0)
+    - densityPenalty * 2
+    + (String(operation.variant || '').toLowerCase() && layout.variant === String(operation.variant).toLowerCase() ? 2 : 0)
+    + demand.capabilities.filter((capability) => layout.capabilities?.includes(capability)).length * 4
+    + Math.min(demand.metrics, available.metrics) * 3
+    + Math.min(demand.columns, available.columns) * 3
+    + Math.min(demand.steps, available.steps) * 3
+    - missingGroups.reduce((total, [, count]) => total + count * 8, 0)
+    - textSlotShortfall * 2
+    + (Number(layout.priority) || 0)
+    - ((usage.get(layout.id) || 0) * 5)
+  );
+  return {
+    layout,
+    score,
+    demand,
+    fit: {
+      density: layout.density || '',
+      available,
+      missingGroups: Object.fromEntries(missingGroups),
+      textSlots,
+      textSlotShortfall,
+      nativeSample,
+    },
+  };
+}
+
 function selectPptxLayout(operation, design, usage = new Map()) {
   const layouts = Array.isArray(design.layouts) ? design.layouts : [];
   const requestedId = String(operation.layoutId || '').toLowerCase();
   if (requestedId) {
     const selected = layouts.find((layout) => layout.id === requestedId);
     if (!selected) throw new Error(`Unknown Office semantic layout "${operation.layoutId}" for the pinned design library`);
-    return selected;
+    return pptxLayoutFit(selected, operation, design, usage);
   }
   const kind = String(operation.kind || 'content').toLowerCase();
   const variant = String(operation.variant || '').toLowerCase();
@@ -426,18 +534,13 @@ function selectPptxLayout(operation, design, usage = new Map()) {
     && (!variant || !layout.variant || layout.variant === variant)
     && requiredCapabilities.every((capability) => layout.capabilities?.includes(capability))
   ));
-  candidates.sort((left, right) => {
-    const score = (layout) => (
-      (layout.profile === design.profile ? 4 : 0)
-      + (layout.density === design.density ? 2 : 0)
-      + (variant && layout.variant === variant ? 1 : 0)
-      + requiredCapabilities.filter((capability) => layout.capabilities?.includes(capability)).length * 3
-      + (Number(layout.priority) || 0)
-      - ((usage.get(layout.id) || 0) * 5)
-    );
-    return score(right) - score(left) || left.id.localeCompare(right.id);
-  });
-  return candidates[0] || null;
+  const scored = candidates.map((layout) => pptxLayoutFit(layout, operation, design, usage));
+  const viable = scored.filter((entry) => (
+    !entry.fit.nativeSample || Object.keys(entry.fit.missingGroups).length === 0
+  ));
+  const ranked = design.deck?.templateMode === 'strict' ? viable : (viable.length ? viable : scored);
+  ranked.sort((left, right) => right.score - left.score || left.layout.id.localeCompare(right.layout.id));
+  return ranked[0] || null;
 }
 
 function templateSlotText(operation, role) {
@@ -605,6 +708,41 @@ function pptBulletParagraphs(body, design, { size, color } = {}) {
   }));
 }
 
+function pptTitleSize(text, preferred = 34) {
+  const length = [...String(text || '').trim()].reduce(
+    (total, character) => total + (/[\u2E80-\u9FFF\uAC00-\uD7AF]/u.test(character) ? 1.7 : 1),
+    0,
+  );
+  if (length > 64) return Math.min(preferred, 25);
+  if (length > 48) return Math.min(preferred, 28);
+  if (length > 34) return Math.min(preferred, 31);
+  return preferred;
+}
+
+function metricDisplayValue(metric) {
+  const value = metric?.display ?? metric?.value;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value ?? '');
+  const format = String(metric?.numberFormat || '');
+  const decimals = Math.max(0, (format.match(/0\.(0+)/)?.[1] || '').length);
+  if (format.includes('%')) return `${(value * 100).toFixed(decimals)}%`;
+  if (!format || format === 'General') return String(value);
+  return new Intl.NumberFormat('en-US', {
+    useGrouping: format.includes(','),
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value);
+}
+
+function provenanceText(source) {
+  if (!source) return '';
+  if (typeof source === 'string') return source.trim();
+  if (!plainObject(source)) return '';
+  const document = String(source.document || source.label || '').trim();
+  const target = String(source.target || '').trim();
+  if (!document) return '';
+  return target ? `${document}#${target}` : document;
+}
+
 function expandPptxSlide(operation, design, slide) {
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
@@ -627,8 +765,9 @@ function expandPptxSlide(operation, design, slide) {
   const titleColor = inverseBackground ? colors.onInverse : colors.ink;
   const mutedColor = inverseBackground ? colors.surface2 : colors.muted;
   const title = String(operation.title || '');
-  const subtitle = String(operation.subtitle || '');
+  const subtitle = String(operation.takeaway || operation.subtitle || '');
   const eyebrow = String(operation.eyebrow || '');
+  const contentTitleSize = pptTitleSize(title, Number(operation.titleSize) || 34);
 
   if (kind === 'cover') {
     if (eyebrow) output.push(pptText(slide, eyebrow.toUpperCase(), {
@@ -637,7 +776,7 @@ function expandPptxSlide(operation, design, slide) {
     }));
     output.push(pptText(slide, title, {
       left: 58, top: 126, width: 720, height: 170,
-      fontName: type.display, fontSize: Number(operation.titleSize) || 44, bold: true, color: colors.onInverse,
+      fontName: type.display, fontSize: pptTitleSize(title, Number(operation.titleSize) || 44), bold: true, color: colors.onInverse,
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
       left: 58, top: 326, width: 650, height: 72,
@@ -680,7 +819,7 @@ function expandPptxSlide(operation, design, slide) {
     }));
     output.push(pptText(slide, title, {
       left: 58, top: 144, width: metric.value != null ? 560 : 790, height: 150,
-      fontName: type.display, fontSize: Number(operation.titleSize) || 38, bold: true, color: colors.ink,
+      fontName: type.display, fontSize: pptTitleSize(title, Number(operation.titleSize) || 38), bold: true, color: colors.ink,
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
       left: 58, top: 356, width: 650, height: 76,
@@ -688,8 +827,8 @@ function expandPptxSlide(operation, design, slide) {
     }));
   } else if (kind === 'metrics') {
     output.push(pptText(slide, title, {
-      left: 58, top: 48, width: 790, height: 64,
-      fontName: type.display, fontSize: 34, bold: true, color: colors.ink,
+      left: 58, top: 42, width: 842, height: 76,
+      fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
       left: 58, top: 114, width: 760, height: 42,
@@ -700,7 +839,7 @@ function expandPptxSlide(operation, design, slide) {
       const primary = index === 0;
       const left = primary ? 58 : 520;
       const top = primary ? 208 : 192 + ((index - 1) * 118);
-      output.push(pptText(slide, String(metric.value ?? ''), {
+      output.push(pptText(slide, metricDisplayValue(metric), {
         left, top, width: primary ? 392 : 320, height: primary ? 96 : 62,
         fontName: type.display, fontSize: primary ? 58 : 40, bold: true,
         color: primary ? colors.accent : colors.ink,
@@ -721,8 +860,8 @@ function expandPptxSlide(operation, design, slide) {
     });
   } else if (kind === 'comparison') {
     output.push(pptText(slide, title, {
-      left: 58, top: 46, width: 820, height: 62,
-      fontName: type.display, fontSize: 34, bold: true, color: colors.ink,
+      left: 58, top: 42, width: 842, height: 76,
+      fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
     }));
     const columns = Array.isArray(operation.columns) ? operation.columns.slice(0, 2) : [];
     const fills = [colors.surface, colors.inverse];
@@ -748,8 +887,8 @@ function expandPptxSlide(operation, design, slide) {
     });
   } else if (kind === 'process') {
     output.push(pptText(slide, title, {
-      left: 58, top: 46, width: 820, height: 62,
-      fontName: type.display, fontSize: 34, bold: true, color: colors.ink,
+      left: 58, top: 42, width: 842, height: 76,
+      fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
     }));
     const steps = Array.isArray(operation.steps) ? operation.steps.slice(0, 5) : [];
     const width = 820 / Math.max(1, steps.length);
@@ -771,18 +910,83 @@ function expandPptxSlide(operation, design, slide) {
         fontName: type.body, fontSize: 15, bold: true, color: colors.ink, alignment: 'center',
       }));
       if (step.detail || step.body) output.push(pptText(slide, String(step.detail || step.body), {
-        left, top: 324, width: width - 24, height: 94,
-        fontName: type.body, fontSize: 12, color: colors.muted,
+        left: left - 44, top: 324, width: 146, height: 94,
+        fontName: type.body, fontSize: 12, color: colors.muted, alignment: 'center',
       }));
       if (index < steps.length - 1) output.push(pptShape(slide, 'right_arrow', {
         left: left + width - 78, top: 190, width: 52, height: 20,
         fillColor: colors.accent2, lineColor: colors.accent2,
       }));
     });
+  } else if (kind === 'chart' || (kind === 'content' && plainObject(operation.chart))) {
+    output.push(pptText(slide, title, {
+      left: 58, top: 42, width: 842, height: 76,
+      fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
+    }));
+    if (subtitle) output.push(pptText(slide, subtitle, {
+      left: 58, top: 116, width: 820, height: 40,
+      fontName: type.body, fontSize: 14, color: colors.muted,
+    }));
+    const paragraphs = operation.bullets
+      ? pptBulletParagraphs(operation.bullets, design, { size: 14 })
+      : pptBodyParagraphs(operation.body, design, { size: 14 });
+    if (paragraphs.length) output.push(pptText(slide, '', {
+      left: 58, top: 184, width: 274, height: 238,
+    }, paragraphs));
+    const chart = operation.chart || {};
+    output.push({
+      op: 'add_chart',
+      slide,
+      chartType: chart.type || chart.chartType || 'column',
+      title: chart.title || '',
+      categories: Array.isArray(chart.categories) ? chart.categories : [],
+      series: Array.isArray(chart.series) ? chart.series.map((entry, index) => ({
+        ...entry,
+        color: entry?.color || (index === 0 ? colors.accent : index === 1 ? colors.accent2 : colors.muted),
+      })) : [],
+      left: paragraphs.length ? 360 : 58,
+      top: 176,
+      width: paragraphs.length ? 540 : 842,
+      height: 286,
+    });
+  } else if (kind === 'table' || (kind === 'content' && (Array.isArray(operation.table) || plainObject(operation.table)))) {
+    output.push(pptText(slide, title, {
+      left: 58, top: 42, width: 842, height: 76,
+      fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
+    }));
+    if (subtitle) output.push(pptText(slide, subtitle, {
+      left: 58, top: 116, width: 820, height: 40,
+      fontName: type.body, fontSize: 14, color: colors.muted,
+    }));
+    const values = Array.isArray(operation.table) ? operation.table : operation.table?.values;
+    const rowCount = Math.max(1, Array.isArray(values) ? values.length : 0);
+    const bodyRowHeight = rowCount > 1
+      ? Math.min(64, Math.max(40, (288 - 42) / (rowCount - 1)))
+      : 0;
+    const tableHeight = 42 + (bodyRowHeight * Math.max(0, rowCount - 1));
+    output.push({
+      op: 'add_table',
+      slide,
+      values: Array.isArray(values) ? values : [],
+      left: 58,
+      top: 174,
+      width: 842,
+      height: tableHeight,
+      properties: {
+        fontName: type.body,
+        fontSize: 13,
+        color: colors.ink,
+        headerFillColor: colors.inverse,
+        headerColor: colors.onInverse,
+        bodyFillColor: colors.canvas,
+        headerRowHeight: 42,
+        bodyRowHeight,
+      },
+    });
   } else if (kind === 'split') {
     output.push(pptText(slide, title, {
-      left: 58, top: 48, width: 820, height: 62,
-      fontName: type.display, fontSize: 34, bold: true, color: colors.ink,
+      left: 58, top: 42, width: 842, height: 76,
+      fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
     }));
     const paragraphs = operation.bullets
       ? pptBulletParagraphs(operation.bullets, design, { size: 16 })
@@ -818,7 +1022,7 @@ function expandPptxSlide(operation, design, slide) {
     }));
     output.push(pptText(slide, title, {
       left: 58, top: 156, width: operation.visualText ? 650 : 760, height: 142,
-      fontName: type.display, fontSize: 42, bold: true, color: colors.onInverse,
+      fontName: type.display, fontSize: pptTitleSize(title, 42), bold: true, color: colors.onInverse,
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
       left: 58, top: 330, width: 690, height: 72,
@@ -834,14 +1038,14 @@ function expandPptxSlide(operation, design, slide) {
         fontName: type.display, fontSize: 34, bold: true, color: colors.onAccent, alignment: 'center',
       }));
       if (operation.visualLabel) output.push(pptText(slide, String(operation.visualLabel), {
-        left: 785, top: 242, width: 96, height: 24,
+        left: 785, top: 246, width: 96, height: 24,
         fontName: type.body, fontSize: 12, bold: true, color: colors.onAccent, alignment: 'center',
       }));
     }
   } else {
     output.push(pptText(slide, title, {
-      left: 58, top: 48, width: 820, height: 62,
-      fontName: type.display, fontSize: 34, bold: true, color: titleColor,
+      left: 58, top: 42, width: 842, height: 76,
+      fontName: type.display, fontSize: contentTitleSize, bold: true, color: titleColor,
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
       left: 58, top: 116, width: 760, height: 38,
@@ -865,7 +1069,9 @@ function expandPptxSlide(operation, design, slide) {
       }));
     }
   }
-  if (operation.notes) output.push({ op: 'set_notes', slide, text: String(operation.notes) });
+  const source = provenanceText(operation.source);
+  const notes = [String(operation.notes || '').trim(), source ? `Source: ${source}` : ''].filter(Boolean).join('\r\n');
+  if (notes) output.push({ op: 'set_notes', slide, text: notes });
   return output;
 }
 
@@ -902,40 +1108,85 @@ function expandDocxDocument(operation, design, state, backend) {
     size: Number(operation.titleSize) || format.title,
     bold: true,
     color: colors.ink,
+    spacingBefore: 0,
+    spacingAfter: 8,
+    keepWithNext: true,
   });
-  append(operation.subtitle, 'Subtitle', {
+  append(operation.subtitle, 'Normal', {
     name: type.body,
-    size: format.body + 1,
+    size: format.body,
     color: colors.muted,
+    spacingBefore: 0,
+    spacingAfter: 12,
+    lineSpacing: format.body * 1.35,
   });
+  const meta = strings(operation.meta);
+  if (meta.length) {
+    append(meta.join(' · '), 'Normal', {
+      name: type.body,
+      size: Math.max(8.5, format.body - 1),
+      color: colors.muted,
+      spacingBefore: 0,
+      spacingAfter: 14,
+    });
+  }
+  if (operation.summary) {
+    append(strings(operation.summary).join(' '), 'Normal', {
+      name: type.display,
+      size: format.body + 1,
+      bold: true,
+      color: colors.accent,
+      spacingBefore: 4,
+      spacingAfter: 14,
+      lineSpacing: (format.body + 1) * 1.35,
+      keepWithNext: true,
+      border: { side: 'left', color: colors.accent },
+    });
+  }
   for (const section of Array.isArray(operation.sections) ? operation.sections : []) {
     append(section.heading || section.title, Number(section.level) === 2 ? 'Heading 2' : 'Heading 1', {
       name: type.display,
       size: Number(section.level) === 2 ? format.heading2 : format.heading1,
       bold: true,
       color: section.accent === false ? colors.ink : colors.accent,
+      spacingBefore: Number(section.level) === 2 ? 9 : 14,
+      spacingAfter: 5,
+      keepWithNext: true,
+      pageBreakBefore: section.pageBreak === true,
     });
     for (const paragraph of strings(section.paragraphs || section.body)) {
       append(paragraph, 'Normal', {
         name: type.body,
         size: format.body,
         color: colors.ink,
+        spacingBefore: 0,
+        spacingAfter: 6,
+        lineSpacing: format.body * 1.4,
       });
     }
     for (const bullet of strings(section.bullets)) {
-      const paragraph = append(bullet, 'Normal', {
+      append(bullet, 'Normal', {
         name: type.body,
         size: format.body,
         color: colors.ink,
+        spacingBefore: 0,
+        spacingAfter: 3,
+        lineSpacing: format.body * 1.35,
+        listKind: 'bullet',
+        listLevel: 0,
       });
-      if (backend === 'microsoft-office-com') output.push({ op: 'set_list', paragraph, kind: 'bullet', level: 0 });
     }
-    if (section.quote) append(section.quote, 'Quote', {
-      name: type.display,
-      size: format.body + 1,
-      italic: true,
-      color: colors.accent,
-    });
+    if (section.quote) {
+      append(section.quote, 'Quote', {
+        name: type.display,
+        size: format.body + 1,
+        italic: true,
+        color: colors.accent,
+        spacingBefore: 5,
+        spacingAfter: 9,
+        lineSpacing: (format.body + 1) * 1.35,
+      });
+    }
     if (Array.isArray(section.table) && section.table.length) {
       state.table += 1;
       output.push({
@@ -943,10 +1194,16 @@ function expandDocxDocument(operation, design, state, backend) {
         values: section.table,
         properties: {
           style: 'Table Grid',
+          textStyle: 'Normal',
+          fontName: type.body,
+          fontSize: Math.max(9, format.body - 1),
+          color: colors.ink,
+          spacingAfter: 0,
           borders: true,
         },
       });
       if (backend === 'microsoft-office-com') {
+        output.push({ op: 'fit_table', table: state.table });
         const columns = Math.max(1, ...section.table.map((row) => Array.isArray(row) ? row.length : 1));
         for (let column = 1; column <= columns; column += 1) {
           output.push({
@@ -991,6 +1248,10 @@ function safeTableName(value) {
   return (leading || 'MixdogTable').slice(0, 240);
 }
 
+function isExcelTotalRow(row) {
+  return /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계)(?:\s|$))/i.test(String(row?.[0] || '').trim());
+}
+
 function expandXlsxSheet(operation, design) {
   const output = [];
   const colors = design.tokens.colors;
@@ -999,8 +1260,19 @@ function expandXlsxSheet(operation, design) {
   const sheet = String(operation.sheet || 'Sheet1');
   const headers = strings(operation.headers);
   const rows = Array.isArray(operation.rows) ? operation.rows : [];
-  const columns = Math.max(1, headers.length, ...rows.map((row) => Array.isArray(row) ? row.length : 1));
+  const metrics = Array.isArray(operation.metrics) ? operation.metrics.slice(0, 4) : [];
+  const dashboard = String(operation.kind || '').toLowerCase() === 'dashboard' || metrics.length > 0;
+  const dataColumns = Math.max(
+    1,
+    headers.length,
+    ...rows.map((entry) => Array.isArray(entry) ? entry.length : 1),
+  );
+  const columns = Math.max(
+    dataColumns,
+    dashboard ? metrics.length * 2 : 1,
+  );
   const lastColumn = columnLabel(columns);
+  const dataLastColumn = columnLabel(dataColumns);
   let row = 1;
   if (operation.title) {
     output.push({ op: 'set_cell', sheet, cell: 'A1', value: String(operation.title) });
@@ -1015,6 +1287,8 @@ function expandXlsxSheet(operation, design) {
         bold: true,
         color: colors.onInverse,
         fillColor: colors.inverse,
+        verticalAlignment: 'center',
+        wrapText: true,
       },
     });
     row += 1;
@@ -1032,11 +1306,81 @@ function expandXlsxSheet(operation, design) {
         italic: true,
         color: colors.muted,
         fillColor: colors.surface,
+        wrapText: true,
       },
     });
     row += 2;
   } else if (operation.title) {
     row += 1;
+  }
+  if (metrics.length) {
+    metrics.forEach((metric, index) => {
+      const startColumn = (index * 2) + 1;
+      const endColumn = startColumn + 1;
+      const start = columnLabel(startColumn);
+      const end = columnLabel(endColumn);
+      const valueRow = row;
+      const labelRow = row + 1;
+      const detailRow = row + 2;
+      const valueCell = `${start}${valueRow}`;
+      if (metric?.formula) output.push({ op: 'set_formula', sheet, cell: valueCell, formula: String(metric.formula) });
+      else output.push({ op: 'set_cell', sheet, cell: valueCell, value: metric?.value ?? '' });
+      output.push({ op: 'merge_cells', sheet, range: `${start}${valueRow}:${end}${valueRow}` });
+      output.push({ op: 'set_cell', sheet, cell: `${start}${labelRow}`, value: String(metric?.label || '') });
+      output.push({ op: 'merge_cells', sheet, range: `${start}${labelRow}:${end}${labelRow}` });
+      output.push({ op: 'set_cell', sheet, cell: `${start}${detailRow}`, value: String(metric?.detail || '') });
+      output.push({ op: 'merge_cells', sheet, range: `${start}${detailRow}:${end}${detailRow}` });
+      output.push({
+        op: 'set_style',
+        sheet,
+        range: `${start}${valueRow}:${end}${valueRow}`,
+        properties: {
+          fontName: type.data,
+          fontSize: 22,
+          bold: true,
+          color: index === 0 ? colors.onAccent : colors.ink,
+          fillColor: index === 0 ? colors.accent : colors.surface,
+          numberFormat: metric?.numberFormat || 'General',
+          horizontalAlignment: 'center',
+          verticalAlignment: 'center',
+        },
+      });
+      output.push({
+        op: 'set_style',
+        sheet,
+        range: `${start}${labelRow}:${end}${detailRow}`,
+        properties: {
+          fontName: type.body,
+          fontSize: 9,
+          bold: true,
+          color: colors.muted,
+          fillColor: colors.surface,
+          horizontalAlignment: 'center',
+          verticalAlignment: 'center',
+          wrapText: true,
+        },
+      });
+    });
+    row += 4;
+  }
+  const insights = strings(operation.insights);
+  if (insights.length) {
+    output.push({ op: 'set_cell', sheet, cell: `A${row}`, value: insights.join(' • ') });
+    if (columns > 1) output.push({ op: 'merge_cells', sheet, range: `A${row}:${lastColumn}${row}` });
+    output.push({
+      op: 'set_style',
+      sheet,
+      range: `A${row}:${lastColumn}${row}`,
+      properties: {
+        fontName: type.body,
+        fontSize: format.body,
+        bold: true,
+        color: colors.ink,
+        fillColor: colors.surface2,
+        wrapText: true,
+      },
+    });
+    row += 2;
   }
   const startRow = row;
   const values = headers.length ? [headers, ...rows] : rows;
@@ -1045,26 +1389,29 @@ function expandXlsxSheet(operation, design) {
     output.push({
       op: 'set_range',
       sheet,
-      range: `A${startRow}:${lastColumn}${endRow}`,
+      range: `A${startRow}:${dataLastColumn}${endRow}`,
       values,
     });
     if (headers.length) {
       output.push({
         op: 'set_style',
         sheet,
-        range: `A${startRow}:${lastColumn}${startRow}`,
+        range: `A${startRow}:${dataLastColumn}${startRow}`,
         properties: {
           fontName: type.body,
           fontSize: format.heading,
           bold: true,
           color: colors.onAccent,
           fillColor: colors.accent,
+          horizontalAlignment: 'center',
+          verticalAlignment: 'center',
+          wrapText: true,
         },
       });
       output.push({
         op: 'add_table',
         sheet,
-        range: `A${startRow}:${lastColumn}${endRow}`,
+        range: `A${startRow}:${dataLastColumn}${endRow}`,
         name: safeTableName(operation.tableName || `${sheet}Data`),
         style: operation.tableStyle || format.tableStyle,
       });
@@ -1073,28 +1420,65 @@ function expandXlsxSheet(operation, design) {
     output.push({
       op: 'set_style',
       sheet,
-      range: `A${startRow + (headers.length ? 1 : 0)}:${lastColumn}${endRow}`,
+      range: `A${startRow + (headers.length ? 1 : 0)}:${dataLastColumn}${endRow}`,
       properties: {
         fontName: type.body,
         fontSize: format.body,
         color: colors.ink,
+        verticalAlignment: 'center',
       },
     });
+    if (plainObject(operation.columnFormats) && headers.length) {
+      headers.forEach((header, index) => {
+        const numberFormat = operation.columnFormats[header] || operation.columnFormats[columnLabel(index + 1)];
+        if (!numberFormat || rows.length === 0) return;
+        output.push({
+          op: 'set_style',
+          sheet,
+          range: `${columnLabel(index + 1)}${startRow + 1}:${columnLabel(index + 1)}${endRow}`,
+          properties: { numberFormat: String(numberFormat) },
+        });
+      });
+    }
     if (plainObject(operation.chart)) {
+      let chartRows = rows.length;
+      while (chartRows > 0 && isExcelTotalRow(rows[chartRows - 1])) chartRows -= 1;
+      const chartEndRow = startRow + (headers.length ? 1 : 0) + chartRows - 1;
+      const chartRange = operation.chart.range
+        || `A${startRow}:${dataLastColumn}${Math.max(startRow, chartEndRow)}`;
       output.push({
         op: 'add_chart',
         sheet,
-        range: `A${startRow}:${lastColumn}${endRow}`,
+        range: chartRange,
         chartType: operation.chart.type || 'column',
         title: operation.chart.title || '',
-        left: Number(operation.chart.left) || 520,
-        top: Number(operation.chart.top) || 40,
-        width: Number(operation.chart.width) || 480,
-        height: Number(operation.chart.height) || 280,
+        left: Number(operation.chart.left) || (dashboard ? 390 : 520),
+        top: Number(operation.chart.top) || (dashboard ? 220 : 40),
+        width: Number(operation.chart.width) || (dashboard ? 400 : 480),
+        height: Number(operation.chart.height) || (dashboard ? 260 : 280),
       });
     }
   }
-  output.push({ op: 'autofit_range', sheet, range: `A:${lastColumn}` });
+  if (operation.source) {
+    output.push({
+      op: 'add_note',
+      sheet,
+      cell: 'A1',
+      text: `Source: ${provenanceText(operation.source) || String(operation.source)}`,
+    });
+  }
+  output.push({ op: 'autofit_range', sheet, range: `A:${dataLastColumn}` });
+  const printColumns = plainObject(operation.chart) ? Math.max(columns, 14) : columns;
+  output.push({
+    op: 'set_page_setup',
+    sheet,
+    printArea: `A1:${columnLabel(printColumns)}${Math.max(row, startRow + values.length + 1, dashboard ? 24 : 1)}`,
+    orientation: dashboard || plainObject(operation.chart) ? 'landscape' : 'portrait',
+    fitToPagesWide: 1,
+    fitToPagesTall: dashboard ? 1 : 0,
+    centerHorizontally: true,
+  });
+  output.push({ op: 'set_sheet_view', sheet, showGridlines: false, zoom: dashboard ? 90 : 100 });
   return output;
 }
 
@@ -1115,14 +1499,17 @@ export function expandOfficeDesignOperations({
   const docxState = { paragraph: 0, table: 0 };
   const layoutUsage = new Map();
   for (const operation of operations || []) {
-    const name = String(operation?.op || '');
+    const bound = bindOfficeContent(operation, design.content);
+    const contentOperation = bound.operation;
+    const name = String(contentOperation?.op || '');
     if (normalizedFormat === 'pptx' && name === 'compose_slide') {
-      const slide = Number(operation.slide) || nextSlide;
+      const slide = Number(contentOperation.slide) || nextSlide;
       if (!slide) throw new Error('compose_slide requires slide for an existing presentation');
-      const layout = selectPptxLayout(operation, design, layoutUsage);
-      const composed = layout ? merge(layout.defaults || {}, operation) : operation;
-      const backgroundSpec = pptxBackgroundSpec(composed, design, String(operation.kind || 'content').toLowerCase(), slide);
-      const plan = pptxSlidePlan(composed, String(operation.kind || 'content').toLowerCase(), slide);
+      const selectedLayout = selectPptxLayout(contentOperation, design, layoutUsage);
+      const layout = selectedLayout?.layout || null;
+      const composed = layout ? merge(layout.defaults || {}, contentOperation) : contentOperation;
+      const backgroundSpec = pptxBackgroundSpec(composed, design, String(contentOperation.kind || 'content').toLowerCase(), slide);
+      const plan = pptxSlidePlan(composed, String(contentOperation.kind || 'content').toLowerCase(), slide);
       const templateOperations = expandTemplatePptxSlide(composed, layout, slide);
       if (templateOperations) {
         output.push(...templateOperations);
@@ -1135,34 +1522,48 @@ export function expandOfficeDesignOperations({
       }
       semantic.push({
         op: name,
-        kind: String(operation.kind || 'content'),
+        kind: String(contentOperation.kind || 'content'),
         slide,
         slideRole: backgroundSpec.slideRole,
         backgroundRole: backgroundSpec.backgroundRole,
         plan,
         renderMode: templateOperations ? 'native-template' : 'scratch',
+        ...(bound.binding ? { contentBinding: bound.binding } : {}),
         ...(layout ? {
           layout: layout.id,
           variant: layout.variant || '',
           sourceSlide: Number(layout.sourceSlide) || 0,
           templateId: layout.templateId || '',
+          selection: {
+            score: selectedLayout.score,
+            demand: selectedLayout.demand,
+            fit: selectedLayout.fit,
+          },
         } : {}),
       });
       if (nextSlide != null) nextSlide += 1;
       continue;
     }
     if (normalizedFormat === 'docx' && name === 'compose_document') {
-      output.push(...expandDocxDocument(operation, design, docxState, backend));
-      semantic.push({ op: name, sections: Array.isArray(operation.sections) ? operation.sections.length : 0 });
+      output.push(...expandDocxDocument(contentOperation, design, docxState, backend));
+      semantic.push({
+        op: name,
+        sections: Array.isArray(contentOperation.sections) ? contentOperation.sections.length : 0,
+        ...(bound.binding ? { contentBinding: bound.binding } : {}),
+      });
       continue;
     }
     if (normalizedFormat === 'xlsx' && name === 'compose_sheet') {
       if (backend !== 'microsoft-office-com') throw new Error('compose_sheet requires Microsoft Excel');
-      output.push(...expandXlsxSheet(operation, design));
-      semantic.push({ op: name, sheet: String(operation.sheet || 'Sheet1') });
+      output.push(...expandXlsxSheet(contentOperation, design));
+      semantic.push({
+        op: name,
+        sheet: String(contentOperation.sheet || 'Sheet1'),
+        ...(bound.binding ? { contentBinding: bound.binding } : {}),
+      });
       continue;
     }
-    output.push(operation);
+    output.push(contentOperation);
   }
   const expandedOperations = normalizedFormat === 'pptx' && created && Number(snapshotVersion || 0) === 0
     ? coalesceCreatedPptxTemplateImports(output)
@@ -1171,6 +1572,7 @@ export function expandOfficeDesignOperations({
     operations: expandedOperations,
     semantic,
     design: compactDesign(design),
+    content: summarizeOfficeContentModel(design.content),
   };
 }
 
@@ -1525,6 +1927,7 @@ export function reviewOfficeDesign({
   document,
   design: request = {},
   library = null,
+  auditProfile = '',
 } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
   const design = resolveOfficeDesign(normalizedFormat, request, { library });
@@ -1537,13 +1940,14 @@ export function reviewOfficeDesign({
       requiresVisualInspection: false,
     };
   }
+  const structureIssues = reviewOfficeStructure({
+    format: normalizedFormat,
+    document,
+    auditProfile,
+  });
   const issues = normalizedFormat === 'pptx'
-    ? reviewPptx(document, design)
-    : normalizedFormat === 'docx'
-      ? reviewDocx(document)
-      : normalizedFormat === 'xlsx'
-        ? reviewXlsx(document)
-        : [];
+    ? [...reviewPptx(document, design), ...structureIssues]
+    : structureIssues;
   return {
     ok: issues.length === 0,
     status: issues.length ? 'needs-polish' : 'pass',
@@ -1552,6 +1956,8 @@ export function reviewOfficeDesign({
     requiresVisualInspection: !['csv', 'tsv'].includes(normalizedFormat),
     modelReview: [
       'Inspect every rendered page, not only lint counts.',
+      'Verify the reading path states the conclusion, evidence, and requested decision before supporting detail.',
+      'Trace material numbers from source through calculation to the displayed claim; reject decorative or unsupported data.',
       'Reject generic palette, decorative stripes, repeated cards, weak hierarchy, and interchangeable layouts.',
       'Confirm the design is specific to the subject, audience, and intended action.',
       'Refine the current composition before adding decoration.',

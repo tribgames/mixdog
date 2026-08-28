@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { writeJsonAtomicAsync } from '../runtime/shared/atomic-file.mjs';
 import { compactSessionTitle, SESSION_TITLE_TIMEOUT_MS } from './session-title.mjs';
 
 export const DEFAULT_GOAL_TIME_LIMIT_MS = 0;
+export const DEFAULT_COMPLETED_GOAL_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_GOAL_TIME_LIMIT_MS = 7 * 24 * 60 * 60 * 1000;
 export const GOAL_STATUS_VALUES = Object.freeze([
   'active',
@@ -307,6 +308,35 @@ function publicGoal(goal, now = Date.now()) {
   };
 }
 
+function normalizedCompletedGoalTtlMs(value) {
+  const ttlMs = Number(value);
+  return Number.isFinite(ttlMs) && ttlMs >= 0
+    ? ttlMs
+    : DEFAULT_COMPLETED_GOAL_TTL_MS;
+}
+
+function completedGoalExpired(goal, at, ttlMs = DEFAULT_COMPLETED_GOAL_TTL_MS) {
+  if (goal?.status !== 'complete') return false;
+  const completedAt = Number(goal.completedAt)
+    || Number(goal.updatedAt)
+    || Number(goal.createdAt)
+    || 0;
+  return completedAt > 0 && at - completedAt >= normalizedCompletedGoalTtlMs(ttlMs);
+}
+
+function goalFilePath(dataDir, sessionId) {
+  return join(clean(dataDir) || process.cwd(), 'goals', `${assertSessionId(sessionId)}.json`);
+}
+
+function deleteStoredGoalFile(dataDir, sessionId) {
+  try {
+    rmSync(goalFilePath(dataDir, sessionId), { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function stopActiveClock(goal, now = Date.now()) {
   if (goal.lastStartedAt) {
     goal.timeUsedMs = Math.max(0, Number(goal.timeUsedMs) || 0)
@@ -425,7 +455,7 @@ function continuationPrompt(goal) {
 
 function readStoredGoalFile(dataDir, sessionId, at = Date.now()) {
   const id = assertSessionId(sessionId);
-  const path = join(clean(dataDir) || process.cwd(), 'goals', `${id}.json`);
+  const path = goalFilePath(dataDir, id);
   try {
     if (!existsSync(path)) return null;
     const parsed = JSON.parse(readFileSync(path, 'utf8'));
@@ -439,15 +469,21 @@ export function readStoredGoalSnapshot({
   dataDir,
   sessionId,
   now = () => Date.now(),
+  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
 } = {}) {
   const at = Math.max(0, Number(now()) || Date.now());
   const goal = publicGoal(readStoredGoalFile(dataDir, sessionId, at), at);
+  if (completedGoalExpired(goal, at, completedGoalTtlMs)) {
+    deleteStoredGoalFile(dataDir, sessionId);
+    return null;
+  }
   return goal?.archivedAt ? null : goal;
 }
 
 export function listStoredActiveGoalSessionIds({
   dataDir,
   now = () => Date.now(),
+  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
 } = {}) {
   const root = join(clean(dataDir) || process.cwd(), 'goals');
   let entries = [];
@@ -463,6 +499,10 @@ export function listStoredActiveGoalSessionIds({
     const sessionId = entry.name.slice(0, -'.json'.length);
     if (!SESSION_ID.test(sessionId)) continue;
     const goal = publicGoal(readStoredGoalFile(dataDir, sessionId, at), at);
+    if (completedGoalExpired(goal, at, completedGoalTtlMs)) {
+      deleteStoredGoalFile(dataDir, sessionId);
+      continue;
+    }
     if (goal?.status === 'active' && !goal.archivedAt) sessionIds.push(sessionId);
   }
   return sessionIds.sort();
@@ -472,9 +512,11 @@ export function createGoalRuntime({
   dataDir,
   now = () => Date.now(),
   defaultTimeLimitMs = DEFAULT_GOAL_TIME_LIMIT_MS,
+  completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
   generateTitle = null,
 } = {}) {
   const root = join(clean(dataDir) || process.cwd(), 'goals');
+  const completedRetentionMs = normalizedCompletedGoalTtlMs(completedGoalTtlMs);
   const cache = new Map();
   const listeners = new Set();
   const deadlineTimers = new Map();
@@ -648,7 +690,16 @@ export function createGoalRuntime({
   const storedSnapshot = (sessionId) => {
     const id = assertSessionId(sessionId);
     limitIfExpired(id);
-    return publicGoal(readRecord(id).goal, now());
+    const at = now();
+    const goal = publicGoal(readRecord(id).goal, at);
+    if (!completedGoalExpired(goal, at, completedRetentionMs)) return goal;
+    clearDeadline(id);
+    cache.set(id, {
+      record: { version: GOAL_FILE_VERSION, goal: null },
+      mtimeMs: 0,
+    });
+    deleteStoredGoalFile(dataDir, id);
+    return null;
   };
 
   function visibleSnapshot(sessionId) {

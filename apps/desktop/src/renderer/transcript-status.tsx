@@ -95,27 +95,19 @@ function contextMetrics(snapshot: Snapshot) {
   const stats = asRecord(snapshot.stats) ?? {};
   const hasContextReading = Object.hasOwn(stats, "currentContextTokens")
     || Object.hasOwn(stats, "currentEstimatedContextTokens");
-  const remembered = rememberedContextUsage.get(sessionId);
-  // A fresh numerator may arrive before its route-derived limit. Keep only the
-  // previous denominator so post-compaction usage can still advance.
-  const resolved = hasContextReading && usage.limit <= 0 && remembered && remembered.limit > 0
-    ? resolveContextDisplayUsage({
-      sessionId,
-      stats: snapshot.stats,
-      autoCompactTokenLimit: remembered.limit,
-    })
-    : usage;
-  if (hasContextReading && resolved.limit > 0) {
+  if (!hasContextReading) return rememberedContextUsage.get(sessionId) ?? usage;
+  if (usage.limit > 0) {
     rememberedContextUsage.delete(sessionId);
-    rememberedContextUsage.set(sessionId, resolved);
+    rememberedContextUsage.set(sessionId, usage);
     while (rememberedContextUsage.size > CONTEXT_USAGE_MEMORY_LIMIT) {
       const oldest = rememberedContextUsage.keys().next().value;
       if (typeof oldest !== "string") break;
       rememberedContextUsage.delete(oldest);
     }
-    return resolved;
   }
-  return remembered ?? usage;
+  // Complete backend readings always win. The cache only bridges frames that
+  // omit context fields entirely; it never recomputes or mixes token sources.
+  return usage;
 }
 
 export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenChange, onInherit }: {

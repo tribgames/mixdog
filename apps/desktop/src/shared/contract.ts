@@ -84,6 +84,8 @@ export const DESKTOP_IPC = {
   browserProfileImportStart: 'mixdog:browser-profile-import-start',
   browserProfileImportProgress: 'mixdog:browser-profile-import-progress',
   browserHistorySearch: 'mixdog:browser-history-search',
+  browserCredentialSuggestions: 'mixdog:browser-credential-suggestions',
+  browserCredentialFill: 'mixdog:browser-credential-fill',
   applyTitleBarTheme: 'mixdog:apply-titlebar-theme',
   setTitleBarDim: 'mixdog:set-titlebar-dim',
   invokeCapability: 'mixdog:invoke-capability',
@@ -824,6 +826,17 @@ export interface DesktopBrowserHistoryEntry {
   title: string;
   lastVisitAt: number;
   visitCount: number;
+}
+
+export interface DesktopBrowserCredentialSuggestion {
+  id: string;
+  label: string;
+}
+
+export interface DesktopBrowserCredentialFillResult {
+  usernameFilled: boolean;
+  passwordFilled: boolean;
+  reason?: 'no-password-field' | 'password-field-unavailable';
 }
 
 /** Settings → Git: GitHub CLI presence and auth, probed through gh itself. */
@@ -1812,6 +1825,9 @@ export interface DesktopApi {
     listener: (progress: DesktopBrowserImportProgress) => void,
   ): () => void;
   browserHistorySearch?(query: string): Promise<DesktopBrowserHistoryEntry[]>;
+  /** Current visible Browser Use page only. Passwords never cross this API. */
+  browserCredentialSuggestions?(): Promise<DesktopBrowserCredentialSuggestion[]>;
+  browserCredentialFill?(credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

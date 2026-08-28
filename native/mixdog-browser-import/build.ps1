@@ -58,10 +58,18 @@ $configPath = Join-Path $nativeRoot 'chromium_importer\config_constants.rs'
 $importerBuildPath = Join-Path $nativeRoot 'chromium_importer\build.rs'
 $helperBuildPath = Join-Path $nativeRoot 'bitwarden_chromium_import_helper\build.rs'
 $config = [IO.File]::ReadAllText($configPath)
+$signatureValidationEnabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = true;'
+$signatureValidationDisabled = 'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'
+if (-not $config.Contains($signatureValidationEnabled)) {
+  throw 'Pinned browser importer no longer exposes the expected signature validation setting.'
+}
 $config = $config.Replace(
-  'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;',
-  'pub const ENABLE_SIGNATURE_VALIDATION: bool = false;'
+  $signatureValidationEnabled,
+  $signatureValidationDisabled
 )
+if ($config.Contains($signatureValidationEnabled) -or -not $config.Contains($signatureValidationDisabled)) {
+  throw 'Unable to disable browser importer signature validation for the unsigned build.'
+}
 [IO.File]::WriteAllText($configPath, $config)
 [IO.File]::WriteAllText($importerBuildPath, @'
 include!("config_constants.rs");

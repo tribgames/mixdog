@@ -94,7 +94,6 @@ export function createContextState({ runtime, getState, updateState, getPendingS
   const syncContextStats = ({
     allowEstimated = false,
     invalidateExact = false,
-    compactedEstimateTokens = null,
   } = {}) => {
     if (getPendingSessionReset()) return null;
     const ctx = runtime.contextStatus?.() || null;
@@ -118,24 +117,14 @@ export function createContextState({ runtime, getState, updateState, getPendingS
       updateState({ stats });
       return ctx;
     }
-    // A compact completion already carries the estimate measured from the
-    // replacement transcript. Prefer it for this publication instead of
-    // letting a lagging contextStatus/provider snapshot repaint the deleted
-    // pre-compact prefix until the next request lands.
-    const compactedEstimate = Number(compactedEstimateTokens);
-    const hasCompactedEstimate = compactedEstimateTokens != null
-      && Number.isFinite(compactedEstimate)
-      && compactedEstimate > 0;
-    const estimatedTokens = hasCompactedEstimate
-      ? compactedEstimate
-      : Math.max(0, Number(ctx.currentEstimatedTokens ?? ctx.usedTokens ?? 0));
+    const estimatedTokens = Math.max(0, Number(ctx.currentEstimatedTokens ?? ctx.usedTokens ?? 0));
     const usedTokens = Math.max(0, Number(ctx.usedTokens ?? estimatedTokens ?? 0));
     const usedSource = String(ctx.usedSource || '').toLowerCase();
     // A successful pre-send auto-compact rewrites the transcript before the
     // next provider request can publish fresh usage. Never keep painting the
     // exact token count measured against the deleted pre-compact prefix during
     // that gap; publish the compacted transcript estimate immediately.
-    const forceEstimated = hasCompactedEstimate || (invalidateExact && estimatedTokens > 0);
+    const forceEstimated = invalidateExact && estimatedTokens > 0;
     const shouldPublishEstimate = allowEstimated && (
       usedSource === 'estimated'
       || Number(ctx.currentEstimatedTokens) > 0

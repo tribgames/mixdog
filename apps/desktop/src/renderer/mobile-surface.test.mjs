@@ -53,6 +53,18 @@ const markdownSource = readFileSync(
   "utf8",
 );
 
+test("phone draft context waits for Workflow before revealing Project", () => {
+  const rule = mobileChromeSource.match(
+    /html\[data-mixdog-mobile-tabs\] \.composer-context-bar:not\(:has\(\.composer-route-workflow\)\)\s*\{([^}]*)\}/u,
+  );
+  assert.ok(rule, "mobile context synchronization rule must exist");
+  assert.match(rule[1], /min-height:\s*0;/u);
+  assert.match(rule[1], /max-height:\s*0;/u);
+  assert.match(rule[1], /opacity:\s*0;/u);
+  assert.match(rule[1], /overflow:\s*hidden;/u);
+  assert.match(rule[1], /pointer-events:\s*none;/u);
+});
+
 test("phone sheets preserve unread activity until the conversation is visible again", () => {
   const base = {
     viewedSessionId: "session-a",
@@ -97,11 +109,11 @@ test("an open Goal card stays inside its transcript pane and owns vertical overf
   );
   assert.match(
     markdownSource,
-    /\.session-goal-title-region\s*\{[^}]*grid-template-columns:\s*15px minmax\(0, 1fr\);[^}]*gap:\s*3px;/su,
+    /\.session-goal-title-region\s*\{[^}]*grid-template-columns:\s*var\(--mx-icon-md\) minmax\(0, 1fr\);[^}]*gap:\s*3px;/su,
   );
   assert.match(
     markdownSource,
-    /\.session-goal-meta\s*\{[^}]*justify-content:\s*flex-end;[^}]*white-space:\s*nowrap;/su,
+    /\.session-goal-meta\s*\{[^}]*justify-content:\s*flex-end;[^}]*font-size:\s*var\(--mx-font-meta\);[^}]*line-height:\s*var\(--mx-line-minor\);[^}]*white-space:\s*nowrap;/su,
   );
 });
 

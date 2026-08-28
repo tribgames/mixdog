@@ -176,7 +176,11 @@ interface DesktopIpcDependencies {
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   /** Browser Use pane: local profile import without renderer-visible secrets. */
   browserHost?: Pick<BrowserHost,
-    'browserImportSources' | 'browserImport' | 'browserHistorySearch'>;
+    'browserImportSources'
+    | 'browserImport'
+    | 'browserHistorySearch'
+    | 'browserCredentialSuggestions'
+    | 'browserCredentialFill'>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -1102,6 +1106,17 @@ export function registerDesktopIpc(
       throw new TypeError('Browser history query is invalid.');
     }
     return browserHost.browserHistorySearch(query);
+  });
+  handle(DESKTOP_IPC.browserCredentialSuggestions, () => {
+    if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
+    return browserHost.browserCredentialSuggestions();
+  });
+  handle(DESKTOP_IPC.browserCredentialFill, (_event, credentialId) => {
+    if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
+    if (typeof credentialId !== 'string' || !/^[a-f0-9]{24}$/.test(credentialId)) {
+      throw new TypeError('Stored browser credential id is invalid.');
+    }
+    return browserHost.browserCredentialFill(credentialId);
   });
   handle(DESKTOP_IPC.readGitPreferences, () =>
     settingsStore?.readGitPreferences() ?? invokeDesktopOperation('readGitPreferences', []));

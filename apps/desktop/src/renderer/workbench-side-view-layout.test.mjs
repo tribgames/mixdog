@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   initialActiveWorkbenchSideViews,
+  migrateDefaultUtilitiesToRight,
   moveWorkbenchSideGroup,
   moveWorkbenchSideView,
   nextRetainedWorkbenchSideRoots,
@@ -44,9 +45,27 @@ test("restoration drops views this build no longer offers", () => {
 
 test("a corrupt or missing persisted layout falls back to the defaults", () => {
   assert.deepEqual(
-    normalizeWorkbenchSideViewLayout(null, ["sessions", "agents"]),
-    { left: [["sessions"]], right: [["agents"]] },
+    normalizeWorkbenchSideViewLayout(null, ["sessions", "utilities", "agents"]),
+    { left: [["sessions"]], right: [["utilities"], ["agents"]] },
   );
+});
+
+test("the old default Utilities singleton migrates right without resetting custom layout", () => {
+  assert.deepEqual(
+    migrateDefaultUtilitiesToRight({
+      left: [["sessions"], ["projects"], ["utilities"]],
+      right: [["search"], ["agents"]],
+    }),
+    {
+      left: [["sessions"], ["projects"]],
+      right: [["utilities"], ["search"], ["agents"]],
+    },
+  );
+  const custom = {
+    left: [["sessions"], ["projects", "utilities"]],
+    right: [["agents"]],
+  };
+  assert.equal(migrateDefaultUtilitiesToRight(custom), custom);
 });
 
 test("the first active view per side follows the RESTORED placement", () => {

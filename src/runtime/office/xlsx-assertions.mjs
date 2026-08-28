@@ -57,6 +57,33 @@ function parsedCell(value) {
   return match ? { column: columnNumber(match[1]), row: Number(match[2]) } : null;
 }
 
+function parsedRange(value) {
+  const match = /^(\$?[A-Z]{1,3}\$?[1-9]\d*):(\$?[A-Z]{1,3}\$?[1-9]\d*)$/i.exec(String(value || '').trim());
+  if (!match) return null;
+  const start = parsedCell(match[1]);
+  const end = parsedCell(match[2]);
+  return {
+    startRow: Math.min(start.row, end.row),
+    endRow: Math.max(start.row, end.row),
+    startColumn: Math.min(start.column, end.column),
+    endColumn: Math.max(start.column, end.column),
+  };
+}
+
+function cellsForAssertion(document, assertion) {
+  const range = parsedRange(assertion?.range);
+  return cellsFromDocument(document).filter((cell) => {
+    if (assertion?.sheet && String(cell.sheet).toLowerCase() !== String(assertion.sheet).toLowerCase()) return false;
+    if (!range) return true;
+    const parsed = parsedCell(cell.ref);
+    return Boolean(parsed)
+      && parsed.row >= range.startRow
+      && parsed.row <= range.endRow
+      && parsed.column >= range.startColumn
+      && parsed.column <= range.endColumn;
+  });
+}
+
 function normalizeFormula(formula, origin) {
   const base = parsedCell(origin);
   return String(formula || '')
@@ -112,17 +139,13 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       passed = Boolean(left && right) && sameValue(left.value, right.value, assertion.tolerance);
       if (!passed) issues.push(issue(assertion, assertionIndex, 'assertion_tie_out_failed', `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`, left?.path || right?.path || '/'));
     } else if (kind === 'no-errors') {
-      const failures = cellsFromDocument(document).filter((cell) => (
-        (!assertion.sheet || String(cell.sheet).toLowerCase() === String(assertion.sheet).toLowerCase())
-        && ERROR_VALUE.test(String(cell.value || ''))
+      const failures = cellsForAssertion(document, assertion).filter((cell) => (
+        ERROR_VALUE.test(String(cell.value || ''))
       ));
       passed = failures.length === 0;
       for (const cell of failures.slice(0, 100)) issues.push(issue(assertion, assertionIndex, 'assertion_formula_error', `Formula error ${cell.value} violates no-errors assertion.`, cell.path));
     } else if (kind === 'formula-consistency') {
-      const formulas = cellsFromDocument(document).filter((cell) => (
-        cell.formula
-        && (!assertion.sheet || String(cell.sheet).toLowerCase() === String(assertion.sheet).toLowerCase())
-      ));
+      const formulas = cellsForAssertion(document, assertion).filter((cell) => cell.formula);
       const patterns = new Map();
       for (const cell of formulas) {
         const pattern = normalizeFormula(cell.formula, cell.ref);

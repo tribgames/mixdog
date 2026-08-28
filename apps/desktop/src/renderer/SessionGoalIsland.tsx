@@ -94,13 +94,17 @@ export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
   });
 }
 
+// No strokeWidth override: the global pixel-snapped icon rule
+// (`svg.lucide { stroke-width: 1px }`, 02-base.css) outranks presentation
+// attributes anyway, so a per-glyph value is dead weight that would also
+// violate the 1px small-glyph standard if it ever won.
 function GoalGlyph({ status }: { status?: GoalSnapshot['status'] }) {
-  if (status === 'complete') return <MxIcon name="check" size={15} strokeWidth={1.8} />;
-  if (status === 'paused') return <MxIcon name="paused" size={15} strokeWidth={1.8} />;
+  if (status === 'complete') return <MxIcon name="check" size={16} />;
+  if (status === 'paused') return <MxIcon name="paused" size={16} />;
   if (status === 'blocked' || status === 'budget_limited' || status === 'usage_limited') {
-    return <MxIcon name="warning" size={15} strokeWidth={1.8} />;
+    return <MxIcon name="warning" size={16} />;
   }
-  return <MxIcon name="goal" size={15} strokeWidth={1.8} />;
+  return <MxIcon name="goal" size={16} />;
 }
 
 function GoalTaskGlyph({ status }: { status?: 'pending' | 'in_progress' | 'completed' }) {
@@ -205,7 +209,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       </header>
       <div className="session-goal-content">
         <div className="session-goal-tasks">
-          <b>{t('Tasks')} {tasksCompleted}/{tasksTotal}</b>
+          <b>{t('Tasks')}<span className="session-goal-task-count">{tasksCompleted}/{tasksTotal}</span></b>
           {tasks.length > 0 ? <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
             {tasks.map((task, index) => {
               const taskStatus = task.status || 'pending';

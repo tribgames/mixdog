@@ -58,6 +58,24 @@ the Unreleased section is empty, and stamps it with the released version.
   `click(ref)` uses semantic activation and that a native file-association
   launch returns its selected target with fresh state; marks and coordinates
   remain explicit pointer operations.
+- Browser Use can import Chromium passwords, cookies, and history, suggest only
+  masked accounts for the current HTTPS origin, and fill a selected login form
+  inside an isolated CDP world without exposing the stored password to the
+  renderer, agent, diagnostics, or logs. Utilities now defaults to the first
+  right-side tab, migrates the old default placement without resetting custom
+  layouts, and includes the Browser entry point.
+- FastDirect now fingerprints, stages, backs up, and atomically restores the
+  browser-import native sidecars together with `runtime.asar`, so incremental
+  development updates cannot leave the installed app without its importer.
+- Session context usage now records a canonical post-compaction snapshot that
+  survives persistence and restart until the next turn invalidates it. Goal
+  state and compaction recovery stay consistent across restarted services
+  instead of repainting stale token usage or losing resumable work.
+- Office generation now shares a semantic content model, structural and
+  rendered assurance checks, prompt-injection review, checklist gates, and a
+  polish pipeline across Word, Excel, and PowerPoint. Spreadsheet page/view
+  controls, template-capacity selection, native chart data persistence, and
+  live save-and-reopen verification strengthen release-quality documents.
 
 ## v0.9.152 - 2026-08-27
 

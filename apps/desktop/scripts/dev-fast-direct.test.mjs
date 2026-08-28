@@ -11,7 +11,9 @@ import {
   changedPlanGroups,
   decidePlan,
   fastDirectAsarOptions,
+  hashBrowserImportNativeTools,
   packagingManifestForFingerprint,
+  targetInputs,
 } from './dev-fast-direct.mjs';
 import {
   DEFAULT_RENDERER_WATCH_IDLE_MS,
@@ -36,6 +38,18 @@ test('ASAR API paths always use native separators', () => {
   const expected = join('out', 'main', 'daemon.cjs');
   assert.equal(asarPath('out\\main\\daemon.cjs'), expected);
   assert.equal(asarPath('out/main/daemon.cjs'), expected);
+});
+
+test('FastDirect fingerprints browser importer source and installed native tools', async (context) => {
+  assert.ok(
+    targetInputs.runtime.some((path) => path.endsWith(join('native', 'mixdog-browser-import'))),
+  );
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-fast-direct-native-tools-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const missingHash = await hashBrowserImportNativeTools(root);
+  await writeFile(join(root, 'mixdog-browser-import.exe'), 'fixture');
+  const presentHash = await hashBrowserImportNativeTools(root);
+  assert.notEqual(presentHash, missingHash);
 });
 
 test('FastDirect keeps Electron ESM entry points packed', async (context) => {

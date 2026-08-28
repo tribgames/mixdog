@@ -726,7 +726,7 @@ test('Office design composition maps Word, Excel, and PDF to native structures',
     }],
   });
   assert.ok(word.operations.some((operation) => operation.op === 'set_page'));
-  assert.ok(word.operations.some((operation) => operation.op === 'set_list'));
+  assert.ok(word.operations.some((operation) => operation.op === 'append_text' && operation.properties.listKind === 'bullet'));
   assert.ok(word.operations.some((operation) => operation.op === 'set_table_cell_style'));
   const workbook = expandOfficeDesignOperations({
     format: 'xlsx',
@@ -786,14 +786,21 @@ test('Office COM authoring keeps paragraph structure, no-op gates, and render st
   assert.match(source, /Paragraphs\.Add\(\$range\)/);
   assert.match(source, /produced no change/);
   assert.match(source, /SetSourceData\(\$sheet\.Range\(\[string]\$op\.range\), 2\)/);
+  assert.match(source, /\$chart\.ChartData/);
+  assert.match(source, /\$source\.Value2 = \$matrix/);
+  assert.match(source, /\$series\.Formula = \$formula/);
+  assert.match(source, /tablegrid = -155/);
   assert.match(source, /function Color-Hex/);
   assert.match(source, /followMaster = \$followMasterBackground/);
-  assert.doesNotMatch(source, /\$series\.Formula\b/);
+  assert.doesNotMatch(source, /\$series\.Values = "='\$sheetName'!/);
   assert.match(source, /\$pageSetup\.FitToPagesWide = 1/);
   assert.match(source, /\$state\.PageSetup\.FitToPagesWide = \$state\.FitToPagesWide/);
   assert.match(source, /SaveCopyAs\(\$output, 32\)/);
   assert.match(sessionSource, /\$wasSaved = \[bool]\$document\.Saved/);
   assert.match(sessionSource, /inspectIssues/);
+  assert.match(sessionSource, /post_save_validate/);
+  assert.match(sessionSource, /Reopen-BackgroundPowerPointSession \$state/);
+  assert.match(sessionSource, /Repair-ExcelPageSetupDpi/);
   assert.match(sessionSource, /WaitForExit\(250\)/);
   assert.match(sessionSource, /FinalReleaseComObject/);
   assert.match(sessionSource, /SetForegroundWindow/);
@@ -944,7 +951,19 @@ test('describe exposes backend-aware advanced object operations', async () => {
   assert.ok(described.operations.includes('insert_rows'));
   assert.ok(described.operations.includes('define_name'));
   assert.ok(described.operations.includes('add_provenance'));
-  assert.deepEqual(described.properties.cellStyle, ['fontName', 'fontSize', 'bold', 'italic', 'color', 'fillColor', 'numberFormat']);
+  assert.ok(described.operations.includes('set_sheet_visibility'));
+  assert.deepEqual(described.properties.cellStyle, [
+    'fontName',
+    'fontSize',
+    'bold',
+    'italic',
+    'color',
+    'fillColor',
+    'numberFormat',
+    'horizontalAlignment',
+    'verticalAlignment',
+    'wrapText',
+  ]);
   const powerpoint = value(await executeOfficeTool({ action: 'describe', format: 'pptx' }));
   assert.ok(powerpoint.operations.includes('add_shape'));
   assert.ok(powerpoint.operations.includes('add_table'));

@@ -22,6 +22,7 @@ import {
 
 import { t } from "./i18n";
 import type {
+  DesktopBrowserCredentialSuggestion,
   DesktopBrowserHistoryEntry,
   DesktopBrowserImportItem,
   DesktopBrowserImportProgress,
@@ -84,6 +85,10 @@ export default function BrowserPane({
   const [canGoForward, setCanGoForward] = useState(false);
   const [addressHasFocus, setAddressHasFocus] = useState(false);
   const [historySuggestions, setHistorySuggestions] = useState<DesktopBrowserHistoryEntry[]>([]);
+  const [credentialSuggestions, setCredentialSuggestions] = useState<DesktopBrowserCredentialSuggestion[]>([]);
+  const [credentialMenuOpen, setCredentialMenuOpen] = useState(false);
+  const [credentialBusy, setCredentialBusy] = useState(false);
+  const [credentialStatus, setCredentialStatus] = useState<"idle" | "success" | "error">("idle");
   const [importOpen, setImportOpen] = useState(false);
   const [importSources, setImportSources] = useState<DesktopBrowserImportSource[]>([]);
   const [importSourceId, setImportSourceId] = useState("");
@@ -102,6 +107,20 @@ export default function BrowserPane({
     Partial<Record<DesktopBrowserImportItem, DesktopBrowserImportProgress>>
   >({});
   const desktopApi = window.mixdogDesktop;
+
+  const refreshCredentialSuggestions = useCallback(() => {
+    if (!desktopApi?.browserCredentialSuggestions) {
+      setCredentialSuggestions([]);
+      return;
+    }
+    void desktopApi.browserCredentialSuggestions().then((suggestions) => {
+      setCredentialSuggestions(suggestions);
+      if (!suggestions.length) setCredentialMenuOpen(false);
+    }).catch(() => {
+      setCredentialSuggestions([]);
+      setCredentialMenuOpen(false);
+    });
+  }, [desktopApi]);
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -122,13 +141,20 @@ export default function BrowserPane({
         return;
       }
       setCurrentUrl(url);
+      setCredentialMenuOpen(false);
+      setCredentialStatus("idle");
       if (!addressFocused.current) setAddress(url);
       syncNavigationState();
+      refreshCredentialSuggestions();
     };
-    const onStartLoading = () => setLoading(true);
+    const onStartLoading = () => {
+      setLoading(true);
+      setCredentialMenuOpen(false);
+    };
     const onStopLoading = () => {
       setLoading(false);
       syncNavigationState();
+      refreshCredentialSuggestions();
     };
     view.addEventListener("did-navigate", onNavigate);
     view.addEventListener("did-navigate-in-page", onNavigate);
@@ -140,7 +166,13 @@ export default function BrowserPane({
       view.removeEventListener("did-start-loading", onStartLoading);
       view.removeEventListener("did-stop-loading", onStopLoading);
     };
-  }, []);
+  }, [refreshCredentialSuggestions]);
+
+  useEffect(() => {
+    if (credentialStatus === "idle") return undefined;
+    const timer = window.setTimeout(() => setCredentialStatus("idle"), 2500);
+    return () => window.clearTimeout(timer);
+  }, [credentialStatus]);
 
   // Fit-width zoom follows the pane size, and is reapplied after navigations
   // because Chromium's per-origin zoom memory would otherwise override it.
@@ -296,6 +328,17 @@ export default function BrowserPane({
   const selectedSource = importSources.find((source) => source.id === importSourceId);
   const displayedUrl = currentUrl;
 
+  const fillStoredCredential = useCallback((credentialId: string) => {
+    if (!desktopApi?.browserCredentialFill || credentialBusy) return;
+    setCredentialBusy(true);
+    setCredentialMenuOpen(false);
+    setCredentialStatus("idle");
+    void desktopApi.browserCredentialFill(credentialId).then((result) => {
+      setCredentialStatus(result.passwordFilled ? "success" : "error");
+    }).catch(() => setCredentialStatus("error"))
+      .finally(() => setCredentialBusy(false));
+  }, [credentialBusy, desktopApi]);
+
   const importItemRow = (
     item: DesktopBrowserImportItem,
     label: string,
@@ -303,6 +346,9 @@ export default function BrowserPane({
   ) => {
     const supported = selectedSource?.supports[item] !== false;
     const progress = importProgress[item];
+    const selected = supported && importItems[item];
+    const showProgress = (importBusy || importFinished) && selected;
+    const progressState = progress?.state || (importBusy ? "running" : "failed");
     return <label className={`browser-import-item${supported ? "" : " is-disabled"}`}>
       <span className="browser-import-item-icon">{icon}</span>
       <span className="browser-import-item-label">
@@ -310,15 +356,24 @@ export default function BrowserPane({
         {!supported && item === "passwords" && selectedSource?.passwordSupportReason
           ? <small>{selectedSource.passwordSupportReason}</small>
           : null}
+        {showProgress && progressState === "completed"
+          ? <small>{progress?.count?.toLocaleString() || "0"}개 가져옴</small>
+          : null}
+        {showProgress && progressState === "failed"
+          ? <small>가져오지 못함</small>
+          : null}
       </span>
-      {importBusy || importFinished
-        ? <span className={`browser-import-state is-${progress?.state || "running"}`}>
-          {progress?.state === "completed"
+      {showProgress
+        ? <span className={`browser-import-state is-${progressState}`}
+          aria-label={progressState === "completed" ? "완료" : progressState === "failed" ? "실패" : "진행 중"}>
+          {progressState === "completed"
             ? <Check size={16} />
-            : progress?.state === "failed"
+            : progressState === "failed"
               ? <AlertTriangle size={16} />
               : <LoaderCircle size={16} className="is-spinning" />}
         </span>
+        : importBusy || importFinished
+          ? <span className="browser-import-skipped">제외</span>
         : <input type="checkbox"
           checked={supported && importItems[item]}
           disabled={!supported || importLoading}
@@ -390,6 +445,44 @@ export default function BrowserPane({
           </button>)}
         </div>}
       </form>
+      {credentialSuggestions.length > 0 && <div className="browser-pane-credential-control">
+        <button type="button"
+          className={`browser-pane-nav-button browser-pane-credential-button is-${credentialStatus}`}
+          disabled={credentialBusy}
+          onClick={() => {
+            if (credentialSuggestions.length === 1) {
+              fillStoredCredential(credentialSuggestions[0].id);
+            } else {
+              setCredentialMenuOpen((open) => !open);
+            }
+          }}
+          aria-label={credentialStatus === "success"
+            ? "저장된 계정을 채웠습니다"
+            : credentialStatus === "error"
+              ? "저장된 계정을 채우지 못했습니다"
+              : "저장된 계정으로 채우기"}
+          data-tooltip={credentialStatus === "success"
+            ? "저장된 계정을 채웠습니다"
+            : credentialStatus === "error"
+              ? "저장된 계정을 채우지 못했습니다"
+              : "저장된 계정으로 채우기"}>
+          {credentialBusy
+            ? <LoaderCircle size={15} className="is-spinning" />
+            : credentialStatus === "success"
+              ? <Check size={15} />
+              : credentialStatus === "error"
+                ? <AlertTriangle size={15} />
+                : <KeyRound size={15} />}
+        </button>
+        {credentialMenuOpen && <div className="browser-pane-credential-menu" role="menu">
+          {credentialSuggestions.map((credential) => <button type="button"
+            key={credential.id} role="menuitem"
+            onClick={() => fillStoredCredential(credential.id)}>
+            <KeyRound size={14} />
+            <span>{credential.label}</span>
+          </button>)}
+        </div>}
+      </div>}
       <button type="button" className="browser-pane-nav-button" disabled={!displayedUrl}
         onClick={() => {
           if (displayedUrl) void window.mixdogDesktop?.openExternal(displayedUrl);
@@ -413,9 +506,13 @@ export default function BrowserPane({
         <header>
           <div>
             <h2>브라우저에서 가져오기</h2>
-            <p>{importBusy || importFinished
+            <p>{importBusy
               ? "브라우저 데이터를 가져오는 중..."
-              : "내장 브라우저로 가져올 데이터를 선택하세요"}</p>
+              : importFinished
+                ? importError
+                  ? "일부 데이터를 가져오지 못했습니다"
+                  : "브라우저 데이터를 가져왔습니다"
+                : "내장 브라우저로 가져올 데이터를 선택하세요"}</p>
           </div>
           {!importBusy && <button type="button" className="browser-pane-nav-button"
             onClick={closeImporter} aria-label={t("Close")}>
@@ -425,6 +522,7 @@ export default function BrowserPane({
         {!importBusy && !importFinished && <div className="browser-import-source">
           <span>원본</span>
           <select value={`${importSourceId}\u0000${importProfileId}`}
+            aria-label="가져올 Chrome 프로필"
             disabled={importLoading}
             onChange={(event) => {
               const [sourceId, profileId] = event.target.value.split("\u0000");
@@ -445,9 +543,6 @@ export default function BrowserPane({
               </option>))}
           </select>
         </div>}
-        {!importBusy && !importFinished && <p className="browser-import-close-note">
-          가져오기를 시작하면 Google Chrome을 안전하게 종료합니다. 종료되지 않으면 가져오기를 중단합니다.
-        </p>}
         <div className="browser-import-items">
           {importItemRow("passwords", "저장된 비밀번호", <KeyRound size={18} />)}
           {importItemRow("cookies", "쿠키", <Cookie size={18} />)}
@@ -456,7 +551,6 @@ export default function BrowserPane({
         {!importBusy && !importFinished && importItems.passwords && selectedSource?.supports.passwords && <label
           className="browser-import-admin">
           <strong>관리자 승인 필요</strong>
-          <span>Windows App-Bound Encryption으로 보호된 비밀번호를 가져오려면 UAC 승인이 필요합니다.</span>
           <span className="browser-import-admin-check">
             <input type="checkbox" checked={administratorApproved}
               onChange={(event) => setAdministratorApproved(event.target.checked)} />
@@ -469,7 +563,7 @@ export default function BrowserPane({
             disabled={importBusy} onClick={closeImporter}>
             {importFinished ? "닫기" : "취소"}
           </button>
-          <button type="button" className="browser-import-primary"
+          {(!importFinished || Boolean(importError)) && <button type="button" className="browser-import-primary"
             disabled={
               importBusy
               || importLoading
@@ -479,8 +573,8 @@ export default function BrowserPane({
             }
             onClick={startImport}>
             {importBusy ? <LoaderCircle size={15} className="is-spinning" /> : null}
-            가져오기
-          </button>
+            {importFinished ? "다시 시도" : "가져오기"}
+          </button>}
         </footer>
       </section>
     </div>}
@@ -488,7 +582,7 @@ export default function BrowserPane({
       <webview ref={(element) => {
         webviewRef.current = element as unknown as WebviewElement | null;
       }}
-        className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}`}
+        className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}${credentialMenuOpen ? " is-credential-open" : ""}`}
         src="about:blank"
         partition={BROWSER_PARTITION} />
       {/* about:blank paints Chromium's default white; until a real page is

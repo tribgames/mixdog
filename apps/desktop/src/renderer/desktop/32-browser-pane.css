@@ -5,6 +5,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  container-type: inline-size;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -55,6 +56,64 @@
 
 .browser-pane-import-button {
   border: 1px solid var(--mx-border-muted);
+}
+
+.browser-pane-credential-control {
+  position: relative;
+  flex: none;
+}
+
+.browser-pane-credential-button {
+  border: 1px solid var(--mx-border-muted);
+}
+
+.browser-pane-credential-button.is-success {
+  color: var(--mx-success);
+}
+
+.browser-pane-credential-button.is-error {
+  color: var(--mx-danger);
+}
+
+.browser-pane-credential-menu {
+  position: absolute;
+  z-index: 14;
+  top: 34px;
+  right: 0;
+  display: flex;
+  min-width: 180px;
+  max-width: 260px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 10px;
+  background: var(--mx-surface-plate);
+  box-shadow: var(--mx-floating);
+}
+
+.browser-pane-credential-menu button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-pane-credential-menu button:hover {
+  background: var(--mx-hover);
+}
+
+.browser-pane-credential-menu span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .browser-pane-address-form {
@@ -144,7 +203,8 @@
 }
 
 .browser-pane-webview.is-import-open,
-.browser-pane-webview.is-history-open {
+.browser-pane-webview.is-history-open,
+.browser-pane-webview.is-credential-open {
   display: none;
 }
 
@@ -158,17 +218,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 12px;
   background: color-mix(in srgb, var(--mx-workspace-sheet) 54%, transparent);
   backdrop-filter: blur(2px);
 }
 
 .browser-import-dialog {
+  box-sizing: border-box;
   display: flex;
+  min-height: auto;
   flex-direction: column;
   gap: 14px;
-  width: min(440px, 100%);
-  max-height: 100%;
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100% - 24px);
+  flex: none;
   padding: 18px;
   overflow-y: auto;
   border: 1px solid var(--mx-border-muted);
@@ -211,8 +275,9 @@
 
 .browser-import-source {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .browser-import-source > span {
@@ -222,17 +287,14 @@
 
 .browser-import-source select {
   min-width: 0;
+  width: 100%;
   height: 32px;
-  flex: 1;
+  flex: none;
   padding: 0 30px 0 10px;
   border: 1px solid var(--mx-border-muted);
   border-radius: 8px;
   background: var(--mx-surface-raised);
   color: var(--mx-text);
-}
-
-.browser-import-close-note {
-  padding: 0 2px;
 }
 
 .browser-import-items {
@@ -245,10 +307,10 @@
 
 .browser-import-item {
   display: flex;
-  min-height: 48px;
+  min-height: 44px;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
+  padding: 7px 10px;
   background: var(--mx-surface-raised);
 }
 
@@ -274,6 +336,10 @@
   flex: 1;
   flex-direction: column;
   gap: 2px;
+}
+
+.browser-import-item-label small {
+  overflow-wrap: anywhere;
 }
 
 .browser-import-item-label strong {
@@ -304,11 +370,16 @@
   color: var(--mx-danger);
 }
 
+.browser-import-skipped {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
+
 .browser-import-admin {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--mx-border-muted);
   border-radius: 10px;
 }
@@ -331,9 +402,15 @@
 }
 
 .browser-import-dialog footer {
+  position: sticky;
+  bottom: -14px;
   display: flex;
+  margin: auto -14px -14px;
   justify-content: flex-end;
   gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--mx-border-muted);
+  background: var(--mx-surface-plate);
 }
 
 .browser-import-secondary,
@@ -348,6 +425,7 @@
   border: 1px solid var(--mx-border-muted);
   border-radius: 8px;
   cursor: pointer;
+  flex: 1;
 }
 
 .browser-import-secondary {
@@ -373,6 +451,73 @@
 
 @keyframes browser-import-spin {
   to { transform: rotate(360deg); }
+}
+
+@container (min-width: 1200px) {
+  .browser-import-backdrop {
+    align-items: center;
+    padding: 24px;
+    background: color-mix(in srgb, var(--mx-workspace-sheet) 54%, transparent);
+    backdrop-filter: blur(2px);
+  }
+
+  .browser-import-dialog {
+    min-height: auto;
+    max-width: 440px;
+    max-height: 100%;
+    flex: none;
+    padding: 18px;
+    border: 1px solid var(--mx-border-muted);
+    border-radius: 16px;
+    box-shadow: var(--mx-floating);
+  }
+
+  .browser-import-source {
+    align-items: center;
+    flex-direction: row;
+    gap: 10px;
+  }
+
+  .browser-import-source select {
+    width: auto;
+    flex: 1;
+  }
+
+  .browser-import-item {
+    min-height: 48px;
+    padding: 8px 12px;
+  }
+
+  .browser-import-admin {
+    padding: 12px;
+  }
+
+  .browser-import-dialog footer {
+    position: static;
+    bottom: auto;
+    margin: 0;
+    padding: 0;
+    border-top: 0;
+    background: transparent;
+  }
+
+  .browser-import-secondary,
+  .browser-import-primary {
+    flex: none;
+  }
+}
+
+@container (max-width: 480px) {
+  .browser-import-dialog {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .browser-import-dialog footer {
+    bottom: -12px;
+    margin: auto -12px -12px;
+    padding: 9px 12px;
+  }
 }
 
 /* Empty-tab cover: hides the guest's default white until a page commits,

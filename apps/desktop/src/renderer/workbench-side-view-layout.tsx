@@ -41,6 +41,8 @@ export type WorkbenchSideViewLayout = Readonly<Record<
 export const WORKBENCH_SIDE_VIEW_MIME = "application/x-mixdog-side-view";
 export const WORKBENCH_SIDE_GROUP_MIME = "application/x-mixdog-side-group";
 const WORKBENCH_SIDE_LAYOUT_KEY = "mixdog.desktop.workbench-side-view-layout.v1";
+const UTILITIES_RIGHT_MIGRATION_KEY =
+  "mixdog.desktop.workbench-side-view-layout.utilities-right.v1";
 const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "sessions",
   "projects",
@@ -63,9 +65,8 @@ export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ["extensions"],
     ["schedules"],
     ["webhooks"],
-    ["utilities"],
   ],
-  right: [["agents"], ["search"], ["source-control"], ["pull-requests"]],
+  right: [["utilities"], ["agents"], ["search"], ["source-control"], ["pull-requests"]],
 };
 
 function isViewId(value: unknown): value is WorkbenchSideViewId {
@@ -230,9 +231,35 @@ export function initialActiveWorkbenchSideViews(
   return { left: pick("left"), right: pick("right") };
 }
 
+export function migrateDefaultUtilitiesToRight(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const left = Array.isArray(record.left) ? record.left : [];
+  const right = Array.isArray(record.right) ? record.right : [];
+  const utilityIndex = left.findIndex((group) =>
+    Array.isArray(group) && group.length === 1 && group[0] === "utilities");
+  const alreadyRight = right.some((group) =>
+    Array.isArray(group) && group.includes("utilities"));
+  if (utilityIndex < 0 || alreadyRight) return value;
+  return {
+    ...record,
+    left: left.filter((_, index) => index !== utilityIndex),
+    right: [["utilities"], ...right],
+  };
+}
+
 function readLayout(): unknown {
   try {
-    return JSON.parse(window.localStorage.getItem(WORKBENCH_SIDE_LAYOUT_KEY) || "null");
+    const stored = JSON.parse(
+      window.localStorage.getItem(WORKBENCH_SIDE_LAYOUT_KEY) || "null",
+    );
+    if (window.localStorage.getItem(UTILITIES_RIGHT_MIGRATION_KEY) === "1") {
+      return stored;
+    }
+    const migrated = migrateDefaultUtilitiesToRight(stored);
+    window.localStorage.setItem(WORKBENCH_SIDE_LAYOUT_KEY, JSON.stringify(migrated));
+    window.localStorage.setItem(UTILITIES_RIGHT_MIGRATION_KEY, "1");
+    return migrated;
   } catch {
     return null;
   }

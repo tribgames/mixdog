@@ -11,6 +11,7 @@ import {
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
+  resolveContextUsageSnapshot,
   resolveGaugeContextTokens,
   resolveWorkerCompactPolicy,
 } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
@@ -115,6 +116,7 @@ export function createContextStatus({
       compactionTriggerTokens: Number(compaction.triggerTokens || 0),
       compactionLastChangedAt: Number(compaction.lastChangedAt || 0),
       compactionLastCompactAt: Number(compaction.lastCompactAt || 0),
+      contextUsageSnapshot: session?.contextUsageSnapshot || null,
     };
   }
 
@@ -268,9 +270,13 @@ export function createContextStatus({
         ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
         tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
       };
-    // One canonical numerator drives the gauge, proactive compaction, and
-    // telemetry: provider usage plus only the growth after its aligned prefix.
-    const usedTokens = resolveGaugeContextTokens(
+    // A successful compaction publishes one durable post-mutation reading.
+    // Polling and cold resume keep that exact value until a fresh provider
+    // baseline or a changed transcript/route/tool surface invalidates it.
+    const usageSnapshot = (!lastContextTokens || lastUsageStale)
+      ? resolveContextUsageSnapshot(session, compactPolicy, { messages })
+      : null;
+    const usedTokens = usageSnapshot?.usedTokens ?? resolveGaugeContextTokens(
       messageSummary.estimatedTokens,
       compactPolicy,
       { messages, sessionRef: session },

@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import JSZip from 'jszip';
 
 const SCHEMA_VERSION = 1;
-const TEMPLATE_INSPECTOR_VERSION = 2;
+const TEMPLATE_INSPECTOR_VERSION = 3;
 const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 const MAX_TEMPLATE_BYTES = 64 * 1024 * 1024;
@@ -279,6 +279,23 @@ function normalizeLayoutSlots(value) {
   });
 }
 
+function normalizeLayoutCapacity(value) {
+  if (!plainObject(value)) return {};
+  const bounded = (name, maximum = 1_000_000_000) => {
+    const number = Number(value[name]);
+    return Number.isFinite(number) && number >= 0 ? Math.min(maximum, number) : 0;
+  };
+  return {
+    sampleTextChars: bounded('sampleTextChars', 1_000_000),
+    shapeCount: bounded('shapeCount', 10_000),
+    textSlots: bounded('textSlots', 1_000),
+    metricGroups: bounded('metricGroups', 100),
+    columnGroups: bounded('columnGroups', 100),
+    stepGroups: bounded('stepGroups', 100),
+    textArea: bounded('textArea'),
+  };
+}
+
 function normalizeLayouts(value, { templatePath = '' } = {}) {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length > 1_000) throw new Error('Office design layouts must be an array of at most 1000 entries');
@@ -314,6 +331,7 @@ function normalizeLayouts(value, { templatePath = '' } = {}) {
       sourceSlide,
       sourceLayout,
       slots: normalizeLayoutSlots(layout.slots),
+      capacity: normalizeLayoutCapacity(layout.capacity),
       capabilities: [...new Set((Array.isArray(layout.capabilities) ? layout.capabilities : [])
         .map((entry) => String(entry || '').trim().toLowerCase())
         .filter(Boolean))].slice(0, 32),
@@ -358,6 +376,7 @@ function normalizeLocalSamples(value) {
       priority: Math.max(-100, Math.min(100, Number(sample.priority) || 0)),
       strict: sample.strict === true,
       roles,
+      capacity: normalizeLayoutCapacity(sample.capacity),
       defaults,
     };
   });
@@ -728,14 +747,17 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
       notesRelationshipsXml,
     });
   }
+  const slideListPattern = /<((?:\w+:)?)sldIdLst\b[^>]*>[\s\S]*?<\/\1sldIdLst>/i;
+  const slideListMatch = slideListPattern.exec(presentationXml);
+  if (!slideListMatch) throw new Error('PPTX presentation slide list is missing');
+  const presentationPrefix = slideListMatch[1] || '';
   const slideIds = relationshipIds
-    .map((id, index) => `<p:sldId id="${256 + index}" r:id="${id}"/>`)
+    .map((id, index) => `<${presentationPrefix}sldId id="${256 + index}" r:id="${id}"/>`)
     .join('');
   const nextPresentationXml = presentationXml.replace(
-    /<p:sldIdLst\b[^>]*>[\s\S]*?<\/p:sldIdLst>/i,
-    `<p:sldIdLst>${slideIds}</p:sldIdLst>`,
+    slideListPattern,
+    `<${presentationPrefix}sldIdLst>${slideIds}</${presentationPrefix}sldIdLst>`,
   );
-  if (nextPresentationXml === presentationXml) throw new Error('PPTX presentation slide list is missing');
   const slideRelationships = relationshipIds
     .map((id, index) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`)
     .join('');
@@ -919,6 +941,56 @@ function inferPptxSampleKind(sample, total) {
   return 'content';
 }
 
+function numberedRoleGroups(slots, prefix) {
+  return new Set((slots || []).flatMap((slot) => {
+    const match = new RegExp(`^${prefix}-(?:value|label|detail|title|body)-(\\d+)$`).exec(String(slot.role || ''));
+    return match ? [Number(match[1])] : [];
+  })).size;
+}
+
+function pptxSampleCapacity(sample) {
+  const slots = Array.isArray(sample?.slots) ? sample.slots : [];
+  return {
+    sampleTextChars: Number(sample?.textChars) || 0,
+    shapeCount: Array.isArray(sample?.shapes) ? sample.shapes.length : 0,
+    textSlots: slots.filter((slot) => slot.type === 'text').length,
+    metricGroups: numberedRoleGroups(slots, 'metric'),
+    columnGroups: numberedRoleGroups(slots, 'column'),
+    stepGroups: numberedRoleGroups(slots, 'step'),
+    textArea: Math.round(slots
+      .filter((slot) => slot.type === 'text')
+      .reduce((total, slot) => (
+        total + Math.max(0, Number(slot.geometry?.width) || 0) * Math.max(0, Number(slot.geometry?.height) || 0)
+      ), 0)),
+  };
+}
+
+export function officeTemplateCoverage(sampleSlides = []) {
+  const samples = Array.isArray(sampleSlides) ? sampleSlides : [];
+  const kinds = [...new Set(samples.map((sample) => String(sample.kind || '')).filter(Boolean))].sort();
+  const densities = [...new Set(samples.map((sample) => String(sample.density || '')).filter(Boolean))].sort();
+  const capabilities = [...new Set(samples.flatMap((sample) => sample.capabilities || []))].sort();
+  const recommendedKinds = ['cover', 'content', 'statement', 'comparison', 'process', 'metrics', 'split', 'closing'];
+  const recommendedDensities = ['light', 'balanced', 'dense'];
+  return {
+    sampleCount: samples.length,
+    kinds,
+    densities,
+    capabilities,
+    missingKinds: recommendedKinds.filter((kind) => !kinds.includes(kind)),
+    missingDensities: recommendedDensities.filter((density) => !densities.includes(density)),
+    nativeObjectCoverage: {
+      image: capabilities.includes('image'),
+      chart: capabilities.includes('chart'),
+      table: capabilities.includes('table'),
+      diagram: capabilities.includes('diagram'),
+    },
+    complete: recommendedKinds.every((kind) => kinds.includes(kind))
+      && recommendedDensities.every((density) => densities.includes(density))
+      && ['image', 'chart', 'table'].every((capability) => capabilities.includes(capability)),
+  };
+}
+
 export async function inspectOfficeTemplate(path, { format = '' } = {}) {
   const normalizedFormat = format || TEMPLATE_FORMATS[extname(path).toLowerCase()] || '';
   if (normalizedFormat !== 'pptx') return { sampleSlides: [], nativeLayouts: [], theme: null };
@@ -947,7 +1019,10 @@ export async function inspectOfficeTemplate(path, { format = '' } = {}) {
       capabilities,
     });
   }
-  for (const sample of sampleSlides) sample.kind = inferPptxSampleKind(sample, sampleSlides.length);
+  for (const sample of sampleSlides) {
+    sample.kind = inferPptxSampleKind(sample, sampleSlides.length);
+    sample.capacity = pptxSampleCapacity(sample);
+  }
   const layoutNames = names
     .filter((name) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/i.test(name))
     .sort((left, right) => numberFromPath(left) - numberFromPath(right));
@@ -976,7 +1051,12 @@ export async function inspectOfficeTemplate(path, { format = '' } = {}) {
         .filter(Boolean))],
     };
   }
-  return { sampleSlides, nativeLayouts, theme };
+  return {
+    sampleSlides,
+    nativeLayouts,
+    theme,
+    coverage: officeTemplateCoverage(sampleSlides),
+  };
 }
 
 function normalizeLocalMetadata(value, path) {
@@ -1022,7 +1102,12 @@ export async function indexOfficeTemplates({
     const metadata = normalizeLocalMetadata(await readJson(sidecarPath, {}), path);
     const id = metadata.id || `local-${sha256(canonical).slice(0, 16)}`;
     const format = TEMPLATE_FORMATS[extname(path).toLowerCase()];
-    let inspected = { sampleSlides: [], nativeLayouts: [], theme: null };
+    let inspected = {
+      sampleSlides: [],
+      nativeLayouts: [],
+      theme: null,
+      coverage: officeTemplateCoverage([]),
+    };
     let inspectionWarning = '';
     try {
       inspected = await inspectOfficeTemplate(path, { format });
@@ -1060,6 +1145,10 @@ export async function indexOfficeTemplates({
         sourceSlide: sample.slide,
         sourceLayout: 0,
         slots,
+        capacity: {
+          ...sample.capacity,
+          ...(sampleMetadata?.capacity || {}),
+        },
         capabilities: sample.capabilities,
         priority: sampleMetadata?.priority || 0,
         strict: sampleMetadata?.strict || false,
@@ -1074,6 +1163,7 @@ export async function indexOfficeTemplates({
             templateId: layout.templateId || id,
             templatePath: path,
             slots: layout.slots.length ? layout.slots : sample?.slots || [],
+            capacity: Object.keys(layout.capacity || {}).length ? layout.capacity : sample?.capacity || {},
             capabilities: layout.capabilities.length ? layout.capabilities : sample?.capabilities || [],
           };
         })
@@ -1089,8 +1179,10 @@ export async function indexOfficeTemplates({
         kind: layout?.kind || sample.kind,
         density: layout?.density || sample.density,
         slots: layout?.slots || sample.slots,
+        capacity: layout?.capacity || sample.capacity,
       };
     });
+    const coverage = officeTemplateCoverage(indexedSampleSlides);
     templates.push({
       id,
       label: metadata.label || path.split(/[\\/]/).at(-1),
@@ -1108,6 +1200,7 @@ export async function indexOfficeTemplates({
       profile: metadata.profile,
       layouts,
       sampleSlides: indexedSampleSlides,
+      coverage,
       nativeLayouts: inspected.nativeLayouts,
       theme: inspected.theme,
     });
@@ -1381,6 +1474,7 @@ export async function resolveOfficeDesignLibrary({
       pack,
       template,
       layouts: layoutCandidates(pack, template, normalizedFormat),
+      coverage: template?.coverage || null,
       templateIndexRevision: index.revision || '',
       warning,
       pinned: true,
@@ -1432,6 +1526,7 @@ export async function resolveOfficeDesignLibrary({
     pack,
     template,
     layouts: layoutCandidates(pack, template, normalizedFormat),
+    coverage: template?.coverage || null,
     templateIndexRevision: synced.templates.revision || '',
     warning: synced.warning || '',
     pinned: false,

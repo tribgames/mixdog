@@ -71,6 +71,22 @@ export interface BrowserHistoryEntry {
   visitCount: number;
 }
 
+export interface BrowserCredentialSuggestion {
+  id: string;
+  label: string;
+}
+
+export interface BrowserCredentialValue {
+  username: string;
+  password: string;
+}
+
+interface StoredBrowserCredential extends BrowserCredentialValue {
+  id: string;
+  url: string;
+  note: string;
+}
+
 interface ChromeProfileCacheEntry {
   name?: unknown;
   user_name?: unknown;
@@ -140,6 +156,31 @@ function cleanError(error: unknown): string {
 function uniqueItems(items: BrowserImportItem[]): BrowserImportItem[] {
   const allowed = new Set<BrowserImportItem>(['passwords', 'cookies', 'history']);
   return [...new Set(items)].filter((item) => allowed.has(item));
+}
+
+function secureOrigin(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password) return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
+}
+
+function maskedCredentialLabel(username: string): string {
+  const value = username.trim();
+  if (!value) return '저장된 계정';
+  const at = value.lastIndexOf('@');
+  if (at > 0 && at < value.length - 1) {
+    const local = value.slice(0, at);
+    const masked = local.length < 3
+      ? `${local[0] || ''}•••`
+      : `${local[0]}•••${local.at(-1)}`;
+    return `${masked}@${value.slice(at + 1)}`;
+  }
+  if (value.length < 3) return '저장된 계정';
+  return `${value[0]}•••${value.at(-1)}`;
 }
 
 function chromeExecutableCandidates(explicit?: string): string[] {
@@ -434,6 +475,20 @@ async function readEncryptedChildJson(
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  const exitCodePromise = new Promise<number>((resolveExit, rejectExit) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      rejectExit(new Error('Native browser importer timed out.'));
+    }, NATIVE_IMPORT_TIMEOUT_MS);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      rejectExit(error);
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timer);
+      resolveExit(code ?? 1);
+    });
+  });
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
   let stdoutBytes = 0;
@@ -452,20 +507,7 @@ async function readEncryptedChildJson(
   });
   child.stdin?.end(transportKey.toString('base64'));
   try {
-    const exitCode = await new Promise<number>((resolveExit, rejectExit) => {
-      const timer = setTimeout(() => {
-        child.kill();
-        rejectExit(new Error('Native browser importer timed out.'));
-      }, NATIVE_IMPORT_TIMEOUT_MS);
-      child.once('error', (error) => {
-        clearTimeout(timer);
-        rejectExit(error);
-      });
-      child.once('exit', (code) => {
-        clearTimeout(timer);
-        resolveExit(code ?? 1);
-      });
-    });
+    const exitCode = await exitCodePromise;
     if (stdoutBytes > NATIVE_OUTPUT_LIMIT) throw new Error('Native browser importer returned too much data.');
     if (exitCode !== 0) {
       throw new Error(
@@ -585,6 +627,73 @@ export class BrowserProfileImportService {
     } catch {
       return [];
     }
+  }
+
+  async credentialSuggestions(url: string): Promise<BrowserCredentialSuggestion[]> {
+    const origin = secureOrigin(url);
+    if (!origin) return [];
+    const credentials = await this.readCredentialVault();
+    return credentials
+      .filter((credential) => secureOrigin(credential.url) === origin)
+      .map((credential) => ({
+        id: credential.id,
+        label: maskedCredentialLabel(credential.username),
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }
+
+  async useCredential<T>(
+    url: string,
+    credentialId: string,
+    use: (credential: Readonly<BrowserCredentialValue>) => Promise<T>,
+  ): Promise<T> {
+    const origin = secureOrigin(url);
+    if (!origin) throw new Error('Stored credentials are available only on secure HTTPS pages.');
+    if (!/^[a-f0-9]{24}$/.test(credentialId)) throw new Error('Stored credential id is invalid.');
+    const credential = (await this.readCredentialVault())
+      .find((candidate) => candidate.id === credentialId);
+    if (!credential || secureOrigin(credential.url) !== origin) {
+      throw new Error('The stored credential does not match the current page origin.');
+    }
+    return await use({
+      username: credential.username,
+      password: credential.password,
+    });
+  }
+
+  private async readCredentialVault(): Promise<StoredBrowserCredential[]> {
+    const vaultPath = join(this.options.userDataDirectory, 'browser-password-vault.bin');
+    if (!existsSync(vaultPath)) return [];
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('Windows credential encryption is unavailable.');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(safeStorage.decryptString(await readFile(vaultPath)));
+    } catch {
+      throw new Error('The stored browser credential vault could not be opened.');
+    }
+    const entries = parsed && typeof parsed === 'object'
+      && Array.isArray((parsed as { credentials?: unknown }).credentials)
+      ? (parsed as { credentials: unknown[] }).credentials
+      : [];
+    if (entries.length > 100_000) throw new Error('Stored browser credential vault is too large.');
+    return entries.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const value = entry as Record<string, unknown>;
+      const id = String(value.id || '');
+      const url = String(value.url || '');
+      const username = String(value.username || '');
+      const password = String(value.password || '');
+      if (!/^[a-f0-9]{24}$/.test(id) || !secureOrigin(url) || !username || !password) return [];
+      return [{
+        id,
+        url,
+        username,
+        password,
+        note: typeof value.note === 'string' ? value.note : '',
+      }];
+    });
   }
 
   async importProfile(

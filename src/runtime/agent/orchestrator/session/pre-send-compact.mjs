@@ -12,6 +12,7 @@ import {
     shouldCompactForSession,
     countPrunedToolOutputs,
     rememberCompactTelemetry,
+    recordContextUsageSnapshot,
     emitCompactEvent,
     compactEventType,
     resolveSemanticSummaryModel,
@@ -506,7 +507,7 @@ export async function runPreSendCompactPass(state) {
                     afterTokens,
                     messageTokensEst,
                     pressureTokens,
-                    compactChanged,
+                    compactChanged: compactChanged || summaryChanged,
                     semanticCompact: semanticCompactResult?.semantic === true,
                     semanticError: semanticCompactError?.message || null,
                     recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
@@ -515,6 +516,14 @@ export async function runPreSendCompactPass(state) {
                     pruneCount,
                     durationMs: compactDurationMs,
                 });
+                if (compactChanged || summaryChanged || pruneCount > 0) {
+                    recordContextUsageSnapshot(sessionRef, compactPolicy, {
+                        messages,
+                        usedTokens: afterTokens,
+                        messageTokensEst: afterMessageTokensEst,
+                        source: 'post_compact',
+                    });
+                }
                 let afterBytes = null;
                 try { afterBytes = Buffer.byteLength(JSON.stringify(messages), 'utf8'); } catch { afterBytes = null; }
                 traceAgentCompact({

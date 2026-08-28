@@ -1808,6 +1808,7 @@ export function App() {
     closeSidebarForNavigation,
     startTask,
     openSession,
+    openBrowserTab,
     openStudioTab,
     openTerminalTab,
     openFolderTab,

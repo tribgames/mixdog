@@ -410,6 +410,7 @@ function Open-SessionState($payload) {
       AppPid = $processId
       WindowHwnd = $hWnd
       ForegroundActivated = [bool]$foregroundActivated
+      ExcelDpiRepairs = 0
       DocumentId = "${format}:$($path.ToLowerInvariant())"
     }
   } catch {
@@ -454,6 +455,44 @@ function Close-SessionState($state, [bool]$save) {
   if ($null -ne $process) { try { $process.Dispose() } catch {} }
 }
 
+function Repair-ExcelPageSetupDpi([string]$path) {
+  Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+  Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+  $stream = $null
+  $archive = $null
+  $changed = 0
+  try {
+    $stream = [System.IO.File]::Open(
+      [System.IO.Path]::GetFullPath($path),
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::ReadWrite,
+      [System.IO.FileShare]::None
+    )
+    $archive = [System.IO.Compression.ZipArchive]::new(
+      $stream,
+      [System.IO.Compression.ZipArchiveMode]::Update,
+      $false
+    )
+    $entries = @($archive.Entries | Where-Object { $_.FullName -match '^xl/worksheets/sheet\d+\.xml$' })
+    foreach ($entry in $entries) {
+      $part = $entry.Open()
+      $reader = [System.IO.StreamReader]::new($part, [System.Text.Encoding]::UTF8, $true, 4096, $false)
+      try { $xml = $reader.ReadToEnd() } finally { $reader.Dispose() }
+      $updated = [regex]::Replace($xml, '\b(horizontalDpi|verticalDpi)="0"', '$1="96"')
+      if ($updated -eq $xml) { continue }
+      $part = $entry.Open()
+      $part.SetLength(0)
+      $writer = [System.IO.StreamWriter]::new($part, [System.Text.UTF8Encoding]::new($false), 4096, $false)
+      try { $writer.Write($updated) } finally { $writer.Dispose() }
+      $changed++
+    }
+  } finally {
+    if ($null -ne $archive) { $archive.Dispose() }
+    if ($null -ne $stream) { $stream.Dispose() }
+  }
+  return $changed
+}
+
 function Reopen-BackgroundExcelSession($state, [string]$restorePath = '') {
   if ($state.Format -ne 'xlsx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
     throw 'Full-file Excel restore is available only for owned background sessions'
@@ -466,8 +505,21 @@ function Reopen-BackgroundExcelSession($state, [string]$restorePath = '') {
   if (-not [string]::IsNullOrWhiteSpace($restorePath)) {
     [System.IO.File]::Copy([System.IO.Path]::GetFullPath($restorePath), [System.IO.Path]::GetFullPath($state.Path), $true)
   }
+  $state.ExcelDpiRepairs = Repair-ExcelPageSetupDpi $state.Path
   $state.Document = $state.App.Workbooks.Open($state.Path)
   try { $state.App.CalculateFullRebuild() } catch {}
+}
+
+function Reopen-BackgroundWordSession($state) {
+  if ($state.Format -ne 'docx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+    throw 'Word reopen validation is available only for owned background sessions'
+  }
+  $current = $state.Document
+  try { $current.Close($false) } finally {
+    try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($current) } catch {}
+    $state.Document = $null
+  }
+  $state.Document = $state.App.Documents.Open($state.Path)
 }
 
 function Reopen-BackgroundPowerPointSession($state, [string]$restorePath = '') {
@@ -699,6 +751,35 @@ function Invoke-SessionAction($state, $payload) {
     'save' {
       Save-Document $document $format
       return Session-Response $state ([ordered]@{ saved = $true; path = $state.Path })
+    }
+    'post_save_validate' {
+      Save-Document $document $format
+      $reopened = $false
+      if ($state.Mode -eq 'background' -and $state.Ownership -eq 'owned') {
+        switch ($format) {
+          'docx' { $null = Reopen-BackgroundWordSession $state }
+          'xlsx' { $null = Reopen-BackgroundExcelSession $state }
+          'pptx' { $null = Reopen-BackgroundPowerPointSession $state }
+        }
+        $document = $state.Document
+        $reopened = $true
+      }
+      $snapshot = Snapshot-Document $document $format ([ordered]@{})
+      $inspection = Issues-Document $document $format ([ordered]@{})
+      return Session-Response $state ([ordered]@{
+        value = [ordered]@{
+          ok = [bool]$inspection.ok
+          opened = $true
+          reopened = $reopened
+          persisted = $reopened
+          excelDpiRepairs = $(if ($format -eq 'xlsx') { [int]$state.ExcelDpiRepairs } else { 0 })
+          issueCount = [int]$inspection.issueCount
+          issues = @($inspection.issues)
+          snapshot = $snapshot
+          snapshotFingerprint = Snapshot-Fingerprint $snapshot
+          documentSaved = [bool]$document.Saved
+        }
+      })
     }
     'render' {
       $output = [System.IO.Path]::GetFullPath([string]$payload.output)

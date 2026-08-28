@@ -8,13 +8,25 @@ const child = spawn(process.execPath, ['--test', testPath], {
     ...process.env,
     MIXDOG_TEST_LIVE_OFFICE: '1',
   },
-  stdio: 'inherit',
+  stdio: ['inherit', 'pipe', 'pipe'],
   windowsHide: true,
 });
+let tapFailed = false;
+let tail = '';
+const forward = (stream, target) => {
+  stream.on('data', (chunk) => {
+    const text = chunk.toString();
+    target.write(text);
+    tail = `${tail}${text}`.slice(-16_384);
+    if (/(?:^|\n)not ok \d+ -/m.test(tail)) tapFailed = true;
+  });
+};
+forward(child.stdout, process.stdout);
+forward(child.stderr, process.stderr);
 child.once('error', (error) => {
   process.stderr.write(`${error?.stack || error}\n`);
   process.exit(1);
 });
 child.once('close', (code) => {
-  process.exit(Number.isInteger(code) ? code : 1);
+  process.exit(tapFailed ? 1 : Number.isInteger(code) ? code : 1);
 });

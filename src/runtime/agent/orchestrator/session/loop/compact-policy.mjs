@@ -216,6 +216,95 @@ export function currentContextEstimateTokens(messageTokensEst, policy) {
     return Math.max(0, Math.round((messageTokensEst + requestReserve) * calibration));
 }
 
+const CONTEXT_USAGE_SNAPSHOT_VERSION = 1;
+
+function contextUsageSnapshotTail(messages) {
+    const tail = Array.isArray(messages) ? messages[messages.length - 1] : null;
+    return {
+        role: String(tail?.role || ''),
+        id: String(tail?.uuid || tail?.id || tail?.toolCallId || ''),
+    };
+}
+
+export function recordContextUsageSnapshot(sessionRef, policy, {
+    messages,
+    usedTokens,
+    messageTokensEst = null,
+    source = 'post_compact',
+    updatedAt = Date.now(),
+} = {}) {
+    if (!sessionRef || !policy || !Array.isArray(messages)) return null;
+    const used = Number(usedTokens);
+    if (!Number.isFinite(used) || used < 0) return null;
+    const messageEstimate = Number.isFinite(Number(messageTokensEst))
+        ? Math.max(0, Math.round(Number(messageTokensEst)))
+        : estimateMessagesTokens(messages);
+    const tail = contextUsageSnapshotTail(messages);
+    const snapshot = {
+        version: CONTEXT_USAGE_SNAPSHOT_VERSION,
+        source: String(source || 'estimated'),
+        usedTokens: Math.max(0, Math.round(used)),
+        limitTokens: positiveTokenInt(policy.triggerTokens || policy.boundaryTokens) || null,
+        messageTokensEst: messageEstimate,
+        messageCount: messages.length,
+        messagesSignature: contextMessagesSignature(messages),
+        tailRole: tail.role,
+        tailId: tail.id,
+        usageMetricsTurnId: String(sessionRef.usageMetricsTurnId || ''),
+        usageMetricsEpoch: Number(sessionRef.usageMetricsEpoch) || 0,
+        toolSchemaSignature: policy.toolSchemaSignature || null,
+        provider: sessionRef.provider || policy.provider || null,
+        model: sessionRef.model || null,
+        contextWindow: positiveTokenInt(policy.contextWindow || sessionRef.contextWindow) || null,
+        boundaryTokens: positiveTokenInt(policy.boundaryTokens) || null,
+        triggerTokens: positiveTokenInt(policy.triggerTokens || policy.boundaryTokens) || null,
+        updatedAt: Math.max(0, Math.round(Number(updatedAt) || Date.now())),
+    };
+    sessionRef.contextUsageSnapshot = snapshot;
+    return snapshot;
+}
+
+export function resolveContextUsageSnapshot(sessionRef, policy, {
+    messages,
+} = {}) {
+    const snapshot = sessionRef?.contextUsageSnapshot;
+    if (!snapshot || typeof snapshot !== 'object'
+        || snapshot.version !== CONTEXT_USAGE_SNAPSHOT_VERSION
+        || !policy || !Array.isArray(messages)) return null;
+    if (String(snapshot.provider || '') !== String(sessionRef?.provider || policy.provider || '')
+        || String(snapshot.model || '') !== String(sessionRef?.model || '')) return null;
+    if (Number(snapshot.messageCount) !== messages.length
+        || String(snapshot.usageMetricsTurnId || '') !== String(sessionRef?.usageMetricsTurnId || '')
+        || Number(snapshot.usageMetricsEpoch || 0) !== Number(sessionRef?.usageMetricsEpoch || 0)) return null;
+    const tail = contextUsageSnapshotTail(messages);
+    if (String(snapshot.tailRole || '') !== tail.role
+        || String(snapshot.tailId || '') !== tail.id) return null;
+    if (String(snapshot.toolSchemaSignature || '') !== String(policy.toolSchemaSignature || '')
+        || Number(snapshot.contextWindow || 0) !== Number(policy.contextWindow || sessionRef?.contextWindow || 0)
+        || Number(snapshot.boundaryTokens || 0) !== Number(policy.boundaryTokens || 0)
+        || Number(snapshot.triggerTokens || 0) !== Number(policy.triggerTokens || policy.boundaryTokens || 0)) return null;
+    const exactSignature = contextMessagesSignature(messages);
+    if (String(snapshot.messagesSignature || '') !== exactSignature) {
+        // Stored-history media normalization can replace inline payloads with
+        // durable placeholders without changing the logical transcript. The
+        // stable turn/count/tail anchors above preserve the compact snapshot
+        // across that serialization boundary while still invalidating it on
+        // ordinary subsequent turns.
+        const sameLogicalAnchor = Number(snapshot.messageCount) === messages.length
+            && String(snapshot.usageMetricsTurnId || '') === String(sessionRef?.usageMetricsTurnId || '')
+            && String(snapshot.tailRole || '') === tail.role
+            && String(snapshot.tailId || '') === tail.id;
+        if (!sameLogicalAnchor) return null;
+    }
+    const used = Number(snapshot.usedTokens);
+    return Number.isFinite(used) && used >= 0 ? snapshot : null;
+}
+
+export function invalidateContextUsageSnapshot(sessionRef) {
+    if (!sessionRef || typeof sessionRef !== 'object') return;
+    delete sessionRef.contextUsageSnapshot;
+}
+
 function providerPressureTokens(sessionRef, usage) {
     if (!usage || typeof usage !== 'object') return 0;
     const input = Math.max(0, Number(usage.mainInputTokens ?? usage.inputTokens) || 0);
@@ -246,6 +335,7 @@ export function recordProviderContextBaseline(sessionRef, messages, usage, {
     }
     const tokens = providerPressureTokens(sessionRef, usage);
     if (!tokens) return false;
+    invalidateContextUsageSnapshot(sessionRef);
     sessionRef.contextPressureBaselineTokens = tokens;
     sessionRef.contextPressureBaselineOutputTokens = Math.max(0, Math.round(Number(usage?.mainOutputTokens ?? usage?.outputTokens) || 0));
     sessionRef.contextPressureBaselineMessageCount = messages.length;
