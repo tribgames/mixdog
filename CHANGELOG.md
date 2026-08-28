@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.153 - 2026-08-28
+
 - Windows Computer Use now runs a smaller CUA-style observation loop: compact
   accessibility and a plain screenshot are returned together by default,
   post-action state is immediately refreshed, AX and fallback OCR share one
