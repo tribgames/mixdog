@@ -39,6 +39,7 @@ import {
     getToolKind,
     isEagerDispatchable,
     isParallelDispatchable,
+    isSingleCallPerTurnTool,
     isToolCallDedupEligible,
     parseNativeToolSearchPayload,
 } from './loop/tool-helpers.mjs';
@@ -95,6 +96,17 @@ export async function processToolBatch(ctx) {
                     _dupFirstId.set(c.id, first);
                 }
             }
+        }
+        // Stateful Computer Use calls are one-at-a-time. This pre-pass covers
+        // non-streaming providers while eager-dispatch applies the same guard
+        // before streamed calls can execute.
+        const _singleCallBlockedIds = new Set();
+        const _singleCallFirstIdByName = new Map();
+        for (const c of calls) {
+            if (!c?.id || !isSingleCallPerTurnTool(c.name)) continue;
+            const firstId = _singleCallFirstIdByName.get(c.name);
+            if (firstId === undefined) _singleCallFirstIdByName.set(c.name, c.id);
+            else _singleCallBlockedIds.add(c.id);
         }
         // One-shot sequential occupation for same-anchor edit batches: when
         // one assistant turn issues N `edit` calls with the SAME
@@ -157,6 +169,16 @@ export async function processToolBatch(ctx) {
             const call = calls[callIndex];
             if (isBuiltinTool(call.name)) {
                 call.name = canonicalizeBuiltinToolName(call.name);
+            }
+            if (_singleCallBlockedIds.has(call.id)) {
+                const _firstId = _singleCallFirstIdByName.get(call.name);
+                _stageToolResultMessage({
+                    role: 'tool',
+                    content: `[computer-call-cardinality] Only the first Computer Use call in an assistant turn is executed (tool_use_id=${_firstId}). This call was not executed. Inspect the first call's fresh result, then issue at most one next computer call; use sequence only for a deterministic same-window focus chain.`,
+                    toolCallId: call.id,
+                    toolKind: 'error',
+                });
+                continue;
             }
             // Per-call cross-turn signature, computed at most once (lazily, only
             // when the call is eager — both consumer sites are eager-gated).

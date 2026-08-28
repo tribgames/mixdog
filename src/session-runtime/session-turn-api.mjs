@@ -48,7 +48,7 @@ export function createSessionTurnApi(deps) {
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
     awaitInitialMcpConnect, mcpTurnGraceMs = 0, awaitRoutePreparation,
     getReservedSessionId, sessionTitles, registerActiveTurnController,
-    releaseComputerSessionLease = async () => false,
+    deferComputerSessionRelease = () => false,
     beginTurnSnapshotForTurn = beginTurnSnapshot,
     cancelTurnSnapshotForTurn = cancelTurnSnapshot,
     completeTurnSnapshotForTurn = completeTurnSnapshot,
@@ -422,12 +422,9 @@ export function createSessionTurnApi(deps) {
         } catch { /* best-effort: StopFailure hook must never break teardown */ }
         throw error;
       } finally {
-        try {
-          await settleWithin(
-            Promise.resolve(releaseComputerSessionLease(session0.id)),
-            turnCleanupSettleMs,
-          );
-        } catch { /* computer lease cleanup never overrides turn settlement */ }
+        try { deferComputerSessionRelease(session0.id); } catch {
+          /* deferred computer lease cleanup never overrides turn settlement */
+        }
         releaseFirstTitle?.();
         emitTurnTiming(turnTimingStatus);
         armHeavyRuntimeWarmup('turn-settled');

@@ -59,6 +59,10 @@ import { createChannelSessionRouter } from './channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
 import { createSessionProtocolClient } from './session-protocol.mjs';
+import {
+  listStoredActiveGoalSessionIds,
+  readStoredGoalSnapshot,
+} from '../session-runtime/goal-runtime.mjs';
 import { createDaemonSessionRuntimeHost } from './session-runtime-host-factory.mjs';
 import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 import {
@@ -668,6 +672,13 @@ async function main() {
       if (typeof store.readStoredSessionTranscript !== 'function') return null;
       return await store.readStoredSessionTranscript(sessionId, options) ?? null;
     },
+    readStoredGoal: async (sessionId) => readStoredGoalSnapshot({
+      dataDir: DATA_DIR,
+      sessionId,
+    }),
+    listStoredActiveGoalSessionIds: async () => listStoredActiveGoalSessionIds({
+      dataDir: DATA_DIR,
+    }),
     listSessions: async (options = {}) => {
       if (options.includeAgentOnly === true) {
         // Agent discovery is metadata-only. Exact session reads/subscriptions
@@ -783,6 +794,14 @@ async function main() {
     safeIpcSend(process, { type: 'ready', port, token });
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
+  void prewarmSessionRuntime()
+    .then(() => sessionService.recoverActiveGoals())
+    .then(({ found, resumed, skipped, failed }) => {
+      log(`active Goal recovery found=${found} resumed=${resumed} skipped=${skipped} failed=${failed}`);
+    })
+    .catch((error) => {
+      log(`active Goal recovery failed: ${error?.message || error}`);
+    });
   eventLoopLagTimer = setInterval(() => {
     const status = eventLoopStatus();
     if (status.eventLoopP99Ms >= 250) {

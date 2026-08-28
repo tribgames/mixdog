@@ -30,11 +30,38 @@ public static class MixdogOfficeInterop
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     private static extern IntPtr SendMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attachThreadId, uint attachToThreadId, bool attach);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindowAsync(IntPtr hWnd, int command);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     private static string NormalizePath(string value)
     {
@@ -108,6 +135,52 @@ public static class MixdogOfficeInterop
         uint processId;
         GetWindowThreadProcessId(new IntPtr(hWnd), out processId);
         return unchecked((int)processId);
+    }
+
+    public static long FindWindowByClassAndTitle(string expectedClass, string titlePart)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            if (!IsWindowVisible(hWnd)) return true;
+            StringBuilder className = new StringBuilder(64);
+            GetClassName(hWnd, className, className.Capacity);
+            if (!String.Equals(className.ToString(), expectedClass, StringComparison.OrdinalIgnoreCase)) return true;
+            StringBuilder title = new StringBuilder(1024);
+            GetWindowText(hWnd, title, title.Capacity);
+            if (title.ToString().IndexOf(titlePart, StringComparison.OrdinalIgnoreCase) < 0) return true;
+            found = hWnd;
+            return false;
+        }, IntPtr.Zero);
+        return found.ToInt64();
+    }
+
+    public static bool ActivateWindow(long hWnd)
+    {
+        IntPtr target = new IntPtr(hWnd);
+        if (target == IntPtr.Zero) return false;
+        uint ignored;
+        uint currentThread = GetCurrentThreadId();
+        uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), out ignored);
+        uint targetThread = GetWindowThreadProcessId(target, out ignored);
+        bool attachedForeground = false;
+        bool attachedTarget = false;
+        try
+        {
+            if (foregroundThread != 0 && foregroundThread != currentThread)
+                attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+            if (targetThread != 0 && targetThread != currentThread)
+                attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+            ShowWindowAsync(target, IsIconic(target) ? 9 : 5);
+            BringWindowToTop(target);
+            SetForegroundWindow(target);
+            return GetForegroundWindow() == target;
+        }
+        finally
+        {
+            if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+            if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+        }
     }
 }
 '@
@@ -225,11 +298,46 @@ function Create-OwnedDocument($app, [string]$format, [string]$path, [bool]$visib
 
 function Application-Hwnd($app, $document, [string]$format) {
   if ($format -eq 'docx' -and $null -ne $document) {
-    try { return [long]$document.ActiveWindow.Hwnd } catch {}
+    try {
+      $hWnd = [long]$document.ActiveWindow.Hwnd
+      if ($hWnd) { return $hWnd }
+    } catch {}
   }
-  try { return [long]$app.Hwnd } catch {}
-  try { return [long]$app.HWND } catch {}
+  if ($format -eq 'pptx' -and $null -ne $document) {
+    try {
+      $hWnd = [long]$document.Windows.Item(1).HWND
+      if ($hWnd) { return $hWnd }
+    } catch {}
+  }
+  try {
+    $hWnd = [long]$app.Hwnd
+    if ($hWnd) { return $hWnd }
+  } catch {}
+  try {
+    $hWnd = [long]$app.HWND
+    if ($hWnd) { return $hWnd }
+  } catch {}
+  if ($format -eq 'pptx' -and $null -ne $document) {
+    try {
+      $title = [System.IO.Path]::GetFileName([string]$document.FullName)
+      $hWnd = [long][MixdogOfficeInterop]::FindWindowByClassAndTitle('PPTFrameClass', $title)
+      if ($hWnd) { return $hWnd }
+    } catch {}
+  }
   return 0
+}
+
+function Set-OfficeForeground([long]$hWnd) {
+  if (-not $hWnd) { return $false }
+  for ($attempt = 0; $attempt -lt 10; $attempt++) {
+    try {
+      if ([MixdogOfficeInterop]::ActivateWindow($hWnd)) { return $true }
+    } catch {
+      return $false
+    }
+    Start-Sleep -Milliseconds 50
+  }
+  return $false
 }
 
 function Open-SessionState($payload) {
@@ -282,6 +390,13 @@ function Open-SessionState($payload) {
     }
 
     $hWnd = Application-Hwnd $app $document $format
+    if ($mode -eq 'visible' -and $format -eq 'pptx') {
+      for ($attempt = 0; -not $hWnd -and $attempt -lt 20; $attempt++) {
+        Start-Sleep -Milliseconds 100
+        $hWnd = Application-Hwnd $app $document $format
+      }
+    }
+    $foregroundActivated = $mode -eq 'visible' -and $format -eq 'pptx' -and (Set-OfficeForeground $hWnd)
     $processId = if ($hWnd) { [MixdogOfficeInterop]::ProcessIdForWindow($hWnd) } else { 0 }
     return [pscustomobject]@{
       Id = $id
@@ -294,6 +409,7 @@ function Open-SessionState($payload) {
       Visible = $mode -ne 'background'
       AppPid = $processId
       WindowHwnd = $hWnd
+      ForegroundActivated = [bool]$foregroundActivated
       DocumentId = "${format}:$($path.ToLowerInvariant())"
     }
   } catch {
@@ -354,6 +470,39 @@ function Reopen-BackgroundExcelSession($state, [string]$restorePath = '') {
   try { $state.App.CalculateFullRebuild() } catch {}
 }
 
+function Reopen-BackgroundPowerPointSession($state, [string]$restorePath = '') {
+  if ($state.Format -ne 'pptx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+    throw 'PowerPoint process reopen is available only for owned background sessions'
+  }
+  if ($null -ne $state.Document) {
+    try { $state.Document.Close() } finally {
+      try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($state.Document) } catch {}
+      $state.Document = $null
+    }
+  }
+  if ($null -ne $state.App) {
+    try { $state.App.Quit() } catch {}
+    try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($state.App) } catch {}
+    $state.App = $null
+  }
+  if (-not [string]::IsNullOrWhiteSpace($restorePath)) {
+    [System.IO.File]::Copy(
+      [System.IO.Path]::GetFullPath($restorePath),
+      [System.IO.Path]::GetFullPath($state.Path),
+      $true
+    )
+  }
+  $state.App = New-OfficeApplication 'pptx' $false
+  $state.Document = Open-OwnedDocument $state.App 'pptx' $state.Path $false
+  $state.WindowHwnd = Application-Hwnd $state.App $state.Document 'pptx'
+  $state.AppPid = if ($state.WindowHwnd) {
+    [MixdogOfficeInterop]::ProcessIdForWindow([long]$state.WindowHwnd)
+  } else {
+    0
+  }
+  return $state.Document
+}
+
 function Invoke-SessionAction($state, $payload) {
   $document = $state.Document
   $format = $state.Format
@@ -363,7 +512,9 @@ function Invoke-SessionAction($state, $payload) {
       return Session-Response $state ([ordered]@{ value = $value })
     }
     'issues' {
+      $wasSaved = [bool]$document.Saved
       $value = Issues-Document $document $format $payload
+      if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
       return Session-Response $state ([ordered]@{ value = $value })
     }
     'validate' {
@@ -404,6 +555,104 @@ function Invoke-SessionAction($state, $payload) {
         saved = [bool]$document.Saved
         value = $value
       })
+    }
+    'save_copy' {
+      $output = [System.IO.Path]::GetFullPath([string]$payload.output)
+      Save-DocumentCopy $document $format $output
+      return Session-Response $state ([ordered]@{
+        output = $output
+        saved = [bool]$document.Saved
+      })
+    }
+    'replace_presentation_from_source' {
+      if ($format -ne 'pptx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+        throw 'PowerPoint source replacement is available only for owned background sessions'
+      }
+      $sourcePath = [System.IO.Path]::GetFullPath([string]$payload.source)
+      $checkpoint = [System.IO.Path]::GetFullPath([string]$payload.checkpoint)
+      $current = $state.Document
+      try {
+        $current.Close()
+        try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($current) } catch {}
+        $state.Document = $null
+        $document = $state.App.Presentations.Open($sourcePath, $false, $false, $false)
+        $state.Document = $document
+        $document.SaveAs($state.Path, (Office-SaveFormatForPath 'pptx' $state.Path))
+        $sourceSlideCount = [int]$document.Slides.Count
+        $selected = if ($payload.slides) {
+          @($payload.slides | ForEach-Object { [int]$_ })
+        } else {
+          if ($sourceSlideCount -le 0) { @() } else { @(1..$sourceSlideCount) }
+        }
+        if (@($selected | Where-Object { $_ -lt 1 -or $_ -gt $sourceSlideCount }).Count -gt 0) {
+          throw "import_slides selection is outside source deck range 1-$sourceSlideCount"
+        }
+        $identitySelection = $selected.Count -eq $sourceSlideCount
+        if ($identitySelection) {
+          for ($identityIndex = 1; $identityIndex -le $sourceSlideCount; $identityIndex++) {
+            if ([int]$selected[$identityIndex - 1] -ne $identityIndex) {
+              $identitySelection = $false
+              break
+            }
+          }
+        }
+        if (-not $identitySelection) {
+          $sourceIds = @{}
+          $keep = @{}
+          foreach ($slideNumber in $selected) {
+            if (-not $keep.ContainsKey([int]$slideNumber)) {
+              $keep[[int]$slideNumber] = $true
+              $sourceIds[[int]$slideNumber] = [int]$document.Slides.Item([int]$slideNumber).SlideID
+            }
+          }
+          for ($slideIndex = $sourceSlideCount; $slideIndex -ge 1; $slideIndex--) {
+            if (-not $keep.ContainsKey($slideIndex)) { $document.Slides.Item($slideIndex).Delete() }
+          }
+          $placed = @{}
+          for ($targetIndex = 1; $targetIndex -le $selected.Count; $targetIndex++) {
+            $sourceSlide = [int]$selected[$targetIndex - 1]
+            $sourceId = [int]$sourceIds[$sourceSlide]
+            if (-not $placed.ContainsKey($sourceSlide)) {
+              $document.Slides.FindBySlideID($sourceId).MoveTo($targetIndex)
+              $placed[$sourceSlide] = $true
+            } else {
+              $duplicates = $document.Slides.FindBySlideID($sourceId).Duplicate()
+              $duplicates.Item(1).MoveTo($targetIndex)
+            }
+          }
+        }
+        Save-Document $document $format
+        $null = Reopen-BackgroundPowerPointSession $state
+        $document = $state.Document
+        $value = Snapshot-Document $document $format ([ordered]@{})
+        return Session-Response $state ([ordered]@{
+          saved = $true
+          results = @([ordered]@{
+            op = 'import_slides'
+            changed = $true
+            count = [int]$selected.Count
+            source = $sourcePath
+            replacedEmptyDeck = $true
+          })
+          value = $value
+        })
+      } catch {
+        $line = [int]$_.InvocationInfo.ScriptLineNumber
+        $message = $_.Exception.Message
+        if ($null -ne $state.Document) {
+          try { $state.Document.Close() } catch {}
+          try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($state.Document) } catch {}
+          $state.Document = $null
+        }
+        $restoreWarning = ''
+        try {
+          $restorePath = if (Test-Path -LiteralPath $checkpoint) { $checkpoint } else { '' }
+          $null = Reopen-BackgroundPowerPointSession $state $restorePath
+        } catch {
+          $restoreWarning = " Restore reopen failed: $($_.Exception.Message)"
+        }
+        throw "replace_presentation_from_source failed at office-com-session-host.ps1:$line`: $message$restoreWarning"
+      }
     }
     'batch' {
       $excelCheckpoint = ''
@@ -481,6 +730,7 @@ try {
           visible = $state.Visible
           appPid = $state.AppPid
           windowHwnd = $state.WindowHwnd
+          foregroundActivated = $state.ForegroundActivated
           documentId = $state.DocumentId
           path = $state.Path
         })

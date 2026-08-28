@@ -25,7 +25,13 @@ import { tryReadCached, tryScopedToolCached } from './read-dedup.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature } from './loop/completion-guards.mjs';
-import { getToolKind, isEagerDispatchable, isParallelDispatchable, isToolCallDedupEligible } from './loop/tool-helpers.mjs';
+import {
+    getToolKind,
+    isEagerDispatchable,
+    isParallelDispatchable,
+    isSingleCallPerTurnTool,
+    isToolCallDedupEligible,
+} from './loop/tool-helpers.mjs';
 
 function eagerSettlementFailed(settled) {
     if (!settled?.ok) return true;
@@ -93,9 +99,19 @@ export function createEagerDispatcher({
         // re-execute. A fresh Map() is created per turn, so the sig set
         // resets at the turn boundary without leaking across getIterations().
         const _eagerInFlightSigs = new Map();
+        // Computer Use owns stateful agent-scoped target claims and each mutation
+        // returns the fresh state required by the next decision. A provider may still
+        // stream parallel calls despite the tool contract, so reserve only the
+        // first call before any eager execution starts.
+        const _singleCallFirstIdByName = new Map();
         const epoch = { mutation: 0 };
         const startEagerTool = (call) => {
             if (!call?.id || pending.has(call.id) || !isParallelDispatchable(call.name)) return null;
+            if (isSingleCallPerTurnTool(call.name)) {
+                const firstId = _singleCallFirstIdByName.get(call.name);
+                if (firstId && firstId !== call.id) return null;
+                if (!firstId) _singleCallFirstIdByName.set(call.name, call.id);
+            }
             // Never eager-execute a call whose arguments failed to parse
             // (invalid-args marker). It has no usable arguments; the serial
             // body handles it via the invalid-args feedback path.

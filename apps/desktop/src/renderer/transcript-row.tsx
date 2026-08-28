@@ -20,7 +20,7 @@ import { CompletionStatus } from "./transcript-status";
 import { shouldSuppressFullyFailedToolItem } from "./transcript-tool-model";
 import { ToolCard } from "./transcript-tool-ui";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
+import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenControlToolName } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
 import { stripInjectedDisplayText, stripSessionEnvelope } from "../shared/session-title.mjs";
 
 let streamingMarkdownBodyPromise: Promise<typeof import("./StreamingMarkdownBody")> | null = null;
@@ -198,7 +198,15 @@ export function userTranscriptDisplayText(item: TranscriptItem): string {
 
 export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boolean {
   if (!item) return false;
-  if (item.kind === "tool") return !shouldSuppressFullyFailedToolItem(item);
+  if (item.kind === "tool") {
+    const members = Array.isArray(item.toolMembers) ? item.toolMembers : [];
+    const hiddenAggregate = item.aggregate === true
+      && members.length > 0
+      && members.every((member) => isTranscriptHiddenControlToolName(member?.name));
+    return !isTranscriptHiddenControlToolName(item.name)
+      && !hiddenAggregate
+      && !shouldSuppressFullyFailedToolItem(item);
+  }
   if (item.kind === "statusdone" || item.kind === "turndone" || item.kind === "notice") return true;
   if (item.kind === "assistant") return true;
   if (item.kind !== "user") return false;

@@ -44,6 +44,13 @@ import {
 } from './pdf-adapter.mjs';
 import { renderPdfPages } from './pdf-render.mjs';
 import {
+  extractPdfImages,
+  extractPdfTextLayout,
+  inferPdfTables,
+} from './pdf-analysis.mjs';
+import { validateOoxmlSchema } from './ooxml-validator.mjs';
+import { evaluateXlsxAssertions } from './xlsx-assertions.mjs';
+import {
   assertOfficeOperationContracts,
   describeOfficeCapabilities,
 } from './capabilities.mjs';
@@ -68,6 +75,20 @@ import {
   createOfficeSnapshotRequest,
   finalizeOfficeSnapshotPage,
 } from './pagination.mjs';
+import {
+  applyPdfDesign,
+  expandOfficeDesignOperations,
+  pptxVisualReviewAcknowledged,
+  resolveOfficeDesign,
+  reviewOfficeDesign,
+  reviewPptxVisualCritique,
+} from './design-system.mjs';
+import {
+  createPptxSlideSelection,
+  inspectOfficeDesignLibrary,
+  persistOfficeDesignBinding,
+  resolveOfficeDesignLibrary,
+} from './design-library.mjs';
 
 const FILE_KIND_TO_FORMAT = Object.freeze({
   docx: 'docx',
@@ -88,6 +109,7 @@ const FILE_KIND_TO_FORMAT = Object.freeze({
 });
 const FORMATS = new Set(Object.values(FILE_KIND_TO_FORMAT));
 const TABULAR_FORMATS = new Set(['csv', 'tsv']);
+const OOXML_FORMATS = new Set(['docx', 'xlsx', 'pptx']);
 const sessions = new Map();
 const documentSessions = new Map();
 
@@ -104,16 +126,58 @@ function documentSessionKey(path) {
   return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
 }
 
+function mergeOfficeDesignRequest(current, next) {
+  const left = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  const right = next && typeof next === 'object' && !Array.isArray(next) ? next : {};
+  return {
+    ...left,
+    ...right,
+    ...(left.palette || right.palette ? { palette: { ...(left.palette || {}), ...(right.palette || {}) } } : {}),
+    ...(left.typography || right.typography ? { typography: { ...(left.typography || {}), ...(right.typography || {}) } } : {}),
+  };
+}
+
+async function resolveOfficeDesignContext({
+  args,
+  dataDir,
+  target,
+  source = '',
+  format,
+  created,
+}) {
+  const designRequest = args.design || (created ? {} : { source: 'existing-document', review: format === 'pptx' });
+  const designLibrary = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: target,
+    sourcePath: source,
+    format,
+    created,
+    request: designRequest,
+    signal: args.__signal || null,
+  });
+  return {
+    designRequest,
+    designLibrary,
+    design: resolveOfficeDesign(format, designRequest, { library: designLibrary }),
+  };
+}
+
+async function registerOfficeSession(session) {
+  try {
+    await persistOfficeDesignBinding(session.dataDir, session.target, session.designLibrary?.binding);
+  } catch (error) {
+    const warning = `Office design binding could not be persisted: ${error?.message || String(error)}`;
+    if (session.designLibrary) session.designLibrary.warning = warning;
+    if (session.design?.library) session.design.library.warning = warning;
+  }
+  sessions.set(session.id, session);
+  documentSessions.set(documentSessionKey(session.target), session.id);
+  return session;
+}
+
 class OfficeConflictError extends Error {
   constructor(details) {
     super('Office transaction conflict: the document changed outside this transaction');
-    this.details = details;
-  }
-}
-
-class OfficeApprovalError extends Error {
-  constructor(details) {
-    super(details.message || 'Office transaction approval denied');
     this.details = details;
   }
 }
@@ -539,34 +603,6 @@ function officeJournalSummary(record) {
   };
 }
 
-async function requestOfficeTransactionApproval(session, action, context = {}) {
-  if (typeof context.requestApproval !== 'function') return;
-  const transaction = session.transaction;
-  const decision = await context.requestApproval({
-    name: 'office',
-    args: {
-      action,
-      session: session.id,
-      document: session.target,
-      transaction: transactionView(transaction),
-      preview: transaction.review || null,
-    },
-    cwd: context.cwd || dirname(session.target),
-    sessionId: context.sessionId || null,
-    toolCallId: context.toolCallId || null,
-    reason: `${action === 'commit' ? 'Commit' : 'Roll back'} Office transaction ${transaction.id}. Review the document preview and ${transaction.diff.summary.total} changed path(s).`,
-  });
-  if (decision === true || decision?.approved === true) return;
-  throw new OfficeApprovalError({
-    ok: false,
-    code: 'transaction_approval_denied',
-    session: session.id,
-    transaction: transaction.id,
-    action,
-    message: String(decision?.reason || `Office transaction ${action} was not approved`),
-  });
-}
-
 async function assertTransactionUnchanged(session) {
   const transaction = session.transaction;
   if (!transaction) return null;
@@ -636,21 +672,12 @@ async function beginTransaction(session) {
   };
 }
 
-async function commitTransaction(session, context = {}) {
+async function commitTransaction(session) {
   if (!session.transaction) throw new Error('No active Office transaction to commit');
   const transaction = session.transaction;
   const current = await assertTransactionUnchanged(session);
   transaction.diff = transactionDocumentDiff(transaction, current.document);
   transaction.currentDocument = current.document;
-  transaction.phase = 'awaiting_approval';
-  await persistOfficeTransaction(session);
-  try {
-    await requestOfficeTransactionApproval(session, 'commit', context);
-  } catch (error) {
-    transaction.phase = 'active';
-    await persistOfficeTransaction(session).catch(() => {});
-    throw error;
-  }
   transaction.phase = 'committing';
   await persistOfficeTransaction(session);
   session.transaction = null;
@@ -667,21 +694,12 @@ async function commitTransaction(session, context = {}) {
   };
 }
 
-async function rollbackTransaction(session, context = {}) {
+async function rollbackTransaction(session) {
   if (!session.transaction) throw new Error('No active Office transaction to roll back');
   const transaction = session.transaction;
   const current = await assertTransactionUnchanged(session);
   transaction.currentDocument = current.document;
   transaction.diff = transactionDocumentDiff(transaction, current.document);
-  transaction.phase = 'awaiting_approval';
-  await persistOfficeTransaction(session);
-  try {
-    await requestOfficeTransactionApproval(session, 'rollback', context);
-  } catch (error) {
-    transaction.phase = 'active';
-    await persistOfficeTransaction(session).catch(() => {});
-    throw error;
-  }
   transaction.phase = 'rolling_back';
   await persistOfficeTransaction(session);
   if (isMicrosoftOfficeSession(session)) {
@@ -726,7 +744,7 @@ export async function initializeOfficeTransactions(dataDir = defaultOfficeDataDi
   return await pendingOfficeTransactions(dataDir);
 }
 
-async function recoverOfficeTransaction(args, dataDir, context = {}) {
+async function recoverOfficeTransaction(args, dataDir) {
   const id = String(args.transaction || '').trim();
   if (!id) throw new Error('recover requires transaction');
   const strategy = String(args.strategy || '').toLowerCase();
@@ -749,7 +767,6 @@ async function recoverOfficeTransaction(args, dataDir, context = {}) {
     phase: record.phase || savedTransaction.phase || 'active',
   };
   if (strategy === 'discard') {
-    await requestOfficeTransactionApproval(session, 'discard', context);
     session.transaction = null;
     await clearOfficeTransactionArtifacts(session, savedTransaction);
     sessions.delete(savedSession.id);
@@ -763,7 +780,6 @@ async function recoverOfficeTransaction(args, dataDir, context = {}) {
     const application = detected.applications?.find((item) => item.format === savedSession.format);
     if (!application?.documentOpen) {
       if (strategy === 'commit') {
-        await requestOfficeTransactionApproval(session, 'commit', context);
         session.transaction = null;
         await clearOfficeTransactionArtifacts(session, savedTransaction);
         return {
@@ -806,14 +822,15 @@ async function recoverOfficeTransaction(args, dataDir, context = {}) {
       visible: reopened.visible,
       appPid: reopened.appPid,
       windowHwnd: reopened.windowHwnd,
+      foregroundActivated: reopened.foregroundActivated === true,
       documentId: reopened.documentId,
     });
   }
   sessions.set(session.id, session);
   documentSessions.set(documentSessionKey(session.target), session.id);
   return strategy === 'commit'
-    ? await commitTransaction(session, context)
-    : await rollbackTransaction(session, context);
+    ? await commitTransaction(session)
+    : await rollbackTransaction(session);
 }
 
 function fullPath(path, cwd) {
@@ -888,6 +905,14 @@ async function openSession(args, cwd, dataDir) {
     await mkdir(dirname(target), { recursive: true });
     await copyFile(source, target);
   }
+  const designContext = await resolveOfficeDesignContext({
+    args,
+    dataDir,
+    target,
+    source,
+    format,
+    created: false,
+  });
   const id = `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
   const session = {
     id,
@@ -901,6 +926,13 @@ async function openSession(args, cwd, dataDir) {
     dataDir,
     created: false,
     snapshotVersion: 0,
+    ...designContext,
+    designState: {
+      renderedVersion: null,
+      semanticCount: 0,
+      requiresVisualReview: format === 'pptx' && designContext.design.review.required,
+      slidePlans: [],
+    },
   };
   if (selected.backend === 'microsoft-office-com') {
     const opened = await openMicrosoftOfficeSession({
@@ -916,11 +948,11 @@ async function openSession(args, cwd, dataDir) {
       visible: opened.visible,
       appPid: opened.appPid,
       windowHwnd: opened.windowHwnd,
+      foregroundActivated: opened.foregroundActivated === true,
       documentId: opened.documentId,
     });
   }
-  sessions.set(id, session);
-  documentSessions.set(key, id);
+  await registerOfficeSession(session);
   return session;
 }
 
@@ -932,19 +964,30 @@ async function createSession(args, cwd, dataDir) {
   const inferredFormat = documentFormat(target);
   const format = args.format ? normalizeOfficeFormat(args.format) : inferredFormat;
   if (format !== inferredFormat) throw new Error(`Office create format ${args.format} does not match target .${fileKind}`);
+  const designContext = await resolveOfficeDesignContext({
+    args,
+    dataDir,
+    target,
+    format,
+    created: true,
+  });
+  const { designRequest, designLibrary, design } = designContext;
   if (format === 'pdf') {
     if (await exists(target) && args.overwrite !== true) {
       throw new Error(`Office create target already exists: ${target}`);
     }
     await mkdir(dirname(target), { recursive: true });
+    const designed = applyPdfDesign((args.blocks || []).map((block) => (
+      block?.path ? { ...block, path: fullPath(block.path, cwd) } : block
+    )), designRequest, { library: designLibrary });
     await createPdf(target, {
-      blocks: (args.blocks || []).map((block) => (
-        block?.path ? { ...block, path: fullPath(block.path, cwd) } : block
-      )),
+      blocks: designed.blocks,
       fields: args.fields,
-      properties: args.properties?.fontPath
-        ? { ...args.properties, fontPath: fullPath(args.properties.fontPath, cwd) }
-        : args.properties,
+      properties: {
+        ...designed.properties,
+        ...args.properties,
+        ...(args.properties?.fontPath ? { fontPath: fullPath(args.properties.fontPath, cwd) } : {}),
+      },
     });
     const session = {
       id: `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`,
@@ -960,9 +1003,12 @@ async function createSession(args, cwd, dataDir) {
       ownership: 'owned',
       visible: false,
       snapshotVersion: 0,
+      designRequest,
+      designLibrary,
+      design,
+      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false },
     };
-    sessions.set(session.id, session);
-    documentSessions.set(documentSessionKey(target), session.id);
+    await registerOfficeSession(session);
     return session;
   }
   if (!FORMATS.has(format) || format === 'pdf') {
@@ -992,9 +1038,12 @@ async function createSession(args, cwd, dataDir) {
       ownership: 'owned',
       visible: false,
       snapshotVersion: 0,
+      designRequest,
+      designLibrary,
+      design,
+      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false },
     };
-    sessions.set(session.id, session);
-    documentSessions.set(key, session.id);
+    await registerOfficeSession(session);
     return session;
   }
   const requestedMode = String(args.mode || 'visible').toLowerCase();
@@ -1031,11 +1080,20 @@ async function createSession(args, cwd, dataDir) {
     visible: opened.visible,
     appPid: opened.appPid,
     windowHwnd: opened.windowHwnd,
+    foregroundActivated: opened.foregroundActivated === true,
     documentId: opened.documentId,
     snapshotVersion: 0,
+    designRequest,
+    designLibrary,
+    design,
+    designState: {
+      renderedVersion: null,
+      semanticCount: 0,
+      requiresVisualReview: format === 'pptx' && design.review.required,
+      slidePlans: [],
+    },
   };
-  sessions.set(id, session);
-  documentSessions.set(key, id);
+  await registerOfficeSession(session);
   return session;
 }
 
@@ -1158,20 +1216,49 @@ function snapshotSelectionForTarget(format, target) {
 }
 
 async function applyBatch(session, args) {
-  const pathOperations = new Set(['add_image', 'replace_image', 'stamp_image', 'add_attachment', 'merge_pdf', 'apply_theme']);
-  const operations = Array.isArray(args.operations)
-    ? args.operations.map((operation) => {
+  const designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
+  const prepared = expandOfficeDesignOperations({
+    format: session.format,
+    backend: session.backend,
+    operations: Array.isArray(args.operations) ? args.operations : [],
+    design: designRequest,
+    library: session.designLibrary,
+    created: session.created === true,
+    snapshotVersion: session.snapshotVersion,
+  });
+  session.designRequest = designRequest;
+  session.design = prepared.design;
+  session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
+  session.designState.semanticCount += prepared.semantic.length;
+  if (session.format === 'pptx' && session.design.review.required) {
+    session.designState.requiresVisualReview = true;
+    const existingPlans = new Map((session.designState.slidePlans || []).map((plan) => [Number(plan.slide), plan]));
+    for (const semantic of prepared.semantic) {
+      if (semantic?.plan && Number(semantic.slide) > 0) existingPlans.set(Number(semantic.slide), semantic.plan);
+    }
+    session.designState.slidePlans = [...existingPlans.values()].sort((left, right) => left.slide - right.slide);
+  }
+  const pathOperations = new Set(['add_image', 'replace_image', 'stamp_image', 'add_attachment', 'merge_pdf', 'apply_theme', 'import_slides', 'add_media']);
+  const operations = Array.isArray(prepared.operations)
+    ? prepared.operations.map((operation) => {
         let normalized = operation;
         if (operation?.path && pathOperations.has(String(operation.op || ''))) {
           normalized = { ...normalized, path: fullPath(operation.path, args.__cwd || dirname(session.target)) };
         }
-        if (operation?.fontPath && ['add_text', 'watermark'].includes(String(operation.op || ''))) {
+        if (operation?.fontPath && ['add_text', 'watermark', 'ocr_pages'].includes(String(operation.op || ''))) {
           normalized = { ...normalized, fontPath: fullPath(operation.fontPath, args.__cwd || dirname(session.target)) };
         }
         return normalized;
       })
     : [];
   if (!operations.length) throw new Error('batch requires at least one operation');
+  if (
+    session.format === 'pptx'
+    && operations.some((operation) => operation.op === 'import_slides')
+    && operations.some((operation) => operation.op === 'keep_slides')
+  ) {
+    throw new Error('Run keep_slides in a later batch after import_slides has been saved');
+  }
   assertOfficeOperationContracts({
     format: session.format,
     backend: session.backend,
@@ -1190,32 +1277,114 @@ async function applyBatch(session, args) {
     }
   }
   const target = session.target;
-  const backup = isMicrosoftOfficeSession(session) ? '' : `${target}.mixdog-backup-${randomUUID()}`;
-  if (backup) await copyFile(target, backup);
+  const emptyDeckReplacement = session.backend === 'microsoft-office-com'
+    && session.format === 'pptx'
+    && session.mode === 'background'
+    && session.created === true
+    && Number(session.snapshotVersion || 0) === 0
+    && operations[0].op === 'import_slides'
+    && Number(operations[0].after || 0) === 0
+    && extname(operations[0].path).toLowerCase() === extname(target).toLowerCase();
+  const needsComCheckpoint = isMicrosoftOfficeSession(session)
+    && session.mode === 'background'
+    && operations.some((operation) => operation.op === 'import_slides');
+  const backup = !isMicrosoftOfficeSession(session) || needsComCheckpoint
+    ? `${target}.mixdog-backup-${randomUUID()}`
+    : '';
+  const replacementSource = emptyDeckReplacement && Array.isArray(operations[0]?.slides)
+    ? join(tmpdir(), `mixdog-pptx-selection-${randomUUID()}.pptx`)
+    : '';
+  if (replacementSource) {
+    await createPptxSlideSelection(operations[0].path, operations[0].slides, replacementSource);
+  }
+  if (backup && needsComCheckpoint) {
+    const checkpoint = await callMicrosoftOffice({
+      action: 'save_copy',
+      session: session.id,
+      format: session.format,
+      mode: session.mode,
+      path: target,
+      output: backup,
+    }, {
+      signal: session.activeSignal || null,
+      timeoutMs: 120_000,
+    });
+    if (!checkpoint.ok) {
+      throw new Error(`Microsoft Office save-copy checkpoint failed: ${checkpoint.error || 'unknown error'}`);
+    }
+  } else if (backup) {
+    await copyFile(target, backup);
+  }
   try {
     let results;
     let saved = true;
     let undoUnits = 0;
     if (session.backend === 'microsoft-office-com') {
-      const result = await callMicrosoftOffice({
-        action: 'batch',
-        session: session.id,
-        format: session.format,
-        mode: session.mode,
-        path: target,
-        operations,
-        save: args.save === true,
-        requireChanges: args.requireChanges !== false,
-      }, {
-        signal: session.activeSignal || null,
-        timeoutMs: Math.min(300_000, 90_000 + (operations.length * 500)),
-      });
-      if (!result.ok) throw new Error(result.error || 'Microsoft Office batch failed');
-      results = result.results;
-      saved = result.saved;
-      undoUnits = Number(result.undoUnits) || 0;
+      if (emptyDeckReplacement) {
+        const operation = operations[0];
+        const replaced = await callMicrosoftOffice({
+          action: 'replace_presentation_from_source',
+          session: session.id,
+          format: session.format,
+          mode: session.mode,
+          path: target,
+          source: replacementSource || operation.path,
+          ...(replacementSource ? {} : { slides: operation.slides }),
+          checkpoint: backup,
+        }, {
+          signal: session.activeSignal || null,
+          timeoutMs: 120_000,
+        });
+        if (!replaced.ok) {
+          throw new Error(`PowerPoint source replacement failed: ${replaced.error || 'unknown error'}`);
+        }
+        results = Array.isArray(replaced.results) ? replaced.results : [replaced.results];
+        const remaining = operations.slice(1);
+        if (remaining.length) {
+          const result = await callMicrosoftOffice({
+            action: 'batch',
+            session: session.id,
+            format: session.format,
+            mode: session.mode,
+            path: target,
+            operations: remaining,
+            save: args.save === true,
+            requireChanges: args.requireChanges !== false,
+          }, {
+            signal: session.activeSignal || null,
+            timeoutMs: Math.min(300_000, 90_000 + (remaining.length * 500)),
+          });
+          if (!result.ok) throw new Error(result.error || 'Microsoft Office batch failed after native template import');
+          results.push(...(Array.isArray(result.results) ? result.results : [result.results]));
+          saved = result.saved;
+          undoUnits = Number(result.undoUnits) || 0;
+        } else {
+          saved = replaced.saved === true;
+        }
+      } else {
+        const result = await callMicrosoftOffice({
+          action: 'batch',
+          session: session.id,
+          format: session.format,
+          mode: session.mode,
+          path: target,
+          operations,
+          save: args.save === true,
+          requireChanges: args.requireChanges !== false,
+        }, {
+          signal: session.activeSignal || null,
+          timeoutMs: Math.min(300_000, 90_000 + (operations.length * 500)),
+        });
+        if (!result.ok) throw new Error(result.error || 'Microsoft Office batch failed');
+        results = result.results;
+        saved = result.saved;
+        undoUnits = Number(result.undoUnits) || 0;
+      }
     } else if (session.format === 'pdf') {
-      results = await applyPdfBatch(target, operations);
+      results = await applyPdfBatch(target, operations, {
+        dataDir: session.dataDir,
+        signal: session.activeSignal || null,
+      });
     } else if (TABULAR_FORMATS.has(session.format)) {
       results = await applyTabularBatch(target, session.format, operations);
     } else {
@@ -1246,6 +1415,7 @@ async function applyBatch(session, args) {
       if (journalWarning) transactionResult.journalWarning = journalWarning;
     }
     session.snapshotVersion = Number(session.snapshotVersion || 0) + 1;
+    session.designState.renderedVersion = null;
     return {
       ok: true,
       session: session.id,
@@ -1260,10 +1430,25 @@ async function applyBatch(session, args) {
         changed: results.filter((entry) => entry.changed === true).length,
         noChange: noChange.length,
       },
+      design: session.design,
+      semanticOperations: prepared.semantic,
       ...(transactionResult ? { transaction: transactionResult } : {}),
     };
   } catch (error) {
-    if (backup) {
+    if (backup && emptyDeckReplacement) {
+      await callMicrosoftOffice({
+        action: 'replace_presentation_from_source',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: target,
+        source: backup,
+        checkpoint: backup,
+      }, {
+        signal: session.activeSignal || null,
+        timeoutMs: 120_000,
+      }).catch(() => {});
+    } else if (backup) {
       await rm(target, { force: true }).catch(() => {});
       await rename(backup, target).catch(() => {});
     }
@@ -1274,17 +1459,11 @@ async function applyBatch(session, args) {
     throw error;
   } finally {
     if (backup) await rm(backup, { force: true }).catch(() => {});
+    if (replacementSource) await rm(replacementSource, { force: true }).catch(() => {});
   }
 }
 
 async function validate(session, args = {}) {
-  const packageResult = session.format === 'pdf'
-    ? await validatePdf(session.target)
-    : TABULAR_FORMATS.has(session.format)
-      ? await validateTabular(session.target, session.format)
-      : await validatePortableOoxml(session.target, session.format, {
-          original: session.source !== session.target ? session.source : '',
-        });
   let native = null;
   if (session.backend === 'microsoft-office-com') {
     if (args.__skipNative === true) {
@@ -1309,6 +1488,49 @@ async function validate(session, args = {}) {
       native = response.value;
     }
   }
+  const packageResult = session.format === 'pdf'
+    ? await validatePdf(session.target)
+    : TABULAR_FORMATS.has(session.format)
+      ? await validateTabular(session.target, session.format)
+      : await validatePortableOoxml(session.target, session.format, {
+          original: session.source !== session.target ? session.source : '',
+          auditProfile: args.auditProfile,
+          author: args.author,
+      });
+  let schema = null;
+  if (OOXML_FORMATS.has(session.format)) {
+    let schemaCopy = '';
+    try {
+      if (session.backend === 'microsoft-office-com') {
+        schemaCopy = join(tmpdir(), `mixdog-schema-${randomUUID()}${extname(session.target)}`);
+        await copyFile(session.target, schemaCopy);
+      }
+      schema = await validateOoxmlSchema(schemaCopy || session.target, {
+        dataDir: session.dataDir,
+        download: args.downloadDependencies !== false,
+        signal: session.activeSignal || null,
+      });
+    } catch (error) {
+      schema = {
+        available: false,
+        ok: false,
+        errors: [],
+        reason: error?.message || String(error),
+      };
+    } finally {
+      if (schemaCopy) await rm(schemaCopy, { force: true }).catch(() => {});
+    }
+  }
+  let assertions = null;
+  if (Array.isArray(args.assertions) && args.assertions.length) {
+    if (session.format !== 'xlsx') throw new Error('assertions are supported for XLSX sessions only');
+    const asserted = await snapshot(session, {
+      limit: 10_000,
+      maxChars: 100_000,
+      includeStyles: false,
+    }, { full: true });
+    assertions = evaluateXlsxAssertions(asserted.document, args.assertions);
+  }
   const compatibility = args.compatibility === true && ['docx', 'xlsx', 'pptx'].includes(session.format)
     ? await validateLibreOfficeReopen(session.target)
     : null;
@@ -1319,8 +1541,12 @@ async function validate(session, args = {}) {
     path: session.target,
     ...packageResult,
     ok: packageResult.ok
+      && (!schema || schema.ok || schema.disabled === true || (args.downloadDependencies === false && schema.downloadRequired === true))
+      && (!assertions || assertions.ok)
       && (!native || (native.ok && (session.mode === 'background' || native.documentSaved)))
       && (!compatibility?.available || compatibility.opened),
+    schema,
+    assertions,
     native,
     compatibility,
   };
@@ -1462,6 +1688,43 @@ async function qa(session, args, cwd) {
       baseline = { available: false, reason: error?.message || String(error) };
     }
   }
+  let designReview;
+  try {
+    const current = await snapshot(session, {
+      ...args,
+      includeStyles: true,
+      limit: Math.min(100, Number(args.limit) || 100),
+      maxChars: 100_000,
+    });
+    designReview = reviewOfficeDesign({
+      format: session.format,
+      document: current.document,
+      design: {
+        ...(session.designRequest || session.design || {}),
+        ...(session.format === 'pptx' ? {
+          slidePlans: session.designState?.slidePlans || [],
+        } : {}),
+      },
+      library: session.designLibrary,
+    });
+  } catch (error) {
+    designReview = {
+      ok: false,
+      status: 'unavailable',
+      profile: session.design?.profile || '',
+      requiresVisualInspection: true,
+      modelReview: [],
+      issues: [{
+        severity: 'warning',
+        code: 'design_review_unavailable',
+        path: '/',
+        message: error?.message || String(error),
+        source: 'design-review',
+      }],
+    };
+  }
+  const designIssues = Array.isArray(designReview.issues) ? designReview.issues : [];
+  const combinedIssuesAfter = [...(after.issues || []), ...designIssues];
   const review = {
     createdAt: new Date().toISOString(),
     output: preview.output,
@@ -1469,9 +1732,10 @@ async function qa(session, args, cwd) {
     pageCount: preview.pageCount,
     visualCoverage: preview.visualCoverage,
     issuesBefore: before.issueCount,
-    issuesAfter: after.issueCount,
+    issuesAfter: combinedIssuesAfter.length,
     fixesApplied: fixes.length,
     images: preview.images,
+    design: designReview,
     visualDiff: {
       ...visualDiff,
       images: diffImages.map(({ data, ...image }) => image),
@@ -1482,7 +1746,7 @@ async function qa(session, args, cwd) {
     await persistOfficeTransaction(session);
   }
   return {
-    ok: after.ok,
+    ok: after.ok && designIssues.length === 0,
     session: session.id,
     mode: session.mode,
     backend: session.backend,
@@ -1490,7 +1754,7 @@ async function qa(session, args, cwd) {
     fixes,
     fixResult: fixed,
     issuesBefore: before.issues,
-    issuesAfter: after.issues,
+    issuesAfter: combinedIssuesAfter,
     review,
     preview: {
       output: preview.output,
@@ -1513,7 +1777,7 @@ async function render(session, args, cwd) {
   if (session.format === 'pdf') {
     if (output !== session.target) await copyFile(session.target, output);
     const rendered = await renderPdfPages(output, { pages: args.pages, maxWidth: args.maxWidth });
-    return {
+    const result = {
       session: session.id,
       backend: session.backend,
       output,
@@ -1523,6 +1787,10 @@ async function render(session, args, cwd) {
       images: rendered.images.map(({ data, ...image }) => image),
       _images: rendered.images,
     };
+    session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
+    session.designState.renderedVersion = Number(session.snapshotVersion || 0);
+    result.reviewToken = `${session.id}:${session.designState.renderedVersion}`;
+    return result;
   }
   if (session.backend === 'microsoft-office-com') {
     const result = await callMicrosoftOffice({
@@ -1538,7 +1806,7 @@ async function render(session, args, cwd) {
     await renderPortableOoxml(session.target, output);
   }
   const rendered = await renderPdfPages(output, { pages: args.pages, maxWidth: args.maxWidth });
-  return {
+  const result = {
     session: session.id,
     backend: session.backend,
     output,
@@ -1548,6 +1816,10 @@ async function render(session, args, cwd) {
     images: rendered.images.map(({ data, ...image }) => image),
     _images: rendered.images,
   };
+  session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
+  session.designState.renderedVersion = Number(session.snapshotVersion || 0);
+  result.reviewToken = `${session.id}:${session.designState.renderedVersion}`;
+  return result;
 }
 
 async function save(session) {
@@ -1601,6 +1873,8 @@ async function finalize(session, args, cwd, signal) {
     }
   };
   const failOn = String(args.failOn || (session.created ? 'warning' : 'error')).toLowerCase();
+  const requiresVisualReview = session.format === 'pptx'
+    && session.designState?.requiresVisualReview === true;
   const recalculation = session.backend === 'mixdog-ooxml' && session.format === 'xlsx'
     ? await timedStep('recalculation', async () => await recalculateLibreOfficeWorkbook(session.target, {
         force: Number(session.snapshotVersion || 0) > 0,
@@ -1622,6 +1896,22 @@ async function finalize(session, args, cwd, signal) {
   const reviewed = args.review === false ? null : await timedStep('review', async () => await qa(session, args, cwd));
   const reviewImages = Array.isArray(reviewed?._images) ? reviewed._images : [];
   const review = reviewed ? { ...reviewed } : null;
+  const visualCritique = session.format === 'pptx'
+    ? reviewPptxVisualCritique({
+        critique: args.design?.critique,
+        pageCount: Number(review?.preview?.pageCount || 0),
+      })
+    : null;
+  if (review && visualCritique) review.visualCritique = visualCritique;
+  const reviewToken = `${session.id}:${session.designState?.renderedVersion ?? session.snapshotVersion}`;
+  const visualReviewAcknowledged = pptxVisualReviewAcknowledged({
+    reviewed: args.design?.reviewed === true,
+    providedToken: args.design?.reviewToken,
+    expectedToken: reviewToken,
+    renderedVersion: session.designState?.renderedVersion,
+    snapshotVersion: session.snapshotVersion,
+    critiqueOk: visualCritique?.ok === true,
+  });
   if (review) delete review._images;
   const issuesAfter = review?.issuesAfter || [];
   const blockingIssues = issuesAfter.filter((issue) => (
@@ -1642,7 +1932,36 @@ async function finalize(session, args, cwd, signal) {
       _images: reviewImages,
     };
   }
-  const saved = await timedStep('save', async () => await save(session));
+  if (requiresVisualReview && !visualReviewAcknowledged) {
+    return {
+      ok: false,
+      finalized: false,
+      session: session.id,
+      reason: 'visual_review_required',
+      failOn,
+      recalculation,
+      review,
+      stepMetrics,
+      reviewToken,
+      visualCritique,
+      nextAction: 'Inspect every rendered slide and submit one distinct critique per slide with verdict, hierarchy, balance, legibility, cohesion, evidence, note, and fixes. Polish any failed slide, render again if changed, then finalize with the review token.',
+      _images: reviewImages,
+    };
+  }
+  const saved = await timedStep('save', async () => {
+    const reuseSavedBatch = args.__alreadySaved === true
+      && Number(reviewed?.fixesApplied || 0) === 0;
+    if (reuseSavedBatch) {
+      return {
+        ok: true,
+        session: session.id,
+        saved: true,
+        skipped: true,
+        path: session.target,
+      };
+    }
+    return save(session);
+  });
   const validation = await timedStep('validation', async () => await validate(session, {
     ...args,
     __skipNative: review !== null,
@@ -1658,6 +1977,7 @@ async function finalize(session, args, cwd, signal) {
       recalculation,
       review,
       validation,
+      design: session.design,
       stepMetrics,
       nextAction: 'Fix the validation failure, then call finalize again.',
       _images: reviewImages,
@@ -1671,10 +1991,12 @@ async function finalize(session, args, cwd, signal) {
     path: session.target,
     failOn,
     saved: saved.saved === true,
+    saveSkipped: saved.skipped === true,
     closed: closed.closed === true,
     recalculation,
     review,
     validation,
+    design: session.design,
     stepMetrics,
     _images: reviewImages,
   };
@@ -1683,9 +2005,6 @@ async function finalize(session, args, cwd, signal) {
 export async function executeOfficeTool(args = {}, {
   cwd = process.cwd(),
   dataDir = defaultOfficeDataDir(),
-  requestApproval = null,
-  sessionId = null,
-  toolCallId = null,
   signal = null,
 } = {}) {
   const startedAt = performance.now();
@@ -1693,7 +2012,6 @@ export async function executeOfficeTool(args = {}, {
   try {
     if (signal?.aborted) throw new Error('Office Use operation was cancelled');
     const action = String(args.action || '').toLowerCase();
-    const approvalContext = { cwd, requestApproval, sessionId, toolCallId };
     if (action === 'detect') {
       const office = await detectMicrosoftOffice({
         format: args.path ? documentFormat(args.path) : '',
@@ -1709,13 +2027,14 @@ export async function executeOfficeTool(args = {}, {
           pdfSecurity: { available: await qpdfAvailable(), backend: 'qpdf' },
         },
         pendingTransactions: await pendingOfficeTransactions(dataDir),
+        designLibrary: await inspectOfficeDesignLibrary({ dataDir }),
       });
     }
     if (action === 'transactions') {
       return toolResult({ ok: true, transactions: await pendingOfficeTransactions(dataDir) });
     }
     if (action === 'recover') {
-      return toolResult(await recoverOfficeTransaction(args, dataDir, approvalContext));
+      return toolResult(await recoverOfficeTransaction(args, dataDir));
     }
     if (action === 'secure') {
       const input = fullPath(args.path, cwd);
@@ -1747,16 +2066,57 @@ export async function executeOfficeTool(args = {}, {
       }));
     }
     if (action === 'open' || action === 'attach' || action === 'create') {
+      if (action === 'attach' && args.finalize === true) {
+        throw new Error('attach does not support finalize:true; attach first, then use batch with finalize:true when closing the document is intended');
+      }
       const operationArgs = signal ? { ...args, __signal: signal } : args;
       const session = action === 'create'
         ? await createSession(operationArgs, cwd, dataDir)
         : await openSession(action === 'attach' ? { ...operationArgs, mode: 'attach' } : operationArgs, cwd, dataDir);
+      if (!session.design) {
+        const designContext = await resolveOfficeDesignContext({
+          args,
+          dataDir,
+          target: session.target,
+          source: session.source,
+          format: session.format,
+          created: session.created === true,
+        });
+        Object.assign(session, designContext);
+        session.designState = { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
+      } else if (args.design) {
+        session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
+        session.design = resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
+      }
       session.activeSignal = signal;
       try {
         const initialEdit = Array.isArray(args.operations) && args.operations.length
-          ? await applyBatch(session, { ...args, __cwd: cwd })
+          ? await applyBatch(session, {
+              ...args,
+              __cwd: cwd,
+              ...(args.finalize === true ? { save: true } : {}),
+            })
           : null;
-        const initial = initialEdit && args.snapshotAfter !== true
+        if (args.finalize === true) {
+          const completed = await finalize(session, {
+            ...args,
+            __alreadySaved: initialEdit?.saved === true,
+          }, cwd, signal);
+          const images = Array.isArray(completed?._images) ? completed._images : [];
+          if (completed && typeof completed === 'object') delete completed._images;
+          delete session.activeSignal;
+          return toolResult(finalizeOfficeResult(
+            {
+              ...completed,
+              opened: true,
+              created: action === 'create',
+              reused: session.reused === true,
+              ...(initialEdit ? { batch: initialEdit } : {}),
+            },
+            { action, session, startedAt },
+          ), false, images);
+        }
+        const initial = args.snapshotAfter === false || (initialEdit && args.snapshotAfter !== true)
           ? {
               session: session.id,
               mode: session.mode,
@@ -1768,6 +2128,7 @@ export async function executeOfficeTool(args = {}, {
               visible: session.visible,
               appPid: session.appPid,
               windowHwnd: session.windowHwnd,
+              foregroundActivated: session.foregroundActivated === true,
               documentId: session.documentId,
               batch: initialEdit,
             }
@@ -1777,7 +2138,13 @@ export async function executeOfficeTool(args = {}, {
             };
         delete session.activeSignal;
         return toolResult(finalizeOfficeResult(
-          { ...initial, opened: true, created: action === 'create', reused: session.reused === true },
+          {
+            ...initial,
+            opened: true,
+            created: action === 'create',
+            reused: session.reused === true,
+            foregroundActivated: session.foregroundActivated === true,
+          },
           { action, session, startedAt },
         ));
       } catch (error) {
@@ -1793,6 +2160,33 @@ export async function executeOfficeTool(args = {}, {
       }
     }
     const { session, implicit } = await resolveSession(signal ? { ...args, __signal: signal } : args, cwd, dataDir);
+    if (!session.design) {
+      const designContext = await resolveOfficeDesignContext({
+        args,
+        dataDir,
+        target: session.target,
+        source: session.source,
+        format: session.format,
+        created: session.created === true,
+      });
+      Object.assign(session, designContext);
+      session.designState = { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
+    } else if (args.design) {
+      if (args.design.upgradeLibrary === true) {
+        const upgraded = await resolveOfficeDesignContext({
+          args,
+          dataDir,
+          target: session.target,
+          source: session.source,
+          format: session.format,
+          created: false,
+        });
+        session.designLibrary = upgraded.designLibrary;
+        await persistOfficeDesignBinding(dataDir, session.target, session.designLibrary.binding);
+      }
+      session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
+      session.design = resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
+    }
     activeSession = session;
     session.activeSignal = signal;
     let value;
@@ -1815,8 +2209,8 @@ export async function executeOfficeTool(args = {}, {
         session: session.id,
         transaction: transactionView(session.transaction),
       };
-    } else if (action === 'commit') value = await commitTransaction(session, approvalContext);
-    else if (action === 'rollback') value = await rollbackTransaction(session, approvalContext);
+    } else if (action === 'commit') value = await commitTransaction(session);
+    else if (action === 'rollback') value = await rollbackTransaction(session);
     else if (action === 'snapshot') value = await snapshot(session, args);
     else if (action === 'get') {
       const target = String(args.target || '').trim();
@@ -1827,6 +2221,36 @@ export async function executeOfficeTool(args = {}, {
       if (!element) throw new Error(`Document element not found: ${target}`);
       value = { session: session.id, target, element };
     } else if (action === 'query') {
+      const queryKind = String(args.queryKind || 'text').toLowerCase();
+      if (queryKind !== 'text') {
+        if (session.format !== 'pdf') throw new Error(`${queryKind} query is supported for PDF sessions only`);
+        if (queryKind === 'pdf-layout') {
+          value = {
+            session: session.id,
+            queryKind,
+            ...(await extractPdfTextLayout(session.target, {
+              pages: args.pages,
+              maxItems: args.limit || 10_000,
+              signal,
+            })),
+          };
+        } else if (queryKind === 'pdf-tables') {
+          const layout = await extractPdfTextLayout(session.target, {
+            pages: args.pages,
+            maxItems: args.limit || 10_000,
+            signal,
+          });
+          value = { session: session.id, queryKind, ...inferPdfTables(layout) };
+        } else if (queryKind === 'pdf-images') {
+          value = {
+            session: session.id,
+            queryKind,
+            ...(await extractPdfImages(session.target, { pages: args.pages, signal })),
+          };
+        } else {
+          throw new Error(`Unsupported Office queryKind: ${queryKind}`);
+        }
+      } else {
       const needle = String(args.query || '').trim().toLowerCase();
       if (!needle) throw new Error('query requires non-empty query text');
       const current = await snapshot(session, { ...args, maxChars: 100_000 }, { full: true });
@@ -1835,7 +2259,26 @@ export async function executeOfficeTool(args = {}, {
         query: args.query,
         matches: queryObject(current.document, needle),
       };
-    } else if (action === 'batch') value = await applyBatch(session, { ...args, __cwd: cwd });
+      }
+    } else if (action === 'batch') {
+      if (args.finalize === true && session.transaction) {
+        throw new Error('Commit or roll back the active Office transaction before using batch with finalize:true');
+      }
+      const batch = await applyBatch(session, {
+        ...args,
+        __cwd: cwd,
+        ...(args.finalize === true ? { save: true } : {}),
+      });
+      value = args.finalize === true
+        ? {
+            ...await finalize(session, {
+              ...args,
+              __alreadySaved: batch.saved === true,
+            }, cwd, signal),
+            batch,
+          }
+        : batch;
+    }
     else if (action === 'issues') value = await issues(session, args);
     else if (action === 'qa') value = await qa(session, args, cwd);
     else if (action === 'validate') value = await validate(session, args);
@@ -1854,7 +2297,7 @@ export async function executeOfficeTool(args = {}, {
     return toolResult(value, false, images);
   } catch (error) {
     if (activeSession) delete activeSession.activeSignal;
-    if (error instanceof OfficeConflictError || error instanceof OfficeApprovalError) return toolResult(error.details, true);
+    if (error instanceof OfficeConflictError) return toolResult(error.details, true);
     if (signal?.aborted || /cancelled/i.test(String(error?.message || ''))) {
       if (activeSession && isMicrosoftOfficeSession(activeSession)) {
         sessions.delete(activeSession.id);

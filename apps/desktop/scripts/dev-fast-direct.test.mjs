@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+
+import { createPackageWithOptions, statFile } from '@electron/asar';
 
 import {
   asarPath,
   changedPlanGroups,
   decidePlan,
+  fastDirectAsarOptions,
   packagingManifestForFingerprint,
 } from './dev-fast-direct.mjs';
 import {
@@ -31,6 +36,43 @@ test('ASAR API paths always use native separators', () => {
   const expected = join('out', 'main', 'daemon.cjs');
   assert.equal(asarPath('out\\main\\daemon.cjs'), expected);
   assert.equal(asarPath('out/main/daemon.cjs'), expected);
+});
+
+test('FastDirect keeps Electron ESM entry points packed', async (context) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-fast-direct-asar-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const staging = join(root, 'staging');
+  const archive = join(root, 'app.asar');
+  const files = [
+    'out/main/index.js',
+    'out/main/daemon.cjs',
+    'out/preload/index.js',
+    'out/renderer/index.html',
+  ];
+  for (const file of files) {
+    const target = join(staging, asarPath(file));
+    await mkdir(join(target, '..'), { recursive: true });
+    await writeFile(target, file);
+  }
+
+  await createPackageWithOptions(staging, archive, fastDirectAsarOptions());
+
+  assert.equal(
+    Boolean(statFile(archive, asarPath('out/main/index.js'), false).unpacked),
+    false,
+  );
+  assert.equal(
+    Boolean(statFile(archive, asarPath('out/preload/index.js'), false).unpacked),
+    false,
+  );
+  assert.equal(
+    Boolean(statFile(archive, asarPath('out/main/daemon.cjs'), false).unpacked),
+    true,
+  );
+  assert.equal(
+    Boolean(statFile(archive, asarPath('out/renderer/index.html'), false).unpacked),
+    true,
+  );
 });
 
 test('FastDirect rejects a plan when build inputs changed before staging', () => {

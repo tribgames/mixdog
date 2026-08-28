@@ -3,9 +3,9 @@
  * of the loopback bridge that lets the session runtime's `computer` tool drive
  * it. Windows only for now.
  *
- * Engine: a single resident PowerShell process holds .NET UI Automation state
- * (an element map that survives between snapshot and invoke, which spawning
- * per command could not) and dispatches Win32 input. Screenshots are captured
+ * Engine: one resident PowerShell worker per agent session holds .NET UI
+ * Automation state (an element map that survives between snapshot and invoke,
+ * which spawning per command could not) and dispatches Win32 input. Screenshots are captured
  * on demand in Electron via desktopCapturer, not PowerShell. The runtime half discovers
  * this bridge through a heartbeated data-dir file, so the tool surface exists
  * only while the desktop app runs with Computer Use enabled — no daemon
@@ -14,19 +14,30 @@
  * The PowerShell recipes (UIA tree walk, InvokePattern/ValuePattern, Win32
  * input) follow the public Microsoft UI Automation and user32 APIs.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { chmodSync, mkdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { BrowserWindow, desktopCapturer, screen, type NativeImage } from 'electron';
+import { BrowserWindow, desktopCapturer, nativeImage, screen, type NativeImage } from 'electron';
 import {
   computeComputerWindowTransition,
+  launchTransitionConfirmsTarget,
   normalizeComputerWindowRecords,
   type ComputerWindowRecord,
   type ComputerWindowTransition,
 } from './computer-window-transition';
+import {
+  chromeOwnedConsentAllowRef,
+  chromeNativeAddressField,
+  chromeSetupControl,
+  CHROME_REMOTE_DEBUGGING_URL,
+  type ChromeUiaAncestor,
+  type ChromeUiaElement,
+} from './browser-chrome-uia';
+import { beginComputerOperation } from './human-only-approval';
 
 const DISCOVERY_FILE = 'computer-bridge.json';
 const DISCOVERY_VERSION = 1;
@@ -203,6 +214,7 @@ interface ComputerCommand {
   role?: string;
   visible_only?: boolean;
   include_noninteractive?: boolean;
+  include_structure?: boolean;
   max_elements?: number;
   continuation?: string;
   mode?: 'state' | 'som' | 'vision' | 'ax';
@@ -269,6 +281,11 @@ interface CaptureFrame {
   displayHeight?: number;
 }
 
+interface ObservedWindowScope {
+  primaryWindowId: string;
+  relatedWindowIds: string[];
+}
+
 interface PixelUnavailable {
   code: 'pixel_unavailable';
   reason: 'capture_source_unavailable'
@@ -293,22 +310,10 @@ interface ScreenshotCapture {
   pixelUnavailable?: PixelUnavailable;
 }
 
-interface ComputerElementRecord {
+interface ComputerElementRecord extends ChromeUiaElement {
   mark: number;
-  ref: string;
-  source: 'uia' | 'msaa' | 'ocr';
-  role: string;
-  name: string;
-  value: string;
-  state: string;
-  enabled: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
   center_x: number;
   center_y: number;
-  actions: string[];
   frame_id?: string;
   window_id?: string;
 }
@@ -354,6 +359,15 @@ const BLOCKED_COMPUTER_TYPE_PATTERNS = [
   /:\s*\(\)\s*\{\s*:\|:\s*&\s*\}/,
 ];
 
+const BLOCKED_COMPUTER_LAUNCH_ALWAYS_PATTERNS = [
+  /[\r\n\0]|javascript:/i,
+];
+const BLOCKED_COMPUTER_NON_HTTP_LAUNCH_PATTERNS = [
+  /&&|\|\|/,
+  /(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)/i,
+  /\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$/i,
+];
+
 function assertSafeComputerInput(command: ComputerCommand): void {
   if (command.action === 'key') {
     const keys = String(command.keys || '').replace(/\s+/g, '');
@@ -365,6 +379,16 @@ function assertSafeComputerInput(command: ComputerCommand): void {
     const text = String(command.text || '');
     if (BLOCKED_COMPUTER_TYPE_PATTERNS.some((pattern) => pattern.test(text))) {
       throw new Error('blocked_input: dangerous shell payload in type text');
+    }
+  }
+  if (command.action === 'launch') {
+    const app = String(command.app || '').trim();
+    const httpUrl = /^https?:\/\//i.test(app);
+    if (!app
+      || BLOCKED_COMPUTER_LAUNCH_ALWAYS_PATTERNS.some((pattern) => pattern.test(app))
+      || (!httpUrl
+        && BLOCKED_COMPUTER_NON_HTTP_LAUNCH_PATTERNS.some((pattern) => pattern.test(app)))) {
+      throw new Error('blocked_input: shell, script-host, or shortcut launch is unavailable in Computer Use');
     }
   }
 }
@@ -408,15 +432,19 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $AccessibilityAssemblyPath = [Accessibility.IAccessible].Assembly.Location
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll',$AccessibilityAssemblyPath) -TypeDefinition @"
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',$AccessibilityAssemblyPath) -TypeDefinition @"
 using System;
 using Accessibility;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 public sealed class MixMsaaNode {
@@ -641,6 +669,7 @@ public class MixWin32 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int w, int height, bool repaint);
+  [DllImport("user32.dll")] static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
   [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hwnd);
@@ -649,6 +678,14 @@ public class MixWin32 {
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+  [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+  [DllImport("advapi32.dll", SetLastError = true)] static extern bool GetTokenInformation(
+    IntPtr token, int informationClass, IntPtr information, int informationLength, out int returnLength);
+  [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+  [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr sid, uint index);
   public delegate bool EnumWindowProc(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowProc cb, IntPtr l);
   [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr h, EnumWindowProc cb, IntPtr l);
@@ -662,6 +699,13 @@ public class MixWin32 {
   [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int left, top, right, bottom; }
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int x, y; }
+  [StructLayout(LayoutKind.Sequential)] struct SID_AND_ATTRIBUTES {
+    public IntPtr Sid;
+    public uint Attributes;
+  }
+  [StructLayout(LayoutKind.Sequential)] struct TOKEN_MANDATORY_LABEL {
+    public SID_AND_ATTRIBUTES Label;
+  }
   public sealed class WindowInfo {
     public IntPtr Handle;
     public string Id = "";
@@ -676,6 +720,124 @@ public class MixWin32 {
     public bool Maximized;
     public int X, Y, Width, Height;
     public int ClientX, ClientY, ClientWidth, ClientHeight;
+  }
+  public sealed class WindowCaptureInfo {
+    public string PngBase64 = "";
+    public int X, Y, Width, Height, VisibleSamples;
+  }
+  public sealed class WindowIntegrityInfo {
+    public bool Known, Higher;
+    public int OwnRid, TargetRid;
+    public string OwnName = "";
+    public string TargetName = "";
+  }
+  static int ProcessIntegrityRid(IntPtr process) {
+    const uint TOKEN_QUERY = 0x0008;
+    const int TokenIntegrityLevel = 25;
+    IntPtr token;
+    if (process == IntPtr.Zero || !OpenProcessToken(process, TOKEN_QUERY, out token)) return 0;
+    try {
+      int required = 0;
+      GetTokenInformation(token, TokenIntegrityLevel, IntPtr.Zero, 0, out required);
+      if (required <= 0) return 0;
+      IntPtr buffer = Marshal.AllocHGlobal(required);
+      try {
+        if (!GetTokenInformation(token, TokenIntegrityLevel, buffer, required, out required)) return 0;
+        TOKEN_MANDATORY_LABEL label =
+          (TOKEN_MANDATORY_LABEL)Marshal.PtrToStructure(buffer, typeof(TOKEN_MANDATORY_LABEL));
+        IntPtr countPointer = GetSidSubAuthorityCount(label.Label.Sid);
+        if (countPointer == IntPtr.Zero) return 0;
+        byte count = Marshal.ReadByte(countPointer);
+        if (count == 0) return 0;
+        IntPtr ridPointer = GetSidSubAuthority(label.Label.Sid, (uint)(count - 1));
+        return ridPointer == IntPtr.Zero ? 0 : Marshal.ReadInt32(ridPointer);
+      } finally {
+        Marshal.FreeHGlobal(buffer);
+      }
+    } finally {
+      CloseHandle(token);
+    }
+  }
+  static string IntegrityName(int rid) {
+    if (rid >= 0x4000) return "System";
+    if (rid >= 0x3000) return "High";
+    if (rid >= 0x2100) return "Medium+";
+    if (rid >= 0x2000) return "Medium";
+    if (rid >= 0x1000) return "Low";
+    return rid > 0 ? "Untrusted" : "Unknown";
+  }
+  public static WindowIntegrityInfo WindowIntegrity(IntPtr h) {
+    int ownRid = ProcessIntegrityRid(GetCurrentProcess());
+    uint pid;
+    GetWindowThreadProcessId(h, out pid);
+    IntPtr targetProcess = pid == 0 ? IntPtr.Zero : OpenProcess(0x1000, false, pid);
+    int targetRid = 0;
+    if (targetProcess != IntPtr.Zero) {
+      try { targetRid = ProcessIntegrityRid(targetProcess); }
+      finally { CloseHandle(targetProcess); }
+    }
+    return new WindowIntegrityInfo {
+      Known = ownRid > 0 && targetRid > 0,
+      Higher = ownRid > 0 && targetRid > ownRid,
+      OwnRid = ownRid,
+      TargetRid = targetRid,
+      OwnName = IntegrityName(ownRid),
+      TargetName = IntegrityName(targetRid)
+    };
+  }
+  public static WindowCaptureInfo CaptureVisibleWindow(IntPtr h) {
+    if (!IsWindowHandle(h)) {
+      throw new InvalidOperationException("capture_source_unavailable|exact native window is stale or invalid");
+    }
+    if (IsIconic(h)) {
+      throw new InvalidOperationException("capture_source_unavailable|minimized native window has no visible pixels");
+    }
+    RECT bounds;
+    if (!GetWindowRect(h, out bounds)) {
+      throw new InvalidOperationException("capture_source_unavailable|could not read exact native window bounds");
+    }
+    int width = bounds.right - bounds.left;
+    int height = bounds.bottom - bounds.top;
+    if (width <= 0 || height <= 0) {
+      throw new InvalidOperationException("capture_source_unavailable|exact native window has empty bounds");
+    }
+    int insetX = Math.Max(4, width / 6);
+    int insetY = Math.Max(4, height / 6);
+    POINT[] samples = new POINT[] {
+      new POINT { x = bounds.left + width / 2, y = bounds.top + height / 2 },
+      new POINT { x = bounds.left + insetX, y = bounds.top + height / 2 },
+      new POINT { x = bounds.right - insetX, y = bounds.top + height / 2 },
+      new POINT { x = bounds.left + width / 2, y = bounds.top + insetY },
+      new POINT { x = bounds.left + width / 2, y = bounds.bottom - insetY }
+    };
+    int visibleSamples = 0;
+    foreach (POINT sample in samples) {
+      if (WindowAtPoint(sample.x, sample.y) == h) visibleSamples++;
+    }
+    if (visibleSamples < 3) {
+      throw new InvalidOperationException(
+        "capture_occluded|exact native window is not topmost at enough sampled points");
+    }
+    using (Bitmap bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+    using (Graphics graphics = Graphics.FromImage(bitmap))
+    using (MemoryStream stream = new MemoryStream()) {
+      graphics.CopyFromScreen(
+        bounds.left,
+        bounds.top,
+        0,
+        0,
+        new Size(width, height),
+        CopyPixelOperation.SourceCopy);
+      bitmap.Save(stream, ImageFormat.Png);
+      return new WindowCaptureInfo {
+        PngBase64 = Convert.ToBase64String(stream.ToArray()),
+        X = bounds.left,
+        Y = bounds.top,
+        Width = width,
+        Height = height,
+        VisibleSamples = visibleSamples
+      };
+    }
   }
   static string Text(IntPtr h) {
     StringBuilder s = new StringBuilder(1024);
@@ -998,7 +1160,7 @@ public class MixWin32 {
     }
     return top;
   }
-  static ushort NamedVirtualKey(string name) {
+  public static ushort NamedVirtualKey(string name) {
     switch (name) {
       case "BACKSPACE": case "BS": return 0x08;
       case "TAB": return 0x09;
@@ -1123,23 +1285,33 @@ public class MixWin32 {
   // foreground lock. Verify the switch actually happened and escalate through
   // the documented workarounds; report failure honestly instead of typing
   // into whatever window the user happens to have focused.
+  static bool TryFocusAttached(IntPtr h) {
+    IntPtr foreground = GetForegroundWindow();
+    uint foregroundThread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
+    uint currentThread = GetCurrentThreadId();
+    bool attached = foregroundThread != 0 && foregroundThread != currentThread;
+    if (attached) AttachThreadInput(currentThread, foregroundThread, true);
+    try {
+      ShowWindow(h, 9);
+      SetForegroundWindow(h);
+      return GetForegroundWindow() == h;
+    } finally {
+      if (attached) AttachThreadInput(currentThread, foregroundThread, false);
+    }
+  }
   public static bool Focus(IntPtr h) {
+    if (h == IntPtr.Zero || !IsWindow(h)) return false;
     ShowWindow(h, 9);
     SetForegroundWindow(h);
     if (GetForegroundWindow() == h) return true;
-    List<INPUT> alt = new List<INPUT>();
-    AddVk(alt, 0x12, false); AddVk(alt, 0x12, true);
-    Dispatch(alt);
-    SetForegroundWindow(h);
-    if (GetForegroundWindow() == h) return true;
-    uint fgThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
-    uint myThread = GetCurrentThreadId();
-    AttachThreadInput(fgThread, myThread, true);
-    ShowWindow(h, 9);
-    SetForegroundWindow(h);
-    AttachThreadInput(fgThread, myThread, false);
-    System.Threading.Thread.Sleep(80);
-    return GetForegroundWindow() == h;
+    if (TryFocusAttached(h)) return true;
+    keybd_event(0xFC, 0, 0, UIntPtr.Zero);
+    keybd_event(0xFC, 0, 0x2, UIntPtr.Zero);
+    for (int attempt = 0; attempt < 3; attempt++) {
+      if (TryFocusAttached(h)) return true;
+      System.Threading.Thread.Sleep(25);
+    }
+    return false;
   }
   [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
   [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT p);
@@ -1537,6 +1709,41 @@ function Format-StructuredObservationState($observation, $kind) {
   return ($parts -join ';')
 }
 
+function Get-ElementStructure($el) {
+  $ancestors = New-Object System.Collections.ArrayList
+  $parentRuntimeId = ''
+  $inDocument = $false
+  $parent = $Walker.GetParent($el)
+  for ($depth = 0; $depth -lt 80 -and $null -ne $parent; $depth++) {
+    if ([System.Windows.Automation.Automation]::Compare($parent, $AE::RootElement)) { break }
+    $role = ''
+    $name = ''
+    try { $role = $parent.Current.ControlType.ProgrammaticName -replace 'ControlType\.','' } catch {}
+    try { $name = [string]$parent.Current.Name } catch {}
+    $runtimeId = Get-ElRuntimeKey $parent
+    if ($depth -eq 0) { $parentRuntimeId = $runtimeId }
+    if ($role -eq 'Document') { $inDocument = $true }
+    [void]$ancestors.Add([ordered]@{
+      runtime_id = [string]$runtimeId
+      role = [string]$role
+      name = (Format-ObservationValue $name 200)
+    })
+    $parent = $Walker.GetParent($parent)
+  }
+  $className = ''
+  $hasKeyboardFocus = $false
+  try { $className = [string]$el.Current.ClassName } catch {}
+  try { $hasKeyboardFocus = [bool]$el.Current.HasKeyboardFocus } catch {}
+  return [ordered]@{
+    runtime_id = [string](Get-ElRuntimeKey $el)
+    parent_runtime_id = [string]$parentRuntimeId
+    class_name = [string]$className
+    has_keyboard_focus = [bool]$hasKeyboardFocus
+    in_document = [bool]$inDocument
+    ancestors = @($ancestors)
+  }
+}
+
 function Snapshot-Window($req) {
   $snapshotClock = [System.Diagnostics.Stopwatch]::StartNew()
   $info = Resolve-WindowInfo $req.window $req.window_id
@@ -1745,7 +1952,7 @@ function Snapshot-Window($req) {
     if ($observation.CanSetValue) { [void]$actions.Add('set_value') }
     if ($observation.CanToggle) { [void]$actions.Add('toggle') }
     if ($observation.CanScroll) { [void]$actions.Add('scroll') }
-    [void]$elementsOut.Add([ordered]@{
+    $elementOut = [ordered]@{
       mark = [int]$mark
       ref = [string]$ref
       source = $(if ($record.Kind -eq 'msaa') { 'msaa' } else { 'uia' })
@@ -1761,7 +1968,17 @@ function Snapshot-Window($req) {
       center_x = [int]$cx
       center_y = [int]$cy
       actions = @($actions)
-    })
+    }
+    if ($req.include_structure -and $record.Kind -eq 'uia') {
+      $structure = Get-ElementStructure $record.Element
+      $elementOut.runtime_id = $structure.runtime_id
+      $elementOut.parent_runtime_id = $structure.parent_runtime_id
+      $elementOut.class_name = $structure.class_name
+      $elementOut.has_keyboard_focus = $structure.has_keyboard_focus
+      $elementOut.in_document = $structure.in_document
+      $elementOut.ancestors = @($structure.ancestors)
+    }
+    [void]$elementsOut.Add($elementOut)
     $detailText = if ($details.Count) { ' ' + ($details -join ' ') } else { '' }
     [void]$lines.Add(('[{0}] {1} "{2}"{3}{4} @{5},{6}' -f $ref, $ct, $nm, $en, $detailText, $cx, $cy))
   }
@@ -2177,15 +2394,21 @@ function Invoke-ForegroundInput($targetHandle, $action, $body) {
   if (-not [MixWin32]::Focus($targetHandle)) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false "could not temporarily focus target window" 'foreground_unavailable' 'foreground' ([MixWin32]::WindowId($targetHandle))
   }
+  if ($previous -ne $targetHandle) {
+    # SetForegroundWindow can report success before the target message loop is
+    # ready for keyboard or pointer input. Keep a bounded focus-settle interval
+    # between the verified switch and input dispatch.
+    [System.Threading.Thread]::Sleep(120)
+  }
   if ([MixWin32]::Foreground() -ne $targetHandle) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false "foreground changed before input dispatch; no input was sent" 'foreground_changed' 'foreground' ([MixWin32]::WindowId($targetHandle))
   }
   try {
     & $body
     # SendInput only enqueues events. Custom renderers such as Chromium consume
-    # them asynchronously, so keep the exact target foreground briefly before
-    # restoring the user's prior window.
-    [System.Threading.Thread]::Sleep(80)
+    # them asynchronously, so keep the exact target foreground through a
+    # bounded input-settle interval before restoring the user's prior window.
+    [System.Threading.Thread]::Sleep(240)
     return New-ActionResult $action 'foreground_sendinput' 'unverifiable' $false "$action input dispatched; refresh state before treating it as complete" $null 'foreground' ([MixWin32]::WindowId($targetHandle))
   } finally {
     $stillTargeted = [MixWin32]::Foreground() -eq $targetHandle
@@ -2219,24 +2442,32 @@ function Get-ModifierVks($modifiers) {
   return $vks
 }
 
+function Test-AllowedPointTarget($candidate, $selectedHandle, $allowedWindowIds) {
+  if ($candidate -eq $selectedHandle) { return $true }
+  if ([MixWin32]::IsContainedSameProcess($candidate, $selectedHandle)) { return $true }
+  if ([MixWin32]::IsOwnedBy($candidate, $selectedHandle)) {
+    foreach ($allowedId in @($allowedWindowIds)) {
+      if ([MixWin32]::ParseWindowId([string]$allowedId) -eq $candidate) { return $true }
+    }
+  }
+  return $false
+}
+
 function Do-ClickFamily($req, $kind) {
   $p = Get-PointArg $req
   $target = $p[2]
   $refRecord = if ($req.ref) { Get-RefRecord $req.ref } else { $null }
   $before = Get-ObservableTargetState $refRecord $req.action
+  $selectedHandle = [IntPtr]::Zero
+  $allowedWindowIds = @($req.allowed_window_ids)
   if ($req.window_id -or $req.window) {
     $selected = Resolve-WindowInfo $req.window $req.window_id
-    $allowedOwnedTarget = $false
-    $allowedSameProcessTarget = [MixWin32]::IsContainedSameProcess($target, $selected.Handle)
-    if ($target -ne $selected.Handle -and [MixWin32]::IsOwnedBy($target, $selected.Handle)) {
-      foreach ($allowedId in @($req.allowed_window_ids)) {
-        if ([MixWin32]::ParseWindowId([string]$allowedId) -eq $target) {
-          $allowedOwnedTarget = $true
-          break
-        }
-      }
-    }
-    if ($target -ne $selected.Handle -and -not $allowedOwnedTarget -and -not $allowedSameProcessTarget) {
+    $selectedHandle = $selected.Handle
+    $allowedOwnedTarget = $target -ne $selected.Handle -and
+      [MixWin32]::IsOwnedBy($target, $selected.Handle) -and
+      (Test-AllowedPointTarget $target $selected.Handle $allowedWindowIds)
+    $pointTargetAllowed = Test-AllowedPointTarget $target $selected.Handle $allowedWindowIds
+    if (-not $pointTargetAllowed -and $req.delivery -ne 'foreground') {
       return New-ActionResult $req.action 'none' 'suspected_noop' $false 'frame point is covered by or belongs to a different window' 'target_mismatch' $req.delivery $selected.Id
     }
     if (-not $allowedOwnedTarget) { $target = $selected.Handle }
@@ -2254,6 +2485,15 @@ function Do-ClickFamily($req, $kind) {
     }
   }
   return Invoke-ForegroundInput $target $req.action {
+    if ($selectedHandle -ne [IntPtr]::Zero) {
+      # Foreground delivery deliberately brings the exact target forward.
+      # Revalidate only after that focus settles: checking before focus makes
+      # every legitimately covered target impossible to operate.
+      $focusedPointTarget = [MixWin32]::WindowAtPoint($p[0], $p[1])
+      if (-not (Test-AllowedPointTarget $focusedPointTarget $selectedHandle $allowedWindowIds)) {
+        throw 'target_mismatch|frame point remains covered after exact target focus'
+      }
+    }
     $vks = Get-ModifierVks $req.modifiers
     foreach ($vk in $vks) { [MixWin32]::KeyDown([System.UInt16]$vk) }
     try {
@@ -2456,6 +2696,7 @@ function Get-WindowBounds($req) {
     text = ('window bounds: ' + $info.Title)
     title = $info.Title
     window_id = $info.Id
+    owner_id = $info.OwnerId
     x = $info.X
     y = $info.Y
     width = $info.Width
@@ -2465,6 +2706,42 @@ function Get-WindowBounds($req) {
     client_width = $info.ClientWidth
     client_height = $info.ClientHeight
     related_window_ids = @([MixWin32]::RelatedWindowIds($info.Handle))
+  }
+}
+
+function Get-WindowCapture($req) {
+  $info = Resolve-WindowInfo $req.window $req.window_id
+  try {
+    $capture = [MixWin32]::CaptureVisibleWindow($info.Handle)
+  } catch {
+    throw "native window capture failed for $($info.Id): $($_.Exception.Message)"
+  }
+  return @{
+    text = ('native window capture: ' + $info.Title)
+    title = $info.Title
+    window_id = $info.Id
+    x = $capture.X
+    y = $capture.Y
+    width = $capture.Width
+    height = $capture.Height
+    visible_samples = $capture.VisibleSamples
+    capture_source = 'screen_region'
+    image_base64 = $capture.PngBase64
+  }
+}
+
+function Get-WindowIntegrity($req) {
+  $info = Resolve-WindowInfo $req.window $req.window_id
+  $integrity = [MixWin32]::WindowIntegrity($info.Handle)
+  return @{
+    text = ('window integrity: ' + $integrity.TargetName)
+    window_id = $info.Id
+    known = $integrity.Known
+    higher = $integrity.Higher
+    own_rid = $integrity.OwnRid
+    target_rid = $integrity.TargetRid
+    own_name = $integrity.OwnName
+    target_name = $integrity.TargetName
   }
 }
 
@@ -2523,8 +2800,10 @@ function Restore-InputRecoveryState($req) {
 # is detected and reverted here.
 function Send-KeysGuarded($keys) {
   $keyText = [string]$keys
+  $modifierVks = @()
+  $vk = $null
+  $repeat = 1
   if ($keyText -match '^(?<mods>[\^%+]+)(?<key>[A-Za-z0-9])$') {
-    $modifierVks = @()
     foreach ($modifier in $matches['mods'].ToCharArray()) {
       switch ($modifier) {
         '^' { $modifierVks += 0x11 }
@@ -2533,9 +2812,30 @@ function Send-KeysGuarded($keys) {
       }
     }
     $vk = [int][char](([string]$matches['key']).ToUpperInvariant())
+  } elseif ($keyText -match '^(?<mods>[\^%+]*)\{(?<key>[A-Za-z]+[0-9]*)(?:\s+(?<repeat>[0-9]{1,3}))?\}$') {
+    foreach ($modifier in $matches['mods'].ToCharArray()) {
+      switch ($modifier) {
+        '^' { $modifierVks += 0x11 }
+        '%' { $modifierVks += 0x12 }
+        '+' { $modifierVks += 0x10 }
+      }
+    }
+    try {
+      $vk = [MixWin32]::NamedVirtualKey(([string]$matches['key']).ToUpperInvariant())
+    } catch {
+      $vk = $null
+    }
+    if ($matches['repeat']) {
+      $repeat = [int]$matches['repeat']
+      if ($repeat -lt 1 -or $repeat -gt 100) { $vk = $null }
+    }
+  }
+  if ($null -ne $vk) {
     foreach ($modifierVk in $modifierVks) { [MixWin32]::KeyDown([System.UInt16]$modifierVk) }
     try {
-      [MixWin32]::KeyTap([System.UInt16]$vk)
+      for ($count = 0; $count -lt $repeat; $count++) {
+        [MixWin32]::KeyTap([System.UInt16]$vk)
+      }
     } finally {
       for ($i = $modifierVks.Count - 1; $i -ge 0; $i--) {
         [MixWin32]::KeyUp([System.UInt16]$modifierVks[$i])
@@ -2888,9 +3188,27 @@ function Do-CloseWindow($req) {
 }
 
 function Do-Launch($app) {
-  if ([string]::IsNullOrWhiteSpace([string]$app)) { throw 'launch requires app' }
-  $process = Start-Process -FilePath ([string]$app) -PassThru
-  $result = New-ActionResult 'launch' 'process' 'unverifiable' $false ('launched ' + $app) $null 'background' $null
+  $target = [string]$app
+  if ([string]::IsNullOrWhiteSpace($target)) { throw 'launch requires app' }
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $target
+  $startInfo.UseShellExecute = $true
+  try {
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+  } catch [System.ComponentModel.Win32Exception] {
+    $nativeCode = [int]$_.Exception.NativeErrorCode
+    $category = switch ($nativeCode) {
+      { $_ -in 2, 3 } { 'target_not_found'; break }
+      5 { 'access_denied'; break }
+      { $_ -in 31, 1155 } { 'no_file_association'; break }
+      1223 { 'launch_cancelled'; break }
+      default { 'shell_launch_failed' }
+    }
+    throw "launch failed [$category/$nativeCode] for '$target': $($_.Exception.Message)"
+  } catch {
+    throw "launch failed [shell_launch_failed] for '$target': $($_.Exception.Message)"
+  }
+  $result = New-ActionResult 'launch' 'windows_shell' 'unverifiable' $false ('launched ' + $target) $null 'background' $null
   if ($null -ne $process) {
     $result.pid = [int]$process.Id
     try { $result.app_hint = [string]$process.ProcessName } catch {}
@@ -2914,7 +3232,7 @@ function Release-SessionState {
 }
 
 function Invalidate-RefsForRequest($req) {
-  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','input_recovery_state','ocr_image','ocr_status','release_session')
+  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','window_capture','window_integrity','input_recovery_state','ocr_image','ocr_status','release_session')
   if ($null -ne $req -and -not ($readActions -contains [string]$req.action)) {
     $state = Get-CurrentSession
     $state.Map.Clear()
@@ -2924,7 +3242,7 @@ function Invalidate-RefsForRequest($req) {
 
 function Handle($req) {
   $script:CurrentSession = Get-SessionState $req.session_id
-  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','input_recovery_state','ocr_image','ocr_status')
+  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','window_capture','window_integrity','input_recovery_state','ocr_image','ocr_status')
   if ($req.read_only -and -not ($readActions -contains [string]$req.action)) {
     throw "read_only run: '$($req.action)' is a mutation"
   }
@@ -2948,6 +3266,8 @@ function Handle($req) {
     'scroll'       { return Do-Scroll $req }
     'focus_window' { return Do-Focus $req }
     'window_bounds'{ return Get-WindowBounds $req }
+    'window_capture'{ return Get-WindowCapture $req }
+    'window_integrity'{ return Get-WindowIntegrity $req }
     'input_recovery_state' { return Get-InputRecoveryState $req }
     'restore_input_state' { return Restore-InputRecoveryState $req }
     'move_window'  { return Do-MoveWindow $req }
@@ -2989,19 +3309,44 @@ while ($true) {
 `.replace('${RESPONSE_MARKER}', RESPONSE_MARKER);
 }
 
+export interface ChromeRemoteDebuggingTarget {
+  windowId: string;
+  pid: number;
+}
+
+export interface ChromeRemoteDebuggingSetup extends ChromeRemoteDebuggingTarget {
+  openedSetupPage: boolean;
+  enabledByMixdog: boolean;
+}
+
 export interface PowerShellComputerHost {
+  setBridgeEnabled(enabled: boolean): void;
+  inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
+  prepareChromeRemoteDebugging(
+    target: ChromeRemoteDebuggingTarget,
+  ): Promise<ChromeRemoteDebuggingSetup>;
+  acceptChromeRemoteDebuggingConsent(
+    setup: ChromeRemoteDebuggingSetup,
+    signal?: AbortSignal,
+  ): Promise<boolean>;
+  finalizeChromeRemoteDebuggingSetup(setup: ChromeRemoteDebuggingSetup): Promise<void>;
+  releaseChromeRemoteDebugging(setup: ChromeRemoteDebuggingSetup): Promise<void>;
   dispose(): Promise<void>;
 }
 
-export function createPowerShellComputerHost(): PowerShellComputerHost {
-  const token = randomBytes(24).toString('base64url');
+export function createPowerShellComputerHost(
+  options: { bridgeEnabled?: boolean } = {},
+): PowerShellComputerHost {
+  let token = randomBytes(24).toString('base64url');
   let heartbeat: NodeJS.Timeout | null = null;
   let server: Server | null = null;
   let discoveryPath: string | null = null;
+  let bridgeWanted = options.bridgeEnabled !== false;
+  let bridgeGeneration = 0;
   let disposed = false;
 
-  // Resident PowerShell host + its pending-request table.
-  let ps: ChildProcessWithoutNullStreams | null = null;
+  // Agent-scoped resident PowerShell workers + their shared pending-request table.
+  const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   let hostScriptPath: string | null = null;
   let nextId = 1;
   const pending = new Map<number, {
@@ -3010,52 +3355,106 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     timer: NodeJS.Timeout;
     child: ChildProcessWithoutNullStreams;
   }>();
-  let commandChain: Promise<unknown> = Promise.resolve();
+  const commandChainsBySession = new Map<string, Promise<unknown>>();
+  let foregroundChain: Promise<unknown> = Promise.resolve();
   let nextFrameId = 1;
   const framesBySession = new Map<string, Map<string, CaptureFrame>>();
   const elementTargetsBySession = new Map<string, Map<number, ElementAliasTarget>>();
-  const observedWindowBySession = new Map<string, string>();
-  let desktopLease: { sessionId: string; acquiredAt: number; lastUsedAt: number } | null = null;
-  let activeExecution: {
+  const observedWindowBySession = new Map<string, ObservedWindowScope>();
+  const targetClaims = new Map<string, { sessionId: string; lastUsedAt: number }>();
+  const targetsBySession = new Map<string, Set<string>>();
+  const activeExecutionsBySession = new Map<string, {
     sessionId: string;
     aborted: boolean;
     recovery?: InputRecoveryState;
-  } | null = null;
+  }>();
+  const executionContext = new AsyncLocalStorage<{
+    sessionId: string;
+    aborted: boolean;
+    recovery?: InputRecoveryState;
+  }>();
   const sessionAbortEpochs = new Map<string, number>();
   const sessionRecoveryBySession = new Map<string, InputRecoveryState>();
-  const DESKTOP_LEASE_STALE_MS = 10 * 60_000;
+  const TARGET_CLAIM_STALE_MS = 10 * 60_000;
 
   function sessionIdFor(command: ComputerCommand): string {
     return String(command.session_id || 'default');
   }
 
-  function acquireDesktopLease(command: ComputerCommand): void {
-    const sessionId = sessionIdFor(command);
-    const now = Date.now();
-    if (desktopLease && now - desktopLease.lastUsedAt >= DESKTOP_LEASE_STALE_MS) {
-      desktopLease = null;
+  function expireStaleTargetClaims(now = Date.now()): void {
+    for (const [windowId, claim] of targetClaims) {
+      if (now - claim.lastUsedAt < TARGET_CLAIM_STALE_MS) continue;
+      targetClaims.delete(windowId);
+      const sessionTargets = targetsBySession.get(claim.sessionId);
+      sessionTargets?.delete(windowId);
+      if (sessionTargets?.size === 0) targetsBySession.delete(claim.sessionId);
     }
-    if (desktopLease && desktopLease.sessionId !== sessionId) {
-      throw new Error(`computer_in_use: desktop is reserved by session ${desktopLease.sessionId}`);
-    }
-    if (!desktopLease) desktopLease = { sessionId, acquiredAt: now, lastUsedAt: now };
-    else desktopLease.lastUsedAt = now;
   }
 
-  async function releaseDesktopLease(command: ComputerCommand): Promise<ComputerCommandResult> {
+  function touchTargetClaims(sessionId: string): void {
+    const now = Date.now();
+    expireStaleTargetClaims(now);
+    for (const windowId of targetsBySession.get(sessionId) || []) {
+      const claim = targetClaims.get(windowId);
+      if (claim?.sessionId === sessionId) claim.lastUsedAt = now;
+    }
+  }
+
+  function claimComputerTargets(command: ComputerCommand, windowIds: Array<string | undefined>): void {
     const sessionId = sessionIdFor(command);
+    const now = Date.now();
+    expireStaleTargetClaims(now);
+    const exactWindowIds = [...new Set(windowIds.map((value) => String(value || '')).filter(Boolean))];
+    for (const windowId of exactWindowIds) {
+      const claim = targetClaims.get(windowId);
+      if (claim && claim.sessionId !== sessionId) {
+        throw new Error(`computer_target_in_use: ${windowId} is reserved by another agent`);
+      }
+    }
+    let sessionTargets = targetsBySession.get(sessionId);
+    if (!sessionTargets) {
+      sessionTargets = new Set();
+      targetsBySession.set(sessionId, sessionTargets);
+    }
+    for (const windowId of exactWindowIds) {
+      targetClaims.set(windowId, { sessionId, lastUsedAt: now });
+      sessionTargets.add(windowId);
+    }
+  }
+
+  function releaseTargetClaims(sessionId: string): void {
+    for (const windowId of targetsBySession.get(sessionId) || []) {
+      if (targetClaims.get(windowId)?.sessionId === sessionId) targetClaims.delete(windowId);
+    }
+    targetsBySession.delete(sessionId);
+  }
+
+  function runForegroundExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    const run = foregroundChain.then(operation);
+    foregroundChain = run.catch(() => undefined);
+    return run;
+  }
+
+  async function releaseComputerSession(command: ComputerCommand): Promise<ComputerCommandResult> {
+    const sessionId = sessionIdFor(command);
+    const child = powerShellBySession.get(sessionId);
     try {
-      await callPowerShell({
-        action: 'release_session',
-        session_id: sessionId,
-        read_only: false,
-      });
+      if (child && !child.killed) {
+        await callPowerShell({
+          action: 'release_session',
+          session_id: sessionId,
+          read_only: false,
+        });
+      }
     } finally {
+      if (child && !child.killed) {
+        retirePowerShell(child, new Error('computer session released'));
+      }
       framesBySession.delete(sessionId);
       elementTargetsBySession.delete(sessionId);
       observedWindowBySession.delete(sessionId);
       sessionRecoveryBySession.delete(sessionId);
-      if (desktopLease?.sessionId === sessionId) desktopLease = null;
+      releaseTargetClaims(sessionId);
     }
     return { text: 'computer session released' };
   }
@@ -3099,25 +3498,22 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
 
   async function abortComputerSession(command: ComputerCommand): Promise<ComputerCommandResult> {
     const sessionId = sessionIdFor(command);
-    if (desktopLease && desktopLease.sessionId !== sessionId) {
-      throw new Error(`computer_in_use: desktop is reserved by session ${desktopLease.sessionId}`);
-    }
-    if (activeExecution && activeExecution.sessionId !== sessionId) {
-      throw new Error(`computer_in_use: command belongs to session ${activeExecution.sessionId}`);
-    }
     sessionAbortEpochs.set(sessionId, (sessionAbortEpochs.get(sessionId) || 0) + 1);
+    const activeExecution = activeExecutionsBySession.get(sessionId);
     const recovery = activeExecution?.recovery || sessionRecoveryBySession.get(sessionId);
     if (activeExecution) activeExecution.aborted = true;
-    if (ps && !ps.killed) {
-      retirePowerShell(ps, new Error('computer_session_aborted: command stopped by session cancellation'));
+    const child = powerShellBySession.get(sessionId);
+    if (child && !child.killed) {
+      retirePowerShell(child, new Error('computer_session_aborted: command stopped by session cancellation'));
     }
+    activeExecutionsBySession.delete(sessionId);
     framesBySession.delete(sessionId);
     elementTargetsBySession.delete(sessionId);
     observedWindowBySession.delete(sessionId);
     sessionRecoveryBySession.delete(sessionId);
-    if (desktopLease?.sessionId === sessionId) desktopLease = null;
-    await cleanupAbortedInput(recovery);
-    return { text: 'computer session aborted; input state and desktop lease were released' };
+    releaseTargetClaims(sessionId);
+    await runForegroundExclusive(() => cleanupAbortedInput(recovery));
+    return { text: 'computer session aborted; input state and session resources were released' };
   }
 
   function rememberFrame(frame: CaptureFrame): void {
@@ -3130,6 +3526,21 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     while (frames.size > 8) frames.delete(frames.keys().next().value as string);
   }
 
+  function rememberObservedWindowScope(
+    command: ComputerCommand,
+    primaryWindowId: string,
+    relatedWindowIds: string[] = [],
+  ): void {
+    if (!primaryWindowId) return;
+    observedWindowBySession.set(sessionIdFor(command), {
+      primaryWindowId,
+      relatedWindowIds: [...new Set([
+        primaryWindowId,
+        ...relatedWindowIds.map(String).filter(Boolean),
+      ])],
+    });
+  }
+
   function normalizeElementRecords(value: unknown): ComputerElementRecord[] {
     if (!Array.isArray(value)) return [];
     const elements: ComputerElementRecord[] = [];
@@ -3139,6 +3550,17 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       const mark = Number(row.mark);
       const ref = String(row.ref || '');
       if (!Number.isInteger(mark) || mark < 1 || !ref) continue;
+      const ancestors: ChromeUiaAncestor[] = Array.isArray(row.ancestors)
+        ? row.ancestors.flatMap((rawAncestor) => {
+            if (!rawAncestor || typeof rawAncestor !== 'object') return [];
+            const ancestor = rawAncestor as Record<string, unknown>;
+            return [{
+              runtime_id: String(ancestor.runtime_id || ''),
+              role: String(ancestor.role || ''),
+              name: String(ancestor.name || ''),
+            }];
+          })
+        : [];
       elements.push({
         mark,
         ref,
@@ -3157,6 +3579,12 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         actions: Array.isArray(row.actions)
           ? row.actions.map((action) => String(action)).filter(Boolean)
           : [],
+        runtime_id: String(row.runtime_id || '') || undefined,
+        parent_runtime_id: String(row.parent_runtime_id || '') || undefined,
+        class_name: String(row.class_name || '') || undefined,
+        has_keyboard_focus: row.has_keyboard_focus === true,
+        in_document: row.in_document === true,
+        ancestors,
       });
     }
     return elements;
@@ -3279,8 +3707,9 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     };
   }
 
-  function ensurePowerShell(): ChildProcessWithoutNullStreams {
-    if (ps && !ps.killed) return ps;
+  function ensurePowerShell(sessionId: string): ChildProcessWithoutNullStreams {
+    const existing = powerShellBySession.get(sessionId);
+    if (existing && !existing.killed) return existing;
     // The program runs from a temp .ps1 via -File, NOT piped through -Command -:
     // with -Command - PowerShell consumes stdin as the command text, colliding
     // with the per-command JSON we also write to stdin. -File leaves stdin
@@ -3309,7 +3738,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     });
     child.stderr.on('data', () => { /* diagnostics ignored; errors ride responses */ });
     child.once('exit', () => {
-      if (ps === child) ps = null;
+      if (powerShellBySession.get(sessionId) === child) powerShellBySession.delete(sessionId);
       for (const [id, entry] of pending) {
         if (entry.child !== child) continue;
         clearTimeout(entry.timer);
@@ -3317,12 +3746,14 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         pending.delete(id);
       }
     });
-    ps = child;
+    powerShellBySession.set(sessionId, child);
     return child;
   }
 
   function retirePowerShell(child: ChildProcessWithoutNullStreams, error: Error): void {
-    if (ps === child) ps = null;
+    for (const [sessionId, activeChild] of powerShellBySession) {
+      if (activeChild === child) powerShellBySession.delete(sessionId);
+    }
     for (const [id, entry] of pending) {
       if (entry.child !== child) continue;
       clearTimeout(entry.timer);
@@ -3347,7 +3778,8 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
   }
 
   function callPowerShell(request: Record<string, unknown>): Promise<PowerShellResponse> {
-    const child = ensurePowerShell();
+    const sessionId = String(request.session_id || 'default');
+    const child = ensurePowerShell(sessionId);
     const id = nextId++;
     const line = `${JSON.stringify({ ...request, id })}\n`;
     return new Promise<PowerShellResponse>((resolve, reject) => {
@@ -3363,6 +3795,269 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  async function callPowerShellElevated(
+    request: Record<string, unknown>,
+  ): Promise<PowerShellResponse> {
+    ensurePowerShell(String(request.session_id || 'default'));
+    if (!hostScriptPath) throw new Error('privileged_worker_unavailable: computer host script is missing');
+    const directory = mixdogDataDirectory();
+    mkdirSync(directory, { recursive: true });
+    const elevatedBootstrap = String.raw`
+$ErrorActionPreference = 'Stop'
+$token = [string]$env:MIXDOG_ELEVATED_TOKEN
+$hostScript = [string]$env:MIXDOG_ELEVATED_HOST_SCRIPT
+$hostSha256 = [string]$env:MIXDOG_ELEVATED_HOST_SHA256
+$requestPath = [string]$env:MIXDOG_ELEVATED_REQUEST
+$requestSha256 = [string]$env:MIXDOG_ELEVATED_REQUEST_SHA256
+$responsePath = [string]$env:MIXDOG_ELEVATED_RESPONSE
+$marker = [string]$env:MIXDOG_ELEVATED_MARKER
+$protectedHost = $null
+
+function Get-Sha256Hex([byte[]]$bytes) {
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+  } finally {
+    $sha.Dispose()
+  }
+}
+
+function Set-AdminOnlyDirectory([string]$path) {
+  [void][System.IO.Directory]::CreateDirectory($path)
+  $administrators = New-Object System.Security.Principal.SecurityIdentifier(
+    [System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
+  $system = New-Object System.Security.Principal.SecurityIdentifier(
+    [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+  $acl = New-Object System.Security.AccessControl.DirectorySecurity
+  $acl.SetAccessRuleProtection($true, $false)
+  $acl.SetOwner($administrators)
+  $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+    [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+  $propagation = [System.Security.AccessControl.PropagationFlags]::None
+  $allow = [System.Security.AccessControl.AccessControlType]::Allow
+  $full = [System.Security.AccessControl.FileSystemRights]::FullControl
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    $administrators, $full, $inheritance, $propagation, $allow)))
+  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+    $system, $full, $inheritance, $propagation, $allow)))
+  [System.IO.Directory]::SetAccessControl($path, $acl)
+}
+
+try {
+  if ([string]::IsNullOrWhiteSpace($token) -or
+      [string]::IsNullOrWhiteSpace($hostScript) -or
+      [string]::IsNullOrWhiteSpace($hostSha256) -or
+      [string]::IsNullOrWhiteSpace($requestPath) -or
+      [string]::IsNullOrWhiteSpace($requestSha256) -or
+      [string]::IsNullOrWhiteSpace($responsePath) -or
+      [string]::IsNullOrWhiteSpace($marker)) {
+    throw 'privileged worker environment is incomplete'
+  }
+  if ($token -notmatch '^[A-Za-z0-9_-]{32,}$') {
+    throw 'privileged worker token is malformed'
+  }
+  $hostBytes = [System.IO.File]::ReadAllBytes($hostScript)
+  if ((Get-Sha256Hex $hostBytes) -ne $hostSha256.ToLowerInvariant()) {
+    throw 'privileged worker host authentication failed'
+  }
+  $requestBytes = [System.IO.File]::ReadAllBytes($requestPath)
+  if ((Get-Sha256Hex $requestBytes) -ne $requestSha256.ToLowerInvariant()) {
+    throw 'privileged worker request authentication failed'
+  }
+  $requestText = [System.Text.Encoding]::UTF8.GetString($requestBytes)
+  $request = $requestText | ConvertFrom-Json
+  $allowed = @('click','double_click','right_click','middle_click','triple_click','mouse_move','drag','scroll','key','type')
+  if (-not ($allowed -contains [string]$request.action)) {
+    throw "privileged worker action is not allowed: $($request.action)"
+  }
+  if ([string]$request.delivery -ne 'foreground') {
+    throw 'privileged worker requires delivery=foreground'
+  }
+  if ([string]$request.window_id -notmatch '^hwnd:0x[0-9a-fA-F]+$') {
+    throw 'privileged worker requires exact window_id'
+  }
+  if (-not [string]::IsNullOrWhiteSpace([string]$request.ref) -or
+      -not [string]::IsNullOrWhiteSpace([string]$request.to)) {
+    throw 'privileged worker requires frame-bound coordinates or direct keys/text'
+  }
+  $normalizedKeys = ([string]$request.keys) -replace '\\s+', ''
+  if ($normalizedKeys -match '^(?i:%\\{F4\\}|\\^%\\{(?:DEL|DELETE)\\}|#(?:L|\\{L\\}))$') {
+    throw 'privileged worker blocked a destructive or session-ending key combination'
+  }
+  $workerDirectory = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Mixdog\ComputerWorker'
+  Set-AdminOnlyDirectory $workerDirectory
+  $protectedHost = Join-Path $workerDirectory ('host-' + $token + '.ps1')
+  [System.IO.File]::WriteAllBytes($protectedHost, $hostBytes)
+  $powershell = Join-Path $PSHOME 'powershell.exe'
+  $lines = @(
+    $requestText |
+      & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $protectedHost 2>&1 |
+      ForEach-Object { [string]$_ }
+  )
+  $response = @($lines | Where-Object { $_.StartsWith($marker) } | Select-Object -Last 1)
+  if ($response.Count -ne 1) {
+    throw 'privileged worker host returned no structured response'
+  }
+  [System.IO.File]::WriteAllText(
+    $responsePath,
+    $token + [Environment]::NewLine + [string]$response[0],
+    [System.Text.Encoding]::UTF8)
+  exit 0
+} catch {
+  try {
+    [System.IO.File]::WriteAllText(
+      $responsePath,
+      $token + [Environment]::NewLine + 'ERROR:' + $_.Exception.Message,
+      [System.Text.Encoding]::UTF8)
+  } catch {}
+  exit 1
+} finally {
+  if (-not [string]::IsNullOrWhiteSpace($protectedHost)) {
+    Remove-Item -LiteralPath $protectedHost -Force -ErrorAction SilentlyContinue
+  }
+}
+`;
+    const nonce = randomBytes(24).toString('base64url');
+    const requestPath = join(directory, `computer-elevated-${nonce}.request.json`);
+    const responsePath = join(directory, `computer-elevated-${nonce}.response.txt`);
+    const id = nextId++;
+    const requestBytes = Buffer.from(`${JSON.stringify({ ...request, id })}\n`, 'utf8');
+    const hostBytes = readFileSync(hostScriptPath);
+    const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+    writeFileSync(requestPath, requestBytes, {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    const bootstrapEncoded = Buffer.from(elevatedBootstrap, 'utf16le').toString('base64');
+    const launcher = [
+      "$ErrorActionPreference = 'Stop'",
+      "$powershell = Join-Path $PSHOME 'powershell.exe'",
+      `$bootstrap = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${bootstrapEncoded}'))`,
+      "function ConvertTo-MixdogLiteral([string]$value) { return \"'\" + $value.Replace(\"'\", \"''\") + \"'\" }",
+      "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_MARKER')",
+      "$prelude = @($variableNames | ForEach-Object { '$env:' + $_ + ' = ' + (ConvertTo-MixdogLiteral ([string][Environment]::GetEnvironmentVariable($_))) }) -join [Environment]::NewLine",
+      '$elevatedScript = $prelude + [Environment]::NewLine + $bootstrap',
+      '$elevatedEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedScript))',
+      "$arguments = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',$elevatedEncoded)",
+      'try {',
+      "  $process = Start-Process -FilePath $powershell -Verb RunAs -ArgumentList $arguments -Wait -PassThru",
+      '  exit $process.ExitCode',
+      '} catch {',
+      "  [Console]::Error.WriteLine(('launcher_error:' + $_.Exception.Message))",
+      '  exit 1223',
+      '}',
+    ].join('; ');
+    try {
+      const launcherResult = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
+        const child = spawn('powershell.exe', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-Command',
+          launcher,
+        ], {
+          windowsHide: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            ...process.env,
+            MIXDOG_ELEVATED_TOKEN: nonce,
+            MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath!,
+            MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
+            MIXDOG_ELEVATED_REQUEST: requestPath,
+            MIXDOG_ELEVATED_REQUEST_SHA256: sha256(requestBytes),
+            MIXDOG_ELEVATED_RESPONSE: responsePath,
+            MIXDOG_ELEVATED_MARKER: RESPONSE_MARKER,
+          },
+        });
+        let stdout = '';
+        let stderr = '';
+        const appendBounded = (current: string, chunk: Buffer): string =>
+          `${current}${chunk.toString('utf8')}`.slice(-4096);
+        child.stdout.on('data', (chunk: Buffer) => {
+          stdout = appendBounded(stdout, chunk);
+        });
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderr = appendBounded(stderr, chunk);
+        });
+        const timer = setTimeout(() => {
+          try { child.kill(); } catch { /* launcher already exited */ }
+          reject(new Error('privileged_worker_timeout: UAC consent or elevated input timed out'));
+        }, 120_000);
+        child.once('error', (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child.once('exit', (code) => {
+          clearTimeout(timer);
+          resolve({
+            code: Number(code ?? 1),
+            stdout,
+            stderr,
+          });
+        });
+      });
+      let envelope = '';
+      try {
+        envelope = readFileSync(responsePath, 'utf8');
+      } catch {
+        const launcherDetail = `${launcherResult.stderr}\n${launcherResult.stdout}`
+          .trim()
+          .replace(/\s+/g, ' ')
+          .slice(0, 1000);
+        if (launcherResult.code === 1223) {
+          throw new Error('privileged_worker_cancelled: UAC consent was declined');
+        }
+        if (launcherResult.code === 0) {
+          throw new Error('privileged_worker_unavailable: elevated worker returned no response');
+        }
+        throw new Error(
+          `privileged_worker_launcher_failed: elevated worker exited with code ${launcherResult.code}`
+          + (launcherDetail ? ` (${launcherDetail})` : ''),
+        );
+      }
+      const newline = envelope.indexOf('\n');
+      const responseToken = (newline >= 0 ? envelope.slice(0, newline) : envelope)
+        .replace(/^\uFEFF/, '')
+        .replace(/\r$/, '');
+      const responseLine = newline >= 0 ? envelope.slice(newline + 1).trim() : '';
+      if (responseToken !== nonce) {
+        throw new Error('privileged_worker_rejected: response authentication failed');
+      }
+      if (responseLine.startsWith('ERROR:')) {
+        throw new Error(`privileged_worker_failed: ${responseLine.slice(6)}`);
+      }
+      const marker = responseLine.indexOf(RESPONSE_MARKER);
+      if (marker < 0) throw new Error('privileged_worker_failed: structured response is missing');
+      const parsed = JSON.parse(responseLine.slice(marker + RESPONSE_MARKER.length)) as PowerShellResponse;
+      if (parsed.id !== id) throw new Error('privileged_worker_rejected: response id mismatch');
+      return parsed;
+    } finally {
+      try { unlinkSync(requestPath); } catch { /* already removed */ }
+      try { unlinkSync(responsePath); } catch { /* no response on UAC cancellation */ }
+    }
+  }
+
+  async function readWindowIntegrity(
+    windowId: string | undefined,
+    sessionId: string,
+  ): Promise<{ known: boolean; higher: boolean; ownName: string; targetName: string }> {
+    if (!windowId) return { known: false, higher: false, ownName: 'Unknown', targetName: 'Unknown' };
+    const response = await callPowerShell({
+      action: 'window_integrity',
+      window_id: windowId,
+      session_id: sessionId,
+      read_only: true,
+    });
+    if (!response.ok) throw new Error(response.error || 'window integrity lookup failed');
+    return {
+      known: response.result?.known === true,
+      higher: response.result?.higher === true,
+      ownName: String(response.result?.own_name || 'Unknown'),
+      targetName: String(response.result?.target_name || 'Unknown'),
+    };
   }
 
   async function readComputerWindows(
@@ -3583,10 +4278,11 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     result: Record<string, unknown>,
     transition: ComputerWindowTransition | null,
     targetWindowId: string | undefined,
+    launchTarget = '',
   ): boolean {
-    if (result.verified === true || action !== 'invoke' || !transition || !targetWindowId) {
-      return false;
-    }
+    if (result.verified === true || !transition) return false;
+    if (action === 'launch') return launchTransitionConfirmsTarget(transition, launchTarget);
+    if (action !== 'invoke' || !targetWindowId) return false;
     const semanticPath = ['uia_invoke', 'uia_selection', 'msaa_default_action']
       .includes(String(result.path || ''));
     if (!semanticPath) return false;
@@ -3729,7 +4425,48 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
   }
 
   /** On-demand JPEG through Electron, scoped to the primary screen or one window. */
-  async function captureScreenshot(command: ComputerCommand): Promise<ScreenshotCapture> {
+  async function captureVisibleNativeWindow(
+    windowId: string,
+    sessionId: string,
+  ): Promise<{
+    image: NativeImage;
+    sourceId: string;
+    sourceName: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null> {
+    try {
+      const response = await callPowerShell({
+        action: 'window_capture',
+        window_id: windowId,
+        session_id: sessionId,
+        read_only: true,
+      });
+      const encoded = String(response.result?.image_base64 || '');
+      if (!response.ok || !encoded) return null;
+      const image = nativeImage.createFromBuffer(Buffer.from(encoded, 'base64'));
+      const size = image.getSize();
+      if (image.isEmpty() || size.width <= 0 || size.height <= 0) return null;
+      return {
+        image,
+        sourceId: `native-window:${windowId}`,
+        sourceName: String(response.result?.title || windowId),
+        x: Math.round(Number(response.result?.x) || 0),
+        y: Math.round(Number(response.result?.y) || 0),
+        width: Math.round(Number(response.result?.width) || size.width),
+        height: Math.round(Number(response.result?.height) || size.height),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async function captureScreenshot(
+    command: ComputerCommand,
+    allowOwnerFallback = true,
+  ): Promise<ScreenshotCapture> {
     const quality = screenshotInteger(command.quality, DEFAULT_SCREENSHOT_QUALITY, 0, 100, 'quality');
     const maxWidth = screenshotInteger(
       command.maxWidth,
@@ -3754,6 +4491,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     let targetWindowY = 0;
     let targetWindowWidth = 0;
     let targetWindowHeight = 0;
+    let captureOwnerWindowId = '';
     let clientOriginX = 0;
     let clientOriginY = 0;
     let clientWidth = 0;
@@ -3771,6 +4509,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       sourceType = 'window';
       sourceTitle = String(bounds.result?.title || command.window?.trim() || command.window_id);
       targetWindowId = String(bounds.result?.window_id || command.window_id || '');
+      captureOwnerWindowId = String(bounds.result?.owner_id || '');
       sourceWidth = Number(bounds.result?.width);
       sourceHeight = Number(bounds.result?.height);
       if (!Number.isFinite(sourceWidth) || sourceWidth <= 0 || !Number.isFinite(sourceHeight) || sourceHeight <= 0) {
@@ -3865,28 +4604,61 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         DESKTOP_CAPTURE_TIMEOUT_MS,
         'desktop capture',
       ).catch(() => null);
-      if (!sources) {
-        const unavailable = pixelUnavailable(
-          'capture_source_unavailable',
-          `exact ${sourceType} capture did not settle before the safety deadline`,
-        );
-        return {
-          description: unavailable.message,
-          ...(targetWindowId ? { windowId: targetWindowId } : {}),
-          pixelUnavailable: unavailable,
-        };
-      }
       const windowHandleDecimal = targetWindowId
         ? Number.parseInt(targetWindowId.replace(/^hwnd:/i, '').replace(/^0x/i, ''), 16)
         : Number.NaN;
-      const source = sourceType === 'screen'
-        ? sources.find((candidate) => candidate.display_id === targetDisplayId)
-        : sources.find((candidate) => Number.isFinite(windowHandleDecimal)
-            && candidate.id.split(':').some((part) => Number(part) === windowHandleDecimal));
-      if (!source) {
+      const source = sources
+        ? (sourceType === 'screen'
+            ? sources.find((candidate) => candidate.display_id === targetDisplayId)
+            : sources.find((candidate) => Number.isFinite(windowHandleDecimal)
+                && candidate.id.split(':').some((part) => Number(part) === windowHandleDecimal)))
+        : undefined;
+      if (source) {
+        capturedImage = source.thumbnail;
+        capturedSourceId = source.id;
+        capturedSourceName = source.name;
+      }
+      if (!capturedImage && targetWindowId) {
+        const nativeCapture = await captureVisibleNativeWindow(
+          targetWindowId,
+          sessionIdFor(command),
+        );
+        if (nativeCapture) {
+          const nativeSize = nativeCapture.image.getSize();
+          capturedImage = nativeSize.width > maxWidth
+            ? nativeCapture.image.resize({ width: maxWidth, quality: 'best' })
+            : nativeCapture.image;
+          capturedSourceId = nativeCapture.sourceId;
+          capturedSourceName = nativeCapture.sourceName;
+          originX = nativeCapture.x;
+          originY = nativeCapture.y;
+          physicalWidth = nativeCapture.width;
+          physicalHeight = nativeCapture.height;
+        }
+      }
+      if (!capturedImage) {
+        if (allowOwnerFallback
+          && targetWindowId
+          && captureOwnerWindowId
+          && captureOwnerWindowId !== targetWindowId) {
+          const ownerCapture = await captureScreenshot({
+            ...command,
+            window: undefined,
+            window_id: captureOwnerWindowId,
+          }, false);
+          if (ownerCapture.image && ownerCapture.frame && ownerCapture.frameId) {
+            return {
+              ...ownerCapture,
+              description: `${ownerCapture.description}; requested child window ${targetWindowId}`
+                + ` was captured through owner ${captureOwnerWindowId}`,
+            };
+          }
+        }
         const unavailable = pixelUnavailable(
           'capture_source_unavailable',
-          `exact ${sourceType} capture source is unavailable`,
+          sources
+            ? `exact ${sourceType} capture source is unavailable`
+            : `exact ${sourceType} capture did not settle before the safety deadline`,
         );
         return {
           description: unavailable.message,
@@ -3894,9 +4666,6 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           pixelUnavailable: unavailable,
         };
       }
-      capturedImage = source.thumbnail;
-      capturedSourceId = source.id;
-      capturedSourceName = source.name;
     }
     const thumbnailSize = capturedImage.getSize();
     if (targetWindowId && clientWidth > 0 && clientHeight > 0) {
@@ -4021,22 +4790,36 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         || baseWidth === undefined || baseHeight === undefined) {
       throw new Error(`stale_frame: capture source geometry is missing (${frame.id})`);
     }
-    const sources = await withTimeout(
-      desktopCapturer.getSources({
-        types: [frame.kind],
-        thumbnailSize: { width: baseWidth, height: baseHeight },
-      }),
-      DESKTOP_CAPTURE_TIMEOUT_MS,
-      'desktop zoom capture',
-    );
-    const windowHandleDecimal = frame.windowId
-      ? Number.parseInt(frame.windowId.replace(/^hwnd:/i, '').replace(/^0x/i, ''), 16)
-      : Number.NaN;
-    const source = sources.find((candidate) => candidate.id === frame.sourceId)
-      || (frame.kind === 'window'
-        ? sources.find((candidate) => Number.isFinite(windowHandleDecimal)
-            && candidate.id.split(':').some((part) => Number(part) === windowHandleDecimal))
-        : sources.find((candidate) => candidate.display_id === frame.displayId));
+    let source: { id: string; thumbnail: NativeImage; display_id?: string } | undefined;
+    if (frame.kind === 'window'
+      && frame.sourceId.startsWith('native-window:')
+      && frame.windowId) {
+      const nativeCapture = await captureVisibleNativeWindow(frame.windowId, frame.sessionId);
+      if (nativeCapture) {
+        source = {
+          id: nativeCapture.sourceId,
+          thumbnail: nativeCapture.image,
+        };
+      }
+    }
+    if (!source) {
+      const sources = await withTimeout(
+        desktopCapturer.getSources({
+          types: [frame.kind],
+          thumbnailSize: { width: baseWidth, height: baseHeight },
+        }),
+        DESKTOP_CAPTURE_TIMEOUT_MS,
+        'desktop zoom capture',
+      );
+      const windowHandleDecimal = frame.windowId
+        ? Number.parseInt(frame.windowId.replace(/^hwnd:/i, '').replace(/^0x/i, ''), 16)
+        : Number.NaN;
+      source = sources.find((candidate) => candidate.id === frame.sourceId)
+        || (frame.kind === 'window'
+          ? sources.find((candidate) => Number.isFinite(windowHandleDecimal)
+              && candidate.id.split(':').some((part) => Number(part) === windowHandleDecimal))
+          : sources.find((candidate) => candidate.display_id === frame.displayId));
+    }
     if (!source) throw new Error(`stale_frame: exact capture source is unavailable (${frame.id})`);
     const shot = source.thumbnail;
     const shotSize = shot.getSize();
@@ -4436,6 +5219,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         role: command.role ?? null,
         visible_only: command.visible_only ?? null,
         include_noninteractive: command.include_noninteractive ?? null,
+        include_structure: command.include_structure ?? null,
         max_elements: totalElementBudget,
         continuation: command.continuation ?? null,
         bounded: true,
@@ -4472,6 +5256,8 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       screenshot = screenshotResult.capture;
       timings.screenshot_ms = screenshotResult.elapsed;
     }
+    const requestedWindowId = windowId;
+    const observationWindowId = screenshot?.frame?.windowId || windowId;
 
     const elements = frameElements(rawElements, screenshot?.frame, mode !== 'som')
       .slice(0, totalElementBudget);
@@ -4549,7 +5335,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
               center_y: word.center_y,
               actions: ['click'],
               frame_id: screenshot.frameId,
-              window_id: windowId || undefined,
+              window_id: observationWindowId || undefined,
             };
           });
           for (const element of ocrElements) {
@@ -4631,7 +5417,13 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     if (mode !== 'vision') {
       rememberElementTargets(command, [...rawElements, ...ocrElements]);
     }
-    if (windowId) observedWindowBySession.set(sessionIdFor(command), windowId);
+    if (observationWindowId) {
+      rememberObservedWindowScope(
+        command,
+        observationWindowId,
+        screenshot?.frame?.relatedWindowIds || [observationWindowId],
+      );
+    }
     const mergedTotalElements = totalElements + ocrElements.length;
     const truncatedAccessibilityElements = Math.max(
       0,
@@ -4642,7 +5434,11 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       action: 'capture',
       mode,
       coordinate_space: screenshot?.frame ? 'frame' : 'screen',
-      ...(windowId ? { window_id: windowId } : {}),
+      ...(observationWindowId ? { window_id: observationWindowId } : {}),
+      ...(requestedWindowId && requestedWindowId !== observationWindowId ? {
+        requested_window_id: requestedWindowId,
+        capture_target_reason: 'capturable_owner',
+      } : {}),
       ...(generation !== null ? { generation } : {}),
       total_elements: mergedTotalElements,
       returned_elements: elements.length,
@@ -4698,7 +5494,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
   }
 
   function assertExecutionNotAborted(): void {
-    if (activeExecution?.aborted) {
+    if (executionContext.getStore()?.aborted) {
       throw new Error('computer_session_aborted: command stopped by session cancellation');
     }
   }
@@ -4798,9 +5594,12 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     const steps = Array.isArray(command.steps) ? command.steps : [];
     if (!windowId) throw new Error('sequence requires exact window_id');
     if (steps.length < 2 || steps.length > 6) throw new Error('sequence requires 2..6 steps');
-    const observedWindowId = observedWindowBySession.get(sessionIdFor(command));
-    if (observedWindowId !== windowId) {
-      throw new Error(`stale_target: sequence targets ${windowId}, but the latest observation is ${observedWindowId || 'missing'}`);
+    const observedScope = observedWindowBySession.get(sessionIdFor(command));
+    if (!observedScope?.relatedWindowIds.includes(windowId)) {
+      throw new Error(
+        `stale_target: sequence targets ${windowId}, but the latest observation is `
+          + `${observedScope?.primaryWindowId || 'missing'}`,
+      );
     }
     const rows: Array<Record<string, unknown>> = [];
     let stoppedReason = '';
@@ -4897,7 +5696,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     if (process.platform !== 'win32') {
       throw new Error('computer use is currently supported on Windows only');
     }
-    if (action === 'session_release') return await releaseDesktopLease(command);
+    if (action === 'session_release') return await releaseComputerSession(command);
     if (action === 'diagnose') return await diagnoseComputer(command);
     if (action === 'sequence') return await runBoundedSequence(command);
     const readActions = new Set([
@@ -4984,7 +5783,11 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         throw new Error('screenshot capture returned incomplete state');
       }
       if (screenshot.frame.windowId) {
-        observedWindowBySession.set(sessionIdFor(command), screenshot.frame.windowId);
+        rememberObservedWindowScope(
+          command,
+          screenshot.frame.windowId,
+          screenshot.frame.relatedWindowIds || [screenshot.frame.windowId],
+        );
       }
       return { text: screenshot.description, image: screenshot.image };
     }
@@ -4999,6 +5802,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     let physicalToY = command.to_y;
     let targetWindowId = command.window_id;
     let allowedWindowIds: string[] = [];
+    let observedScope: ObservedWindowScope | undefined;
     const pixelActions = new Set(['click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move']);
     if ((pixelActions.has(action)
         || (action === 'type' && command.x !== undefined && command.y !== undefined))
@@ -5043,21 +5847,26 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       allowedWindowIds = frame.relatedWindowIds || [targetWindowId];
     }
     if (OBSERVATION_BOUND_INPUT_ACTIONS.has(action)) {
-      const observedWindowId = observedWindowBySession.get(sessionIdFor(command));
-      if (!observedWindowId && !(trustedSequenceContinuation && targetWindowId)) {
+      observedScope = observedWindowBySession.get(sessionIdFor(command));
+      if (!observedScope && !(trustedSequenceContinuation && targetWindowId)) {
         throw new Error(`${action} requires a fresh capture/snapshot/find of the exact target window first`);
       }
-      if (observedWindowId && targetWindowId && targetWindowId !== observedWindowId) {
+      if (observedScope
+        && targetWindowId
+        && !observedScope.relatedWindowIds.includes(targetWindowId)) {
         throw new Error(
-          `stale_target: ${action} targets ${targetWindowId}, but the latest observation is ${observedWindowId}`,
+          `stale_target: ${action} targets ${targetWindowId}, but the latest observation is `
+            + observedScope.primaryWindowId,
         );
       }
-      targetWindowId = observedWindowId || targetWindowId;
+      targetWindowId = targetWindowId || observedScope?.primaryWindowId;
     }
-    if (isMutation) acquireDesktopLease(command);
+    const logicalTargetWindowId = observedScope?.primaryWindowId || targetWindowId;
+    if (isMutation) claimComputerTargets(command, [logicalTargetWindowId, targetWindowId]);
     let inputRecovery: InputRecoveryState | undefined;
     if (action === 'focus_window' || command.delivery === 'foreground') {
       inputRecovery = await readInputRecovery(command, targetWindowId);
+      const activeExecution = executionContext.getStore();
       if (activeExecution?.sessionId === sessionIdFor(command)) {
         activeExecution.recovery = inputRecovery;
       }
@@ -5112,7 +5921,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           },
         };
       } else {
-        response = await callPowerShell({
+        const powerShellRequest = {
           action,
           window: command.window ?? null,
           window_id: targetWindowId ?? null,
@@ -5143,7 +5952,27 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           max_elements: command.max_elements ?? null,
           continuation: command.continuation ?? null,
           session_id: sessionIdFor(command),
-        });
+        };
+        const integrity = command.delivery === 'foreground'
+          ? await readWindowIntegrity(targetWindowId, sessionIdFor(command))
+          : { known: false, higher: false, ownName: 'Unknown', targetName: 'Unknown' };
+        if (command.delivery === 'foreground' && !integrity.known) {
+          throw new Error(
+            'target_integrity_unknown: foreground input was not sent because the target integrity could not be verified',
+          );
+        }
+        const usePrivilegedWorker = integrity.known && integrity.higher;
+        response = usePrivilegedWorker
+          ? await callPowerShellElevated(powerShellRequest)
+          : await callPowerShell(powerShellRequest);
+        if (usePrivilegedWorker && response.result) {
+          response.result.path = `uac_elevated_${String(response.result.path || 'foreground_input')}`;
+          response.result.privilege = {
+            source_integrity: integrity.ownName,
+            target_integrity: integrity.targetName,
+            worker: 'one_shot',
+          };
+        }
       }
     } finally {
       if (isMutation) {
@@ -5160,10 +5989,17 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     const result = response.result || {};
     let inputRecoveryVerification: Record<string, unknown> | undefined;
     if (inputRecovery) {
+      let current: InputRecoveryState | undefined;
+      let reasserted = false;
+      let readbackError = '';
       try {
-        let current = await readInputRecovery(command, targetWindowId, false);
-        let reasserted = false;
-        if (current.restoreWindowId !== inputRecovery.restoreWindowId
+        current = await readInputRecovery(command, targetWindowId, false);
+      } catch (error) {
+        readbackError = (error as Error).message || String(error);
+      }
+      try {
+        if (!current
+          || current.restoreWindowId !== inputRecovery.restoreWindowId
           || current.cursorX !== inputRecovery.cursorX
           || current.cursorY !== inputRecovery.cursorY) {
           const recoveryStartedAt = performance.now();
@@ -5177,7 +6013,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           actionTimings.input_recovery_ms = elapsedMs(recoveryStartedAt);
           if (!restored.ok) throw new Error(restored.error || 'input recovery reassertion failed');
           current = {
-            ...current,
+            targetWindowId: inputRecovery.targetWindowId,
             restoreWindowId: String(restored.result?.foreground_window_id || ''),
             cursorX: Number(restored.result?.cursor_x),
             cursorY: Number(restored.result?.cursor_y),
@@ -5196,6 +6032,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           expected_cursor: [inputRecovery.cursorX, inputRecovery.cursorY],
           actual_cursor: [current.cursorX, current.cursorY],
           reasserted,
+          ...(readbackError ? { readback_error: readbackError } : {}),
         };
       } catch (error) {
         inputRecoveryVerification = {
@@ -5203,6 +6040,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           focus_restored: false,
           cursor_restored: false,
           error: (error as Error).message || String(error),
+          ...(readbackError ? { readback_error: readbackError } : {}),
         };
       }
     }
@@ -5210,7 +6048,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       rememberElementTargets(command, normalizeElementRecords(result.elements));
       const observedWindowId = String(result.window_id || command.window_id || '');
       if (observedWindowId) {
-        observedWindowBySession.set(sessionIdFor(command), observedWindowId);
+        rememberObservedWindowScope(command, observedWindowId);
       }
     }
     let windowTransition: ComputerWindowTransition | null = null;
@@ -5230,14 +6068,14 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           ? computeComputerWindowTransition(
               windowsBefore,
               windowsAfter,
-              String(result.window_id || targetWindowId || ''),
+              String(logicalTargetWindowId || result.window_id || ''),
               Number(result.pid) || 0,
               action === 'launch' ? String(result.app_hint || command.app || '') : '',
             )
           : null;
       if (action === 'launch') {
         const deadline = settleStartedAt + Math.max(settleDelayMs, LAUNCH_SUCCESSOR_TIMEOUT_MS);
-        const minimumExistingSettleMs = Math.max(settleDelayMs, 500);
+        const minimumLaunchSettleMs = Math.max(settleDelayMs, 500);
         let launchSuccessorReady = false;
         do {
           const remainingMs = Math.max(0, deadline - performance.now());
@@ -5248,13 +6086,12 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           assertExecutionNotAborted();
           const transitionStartedAt = performance.now();
           const includeAppMetadata =
-            performance.now() - settleStartedAt >= minimumExistingSettleMs;
+            performance.now() - settleStartedAt >= minimumLaunchSettleMs;
           const windowsAfter = await readComputerWindows(command, includeAppMetadata);
           windowScanMs += elapsedMs(transitionStartedAt);
           windowTransition = transitionFor(windowsAfter);
           launchSuccessorReady = Boolean(windowTransition?.next_target)
-            && (windowTransition?.next_target_reason !== 'launched_app_existing'
-              || performance.now() - settleStartedAt >= minimumExistingSettleMs);
+            && performance.now() - settleStartedAt >= minimumLaunchSettleMs;
         } while (!launchSuccessorReady && performance.now() < deadline);
         settleDelayMs = Math.round(performance.now() - settleStartedAt);
       } else {
@@ -5268,6 +6105,9 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       actionTimings.settle_ms = Math.max(0, elapsedMs(settleStartedAt) - windowScanMs);
       actionTimings.after_windows_ms = Number(windowScanMs.toFixed(2));
     }
+    if (isMutation && windowTransition?.next_target?.id) {
+      claimComputerTargets(command, [windowTransition.next_target.id]);
+    }
     if (action === 'focus_window' && inputRecovery && result.verified === true && !result.code) {
       sessionRecoveryBySession.set(sessionIdFor(command), inputRecovery);
     }
@@ -5276,7 +6116,8 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         action,
         result,
         windowTransition,
-        String(result.window_id || targetWindowId || ''),
+        String(logicalTargetWindowId || result.window_id || ''),
+        String(command.app || ''),
       );
       const effect = transitionVerified
         ? 'confirmed'
@@ -5314,7 +6155,14 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
         delivery,
         ...(transitionVerified ? { verification_source: 'window_transition' } : {}),
         ...(typeof result.state_changed === 'boolean' ? { state_changed: result.state_changed } : {}),
-        ...(result.window_id ? { window_id: result.window_id } : {}),
+        ...(logicalTargetWindowId || result.window_id
+          ? { window_id: String(logicalTargetWindowId || result.window_id) }
+          : {}),
+        ...(result.window_id
+          && logicalTargetWindowId
+          && result.window_id !== logicalTargetWindowId
+          ? { input_surface_window_id: result.window_id }
+          : {}),
         ...(Number.isInteger(Number(result.pid)) ? { pid: Number(result.pid) } : {}),
         ...(result.app_hint ? { app_hint: String(result.app_hint) } : {}),
         ...(code ? { code } : {}),
@@ -5325,7 +6173,7 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
       };
       let image: { mimeType: string; data: string } | undefined;
       if (command.capture_after) {
-        const originalWindowId = String(result.window_id || targetWindowId || '');
+        const originalWindowId = String(logicalTargetWindowId || result.window_id || '');
         const targetClosed = action === 'close_window'
           && result.verified === true
           && windowTransition?.closed_windows.some((window) => window.id === originalWindowId);
@@ -5349,7 +6197,9 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
           actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
           payload.capture_after = {
             ...capture.metadata,
-            target_reason: windowTransition?.next_target_reason || 'original_target',
+            target_reason: capture.metadata.capture_target_reason
+              || windowTransition?.next_target_reason
+              || 'original_target',
             ...(originalWindowId && captureWindowId !== originalWindowId
               ? { previous_window_id: originalWindowId }
               : {}),
@@ -5445,23 +6295,360 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     return { text };
   }
 
+  function requiresForegroundLane(command: ComputerCommand): boolean {
+    const action = String(command.action || '');
+    return command.delivery === 'foreground'
+      || action === 'focus_window'
+      || action === 'launch'
+      || action === 'session_release';
+  }
+
   function executeSerialized(command: ComputerCommand): Promise<ComputerCommandResult> {
     const sessionId = sessionIdFor(command);
+    touchTargetClaims(sessionId);
     const queuedEpoch = sessionAbortEpochs.get(sessionId) || 0;
-    const run = commandChain.then(async () => {
+    const previous = commandChainsBySession.get(sessionId) || Promise.resolve();
+    const run = previous.then(async () => {
       if ((sessionAbortEpochs.get(sessionId) || 0) !== queuedEpoch) {
         throw new Error('computer_session_aborted: queued command was cancelled before execution');
       }
+      const releaseHumanApprovalGuard = command.action === 'session_release'
+        ? () => {}
+        : beginComputerOperation();
       const execution = { sessionId, aborted: false };
-      activeExecution = execution;
+      activeExecutionsBySession.set(sessionId, execution);
       try {
-        return await runCommand(command);
+        const operation = () => executionContext.run(execution, () => runCommand(command));
+        return requiresForegroundLane(command)
+          ? await runForegroundExclusive(operation)
+          : await operation();
       } finally {
-        if (activeExecution === execution) activeExecution = null;
+        if (activeExecutionsBySession.get(sessionId) === execution) {
+          activeExecutionsBySession.delete(sessionId);
+        }
+        releaseHumanApprovalGuard();
       }
     });
-    commandChain = run.catch(() => undefined);
+    const tail = run.catch(() => undefined);
+    commandChainsBySession.set(sessionId, tail);
+    void tail.finally(() => {
+      if (commandChainsBySession.get(sessionId) === tail) {
+        commandChainsBySession.delete(sessionId);
+      }
+    });
     return run;
+  }
+
+  const CHROME_SETUP_SESSION_ID = '__mixdog_browser_chrome_setup__';
+
+  function parseComputerPayload(result: ComputerCommandResult): Record<string, unknown> {
+    const parsed = JSON.parse(result.text) as unknown;
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Computer Use returned an invalid Chrome setup result.');
+    }
+    return parsed as Record<string, unknown>;
+  }
+
+  function payloadElements(payload: Record<string, unknown>): ComputerElementRecord[] {
+    const captureAfter = payload.capture_after;
+    const source = captureAfter && typeof captureAfter === 'object'
+      ? captureAfter as Record<string, unknown>
+      : payload;
+    return normalizeElementRecords(source.elements);
+  }
+
+  async function proveChromeRemoteDebuggingTarget(
+    target: ChromeRemoteDebuggingTarget,
+  ): Promise<ComputerWindowRecord> {
+    const windows = await readComputerWindows({
+      action: 'list_windows',
+      session_id: CHROME_SETUP_SESSION_ID,
+      read_only: true,
+    }, true);
+    const exact = windows?.find((window) =>
+      window.id === target.windowId
+      && window.pid === target.pid
+      && /^chrome$/i.test(window.app)
+      && /^Chrome_WidgetWin_/i.test(window.className));
+    if (!exact) {
+      throw new Error('The approved Chrome window changed before Browser Use could connect.');
+    }
+    return exact;
+  }
+
+  async function proveChromeRemoteDebuggingSurface(
+    target: ChromeRemoteDebuggingTarget,
+    surfaceWindowId: string,
+  ): Promise<ComputerWindowRecord> {
+    const windows = await readComputerWindows({
+      action: 'list_windows',
+      session_id: CHROME_SETUP_SESSION_ID,
+      read_only: true,
+    }, true);
+    const exact = windows?.find((window) =>
+      window.id === surfaceWindowId
+      && window.pid === target.pid
+      && /^chrome$/i.test(window.app)
+      && /^Chrome_WidgetWin_/i.test(window.className)
+      && (window.id === target.windowId || window.ownerId === target.windowId));
+    if (!exact) {
+      throw new Error('The approved Chrome surface changed before Browser Use could connect.');
+    }
+    return exact;
+  }
+
+  async function inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget> {
+    const windows = await readComputerWindows({
+      action: 'list_windows',
+      session_id: CHROME_SETUP_SESSION_ID,
+      read_only: true,
+    }, true);
+    const candidates = (windows || []).filter((window) =>
+      /^chrome$/i.test(window.app)
+      && /^Chrome_WidgetWin_/i.test(window.className)
+      && window.pid > 0);
+    const visible = candidates.filter((window) =>
+      !window.minimized && window.width > 0 && window.height > 0);
+    const target = visible.find((window) => window.focused)
+      || visible[0]
+      || candidates.find((window) => window.focused)
+      || candidates[0];
+    if (!target) {
+      throw new Error('Open Chrome before connecting a logged-in tab.');
+    }
+    return { windowId: target.id, pid: target.pid };
+  }
+
+  async function captureChromeSetup(
+    target: ChromeRemoteDebuggingTarget,
+    surfaceWindowId = target.windowId,
+  ): Promise<{
+    payload: Record<string, unknown>;
+    elements: ComputerElementRecord[];
+  }> {
+    await proveChromeRemoteDebuggingSurface(target, surfaceWindowId);
+    const payload = parseComputerPayload(await executeSerialized({
+      action: 'capture',
+      window_id: surfaceWindowId,
+      mode: 'ax',
+      visible_only: true,
+      include_noninteractive: true,
+      include_structure: true,
+      max_elements: 1_000,
+      session_id: CHROME_SETUP_SESSION_ID,
+      read_only: true,
+    }));
+    return { payload, elements: payloadElements(payload) };
+  }
+
+  async function ensureChromeSetupPage(
+    target: ChromeRemoteDebuggingTarget,
+  ): Promise<{
+    control: ReturnType<typeof chromeSetupControl>;
+    openedSetupPage: boolean;
+  }> {
+    const initial = await captureChromeSetup(target);
+    const existing = chromeSetupControl(initial.elements);
+    if (existing) return { control: existing, openedSetupPage: false };
+    const opened = parseComputerPayload(await executeSerialized({
+      action: 'key',
+      window_id: target.windowId,
+      keys: '^t',
+      delivery: 'foreground',
+      include_noninteractive: true,
+      include_structure: true,
+      capture_after: true,
+      capture_after_mode: 'ax',
+      capture_after_max_elements: 1_000,
+      session_id: CHROME_SETUP_SESSION_ID,
+    }));
+    const openedAddress = chromeNativeAddressField(payloadElements(opened));
+    const addressed = parseComputerPayload(await executeSerialized({
+      action: 'set_value',
+      window_id: target.windowId,
+      ref: openedAddress.ref,
+      text: CHROME_REMOTE_DEBUGGING_URL,
+      delivery: 'background',
+      include_noninteractive: true,
+      include_structure: true,
+      capture_after: true,
+      capture_after_mode: 'ax',
+      capture_after_max_elements: 1_000,
+      session_id: CHROME_SETUP_SESSION_ID,
+    }));
+    const exactAddress = chromeNativeAddressField(payloadElements(addressed));
+    if (exactAddress.value.toLowerCase() !== CHROME_REMOTE_DEBUGGING_URL.toLowerCase()) {
+      throw new Error('Chrome native address field did not retain the exact setup URL.');
+    }
+    const navigated = parseComputerPayload(await executeSerialized({
+      action: 'key',
+      window_id: target.windowId,
+      ref: exactAddress.ref,
+      keys: '{ENTER}',
+      delivery: 'foreground',
+      include_noninteractive: true,
+      include_structure: true,
+      capture_after: true,
+      capture_delay_ms: 1_200,
+      capture_after_mode: 'ax',
+      capture_after_max_elements: 1_000,
+      session_id: CHROME_SETUP_SESSION_ID,
+    }));
+    const control = chromeSetupControl(payloadElements(navigated));
+    if (!control) {
+      throw new Error('Chrome remote-debugging setup did not become ready.');
+    }
+    return { control, openedSetupPage: true };
+  }
+
+  async function setChromeRemoteDebugging(
+    target: ChromeRemoteDebuggingTarget,
+    desiredEnabled: boolean,
+  ): Promise<{
+    openedSetupPage: boolean;
+    changed: boolean;
+  }> {
+    const setupPage = await ensureChromeSetupPage(target);
+    if (!setupPage.control) {
+      throw new Error('Chrome remote-debugging setup control is unavailable.');
+    }
+    if (setupPage.control.enabled === desiredEnabled) {
+      return { openedSetupPage: setupPage.openedSetupPage, changed: false };
+    }
+    const toggled = parseComputerPayload(await executeSerialized({
+      action: 'toggle',
+      window_id: target.windowId,
+      ref: setupPage.control.ref,
+      delivery: 'background',
+      include_noninteractive: true,
+      include_structure: true,
+      capture_after: true,
+      capture_after_mode: 'ax',
+      capture_after_max_elements: 1_000,
+      session_id: CHROME_SETUP_SESSION_ID,
+    }));
+    const verified = chromeSetupControl(payloadElements(toggled));
+    if (!verified || verified.enabled !== desiredEnabled) {
+      throw new Error('Chrome remote-debugging setup control did not retain the requested state.');
+    }
+    return { openedSetupPage: setupPage.openedSetupPage, changed: true };
+  }
+
+  async function closeChromeSetupPage(
+    target: ChromeRemoteDebuggingTarget,
+    openedSetupPage: boolean,
+  ): Promise<void> {
+    if (!openedSetupPage) return;
+    const capture = await captureChromeSetup(target);
+    if (!chromeSetupControl(capture.elements)) return;
+    await executeSerialized({
+      action: 'key',
+      window_id: target.windowId,
+      keys: '^w',
+      delivery: 'foreground',
+      session_id: CHROME_SETUP_SESSION_ID,
+    });
+  }
+
+  async function prepareChromeRemoteDebugging(
+    target: ChromeRemoteDebuggingTarget,
+  ): Promise<ChromeRemoteDebuggingSetup> {
+    const result = await setChromeRemoteDebugging(target, true);
+    return {
+      ...target,
+      openedSetupPage: result.openedSetupPage,
+      enabledByMixdog: result.changed,
+    };
+  }
+
+  async function acceptChromeRemoteDebuggingConsent(
+    setup: ChromeRemoteDebuggingSetup,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const deadline = Date.now() + 4_000;
+    while (!signal?.aborted && Date.now() < deadline) {
+      await proveChromeRemoteDebuggingTarget(setup);
+      const windows = await readComputerWindows({
+        action: 'list_windows',
+        session_id: CHROME_SETUP_SESSION_ID,
+        read_only: true,
+      }, true);
+      const ownedDialogs = (windows || []).filter((window) =>
+        window.pid === setup.pid
+        && window.ownerId === setup.windowId
+        && /^chrome$/i.test(window.app)
+        && /^Chrome_WidgetWin_/i.test(window.className)
+        && !window.minimized
+        && window.width > 0
+        && window.height > 0);
+      if (ownedDialogs.length > 1) {
+        throw new Error('Chrome exposed multiple owned windows while remote-debugging consent was pending.');
+      }
+      const prompt = ownedDialogs[0];
+      if (!prompt) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        continue;
+      }
+      const capture = await captureChromeSetup(setup, prompt.id);
+      const allowRef = chromeOwnedConsentAllowRef(capture.elements);
+      if (allowRef) {
+        const invokeCommand: ComputerCommand = {
+          action: 'invoke',
+          window_id: prompt.id,
+          ref: allowRef,
+          delivery: 'background',
+          session_id: CHROME_SETUP_SESSION_ID,
+        };
+        suppressedSequenceCaptures.add(invokeCommand);
+        await executeSerialized(invokeCommand);
+        const dismissalDeadline = Date.now() + 2_000;
+        while (Date.now() < dismissalDeadline) {
+          const remaining = await readComputerWindows({
+            action: 'list_windows',
+            session_id: CHROME_SETUP_SESSION_ID,
+            read_only: true,
+          }, true);
+          if (!remaining?.some((window) => window.id === prompt.id && window.pid === setup.pid)) {
+            return true;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 80));
+        }
+        throw new Error('Chrome remote-debugging consent remained after its exact allow action.');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+    return false;
+  }
+
+  async function finalizeChromeRemoteDebuggingSetup(
+    setup: ChromeRemoteDebuggingSetup,
+  ): Promise<void> {
+    try {
+      await closeChromeSetupPage(setup, setup.openedSetupPage);
+    } finally {
+      await executeSerialized({
+        action: 'session_release',
+        session_id: CHROME_SETUP_SESSION_ID,
+      });
+    }
+  }
+
+  async function releaseChromeRemoteDebugging(
+    setup: ChromeRemoteDebuggingSetup,
+  ): Promise<void> {
+    let openedSetupPage = false;
+    try {
+      if (setup.enabledByMixdog) {
+        const result = await setChromeRemoteDebugging(setup, false);
+        openedSetupPage = result.openedSetupPage;
+      }
+      await closeChromeSetupPage(setup, openedSetupPage);
+    } finally {
+      await executeSerialized({
+        action: 'session_release',
+        session_id: CHROME_SETUP_SESSION_ID,
+      });
+    }
   }
 
   async function readRequestBody(request: IncomingMessage): Promise<string> {
@@ -5491,14 +6678,14 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     response.end(payload);
   }
 
-  function writeDiscovery(port: number): void {
+  function writeDiscovery(port: number, activeToken: string): void {
     const directory = mixdogDataDirectory();
     mkdirSync(directory, { recursive: true });
     discoveryPath = join(directory, DISCOVERY_FILE);
     writeFileSync(discoveryPath, `${JSON.stringify({
       version: DISCOVERY_VERSION,
       port,
-      token,
+      token: activeToken,
       pid: process.pid,
       startedAt: Date.now(),
     })}\n`);
@@ -5507,97 +6694,137 @@ export function createPowerShellComputerHost(): PowerShellComputerHost {
     } catch { /* Windows ACLs: the per-user data dir is already private */ }
   }
 
-  function heartbeatDiscovery(port: number): void {
+  function heartbeatDiscovery(port: number, activeToken: string): void {
     if (!discoveryPath) return;
     try {
       const now = new Date();
       utimesSync(discoveryPath, now, now);
     } catch {
       try {
-        writeDiscovery(port);
+        writeDiscovery(port, activeToken);
       } catch { /* data dir gone mid-shutdown */ }
     }
   }
 
-  server = createServer((request, response) => {
-    void (async () => {
-      if (request.method !== 'POST' || request.url !== '/command') {
-        respond(response, 404, { ok: false, error: 'not found' });
-        return;
-      }
-      if (String(request.headers.authorization || '') !== `Bearer ${token}`) {
-        respond(response, 401, { ok: false, error: 'unauthorized' });
-        return;
-      }
-      let command: ComputerCommand;
-      try {
-        command = JSON.parse(await readRequestBody(request)) as ComputerCommand;
-      } catch (error) {
-        respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
-        return;
-      }
-      try {
-        const value = command.action === 'session_abort'
-          ? await abortComputerSession(command)
-          : await executeSerialized(command);
-        respond(response, 200, { ok: true, value });
-      } catch (error) {
-        respond(response, 200, { ok: false, error: (error as Error).message || String(error) });
-      }
-    })().catch(() => {
-      try { response.destroy(); } catch { /* already gone */ }
+  function removeDiscovery(activeToken: string): void {
+    if (!discoveryPath) return;
+    try {
+      const current = JSON.parse(readFileSync(discoveryPath, 'utf8')) as { token?: string };
+      if (current?.token === activeToken) unlinkSync(discoveryPath);
+    } catch { /* replaced or already gone */ }
+    discoveryPath = null;
+  }
+
+  async function stopBridge(): Promise<void> {
+    bridgeGeneration += 1;
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = null;
+    const activeToken = token;
+    removeDiscovery(activeToken);
+    const activeServer = server;
+    server = null;
+    if (!activeServer) return;
+    await new Promise<void>((resolve) => {
+      activeServer.close(() => resolve());
+      activeServer.closeAllConnections?.();
+      setTimeout(resolve, 250).unref?.();
     });
-  });
-  server.listen(0, '127.0.0.1', () => {
-    const address = server?.address();
-    const port = address && typeof address === 'object' ? address.port : 0;
-    if (!port) return;
-    // Publish discovery only after the resident backend has completed its
-    // Add-Type/native API warm-up. Agent calls never absorb cold compile time.
-    void callPowerShell({
-      action: 'wait',
-      duration: 0,
-      session_id: '__computer_host_warmup__',
-      read_only: true,
-    }).then(() => {
-      if (disposed) return;
-      try {
-        writeDiscovery(port);
-        heartbeat = setInterval(() => heartbeatDiscovery(port), HEARTBEAT_MS);
-        heartbeat.unref?.();
-      } catch (error) {
-        console.error('computer bridge discovery write failed:', error);
-      }
-    }).catch((error) => {
-      console.error('computer resident backend warm-up failed:', error);
+  }
+
+  function startBridge(): void {
+    if (disposed || !bridgeWanted || server) return;
+    const generation = ++bridgeGeneration;
+    const activeToken = randomBytes(24).toString('base64url');
+    token = activeToken;
+    const created = createServer((request, response) => {
+      void (async () => {
+        if (request.method !== 'POST' || request.url !== '/command') {
+          respond(response, 404, { ok: false, error: 'not found' });
+          return;
+        }
+        if (String(request.headers.authorization || '') !== `Bearer ${activeToken}`) {
+          respond(response, 401, { ok: false, error: 'unauthorized' });
+          return;
+        }
+        let command: ComputerCommand;
+        try {
+          command = JSON.parse(await readRequestBody(request)) as ComputerCommand;
+        } catch (error) {
+          respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
+          return;
+        }
+        try {
+          const value = command.action === 'session_abort'
+            ? await abortComputerSession(command)
+            : await executeSerialized(command);
+          respond(response, 200, { ok: true, value });
+        } catch (error) {
+          respond(response, 200, { ok: false, error: (error as Error).message || String(error) });
+        }
+      })().catch(() => {
+        try { response.destroy(); } catch { /* already gone */ }
+      });
     });
-  });
+    server = created;
+    created.listen(0, '127.0.0.1', () => {
+      const address = created.address();
+      const port = address && typeof address === 'object' ? address.port : 0;
+      if (!port) return;
+      // Publish only after the native backend is warm. Disabling Computer Use
+      // closes this listener and revokes its token without affecting Browser
+      // Use's narrowly scoped internal UIA route.
+      void callPowerShell({
+        action: 'wait',
+        duration: 0,
+        session_id: '__computer_host_warmup__',
+        read_only: true,
+      }).then(() => {
+        if (disposed || !bridgeWanted || server !== created || bridgeGeneration !== generation) return;
+        try {
+          writeDiscovery(port, activeToken);
+          heartbeat = setInterval(
+            () => heartbeatDiscovery(port, activeToken),
+            HEARTBEAT_MS,
+          );
+          heartbeat.unref?.();
+        } catch (error) {
+          console.error('computer bridge discovery write failed:', error);
+        }
+      }).catch((error) => {
+        console.error('computer resident backend warm-up failed:', error);
+      });
+    });
+  }
+
+  if (bridgeWanted) startBridge();
 
   return {
+    setBridgeEnabled(enabled: boolean): void {
+      if (disposed || bridgeWanted === enabled) return;
+      bridgeWanted = enabled;
+      if (enabled) startBridge();
+      else void stopBridge().catch(() => {});
+    },
+    inspectChromeRemoteDebuggingTarget,
+    prepareChromeRemoteDebugging,
+    acceptChromeRemoteDebuggingConsent,
+    finalizeChromeRemoteDebuggingSetup,
+    releaseChromeRemoteDebugging,
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
-      if (heartbeat) clearInterval(heartbeat);
-      heartbeat = null;
-      if (ps && !ps.killed) {
-        try { ps.kill(); } catch { /* already gone */ }
+      bridgeWanted = false;
+      await stopBridge();
+      for (const child of powerShellBySession.values()) {
+        if (!child.killed) {
+          try { child.kill(); } catch { /* already gone */ }
+        }
       }
-      ps = null;
+      powerShellBySession.clear();
       if (hostScriptPath) {
         try { unlinkSync(hostScriptPath); } catch { /* already gone */ }
       }
       hostScriptPath = null;
-      if (discoveryPath) {
-        try {
-          const current = JSON.parse(readFileSync(discoveryPath, 'utf8')) as { token?: string };
-          if (current?.token === token) unlinkSync(discoveryPath);
-        } catch { /* replaced or already gone */ }
-      }
-      await new Promise<void>((resolve) => {
-        if (!server) { resolve(); return; }
-        server.close(() => resolve());
-        server.closeAllConnections?.();
-      });
     },
   };
 }

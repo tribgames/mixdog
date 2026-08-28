@@ -826,6 +826,77 @@ function expandRange(range) {
   };
 }
 
+function wordTableProperties(properties = {}) {
+  const borders = properties.borders || {};
+  const borderXml = Object.keys(borders).length
+    ? `<w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map((side) => {
+        const value = typeof borders[side] === 'object' ? borders[side] : borders;
+        if (!value || value.enabled === false) return '';
+        return `<w:${side} w:val="${xmlEncode(value.style || 'single')}" w:sz="${Math.max(1, Number(value.size) || 4)}" w:space="${Math.max(0, Number(value.space) || 0)}" w:color="${xmlEncode(String(value.color || 'auto').replace(/^#/, ''))}"/>`;
+      }).join('')}</w:tblBorders>`
+    : '';
+  return [
+    properties.style ? `<w:tblStyle w:val="${xmlEncode(properties.style)}"/>` : '',
+    `<w:tblW w:w="0" w:type="auto"/>`,
+    properties.alignment ? `<w:jc w:val="${xmlEncode(properties.alignment)}"/>` : '',
+    properties.shading ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.shading).replace(/^#/, ''))}"/>` : '',
+    borderXml,
+  ].join('');
+}
+
+function wordCellProperties(properties = {}) {
+  return [
+    properties.width ? `<w:tcW w:w="${Math.max(1, Math.round(Number(properties.width)))}" w:type="dxa"/>` : '',
+    properties.fillColor ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.fillColor).replace(/^#/, ''))}"/>` : '',
+    properties.verticalAlignment ? `<w:vAlign w:val="${xmlEncode(properties.verticalAlignment)}"/>` : '',
+  ].join('');
+}
+
+function wordTableXml(operation) {
+  const values = Array.isArray(operation.values) ? operation.values : [];
+  const rows = Math.max(1, Number(operation.rows) || values.length || 1);
+  const columns = Math.max(1, Number(operation.columns) || Math.max(0, ...values.map((row) => row.length)) || 1);
+  const widths = operation.properties?.columnWidths || [];
+  const grid = Array.from({ length: columns }, (_, column) => `<w:gridCol${widths[column] ? ` w:w="${Math.max(1, Math.round(Number(widths[column])))}"` : ''}/>`).join('');
+  const body = Array.from({ length: rows }, (_, row) => `<w:tr>${Array.from({ length: columns }, (_, column) => {
+    const text = String(values[row]?.[column] ?? '');
+    const width = widths[column] ? `<w:tcW w:w="${Math.max(1, Math.round(Number(widths[column])))}" w:type="dxa"/>` : '';
+    return `<w:tc>${width ? `<w:tcPr>${width}</w:tcPr>` : ''}<w:p><w:r><w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r></w:p></w:tc>`;
+  }).join('')}</w:tr>`).join('');
+  return `<w:tbl><w:tblPr>${wordTableProperties(operation.properties)}</w:tblPr><w:tblGrid>${grid}</w:tblGrid>${body}</w:tbl>`;
+}
+
+function docxTable(current, number) {
+  const match = [...current.matchAll(/<w:tbl(?:\s[^>]*)?>[\s\S]*?<\/w:tbl>/g)][Number(number) - 1];
+  if (!match) throw new Error(`DOCX table ${number} not found`);
+  return match;
+}
+
+function replaceDocxTable(current, table, nextTable) {
+  return `${current.slice(0, table.index)}${nextTable}${current.slice(table.index + table[0].length)}`;
+}
+
+function replaceWordProperties(xml, owner, propertyTag, value) {
+  const pattern = new RegExp(`<w:${propertyTag}(?:\\s[^>]*)?>[\\s\\S]*?<\\/w:${propertyTag}>`);
+  if (pattern.test(xml)) return xml.replace(pattern, `<w:${propertyTag}>${value}</w:${propertyTag}>`);
+  return xml.replace(new RegExp(`<w:${owner}(?:\\s[^>]*)?>`), (open) => `${open}<w:${propertyTag}>${value}</w:${propertyTag}>`);
+}
+
+function paragraphFormatXml(properties = {}) {
+  const border = properties.border || null;
+  const tabs = Array.isArray(properties.tabStops) ? properties.tabStops : [];
+  return [
+    properties.alignment ? `<w:jc w:val="${xmlEncode(properties.alignment)}"/>` : '',
+    (properties.spacingBefore !== undefined || properties.spacingAfter !== undefined || properties.lineSpacing !== undefined)
+      ? `<w:spacing${properties.spacingBefore !== undefined ? ` w:before="${Math.round(Number(properties.spacingBefore))}"` : ''}${properties.spacingAfter !== undefined ? ` w:after="${Math.round(Number(properties.spacingAfter))}"` : ''}${properties.lineSpacing !== undefined ? ` w:line="${Math.round(Number(properties.lineSpacing))}" w:lineRule="auto"` : ''}/>`
+      : '',
+    properties.keepWithNext === true ? '<w:keepNext/>' : '',
+    properties.pageBreakBefore === true ? '<w:pageBreakBefore/>' : '',
+    border ? `<w:pBdr><w:${xmlEncode(border.side || 'bottom')} w:val="${xmlEncode(border.style || 'single')}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${Math.max(0, Number(border.space) || 1)}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>` : '',
+    tabs.length ? `<w:tabs>${tabs.map((tab) => `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${Math.round(Number(tab.position) || 0)}"${tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : ''}/>`).join('')}</w:tabs>` : '',
+  ].join('');
+}
+
 async function applyDocx(zip, operations) {
   const parts = Object.keys(zip.files).filter((name) => /^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$/i.test(name));
   const results = [];
@@ -861,6 +932,25 @@ async function applyDocx(zip, operations) {
       if (!/<\/w:body>/.test(current)) throw new Error('DOCX document body is missing');
       zip.file('word/document.xml', current.replace('</w:body>', `${block}</w:body>`));
       results.push({ op: op.op, changed: true, style: style || '' });
+      continue;
+    }
+    if (op.op === 'add_table') {
+      let current = await zipText(zip, 'word/document.xml');
+      const table = wordTableXml(op);
+      if (op.paragraph) {
+        const model = docxBodyModel(current);
+        const paragraph = model.blocks.filter((block) => block.name === 'w:p')[Number(op.paragraph) - 1];
+        if (!paragraph) throw new Error(`DOCX paragraph ${op.paragraph} not found`);
+        const position = paragraph.end;
+        const nextInner = `${model.body.inner.slice(0, position)}${table}${model.body.inner.slice(position)}`;
+        current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
+      } else if (/<w:sectPr(?:\s[^>]*)?>/.test(current)) {
+        current = current.replace(/<w:sectPr(?:\s[^>]*)?>/, `${table}$&`);
+      } else {
+        current = current.replace('</w:body>', `${table}</w:body>`);
+      }
+      zip.file('word/document.xml', current);
+      results.push({ op: op.op, changed: true, table: docxBodyModel(current).blocks.filter((block) => block.name === 'w:tbl').length });
       continue;
     }
     if (op.op === 'set_paragraph_text' || op.op === 'set_run_text' || op.op === 'remove_paragraph' || op.op === 'move_paragraph') {
@@ -960,6 +1050,77 @@ async function applyDocx(zip, operations) {
       current = `${current.slice(0, table.index)}${nextTable}${current.slice(table.index + table[0].length)}`;
       zip.file('word/document.xml', current);
       results.push({ op: op.op, changed: true });
+      continue;
+    }
+    if (op.op === 'set_table_style') {
+      let current = await zipText(zip, 'word/document.xml');
+      const table = docxTable(current, op.table);
+      const nextTable = replaceWordProperties(table[0], 'tbl', 'tblPr', wordTableProperties(op.properties));
+      current = replaceDocxTable(current, table, nextTable);
+      zip.file('word/document.xml', current);
+      results.push({ op: op.op, changed: nextTable !== table[0], table: Number(op.table) });
+      continue;
+    }
+    if (op.op === 'set_table_cell_style' || op.op === 'merge_table_cells') {
+      let current = await zipText(zip, 'word/document.xml');
+      const table = docxTable(current, op.table);
+      const rows = [...table[0].matchAll(/<w:tr(?:\s[^>]*)?>[\s\S]*?<\/w:tr>/g)];
+      const row = rows[Number(op.row) - 1];
+      if (!row) throw new Error(`DOCX table row ${op.row} not found`);
+      const cells = [...row[0].matchAll(/<w:tc(?:\s[^>]*)?>[\s\S]*?<\/w:tc>/g)];
+      const cell = cells[Number(op.col) - 1];
+      if (!cell) throw new Error(`DOCX table cell ${op.col} not found`);
+      let nextTable = table[0];
+      if (op.op === 'set_table_cell_style') {
+        let nextCell = replaceWordProperties(cell[0], 'tc', 'tcPr', wordCellProperties(op.properties));
+        const runFormat = [
+          op.properties?.bold ? '<w:b/>' : '',
+          op.properties?.italic ? '<w:i/>' : '',
+          op.properties?.color ? `<w:color w:val="${xmlEncode(String(op.properties.color).replace(/^#/, ''))}"/>` : '',
+        ].join('');
+        if (runFormat) {
+          nextCell = /<w:rPr(?:\s[^>]*)?>/.test(nextCell)
+            ? nextCell.replace(/<w:rPr(?:\s[^>]*)?>/, (open) => `${open}${runFormat}`)
+            : nextCell.replace(/<w:r(?:\s[^>]*)?>/, (open) => `${open}<w:rPr>${runFormat}</w:rPr>`);
+        }
+        nextTable = table[0].replace(cell[0], nextCell);
+      } else {
+        const colSpan = Math.max(1, Number(op.colSpan) || 1);
+        const rowSpan = Math.max(1, Number(op.rowSpan) || 1);
+        let merged = replaceWordProperties(cell[0], 'tc', 'tcPr', `${colSpan > 1 ? `<w:gridSpan w:val="${colSpan}"/>` : ''}${rowSpan > 1 ? '<w:vMerge w:val="restart"/>' : ''}`);
+        let nextRow = row[0].replace(cell[0], merged);
+        for (let index = Number(op.col); index < Number(op.col) + colSpan - 1; index += 1) {
+          const remove = cells[index];
+          if (remove) nextRow = nextRow.replace(remove[0], '');
+        }
+        nextTable = table[0].replace(row[0], nextRow);
+        if (rowSpan > 1) {
+          for (let rowIndex = Number(op.row); rowIndex < Number(op.row) + rowSpan - 1; rowIndex += 1) {
+            const continuationRow = rows[rowIndex];
+            if (!continuationRow) break;
+            const continuationCells = [...continuationRow[0].matchAll(/<w:tc(?:\s[^>]*)?>[\s\S]*?<\/w:tc>/g)];
+            const continuation = continuationCells[Number(op.col) - 1];
+            if (!continuation) continue;
+            const nextCell = replaceWordProperties(continuation[0], 'tc', 'tcPr', `${colSpan > 1 ? `<w:gridSpan w:val="${colSpan}"/>` : ''}<w:vMerge/>`);
+            nextTable = nextTable.replace(continuation[0], nextCell);
+          }
+        }
+      }
+      current = replaceDocxTable(current, table, nextTable);
+      zip.file('word/document.xml', current);
+      results.push({ op: op.op, changed: nextTable !== table[0], table: Number(op.table), row: Number(op.row), col: Number(op.col) });
+      continue;
+    }
+    if (op.op === 'set_paragraph_format') {
+      let current = await zipText(zip, 'word/document.xml');
+      const model = docxBodyModel(current);
+      const paragraph = model.blocks.filter((block) => block.name === 'w:p')[Number(op.paragraph) - 1];
+      if (!paragraph) throw new Error(`DOCX paragraph ${op.paragraph} not found`);
+      const nextParagraph = replaceWordProperties(paragraph.xml, 'p', 'pPr', paragraphFormatXml(op.properties));
+      const nextInner = `${model.body.inner.slice(0, paragraph.start)}${nextParagraph}${model.body.inner.slice(paragraph.end)}`;
+      current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
+      zip.file('word/document.xml', current);
+      results.push({ op: op.op, changed: nextParagraph !== paragraph.xml, paragraph: Number(op.paragraph) });
       continue;
     }
     throw new Error(`Portable DOCX backend does not support operation: ${op.op}`);
@@ -1227,6 +1388,46 @@ async function baselinePackage(zip, original) {
   };
 }
 
+function rejectedDocxText(xml) {
+  let value = String(xml || '');
+  value = value.replace(/<w:ins(?:\s[^>]*)?>[\s\S]*?<\/w:ins>/g, '');
+  value = value.replace(/<w:del(?:\s[^>]*)?>([\s\S]*?)<\/w:del>/g, (_, body) => (
+    body.replaceAll('<w:delText', '<w:t').replaceAll('</w:delText>', '</w:t>')
+  ));
+  return [...value.matchAll(/<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/g)]
+    .map((paragraph) => paragraphTexts(paragraph[1], 'w:t').join(''))
+    .filter((text) => text.length > 0)
+    .join('\n');
+}
+
+async function validateDocxRedlining(zip, originalPath) {
+  if (!originalPath) {
+    return {
+      requested: true,
+      ok: false,
+      reason: 'Redlining audit requires an opened source document.',
+    };
+  }
+  try {
+    const original = await loadPackage(originalPath);
+    const before = rejectedDocxText(await zipText(original, 'word/document.xml'));
+    const after = rejectedDocxText(await zipText(zip, 'word/document.xml'));
+    return {
+      requested: true,
+      ok: before === after,
+      originalCharacters: before.length,
+      rejectedCharacters: after.length,
+      reason: before === after ? '' : 'Document text differs from the source after rejecting tracked changes; at least one edit is untracked.',
+    };
+  } catch (error) {
+    return {
+      requested: true,
+      ok: false,
+      reason: error?.message || String(error),
+    };
+  }
+}
+
 export async function validatePortableOoxml(path, format, options = {}) {
   const zip = await loadPackage(path);
   const entries = Object.entries(zip.files).filter(([, entry]) => !entry.dir).map(([name]) => name);
@@ -1262,6 +1463,9 @@ export async function validatePortableOoxml(path, format, options = {}) {
     }
   }
   const baseline = await baselinePackage(zip, options.original);
+  const redlining = format === 'docx' && options.auditProfile === 'redlining'
+    ? await validateDocxRedlining(zip, options.original)
+    : null;
   const ok = missing.length === 0
     && unsafeEntries.length === 0
     && malformedXml.length === 0
@@ -1271,7 +1475,8 @@ export async function validatePortableOoxml(path, format, options = {}) {
     && duplicateRelationshipIds.length === 0
     && !(baseline.lostProtectedParts?.length)
     && !(baseline.changedProtectedParts?.length)
-    && baseline.digitalSignatureInvalidated !== true;
+    && baseline.digitalSignatureInvalidated !== true
+    && (!redlining || redlining.ok);
   return {
     ok,
     format,
@@ -1294,6 +1499,7 @@ export async function validatePortableOoxml(path, format, options = {}) {
     externalRelationships,
     ...contentTypes,
     baseline,
+    redlining,
     validation: 'opc-relationships-content-types-xml',
   };
 }

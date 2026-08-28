@@ -20,10 +20,12 @@ import {
 import { LiveWorkIndicator, SessionStatusIsland } from "./SessionStatusIsland.tsx";
 import {
   formatGoalDuration,
+  goalCompletedTimeLabel,
   goalElapsedLabel,
   goalTimeLabel,
   SessionGoalIsland,
 } from "./SessionGoalIsland.tsx";
+import { CompletionStatus } from "./transcript-status.tsx";
 import { PaneStatusIsland } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
@@ -354,16 +356,32 @@ test("Goal island gives title, task progress, and elapsed time dedicated header 
       }));
     });
     assert.equal(document.querySelector(".session-goal-objective")?.textContent, "Short Goal Title");
+    assert.ok(document.querySelector(".session-goal-glyph .mx-icon.lucide-target"));
+    assert.equal(document.querySelector(".session-goal-glyph .lucide-flag"), null);
+    assert.equal(document.querySelector(".session-goal-glyph .lucide-flag-triangle-right"), null);
     assert.equal(document.querySelector(".session-goal-progress")?.textContent, "1/3");
     assert.match(document.querySelector(".session-goal-time")?.textContent || "", /^\d+:\d{2}$/);
+    assert.match(document.querySelector(".session-goal-meta")?.textContent || "", /^1\/3·\d+:\d{2}$/);
 
     await act(async () => {
       document.querySelector(".session-goal-trigger")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
     assert.match(document.body.textContent, /Tasks 1\/3/);
+    assert.equal(document.querySelector(".session-goal-popover-glyph"), null);
     assert.equal(document.querySelectorAll(".session-goal-task-list > li").length, 3);
-    assert.match(document.body.textContent, /Verification/);
-    assert.equal(document.querySelector(".session-goal-popover button.primary")?.disabled, true);
+    assert.equal(document.querySelectorAll(".session-goal-task-list > li .mx-icon").length, 3);
+    assert.equal(
+      [...document.querySelectorAll(".session-goal-task-list > li > span")]
+        .some((marker) => /[✓◐○]/u.test(marker.textContent || "")),
+      false,
+    );
+    assert.doesNotMatch(document.body.textContent, /Verification/);
+    assert.deepEqual(
+      [...document.querySelectorAll(".session-goal-popover > footer button")]
+        .map((button) => button.textContent.trim()),
+      ["Edit goal", "Stop goal"],
+    );
+    assert.equal(document.querySelector(".session-goal-menu"), null);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -401,6 +419,7 @@ test("blocked Goal island renders the specific blocker", async () => {
 
 test("completed Goal island keeps the compact elapsed clock and no resume action", async () => {
   const dom = installDom();
+  const completedAt = new Date("2026-08-28T14:49:55.000Z").getTime();
   try {
     await act(async () => {
       dom.root.render(React.createElement(SessionGoalIsland, {
@@ -411,6 +430,7 @@ test("completed Goal island keeps the compact elapsed clock and no resume action
             objective: "Completed Goal",
             status: "complete",
             timeUsedMs: 60 * 1000,
+            completedAt,
           },
         },
       }));
@@ -418,7 +438,44 @@ test("completed Goal island keeps the compact elapsed clock and no resume action
     const time = document.querySelector(".session-goal-time")?.textContent || "";
     assert.equal(time, "1:00");
     assert.doesNotMatch(time, /in progress/);
-    assert.doesNotMatch(document.body.textContent, /Resume/);
+    await act(async () => {
+      document.querySelector(".session-goal-trigger")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(
+      document.querySelector(".session-goal-popover > footer button")?.textContent.trim(),
+      "Edit goal",
+    );
+    assert.equal(document.querySelector(".session-goal-complete")?.textContent.trim(), "Complete");
+    assert.equal(
+      document.querySelector(".session-goal-popover > header small")?.textContent,
+      `Complete · 1:00 elapsed · ${new Date(completedAt).toLocaleTimeString(undefined, { timeStyle: "short" })}`,
+    );
+    assert.doesNotMatch(document.body.textContent, /Resume|Stop goal|Clear/);
+    assert.equal(document.querySelector(".session-goal-menu button")?.textContent.trim(), "Delete");
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("Goal completed time and response completion time stay semantically separate", async () => {
+  const completedAt = new Date("2026-08-28T14:49:55.000Z").getTime();
+  assert.equal(
+    goalCompletedTimeLabel({ status: "complete", completedAt }),
+    new Date(completedAt).toLocaleTimeString(undefined, { timeStyle: "short" }),
+  );
+  assert.equal(goalCompletedTimeLabel({ status: "active", completedAt }), "");
+
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(CompletionStatus, {
+        item: { kind: "turndone", elapsedMs: 450_000, verb: "Wrapped" },
+      }));
+    });
+    assert.equal(document.querySelector(".turn-status.complete > span")?.textContent, "Response · 7m 30s");
+    assert.ok(document.querySelector(".turn-status.complete .mx-icon.lucide-check"));
+    assert.doesNotMatch(document.body.textContent, /Wrapped/);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -443,6 +500,13 @@ test("Goal clock labels explicit elapsed, total, and remaining time", () => {
     remainingMs: 259_381,
     deadlineAt: now + 259_381,
   }, now), "0:41");
+  assert.equal(goalTimeLabel({
+    status: "active",
+    timeLimitMs: 0,
+    timeUsedMs: 40_619,
+    remainingMs: null,
+    snapshotAt: now,
+  }, now + 1_000), "0:42 elapsed");
 });
 
 test("running background agent jobs drive the header icon until terminal", async () => {

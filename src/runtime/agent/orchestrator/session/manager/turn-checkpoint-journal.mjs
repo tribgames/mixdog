@@ -15,9 +15,10 @@
 //                     before the provider ever runs, and store-summary-reader
 //                     keeps probing this exact path to detect a live turn.
 //   <session>.jsonl   append-only JSONL deltas — NEW/CHANGED turn messages (by
-//                     turn-relative index), APPENDED partial text/reasoning and
-//                     small interruption-state transitions. A flush costs
-//                     O(new bytes), never O(turn).
+//                     turn-relative index), a one-time full replacement when
+//                     compaction removes the opening prompt, APPENDED partial
+//                     text/reasoning and small interruption-state transitions.
+//                     A normal flush costs O(new bytes), never O(turn).
 // Appends ride a bounded coalescing lane (one in-flight write, one pending
 // buffer, synchronous drain above the byte ceiling) so the engine thread never
 // blocks on disk and the queue can never grow without limit.
@@ -434,7 +435,8 @@ export function replayTurnJournal(header) {
     } catch {
         return header;
     }
-    const messages = header.turnMessages.slice();
+    let messages = header.turnMessages.slice();
+    let fullTranscript = header.fullTranscript === true;
     const state = interruptionStateFromSnapshot(header.interruption);
     let updatedAt = Number(header.updatedAt) || 0;
     let head = false;
@@ -469,6 +471,9 @@ export function replayTurnJournal(header) {
             if (Number.isInteger(index) && index >= 0 && index <= messages.length) {
                 messages[index] = record.m;
             }
+        } else if (record.t === 'full' && Array.isArray(record.ms)) {
+            messages = record.ms.slice();
+            fullTranscript = true;
         } else if (record.t === 'len') {
             const next = Number(record.n);
             if (Number.isInteger(next) && next >= 0 && next <= messages.length) {
@@ -484,6 +489,7 @@ export function replayTurnJournal(header) {
     return {
         ...header,
         turnMessages: messages,
+        ...(fullTranscript ? { fullTranscript: true } : {}),
         interruption: interruptionSnapshotFromState(state),
         updatedAt,
     };
@@ -496,6 +502,7 @@ export function replayTurnJournal(header) {
  */
 export function createTurnJournalEncoder({ turnToken } = {}) {
     let journaled = [];
+    let fullTranscript = false;
     let cursor = null;
     // Per-turn record sequence. It is assigned where records are produced, so
     // the number line is exactly the enqueue order the write lane preserves.
@@ -513,7 +520,8 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
         seed(turnOutgoing, currentUserContent, interruption) {
             const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
             const start = findTurnStart(source, currentUserContent);
-            journaled = start >= 0 ? source.slice(start) : [];
+            fullTranscript = start < 0;
+            journaled = fullTranscript ? source.slice() : source.slice(start);
             const seeded = typeof interruption?.journalDelta === 'function'
                 ? interruption.journalDelta(null)
                 : null;
@@ -523,23 +531,39 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
             if (seeded?.changed) openLines.push(line({ t: 'x', d: seeded.delta, at: Date.now() }));
             return {
                 turnMessages: journaled.map(checkpointMessage),
+                fullTranscript,
                 openLines,
             };
         },
         encode({ turnOutgoing, currentUserContent, interruption }) {
             const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
             const start = findTurnStart(source, currentUserContent);
-            const length = start >= 0 ? source.length - start : 0;
             const records = [];
-            for (let index = 0; index < length; index += 1) {
-                const raw = source[start + index];
-                if (journaled[index] === raw) continue;
-                journaled[index] = raw;
-                records.push({ t: 'm', i: index, m: checkpointMessage(raw) });
-            }
-            if (journaled.length > length) {
-                journaled.length = length;
-                records.push({ t: 'len', n: length });
+            if (!fullTranscript && start < 0) {
+                // Pre-send compaction may replace the whole history, including
+                // the user message that defined our turn-relative origin. The
+                // replacement is normally small; persist it once so reconnect
+                // and crash recovery never splice an empty turn onto the stale
+                // pre-compaction prefix.
+                fullTranscript = true;
+                journaled = source.slice();
+                records.push({
+                    t: 'full',
+                    ms: journaled.map(checkpointMessage),
+                });
+            } else {
+                const offset = fullTranscript ? 0 : start;
+                const length = offset >= 0 ? source.length - offset : 0;
+                for (let index = 0; index < length; index += 1) {
+                    const raw = source[offset + index];
+                    if (journaled[index] === raw) continue;
+                    journaled[index] = raw;
+                    records.push({ t: 'm', i: index, m: checkpointMessage(raw) });
+                }
+                if (journaled.length > length) {
+                    journaled.length = length;
+                    records.push({ t: 'len', n: length });
+                }
             }
             if (typeof interruption?.journalDelta === 'function') {
                 const next = interruption.journalDelta(cursor);

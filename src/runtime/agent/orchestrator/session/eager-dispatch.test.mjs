@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
+import { processToolBatch } from './tool-batch.mjs';
 import {
     _repeatFailurePatternWouldContinue,
     _repeatFailureSig,
@@ -112,4 +113,77 @@ test('repeat failure signatures normalize paths and detect alternating cycles', 
     const history = [relative, other, relative, other, relative, other];
     assert.equal(_repeatFailurePatternWouldContinue(history, relative, 3), 2);
     assert.equal(_repeatFailurePatternWouldContinue(history, other, 3), 0);
+});
+
+test('Computer Use dispatches only the first call in one assistant turn', async () => {
+    const executed = [];
+    const executeToolFn = async (name, args) => {
+        executed.push(`${name}:${args.value}`);
+        return 'ok';
+    };
+    const dispatcher = createEagerDispatcher({
+        tools: [],
+        cwd: process.cwd(),
+        sessionId: null,
+        sessionRef: {},
+        signal: null,
+        opts: {},
+        crossTurnCalls: new Map(),
+        getIterations: () => 1,
+        getNextIteration: () => 1,
+        repeatFailLimit: 3,
+        executeToolFn,
+    });
+    const calls = [
+        { id: 'computer-1', name: 'computer', arguments: { value: 1 } },
+        { id: 'computer-2', name: 'computer', arguments: { value: 2 } },
+        { id: 'shell-1', name: 'shell', arguments: { value: 3 } },
+    ];
+
+    dispatcher.startEagerRun(calls, 0, new Set());
+    await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
+    assert.deepEqual(executed.sort(), ['computer:1', 'shell:3']);
+    assert.equal(dispatcher.pending.has('computer-2'), false);
+});
+
+test('Computer Use batch returns an error result for every blocked extra call', async () => {
+    const executed = [];
+    const results = [];
+    const calls = [
+        { id: 'computer-1', name: 'computer', arguments: { value: 1 } },
+        { id: 'computer-2', name: 'computer', arguments: { value: 2 } },
+    ];
+    await processToolBatch({
+        calls,
+        messages: [],
+        tools: [],
+        cwd: process.cwd(),
+        sessionId: null,
+        sessionRef: {},
+        signal: null,
+        opts: {},
+        iterations: 1,
+        assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
+        pending: new Map(),
+        epoch: { mutation: 0 },
+        startEagerRun: () => {},
+        crossTurnCalls: new Map(),
+        crossTurnCap: 100,
+        sessionAgent: null,
+        pushToolResultMessage: (message) => results.push(message),
+        throwIfAborted: () => {},
+        repeatFailLimit: 3,
+        dedupStubTotal: 0,
+        editCount: 0,
+        executeToolFn: async (name, args) => {
+            executed.push(`${name}:${args.value}`);
+            return 'ok';
+        },
+    });
+
+    assert.deepEqual(executed, ['computer:1']);
+    assert.equal(results.length, 2);
+    assert.equal(results[0].toolKind, 'normal');
+    assert.equal(results[1].toolKind, 'error');
+    assert.match(results[1].content, /computer-call-cardinality/);
 });

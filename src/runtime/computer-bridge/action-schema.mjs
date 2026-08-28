@@ -60,24 +60,6 @@ const captureAfter = {
   additionalProperties: false,
 };
 
-const safetyDecision = {
-  type: 'object',
-  description: 'Use only when this action needs explicit user confirmation. Mixdog asks before dispatch and records the acknowledgement in the result.',
-  properties: {
-    decision: { type: 'string', enum: ['require_confirmation'] },
-    category: {
-      type: 'string',
-      enum: [
-        'financial', 'sensitive_data', 'communication', 'account',
-        'data_modification', 'consent', 'legal', 'other',
-      ],
-    },
-    explanation: { type: 'string' },
-  },
-  required: ['decision', 'category', 'explanation'],
-  additionalProperties: false,
-};
-
 function input(properties = {}, required = []) {
   return {
     type: 'object',
@@ -205,7 +187,7 @@ const sequenceStepSchemas = {
 
 const sequenceStep = {
   type: 'object',
-  description: 'One focus-chain step. First: targeted click/type/key. Later: untargeted type/key/wait. Runtime enforces each action shape.',
+  description: 'One focus-chain step. First: targeted click/type/key. Later: untargeted type/key/wait. Every nonfinal step must preserve the same target and focus.',
   properties: {
     action: { type: 'string', enum: ['click', 'type', 'key', 'wait'] },
     ...elementTarget,
@@ -234,7 +216,6 @@ export const COMPUTER_INPUT_SCHEMA = {
       description: 'Fields for the selected action.',
     },
     capture_after: captureAfter,
-    safety: safetyDecision,
   },
   required: ['action'],
   additionalProperties: false,
@@ -316,7 +297,7 @@ export const COMPUTER_INPUT_SCHEMA = {
         items: sequenceStep,
         minItems: 2,
         maxItems: 6,
-        description: 'Sequential same-window focus chain. Stops at the first failure or window transition.',
+        description: 'Prefer this over separate calls for a deterministic same-window focus chain. A transition-capable step must be final; execution stops on failure or target transition.',
       },
       ...delivery,
     }, ['window_id', 'steps'])),
@@ -420,7 +401,7 @@ export function validateComputerToolArgs(args) {
     return 'Computer Use arguments must be an object';
   }
   const rootExtras = Object.keys(args).filter(
-    (key) => !['action', 'input', 'capture_after', 'safety'].includes(key),
+    (key) => !['action', 'input', 'capture_after'].includes(key),
   );
   if (rootExtras.length) {
     return `Computer Use does not accept root field(s): ${rootExtras.join(', ')}`;
@@ -558,33 +539,20 @@ export function validateComputerToolArgs(args) {
       return 'Computer Use clipboard operation="read" does not accept input field: text';
     }
   }
-  if (args.safety !== undefined) {
-    const mutation = !['list', 'diagnose', 'capture', 'wait'].includes(name)
-      && !(name === 'clipboard' && inputObject.operation === 'read');
-    if (!mutation) return `Computer Use action "${name}" does not accept safety`;
-    if (!args.safety || typeof args.safety !== 'object' || Array.isArray(args.safety)) {
-      return 'Computer Use safety must be an object';
+  if (name === 'launch') {
+    const app = String(inputObject.app || '').trim();
+    if (!app) return 'Computer Use launch app must not be empty';
+    const httpUrl = /^https?:\/\//i.test(app);
+    if (/[\r\n\0]|javascript:/i.test(app) || (!httpUrl && /&&|\|\|/.test(app))) {
+      return 'Computer Use launch app must be one executable, file, or URL without command syntax';
     }
-    const allowedSafety = new Set(Object.keys(safetyDecision.properties));
-    const safetyExtras = Object.keys(args.safety).filter((key) => !allowedSafety.has(key));
-    if (safetyExtras.length) {
-      return `Computer Use safety does not accept field(s): ${safetyExtras.join(', ')}`;
-    }
-    const missingSafety = safetyDecision.required.filter((key) => !hasOwn(args.safety, key));
-    if (missingSafety.length) {
-      return `Computer Use safety requires field(s): ${missingSafety.join(', ')}`;
-    }
-    const safetyError = objectSchemaValueError(
-      args.safety,
-      safetyDecision,
-      'Computer Use safety',
-    );
-    if (safetyError) return safetyError;
-    if (!args.safety.explanation.trim()) {
-      return 'Computer Use safety.explanation must not be empty';
+    if (!httpUrl && (
+      /(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)/i.test(app)
+      || /\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$/i.test(app)
+    )) {
+      return 'Computer Use launch blocks shells, script hosts, and shortcut files; use an exact non-shell executable, document, or URL';
     }
   }
-
   if (args.capture_after !== undefined) {
     if (!CAPTURE_AFTER_ACTIONS.has(name)) {
       return `Computer Use action "${name}" does not accept capture_after`;

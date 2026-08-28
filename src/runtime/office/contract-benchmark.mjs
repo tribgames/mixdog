@@ -37,9 +37,9 @@ function resultValue(result) {
 }
 
 export async function runOfficeContractBenchmark() {
-  let modelFacingCalls = 0;
+  let deterministicToolCalls = 0;
   const call = async (input) => {
-    modelFacingCalls += 1;
+    deterministicToolCalls += 1;
     return executeOfficeTool(input);
   };
 
@@ -77,9 +77,11 @@ export async function runOfficeContractBenchmark() {
   assert.match(invalidError, /describe/);
 
   return {
-    version: 1,
+    version: 2,
     createdAt: new Date().toISOString(),
-    modelFacingCalls,
+    measurementKind: 'deterministic-contract-probe',
+    modelBehaviorMeasured: false,
+    deterministicToolCalls,
     retries: 0,
     unnecessaryRereads: 0,
     broadCatalogMaterializations: 0,

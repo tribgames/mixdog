@@ -888,11 +888,11 @@ export async function readStoredSessionTranscript(id, options = {}) {
     // Only a PROVABLY absent checkpoint skips recovery: an unreadable probe
     // must not silently downgrade an interrupted turn to a plain cold read.
     if (probePath(join(dataDir(), 'turn-checkpoints', `${sessionId}.json`)).state !== PROBE_ABSENT) {
+        const {
+            projectTurnCheckpointMessages,
+            readTurnCheckpoint,
+        } = await import('./manager/turn-checkpoint.mjs');
         if (liveDetachedAgent) {
-            const {
-                projectTurnCheckpointMessages,
-                readTurnCheckpoint,
-            } = await import('./manager/turn-checkpoint.mjs');
             const checkpoint = readTurnCheckpoint(sessionId);
             if (checkpoint) {
                 session = {
@@ -903,6 +903,19 @@ export async function readStoredSessionTranscript(id, options = {}) {
         } else {
             const { recoverSessionAfterProcessRestart } = await import('./manager.mjs');
             session = recoverSessionAfterProcessRestart(sessionId) || session;
+            // A live foreign owner is intentionally not recovered/mutated.
+            // Project its durable working checkpoint read-only so the cold pane
+            // never repaints the stale pre-compaction session.messages while it
+            // waits for the owner's live-share frame.
+            if (session?.activeTurnCheckpoint) {
+                const checkpoint = readTurnCheckpoint(sessionId);
+                if (checkpoint) {
+                    session = {
+                        ...session,
+                        messages: projectTurnCheckpointMessages(session, checkpoint),
+                    };
+                }
+            }
         }
     }
     const {

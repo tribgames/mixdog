@@ -331,6 +331,7 @@ let browserHost: BrowserHost | null = null;
 // may happen before or after the initial settings read, so both sides apply.
 let browserControlEnabled = false;
 let computerHost: ComputerHost | null = null;
+let computerControlEnabled = false;
 let removeIpc: (() => void) | null = null;
 let pendingPrimaryActivation = false;
 function activatePrimaryWindow(): void {
@@ -400,14 +401,8 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
 // `computer` tool) exists only while the setting is on. Toggling it starts or
 // tears down the host live; Windows-only for now.
 function applyComputerControlSetting(enabled: boolean): void {
-  if (enabled && process.platform === 'win32') {
-    if (!computerHost) computerHost = createComputerHost();
-    return;
-  }
-  if (computerHost) {
-    void computerHost.dispose().catch(() => {});
-    computerHost = null;
-  }
+  computerControlEnabled = enabled && process.platform === 'win32';
+  computerHost?.setBridgeEnabled(computerControlEnabled);
 }
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
@@ -597,9 +592,12 @@ function disposeDesktopResources(): Promise<void> {
   if (!disposalPromise) diagnostics?.write('desktop-stop');
   serviceTerminalManager.disposeAll();
   if (!disposalPromise) {
+    const browserAndComputerCleanup = (async () => {
+      await browserHost?.dispose();
+      await computerHost?.dispose();
+    })();
     const cleanup = Promise.all([
-      browserHost?.dispose(),
-      computerHost?.dispose(),
+      browserAndComputerCleanup,
       host.dispose(),
       windowStateFlush,
       windowState?.flush(),
@@ -762,6 +760,10 @@ async function createWindow(): Promise<void> {
   if (savedState?.maximized) window.maximize();
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
+  if (process.platform === 'win32' && !computerHost) {
+    computerHost = createComputerHost({ bridgeEnabled: false });
+  }
+  computerHost?.setBridgeEnabled(computerControlEnabled);
   // Browser pane host: registers this window's browser-pane webviews. The
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
@@ -821,6 +823,7 @@ async function createWindow(): Promise<void> {
     powerMonitor,
     nativeImage,
     onDesktopSettingsChanged: applyDesktopSettings,
+    browserHost,
     updater: desktopUpdater,
     terminals: serviceTerminalManager,
     remoteAccessInfo,

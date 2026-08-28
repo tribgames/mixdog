@@ -20,18 +20,21 @@ const DISCOVERY_VERSION = 1;
 const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 // Desktop UI Automation queries and input dispatch can be slow; sit above the
 // bridge's own per-action timeouts so its specific error wins over a bare abort.
-const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 150_000;
 const SESSION_ABORT_TIMEOUT_MS = 8_000;
+const SESSION_RELEASE_TIMEOUT_MS = 60_000;
+const DEFERRED_SESSION_RELEASE_MS = 2 * 60_000;
 const READ_ONLY_ACTIONS = new Set([
   'list_windows', 'list_apps', 'diagnose', 'capture', 'snapshot', 'find', 'clipboard_read', 'wait',
   'window_bounds', 'screenshot', 'zoom',
 ]);
 const activeComputerSessions = new Set();
+const deferredComputerSessionReleases = new Map();
 
 const BRIDGE_UNAVAILABLE_MESSAGE =
   'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
-function canonicalResultText(text, args, safetyAcknowledgement = null) {
+function canonicalResultText(text, args) {
   let value;
   try {
     value = JSON.parse(text);
@@ -48,7 +51,6 @@ function canonicalResultText(text, args, safetyAcknowledgement = null) {
   if (args.action === 'click') value.button = args.input?.button || 'left';
   if (args.action === 'window') value.operation = args.input?.operation;
   if (args.action === 'clipboard') value.operation = args.input?.operation;
-  if (safetyAcknowledgement) value.safety_acknowledgement = safetyAcknowledgement;
   return JSON.stringify(value);
 }
 
@@ -91,54 +93,10 @@ export async function executeComputerTool(args, context = {}) {
   if (validationError) {
     return { content: [{ type: 'text', text: `Error: ${validationError}` }], isError: true };
   }
-  let safetyAcknowledgement = null;
-  if (args.safety?.decision === 'require_confirmation') {
-    if (typeof context?.requestApproval !== 'function') {
-      return {
-        content: [{
-          type: 'text',
-          text: 'Error: Computer Use confirmation is required but no approval UI is available',
-        }],
-        isError: true,
-      };
-    }
-    let approval;
-    try {
-      approval = await context.requestApproval({
-        name: 'computer',
-        args,
-        cwd: context.cwd || process.cwd(),
-        sessionId: context.sessionId || null,
-        toolCallId: context.toolCallId || null,
-        reason: args.safety.explanation,
-      });
-    } catch (error) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error: Computer Use confirmation failed: ${error?.message || String(error)}`,
-        }],
-        isError: true,
-      };
-    }
-    if (approval !== true && approval?.approved !== true) {
-      return {
-        content: [{
-          type: 'text',
-          text: `Error: Computer Use action was not approved${approval?.reason ? `: ${approval.reason}` : ''}`,
-        }],
-        isError: true,
-      };
-    }
-    safetyAcknowledgement = {
-      decision: 'confirmed',
-      category: args.safety.category,
-      explanation: args.safety.explanation,
-    };
-  }
   let response;
   const command = toComputerHostCommand(args);
   const sessionId = context?.sessionId ? String(context.sessionId) : '';
+  cancelDeferredComputerSessionRelease(sessionId);
   const action = String(command?.action || '');
   if (sessionId && !READ_ONLY_ACTIONS.has(action) && command?.read_only !== true) {
     activeComputerSessions.add(sessionId);
@@ -169,7 +127,7 @@ export async function executeComputerTool(args, context = {}) {
       ? 'computer bridge timed out'
       : externallyAborted
         ? (abortConfirmed
-            ? 'computer command aborted; input state and desktop lease were released'
+            ? 'computer command aborted; input state and session resources were released'
             : 'computer command aborted; host cleanup could not be confirmed')
         : BRIDGE_UNAVAILABLE_MESSAGE;
     return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
@@ -187,7 +145,7 @@ export async function executeComputerTool(args, context = {}) {
   const value = body.value || {};
   const content = [{
     type: 'text',
-    text: canonicalResultText(String(value.text || 'OK'), args, safetyAcknowledgement),
+    text: canonicalResultText(String(value.text || 'OK'), args),
   }];
   if (value.image?.data && value.image?.mimeType) {
     content.push({
@@ -228,18 +186,46 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs) {
 async function abortComputerSession(sessionId) {
   const id = String(sessionId || '').trim();
   if (!id) return false;
+  cancelDeferredComputerSessionRelease(id);
   const aborted = await sendComputerSessionControl(id, 'session_abort', SESSION_ABORT_TIMEOUT_MS);
   if (aborted) activeComputerSessions.delete(id);
   return aborted;
 }
 
-/** Best-effort turn cleanup. The desktop host restores any persistent focus,
- * invalidates refs/frames, and releases the cross-session desktop lease. */
+function cancelDeferredComputerSessionRelease(sessionId) {
+  const id = String(sessionId || '').trim();
+  if (!id) return false;
+  const timer = deferredComputerSessionReleases.get(id);
+  if (!timer) return false;
+  clearTimeout(timer);
+  deferredComputerSessionReleases.delete(id);
+  return true;
+}
+
+/** Keep observation-bound refs/frames alive across the next model turn while
+ * guaranteeing idle workflows eventually release session workers and target claims. */
+export function deferComputerSessionRelease(sessionId, delayMs = DEFERRED_SESSION_RELEASE_MS) {
+  const id = String(sessionId || '').trim();
+  if (!id) return false;
+  cancelDeferredComputerSessionRelease(id);
+  const delay = Math.max(1, Number(delayMs) || DEFERRED_SESSION_RELEASE_MS);
+  const timer = setTimeout(() => {
+    deferredComputerSessionReleases.delete(id);
+    void releaseComputerSession(id);
+  }, delay);
+  timer.unref?.();
+  deferredComputerSessionReleases.set(id, timer);
+  return true;
+}
+
+/** Explicit session cleanup invalidates refs/frames and releases the
+ * agent worker and target claims immediately. */
 export async function releaseComputerSession(sessionId) {
   const id = String(sessionId || '').trim();
   if (!id) return false;
+  cancelDeferredComputerSessionRelease(id);
   activeComputerSessions.delete(id);
-  const released = await sendComputerSessionControl(id, 'session_release', REQUEST_TIMEOUT_MS);
+  const released = await sendComputerSessionControl(id, 'session_release', SESSION_RELEASE_TIMEOUT_MS);
   if (!released) activeComputerSessions.add(id);
   return released;
 }

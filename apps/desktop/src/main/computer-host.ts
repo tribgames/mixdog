@@ -10,8 +10,14 @@ import {
   type PowerShellComputerHost,
 } from './computer-host-powershell';
 
+export type {
+  ChromeRemoteDebuggingSetup,
+  ChromeRemoteDebuggingTarget,
+} from './computer-host-powershell';
 export type ComputerHost = PowerShellComputerHost;
 
-export function createComputerHost(): ComputerHost {
-  return createPowerShellComputerHost();
+export function createComputerHost(
+  options: { bridgeEnabled?: boolean } = {},
+): ComputerHost {
+  return createPowerShellComputerHost(options);
 }

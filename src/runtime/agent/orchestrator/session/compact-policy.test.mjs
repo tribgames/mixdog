@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
     compactionTelemetryPressureTokens,
     currentContextEstimateTokens,
+    recordProviderContextBaseline,
     rememberCompactTelemetry,
     resolveCompactionPressureTokens,
     resolveContextTokens,
@@ -35,6 +36,7 @@ test('successful compaction publishes post-compact pressure and invalidates the 
         contextWindow: 200_000,
         compactBoundaryTokens: 200_000,
         contextPressureBaselineTokens: 225_000,
+        contextPressureBaselineRequestReserveTokens: 800,
         contextPressureBaselineUpdatedAt: Date.now(),
         lastContextTokensStaleAfterCompact: false,
         compaction: { auto: true },
@@ -51,6 +53,7 @@ test('successful compaction publishes post-compact pressure and invalidates the 
 
     assert.equal(session.compaction.currentEstimatedTokens, 20_000);
     assert.equal(session.contextPressureBaselineTokens, null);
+    assert.equal(session.contextPressureBaselineRequestReserveTokens, null);
     assert.equal(session.lastContextTokensStaleAfterCompact, true);
 });
 
@@ -172,5 +175,70 @@ test('provider baseline plus trailing growth is the only display and compaction 
             sessionRef: session,
         }),
         decisionPolicy.triggerTokens,
+    );
+});
+
+test('a restarted tool surface adjusts only schema reserve instead of discarding provider usage', () => {
+    const messages = [{ role: 'user', content: 'durable provider-aligned history' }];
+    const previousTools = [
+        { name: 'read', description: 'Read files', inputSchema: { type: 'object' } },
+        { name: 'recall', description: 'Recall stored context '.repeat(40), inputSchema: { type: 'object' } },
+        { name: 'goal', description: 'Manage the durable checklist '.repeat(40), inputSchema: { type: 'object' } },
+    ];
+    const restartedTools = [
+        { name: 'read', description: 'Read files', inputSchema: { type: 'object' } },
+    ];
+    const session = {
+        provider: 'openai-oauth',
+        model: 'gpt-5.6-sol',
+        contextWindow: 272_000,
+        compactBoundaryTokens: 272_000,
+        compaction: { auto: true },
+        tools: previousTools,
+    };
+    assert.equal(recordProviderContextBaseline(
+        session,
+        messages,
+        { promptTokens: 75_000, outputTokens: 0 },
+        { sendTools: previousTools },
+    ), true);
+
+    const policy = resolveWorkerCompactPolicy(session, restartedTools);
+    const wholeTranscriptEstimate = 302_000;
+    const currentReserve = Math.round(policy.requestReserveTokens * policy.tokenCalibration);
+    const expected = 75_000 - session.contextPressureBaselineRequestReserveTokens + currentReserve;
+    assert.notEqual(session.contextPressureBaselineToolSignature, policy.toolSchemaSignature);
+    assert.ok(currentContextEstimateTokens(wholeTranscriptEstimate, policy) > policy.triggerTokens);
+    assert.equal(
+        resolveCompactionPressureTokens(wholeTranscriptEstimate, policy, {
+            messages,
+            sessionRef: session,
+        }),
+        expected,
+    );
+    assert.equal(
+        shouldCompactForSession(wholeTranscriptEstimate, policy, {
+            messages,
+            sessionRef: session,
+        }),
+        false,
+    );
+
+    delete session.contextPressureBaselineRequestReserveTokens;
+    assert.equal(
+        resolveCompactionPressureTokens(wholeTranscriptEstimate, policy, {
+            messages,
+            sessionRef: session,
+        }),
+        75_000 + currentReserve,
+    );
+
+    session.contextPressureBaselineModel = 'different-model';
+    assert.equal(
+        resolveCompactionPressureTokens(wholeTranscriptEstimate, policy, {
+            messages,
+            sessionRef: session,
+        }),
+        currentContextEstimateTokens(wholeTranscriptEstimate, policy),
     );
 });

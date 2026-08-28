@@ -19,7 +19,7 @@ try {
     platform: 'node',
     format: 'esm',
     target: 'node22',
-    external: ['electron'],
+    external: ['electron', 'ws'],
     sourcemap: 'inline',
     logLevel: 'warning',
   });

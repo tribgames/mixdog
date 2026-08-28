@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolveSessionContextMeta } from './context-meta.mjs';
-import { contextSeedForRouteUpdate, _refreshSessionRuleVariantsForModel } from './session-lifecycle.mjs';
+import {
+    contextSeedForRouteUpdate,
+    prepareSessionProjection,
+    _refreshSessionRuleVariantsForModel,
+} from './session-lifecycle.mjs';
 import { _buildSharedRules } from './rules-cache.mjs';
+import {
+    contextMessagesSignature,
+    toolSchemaSignature,
+} from '../context-utils.mjs';
+import { createContextStatus } from '../../../../../session-runtime/context-status.mjs';
 
 test('a cold Cursor route uses 200k instead of inheriting another model window', () => {
     const seed = contextSeedForRouteUpdate({
@@ -38,6 +47,59 @@ test('an explicitly selected context window survives a route update', () => {
     }, true, true), {
         selectedContextWindow: 300_000,
     });
+});
+
+test('a cold projection preserves the provider-aligned active tool surface', () => {
+    const messages = [{ role: 'user', content: 'continue the existing task' }];
+    const tools = [
+        { name: 'read', description: 'Read files', inputSchema: { type: 'object' } },
+        { name: 'recall', description: 'Recall memory', inputSchema: { type: 'object' } },
+    ];
+    const baselineTokens = 123_456;
+    const session = {
+        id: `cold-context-projection-${Date.now()}`,
+        provider: 'openai-oauth',
+        model: 'gpt-5.6-sol',
+        cwd: process.cwd(),
+        preset: 'full',
+        toolSpec: 'full',
+        messages,
+        tools,
+        contextWindow: 272_000,
+        rawContextWindow: 272_000,
+        compactBoundaryTokens: 272_000,
+        compaction: {
+            auto: true,
+            boundaryTokens: 272_000,
+            contextWindow: 272_000,
+            rawContextWindow: 272_000,
+        },
+        contextPressureBaselineTokens: baselineTokens,
+        contextPressureBaselineOutputTokens: 0,
+        contextPressureBaselineMessageCount: messages.length,
+        contextPressureBaselinePrefixSignature: contextMessagesSignature(messages),
+        contextPressureBaselineProvider: 'openai-oauth',
+        contextPressureBaselineModel: 'gpt-5.6-sol',
+        contextPressureBaselineToolSignature: toolSchemaSignature(tools),
+        contextPressureBaselineBoundary: 'complete',
+        contextPressureBaselineUpdatedAt: Date.now(),
+        lastContextTokensStaleAfterCompact: false,
+    };
+
+    const projection = prepareSessionProjection(session, 'full');
+    const status = createContextStatus({
+        getSession: () => projection,
+        getRoute: () => ({
+            provider: projection.provider,
+            model: projection.model,
+            contextWindow: projection.contextWindow,
+        }),
+        getCurrentCwd: () => projection.cwd,
+        getMode: () => 'full',
+    }).contextStatus();
+
+    assert.equal(toolSchemaSignature(projection.tools), session.contextPressureBaselineToolSignature);
+    assert.equal(status.usedTokens, baselineTokens);
 });
 
 test('an empty-session route change re-renders the edit-dialect rule variants', () => {

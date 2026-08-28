@@ -68,6 +68,7 @@ import {
   projectEntryPathIn,
 } from './project-files';
 import type { DesktopSettingsStore } from './settings-store';
+import type { BrowserHost } from './browser-host';
 import {
   createSnapshotDeltaEncoder,
   releaseHiddenSessionStateEntries,
@@ -173,6 +174,9 @@ interface DesktopIpcDependencies {
     'read' | 'update' | 'readZoom' | 'updateZoom' | 'readGitPreferences' | 'updateGitPreferences'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
+  /** Browser Use pane: local profile import without renderer-visible secrets. */
+  browserHost?: Pick<BrowserHost,
+    'browserImportSources' | 'browserImport' | 'browserHistorySearch'>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -209,6 +213,7 @@ export function registerDesktopIpc(
     nativeImage: nativeImageRef,
     settingsStore,
     onDesktopSettingsChanged,
+    browserHost,
     updater,
     terminals,
     remoteAccessInfo,
@@ -1056,6 +1061,47 @@ export function registerDesktopIpc(
       onDesktopSettingsChanged?.(saved);
       return saved;
     });
+  });
+  handle(DESKTOP_IPC.browserProfileImportSources, () => {
+    if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
+    return browserHost.browserImportSources();
+  });
+  handle(DESKTOP_IPC.browserProfileImportStart, (_event, value) => {
+    if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new TypeError('Browser import request must be an object.');
+    }
+    const request = value as Record<string, unknown>;
+    const jobId = String(request.jobId || '');
+    const sourceId = String(request.sourceId || '');
+    const profileId = String(request.profileId || '');
+    const items = Array.isArray(request.items)
+      ? request.items.map((item) => String(item))
+      : [];
+    if (!/^[a-zA-Z0-9_-]{8,120}$/.test(jobId)) throw new TypeError('Browser import job id is invalid.');
+    if (!sourceId || sourceId.length > 100) throw new TypeError('Browser import source id is invalid.');
+    if (!profileId || profileId.length > 200) throw new TypeError('Browser import profile id is invalid.');
+    if (
+      !items.length
+      || items.length > 3
+      || items.some((item) => !['passwords', 'cookies', 'history'].includes(item))
+    ) {
+      throw new TypeError('Browser import items are invalid.');
+    }
+    return browserHost.browserImport({
+      jobId,
+      sourceId,
+      profileId,
+      items: items as Array<'passwords' | 'cookies' | 'history'>,
+      administratorApproved: request.administratorApproved === true,
+    });
+  });
+  handle(DESKTOP_IPC.browserHistorySearch, (_event, query) => {
+    if (!browserHost) throw new Error('Browser history is unavailable in this app surface.');
+    if (typeof query !== 'string' || query.length > 500) {
+      throw new TypeError('Browser history query is invalid.');
+    }
+    return browserHost.browserHistorySearch(query);
   });
   handle(DESKTOP_IPC.readGitPreferences, () =>
     settingsStore?.readGitPreferences() ?? invokeDesktopOperation('readGitPreferences', []));

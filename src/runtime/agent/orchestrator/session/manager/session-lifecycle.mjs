@@ -681,6 +681,14 @@ export function prefetchSession(sessionId, preset = 'full') {
 export function prepareSessionProjection(session, preset = 'full') {
     if (!session?.id) return null;
     const prepared = _preparedResumeForSession(session, preset);
+    // This read-only projection describes the last provider-visible session,
+    // not the transient bootstrap bundle that resumeSession installs before
+    // session-runtime reapplies deferred selections. Keeping the persisted
+    // active surface preserves its provider baseline/tool signature while the
+    // cached `prepared.tools` remains available for the real resume.
+    const projectionTools = Array.isArray(session.tools)
+        ? session.tools
+        : prepared.tools;
     let contextMeta = null;
     try {
         const provider = session.provider ? getProvider(session.provider) : null;
@@ -693,7 +701,7 @@ export function prepareSessionProjection(session, preset = 'full') {
     return {
         ...session,
         toolSpec: prepared.toolSpec,
-        tools: prepared.tools,
+        tools: projectionTools,
         ...(contextMeta ? {
             contextWindow: contextMeta.contextWindow,
             rawContextWindow: contextMeta.rawContextWindow,

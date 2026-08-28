@@ -80,6 +80,10 @@ export const DESKTOP_IPC = {
   setZoomFactor: 'mixdog:set-zoom-factor',
   zoomFactorChanged: 'mixdog:zoom-factor-changed',
   browserOpenRequested: 'mixdog:browser-open-requested',
+  browserProfileImportSources: 'mixdog:browser-profile-import-sources',
+  browserProfileImportStart: 'mixdog:browser-profile-import-start',
+  browserProfileImportProgress: 'mixdog:browser-profile-import-progress',
+  browserHistorySearch: 'mixdog:browser-history-search',
   applyTitleBarTheme: 'mixdog:apply-titlebar-theme',
   setTitleBarDim: 'mixdog:set-titlebar-dim',
   invokeCapability: 'mixdog:invoke-capability',
@@ -299,8 +303,9 @@ export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
   blocker?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;
-  remainingMs?: number;
+  remainingMs?: number | null;
   deadlineAt?: number | null;
+  snapshotAt?: number;
   createdAt?: number;
   updatedAt?: number;
   lastStartedAt?: number | null;
@@ -773,6 +778,52 @@ export interface DesktopSettings {
   /** Opt-in: expose the agent `browser` tool over the in-app browser bridge.
    *  Default off; the browser pane itself stays available either way. */
   browserControl: boolean;
+}
+
+export type DesktopBrowserImportItem = 'passwords' | 'cookies' | 'history';
+export type DesktopBrowserImportItemState = 'running' | 'completed' | 'failed';
+
+export interface DesktopBrowserImportProfile {
+  id: string;
+  name: string;
+  accountEmail?: string;
+}
+
+export interface DesktopBrowserImportSource {
+  id: string;
+  name: string;
+  profiles: DesktopBrowserImportProfile[];
+  supports: Record<DesktopBrowserImportItem, boolean>;
+  passwordSupportReason?: string;
+}
+
+export interface DesktopBrowserImportRequest {
+  jobId: string;
+  sourceId: string;
+  profileId: string;
+  items: DesktopBrowserImportItem[];
+  administratorApproved: boolean;
+}
+
+export interface DesktopBrowserImportProgress {
+  jobId: string;
+  item: DesktopBrowserImportItem;
+  state: DesktopBrowserImportItemState;
+  count?: number;
+  error?: string;
+}
+
+export interface DesktopBrowserImportResult {
+  jobId: string;
+  counts: Record<DesktopBrowserImportItem, number>;
+  errors: Partial<Record<DesktopBrowserImportItem, string>>;
+}
+
+export interface DesktopBrowserHistoryEntry {
+  url: string;
+  title: string;
+  lastVisitAt: number;
+  visitCount: number;
 }
 
 /** Settings → Git: GitHub CLI presence and auth, probed through gh itself. */
@@ -1751,6 +1802,16 @@ export interface DesktopApi {
   /** Agent browser bridge (desktop host only): a `browser` tool call arrived
    *  while no in-app browser webview was live; present a browser surface. */
   onBrowserOpenRequested?(listener: () => void): () => void;
+  /** Local Chrome profile import into the isolated Browser Use partition.
+   *  Secrets stay in main/native processes; renderer receives metadata/counts. */
+  browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;
+  browserProfileImportStart?(
+    request: DesktopBrowserImportRequest,
+  ): Promise<DesktopBrowserImportResult>;
+  onBrowserProfileImportProgress?(
+    listener: (progress: DesktopBrowserImportProgress) => void,
+  ): () => void;
+  browserHistorySearch?(query: string): Promise<DesktopBrowserHistoryEntry[]>;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

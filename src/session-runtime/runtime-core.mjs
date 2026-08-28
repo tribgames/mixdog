@@ -278,6 +278,7 @@ import {
 import { TOOL_DEFS as BROWSER_BRIDGE_TOOL_DEFS } from '../runtime/browser-bridge/tool-defs.mjs';
 import {
   computerBridgeAvailableSync,
+  deferComputerSessionRelease,
   executeComputerTool,
   releaseComputerSession,
 } from '../runtime/computer-bridge/client.mjs';
@@ -1758,7 +1759,7 @@ export async function createMixdogSessionRuntime({
     getReservedSessionId: () => rt.reservedSessionId,
     registerActiveTurnController,
     sessionTitles,
-    releaseComputerSessionLease: releaseComputerSession,
+    deferComputerSessionRelease,
   });
 
   return {

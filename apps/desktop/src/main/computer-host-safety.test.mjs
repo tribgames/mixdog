@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import {
   computeComputerWindowTransition,
+  launchTransitionConfirmsTarget,
   relatedWindowIdsForFrame,
 } from './computer-window-transition.ts';
 
@@ -148,6 +149,26 @@ test('computer window transition selects one deterministic successor', () => {
   assert.equal(reusedShellWindow.next_target?.id, 'hwnd:0x8');
   assert.equal(reusedShellWindow.next_target_reason, 'launched_existing_window_changed');
   assert.deepEqual(reusedShellWindow.changed_windows.map((window) => window.id), ['hwnd:0x8']);
+  assert.equal(
+    launchTransitionConfirmsTarget(reusedShellWindow, 'C:\\fixtures\\document.txt'),
+    true,
+  );
+  assert.equal(launchTransitionConfirmsTarget(delegatedExisting, 'notepad.exe'), true);
+  assert.equal(
+    launchTransitionConfirmsTarget(delegatedExisting, 'C:\\fixtures\\document.txt'),
+    false,
+  );
+  assert.equal(
+    launchTransitionConfirmsTarget({
+      ...delegatedExisting,
+      next_target: {
+        ...delegatedExisting.next_target,
+        title: 'document.txt - Notepad',
+      },
+    }, 'C:\\fixtures\\document.txt'),
+    true,
+  );
+  assert.equal(launchTransitionConfirmsTarget(delegatedExisting, 'https://example.com'), false);
 });
 
 test('computer frame admits only captured owned-window descendants', () => {
@@ -176,15 +197,20 @@ test('computer semantic background actions preserve focus and expose fresh state
   assert.match(hostSource, /Format-StructuredObservationState/);
 });
 
-test('computer foreground hotkeys use a PowerShell-resolvable UInt16 cast', () => {
+test('computer foreground hotkeys and atomic named keys use SendInput', () => {
   assert.doesNotMatch(hostSource, /\[ushort\]/i);
+  assert.match(hostSource, /public static ushort NamedVirtualKey/);
+  assert.match(hostSource, /keybd_event\(0xFC, 0, 0, UIntPtr\.Zero\)/);
+  assert.doesNotMatch(hostSource, /AddVk\(alt, 0x12/);
   assert.match(hostSource, /\[System\.UInt16\]\$modifierVk/);
+  assert.match(hostSource, /\[MixWin32\]::NamedVirtualKey\(\(\[string\]\$matches\['key'\]\)\.ToUpperInvariant\(\)\)/);
+  assert.match(hostSource, /for \(\$count = 0; \$count -lt \$repeat; \$count\+\+\)/);
   assert.match(hostSource, /\[MixWin32\]::KeyTap\(\[System\.UInt16\]\$vk\)/);
 });
 
 test('computer host facade isolates the active Windows backend', () => {
   assert.match(facadeSource, /createPowerShellComputerHost/);
-  assert.match(facadeSource, /return createPowerShellComputerHost\(\)/);
+  assert.match(facadeSource, /return createPowerShellComputerHost\(options\)/);
   assert.doesNotMatch(facadeSource, /powershellHostProgram|MixWin32|MixMsaa/);
 });
 
@@ -259,6 +285,11 @@ test('computer capture surface combines compact state, bounded fallback OCR, and
   assert.match(hostSource, /dedupeOcrWords/);
   assert.match(hostSource, /offscreen: true/);
   assert.match(hostSource, /webContents\.capturePage/);
+  assert.match(hostSource, /CaptureVisibleWindow/);
+  assert.match(hostSource, /CopyFromScreen/);
+  assert.match(hostSource, /capture_occluded/);
+  assert.match(hostSource, /native-window:/);
+  assert.match(hostSource, /action: 'window_capture'/);
   assert.match(hostSource, /WindowSnapshot/);
   assert.match(hostSource, /RelatedWindowIds/);
   assert.match(hostSource, /overlay_rendered/);
@@ -287,6 +318,20 @@ test('computer action surface supports literal typing and richer window/pointer 
   assert.match(hostSource, /assertSafeComputerInput/);
   assert.match(hostSource, /blocked_input: destructive or session-ending key combination/);
   assert.match(hostSource, /blocked_input: dangerous shell payload in type text/);
+  assert.match(hostSource, /BLOCKED_COMPUTER_LAUNCH_ALWAYS_PATTERNS/);
+  assert.match(hostSource, /BLOCKED_COMPUTER_NON_HTTP_LAUNCH_PATTERNS/);
+  assert.match(hostSource, /httpUrl = \/\^https\?:/);
+  assert.match(hostSource, /wt\|wsl\|bash\|sh\|zsh\|fish\|nu/);
+  assert.match(hostSource, /lnk\|url\|appref-ms/);
+  assert.match(hostSource, /blocked_input: shell, script-host, or shortcut launch is unavailable in Computer Use/);
+  assert.match(hostSource, /System\.Diagnostics\.ProcessStartInfo/);
+  assert.match(hostSource, /UseShellExecute = \$true/);
+  assert.match(hostSource, /target_not_found/);
+  assert.match(hostSource, /no_file_association/);
+  const launchStart = hostSource.indexOf('function Do-Launch');
+  const launchEnd = hostSource.indexOf('function Release-SessionState', launchStart);
+  assert.ok(launchStart >= 0 && launchEnd > launchStart);
+  assert.doesNotMatch(hostSource.slice(launchStart, launchEnd), /Start-Process -FilePath/);
 });
 
 test('computer diagnostics expose real readiness probes without screen pixels', () => {
@@ -295,6 +340,9 @@ test('computer diagnostics expose real readiness probes without screen pixels', 
   assert.match(hostSource, /async function diagnoseComputer/);
   assert.match(hostSource, /semantic_accessibility/);
   assert.match(hostSource, /input: 'target_integrity_dependent'/);
+  assert.match(hostSource, /WindowIntegrity/);
+  assert.match(hostSource, /TokenIntegrityLevel/);
+  assert.match(hostSource, /action: 'window_integrity'/);
   assert.match(hostSource, /diagnostics does not expose screen pixels/);
 });
 
@@ -359,17 +407,39 @@ test('computer fast paths keep exact-target and fallback safety boundaries', () 
   assert.match(hostSource, /confinedToMenuStrip/);
   assert.match(hostSource, /LAUNCH_SUCCESSOR_TIMEOUT_MS/);
   assert.match(hostSource, /includeAppMetadata/);
-  assert.match(hostSource, /next_target_reason !== 'launched_app_existing'/);
+  assert.match(hostSource, /performance\.now\(\) - settleStartedAt >= minimumLaunchSettleMs/);
   assert.match(hostSource, /Reassert once after that queue drains/);
   assert.match(hostSource, /function Restore-InputRecoveryState/);
   assert.match(hostSource, /input_recovery: inputRecoveryVerification/);
   assert.match(hostSource, /reasserted/);
+  assert.match(hostSource, /callPowerShellElevated/);
+  assert.match(hostSource, /privileged worker requires delivery=foreground/);
+  assert.match(hostSource, /MIXDOG_ELEVATED_TOKEN/);
+  assert.match(hostSource, /MIXDOG_ELEVATED_HOST_SHA256/);
+  assert.match(hostSource, /MIXDOG_ELEVATED_REQUEST_SHA256/);
+  assert.match(hostSource, /\$variableNames = @\('MIXDOG_ELEVATED_TOKEN'/);
+  assert.match(hostSource, /\[Environment\]::GetEnvironmentVariable\(\$_\)/);
+  assert.match(hostSource, /\$elevatedScript = \$prelude/);
+  assert.match(hostSource, /Set-AdminOnlyDirectory/);
+  assert.match(hostSource, /SetAccessRuleProtection\(\$true, \$false\)/);
+  assert.match(hostSource, /createHash\('sha256'\)/);
+  assert.match(hostSource, /launcher_error:/);
+  assert.match(hostSource, /exit 1223/);
+  assert.match(hostSource, /stdio: \['ignore', 'pipe', 'pipe'\]/);
+  assert.match(hostSource, /privileged_worker_launcher_failed: elevated worker exited with code/);
+  assert.match(hostSource, /\.replace\(\/\^\\uFEFF\/, ''\)/);
+  assert.match(hostSource, /privileged_worker_rejected: response authentication failed/);
+  assert.match(hostSource, /target_integrity_unknown: foreground input was not sent/);
+  assert.match(hostSource, /uac_elevated_/);
 });
 
 test('computer foreground surface guard admits only contained same-process child surfaces', () => {
   assert.match(hostSource, /IsContainedSameProcess/);
   assert.match(hostSource, /candidateBounds\.left >= surfaceBounds\.left/);
   assert.match(hostSource, /candidateBounds\.right <= surfaceBounds\.right/);
+  assert.match(hostSource, /function Test-AllowedPointTarget/);
+  assert.match(hostSource, /Revalidate only after that focus settles/);
+  assert.match(hostSource, /frame point remains covered after exact target focus/);
   assert.match(hostSource, /frame point is covered by or belongs to a different window/);
 });
 
@@ -383,29 +453,37 @@ test('computer frames remain session-bound and reject changed targets', () => {
   const zoomSource = hostSource.slice(zoomStart, zoomEnd);
   assert.match(zoomSource, /types: \[frame\.kind\]/);
   assert.match(zoomSource, /candidate\.id === frame\.sourceId/);
+  assert.match(zoomSource, /frame\.sourceId\.startsWith\('native-window:'\)/);
+  assert.match(zoomSource, /captureVisibleNativeWindow/);
   assert.doesNotMatch(zoomSource, /sources\[0\]/);
 });
 
-test('computer refs and the desktop lease fail closed across mutations and sessions', () => {
+test('computer refs, target claims, and execution lanes fail closed across agent sessions', () => {
   assert.match(hostSource, /RuntimeId = Get-ElRuntimeKey \$el/);
   assert.match(hostSource, /WindowId = \[string\]\$windowId/);
   assert.match(hostSource, /function Invalidate-RefsForRequest/);
-  assert.match(hostSource, /let desktopLease:/);
-  assert.match(hostSource, /computer_in_use: desktop is reserved by session/);
+  assert.match(hostSource, /const powerShellBySession = new Map/);
+  assert.match(hostSource, /const commandChainsBySession = new Map/);
+  assert.match(hostSource, /let foregroundChain:/);
+  assert.match(hostSource, /const targetClaims = new Map/);
+  assert.match(hostSource, /computer_target_in_use:.*reserved by another agent/);
+  assert.match(hostSource, /claimComputerTargets\(command, \[logicalTargetWindowId, targetWindowId\]\)/);
   assert.match(hostSource, /action === 'session_release'/);
 });
 
 test('computer command timeout retires the stuck input host', () => {
   assert.match(hostSource, /computer command timed out; the input host was restarted/);
-  assert.match(hostSource, /if \(ps === child\) ps = null;/);
+  assert.match(hostSource, /powerShellBySession\.delete\(sessionId\)/);
   assert.match(hostSource, /try \{ child\.kill\(\); \} catch/);
 });
 
 test('computer bridge is published only after resident backend warm-up', () => {
   const warmup = hostSource.indexOf("session_id: '__computer_host_warmup__'");
-  const discovery = hostSource.indexOf('writeDiscovery(port)', warmup);
+  const discovery = hostSource.indexOf('writeDiscovery(port, activeToken)', warmup);
   assert.ok(warmup >= 0 && discovery > warmup);
-  assert.match(hostSource, /Agent calls never absorb cold compile time/);
+  assert.match(hostSource, /Publish only after the native backend is warm/);
+  assert.match(hostSource, /removeDiscovery\(activeToken\)/);
+  assert.match(hostSource, /closeAllConnections/);
 });
 
 test('computer post-action capture follows a deterministic successor and confirms semantic transitions', () => {
@@ -418,10 +496,24 @@ test('computer post-action capture follows a deterministic successor and confirm
   assert.match(hostSource, /computeComputerWindowTransition/);
   assert.match(hostSource, /window_transition: windowTransition/);
   assert.match(hostSource, /windowTransition\?\.next_target\?\.id \|\| originalWindowId/);
+  assert.match(hostSource, /minimumLaunchSettleMs = Math\.max\(settleDelayMs, 500\)/);
   assert.match(hostSource, /recommended = 'switch_target'|return 'switch_target'/);
   assert.match(hostSource, /payload\.capture_after = \{/);
   assert.match(hostSource, /transitionConfirmsSemanticAction/);
+  assert.match(hostSource, /launchTransitionConfirmsTarget/);
   assert.match(hostSource, /verification_source: 'window_transition'/);
+});
+
+test('computer owned child input keeps a capturable logical observation target', () => {
+  assert.match(hostSource, /interface ObservedWindowScope/);
+  assert.match(hostSource, /relatedWindowIds\.includes\(targetWindowId\)/);
+  assert.match(hostSource, /rememberObservedWindowScope/);
+  assert.match(hostSource, /capture_target_reason: 'capturable_owner'/);
+  assert.match(hostSource, /input_surface_window_id: result\.window_id/);
+  assert.match(hostSource, /bounded focus-settle interval/);
+  assert.match(hostSource, /Thread\]::Sleep\(120\)/);
+  assert.match(hostSource, /bounded input-settle interval/);
+  assert.match(hostSource, /Thread\]::Sleep\(240\)/);
 });
 
 test('computer confirmed close reports target-closed capture completion', () => {
@@ -434,9 +526,10 @@ test('computer session abort bypasses serialization and restores input state', (
   assert.match(hostSource, /command\.action === 'session_abort'/);
   assert.match(hostSource, /await abortComputerSession\(command\)/);
   assert.match(hostSource, /activeExecution\.aborted = true/);
-  assert.match(hostSource, /retirePowerShell\(ps, new Error\('computer_session_aborted/);
+  assert.match(hostSource, /retirePowerShell\(child, new Error\('computer_session_aborted/);
   assert.match(hostSource, /MixdogAbortCleanup/);
   assert.match(hostSource, /sessionAbortEpochs/);
+  assert.match(hostSource, /runForegroundExclusive\(\(\) => cleanupAbortedInput\(recovery\)\)/);
 });
 
 test('generated abort cleanup program compiles', {
@@ -903,6 +996,18 @@ public sealed class MixdogMsaaActionFixture : Control {
   $owned.Dispose()
   $form.Close()
   $form.Dispose()
+  $missingLaunchTarget = Join-Path $env:TEMP ('mixdog-computer-missing-' + [Guid]::NewGuid().ToString('N') + '.pptx')
+  try {
+    [void](Do-Launch $missingLaunchTarget)
+    [void]$probeResults.Add(@{ name = 'launch-missing-target'; ok = $false; error = 'missing target unexpectedly launched' })
+  } catch {
+    $missingLaunchError = "$($_.Exception.Message)"
+    [void]$probeResults.Add(@{
+      name = 'launch-missing-target'
+      ok = $missingLaunchError -match 'launch failed \[target_not_found/(2|3)\]'
+      error = $missingLaunchError
+    })
+  }
   try {
   Assert-TypingTarget
   [void]$probeResults.Add(@{ name = 'key'; ok = $true; error = '' })
@@ -939,12 +1044,13 @@ exit
       payload.results.map((entry) => entry.ok),
       [
         true, true, true, true, true, true, true, true, true, true,
-        true, true, true, true, true, true, true, true, false, false,
+        true, true, true, true, true, true, true, true, true, false,
+        false,
       ],
       JSON.stringify(payload.results, null, 2),
     );
-    assert.match(payload.results[18].error, /key requires focus_window first/);
-    assert.match(payload.results[19].error, /click requires focus_window first/);
+    assert.match(payload.results[19].error, /key requires focus_window first/);
+    assert.match(payload.results[20].error, /click requires focus_window first/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

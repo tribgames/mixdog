@@ -594,6 +594,23 @@ export function createLifecycleApi(deps) {
         },
       );
       setRoute(resumedRoute);
+      // resumeSession refreshes only the bootstrap/base bundle. Reapply the
+      // persisted deferred selection synchronously with current definitions
+      // before this resume becomes observable; waiting for asynchronous route
+      // preparation temporarily dropped loaded tools and invalidated the
+      // provider-aligned context baseline.
+      const restoreResumedToolSurface = (target, targetRoute) => {
+        applyDeferredToolSurface(
+          target,
+          deferredSurfaceModeForLead(getMode()),
+          getStandaloneTools(),
+          {
+            provider: targetRoute.provider,
+            model: targetRoute.model,
+          },
+        );
+      };
+      restoreResumedToolSurface(resumed, resumedRoute);
       const finishRoutePreparation = async () => {
         const preparedRoute = await refreshRouteEffort(null, resumedRoute);
         // Session or route changed while provider metadata was loading.
@@ -602,12 +619,7 @@ export function createLifecycleApi(deps) {
         activeSession.effort = getRoute().effectiveEffort || null;
         activeSession.fast = getRoute().fast === true;
         activeSession.cwd = getCurrentCwd();
-        applyDeferredToolSurface(
-          activeSession,
-          deferredSurfaceModeForLead(getMode()),
-          getStandaloneTools(),
-          { provider: getRoute().provider },
-        );
+        restoreResumedToolSurface(activeSession, getRoute());
         writeStatuslineRoute(statusRoutes, activeSession, getRoute());
         return true;
       };

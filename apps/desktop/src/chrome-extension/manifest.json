@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Mixdog Browser Use",
+  "description": "Connect only Chrome tabs you explicitly place in the Mixdog tab group.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "debugger",
+    "storage",
+    "tabs",
+    "tabGroups"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Mixdog Browser Use",
+    "default_popup": "popup.html"
+  }
+}

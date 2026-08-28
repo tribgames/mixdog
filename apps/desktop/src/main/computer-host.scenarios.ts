@@ -96,6 +96,7 @@ class ScenarioSkip extends Error {}
 const progressPath = process.env.MIXDOG_COMPUTER_SCENARIO_LOG || '';
 const reportPath = process.env.MIXDOG_COMPUTER_SCENARIO_REPORT || '';
 const reportDirectory = process.env.MIXDOG_COMPUTER_SCENARIO_REPORT_DIR || '';
+const sequencePerformancePath = process.env.MIXDOG_COMPUTER_SEQUENCE_REPORT || '';
 const reportLabel = process.env.MIXDOG_COMPUTER_SCENARIO_LABEL || 'baseline';
 const scenarioOnly = new Set(
   String(process.env.MIXDOG_COMPUTER_SCENARIO_ONLY || '')
@@ -113,14 +114,14 @@ let activeMetrics: ScenarioMetrics | null = null;
 let previousCommandHadCaptureAfter = false;
 const results: ScenarioResult[] = [];
 const OBSERVATION_ACTIONS = new Set([
-  'list_windows', 'list_apps', 'capture', 'snapshot', 'find', 'screenshot', 'zoom',
+  'list_windows', 'list_apps', 'diagnose', 'capture', 'snapshot', 'find', 'screenshot', 'zoom',
 ]);
 const MUTATION_ACTIONS = new Set([
   'invoke', 'set_value', 'toggle',
   'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
   'mouse_move', 'drag', 'type', 'key', 'scroll',
   'focus_window', 'move_window', 'window_state', 'close_window',
-  'clipboard_write', 'launch',
+  'clipboard_write', 'launch', 'sequence',
 ]);
 
 function progress(message: string): void {
@@ -296,7 +297,7 @@ canvas.addEventListener('pointerdown',(event)=>{
  if(inside(point,send))clickCount+=1;
  if(inside(point,input))setTimeout(()=>sink.focus(),0);
  if(inside(point,popup)){
-   const body='<meta charset="utf-8"><title>Mixdog Scenario Popup</title><body style="font:32px Arial;background:white">POPUP READY</body>';
+   const body='<meta charset="utf-8"><title>Mixdog Scenario Popup</title><body style="font:32px Arial;background:white">POPUP READY<script>addEventListener("keydown",event=>{if(event.key==="Escape")close()})<\/script></body>';
    window.open('data:text/html,'+encodeURIComponent(body),'mixdog-scenario-popup','width=420,height=260');
  }
  draw();
@@ -392,6 +393,7 @@ async function createDenseFixture(): Promise<BrowserWindow> {
 async function run(): Promise<void> {
   let host: ComputerHost | null = null;
   let externalChild: ChildProcess | null = null;
+  let nativeDialogChild: ChildProcess | null = null;
   const windows: BrowserWindow[] = [];
   const session = 'computer-scenario-main';
   let command: (input: Record<string, unknown>, sessionId?: string) => Promise<CommandResult>;
@@ -941,7 +943,7 @@ async function run(): Promise<void> {
         include_ocr: true,
         max_elements: 40,
       }, 'focus-recovery'));
-      const mark = ocrMark(capture, 'SEND');
+      assert.ok(capture.frame_id, JSON.stringify(capture));
       guard.show();
       guard.focus();
       await eventually(
@@ -950,7 +952,12 @@ async function run(): Promise<void> {
       );
       const action = actionPayload(await command({
         action: 'click',
-        element: mark,
+        window_id: fixtureWindowId,
+        frame_id: capture.frame_id,
+        // Deterministic center of the fixture's SEND button. This scenario
+        // verifies frame-bound foreground focus/recovery, not OCR segmentation.
+        x: 220,
+        y: 141,
         delivery: 'foreground',
       }, 'focus-recovery'));
       const recovery = action.input_recovery as {
@@ -966,39 +973,110 @@ async function run(): Promise<void> {
       }
     });
 
-    await runScenario('S18', 'popup mutation reports deterministic next target', 'window-transition', async () => {
+    await runScenario('S18', 'owned popup input preserves parent observation scope', 'window-transition', async () => {
       try {
-      const capture = capturePayload(await command({
+      const fixtureScriptPath = join(profile, 'native-dialog-fixture.ps1');
+      writeFileSync(fixtureScriptPath, `
+Add-Type -AssemblyName System.Windows.Forms
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'Mixdog Native Dialog Fixture'
+$form.Width = 640
+$form.Height = 420
+$form.KeyPreview = $true
+$form.Add_KeyDown({
+  if ($_.Control -and $_.KeyCode -eq [System.Windows.Forms.Keys]::O) {
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    $dialog.Title = 'Mixdog Native Open Dialog'
+    [void]$dialog.ShowDialog($form)
+    $_.Handled = $true
+  }
+})
+[System.Windows.Forms.Application]::Run($form)
+`, 'utf8');
+      nativeDialogChild = spawn('powershell.exe', [
+        '-NoLogo',
+        '-NoProfile',
+        '-Sta',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        fixtureScriptPath,
+      ], {
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+      const parentLine = (text: string) => text.split(/\r?\n/).find(
+        (line) => line.includes('"Mixdog Native Dialog Fixture"'),
+      ) || '';
+      const listed = await eventually(
+        async () => (await command({ action: 'list_windows' }, 'popup-transition')).text,
+        (text) => Boolean(parentLine(text)),
+        20_000,
+      );
+      const parentWindowId = parentLine(listed).match(/^(hwnd:0x[0-9a-f]+)/i)?.[1] || '';
+      assert.ok(parentWindowId, listed);
+      await command({
         action: 'capture',
-        window_id: fixtureWindowId,
-        mode: 'som',
-        include_ocr: true,
-        max_elements: 50,
-      }, 'popup-transition'));
-      const popupMark = ocrMark(capture, 'OPEN');
-      const action = actionPayload(await command({
-        action: 'click',
-        element: popupMark,
-        delivery: 'background',
+        window_id: parentWindowId,
+        mode: 'state',
+        max_elements: 40,
+      }, 'popup-transition');
+      const opened = actionPayload(await command({
+        action: 'key',
+        window_id: parentWindowId,
+        keys: '^o',
+        delivery: 'foreground',
         capture_delay_ms: 300,
       }, 'popup-transition'));
-      const transition = action.window_transition as {
+      const openedTransition = opened.window_transition as {
+        next_target?: { id?: string };
         opened_windows?: Array<{ id?: string; title?: string }>;
-        next_target?: { id?: string; title?: string };
       } | undefined;
-      const popup = transition?.opened_windows?.find(
-        (window) => /Mixdog Scenario Popup/i.test(String(window.title || '')),
-      ) || transition?.next_target;
-      assert.ok(popup?.id, JSON.stringify(action));
-      const after = action.capture_after as Record<string, unknown> | undefined;
-      assert.equal(after?.ok, true);
-      assert.equal(after?.window_id, popup.id);
+      const popupWindowId = openedTransition?.next_target?.id
+        || openedTransition?.opened_windows?.find(
+          (window) => window.title === 'Mixdog Native Open Dialog',
+        )?.id
+        || '';
+      assert.ok(popupWindowId, JSON.stringify(opened));
+      const popupCapture = capturePayload(await command({
+        action: 'capture',
+        window_id: popupWindowId,
+        mode: 'state',
+        max_elements: 40,
+      }, 'popup-transition'));
+      assert.equal(popupCapture.window_id, popupWindowId, JSON.stringify(popupCapture));
+      assert.equal(popupCapture.pixel_status, 'available', JSON.stringify(popupCapture));
+      assert.ok(popupCapture.frame_id, JSON.stringify(popupCapture));
       await command({
-        action: 'close_window',
-        window_id: popup.id,
+        action: 'focus_window',
+        window_id: parentWindowId,
       }, 'popup-transition');
+      const closed = actionPayload(await command({
+        action: 'key',
+        window_id: popupWindowId,
+        keys: '{ESC}',
+        delivery: 'foreground',
+        capture_delay_ms: 300,
+      }, 'popup-transition'));
+      assert.equal(closed.window_id, parentWindowId, JSON.stringify(closed));
+      assert.equal(closed.input_surface_window_id, popupWindowId, JSON.stringify(closed));
+      assert.equal(
+        (closed.input_recovery as Record<string, unknown> | undefined)?.ok,
+        true,
+        JSON.stringify(closed),
+      );
+      const closedWindows = (closed.window_transition as {
+        closed_windows?: Array<{ id?: string }>;
+      } | undefined)?.closed_windows || [];
+      assert.ok(closedWindows.some((window) => window.id === popupWindowId), JSON.stringify(closed));
+      const verified = closed.capture_after as Record<string, unknown> | undefined;
+      assert.equal(verified?.ok, true, JSON.stringify(closed));
+      assert.equal(verified?.window_id, parentWindowId, JSON.stringify(closed));
+      assert.equal(verified?.pixel_status, 'available', JSON.stringify(closed));
       } finally {
         await command({ action: 'session_release' }, 'popup-transition');
+        nativeDialogChild?.kill();
+        nativeDialogChild = null;
       }
     });
 
@@ -1260,6 +1338,130 @@ async function run(): Promise<void> {
       }
     });
 
+    await runScenario('S30', 'sequence reduces focus-chain calls and captures', 'sequence-performance', async () => {
+      const repeats = 10;
+      const separateDurations: number[] = [];
+      const sequenceDurations: number[] = [];
+      const reset = async () => {
+        await fixture.webContents.executeJavaScript(
+          `document.querySelector('#sink').value='';document.querySelector('#sink').dispatchEvent(new Event('input'))`,
+        );
+      };
+      for (let index = 0; index < repeats; index += 1) {
+        const separateSession = `sequence-performance-separate-${index}`;
+        try {
+          await reset();
+          const capture = capturePayload(await command({
+            action: 'capture',
+            window_id: fixtureWindowId,
+            mode: 'vision',
+          }, separateSession));
+          assert.ok(capture.frame_id);
+          const startedAt = performance.now();
+          await command({
+            action: 'type',
+            window_id: fixtureWindowId,
+            frame_id: capture.frame_id,
+            x: 200,
+            y: 245,
+            text: 'SEQUENCE42',
+            delivery: 'background',
+          }, separateSession);
+          await command({
+            action: 'type',
+            window_id: fixtureWindowId,
+            text: 'TAIL',
+            delivery: 'background',
+          }, separateSession);
+          separateDurations.push(performance.now() - startedAt);
+          const state = await fixture.webContents.executeJavaScript(
+            `({value:document.querySelector('#sink')?.value||''})`,
+          ) as { value?: string };
+          assert.equal(state.value, 'SEQUENCE42TAIL');
+        } finally {
+          await command({ action: 'session_release' }, separateSession);
+        }
+
+        const sequenceSession = `sequence-performance-batched-${index}`;
+        try {
+          await reset();
+          const capture = capturePayload(await command({
+            action: 'capture',
+            window_id: fixtureWindowId,
+            mode: 'vision',
+          }, sequenceSession));
+          assert.ok(capture.frame_id);
+          const startedAt = performance.now();
+          const result = actionPayload(await command({
+            action: 'sequence',
+            window_id: fixtureWindowId,
+            steps: [
+              {
+                action: 'type',
+                frame_id: capture.frame_id,
+                x: 200,
+                y: 245,
+                text: 'SEQUENCE42',
+              },
+              { action: 'type', text: 'TAIL' },
+            ],
+            delivery: 'background',
+          }, sequenceSession));
+          sequenceDurations.push(performance.now() - startedAt);
+          assert.equal(result.completed, true, JSON.stringify(result));
+          const state = await fixture.webContents.executeJavaScript(
+            `({value:document.querySelector('#sink')?.value||''})`,
+          ) as { value?: string };
+          assert.equal(state.value, 'SEQUENCE42TAIL');
+        } finally {
+          await command({ action: 'session_release' }, sequenceSession);
+        }
+      }
+      const percentile = (values: number[], fraction: number) => {
+        const sorted = [...values].sort((left, right) => left - right);
+        return Number(sorted[Math.min(
+          sorted.length - 1,
+          Math.max(0, Math.ceil(sorted.length * fraction) - 1),
+        )].toFixed(2));
+      };
+      const separateP50 = percentile(separateDurations, 0.5);
+      const separateP95 = percentile(separateDurations, 0.95);
+      const sequenceP50 = percentile(sequenceDurations, 0.5);
+      const sequenceP95 = percentile(sequenceDurations, 0.95);
+      const report = {
+        schema_version: 1,
+        generated_at: new Date().toISOString(),
+        repeats,
+        fresh_observation_excluded_from_latency: true,
+        separate: {
+          continuation_calls: repeats * 2,
+          post_action_captures: repeats * 2,
+          p50_ms: separateP50,
+          p95_ms: separateP95,
+        },
+        sequence: {
+          continuation_calls: repeats,
+          post_action_captures: repeats,
+          p50_ms: sequenceP50,
+          p95_ms: sequenceP95,
+        },
+        reduction: {
+          continuation_calls_percent: 50,
+          post_action_captures_percent: 50,
+          p50_latency_percent: Number(
+            ((separateP50 - sequenceP50) / separateP50 * 100).toFixed(2),
+          ),
+          p95_latency_percent: Number(
+            ((separateP95 - sequenceP95) / separateP95 * 100).toFixed(2),
+          ),
+        },
+      };
+      if (sequencePerformancePath) {
+        writeFileSync(sequencePerformancePath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+      }
+      progress(`S30 METRICS ${JSON.stringify(report)}`);
+    });
+
     await runScenario('S29', 'semantic invoke is confirmed by exact-window transition', 'verification', async () => {
       try {
         assert.ok(denseFixture && denseWindowId);
@@ -1288,6 +1490,7 @@ async function run(): Promise<void> {
     });
   } finally {
     externalChild?.kill();
+    (nativeDialogChild as ChildProcess | null)?.kill();
     await host?.dispose();
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.destroy();

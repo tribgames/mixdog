@@ -12,6 +12,7 @@ import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCate
 import { aggregateBucketForCategory, aggregateRawResult, aggregateToolMembers, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
 import {
   isInternalTranscriptDisplayText,
+  isTranscriptHiddenControlToolName,
   isTranscriptCancelledStatusText,
 } from '../../runtime/shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
@@ -72,6 +73,7 @@ function restoredToolCallItems(message, nextId, pendingByCallId) {
   const items = [];
   for (const call of calls) {
     const name = String(call?.function?.name || call?.name || 'tool').trim() || 'tool';
+    if (isTranscriptHiddenControlToolName(name)) continue;
     let args = call?.function?.arguments ?? call?.arguments;
     if (typeof args === 'string') {
       try { args = JSON.parse(args); } catch { /* keep the raw string args */ }

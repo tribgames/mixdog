@@ -28,6 +28,7 @@ process.on('exit', () => { try { rmSync(root, { recursive: true, force: true });
 const {
     clearTurnCheckpoint,
     createTurnCheckpointRecorder,
+    projectTurnCheckpointMessages,
     readTurnCheckpoint,
     recoverTurnCheckpoint,
     settleTurnCheckpointWrites,
@@ -341,6 +342,40 @@ test('rewritten and truncated transcripts replay latest-wins', async () => {
         { role: 'user', content: turn.prompt },
         { role: 'assistant', content: 'rewritten' },
     ]);
+});
+
+test('compaction that removes the opening prompt checkpoints the full replacement', async () => {
+    const sessionId = 'sess-full-compaction';
+    const turn = startTurn(sessionId);
+    turn.flush();
+    const compacted = [
+        { role: 'user', content: '[context compacted]' },
+        { role: 'assistant', content: 'durable compact summary' },
+    ];
+    turn.outgoing.splice(0, turn.outgoing.length, ...compacted);
+    turn.flush();
+    await settleTurnCheckpointWrites(sessionId);
+
+    const checkpoint = readTurnCheckpoint(sessionId);
+    assert.equal(checkpoint.fullTranscript, true);
+    assert.deepEqual(checkpoint.turnMessages, compacted);
+
+    const stored = {
+        id: sessionId,
+        generation: 3,
+        updatedAt: 0,
+        messages: [
+            { role: 'system', content: 'stale system' },
+            { role: 'user', content: turn.prompt },
+        ],
+        activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
+    };
+    assert.deepEqual(projectTurnCheckpointMessages(stored, checkpoint), compacted);
+
+    const recovered = structuredClone(stored);
+    const recovery = recoverTurnCheckpoint(recovered);
+    assert.equal(recovery.recovered, true);
+    assert.deepEqual(recovered.messages, compacted);
 });
 
 test('clear is token-guarded and removes header + journal', async () => {

@@ -35,11 +35,25 @@ function geminiInlineInfo(block) {
     return { data, mimeType: cleanMimeType(inline.mimeType || inline.mime_type || inline.mediaType || inline.media_type) };
 }
 
-// Inline document/file part ({ type: 'file', data, mimeType, filename? }) as
-// submitted by the desktop composer (PDF attachments). Providers receive it
-// as their native document shape; estimators must never serialize its base64.
+// Inline document/file parts arrive in two canonical runtime shapes:
+// - desktop attachments: { type: 'file', data, mimeType, filename? }
+// - read(PDF): { type: 'document', source: { type: 'base64', media_type, data } }
+// Providers receive both as their native document shape; estimators and stored
+// history must never serialize either base64 payload as text.
 function fileInfo(block) {
-    if (!block || typeof block !== 'object' || block.type !== 'file') return null;
+    if (!block || typeof block !== 'object') return null;
+    if (block.type === 'document') {
+        const source = block.source;
+        if (source?.type !== 'base64' || typeof source.data !== 'string' || !source.data) return null;
+        const mimeType = String(
+            source.media_type || source.mediaType || block.mimeType || block.mediaType || 'application/pdf',
+        ).trim().toLowerCase() || 'application/pdf';
+        const filename = typeof block.title === 'string' && block.title
+            ? block.title
+            : (typeof block.filename === 'string' && block.filename ? block.filename : '');
+        return { data: source.data, mimeType, filename };
+    }
+    if (block.type !== 'file') return null;
     const data = isAttachmentReference(block)
         ? readAttachmentBase64(block)
         : (typeof block.data === 'string' ? block.data : '');
@@ -496,11 +510,18 @@ export function splitToolContentForOpenAIResponses(content) {
 }
 
 export function splitToolContentForXaiResponses(content) {
-    const mediaContent = mediaPartsOnly(
-        normalizeContentForOpenAIResponses(content, { role: 'user' }),
-        new Set(['input_image']),
-    );
-    if (!mediaContent.length) return { output: contentToText(content, ''), mediaContent: null };
+    const normalized = normalizeContentForOpenAIResponses(content, { role: 'user' });
+    const mediaContent = mediaPartsOnly(normalized, new Set(['input_image']));
+    if (!mediaContent.length) {
+        const hasDocument = normalized.some((part) => part?.type === 'input_file');
+        return {
+            output: contentToText(
+                content,
+                hasDocument ? '[tool result included document content unavailable to xAI Responses]' : '',
+            ),
+            mediaContent: null,
+        };
+    }
     return {
         // xAI documents function_call_output as text/JSON; media remains a
         // following user input, without replaying the tool-result text there.

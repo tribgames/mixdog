@@ -1209,9 +1209,9 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   box-sizing: border-box;
   height: var(--session-goal-trigger-height, 28px);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px 58px;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
-  column-gap: 6px;
+  column-gap: 10px;
   padding: 0 8px 0 6px;
   border: 0;
   border-radius: var(--mx-radius-pill);
@@ -1223,9 +1223,10 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
 }
 .session-goal-title-region {
   min-width: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   overflow: hidden;
 }
 .session-goal-trigger:hover,
@@ -1235,28 +1236,27 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   outline: none;
 }
 .session-goal-trigger:focus-visible { box-shadow: 0 0 0 2px var(--mx-focus); }
-.session-goal-glyph,
-.session-goal-popover-glyph {
-  flex: 0 0 auto;
+.session-goal-glyph {
+  width: 15px;
+  height: 15px;
   display: grid;
   place-items: center;
-  color: var(--mx-text-accent);
+  color: color-mix(in srgb, var(--mx-text-accent) 78%, var(--mx-text-muted));
 }
-.session-goal-island[data-status="complete"] .session-goal-glyph,
-.session-goal-island[data-status="complete"] .session-goal-popover-glyph {
-  color: var(--mx-success);
+.session-goal-glyph > svg {
+  width: 16px;
+  height: 16px;
+}
+.session-goal-island[data-status="complete"] .session-goal-glyph {
+  color: color-mix(in srgb, var(--mx-success) 78%, var(--mx-text-muted));
 }
 .session-goal-island[data-status="blocked"] .session-goal-glyph,
-.session-goal-island[data-status="blocked"] .session-goal-popover-glyph,
 .session-goal-island[data-status="budget_limited"] .session-goal-glyph,
-.session-goal-island[data-status="budget_limited"] .session-goal-popover-glyph,
-.session-goal-island[data-status="usage_limited"] .session-goal-glyph,
-.session-goal-island[data-status="usage_limited"] .session-goal-popover-glyph {
-  color: var(--mx-warning);
+.session-goal-island[data-status="usage_limited"] .session-goal-glyph {
+  color: color-mix(in srgb, var(--mx-warning) 78%, var(--mx-text-muted));
 }
-.session-goal-island[data-status="paused"] .session-goal-glyph,
-.session-goal-island[data-status="paused"] .session-goal-popover-glyph {
-  color: var(--mx-text-faint);
+.session-goal-island[data-status="paused"] .session-goal-glyph {
+  color: var(--mx-text-muted);
 }
 .session-goal-island[data-waiting="true"] .session-goal-glyph {
   animation: goal-agent-wait 1.6s ease-in-out infinite;
@@ -1278,18 +1278,22 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
 }
 .session-goal-progress,
 .session-goal-time {
-  min-width: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
+  line-height: var(--mx-line-minor);
   font-variant-numeric: tabular-nums;
+  text-align: right;
   white-space: nowrap;
 }
-.session-goal-progress { text-align: center; }
-.session-goal-time {
-  overflow: hidden;
-  text-align: right;
-  text-overflow: clip;
+.session-goal-progress { min-width: 3ch; }
+.session-goal-time { min-width: 7ch; }
+.session-goal-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--mx-text-faint);
+  white-space: nowrap;
 }
 .session-goal-popover {
   position: absolute;
@@ -1318,9 +1322,13 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
 .session-goal-popover > header {
   min-width: 0;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 10px;
+  gap: 0;
+}
+.session-goal-popover > header.has-menu {
+  grid-template-columns: minmax(0, 1fr) 24px;
+  gap: 8px;
 }
 .session-goal-popover > header > div {
   min-width: 0;
@@ -1342,9 +1350,65 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   overflow: hidden;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
+  line-height: var(--mx-line-minor);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.session-goal-menu {
+  position: relative;
+  align-self: start;
+}
+.session-goal-menu > summary {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-icon-muted);
+  cursor: pointer;
+  list-style: none;
+}
+.session-goal-menu > summary::-webkit-details-marker { display: none; }
+.session-goal-menu > summary:hover,
+.session-goal-menu > summary:focus-visible,
+.session-goal-menu[open] > summary {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  outline: none;
+}
+.session-goal-menu > summary:focus-visible {
+  box-shadow: 0 0 0 2px var(--mx-focus);
+}
+.session-goal-menu > div {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 104px;
+  padding: 4px;
+  border: .5px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-floating);
+}
+.session-goal-menu button {
+  width: 100%;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-danger);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.session-goal-menu button:hover:not(:disabled) { background: var(--mx-danger-bg); }
+.session-goal-menu button:disabled {
+  color: var(--mx-text-faint);
+  cursor: default;
 }
 .session-goal-content {
   min-height: 0;
@@ -1389,10 +1453,15 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
 }
 .session-goal-tasks li + li { border-top: .5px solid var(--mx-border-muted); }
 .session-goal-tasks li > span {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
   color: var(--mx-text-faint);
-  font-size: var(--mx-font-minor);
-  line-height: var(--mx-line-minor);
-  text-align: center;
+}
+.session-goal-tasks li > span > svg {
+  width: 14px;
+  height: 14px;
 }
 .session-goal-tasks li[data-status="completed"] > span { color: var(--mx-success); }
 .session-goal-tasks li[data-status="in_progress"] > span { color: var(--mx-text-accent); }
@@ -1421,7 +1490,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   padding-top: 10px;
   border-top: .5px solid var(--mx-border);
 }
-.session-goal-popover > footer button {
+.session-goal-popover > footer :is(button, .session-goal-complete) {
   min-width: 0;
   min-height: 34px;
   display: inline-flex;
@@ -1437,25 +1506,34 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-minor);
+}
+.session-goal-popover > footer button {
   cursor: pointer;
 }
-.session-goal-popover > footer button svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
+.session-goal-popover > footer :is(button, .session-goal-complete) svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+}
 .session-goal-popover > footer button:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
   box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
 }
-.session-goal-popover > footer button.primary,
-.session-goal-popover > footer button.danger { grid-column: 1 / -1; }
-.session-goal-popover > footer button.danger {
+.session-goal-popover > footer button.session-goal-stop svg {
+  color: color-mix(in srgb, var(--mx-danger) 78%, var(--mx-icon-muted));
+}
+.session-goal-popover > footer button.session-goal-stop:hover:not(:disabled) {
   color: var(--mx-danger);
-  background: var(--mx-danger-bg);
+  background: color-mix(in srgb, var(--mx-danger-bg) 76%, var(--mx-hover));
   box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
 }
-.session-goal-popover > footer button.danger svg { color: currentColor; }
-.session-goal-popover > footer button.danger:hover:not(:disabled) {
-  color: var(--mx-danger);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
+.session-goal-popover > footer .session-goal-complete {
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 7%, transparent);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-success) 24%, transparent);
+}
+.session-goal-popover > footer .session-goal-complete svg {
+  color: currentColor;
 }
 .session-goal-popover > footer button:focus-visible {
   outline: 2px solid var(--mx-focus);

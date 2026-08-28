@@ -16,6 +16,7 @@ export function createGoalContinuation({
 } = {}) {
   let scheduled = null;
   let disposed = false;
+  let suppressedCompletedGoalId = '';
 
   const cancelQueuedGoalContinuations = () => {
     const pending = getPending();
@@ -28,8 +29,14 @@ export function createGoalContinuation({
     return removed;
   };
 
+  const visibleGoal = (goal) => (
+    goal?.status === 'complete' && clean(goal.id) === suppressedCompletedGoalId
+      ? null
+      : goal || null
+  );
+
   const refreshGoalState = () => {
-    const goal = runtime.goalStatus?.() || null;
+    const goal = visibleGoal(runtime.goalStatus?.() || null);
     if (getState().goal !== goal) set({ goal });
     return goal;
   };
@@ -80,8 +87,9 @@ export function createGoalContinuation({
     const currentSessionId = clean(getState().sessionId || runtime.id);
     if (clean(event.sessionId) && clean(event.sessionId) !== currentSessionId) return;
     cancelQueuedGoalContinuations();
-    set({ goal: event.goal || runtime.goalStatus?.() || null });
-    if ((event.goal || runtime.goalStatus?.())?.status === 'active') scheduleGoalContinuation();
+    const goal = visibleGoal(event.goal || runtime.goalStatus?.() || null);
+    set({ goal });
+    if (goal?.status === 'active') scheduleGoalContinuation();
   };
 
   const unsubscribe = runtime.onGoalStatusChange?.(onGoalChanged) || (() => {});
@@ -107,9 +115,21 @@ export function createGoalContinuation({
     },
     archiveCompletedGoalOnUserInput() {
       cancelQueuedGoalContinuations();
+      const currentGoal = getState().goal || runtime.goalStatus?.() || null;
+      const archivedGoalId = currentGoal?.status === 'complete' ? clean(currentGoal.id) : '';
+      if (archivedGoalId) {
+        suppressedCompletedGoalId = archivedGoalId;
+        set({ goal: null });
+      }
       void Promise.resolve(runtime.archiveCompletedGoalOnUserInput?.())
-        .then(() => refreshGoalState())
-        .catch(() => {});
+        .then(() => {
+          if (suppressedCompletedGoalId === archivedGoalId) suppressedCompletedGoalId = '';
+          refreshGoalState();
+        })
+        .catch(() => {
+          if (suppressedCompletedGoalId === archivedGoalId) suppressedCompletedGoalId = '';
+          refreshGoalState();
+        });
     },
     disposeGoalContinuation() {
       disposed = true;

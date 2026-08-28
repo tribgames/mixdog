@@ -1,0 +1,49 @@
+:root {
+  color-scheme: light dark;
+  font: 13px/1.4 system-ui, sans-serif;
+}
+
+body {
+  width: 300px;
+  margin: 0;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 16px;
+}
+
+section {
+  display: grid;
+  gap: 8px;
+}
+
+input,
+button {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  font: inherit;
+}
+
+input {
+  padding: 6px 8px;
+}
+
+button {
+  cursor: pointer;
+}
+
+#error {
+  color: #dc2626;
+}

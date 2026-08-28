@@ -9,8 +9,13 @@
   information, or repository state only when needed to choose the next action.
   Start with the source most likely to decide it; consult another only if the
   result leaves the decision unresolved.
-- Minimize tool turns by batching only calls that are independently necessary
-  before the batch begins. A call whose necessity or scope can change after
+- Exhaust known work into the largest supported parameterized call before
+  issuing it. Do not split one tool's known targets or operations by item,
+  file, page, or operation type; split only when a prior result is needed to
+  determine later input or a documented tool limit requires another call.
+- Minimize model round-trips: when multiple calls are independently necessary
+  and every input is already known before the batch begins, issue them in the
+  same assistant turn. A call whose necessity or scope can change after
   another result waits for that result.
 - Respect tool/schema limits, never omit required fanout, and apply one analysis
   to many targets as one parameterized call when supported.

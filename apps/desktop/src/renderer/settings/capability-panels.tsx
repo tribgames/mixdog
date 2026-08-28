@@ -1649,7 +1649,7 @@ function DesktopComputerUseGroup() {
 // window itself stays available to the user either way.
 function DesktopBrowserUseGroup() {
   return <DesktopAgentControlGroup settingKey="browserControl" title="Browser Use"
-    description="Let agents operate pages in the in-app browser, including signed-in sessions and hidden background tabs."
+    description="Let agents operate the in-app browser or one Chrome tab you explicitly connect."
     toggleTitle="Enable Browser Use" />;
 }
 

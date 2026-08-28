@@ -53,7 +53,7 @@ trap {
   # Windows PowerShell can return exit 0 for an uncaught terminating error in
   # a -File script. FastDirect callers must never report a failed build/swap as
   # success, especially when the detached worker was never launched.
-  if ($RuntimeOnlyWorker -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
+  if (($RuntimeOnlyWorker -or $FastDirect) -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
     try { Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message } catch {}
   }
   [Console]::Error.WriteLine(($_ | Out-String))
@@ -83,6 +83,9 @@ if ([string]::IsNullOrWhiteSpace($FastStatePath)) {
 }
 if ([string]::IsNullOrWhiteSpace($FastArtifactDir)) {
   $FastArtifactDir = Join-Path $desktopDir '.cache\dev-fast-direct-artifact'
+}
+if ($FastDirect -and -not $FastDirectWorker -and [string]::IsNullOrWhiteSpace($ReceiptPath)) {
+  $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
 }
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
@@ -461,9 +464,13 @@ function Invoke-Build {
       Invoke-FastDirectChangedOutputs $Plan
       & npm.cmd run brand:win
       if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
-      & npx.cmd electron-builder --dir --win --x64 --publish never "-c.extraMetadata.version=$OverrideVersion"
-      if ($LASTEXITCODE -ne 0) { throw "electron-builder --dir exited with $LASTEXITCODE" }
+      $npx = (Get-Command npx.cmd -ErrorAction Stop).Source
+      $builder = Start-Process -FilePath $npx `
+        -ArgumentList @('electron-builder', '--dir', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$OverrideVersion") `
+        -WorkingDirectory $desktopDir -NoNewWindow -Wait -PassThru
+      if ($builder.ExitCode -ne 0) { throw "electron-builder --dir exited with $($builder.ExitCode)" }
       Assert-DesktopDaemonArtifact $unpackedDir
+      Write-Step 'complete win-unpacked fallback ready'
       return
     }
     if ([string]::IsNullOrWhiteSpace($OverrideVersion)) {
@@ -1036,6 +1043,10 @@ if ($FastDirect -and $SkipBuild) {
   $fastPlan = Get-Content -LiteralPath $FastPlanPath -Raw | ConvertFrom-Json
   Assert-FastDirectPlanCurrent
 }
+if ($FastDirect -and -not $FastDirectWorker -and -not $SkipBuild) {
+  Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
+  Write-FastDirectReceipt -Status 'building'
+}
 if (-not $SkipBuild) {
   if ($FastDirect) {
     Write-Step 'fingerprinting FastDirect inputs'
@@ -1056,6 +1067,9 @@ if (-not $SkipBuild) {
   } else {
     Write-Step 'building the installer from the dev root'
     Invoke-Build $targetVersion
+  }
+  if ($FastDirect -and -not $FastDirectWorker) {
+    Write-FastDirectReceipt -Status 'build-completed'
   }
 }
 if ($FastDirect -and $fastPlan.full) {

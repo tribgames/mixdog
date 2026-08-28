@@ -1,9 +1,9 @@
-import { AlertTriangle, Check, CirclePause, CirclePlay, Pencil, Target, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, Snapshot } from './desktop-types';
 import { t } from './i18n';
+import { MxIcon } from './MxIcon';
 import { showDesktopToast } from './notifications';
 
 const ACTIVE_AGENT_STAGE = /^(?:connecting|requesting|streaming|tool_running|running|cancelling)$/i;
@@ -17,6 +17,12 @@ export function formatGoalDuration(milliseconds: number): string {
     return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   }
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+export function goalCompletedTimeLabel(goal: GoalSnapshot): string {
+  const completedAt = Number(goal.completedAt) || 0;
+  if (goal.status !== 'complete' || completedAt <= 0) return '';
+  return new Date(completedAt).toLocaleTimeString(undefined, { timeStyle: 'short' });
 }
 
 function useGoalClock(active: boolean): number {
@@ -52,13 +58,18 @@ function goalStatusLabel(goal: GoalSnapshot): string {
 
 function goalElapsedMs(goal: GoalSnapshot, clock: number): number {
   const snapshotUsed = Math.max(0, Number(goal.timeUsedMs) || 0);
-  if (goal.status !== 'active' && goal.status !== 'paused') return snapshotUsed;
+  if (goal.status !== 'active') return snapshotUsed;
+  const snapshotAt = Number(goal.snapshotAt) || 0;
+  let elapsed = snapshotUsed;
+  if (snapshotAt > 0) {
+    elapsed += Math.max(0, clock - snapshotAt);
+  }
   const deadlineAt = Number(goal.deadlineAt) || 0;
-  const remaining = deadlineAt > 0
-    ? Math.max(0, deadlineAt - clock)
-    : Math.max(0, Number(goal.remainingMs) || 0);
-  const total = Math.max(0, Number(goal.timeLimitMs) || snapshotUsed + remaining);
-  return total > 0 ? Math.min(total, Math.max(snapshotUsed, total - remaining)) : snapshotUsed;
+  const total = Math.max(0, Number(goal.timeLimitMs) || 0);
+  if (snapshotAt <= 0 && deadlineAt > 0 && total > 0) {
+    elapsed = Math.max(snapshotUsed, total - Math.max(0, deadlineAt - clock));
+  }
+  return total > 0 ? Math.min(total, elapsed) : elapsed;
 }
 
 export function goalElapsedLabel(goal: GoalSnapshot, clock: number): string {
@@ -70,16 +81,12 @@ export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
     return t('{{time}} elapsed', { time: formatGoalDuration(Number(goal.timeUsedMs) || 0) });
   }
   if (goal.status !== 'active' && goal.status !== 'paused') return '';
-  const deadlineAt = Number(goal.deadlineAt) || 0;
-  const remaining = deadlineAt > 0
-    ? Math.max(0, deadlineAt - clock)
-    : Math.max(0, Number(goal.remainingMs) || 0);
-  const snapshotUsed = Math.max(0, Number(goal.timeUsedMs) || 0);
-  const total = Math.max(0, Number(goal.timeLimitMs) || snapshotUsed + remaining);
-  if (total <= 0) {
-    return t('{{time}} elapsed', { time: formatGoalDuration(snapshotUsed) });
-  }
+  const total = Math.max(0, Number(goal.timeLimitMs) || 0);
   const elapsed = goalElapsedMs(goal, clock);
+  if (total <= 0) {
+    return t('{{time}} elapsed', { time: formatGoalDuration(elapsed) });
+  }
+  const remaining = Math.max(0, total - elapsed);
   return t('{{elapsed}} / {{total}} · {{remaining}} remaining', {
     elapsed: formatGoalDuration(elapsed),
     total: formatGoalDuration(total),
@@ -88,12 +95,18 @@ export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
 }
 
 function GoalGlyph({ status }: { status?: GoalSnapshot['status'] }) {
-  if (status === 'complete') return <Check size={16} aria-hidden="true" />;
-  if (status === 'paused') return <CirclePause size={16} aria-hidden="true" />;
+  if (status === 'complete') return <MxIcon name="check" size={15} strokeWidth={1.8} />;
+  if (status === 'paused') return <MxIcon name="paused" size={15} strokeWidth={1.8} />;
   if (status === 'blocked' || status === 'budget_limited' || status === 'usage_limited') {
-    return <AlertTriangle size={16} aria-hidden="true" />;
+    return <MxIcon name="warning" size={15} strokeWidth={1.8} />;
   }
-  return <Target size={16} aria-hidden="true" />;
+  return <MxIcon name="goal" size={15} strokeWidth={1.8} />;
+}
+
+function GoalTaskGlyph({ status }: { status?: 'pending' | 'in_progress' | 'completed' }) {
+  const name = status === 'completed' ? 'check'
+    : status === 'in_progress' ? 'in-progress' : 'pending';
+  return <MxIcon name={name} size={14} />;
 }
 
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
@@ -119,6 +132,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const statusLabel = useMemo(() => goal ? goalStatusLabel(goal) : '', [goal]);
   const timeLabel = goal ? goalTimeLabel(goal, clock) : '';
   const elapsedLabel = goal ? goalElapsedLabel(goal, clock) : '';
+  const completedTimeLabel = goal ? goalCompletedTimeLabel(goal) : '';
   if (!goal) return null;
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
   const tasksTotal = Math.max(tasks.length, Number(goal.tasksTotal) || 0);
@@ -127,9 +141,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     Number(goal.tasksCompleted) || 0,
   ));
   const progressLabel = `${tasksCompleted}/${tasksTotal}`;
-  const canComplete = tasks.length > 0
-    && tasks.every((task) => task.status === 'completed')
-    && tasks.some((task) => task.kind === 'verification' && task.status === 'completed');
   const title = String(goal.title || goal.objective || t('Goal'));
   const objective = String(goal.objective || '');
 
@@ -168,16 +179,29 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
         <span className="session-goal-glyph"><GoalGlyph status={goal.status} /></span>
         <span className="session-goal-objective" title={objective}>{title}</span>
       </span>
-      <span className="session-goal-progress">{progressLabel}</span>
-      <span className="session-goal-time">{elapsedLabel}</span>
+      <span className="session-goal-meta">
+        <span className="session-goal-progress">{progressLabel}</span>
+        <span aria-hidden="true">·</span>
+        <span className="session-goal-time">{elapsedLabel}</span>
+      </span>
     </button>
     {open ? <section className="session-goal-popover" role="dialog" aria-label={t('Goal details')}>
-      <header>
-        <span className="session-goal-popover-glyph"><GoalGlyph status={goal.status} /></span>
+      <header className={goal.status === 'complete' ? 'has-menu' : undefined}>
         <div>
           <strong title={objective}>{title}</strong>
-          <small>{statusLabel}{timeLabel ? ` · ${timeLabel}` : ''}</small>
+          <small>{[statusLabel, timeLabel, completedTimeLabel].filter(Boolean).join(' · ')}</small>
         </div>
+        {goal.status === 'complete' ? <details className="session-goal-menu">
+          <summary aria-label={t('Actions')}>
+            <MxIcon name="more" size={16} />
+          </summary>
+          <div role="menu">
+            <button type="button" role="menuitem" disabled={Boolean(workingAction)}
+              onClick={() => void control('clear')}>
+              <MxIcon name="delete" size={14} />{t('Delete')}
+            </button>
+          </div>
+        </details> : null}
       </header>
       <div className="session-goal-content">
         <div className="session-goal-tasks">
@@ -186,10 +210,9 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             {tasks.map((task, index) => {
               const taskStatus = task.status || 'pending';
               return <li key={String(task.id || index)} data-status={taskStatus}>
-                <span>{taskStatus === 'completed' ? '✓' : taskStatus === 'in_progress' ? '◐' : '○'}</span>
+                <span><GoalTaskGlyph status={taskStatus} /></span>
                 <div>
                   <span>{String(task.text || '')}</span>
-                  {task.kind === 'verification' ? <small>{t('Verification')}</small> : null}
                 </div>
               </li>;
             })}
@@ -198,27 +221,17 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
         {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
       </div>
       <footer>
-        {goal.status === 'active'
-          ? <button type="button" disabled={Boolean(workingAction)} onClick={() => void control('pause')}>
-            <CirclePause size={14} />{t('Pause')}
-          </button>
-          : goal.status !== 'complete'
-            ? <button type="button" disabled={Boolean(workingAction)} onClick={() => void control('resume')}>
-              <CirclePlay size={14} />{t('Resume')}
-            </button>
-            : null}
         <button type="button" disabled={Boolean(workingAction)} onClick={edit}>
-          <Pencil size={14} />{t('Edit')}
+          <MxIcon name="edit" size={14} />{t('Edit goal')}
         </button>
-        {goal.status !== 'complete' ? <button type="button" className="primary"
-          disabled={Boolean(workingAction) || !canComplete}
-          onClick={() => void control('complete')}>
-          <Check size={14} />{t('Complete')}
-        </button> : null}
-        <button type="button" className="danger" disabled={Boolean(workingAction)}
-          onClick={() => void control('clear')}>
-          <Trash2 size={14} />{t('Clear')}
-        </button>
+        {goal.status === 'complete'
+          ? <span className="session-goal-complete" role="status">
+            <MxIcon name="check" size={14} />{t('Complete')}
+          </span>
+          : <button type="button" className="session-goal-stop" disabled={Boolean(workingAction)}
+            onClick={() => void control('clear')}>
+            <MxIcon name="stop" size={12} />{t('Stop goal')}
+          </button>}
       </footer>
     </section> : null}
   </div>;

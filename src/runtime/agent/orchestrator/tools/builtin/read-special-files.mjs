@@ -6,8 +6,8 @@ import { inspectPdfBuffer } from '../../../../attachments/pdf-extract.mjs';
 
 const DEFAULT_READ_MAX_OUTPUT_BYTES = 100 * 1024;
 
-// PDFs at or under this size are emitted as an Anthropic base64 document
-// block (the model reads the rendered PDF directly): 20MB raw → ~27MB
+// PDFs at or under this size are emitted as the runtime's canonical base64
+// document block (providers convert it to their native file shape): 20MB raw → ~27MB
 // base64, which stays under the 32MB request cap.
 // Larger PDFs fall back to bounded PDF.js text extraction.
 const PDF_DOCUMENT_MAX_BYTES = 20 * 1024 * 1024;
@@ -90,10 +90,10 @@ export async function extractPdfText(fullPath, pagesArg, { maxOutputBytes = DEFA
         if (pages.error) return pages.error;
 
         // Document-block path: whole-PDF read, no page range, within the size
-        // cap, and confirmed %PDF- magic. Emits a base64 document block the
-        // model reads natively (figures, layout, tables) instead of lossy
-        // pdf-parse text. The magic-byte guard prevents a non-PDF (mislabelled
-        // extension) from poisoning history as a malformed document block.
+        // cap, and confirmed %PDF- magic. Emits the canonical document block
+        // that provider adapters convert to native media (figures, layout,
+        // tables) instead of lossy pdf-parse text. The magic-byte guard prevents
+        // a non-PDF (mislabelled extension) from poisoning history.
         // textOnly (batch context) skips the block and always emits text.
         if (!textOnly && !pages.filter && pdfStat.size <= PDF_DOCUMENT_MAX_BYTES) {
             if (await fileStartsWithPdfMagic(fullPath)) {

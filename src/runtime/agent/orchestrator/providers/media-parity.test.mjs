@@ -4,6 +4,8 @@ import { toAnthropicMessages } from './anthropic-messages.mjs';
 import { toGeminiContents } from './gemini-schema.mjs';
 import { toOpenAIMessages, toXaiResponsesInput } from './openai-compat-wire.mjs';
 import { convertMessagesToResponsesInput } from './openai-responses-payload.mjs';
+import { sanitizeContentForStoredHistory } from './media-normalization.mjs';
+import { estimateMessageTokens } from '../session/context-utils.mjs';
 
 const IMAGE_DATA = 'AAECAw==';
 
@@ -13,6 +15,19 @@ function mixedImageContent(text = 'Image read successfully') {
             { type: 'text', text },
             { type: 'image', data: IMAGE_DATA, mimeType: 'image/png' },
         ],
+    };
+}
+
+function readPdfContent(data) {
+    return {
+        content: [{
+            type: 'document',
+            source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data,
+            },
+        }],
     };
 }
 
@@ -56,6 +71,50 @@ test('OpenAI Responses keeps text, image, and file in one function output', () =
     assert.equal(input.filter((item) => item?.role === 'user').length, 1);
     assert.equal(occurrences(input, 'Image read successfully'), 1);
     assert.equal(JSON.stringify(history), before);
+});
+
+test('read PDF document stays native media without base64 text, storage, or token inflation', () => {
+    // Matches the incident shape closely enough to catch dense-ASCII pricing:
+    // this used to become a 206k-token input_text and trigger a second compact.
+    const pdfData = 'A'.repeat(412_408);
+    const content = readPdfContent(pdfData);
+    const history = imageHistory(content);
+
+    const responses = convertMessagesToResponsesInput(history);
+    const responsesOutput = responses.find((item) => item.type === 'function_call_output')?.output;
+    assert.equal(responsesOutput.length, 1);
+    assert.equal(responsesOutput[0].type, 'input_file');
+    assert.equal(responsesOutput[0].filename, 'document.pdf');
+    assert.equal(responsesOutput[0].file_data, `data:application/pdf;base64,${pdfData}`);
+
+    const anthropic = toAnthropicMessages(history);
+    const anthropicToolResult = anthropic
+        .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((part) => part?.type === 'tool_result');
+    assert.equal(anthropicToolResult.content.length, 1);
+    assert.equal(anthropicToolResult.content[0].type, 'document');
+    assert.equal(anthropicToolResult.content[0].source.data, pdfData);
+
+    const gemini = toGeminiContents(history, 'gemini-3-pro-preview');
+    const geminiFunctionResponse = gemini[2].parts[0].functionResponse;
+    assert.equal(geminiFunctionResponse.parts[0].inlineData.mimeType, 'application/pdf');
+    assert.equal(geminiFunctionResponse.parts[0].inlineData.data, pdfData);
+
+    const xai = toXaiResponsesInput(history, {
+        xaiResponses: { previousResponseId: 'resp_1', seenMessageCount: 0, model: 'grok-4' },
+    }, { model: 'grok-4' });
+    const xaiOutput = xai.input.find((item) => item.type === 'function_call_output')?.output;
+    assert.equal(xaiOutput, '[tool result included document content unavailable to xAI Responses]');
+
+    const stored = sanitizeContentForStoredHistory(content);
+    assert.deepEqual(stored, {
+        content: [{ type: 'text', text: '[File omitted from stored history: application/pdf]' }],
+    });
+    assert.equal(JSON.stringify(stored).includes(pdfData), false);
+
+    const estimatedTokens = estimateMessageTokens(history[2]);
+    assert.ok(estimatedTokens > 19_000, `expected PDF allowance, got ${estimatedTokens}`);
+    assert.ok(estimatedTokens < 25_000, `base64 leaked into token estimate: ${estimatedTokens}`);
 });
 
 test('OpenAI Chat-compatible sends tool text once and media-only user content', () => {

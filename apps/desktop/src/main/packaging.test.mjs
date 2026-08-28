@@ -181,6 +181,66 @@ test('plain Node can import the standalone daemon service artifact', async () =>
   assert.equal(typeof service.createDesktopService, 'function');
 });
 
+test('browser password import uses only packaged native-tools without a certificate dependency', async () => {
+  const importer = await readFile(new URL('./browser-profile-import.ts', import.meta.url), 'utf8');
+  const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
+  const runtimePreparation = await readFile(
+    new URL('../../scripts/prepare-runtime.mjs', import.meta.url),
+    'utf8',
+  );
+  const nativeBuild = await readFile(
+    new URL('../../../../native/mixdog-browser-import/build.ps1', import.meta.url),
+    'utf8',
+  );
+  const trustBoundary = importer
+    .slice(importer.indexOf('private async nativePasswordImporter()'))
+    .split('async sources()')[0];
+  const chromeClose = importer
+    .slice(importer.indexOf('export async function prepareChromeForImport('))
+    .split('async function sha256File')[0];
+  const nativeTransport = importer
+    .slice(importer.indexOf('async function readEncryptedChildJson('))
+    .split('export class BrowserProfileImportService')[0];
+  const packagedPath = importer
+    .slice(importer.indexOf('export function defaultNativeBrowserImporterPath()'));
+  assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
+  assert.match(
+    trustBoundary,
+    /if \(!app\.isPackaged \|\| process\.platform !== 'win32'\) return undefined/,
+  );
+  assert.match(
+    trustBoundary,
+    /resolve\(process\.resourcesPath,\s*'native-tools',\s*fileName\)/,
+  );
+  assert.match(trustBoundary, /bitwarden_chromium_import_helper\.exe/);
+  assert.match(trustBoundary, /sha256:\s*await sha256File\(expected\)/);
+  assert.doesNotMatch(trustBoundary, /process\.cwd\(\)/);
+  assert.doesNotMatch(importer, /Authenticode|Get-AuthenticodeSignature|authenticodeBundleIsTrusted/);
+  assert.match(nativeTransport, /stdio:\s*\['pipe',\s*'pipe',\s*'pipe'\]/);
+  assert.match(nativeTransport, /createDecipheriv\('aes-256-gcm'/);
+  assert.match(nativeTransport, /transportKey\.fill\(0\)/);
+  assert.doesNotMatch(nativeTransport, /return JSON\.parse\(Buffer\.concat\(stdout\)/);
+  assert.match(chromeClose, /PostMessage\(hwnd,\s*0x0010/);
+  assert.doesNotMatch(chromeClose, /taskkill|\/F/);
+  assert.match(runtimePreparation, /MIXDOG_BROWSER_IMPORT_NATIVE_DIR/);
+  assert.match(runtimePreparation, /prepareBrowserImportNativeSource/);
+  assert.match(runtimePreparation, /'Release'/);
+  assert.doesNotMatch(
+    runtimePreparation,
+    /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|assertBrowserImportAuthenticode|Get-AuthenticodeSignature/,
+  );
+  assert.match(nativeBuild, /ENABLE_SIGNATURE_VALIDATION: bool = false/);
+  assert.doesNotMatch(
+    nativeBuild,
+    /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|MIXDOG_CODE_SIGN|Get-AuthenticodeSignature|signtool/,
+  );
+  assert.match(nativeBuild, /LICENSE_GPL\.txt/);
+  assert.match(
+    packagedPath,
+    /if \(app\.isPackaged\) return join\(process\.resourcesPath,\s*'native-tools',\s*fileName\)/,
+  );
+});
+
 test('closed-window cleanup never reacquires the destroyed BrowserWindow webContents getter', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   const scheduler = main
@@ -542,12 +602,19 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     '/node_modules/mixdog/src/runtime/office/visual-diff.mjs',
     '/node_modules/mixdog/src/runtime/office/office-com-host.ps1',
     '/node_modules/mixdog/src/runtime/office/office-com-session-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx',
+    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx.mixdog.json',
     '/node_modules/@huggingface/transformers/package.json',
     '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
     '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
   ]) {
     assert.ok(entries.includes(required), `runtime archive is missing ${required}`);
   }
+  assert.equal(
+    entries.some((entry) => /\.mixdog-edit\.[^/]+$/i.test(entry)),
+    false,
+    'runtime archive contains an Office authoring copy',
+  );
   const ortPackage = entries.find((entry) => /\/onnxruntime-node\/package\.json$/.test(entry));
   assert.ok(ortPackage, 'runtime archive is missing onnxruntime-node');
   const ortRoot = ortPackage.slice(0, -'/package.json'.length);
@@ -579,6 +646,8 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     ...nativeBinaryEntries,
     '/node_modules/mixdog/src/runtime/office/office-com-host.ps1',
     '/node_modules/mixdog/src/runtime/office/office-com-session-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx',
+    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx.mixdog.json',
   ])];
   assert.ok(nativeBinaryEntries.some((entry) => entry.endsWith('.node')), 'runtime archive contains no native addon');
   for (const entry of unpackedRuntimeEntries) {

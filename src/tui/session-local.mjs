@@ -337,6 +337,7 @@ export async function createLocalSessionRuntime({
     compactBoundaryTokens: 0,
     autoCompactTokenLimit: 0,
     ...initialAgentState,
+    goal: runtime.goalStatus?.() || null,
     toolMode: runtime.toolMode,
     cwd: runtimeCwd,
     themeEpoch: 0,
@@ -1197,6 +1198,9 @@ export async function createLocalSessionRuntime({
   remoteAttachTimer.unref?.();
   void Promise.resolve(bag.restoreLeadSteeringFromDisk())
     .catch(() => {})
-    .finally(() => bag.scheduleGoalContinuation?.());
+    .finally(() => {
+      bag.refreshGoalState?.();
+      bag.scheduleGoalContinuation?.();
+    });
   return api;
 }

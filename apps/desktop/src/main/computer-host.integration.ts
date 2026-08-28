@@ -183,7 +183,9 @@ const blankFixtureHtml = `<!doctype html>
 <meta charset="utf-8">
 <title>Mixdog Computer Blank Fixture</title>
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}</style>
-<button aria-label="semantic black fixture" style="opacity:0">hidden</button>`;
+<button aria-label="semantic black fixture" style="opacity:0">hidden</button>
+<input id="parallel-sink" aria-label="parallel input fixture"
+  style="position:absolute;left:0;top:0;width:1px;height:1px;opacity:0">`;
 
 async function run(): Promise<void> {
   let fixture: BrowserWindow | null = null;
@@ -446,6 +448,70 @@ async function run(): Promise<void> {
     await command({ action: 'session_release' });
     await command({ action: 'session_release' });
     progress('session cleanup verified');
+
+    const leftSession = 'computer-parallel-left';
+    const rightSession = 'computer-parallel-right';
+    await Promise.all([
+      command({ action: 'wait', duration: 0 }, leftSession),
+      command({ action: 'wait', duration: 0 }, rightSession),
+    ]);
+    const parallelWaitStartedAt = performance.now();
+    await Promise.all([
+      command({ action: 'wait', duration: 0.75 }, leftSession),
+      command({ action: 'wait', duration: 0.75 }, rightSession),
+    ]);
+    const parallelWaitElapsedMs = performance.now() - parallelWaitStartedAt;
+    assert.ok(
+      parallelWaitElapsedMs < 1_300,
+      `agent-scoped workers serialized independent waits (${parallelWaitElapsedMs.toFixed(0)}ms)`,
+    );
+
+    await fixture.webContents.executeJavaScript(
+      `document.querySelector('#sink').value='';document.querySelector('#sink').focus()`,
+    );
+    await blankFixture.webContents.executeJavaScript(
+      `document.querySelector('#parallel-sink').value='';document.querySelector('#parallel-sink').focus()`,
+    );
+    await Promise.all([
+      command({ action: 'snapshot', window_id: windowId, max_elements: 20 }, leftSession),
+      command({ action: 'snapshot', window_id: blankWindowId, max_elements: 20 }, rightSession),
+    ]);
+    await Promise.all([
+      command({
+        action: 'type',
+        window_id: windowId,
+        text: 'LEFT42',
+        delivery: 'background',
+      }, leftSession),
+      command({
+        action: 'type',
+        window_id: blankWindowId,
+        text: 'RIGHT42',
+        delivery: 'background',
+      }, rightSession),
+    ]);
+    const [leftValue, rightValue] = await Promise.all([
+      fixture.webContents.executeJavaScript(`document.querySelector('#sink').value`),
+      blankFixture.webContents.executeJavaScript(`document.querySelector('#parallel-sink').value`),
+    ]);
+    assert.equal(leftValue, 'LEFT42');
+    assert.equal(rightValue, 'RIGHT42');
+
+    await command({ action: 'snapshot', window_id: windowId, max_elements: 20 }, rightSession);
+    await assert.rejects(
+      command({
+        action: 'type',
+        window_id: windowId,
+        text: 'CROSS',
+        delivery: 'background',
+      }, rightSession),
+      /computer_target_in_use:.*reserved by another agent/,
+    );
+    await Promise.all([
+      command({ action: 'session_release' }, leftSession),
+      command({ action: 'session_release' }, rightSession),
+    ]);
+    progress('agent-isolated parallel workers and target claims verified');
 
     if (process.env.MIXDOG_COMPUTER_REAL_APP_SMOKE === '1') {
       const liveWindows = (await command({ action: 'list_windows' }, 'computer-real-app-smoke')).text;

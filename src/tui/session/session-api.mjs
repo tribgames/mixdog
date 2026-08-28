@@ -87,6 +87,7 @@ export function createSessionApiA(bag) {
     if (accepted !== false) {
       if ((intake.queueOptions.mode || 'prompt') === 'prompt') {
         bag.cancelQueuedGoalContinuations?.();
+        bag.archiveCompletedGoalOnUserInput?.();
       }
       try { runtime.interruptTaskWait?.('user-message'); } catch {}
     }

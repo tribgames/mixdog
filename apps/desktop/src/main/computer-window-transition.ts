@@ -32,6 +32,16 @@ export interface ComputerWindowTransition {
     | 'launched_existing_window_changed';
 }
 
+const CONFIRMED_LAUNCH_TRANSITIONS = new Set<
+  NonNullable<ComputerWindowTransition['next_target_reason']>
+>([
+  'launched_process_window',
+  'launched_app_opened',
+  'launched_app_focused',
+  'launched_focused_window',
+  'launched_existing_window_changed',
+]);
+
 function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
@@ -44,6 +54,34 @@ function finiteNumber(value: unknown): number {
 function normalizedAppName(value: unknown): string {
   const name = text(value).replaceAll('\\', '/').split('/').pop()?.toLowerCase() || '';
   return name.endsWith('.exe') ? name.slice(0, -4) : name;
+}
+
+export function launchTransitionConfirmsTarget(
+  transition: ComputerWindowTransition | null,
+  launchTarget: string,
+): boolean {
+  const reason = transition?.next_target_reason;
+  const nextTarget = transition?.next_target;
+  if (!reason || !nextTarget) return false;
+  if (CONFIRMED_LAUNCH_TRANSITIONS.has(reason)) return true;
+  if (reason !== 'launched_app_existing') return false;
+
+  const target = text(launchTarget).trim().replace(/^["']|["']$/g, '');
+  const isWindowsPath = /^[a-z]:[\\/]/i.test(target);
+  if (!isWindowsPath && /^[a-z][a-z0-9+.-]*:/i.test(target)) return false;
+  const normalizedTarget = target.replaceAll('\\', '/');
+  const leaf = normalizedTarget.split('/').pop()?.normalize('NFKC').toLocaleLowerCase() || '';
+  if (!leaf) return false;
+  if (/\.(?:exe|com)$/i.test(leaf)
+    || (!normalizedTarget.includes('/') && !leaf.includes('.'))) {
+    return true;
+  }
+
+  const title = nextTarget.title.normalize('NFKC').toLocaleLowerCase();
+  const extensionAt = leaf.lastIndexOf('.');
+  const stem = extensionAt > 0 ? leaf.slice(0, extensionAt) : leaf;
+  return [leaf, stem].some((candidate) =>
+    candidate.length >= 3 && title.includes(candidate));
 }
 
 export function normalizeComputerWindowRecords(value: unknown): ComputerWindowRecord[] {

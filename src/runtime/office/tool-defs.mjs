@@ -7,7 +7,7 @@ export const TOOL_DEFS = [
   {
     name: 'office',
     title: 'Mixdog Office Use',
-    description: 'Create, inspect, edit, review, secure, and save DOCX/DOTX, XLSX/XLTX/XLSM, PPTX/POTX, CSV/TSV, and PDF files. For creation or known targets, put all known operations on create/open, use one batch for later edits, then finalize once. Inspect unfamiliar existing documents before editing. Successful operation results prove edits; do not snapshot again unless content or layout itself needs inspection. Call describe only when exact fields or backend support are unknown. Keep finalize review enabled for deliverables. Batches are atomic and reject no-ops by default; checkpoint transactions detect external conflicts. attach targets an exact registered Office document, visible reuses or opens one visible document, background edits a protected output copy, and portable reports unsupported work. Background template edits preserve the source; portable preserves macro containers but never runs VBA. '
+    description: 'Office files. Direct: {action:"create",path,format,mode,operations:[{op,...}],finalize:true,overwrite?}. Common ops: DOCX append_text; XLSX/CSV/TSV set_range; PPTX add_slide/add_textbox; PDF add_text. secure handles PDF security. For inspected sessions use action:"batch" with session, all remaining operations, and finalize:true. Put all known operations in one ordered array across pages/slides/sheets/types; split only for result-dependent input or a backend-required pass. Inspect unfamiliar existing files first. Operation results prove edits; no snapshot unless content or layout needs inspection. Describe only unknown fields/support. Keep review for deliverables. Visual deliverables follow brief→structure→design→render→critique: prefer a user or existing template, otherwise choose editorial/technical/data and set subject-specific palette, type, layout, and signature. Use compose_document/compose_sheet/compose_slide instead of freehand styling. For PPTX vary semantic layouts and meaningful visuals; avoid generic blue, decorative stripes/rules, and repeated card grids. Render every slide, polish, then finalize with the reviewToken and one scored critique per slide. Batches are atomic and reject no-ops; transactions detect external conflicts. attach targets an exact registered document; visible reuses or opens visibly; background edits a protected copy; portable reports unsupported work. Templates preserve the source; portable preserves macros but never runs VBA. '
       + TOOL_SYNC_EXECUTION_CONTRACT,
     inputSchema: {
       type: 'object',
@@ -15,7 +15,7 @@ export const TOOL_DEFS = [
         action: {
           type: 'string',
           enum: OFFICE_ACTIONS,
-          description: 'Choose one action. detect/describe discover availability and capabilities; transactions/recover and begin/diff/commit/rollback manage checkpoints; create/attach/open start sessions; snapshot/get/query inspect; batch edits; issues/qa/render/validate review; save/finalize/close finish. secure writes an encrypted or decrypted PDF output. finalize combines review, save, validation, and close.',
+          description: 'detect/describe discover; transactions/recover and begin/diff/commit/rollback checkpoint; create/attach/open start; snapshot/get/query inspect; batch edits; issues/qa/render/validate review; save/finalize/close finish; secure writes PDF. Prefer finalize:true on create/open/batch.',
         },
         path: { type: 'string', description: 'Document path; relative paths resolve from the caller project.' },
         format: { type: 'string', enum: ['docx', 'dotx', 'docm', 'dotm', 'xlsx', 'xltx', 'xlsm', 'xltm', 'pptx', 'potx', 'pptm', 'potm', 'csv', 'tsv', 'pdf'], description: 'Format for describe/create without a path or session.' },
@@ -35,12 +35,14 @@ export const TOOL_DEFS = [
         output: { type: 'string', description: 'Background/portable output copy or render destination; defaults beside source.' },
         target: { type: 'string', description: 'Stable path from snapshot/query, e.g. /body/p[2] or /sheet[Data]/cell[A1].' },
         query: { type: 'string', description: 'Case-insensitive structured-value search.' },
+        queryKind: { type: 'string', enum: ['text', 'pdf-layout', 'pdf-tables', 'pdf-images'], description: 'Specialized PDF inspection; text is the default.' },
         properties: { type: 'object', additionalProperties: true, description: 'PDF create settings such as fontPath.' },
+        design: { type: 'object' },
         blocks: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'PDF create blocks: heading, paragraph, table, image, or pagebreak.' },
         fields: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'PDF form fields; layout is linted before writing.' },
         operations: {
           type: 'array',
-          description: 'Atomic edits for batch or create/open; later items may target earlier results. Call describe only when an op\'s exact fields or backend support are unknown. append_text creates a real DOCX paragraph; fill_template accepts tokens/strict; XLSX autofit_range accepts cells or columns such as A:D. Existing-PDF non-Latin text/watermarks require properties.fontPath.',
+          description: 'Atomic edits. Put every operation whose inputs are known in one batch; split only for result-dependent input. Semantic create ops: compose_document, compose_sheet, compose_slide. Call describe only when fields/support are unknown. fill_template accepts tokens/strict; autofit_range accepts A:D; non-Latin PDF text needs properties.fontPath.',
           items: {
             type: 'object',
             additionalProperties: true,
@@ -68,10 +70,16 @@ export const TOOL_DEFS = [
             required: ['op'],
           },
         },
+        assertions: {
+          type: 'array',
+          items: { type: 'object', additionalProperties: true },
+          description: 'XLSX validate/finalize checks: cell-value, cell-formula, tie-out, no-errors, or formula-consistency.',
+        },
         save: { type: 'boolean', description: 'Save a live document after batch/close.' },
-        snapshotAfter: { type: 'boolean', description: 'create/open: include a full post-edit snapshot; defaults false because operation results already prove edits.' },
+        finalize: { type: 'boolean', description: 'Review, save, validate, close. Scratch PPTX stays open until a rendered design review is acknowledged.' },
+        snapshotAfter: { type: 'boolean', description: 'create/open full post-edit snapshot; defaults false because operation results prove edits.' },
         requireChanges: { type: 'boolean', description: 'Reject and roll back changed:false operations; defaults true.' },
-        review: { type: 'boolean', description: 'finalize: run QA and render; defaults true. Keep enabled for deliverables.' },
+        review: { type: 'boolean', description: 'finalize: run structural, visual, and design QA plus render; defaults true. Keep enabled for deliverables.' },
         failOn: { type: 'string', enum: ['error', 'warning'], description: 'finalize: keep open at this severity; defaults warning for created deliverables and error for opened documents.' },
         overwrite: { type: 'boolean', description: 'create: replace an existing target.' },
         maxChars: { type: 'integer', minimum: 1000, maximum: 100000, description: 'Snapshot text cap; default 30000.' },
@@ -84,7 +92,9 @@ export const TOOL_DEFS = [
         pages: { type: 'array', items: { type: 'integer', minimum: 1 }, description: 'Page/slide numbers; render defaults to all pages, compressed into at most 12 contact sheets when needed, and reports visualCoverage.' },
         maxWidth: { type: 'integer', minimum: 256, maximum: 2400, description: 'Rendered image width; default 1400.' },
         autoFix: { type: 'boolean', description: 'qa: apply deterministic fit/autofit repairs.' },
-        auditProfile: { type: 'string', enum: ['financial-model', 'model-backed-deck'], description: 'Optional stricter QA profile.' },
+        auditProfile: { type: 'string', enum: ['financial-model', 'model-backed-deck', 'redlining'], description: 'Optional stricter QA profile.' },
+        author: { type: 'string', description: 'Redlining audit author or provenance label.' },
+        downloadDependencies: { type: 'boolean', description: 'Allow first-use validator or OCR language download; defaults true.' },
         compatibility: { type: 'boolean', description: 'validate: also reopen with LibreOffice when available.' },
       },
       required: ['action'],

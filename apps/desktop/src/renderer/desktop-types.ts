@@ -67,8 +67,9 @@ export type GoalSnapshot = {
   blocker?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;
-  remainingMs?: number;
+  remainingMs?: number | null;
   deadlineAt?: number | null;
+  snapshotAt?: number;
   createdAt?: number;
   updatedAt?: number;
   lastStartedAt?: number | null;

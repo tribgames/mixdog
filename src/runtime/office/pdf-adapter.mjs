@@ -12,6 +12,7 @@ import {
   rgb,
 } from 'pdf-lib';
 import { inspectPdfBuffer } from '../attachments/pdf-extract.mjs';
+import { ocrPdf } from './pdf-analysis.mjs';
 
 function color(value = '') {
   const hex = String(value || '000000').replace(/^#/, '');
@@ -220,10 +221,22 @@ export async function createPdf(path, {
   const size = pageSize(properties);
   const margin = Number(properties.margin ?? 54);
   const font = await embedPdfFont(document, properties);
-  let page = document.addPage(size);
+  const preparePage = (entry) => {
+    if (properties.background) {
+      entry.drawRectangle({
+        x: 0,
+        y: 0,
+        width: entry.getWidth(),
+        height: entry.getHeight(),
+        color: color(properties.background),
+      });
+    }
+    return entry;
+  };
+  let page = preparePage(document.addPage(size));
   let y = page.getHeight() - margin;
   const newPage = () => {
-    page = document.addPage(size);
+    page = preparePage(document.addPage(size));
     y = page.getHeight() - margin;
   };
   for (const block of blocks || []) {
@@ -249,12 +262,32 @@ export async function createPdf(path, {
       const width = Number(block.width || page.getWidth() - (margin * 2));
       const cellWidth = width / columns;
       const rowHeight = Number(block.rowHeight || 24);
-      for (const row of rows) {
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        const row = rows[rowIndex];
         if (y - rowHeight < margin) newPage();
         row.forEach((value, column) => {
           const x = margin + (column * cellWidth);
-          page.drawRectangle({ x, y: y - rowHeight, width: cellWidth, height: rowHeight, borderWidth: 0.5, borderColor: rgb(0.6, 0.6, 0.6) });
-          page.drawText(String(value ?? ''), { x: x + 4, y: y - rowHeight + 7, size: Number(block.fontSize || 9), font, color: color(block.color) });
+          const fill = rowIndex === 0
+            ? block.headerFill
+            : rowIndex % 2 === 0
+              ? block.zebraFill
+              : '';
+          page.drawRectangle({
+            x,
+            y: y - rowHeight,
+            width: cellWidth,
+            height: rowHeight,
+            ...(fill ? { color: color(fill) } : {}),
+            borderWidth: 0.5,
+            borderColor: color(block.borderColor || '999999'),
+          });
+          page.drawText(String(value ?? ''), {
+            x: x + 4,
+            y: y - rowHeight + 7,
+            size: Number(block.fontSize || 9),
+            font,
+            color: color(rowIndex === 0 ? block.headerColor || block.color : block.color),
+          });
         });
         y -= rowHeight;
       }
@@ -352,7 +385,7 @@ export async function snapshotPdf(path, options = {}) {
   };
 }
 
-export async function applyPdfBatch(path, operations) {
+export async function applyPdfBatch(path, operations, context = {}) {
   let document = await PDFDocument.load(await readFile(path), {
     ignoreEncryption: false,
     updateMetadata: false,
@@ -397,6 +430,16 @@ export async function applyPdfBatch(path, operations) {
           });
         }
         results.push({ op: operation.op, changed: true, image: imagePath });
+        break;
+      }
+      case 'ocr_pages': {
+        await writeFile(path, await document.save({ useObjectStreams: true, addDefaultPage: false }));
+        const result = await ocrPdf(path, operation, context);
+        document = await PDFDocument.load(await readFile(path), {
+          ignoreEncryption: false,
+          updateMetadata: false,
+        });
+        results.push(result);
         break;
       }
       case 'rotate_pages': {

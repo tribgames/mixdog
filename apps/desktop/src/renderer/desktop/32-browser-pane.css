@@ -2,6 +2,7 @@
    tokens so the chrome follows dark/light themes like every other pane. */
 
 .browser-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -52,7 +53,12 @@
   cursor: default;
 }
 
+.browser-pane-import-button {
+  border: 1px solid var(--mx-border-muted);
+}
+
 .browser-pane-address-form {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -75,6 +81,53 @@
   border-color: var(--mx-focus);
 }
 
+.browser-pane-history-suggestions {
+  position: absolute;
+  z-index: 14;
+  top: 34px;
+  right: 0;
+  left: 0;
+  display: flex;
+  max-height: 280px;
+  flex-direction: column;
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 10px;
+  background: var(--mx-surface-plate);
+  box-shadow: var(--mx-floating);
+}
+
+.browser-pane-history-suggestions button {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mx-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-pane-history-suggestions button:hover {
+  background: var(--mx-hover);
+}
+
+.browser-pane-history-suggestions span,
+.browser-pane-history-suggestions code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-pane-history-suggestions code {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
+
 .browser-pane-content {
   position: relative;
   display: flex;
@@ -88,6 +141,238 @@
   width: 100%;
   border: none;
   background: #fff;
+}
+
+.browser-pane-webview.is-import-open,
+.browser-pane-webview.is-history-open {
+  display: none;
+}
+
+.browser-import-backdrop {
+  position: absolute;
+  z-index: 12;
+  top: 47px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--mx-workspace-sheet) 54%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.browser-import-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(440px, 100%);
+  max-height: 100%;
+  padding: 18px;
+  overflow-y: auto;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 16px;
+  background: var(--mx-surface-plate);
+  color: var(--mx-text);
+  box-shadow: var(--mx-floating);
+}
+
+.browser-import-dialog header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.browser-import-dialog header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.browser-import-dialog h2,
+.browser-import-dialog p {
+  margin: 0;
+}
+
+.browser-import-dialog h2 {
+  font-size: 19px;
+  line-height: 1.25;
+}
+
+.browser-import-dialog p,
+.browser-import-item small,
+.browser-import-admin span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+
+.browser-import-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.browser-import-source > span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+
+.browser-import-source select {
+  min-width: 0;
+  height: 32px;
+  flex: 1;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 8px;
+  background: var(--mx-surface-raised);
+  color: var(--mx-text);
+}
+
+.browser-import-close-note {
+  padding: 0 2px;
+}
+
+.browser-import-items {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 12px;
+}
+
+.browser-import-item {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--mx-surface-raised);
+}
+
+.browser-import-item + .browser-import-item {
+  border-top: 1px solid var(--mx-border-muted);
+}
+
+.browser-import-item.is-disabled {
+  opacity: 0.55;
+}
+
+.browser-import-item-icon {
+  display: inline-flex;
+  width: 24px;
+  align-items: center;
+  justify-content: center;
+  color: var(--mx-text-muted);
+}
+
+.browser-import-item-label {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.browser-import-item-label strong {
+  font-size: var(--mx-font-ui);
+}
+
+.browser-import-item input,
+.browser-import-admin input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--mx-accent);
+}
+
+.browser-import-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--mx-text-muted);
+}
+
+.browser-import-state.is-completed {
+  color: var(--mx-success);
+}
+
+.browser-import-state.is-failed {
+  color: var(--mx-danger);
+}
+
+.browser-import-admin {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 10px;
+}
+
+.browser-import-admin-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--mx-text) !important;
+}
+
+.browser-import-error {
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--mx-danger) 45%, var(--mx-border-muted));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mx-danger) 8%, transparent);
+  color: var(--mx-danger);
+  font-size: var(--mx-font-meta);
+  white-space: pre-wrap;
+}
+
+.browser-import-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.browser-import-secondary,
+.browser-import-primary {
+  display: inline-flex;
+  min-width: 72px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.browser-import-secondary {
+  background: var(--mx-surface-raised);
+  color: var(--mx-text);
+}
+
+.browser-import-primary {
+  border-color: var(--mx-accent);
+  background: var(--mx-accent);
+  color: var(--mx-accent-contrast, white);
+}
+
+.browser-import-secondary:disabled,
+.browser-import-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.is-spinning {
+  animation: browser-import-spin 0.85s linear infinite;
+}
+
+@keyframes browser-import-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Empty-tab cover: hides the guest's default white until a page commits,

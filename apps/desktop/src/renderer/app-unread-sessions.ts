@@ -12,6 +12,28 @@ const LEGACY_TIMESTAMP_KEY = "mixdog.desktop.session-last-seen";
 // suppress the dot forever, so absurd values are dropped and re-baselined.
 const MAX_PLAUSIBLE_COUNT = 1e7;
 
+export function resolveUnreadViewedSessionId({
+  viewedSessionId,
+  requestedSessionId,
+  mobile,
+  sidebarOpen,
+  dockOpen,
+  bottomPanelOpen,
+  settingsOpen,
+}: {
+  viewedSessionId: string;
+  requestedSessionId: string;
+  mobile: boolean;
+  sidebarOpen: boolean;
+  dockOpen: boolean;
+  bottomPanelOpen: boolean;
+  settingsOpen: boolean;
+}): string {
+  const target = requestedSessionId || viewedSessionId;
+  if (!mobile) return target;
+  return sidebarOpen || dockOpen || bottomPanelOpen || settingsOpen ? "" : target;
+}
+
 export function useUnreadSessions({
   viewedSessionRef,
 }: {

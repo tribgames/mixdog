@@ -117,7 +117,32 @@ function Snapshot-Word($doc, $payload) {
       $styleName = try { [string]$style.NameLocal } catch {
         try { [string]$style.Name } catch { [string]$style }
       }
-      $paragraphs += [ordered]@{ path = "/body/p[$index]"; index = $index; text = $text; style = $styleName }
+      $tabStops = @()
+      try {
+        for ($tabIndex = 1; $tabIndex -le $p.Format.TabStops.Count; $tabIndex++) {
+          $tab = $p.Format.TabStops.Item($tabIndex)
+          $tabStops += [ordered]@{
+            position = [double]$tab.Position
+            alignment = [int]$tab.Alignment
+            leader = [int]$tab.Leader
+          }
+        }
+      } catch {}
+      $paragraphs += [ordered]@{
+        path = "/body/p[$index]"
+        index = $index
+        text = $text
+        style = $styleName
+        format = [ordered]@{
+          alignment = [int]$p.Format.Alignment
+          spacingBefore = [double]$p.Format.SpaceBefore
+          spacingAfter = [double]$p.Format.SpaceAfter
+          lineSpacing = [double]$p.Format.LineSpacing
+          keepWithNext = [int]$p.Format.KeepWithNext
+          pageBreakBefore = [int]$p.Format.PageBreakBefore
+          tabStops = $tabStops
+        }
+      }
     }
   }
   $tables = @()
@@ -139,7 +164,27 @@ function Snapshot-Word($doc, $payload) {
       }
       $tableRows += [ordered]@{ path = "/body/tbl[$i]/row[$r]"; index = $r; cells = $cells }
     }
-    $tables += [ordered]@{ path = "/body/tbl[$i]"; index = $i; rows = $tableRows }
+    $columnWidths = @()
+    try {
+      for ($columnIndex = 1; $columnIndex -le $table.Columns.Count; $columnIndex++) {
+        $columnWidths += [double]$table.Columns.Item($columnIndex).Width
+      }
+    } catch {
+      try {
+        $firstRow = $table.Rows.Item(1)
+        for ($columnIndex = 1; $columnIndex -le $firstRow.Cells.Count; $columnIndex++) {
+          $columnWidths += [double]$firstRow.Cells.Item($columnIndex).Width
+        }
+      } catch {}
+    }
+    $tables += [ordered]@{
+      path = "/body/tbl[$i]"
+      index = $i
+      style = $(try { [string]$table.Style.NameLocal } catch { try { [string]$table.Style } catch { '' } })
+      alignment = $(try { [int]$table.Rows.Alignment } catch { 0 })
+      columnWidths = $columnWidths
+      rows = $tableRows
+    }
   }
   $sections = @()
   for ($sectionIndex = 1; $sectionIndex -le $doc.Sections.Count; $sectionIndex++) {
@@ -190,6 +235,9 @@ function Snapshot-Word($doc, $payload) {
   $comments = @()
   for ($commentIndex = 1; $commentIndex -le $doc.Comments.Count; $commentIndex++) {
     $comment = $doc.Comments.Item($commentIndex)
+    $isReply = $false
+    try { $isReply = $null -ne $comment.Ancestor } catch {}
+    if ($isReply) { continue }
     $replies = @()
     try {
       for ($replyIndex = 1; $replyIndex -le $comment.Replies.Count; $replyIndex++) {
@@ -271,7 +319,7 @@ function Snapshot-Word($doc, $payload) {
     path = [string]$doc.FullName
     paragraphCount = $doc.Paragraphs.Count
     tableCount = $doc.Tables.Count
-    commentCount = $doc.Comments.Count
+    commentCount = $comments.Count
     revisionCount = $doc.Revisions.Count
     comments = $comments
     revisions = $revisions
@@ -833,7 +881,28 @@ function Snapshot-PowerPoint($presentation, $payload) {
         height = [double]$shape.Height
         rotation = [double]$shape.Rotation
         fillColor = $(try { [double]$shape.Fill.ForeColor.RGB } catch { $null })
+        fillTransparency = $(try { [double]$shape.Fill.Transparency } catch { $null })
         lineColor = $(try { [double]$shape.Line.ForeColor.RGB } catch { $null })
+        lineTransparency = $(try { [double]$shape.Line.Transparency } catch { $null })
+        shadow = $(try {
+          [ordered]@{
+            visible = [int]$shape.Shadow.Visible
+            color = [double]$shape.Shadow.ForeColor.RGB
+            transparency = [double]$shape.Shadow.Transparency
+            blur = [double]$shape.Shadow.Blur
+            offsetX = [double]$shape.Shadow.OffsetX
+            offsetY = [double]$shape.Shadow.OffsetY
+          }
+        } catch { $null })
+        textFrame = $(try {
+          [ordered]@{
+            marginLeft = [double]$shape.TextFrame.MarginLeft
+            marginTop = [double]$shape.TextFrame.MarginTop
+            marginRight = [double]$shape.TextFrame.MarginRight
+            marginBottom = [double]$shape.TextFrame.MarginBottom
+            paragraphSpacing = [double]$shape.TextFrame.TextRange.ParagraphFormat.SpaceAfter
+          }
+        } catch { $null })
         font = $(try {
           [ordered]@{
             name = [string]$shape.TextFrame.TextRange.Font.Name
@@ -858,7 +927,11 @@ function Snapshot-PowerPoint($presentation, $payload) {
                   $items += [ordered]@{
                     index = $seriesIndex
                     name = [string]$series.Name
-                    formula = [string]$series.Formula
+                    formula = ''
+                    chartType = $(try { [int]$series.ChartType } catch { $null })
+                    axisGroup = $(try { [int]$series.AxisGroup } catch { $null })
+                    trendlineCount = $(try { [int]$series.Trendlines().Count } catch { 0 })
+                    hasErrorBars = $(try { [bool]$series.HasErrorBars } catch { $false })
                     hasDataLabels = [bool]$series.HasDataLabels
                     dataLabels = $(if ($series.HasDataLabels) {
                       [ordered]@{
@@ -897,6 +970,36 @@ function Snapshot-PowerPoint($presentation, $payload) {
     }
     $notes = $null
     try { $notes = [string]$slide.NotesPage.Shapes.Placeholders.Item(2).TextFrame.TextRange.Text } catch {}
+    $comments = @()
+    try {
+      for ($commentIndex = 1; $commentIndex -le $slide.Comments.Count; $commentIndex++) {
+        $comment = $slide.Comments.Item($commentIndex)
+        $comments += [ordered]@{
+          path = "/slide[$([int]$slide.SlideIndex)]/comment[$commentIndex]"
+          index = $commentIndex
+          author = [string]$comment.Author
+          initials = [string]$comment.AuthorInitials
+          text = [string]$comment.Text
+          left = [double]$comment.Left
+          top = [double]$comment.Top
+        }
+      }
+    } catch {}
+    $animations = @()
+    try {
+      $sequence = $slide.TimeLine.MainSequence
+      for ($effectIndex = 1; $effectIndex -le $sequence.Count; $effectIndex++) {
+        $effect = $sequence.Item($effectIndex)
+        $animations += [ordered]@{
+          index = $effectIndex
+          shape = [string]$effect.Shape.Name
+          effect = [int]$effect.EffectType
+          trigger = [int]$effect.Timing.TriggerType
+          duration = [double]$effect.Timing.Duration
+          delay = [double]$effect.Timing.TriggerDelayTime
+        }
+      }
+    } catch {}
     $layoutName = $(try { [string]$slide.CustomLayout.Name } catch { '' })
     $layoutIndex = 0
     try {
@@ -907,12 +1010,40 @@ function Snapshot-PowerPoint($presentation, $payload) {
         }
       }
     } catch {}
+    $followMasterBackground = $(try { [bool]$slide.FollowMasterBackground } catch { $false })
+    $backgroundSource = $(if ($followMasterBackground) { 'layout' } else { 'slide' })
+    $backgroundColor = $null
+    try {
+      if ($followMasterBackground) {
+        try {
+          $backgroundColor = Color-Hex ([long]$slide.CustomLayout.Background.Fill.ForeColor.RGB)
+        } catch {}
+        if (-not $backgroundColor) {
+          $backgroundSource = 'master'
+          try { $backgroundColor = Color-Hex ([long]$presentation.SlideMaster.Background.Fill.ForeColor.RGB) } catch {}
+        }
+      } else {
+        $backgroundColor = Color-Hex ([long]$slide.Background.Fill.ForeColor.RGB)
+      }
+    } catch {}
     $slides += [ordered]@{
       path = "/slide[$([int]$slide.SlideIndex)]"
       index = [int]$slide.SlideIndex
       layout = [ordered]@{ index = $layoutIndex; name = $layoutName }
+      background = [ordered]@{
+        followMaster = $followMasterBackground
+        source = $backgroundSource
+        color = $backgroundColor
+      }
       shapes = $shapes
       notes = $notes
+      comments = $comments
+      animations = $animations
+      transition = [ordered]@{
+        effect = $(try { [int]$slide.SlideShowTransition.EntryEffect } catch { 0 })
+        advanceOnTime = $(try { [bool]$slide.SlideShowTransition.AdvanceOnTime } catch { $false })
+        advanceTime = $(try { [double]$slide.SlideShowTransition.AdvanceTime } catch { 0 })
+      }
     }
   }
   $layouts = @()
@@ -926,12 +1057,24 @@ function Snapshot-PowerPoint($presentation, $payload) {
       }
     }
   } catch {}
+  $designs = @()
+  try {
+    for ($designIndex = 1; $designIndex -le $presentation.Designs.Count; $designIndex++) {
+      $design = $presentation.Designs.Item($designIndex)
+      $designs += [ordered]@{
+        index = $designIndex
+        name = [string]$design.Name
+      }
+    }
+  } catch {}
   return [ordered]@{
     format = 'pptx'
     path = [string]$presentation.FullName
     slideCount = $presentation.Slides.Count
     layoutCount = $layouts.Count
     layouts = $layouts
+    designCount = $designs.Count
+    designs = $designs
     slides = $slides
     theme = $(try { [string]$presentation.Designs.Item(1).Name } catch { '' })
     pagination = $(if ($payload.paged) {
@@ -1069,6 +1212,13 @@ function Color-Value([string]$hex) {
   $g = [Convert]::ToInt32($clean.Substring(2, 2), 16)
   $b = [Convert]::ToInt32($clean.Substring(4, 2), 16)
   return $r + (256 * $g) + (65536 * $b)
+}
+
+function Color-Hex([long]$color) {
+  $r = $color -band 255
+  $g = ($color -shr 8) -band 255
+  $b = ($color -shr 16) -band 255
+  return ('{0:X2}{1:X2}{2:X2}' -f $r, $g, $b)
 }
 
 function Operation-Property($op, [string]$name, $fallback) {
@@ -1277,6 +1427,83 @@ function Apply-WordOperation($doc, $op) {
       $doc.Tables.Item([int]$op.table).Cell([int]$op.row, [int]$op.col).Range.Text = [string]$op.text
       return [ordered]@{ op = 'set_table_cell'; changed = $true }
     }
+    'add_table' {
+      $values = @($op.values)
+      $rows = if ($op.rows) { [int]$op.rows } elseif ($values.Count -gt 0) { [int]$values.Count } else { 1 }
+      $columns = if ($op.columns) {
+        [int]$op.columns
+      } elseif ($values.Count -gt 0) {
+        [Math]::Max(1, [int]@($values | ForEach-Object { @($_).Count } | Measure-Object -Maximum).Maximum)
+      } else {
+        1
+      }
+      if ($op.paragraph) {
+        $range = $doc.Paragraphs.Item([int]$op.paragraph).Range.Duplicate
+        $range.Collapse(0)
+      } else {
+        $range = $doc.Content.Duplicate
+        $range.Collapse(0)
+      }
+      $table = $doc.Tables.Add($range, $rows, $columns)
+      for ($row = 1; $row -le $rows; $row++) {
+        for ($column = 1; $column -le $columns; $column++) {
+          if ($row -le $values.Count -and $column -le @($values[$row - 1]).Count) {
+            $table.Cell($row, $column).Range.Text = [string]@($values[$row - 1])[$column - 1]
+          }
+        }
+      }
+      $props = $op.properties
+      if ($props.style) { $table.Style = [string]$props.style }
+      if ($props.alignment) {
+        $table.Rows.Alignment = switch ([string]$props.alignment) { 'center' { 1 } 'right' { 2 } default { 0 } }
+      }
+      if ($props.columnWidths) {
+        for ($column = 1; $column -le [Math]::Min($columns, @($props.columnWidths).Count); $column++) {
+          $table.Columns.Item($column).Width = [single]@($props.columnWidths)[$column - 1]
+        }
+      }
+      if ($props.borders) { $table.Borders.Enable = 1 }
+      if ($props.shading) { $table.Shading.BackgroundPatternColor = Color-Value ([string]$props.shading) }
+      return [ordered]@{ op = 'add_table'; changed = $true; table = [int]$table.Index; rows = $rows; columns = $columns }
+    }
+    'set_table_style' {
+      $table = $doc.Tables.Item([int]$op.table)
+      $props = $op.properties
+      if ($props.style) { $table.Style = [string]$props.style }
+      if ($props.alignment) {
+        $table.Rows.Alignment = switch ([string]$props.alignment) { 'center' { 1 } 'right' { 2 } default { 0 } }
+      }
+      if ($props.columnWidths) {
+        for ($column = 1; $column -le [Math]::Min($table.Columns.Count, @($props.columnWidths).Count); $column++) {
+          $table.Columns.Item($column).Width = [single]@($props.columnWidths)[$column - 1]
+        }
+      }
+      if ($props.borders) { $table.Borders.Enable = 1 }
+      if ($props.shading) { $table.Shading.BackgroundPatternColor = Color-Value ([string]$props.shading) }
+      return [ordered]@{ op = 'set_table_style'; changed = $true; table = [int]$op.table }
+    }
+    'merge_table_cells' {
+      $table = $doc.Tables.Item([int]$op.table)
+      $rowSpan = [Math]::Max(1, $(if ($op.rowSpan) { [int]$op.rowSpan } else { 1 }))
+      $colSpan = [Math]::Max(1, $(if ($op.colSpan) { [int]$op.colSpan } else { 1 }))
+      $lastRow = [int]$op.row + $rowSpan - 1
+      $lastCol = [int]$op.col + $colSpan - 1
+      $table.Cell([int]$op.row, [int]$op.col).Merge($table.Cell($lastRow, $lastCol))
+      return [ordered]@{ op = 'merge_table_cells'; changed = $true; table = [int]$op.table; row = [int]$op.row; col = [int]$op.col }
+    }
+    'set_table_cell_style' {
+      $cell = $doc.Tables.Item([int]$op.table).Cell([int]$op.row, [int]$op.col)
+      $props = $op.properties
+      if ($props.fillColor) { $cell.Shading.BackgroundPatternColor = Color-Value ([string]$props.fillColor) }
+      if ($props.verticalAlignment) {
+        $cell.VerticalAlignment = switch ([string]$props.verticalAlignment) { 'center' { 1 } 'bottom' { 3 } default { 0 } }
+      }
+      if ($props.width) { $cell.Width = [single]$props.width }
+      if ($null -ne $props.bold) { $cell.Range.Font.Bold = if ($props.bold) { -1 } else { 0 } }
+      if ($null -ne $props.italic) { $cell.Range.Font.Italic = if ($props.italic) { -1 } else { 0 } }
+      if ($props.color) { $cell.Range.Font.Color = Color-Value ([string]$props.color) }
+      return [ordered]@{ op = 'set_table_cell_style'; changed = $true; table = [int]$op.table; row = [int]$op.row; col = [int]$op.col }
+    }
     'set_paragraph_text' {
       $paragraph = $doc.Paragraphs.Item([int]$op.paragraph)
       $paragraph.Range.Text = ([string]$op.text) + "`r"
@@ -1316,6 +1543,18 @@ function Apply-WordOperation($doc, $op) {
       $null = $doc.Comments.Add($range, [string]$op.text)
       return [ordered]@{ op = 'add_comment'; changed = $true }
     }
+    'add_comment_reply' {
+      $index = [int]$op.comment
+      if ($index -lt 1 -or $index -gt $doc.Comments.Count) { throw "Comment index out of range: $index" }
+      $comment = $doc.Comments.Item($index)
+      try {
+        $range = $comment.Scope.Duplicate
+        $null = $comment.Replies.Add($range, [string]$op.text)
+      } catch {
+        throw 'This Word version does not expose threaded comment replies through COM'
+      }
+      return [ordered]@{ op = 'add_comment_reply'; changed = $true; comment = $index }
+    }
     'add_provenance' {
       $paragraphIndex = [int]$op.paragraph
       if ($paragraphIndex -lt 1 -or $paragraphIndex -gt $doc.Paragraphs.Count) { throw "Provenance paragraph index out of range: $paragraphIndex" }
@@ -1328,7 +1567,12 @@ function Apply-WordOperation($doc, $op) {
     'delete_comment' {
       $index = [int]$op.comment
       if ($index -lt 1 -or $index -gt $doc.Comments.Count) { throw "Comment index out of range: $index" }
-      $doc.Comments.Item($index).Delete()
+      $comment = $doc.Comments.Item($index)
+      if ($comment.Replies.Count -gt 0) {
+        $comment.DeleteRecursively()
+      } else {
+        $comment.Delete()
+      }
       return [ordered]@{ op = 'delete_comment'; changed = $true; comment = $index }
     }
     'set_comment_resolved' {
@@ -1357,6 +1601,34 @@ function Apply-WordOperation($doc, $op) {
       $paragraph = $doc.Paragraphs.Item([int]$op.paragraph)
       $paragraph.Range.Style = Word-StyleValue ([string]$op.style)
       return [ordered]@{ op = 'set_paragraph_style'; changed = $true; style = [string]$op.style }
+    }
+    'set_paragraph_format' {
+      $paragraph = $doc.Paragraphs.Item([int]$op.paragraph)
+      $format = $paragraph.Format
+      $props = $op.properties
+      if ($props.alignment) {
+        $format.Alignment = switch ([string]$props.alignment) { 'center' { 1 } 'right' { 2 } 'justify' { 3 } default { 0 } }
+      }
+      if ($null -ne $props.spacingBefore) { $format.SpaceBefore = [single]$props.spacingBefore }
+      if ($null -ne $props.spacingAfter) { $format.SpaceAfter = [single]$props.spacingAfter }
+      if ($null -ne $props.lineSpacing) { $format.LineSpacing = [single]$props.lineSpacing }
+      if ($null -ne $props.keepWithNext) { $format.KeepWithNext = if ($props.keepWithNext) { -1 } else { 0 } }
+      if ($null -ne $props.pageBreakBefore) { $format.PageBreakBefore = if ($props.pageBreakBefore) { -1 } else { 0 } }
+      if ($props.tabStops) {
+        $format.TabStops.ClearAll()
+        foreach ($tab in @($props.tabStops)) {
+          $alignment = switch ([string]$tab.alignment) { 'center' { 1 } 'right' { 2 } 'decimal' { 3 } 'bar' { 4 } default { 0 } }
+          $leader = switch ([string]$tab.leader) { 'dot' { 1 } 'dash' { 2 } 'line' { 3 } 'heavy' { 4 } 'middleDot' { 5 } default { 0 } }
+          $null = $format.TabStops.Add([single]$tab.position, $alignment, $leader)
+        }
+      }
+      if ($props.border) {
+        $borderIndex = switch ([string]$props.border.side) { 'top' { -1 } 'left' { -2 } 'right' { -4 } default { -3 } }
+        $border = $paragraph.Borders.Item($borderIndex)
+        $border.LineStyle = 1
+        if ($props.border.color) { $border.Color = Color-Value ([string]$props.border.color) }
+      }
+      return [ordered]@{ op = 'set_paragraph_format'; changed = $true; paragraph = [int]$op.paragraph }
     }
     'insert_table_row' {
       $table = $doc.Tables.Item([int]$op.table)
@@ -1928,7 +2200,7 @@ function Set-PowerPointParagraphs($shape, $paragraphs) {
   return $items.Count
 }
 
-function Apply-PowerPointOperation($presentation, $op) {
+function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
   switch ([string]$op.op) {
     'fill_template' { return Fill-PowerPointTemplate $presentation $op }
     'replace_text' {
@@ -1995,6 +2267,28 @@ function Apply-PowerPointOperation($presentation, $op) {
       if ($null -ne $fontSize) { $shape.TextFrame.TextRange.Font.Size = [single]$fontSize }
       if ($null -ne $fontName) { $shape.TextFrame.TextRange.Font.Name = [string]$fontName }
       if ($null -ne $color) { $shape.TextFrame.TextRange.Font.Color.RGB = Color-Value ([string]$color) }
+      $props = $op.properties
+      if ($null -ne $props.bold) { $shape.TextFrame.TextRange.Font.Bold = $(if ([bool]$props.bold) { -1 } else { 0 }) }
+      if ($null -ne $props.italic) { $shape.TextFrame.TextRange.Font.Italic = $(if ([bool]$props.italic) { -1 } else { 0 }) }
+      if ($props.alignment) {
+        $shape.TextFrame.TextRange.ParagraphFormat.Alignment = switch ([string]$props.alignment) {
+          'center' { 2 }
+          'right' { 3 }
+          'justify' { 4 }
+          default { 1 }
+        }
+      }
+      if ($props.verticalAlignment) {
+        $shape.TextFrame.VerticalAnchor = switch ([string]$props.verticalAlignment) {
+          'middle' { 3 }
+          'bottom' { 4 }
+          default { 1 }
+        }
+      }
+      if ($null -ne $props.marginLeft) { $shape.TextFrame.MarginLeft = [single]$props.marginLeft }
+      if ($null -ne $props.marginTop) { $shape.TextFrame.MarginTop = [single]$props.marginTop }
+      if ($null -ne $props.marginRight) { $shape.TextFrame.MarginRight = [single]$props.marginRight }
+      if ($null -ne $props.marginBottom) { $shape.TextFrame.MarginBottom = [single]$props.marginBottom }
       return [ordered]@{ op = 'add_textbox'; changed = $true; shape = [string]$shape.Name }
     }
     'add_shape' {
@@ -2043,6 +2337,28 @@ function Apply-PowerPointOperation($presentation, $op) {
         }
       }
       return [ordered]@{ op = 'add_table'; changed = $true; shape = [string]$shape.Name; rows = $rows; columns = $columns }
+    }
+    'set_table_data' {
+      $slide = Ppt-Slide $presentation $op
+      $shape = $slide.Shapes.Item([int]$op.shape)
+      if (-not $shape.HasTable) { throw "PowerPoint shape $($op.shape) is not a table" }
+      $values = @($op.values)
+      $availableRows = [int]$shape.Table.Rows.Count
+      $availableColumns = [int]$shape.Table.Columns.Count
+      $requestedColumns = 0
+      foreach ($rowValues in $values) {
+        $requestedColumns = [Math]::Max($requestedColumns, @($rowValues).Count)
+      }
+      if ($values.Count -gt $availableRows -or $requestedColumns -gt $availableColumns) {
+        throw "PowerPoint table shape $($op.shape) is ${availableRows}x${availableColumns}, but received $($values.Count)x${requestedColumns}"
+      }
+      for ($row = 1; $row -le $availableRows; $row++) {
+        for ($column = 1; $column -le $availableColumns; $column++) {
+          $value = if ($row -le $values.Count -and $column -le @($values[$row - 1]).Count) { $values[$row - 1][$column - 1] } else { '' }
+          $shape.Table.Cell($row, $column).Shape.TextFrame.TextRange.Text = [string]$value
+        }
+      }
+      return [ordered]@{ op = 'set_table_data'; changed = $true; shape = [int]$op.shape; rows = $availableRows; columns = $availableColumns }
     }
     'set_hyperlink' {
       $slide = Ppt-Slide $presentation $op
@@ -2097,6 +2413,22 @@ function Apply-PowerPointOperation($presentation, $op) {
       $slide.NotesPage.Shapes.Placeholders.Item(2).TextFrame.TextRange.Text = [string]$op.text
       return [ordered]@{ op = 'set_notes'; changed = $true }
     }
+    'add_comment' {
+      $slide = Ppt-Slide $presentation $op
+      $left = if ($null -ne $op.left) { [single]$op.left } else { [single]20 }
+      $top = if ($null -ne $op.top) { [single]$op.top } else { [single]20 }
+      $author = if ($op.author) { [string]$op.author } else { 'Mixdog' }
+      $initials = if ($op.initials) { [string]$op.initials } else { 'MD' }
+      $comment = $slide.Comments.Add($left, $top, $author, $initials, [string]$op.text)
+      return [ordered]@{ op = 'add_comment'; changed = $true; slide = [int]$slide.SlideIndex; comment = [int]$comment.Index }
+    }
+    'delete_comment' {
+      $slide = Ppt-Slide $presentation $op
+      $index = [int]$op.comment
+      if ($index -lt 1 -or $index -gt $slide.Comments.Count) { throw "PowerPoint comment index out of range: $index" }
+      $slide.Comments.Item($index).Delete()
+      return [ordered]@{ op = 'delete_comment'; changed = $true; slide = [int]$slide.SlideIndex; comment = $index }
+    }
     'add_provenance' {
       $slide = Ppt-Slide $presentation $op
       $text = Provenance-Text $op
@@ -2145,10 +2477,47 @@ function Apply-PowerPointOperation($presentation, $op) {
       if ($null -ne $op.bottom) { $shape.PictureFormat.CropBottom = [single]$op.bottom }
       return [ordered]@{ op = 'crop_image'; changed = $true; shape = [int]$op.shape }
     }
+    'add_media' {
+      $slide = Ppt-Slide $presentation $op
+      $left = if ($null -ne $op.left) { [single]$op.left } else { [single]40 }
+      $top = if ($null -ne $op.top) { [single]$op.top } else { [single]40 }
+      $width = if ($op.width) { [single]$op.width } else { [single]320 }
+      $height = if ($op.height) { [single]$op.height } else { [single]180 }
+      $link = [bool]$op.link
+      $embed = if ($null -ne $op.embed) { [bool]$op.embed } else { -not $link }
+      $shape = $slide.Shapes.AddMediaObject2([string]$op.path, $(if ($link) { -1 } else { 0 }), $(if ($embed) { -1 } else { 0 }), $left, $top, $width, $height)
+      return [ordered]@{ op = 'add_media'; changed = $true; shape = [int]$shape.ZOrderPosition; media = [string]$op.path; embedded = $embed }
+    }
     'apply_theme' {
       if (-not $op.path) { throw 'apply_theme requires path' }
       $presentation.ApplyTheme([string]$op.path)
       return [ordered]@{ op = 'apply_theme'; changed = $true; path = [string]$op.path }
+    }
+    'set_transition' {
+      $slide = Ppt-Slide $presentation $op
+      $effects = @{ none = 0; fade = 3849; push = 3850; wipe = 3844; split = 3586; reveal = 3847; random = 513 }
+      $kind = ([string]$op.effect).ToLowerInvariant()
+      if ($kind) { $slide.SlideShowTransition.EntryEffect = $(if ($effects.ContainsKey($kind)) { [int]$effects[$kind] } elseif ($op.effect -as [int]) { [int]$op.effect } else { throw "Unknown transition effect: $kind" }) }
+      if ($null -ne $op.advanceOnTime) { $slide.SlideShowTransition.AdvanceOnTime = [bool]$op.advanceOnTime }
+      if ($null -ne $op.advanceTime) { $slide.SlideShowTransition.AdvanceTime = [single]$op.advanceTime }
+      if ($null -ne $op.duration) {
+        $slide.SlideShowTransition.Speed = if ([single]$op.duration -le 0.5) { 1 } elseif ([single]$op.duration -le 1.5) { 2 } else { 3 }
+      }
+      return [ordered]@{ op = 'set_transition'; changed = $true; slide = [int]$slide.SlideIndex; effect = [int]$slide.SlideShowTransition.EntryEffect }
+    }
+    'add_animation' {
+      $slide = Ppt-Slide $presentation $op
+      $shape = $slide.Shapes.Item([int]$op.shape)
+      $effects = @{ appear = 1; fly = 2; fade = 10; wipe = 22; zoom = 23; float = 30 }
+      $triggers = @{ onclick = 1; withprevious = 2; afterprevious = 3 }
+      $effectKey = ([string]$op.effect).Replace(' ', '').ToLowerInvariant()
+      $triggerKey = ([string]$op.trigger).Replace(' ', '').ToLowerInvariant()
+      $effectType = if ($effects.ContainsKey($effectKey)) { [int]$effects[$effectKey] } elseif ($op.effect -as [int]) { [int]$op.effect } else { 10 }
+      $triggerType = if ($triggers.ContainsKey($triggerKey)) { [int]$triggers[$triggerKey] } elseif ($op.trigger -as [int]) { [int]$op.trigger } else { 1 }
+      $effect = $slide.TimeLine.MainSequence.AddEffect($shape, $effectType, 0, $triggerType)
+      if ($null -ne $op.duration) { $effect.Timing.Duration = [single]$op.duration }
+      if ($null -ne $op.delay) { $effect.Timing.TriggerDelayTime = [single]$op.delay }
+      return [ordered]@{ op = 'add_animation'; changed = $true; slide = [int]$slide.SlideIndex; shape = [int]$op.shape; effect = $effectType }
     }
     'set_shape' {
       $slide = Ppt-Slide $presentation $op
@@ -2160,8 +2529,23 @@ function Apply-PowerPointOperation($presentation, $op) {
       if ($props.height) { $shape.Height = [single]$props.height }
       if ($null -ne $props.rotation) { $shape.Rotation = [single]$props.rotation }
       if ($props.fillColor) { $shape.Fill.Visible = $true; $shape.Fill.ForeColor.RGB = Color-Value ([string]$props.fillColor) }
+      if ($null -ne $props.fillTransparency) { $shape.Fill.Transparency = [single]$props.fillTransparency }
       if ($props.lineColor) { $shape.Line.Visible = $true; $shape.Line.ForeColor.RGB = Color-Value ([string]$props.lineColor) }
+      if ($null -ne $props.lineTransparency) { $shape.Line.Transparency = [single]$props.lineTransparency }
+      if ($props.shadow) {
+        $shape.Shadow.Visible = -1
+        if ($props.shadow.color) { $shape.Shadow.ForeColor.RGB = Color-Value ([string]$props.shadow.color) }
+        if ($null -ne $props.shadow.transparency) { $shape.Shadow.Transparency = [single]$props.shadow.transparency }
+        if ($null -ne $props.shadow.blur) { $shape.Shadow.Blur = [single]$props.shadow.blur }
+        if ($null -ne $props.shadow.offsetX) { $shape.Shadow.OffsetX = [single]$props.shadow.offsetX }
+        if ($null -ne $props.shadow.offsetY) { $shape.Shadow.OffsetY = [single]$props.shadow.offsetY }
+      }
       try {
+        if ($null -ne $props.marginLeft) { $shape.TextFrame.MarginLeft = [single]$props.marginLeft }
+        if ($null -ne $props.marginTop) { $shape.TextFrame.MarginTop = [single]$props.marginTop }
+        if ($null -ne $props.marginRight) { $shape.TextFrame.MarginRight = [single]$props.marginRight }
+        if ($null -ne $props.marginBottom) { $shape.TextFrame.MarginBottom = [single]$props.marginBottom }
+        if ($null -ne $props.paragraphSpacing) { $shape.TextFrame.TextRange.ParagraphFormat.SpaceAfter = [single]$props.paragraphSpacing }
         $font = $shape.TextFrame.TextRange.Font
         if ($props.fontName) { $font.Name = [string]$props.fontName }
         if ($props.fontSize) { $font.Size = [single]$props.fontSize }
@@ -2176,6 +2560,50 @@ function Apply-PowerPointOperation($presentation, $op) {
       $slide = $slides.Item(1)
       if ($op.index) { $slide.MoveTo([int]$op.index) }
       return [ordered]@{ op = 'duplicate_slide'; changed = $true; slide = [int]$slide.SlideIndex }
+    }
+    'import_slides' {
+      if ([int]$presentation.Slides.Count -eq 0) {
+        throw 'import_slides cannot target a zero-slide presentation; import as the first batch of a new background deck'
+      }
+      $after = if ($null -ne $op.after) { [int]$op.after } else { [int]$presentation.Slides.Count }
+      $inserted = 0
+      $sourcePath = [string]$op.path
+      $openPresentations = $presentation.Application.Presentations
+      for ($candidateIndex = 1; $candidateIndex -le [int]$openPresentations.Count; $candidateIndex++) {
+        $candidate = $openPresentations.Item($candidateIndex)
+        try {
+          if (
+            -not [object]::ReferenceEquals($candidate, $presentation) -and
+            [string]::Equals(
+              [System.IO.Path]::GetFullPath([string]$candidate.FullName),
+              [System.IO.Path]::GetFullPath($sourcePath),
+              [System.StringComparison]::OrdinalIgnoreCase
+            )
+          ) {
+            throw 'import_slides requires the saved source deck to be closed before import'
+          }
+        } catch {
+          if ($_.Exception.Message -match '^import_slides requires') { throw }
+        }
+      }
+      if ($op.slides) {
+        foreach ($sourceSlide in @($op.slides)) {
+          $count = [int]$presentation.Slides.InsertFromFile($sourcePath, $after + $inserted, [int]$sourceSlide, [int]$sourceSlide)
+          $inserted += $count
+        }
+      } else {
+        $inserted = [int]$presentation.Slides.InsertFromFile($sourcePath, $after)
+      }
+      return [ordered]@{ op = 'import_slides'; changed = $inserted -gt 0; count = $inserted; after = $after; source = $sourcePath }
+    }
+    'keep_slides' {
+      $keep = @{}
+      foreach ($slideNumber in @($op.slides)) { $keep[[int]$slideNumber] = $true }
+      $removed = 0
+      for ($index = $presentation.Slides.Count; $index -ge 1; $index--) {
+        if (-not $keep.ContainsKey($index)) { $presentation.Slides.Item($index).Delete(); $removed++ }
+      }
+      return [ordered]@{ op = 'keep_slides'; changed = $removed -gt 0; removed = $removed; remaining = [int]$presentation.Slides.Count }
     }
     'set_slide_background' {
       $slide = Ppt-Slide $presentation $op
@@ -2232,6 +2660,12 @@ function Apply-PowerPointOperation($presentation, $op) {
       if ($null -ne $op.name) { $series.Name = [string]$op.name }
       if ($null -ne $op.categories) { $series.XValues = [object[]]@($op.categories) }
       if ($null -ne $op.values) { $series.Values = [object[]]@($op.values) }
+      if ($null -ne $op.secondaryAxis) { $series.AxisGroup = $(if ([bool]$op.secondaryAxis) { 2 } else { 1 }) }
+      if ($null -ne $op.chartType) {
+        $chartTypes = @{ column = 51; bar = 57; line = 4; pie = 5; area = 1; scatter = -4169 }
+        $kind = ([string]$op.chartType).ToLowerInvariant()
+        $series.ChartType = $(if ($chartTypes.ContainsKey($kind)) { [int]$chartTypes[$kind] } elseif ($op.chartType -as [int]) { [int]$op.chartType } else { throw "Unknown chart type: $kind" })
+      }
       return [ordered]@{ op = 'set_chart_series'; changed = $true; shape = [int]$op.shape; series = [int]$op.series }
     }
     'set_chart_axis' {
@@ -2239,13 +2673,37 @@ function Apply-PowerPointOperation($presentation, $op) {
       $shape = $slide.Shapes.Item([int]$op.shape)
       if (-not $shape.HasChart) { throw "Shape $($op.shape) is not a chart" }
       $axisType = if ([string]$op.axis -eq 'category') { 1 } else { 2 }
-      $axis = $shape.Chart.Axes($axisType, 1)
+      $axis = $shape.Chart.Axes($axisType, $(if ([bool]$op.secondaryAxis) { 2 } else { 1 }))
       if ($null -ne $op.title) { $axis.HasTitle = $true; $axis.AxisTitle.Text = [string]$op.title }
       if ($null -ne $op.minimum) { $axis.MinimumScale = [double]$op.minimum }
       if ($null -ne $op.maximum) { $axis.MaximumScale = [double]$op.maximum }
       if ($null -ne $op.majorUnit) { $axis.MajorUnit = [double]$op.majorUnit }
       if ($op.numberFormat) { $axis.TickLabels.NumberFormat = [string]$op.numberFormat }
       return [ordered]@{ op = 'set_chart_axis'; changed = $true; shape = [int]$op.shape; axis = [string]$op.axis }
+    }
+    'set_chart_trendline' {
+      $slide = Ppt-Slide $presentation $op
+      $shape = $slide.Shapes.Item([int]$op.shape)
+      if (-not $shape.HasChart) { throw "Shape $($op.shape) is not a chart" }
+      $seriesIndex = if ($op.series) { [int]$op.series } else { 1 }
+      $types = @{ exponential = 5; linear = -4132; logarithmic = -4133; movingaverage = 6; polynomial = 3; power = 4 }
+      $kind = ([string]$op.type).Replace(' ', '').ToLowerInvariant()
+      $type = if ($types.ContainsKey($kind)) { [int]$types[$kind] } elseif ($op.type -as [int]) { [int]$op.type } else { -4132 }
+      $trendline = $shape.Chart.SeriesCollection().Item($seriesIndex).Trendlines().Add($type)
+      if ($null -ne $op.displayEquation) { $trendline.DisplayEquation = [bool]$op.displayEquation }
+      if ($null -ne $op.displayRSquared) { $trendline.DisplayRSquared = [bool]$op.displayRSquared }
+      return [ordered]@{ op = 'set_chart_trendline'; changed = $true; shape = [int]$op.shape; series = $seriesIndex; type = $type }
+    }
+    'set_chart_error_bars' {
+      $slide = Ppt-Slide $presentation $op
+      $shape = $slide.Shapes.Item([int]$op.shape)
+      if (-not $shape.HasChart) { throw "Shape $($op.shape) is not a chart" }
+      $seriesIndex = if ($op.series) { [int]$op.series } else { 1 }
+      $series = $shape.Chart.SeriesCollection().Item($seriesIndex)
+      $direction = if ([string]$op.direction -eq 'x') { -4168 } else { 1 }
+      $series.ErrorBar($direction, 1, 1, [double]$(if ($null -ne $op.amount) { $op.amount } else { 1 }))
+      try { $series.ErrorBars.EndStyle = $(if ($op.endStyle -eq 'none') { 0 } else { 1 }) } catch {}
+      return [ordered]@{ op = 'set_chart_error_bars'; changed = $true; shape = [int]$op.shape; series = $seriesIndex }
     }
     'set_chart_data_labels' {
       $slide = Ppt-Slide $presentation $op
@@ -2308,7 +2766,7 @@ function Apply-Operations($document, [string]$format, $operations, [bool]$live, 
       $emitted = @(switch ($format) {
         'docx' { Apply-WordOperation $document $op }
         'xlsx' { Apply-ExcelOperation $document $op }
-        'pptx' { Apply-PowerPointOperation $document $op }
+        'pptx' { Apply-PowerPointOperation $document $op $live }
       })
       $structured = @($emitted | Where-Object { $_ -is [System.Collections.IDictionary] } | Select-Object -Last 1)
       if ($structured.Count -ne 1) { throw "$($op.op) returned no structured operation result" }

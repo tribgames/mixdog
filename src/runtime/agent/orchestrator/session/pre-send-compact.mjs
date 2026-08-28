@@ -25,6 +25,7 @@ import {
 } from './compact.mjs';
 import { runRecallFastTrackCompact } from './loop/recall-fasttrack.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
+import { hasPendingNativeTokenCounts, withSyncTokenCounts } from './context-utils.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
@@ -69,23 +70,46 @@ export async function runPreSendCompactPass(state) {
             // a best-effort JSON.stringify length — close enough to the
             // payload we hand the provider for prefix-cache analysis.
             const beforeCount = messages.length;
-            const messageTokensEst = estimateMessagesTokensSafe(messages);
+            let messageTokensEst = estimateMessagesTokensSafe(messages);
             const reactivePending = reactiveOverflowRetryPending === true;
-            const pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, {
+            let pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, {
                 reactivePending,
                 messages,
                 sessionRef,
             });
-            // This is the exact canonical value used by the decision below.
-            // Reactive overflow recovery floors it at the trigger so the gauge,
-            // telemetry, and forced compact still describe the same event.
-            const gaugeBeforeTokens = pressureTokens;
-            const shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
+            let shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
                 forceReactive: reactivePending,
                 messages,
                 sessionRef,
                 pressureTokens,
             });
+            // Large fresh strings (>=32KB) may still be counting on the native
+            // token server; until the exact count lands, estimateTokens serves
+            // the CONSERVATIVE legacy heuristic. Never fire a compaction off
+            // that transient overshoot: when the decision says compact while
+            // counts are pending, redo the estimate synchronously (exact BPE)
+            // and re-decide. The fast path pays nothing; a genuine trigger
+            // pays one exact encode whose result seeds the shared cache.
+            if (shouldCompact && !reactivePending && hasPendingNativeTokenCounts()) {
+                withSyncTokenCounts(() => {
+                    messageTokensEst = estimateMessagesTokensSafe(messages);
+                    pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, {
+                        reactivePending,
+                        messages,
+                        sessionRef,
+                    });
+                });
+                shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
+                    forceReactive: reactivePending,
+                    messages,
+                    sessionRef,
+                    pressureTokens,
+                });
+            }
+            // This is the exact canonical value used by the decision above.
+            // Reactive overflow recovery floors it at the trigger so the gauge,
+            // telemetry, and forced compact still describe the same event.
+            const gaugeBeforeTokens = pressureTokens;
             // Gauge sync (user: 컴팩트될 때 컨텍스트 표기량이 달랐다). The host
             // refreshes its context readout on provider usage deltas and turn
             // end, so a tool batch that pushed the transcript over the trigger

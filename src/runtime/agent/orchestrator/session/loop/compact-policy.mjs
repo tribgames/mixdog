@@ -253,6 +253,10 @@ export function recordProviderContextBaseline(sessionRef, messages, usage, {
     sessionRef.contextPressureBaselineProvider = sessionRef.provider || null;
     sessionRef.contextPressureBaselineModel = sessionRef.model || null;
     sessionRef.contextPressureBaselineToolSignature = toolSchemaSignature(sendTools);
+    sessionRef.contextPressureBaselineRequestReserveTokens = Math.max(
+        0,
+        Math.round(estimateRequestReserveTokens(sendTools) * providerTokenCalibration(sessionRef.provider)),
+    );
     // provider_send usage arrives before the response's assistant message is
     // appended. Mark that request boundary so pressure resolution skips the
     // first subsequent assistant representation: its output (including opaque
@@ -274,6 +278,7 @@ export function invalidateProviderContextBaseline(sessionRef) {
     sessionRef.contextPressureBaselineProvider = null;
     sessionRef.contextPressureBaselineModel = null;
     sessionRef.contextPressureBaselineToolSignature = null;
+    sessionRef.contextPressureBaselineRequestReserveTokens = null;
     sessionRef.contextPressureBaselineUpdatedAt = null;
     sessionRef.lastContextTokensStaleAfterCompact = true;
 }
@@ -299,8 +304,22 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
         || (compactAt > 0 && baselineAt > 0 && baselineAt < compactAt)
         || sessionRef.contextPressureBaselineProvider !== (sessionRef.provider || null)
         || sessionRef.contextPressureBaselineModel !== (sessionRef.model || null)
-        || sessionRef.contextPressureBaselineToolSignature !== policy?.toolSchemaSignature
         || sessionRef.contextPressureBaselinePrefixSignature !== contextMessagesSignature(messages, count)) return null;
+    const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
+    if (sessionRef.contextPressureBaselineToolSignature !== policy?.toolSchemaSignature) {
+        const currentRequestReserve = Math.max(
+            0,
+            Math.round((Number(policy?.requestReserveTokens) || 0) * calibration),
+        );
+        const storedRequestReserve = Number(sessionRef.contextPressureBaselineRequestReserveTokens);
+        // A changed deferred/control-tool surface does not invalidate provider
+        // usage for the aligned message prefix. Adjust only the request-schema
+        // share. Legacy snapshots lack the old share, so conservatively add the
+        // current one rather than falling back to a gross full-history estimate.
+        tokens = Number.isFinite(storedRequestReserve) && storedRequestReserve >= 0
+            ? Math.max(0, tokens - Math.round(storedRequestReserve) + currentRequestReserve)
+            : tokens + currentRequestReserve;
+    }
     if (messages.length > count && baselineAt > 0
         && (Date.now() - baselineAt) > BASELINE_MAX_STALE_GROWTH_MS) return null;
     if (sessionRef.contextPressureBaselineBoundary === 'request') {
@@ -318,7 +337,6 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
     try {
         // Baseline tokens are authoritative provider billing; only the growth
         // after the baseline is a local estimate and needs billing calibration.
-        const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
         const growth = count < messages.length
             ? Math.round(estimateMessagesTokens(messages.slice(count)) * calibration)
             : 0;

@@ -116,6 +116,10 @@ function _tokenCacheSet(key, count) {
 // pre-offload semantics.
 const BPE_ASYNC_THRESHOLD_CHARS = 32_768;
 const _nativePendingKeys = new Set();
+// Compact-decision confirmation path: force exact synchronous encodes while a
+// caller re-evaluates a decision that must not act on the conservative
+// heuristic (see withSyncTokenCounts).
+let _forceSyncTokenCounts = false;
 
 // Offload one large count to the native mixdog-token server. Returns false
 // when the native path cannot be attempted (caller encodes synchronously). A
@@ -148,11 +152,16 @@ function bpeTokenCount(enc, s) {
         tokenCountCache.set(key, hit);
         return hit;
     }
-    if (s.length >= BPE_ASYNC_THRESHOLD_CHARS) {
+    if (s.length >= BPE_ASYNC_THRESHOLD_CHARS && !_forceSyncTokenCounts) {
         if (!_nativePendingKeys.has(key)) _offloadTokenCountNative(key, s);
         if (_nativePendingKeys.has(key)) return null;
     }
     const count = bpeEncodeCount(enc, s);
+    // A forced-sync encode may race a pending native count for the same key:
+    // consume the pending marker so the late native result cannot double-set,
+    // and bump the generation exactly as the native landing would have, so
+    // memoized heuristic-based contributions refresh to the exact value.
+    if (_nativePendingKeys.delete(key)) tokenEstimateGeneration += 1;
     _tokenCacheSet(key, count);
     return count;
 }
@@ -229,6 +238,28 @@ export function estimateTokens(text) {
         } catch { /* corrupt input — degrade to the heuristic below */ }
     }
     return legacyEstimateTokens(s);
+}
+
+/**
+ * True while at least one large string is still being counted by the native
+ * token server (its estimate is the conservative legacy heuristic until the
+ * exact count lands in the cache).
+ */
+export function hasPendingNativeTokenCounts() {
+    return _nativePendingKeys.size > 0;
+}
+
+/**
+ * Run fn with the async native offload disabled: every estimate inside is an
+ * exact synchronous BPE encode (seeding the shared cache). Reserved for rare
+ * decision-confirmation paths — a sync encode of a huge string costs tens of
+ * milliseconds on the shared event loop.
+ */
+export function withSyncTokenCounts(fn) {
+    const prev = _forceSyncTokenCounts;
+    _forceSyncTokenCounts = true;
+    try { return fn(); }
+    finally { _forceSyncTokenCounts = prev; }
 }
 
 /**
@@ -369,6 +400,25 @@ function messageEstimateText(m) {
     if (m.role === 'tool' && m.toolCallId) text += `\n${m.toolCallId}`;
     return text;
 }
+// Wire reality for replay-carrying assistants: the SAME provider replays
+// providerReplay.items INSTEAD of content/toolCalls, while a different
+// provider sends content/toolCalls without the replay envelope. Summing both
+// halves double-counted the assistant's own output and tool args in every
+// estimate-fallback window. Meter max(base, replay) instead: neither wire
+// projection is ever undercounted and nothing is counted twice.
+// messageEstimateText itself stays byte-identical — prefix signatures and
+// fingerprints hash the full concatenation and must not shift across deploys.
+function messageTextTokens(m, precomputedText = null) {
+    const text = precomputedText ?? messageEstimateText(m);
+    const replayItems = m?.role === 'assistant'
+        && Array.isArray(m.providerReplay?.items) && m.providerReplay.items.length
+        ? m.providerReplay.items
+        : null;
+    const fullTokens = estimateTokens(text);
+    if (!replayItems) return fullTokens;
+    const replayTokens = estimateTokens(nativeBlocksEstimateText(replayItems));
+    return Math.max(fullTokens - replayTokens, replayTokens);
+}
 function imageDescriptorAllowance(descriptor) {
     if (descriptor.width && descriptor.height) {
         // Anthropic vision cost: tokens = (width * height) / 750, with images
@@ -411,7 +461,7 @@ function messageFileAllowance(m) {
     ), 0);
 }
 export function estimateMessageTokens(m) {
-    return estimateTokens(messageEstimateText(m)) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
+    return messageTextTokens(m) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
 }
 export function estimateMessagesTokens(messages) {
     return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
@@ -490,7 +540,11 @@ function contextMessageContribution(message) {
     }
     const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
     const text = messageEstimateText(message);
-    const tokens = estimateTokens(text) + messageImageAllowance(message) + 4;
+    // Same meter as estimateMessageTokens: replay-aware text tokens plus the
+    // image AND document allowances — the gauge summary and the compaction
+    // pressure estimate must price a message identically (a PDF counted by
+    // one but not the other made the gauge diverge from the decision).
+    const tokens = messageTextTokens(message, text) + messageImageAllowance(message) + messageFileAllowance(message) + 4;
     const contribution = {
         role,
         tokens,
@@ -744,24 +798,37 @@ export function contextMessagesSignature(messages, count = messages?.length) {
 
 const toolSchemaAnalysisMemo = new WeakMap();
 
-function serializeToolSchemas(tools) {
+function isDeferredToolSchema(tool) {
+    return tool?.deferLoading === true || tool?.defer_loading === true;
+}
+
+function serializeToolSchemas(tools, { excludeDeferred = false } = {}) {
     const list = Array.isArray(tools) ? tools : [];
     const nativePrefixCount = providerNativeToolPrefixCount(list);
     try {
-        return JSON.stringify(list.map((tool, index) => {
+        const wire = [];
+        list.forEach((tool, index) => {
+            const deferred = isDeferredToolSchema(tool);
+            if (excludeDeferred && deferred) return;
             if (index < nativePrefixCount) {
-                return tool;
+                wire.push(tool);
+                return;
             }
             const wireTool = {
                 name: tool?.name,
                 description: tool?.description,
                 input_schema: tool?.inputSchema ?? tool?.input_schema ?? tool?.parameters ?? tool?.schema,
             };
-            if (tool?.deferLoading === true || tool?.defer_loading === true) wireTool.defer_loading = true;
-            return wireTool;
-        }));
+            if (deferred) wireTool.defer_loading = true;
+            wire.push(wireTool);
+        });
+        return JSON.stringify(wire);
     }
-    catch { return list.map(t => String(t?.name ?? '')).join(''); }
+    catch {
+        return list
+            .filter((tool) => !(excludeDeferred && isDeferredToolSchema(tool)))
+            .map(t => String(t?.name ?? '')).join('');
+    }
 }
 
 export function toolSchemaSignature(tools) {
@@ -776,7 +843,15 @@ function analyzeToolSchemas(tools) {
     const text = serializeToolSchemas(list);
     const signature = createHash('sha256').update(text).digest('hex');
     if (cached && currentGeneration && cached.signature === signature) return cached;
-    const analysis = { signature, tokens: estimateTokens(text), generation: tokenEstimateGeneration };
+    // defer_loading schemas ride the wire but the API excludes them from
+    // context-token calculation and prompt-cache keys, so metering them at
+    // full weight inflated the request reserve. The SIGNATURE keeps hashing
+    // the full serialization (a deferred tool joining/leaving must still
+    // re-fingerprint the surface); only the token cost drops deferred entries.
+    const meterText = list.some(isDeferredToolSchema)
+        ? serializeToolSchemas(list, { excludeDeferred: true })
+        : text;
+    const analysis = { signature, tokens: estimateTokens(meterText), generation: tokenEstimateGeneration };
     if (Array.isArray(tools)) toolSchemaAnalysisMemo.set(tools, analysis);
     return analysis;
 }

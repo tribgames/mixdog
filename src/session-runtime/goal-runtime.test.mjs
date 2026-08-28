@@ -11,7 +11,7 @@ import {
   parseGoalDuration,
 } from './goal-runtime.mjs';
 
-test('Goal runtime persists model-owned completion and keeps completed state visible', async () => {
+test('Goal runtime persists model-owned completion and archives it on the next user input', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-'));
   let clock = 1_800_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
@@ -42,12 +42,13 @@ test('Goal runtime persists model-owned completion and keeps completed state vis
     assert.equal(completed.timeUsedMs, 12 * 60 * 1000);
 
     await runtime.archiveCompletedOnUserInput('sess_goal_main');
-    assert.equal(runtime.snapshot('sess_goal_main').status, 'complete');
+    assert.equal(runtime.snapshot('sess_goal_main'), null);
     assert.equal(runtime.storedSnapshot('sess_goal_main').status, 'complete');
+    assert.equal(runtime.storedSnapshot('sess_goal_main').archivedAt, clock);
 
     const reloaded = createGoalRuntime({ dataDir, now: () => clock });
     try {
-      assert.equal(reloaded.snapshot('sess_goal_main').status, 'complete');
+      assert.equal(reloaded.snapshot('sess_goal_main'), null);
       assert.equal(reloaded.storedSnapshot('sess_goal_main').tasksTotal, 2);
     } finally {
       reloaded.close();
@@ -76,6 +77,41 @@ test('Goal titles use the compact fallback and promote an async generated title'
     await new Promise((resolve) => setImmediate(resolve));
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(runtime.snapshot('sess_goal_title').title, 'Durable Goal Tasks');
+  } finally {
+    runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('Goals default to no deadline and active elapsed time stays synchronized across resume and settled turns', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-unlimited-'));
+  let clock = 1_850_000_000_000;
+  const runtime = createGoalRuntime({ dataDir, now: () => clock });
+  try {
+    let goal = (await runtime.control('sess_goal_unlimited', {
+      action: 'create',
+      objective: 'Track elapsed work without a deadline',
+    })).goal;
+    assert.equal(goal.timeLimitMs, 0);
+    assert.equal(goal.remainingMs, null);
+    assert.equal(goal.deadlineAt, null);
+
+    clock += 5_000;
+    goal = runtime.snapshot('sess_goal_unlimited');
+    assert.equal(goal.timeUsedMs, 5_000);
+    await runtime.control('sess_goal_unlimited', { action: 'pause' });
+    clock += 5_000;
+    assert.equal(runtime.snapshot('sess_goal_unlimited').timeUsedMs, 5_000);
+
+    await runtime.startTurn('sess_goal_unlimited');
+    goal = (await runtime.control('sess_goal_unlimited', { action: 'resume' })).goal;
+    assert.equal(goal.lastStartedAt, clock);
+    clock += 5_000;
+    goal = await runtime.settleTurn('sess_goal_unlimited', { status: 'done' });
+    assert.equal(goal.timeUsedMs, 10_000);
+    clock += 5_000;
+    assert.equal(runtime.snapshot('sess_goal_unlimited').timeUsedMs, 15_000);
+    assert.match(runtime.continuation('sess_goal_unlimited').prompt, /Time elapsed:/);
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -119,7 +155,12 @@ test('Goal continuation parks only for active agent work and the deadline limits
   let clock = 1_900_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
   try {
-    await runtime.control('sess_goal_limit', { action: 'create', objective: 'Finish the objective' });
+    const limitMs = 60 * 60 * 1000;
+    await runtime.control('sess_goal_limit', {
+      action: 'create',
+      objective: 'Finish the objective',
+      timeLimitMs: limitMs,
+    });
     const parked = runtime.continuation('sess_goal_limit', {
       agentStatus: { agentJobs: [{ status: 'running' }] },
     });
@@ -134,15 +175,17 @@ test('Goal continuation parks only for active agent work and the deadline limits
     assert.match(shellIgnored.prompt, /goal action "set_tasks"/);
     assert.match(shellIgnored.prompt, /mark current work in_progress before starting/);
     assert.match(shellIgnored.prompt, /current evidence proves the full objective/);
-    assert.match(shellIgnored.prompt, /third consecutive Goal turn call action "block"/);
-    assert.match(shellIgnored.prompt, /never for difficulty, uncertainty, incomplete work/);
+    assert.match(shellIgnored.prompt, /Finish every approved task without stepwise approval/);
+    assert.match(shellIgnored.prompt, /Paused is the only Goal waiting state/);
+    assert.match(shellIgnored.prompt, /next action needs any user response/);
+    assert.match(shellIgnored.prompt, /call action "pause" before asking and wait/);
+    assert.match(shellIgnored.prompt, /after the response call "resume" in the first execution batch and continue immediately/);
+    assert.match(shellIgnored.prompt, /same external impasse prevents meaningful progress for 3 consecutive Goal turns/);
+    assert.match(shellIgnored.prompt, /never for user input, approval, direction choice, difficulty, uncertainty, incomplete work/);
     assert.doesNotMatch(shellIgnored.prompt, /success criteria|criteria_revision_summary/i);
     assert.ok(shellIgnored.prompt.length < 1_900);
 
-    clock += DEFAULT_GOAL_TIME_LIMIT_MS + 1;
-    assert.equal(runtime.snapshot('sess_goal_limit').status, 'active');
-    await runtime.startTurn('sess_goal_limit');
-    clock += DEFAULT_GOAL_TIME_LIMIT_MS + 1;
+    clock += limitMs + 1;
     const limited = runtime.snapshot('sess_goal_limit');
     assert.equal(limited.status, 'budget_limited');
     assert.equal(runtime.continuation('sess_goal_limit').run, false);
@@ -209,16 +252,26 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
     'action', 'objective', 'time_limit_minutes', 'tasks', 'blocker',
   ]);
   assert.deepEqual(goalTool.inputSchema.properties.action.enum, [
-    'status', 'create', 'set_tasks', 'complete', 'block',
+    'status', 'create', 'pause', 'resume', 'set_tasks', 'complete', 'block',
   ]);
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status', 'kind']);
   assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
-  assert.match(goalTool.description, /automatically create/i);
+  assert.match(goalTool.description, /If mutation needs approval, plan without a Goal/i);
   assert.match(goalTool.description, /3\+ distinct steps, multiple operations\/tasks, or careful planning/i);
-  assert.match(goalTool.description, /skip trivial single-step and purely conversational\/informational work/i);
+  assert.match(goalTool.description, /skip trivial single-step and conversational work/i);
   assert.match(goalTool.description, /idle reminder for unfinished work/i);
+  assert.match(goalTool.description, /After one plan approval, create in the first execution batch alongside the first independent work tool/i);
+  assert.match(goalTool.description, /never spend a model iteration on Goal alone/i);
+  assert.match(goalTool.description, /finish every approved step without stepwise approval/i);
+  assert.match(goalTool.description, /paused is the single user-wait state/i);
+  assert.match(goalTool.description, /pause before asking for any user response needed to continue/i);
+  assert.match(goalTool.description, /never for routine errors, retries, or an explicit user addition/i);
+  assert.match(goalTool.description, /After the response, resume in the first execution batch alongside the next independent work tool and continue immediately/i);
+  assert.match(goalTool.description, /Batch set_tasks with the next independent work tool whenever possible/i);
+  assert.match(goalTool.description, /Block only after the same external impasse stops progress for 3 turns/i);
   assert.doesNotMatch(goalTool.description, /opt-in|explicit user request/i);
-  assert.match(goalTool.inputSchema.properties.action.description, /status reads; create starts with tasks; set_tasks replaces/i);
+  assert.match(goalTool.inputSchema.properties.action.description, /pause is the single user-wait or intentional-stop state; resume continues it/i);
+  assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*3 consecutive turns/i);
   assert.ok(JSON.stringify(goalTool).length < 2_600);
 });
 
@@ -258,6 +311,23 @@ test('unified Goal tool accepts model-shaped fields, consumes only the action pa
     assert.equal(created.objective, 'Use one Goal tool');
     assert.equal(created.tasksTotal, 2);
     assert.equal(created.tasks[0].id, 'task_1');
+
+    const paused = JSON.parse(await runtime.executeTool('goal', {
+      action: 'pause',
+      ...filler,
+    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    assert.equal(paused.status, 'paused');
+    assert.deepEqual(runtime.continuation('sess_goal_unified'), {
+      run: false,
+      reason: 'paused',
+      goal: paused,
+    });
+    const resumed = JSON.parse(await runtime.executeTool('goal', {
+      action: 'resume',
+      ...filler,
+    }, { callerSessionId: 'sess_goal_unified' })).goal;
+    assert.equal(resumed.status, 'active');
+    assert.equal(runtime.continuation('sess_goal_unified').run, true);
 
     const completedTasks = created.tasks.map((task) => ({ ...task, status: 'completed' }));
     const updated = JSON.parse(await runtime.executeTool('goal', {
@@ -300,6 +370,12 @@ test('unified Goal tool accepts model-shaped fields, consumes only the action pa
     }, { callerSessionId: 'sess_goal_block_shape' })).goal;
     assert.equal(blocked.status, 'blocked');
     assert.equal(blocked.blocker, 'External state unavailable');
+    const resumedFromBlock = JSON.parse(await runtime.executeTool('goal', {
+      action: 'resume',
+      ...filler,
+    }, { callerSessionId: 'sess_goal_block_shape' })).goal;
+    assert.equal(resumedFromBlock.status, 'active');
+    assert.equal(resumedFromBlock.blocker, '');
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -386,12 +462,155 @@ test('Goal tool rejects a stale turn update after the Goal is replaced', async (
     await runtime.control('sess_goal_stale', { action: 'create', objective: 'Replacement Goal' });
     await assert.rejects(
       runtime.executeTool('goal', {
+        action: 'pause',
+      }, { callerSessionId: 'sess_goal_stale' }),
+      /stale Goal update rejected/,
+    );
+    await assert.rejects(
+      runtime.executeTool('goal', {
+        action: 'resume',
+      }, { callerSessionId: 'sess_goal_stale' }),
+      /stale Goal update rejected/,
+    );
+    await assert.rejects(
+      runtime.executeTool('goal', {
         action: 'block',
         blocker: 'stale turn result',
       }, { callerSessionId: 'sess_goal_stale' }),
       /stale Goal update rejected/,
     );
     assert.equal(runtime.snapshot('sess_goal_stale').objective, 'Replacement Goal');
+  } finally {
+    runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('model Goal creation rebinds the current turn and accepts immediate work updates', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-create-turn-'));
+  const runtime = createGoalRuntime({ dataDir });
+  try {
+    await runtime.control('sess_goal_create_turn', { action: 'create', objective: 'Previous Goal' });
+    await runtime.executeTool('goal', {
+      action: 'set_tasks',
+      tasks: [
+        { text: 'Finish previous Goal', status: 'completed', kind: 'work' },
+        { text: 'Verify previous Goal', status: 'completed', kind: 'verification' },
+      ],
+    }, { callerSessionId: 'sess_goal_create_turn' });
+    await runtime.control('sess_goal_create_turn', { action: 'complete' });
+    await runtime.startTurn('sess_goal_create_turn');
+
+    const created = JSON.parse(await runtime.executeTool('goal', {
+      action: 'create',
+      objective: 'Approved replacement Goal',
+      tasks: [
+        { text: 'Start approved work', status: 'in_progress', kind: 'work' },
+        { text: 'Verify approved work', status: 'pending', kind: 'verification' },
+      ],
+    }, { callerSessionId: 'sess_goal_create_turn' })).goal;
+    const updated = JSON.parse(await runtime.executeTool('goal', {
+      action: 'set_tasks',
+      tasks: created.tasks.map((task) => ({ ...task, status: 'completed' })),
+    }, { callerSessionId: 'sess_goal_create_turn' })).goal;
+
+    assert.equal(updated.id, created.id);
+    assert.equal(updated.tasksCompleted, 2);
+    assert.equal((await runtime.settleTurn('sess_goal_create_turn', { status: 'done' })).id, created.id);
+  } finally {
+    runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('daemon restart preserves active, paused, blocked, and complete Goal snapshots exactly', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-restart-'));
+  let clock = 2_100_000_000_000;
+  const runtime = createGoalRuntime({ dataDir, now: () => clock });
+  try {
+    const active = (await runtime.control('sess_goal_restart_active', {
+      action: 'create',
+      objective: 'Resume active work',
+    })).goal;
+    await runtime.executeTool('goal', {
+      action: 'set_tasks',
+      tasks: [
+        { text: 'Keep active progress', status: 'in_progress', kind: 'work' },
+        { text: 'Verify active recovery', status: 'pending', kind: 'verification' },
+      ],
+    }, { callerSessionId: 'sess_goal_restart_active' });
+    await runtime.startTurn('sess_goal_restart_active');
+    clock += 2_000;
+    const preservedActive = await runtime.settleTurn('sess_goal_restart_active', {
+      status: 'cancelled',
+      preserveGoalState: true,
+    });
+    assert.equal(preservedActive.status, 'active');
+
+    const paused = (await runtime.control('sess_goal_restart_paused', {
+      action: 'create',
+      objective: 'Keep paused work',
+    })).goal;
+    await runtime.control('sess_goal_restart_paused', { action: 'pause' });
+
+    const blocked = (await runtime.control('sess_goal_restart_blocked', {
+      action: 'create',
+      objective: 'Keep blocked work',
+    })).goal;
+    await runtime.executeTool('goal', {
+      action: 'block',
+      blocker: 'External service unavailable',
+    }, { callerSessionId: 'sess_goal_restart_blocked' });
+
+    const complete = (await runtime.control('sess_goal_restart_complete', {
+      action: 'create',
+      objective: 'Keep completed work visible',
+    })).goal;
+    await runtime.executeTool('goal', {
+      action: 'set_tasks',
+      tasks: [
+        { text: 'Finish recovery work', status: 'completed', kind: 'work' },
+        { text: 'Verify recovery work', status: 'completed', kind: 'verification' },
+      ],
+    }, { callerSessionId: 'sess_goal_restart_complete' });
+    const completed = JSON.parse(await runtime.executeTool('goal', {
+      action: 'complete',
+    }, { callerSessionId: 'sess_goal_restart_complete' })).goal;
+    runtime.close();
+
+    clock += 5_000;
+    const reloaded = createGoalRuntime({ dataDir, now: () => clock });
+    try {
+      const events = [];
+      const unsubscribe = reloaded.subscribe((event) => events.push(event));
+      const restoredActive = reloaded.watchSession('sess_goal_restart_active');
+      unsubscribe();
+      assert.equal(restoredActive.id, active.id);
+      assert.equal(restoredActive.status, 'active');
+      assert.equal(restoredActive.lastStartedAt, preservedActive.lastStartedAt);
+      assert.equal(restoredActive.timeUsedMs, preservedActive.timeUsedMs + 5_000);
+      assert.deepEqual(restoredActive.tasks.map((task) => task.status), ['in_progress', 'pending']);
+      assert.equal(reloaded.continuation('sess_goal_restart_active').run, true);
+      assert.equal(events.at(-1)?.goal?.id, active.id);
+
+      const restoredPaused = reloaded.snapshot('sess_goal_restart_paused');
+      assert.equal(restoredPaused.id, paused.id);
+      assert.equal(restoredPaused.status, 'paused');
+      assert.equal(reloaded.continuation('sess_goal_restart_paused').run, false);
+
+      const restoredBlocked = reloaded.snapshot('sess_goal_restart_blocked');
+      assert.equal(restoredBlocked.id, blocked.id);
+      assert.equal(restoredBlocked.status, 'blocked');
+      assert.equal(restoredBlocked.blocker, 'External service unavailable');
+
+      const restoredComplete = reloaded.snapshot('sess_goal_restart_complete');
+      assert.equal(restoredComplete.id, complete.id);
+      assert.equal(restoredComplete.status, 'complete');
+      assert.equal(restoredComplete.completedAt, completed.completedAt);
+      assert.equal(restoredComplete.tasksCompleted, 2);
+    } finally {
+      reloaded.close();
+    }
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });

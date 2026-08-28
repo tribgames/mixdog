@@ -128,7 +128,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /never `~`, a root, or unresolved variables\/globs/i);
   assert.match(full, /Determine the required outcome and missing evidence/i);
   assert.match(full, /Before exploration or implementation, consult prior work, current external\s+information, or repository state only when needed/i);
-  assert.match(full, /Minimize tool turns by batching only calls that are independently necessary/i);
+  assert.match(full, /Minimize model round-trips/i);
+  assert.match(full, /every input is already known before the batch begins, issue them in the\s+same assistant turn/i);
   assert.match(full, /A call whose necessity or scope can change after\s+another result waits for that result/i);
   assert.match(full, /Respect tool\/schema limits, never omit required fanout/i);
   assert.match(full, /A check runs at the strictness the task requires; never raise a tool's own\s+severity beyond it/i);

@@ -4,9 +4,29 @@
 // the user sees. The pane owns only the chrome (address bar, nav buttons);
 // guest control for agents lives in main/browser-host.ts via CDP.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, ExternalLink, Globe, RotateCw, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Cookie,
+  Download,
+  ExternalLink,
+  Globe,
+  History,
+  KeyRound,
+  LoaderCircle,
+  RotateCw,
+  X,
+} from "lucide-react";
 
 import { t } from "./i18n";
+import type {
+  DesktopBrowserHistoryEntry,
+  DesktopBrowserImportItem,
+  DesktopBrowserImportProgress,
+  DesktopBrowserImportSource,
+} from "../shared/contract";
 import "./desktop/32-browser-pane.css";
 
 /** Shared persistent guest partition; main/browser-host.ts matches guests by
@@ -62,6 +82,26 @@ export default function BrowserPane({
   const [loading, setLoading] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
+  const [addressHasFocus, setAddressHasFocus] = useState(false);
+  const [historySuggestions, setHistorySuggestions] = useState<DesktopBrowserHistoryEntry[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importSources, setImportSources] = useState<DesktopBrowserImportSource[]>([]);
+  const [importSourceId, setImportSourceId] = useState("");
+  const [importProfileId, setImportProfileId] = useState("");
+  const [importItems, setImportItems] = useState<Record<DesktopBrowserImportItem, boolean>>({
+    passwords: true,
+    cookies: true,
+    history: true,
+  });
+  const [administratorApproved, setAdministratorApproved] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importFinished, setImportFinished] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importProgress, setImportProgress] = useState<
+    Partial<Record<DesktopBrowserImportItem, DesktopBrowserImportProgress>>
+  >({});
+  const desktopApi = window.mixdogDesktop;
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -141,6 +181,7 @@ export default function BrowserPane({
     const view = webviewRef.current;
     if (!url || !view) return;
     setAddress(url);
+    setHistorySuggestions([]);
     // loadURL rejects on user-aborted navigations and throws synchronously
     // while the guest is still attaching; neither is an error here.
     try {
@@ -151,15 +192,154 @@ export default function BrowserPane({
     }
   }, []);
 
+  useEffect(() => {
+    if (!addressHasFocus || !address.trim() || !desktopApi?.browserHistorySearch) {
+      setHistorySuggestions([]);
+      return undefined;
+    }
+    let live = true;
+    const timer = window.setTimeout(() => {
+      void desktopApi.browserHistorySearch?.(address).then((entries) => {
+        if (live) setHistorySuggestions(entries);
+      }).catch(() => {
+        if (live) setHistorySuggestions([]);
+      });
+    }, 120);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [address, addressHasFocus, desktopApi]);
+
+  const closeImporter = useCallback(() => {
+    if (importBusy) return;
+    setImportOpen(false);
+    setImportFinished(false);
+    setImportError("");
+    setImportProgress({});
+    setAdministratorApproved(false);
+  }, [importBusy]);
+
+  const openImporter = useCallback(() => {
+    if (!desktopApi?.browserProfileImportSources || importBusy) return;
+    setImportOpen(true);
+    setImportLoading(true);
+    setImportFinished(false);
+    setImportError("");
+    setImportProgress({});
+    void desktopApi.browserProfileImportSources().then((sources) => {
+      setImportSources(sources);
+      const source = sources[0];
+      const profile = source?.profiles[0];
+      setImportSourceId(source?.id || "");
+      setImportProfileId(profile?.id || "");
+      setImportItems({
+        passwords: source?.supports.passwords === true,
+        cookies: source?.supports.cookies === true,
+        history: source?.supports.history === true,
+      });
+      if (!source || !profile) setImportError("가져올 수 있는 Chrome 프로필을 찾지 못했습니다.");
+    }).catch((reason) => {
+      setImportError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => setImportLoading(false));
+  }, [desktopApi, importBusy]);
+
+  useEffect(() => {
+    if (!desktopApi?.onBrowserProfileImportProgress) return undefined;
+    return desktopApi.onBrowserProfileImportProgress((progress) => {
+      setImportProgress((current) => ({
+        ...current,
+        [progress.item]: progress,
+      }));
+    });
+  }, [desktopApi]);
+
+  const startImport = useCallback(() => {
+    if (!desktopApi?.browserProfileImportStart || importBusy) return;
+    const selectedItems = (Object.keys(importItems) as DesktopBrowserImportItem[])
+      .filter((item) => importItems[item]);
+    if (!selectedItems.length) {
+      setImportError("가져올 항목을 하나 이상 선택하세요.");
+      return;
+    }
+    if (selectedItems.includes("passwords") && !administratorApproved) {
+      setImportError("저장된 비밀번호를 가져오려면 관리자 승인 안내를 확인하세요.");
+      return;
+    }
+    const jobId = crypto.randomUUID().replaceAll("-", "");
+    setImportBusy(true);
+    setImportFinished(false);
+    setImportError("");
+    setImportProgress({});
+    void desktopApi.browserProfileImportStart({
+      jobId,
+      sourceId: importSourceId,
+      profileId: importProfileId,
+      items: selectedItems,
+      administratorApproved,
+    }).then((result) => {
+      setImportFinished(true);
+      const failures = Object.values(result.errors).filter(Boolean);
+      if (failures.length) setImportError(failures.join("\n"));
+    }).catch((reason) => {
+      setImportError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => setImportBusy(false));
+  }, [
+    administratorApproved,
+    desktopApi,
+    importBusy,
+    importItems,
+    importProfileId,
+    importSourceId,
+  ]);
+
+  const selectedSource = importSources.find((source) => source.id === importSourceId);
+  const displayedUrl = currentUrl;
+
+  const importItemRow = (
+    item: DesktopBrowserImportItem,
+    label: string,
+    icon: React.ReactNode,
+  ) => {
+    const supported = selectedSource?.supports[item] !== false;
+    const progress = importProgress[item];
+    return <label className={`browser-import-item${supported ? "" : " is-disabled"}`}>
+      <span className="browser-import-item-icon">{icon}</span>
+      <span className="browser-import-item-label">
+        <strong>{label}</strong>
+        {!supported && item === "passwords" && selectedSource?.passwordSupportReason
+          ? <small>{selectedSource.passwordSupportReason}</small>
+          : null}
+      </span>
+      {importBusy || importFinished
+        ? <span className={`browser-import-state is-${progress?.state || "running"}`}>
+          {progress?.state === "completed"
+            ? <Check size={16} />
+            : progress?.state === "failed"
+              ? <AlertTriangle size={16} />
+              : <LoaderCircle size={16} className="is-spinning" />}
+        </span>
+        : <input type="checkbox"
+          checked={supported && importItems[item]}
+          disabled={!supported || importLoading}
+          onChange={(event) => setImportItems((current) => ({
+            ...current,
+            [item]: event.target.checked,
+          }))} />}
+    </label>;
+  };
+
   return <div className="browser-pane" data-pane-instance={paneId}
     data-surface-active={active ? "true" : "false"}>
     <div className="browser-pane-toolbar">
-      <button type="button" className="browser-pane-nav-button" disabled={!canGoBack}
+      <button type="button" className="browser-pane-nav-button"
+        disabled={!canGoBack}
         onClick={() => webviewRef.current?.goBack()}
         aria-label={t("Back")} data-tooltip={t("Back")}>
         <ArrowLeft size={15} />
       </button>
-      <button type="button" className="browser-pane-nav-button" disabled={!canGoForward}
+      <button type="button" className="browser-pane-nav-button"
+        disabled={!canGoForward}
         onClick={() => webviewRef.current?.goForward()}
         aria-label={t("Forward")} data-tooltip={t("Forward")}>
         <ArrowRight size={15} />
@@ -185,30 +365,130 @@ export default function BrowserPane({
           type="text" value={address} spellCheck={false}
           placeholder={t("Search or enter address")}
           aria-label={t("Address bar")}
-          onChange={(event) => setAddress(event.target.value)}
+          onChange={(event) => {
+            setAddress(event.target.value);
+          }}
           onFocus={(event) => {
             addressFocused.current = true;
+            setAddressHasFocus(true);
             event.target.select();
           }}
           onBlur={() => {
             addressFocused.current = false;
+            setAddressHasFocus(false);
             if (currentUrl) setAddress(currentUrl);
           }} />
+        {historySuggestions.length > 0 && <div className="browser-pane-history-suggestions">
+          {historySuggestions.map((entry) => <button type="button" key={entry.url}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              navigate(entry.url);
+              setAddressHasFocus(false);
+            }}>
+            <span>{entry.title || entry.url}</span>
+            <code>{entry.url}</code>
+          </button>)}
+        </div>}
       </form>
-      <button type="button" className="browser-pane-nav-button" disabled={!currentUrl}
+      <button type="button" className="browser-pane-nav-button" disabled={!displayedUrl}
         onClick={() => {
-          if (currentUrl) void window.mixdogDesktop?.openExternal(currentUrl);
+          if (displayedUrl) void window.mixdogDesktop?.openExternal(displayedUrl);
         }}
         aria-label={t("Open in system browser")}
         data-tooltip={t("Open in system browser")}>
         <ExternalLink size={15} />
       </button>
+      {desktopApi?.browserProfileImportSources && <button type="button"
+        className="browser-pane-nav-button browser-pane-import-button"
+        disabled={importBusy}
+        onClick={openImporter}
+        aria-label="브라우저에서 가져오기"
+        data-tooltip="브라우저에서 가져오기">
+        <Download size={15} />
+      </button>}
     </div>
+    {importOpen && <div className="browser-import-backdrop">
+      <section className="browser-import-dialog" role="dialog" aria-modal="true"
+        aria-label="브라우저에서 가져오기">
+        <header>
+          <div>
+            <h2>브라우저에서 가져오기</h2>
+            <p>{importBusy || importFinished
+              ? "브라우저 데이터를 가져오는 중..."
+              : "내장 브라우저로 가져올 데이터를 선택하세요"}</p>
+          </div>
+          {!importBusy && <button type="button" className="browser-pane-nav-button"
+            onClick={closeImporter} aria-label={t("Close")}>
+            <X size={16} />
+          </button>}
+        </header>
+        {!importBusy && !importFinished && <div className="browser-import-source">
+          <span>원본</span>
+          <select value={`${importSourceId}\u0000${importProfileId}`}
+            disabled={importLoading}
+            onChange={(event) => {
+              const [sourceId, profileId] = event.target.value.split("\u0000");
+              const source = importSources.find((candidate) => candidate.id === sourceId);
+              setImportSourceId(sourceId);
+              setImportProfileId(profileId);
+              setImportItems({
+                passwords: source?.supports.passwords === true,
+                cookies: source?.supports.cookies === true,
+                history: source?.supports.history === true,
+              });
+              setAdministratorApproved(false);
+            }}>
+            {importSources.flatMap((source) => source.profiles.map((profile) =>
+              <option key={`${source.id}:${profile.id}`}
+                value={`${source.id}\u0000${profile.id}`}>
+                {source.name} · {profile.name}{profile.accountEmail ? ` (${profile.accountEmail})` : ""}
+              </option>))}
+          </select>
+        </div>}
+        {!importBusy && !importFinished && <p className="browser-import-close-note">
+          가져오기를 시작하면 Google Chrome을 안전하게 종료합니다. 종료되지 않으면 가져오기를 중단합니다.
+        </p>}
+        <div className="browser-import-items">
+          {importItemRow("passwords", "저장된 비밀번호", <KeyRound size={18} />)}
+          {importItemRow("cookies", "쿠키", <Cookie size={18} />)}
+          {importItemRow("history", "방문 기록", <History size={18} />)}
+        </div>
+        {!importBusy && !importFinished && importItems.passwords && selectedSource?.supports.passwords && <label
+          className="browser-import-admin">
+          <strong>관리자 승인 필요</strong>
+          <span>Windows App-Bound Encryption으로 보호된 비밀번호를 가져오려면 UAC 승인이 필요합니다.</span>
+          <span className="browser-import-admin-check">
+            <input type="checkbox" checked={administratorApproved}
+              onChange={(event) => setAdministratorApproved(event.target.checked)} />
+            앱이 Chrome 데이터를 가져오려고 관리자 승인을 요청한다는 점을 이해합니다
+          </span>
+        </label>}
+        {importError && <div className="browser-import-error">{importError}</div>}
+        <footer>
+          <button type="button" className="browser-import-secondary"
+            disabled={importBusy} onClick={closeImporter}>
+            {importFinished ? "닫기" : "취소"}
+          </button>
+          <button type="button" className="browser-import-primary"
+            disabled={
+              importBusy
+              || importLoading
+              || !importProfileId
+              || !(Object.values(importItems).some(Boolean))
+              || (importItems.passwords && selectedSource?.supports.passwords === true && !administratorApproved)
+            }
+            onClick={startImport}>
+            {importBusy ? <LoaderCircle size={15} className="is-spinning" /> : null}
+            가져오기
+          </button>
+        </footer>
+      </section>
+    </div>}
     <div className="browser-pane-content">
       <webview ref={(element) => {
         webviewRef.current = element as unknown as WebviewElement | null;
       }}
-        className="browser-pane-webview"
+        className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}`}
         src="about:blank"
         partition={BROWSER_PARTITION} />
       {/* about:blank paints Chromium's default white; until a real page is

@@ -36,6 +36,28 @@ test('every advertised session action exists on the session surface', () => {
   assert.deepEqual(missing, []);
 });
 
+test('accepted user input archives completed Goal UI before the next turn', () => {
+  const calls = [];
+  const api = createSessionApi(stubBag({
+    nextId: () => 'submission-goal-archive',
+    getState: () => ({ commandBusy: false, busy: true }),
+    enqueue: () => {
+      calls.push('enqueue');
+      return true;
+    },
+    cancelQueuedGoalContinuations: () => calls.push('cancel-goal-continuation'),
+    archiveCompletedGoalOnUserInput: () => calls.push('archive-completed-goal'),
+    runtime: { interruptTaskWait() {} },
+  }));
+
+  assert.equal(api.submit('next request'), true);
+  assert.deepEqual(calls, [
+    'enqueue',
+    'cancel-goal-continuation',
+    'archive-completed-goal',
+  ]);
+});
+
 test('submitAndWait resolves with the main turn settlement', async () => {
   let state = { commandBusy: false, busy: false };
   const api = createSessionApi(stubBag({

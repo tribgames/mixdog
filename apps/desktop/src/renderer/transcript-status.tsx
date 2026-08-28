@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
 import { t } from "./i18n";
+import { MxIcon } from "./MxIcon";
 import { useMobileBack } from "./mobile-back";
 import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
@@ -380,12 +381,12 @@ export function CompletionStatus({
     </div>;
   }
   const elapsed = formatElapsed(item.elapsedMs);
-  const doneVerb = String(item.verb || item.label || "Thought").trim() || "Thought";
   const completionLabel = item.kind === "turndone"
-    ? (elapsed ? t("{{verb}} for {{elapsed}}", { verb: t(doneVerb), elapsed }) : t(doneVerb))
+    ? (elapsed ? `${t("Response")} · ${elapsed}` : t("Response"))
     : label || t("Complete");
   return <div className="turn-status complete" role="status"
     data-animate={animate ? "true" : undefined}>
+    <MxIcon name="check" className="turn-status-icon" size={16} />
     <span>{completionLabel}</span>
     {item.kind === "statusdone" && item.detail && <small>· {item.detail}</small>}
   </div>;

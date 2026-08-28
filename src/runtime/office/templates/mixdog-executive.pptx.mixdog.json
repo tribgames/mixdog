@@ -1,0 +1,190 @@
+{
+  "id": "mixdog-executive",
+  "label": "Mixdog Executive Native",
+  "profile": "editorial",
+  "version": "1.0.0",
+  "samples": [
+    {
+      "slide": 1,
+      "id": "executive-cover-hero",
+      "kind": "cover",
+      "density": "light",
+      "variant": "hero",
+      "priority": 20,
+      "strict": true,
+      "defaults": { "background": "16191D", "backgroundRole": "inverse", "slideRole": "cover" },
+      "roles": { "1": "eyebrow", "2": "title", "3": "subtitle", "5": "visual-text", "6": "meta" }
+    },
+    {
+      "slide": 2,
+      "id": "executive-process-3-up",
+      "kind": "process",
+      "density": "balanced",
+      "variant": "three-stage",
+      "priority": 10,
+      "strict": true,
+      "roles": { "1": "eyebrow", "2": "title", "4": "step-title-1", "6": "step-title-2", "8": "step-title-3", "9": "subtitle" }
+    },
+    {
+      "slide": 3,
+      "id": "executive-kpi-waterfall",
+      "kind": "metrics",
+      "density": "balanced",
+      "variant": "waterfall",
+      "priority": 10,
+      "strict": true,
+      "roles": { "1": "eyebrow", "2": "title", "4": "metric-value-1", "5": "metric-label-1", "6": "metric-detail-1", "7": "metric-value-2", "8": "metric-label-2", "9": "metric-value-3", "10": "metric-label-3" }
+    },
+    {
+      "slide": 4,
+      "id": "executive-big-number",
+      "kind": "metrics",
+      "density": "light",
+      "variant": "single-kpi",
+      "priority": 12,
+      "strict": true,
+      "roles": { "1": "eyebrow", "2": "title", "3": "subtitle", "4": "metric-value-1", "5": "metric-label-1", "6": "metric-detail-1" }
+    },
+    {
+      "slide": 5,
+      "id": "executive-comparison-dual",
+      "kind": "comparison",
+      "density": "light",
+      "variant": "dual",
+      "priority": 12,
+      "strict": true,
+      "roles": { "1": "title", "3": "column-title-1", "4": "column-body-1", "6": "column-title-2", "7": "column-body-2" }
+    },
+    {
+      "slide": 6,
+      "id": "executive-chart-wide",
+      "kind": "metrics",
+      "density": "balanced",
+      "variant": "chart-wide",
+      "priority": 20,
+      "strict": true,
+      "roles": { "1": "title", "2": "subtitle", "3": "visual-text", "4": "metric-detail-1", "5": "chart" }
+    },
+    {
+      "slide": 7,
+      "id": "executive-kpi-triptych",
+      "kind": "metrics",
+      "density": "balanced",
+      "variant": "triptych",
+      "priority": 8,
+      "strict": true,
+      "roles": { "1": "eyebrow", "2": "title", "3": "metric-value-1", "4": "metric-label-1", "5": "metric-value-2", "6": "metric-label-2", "7": "metric-value-3", "8": "metric-label-3" }
+    },
+    {
+      "slide": 8,
+      "id": "executive-roadmap-4",
+      "kind": "process",
+      "density": "balanced",
+      "variant": "roadmap",
+      "priority": 12,
+      "strict": true,
+      "roles": { "1": "title", "4": "step-title-1", "6": "step-title-2", "8": "step-title-3", "10": "step-title-4", "11": "subtitle" }
+    },
+    {
+      "slide": 9,
+      "id": "executive-decision-contrast",
+      "kind": "comparison",
+      "density": "balanced",
+      "variant": "decision",
+      "priority": 8,
+      "strict": true,
+      "roles": { "1": "title", "3": "column-title-1", "4": "column-body-1", "6": "visual-text", "8": "column-title-2", "9": "column-body-2" }
+    },
+    {
+      "slide": 10,
+      "id": "executive-evidence-table",
+      "kind": "content",
+      "density": "balanced",
+      "variant": "evidence-table",
+      "priority": 20,
+      "strict": true,
+      "roles": { "1": "title", "2": "subtitle", "3": "table", "4": "visual-text" }
+    },
+    {
+      "slide": 11,
+      "id": "executive-image-split",
+      "kind": "split",
+      "density": "light",
+      "variant": "image-right",
+      "priority": 20,
+      "strict": true,
+      "roles": { "1": "eyebrow", "2": "title", "3": "body", "4": "image", "5": "subtitle" }
+    },
+    {
+      "slide": 12,
+      "id": "executive-operating-model",
+      "kind": "process",
+      "density": "balanced",
+      "variant": "operating-model",
+      "priority": 8,
+      "strict": true,
+      "roles": { "1": "title", "2": "step-title-1", "3": "step-detail-1", "5": "step-title-2", "6": "step-detail-2", "8": "step-title-3", "9": "step-detail-3", "11": "step-title-4", "12": "step-detail-4" }
+    },
+    {
+      "slide": 13,
+      "id": "executive-before-after",
+      "kind": "comparison",
+      "density": "light",
+      "variant": "before-after",
+      "priority": 10,
+      "strict": true,
+      "roles": { "1": "title", "2": "column-title-1", "3": "column-body-1", "5": "column-title-2", "6": "column-body-2", "7": "visual-text" }
+    },
+    {
+      "slide": 14,
+      "id": "executive-quote",
+      "kind": "statement",
+      "density": "light",
+      "variant": "quote",
+      "priority": 8,
+      "strict": true,
+      "roles": { "2": "title", "3": "subtitle", "4": "meta" }
+    },
+    {
+      "slide": 15,
+      "id": "executive-thesis",
+      "kind": "statement",
+      "density": "light",
+      "variant": "thesis",
+      "priority": 14,
+      "strict": true,
+      "roles": { "1": "eyebrow", "2": "title", "3": "body", "5": "visual-text", "6": "meta" }
+    },
+    {
+      "slide": 16,
+      "id": "executive-chart-delta",
+      "kind": "metrics",
+      "density": "light",
+      "variant": "chart-delta",
+      "priority": 18,
+      "strict": true,
+      "roles": { "1": "title", "2": "metric-value-1", "3": "metric-label-1", "4": "metric-detail-1", "5": "chart" }
+    },
+    {
+      "slide": 17,
+      "id": "executive-gates",
+      "kind": "process",
+      "density": "light",
+      "variant": "gates",
+      "priority": 10,
+      "strict": true,
+      "roles": { "1": "eyebrow", "2": "title", "3": "step-title-1", "4": "step-detail-1", "5": "step-title-2", "6": "step-detail-2", "7": "step-title-3", "8": "step-detail-3" }
+    },
+    {
+      "slide": 18,
+      "id": "executive-closing",
+      "kind": "closing",
+      "density": "light",
+      "variant": "closing",
+      "priority": 20,
+      "strict": true,
+      "defaults": { "background": "16191D", "backgroundRole": "inverse", "slideRole": "closing" },
+      "roles": { "1": "eyebrow", "2": "title", "3": "subtitle", "5": "visual-text", "6": "meta" }
+    }
+  ]
+}

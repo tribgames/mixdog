@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { createLifecycleApi, resolveResumeCwd } from './lifecycle-api.mjs';
+import { applyDeferredToolSurface } from './tool-catalog.mjs';
 
 test('project resume prefers canonical session cwd over stale desktop metadata', () => {
   assert.equal(resolveResumeCwd({
@@ -21,6 +22,63 @@ test('unclassified desktop task resume stays in its host-managed workspace', () 
     cwd: 'C:\\old-transient',
     desktopSession: { classification: 'task', projectPath: null },
   }, 'C:\\task-workspace'), 'C:\\task-workspace');
+});
+
+test('resume restores persisted deferred tools before asynchronous route preparation', async () => {
+  const read = { name: 'read', description: 'Read files', annotations: { readOnlyHint: true } };
+  const recall = { name: 'recall', description: 'Recall memory', annotations: { readOnlyHint: true } };
+  const resumed = {
+    id: 'resume-deferred-tools',
+    provider: 'openai-oauth',
+    model: 'gpt-5.6-sol',
+    effort: 'high',
+    fast: true,
+    modelParameters: {},
+    cwd: 'C:\\Project\\mixdog',
+    messages: [{ role: 'user', content: 'continue' }],
+    tools: [read],
+    deferredToolCatalog: [read, recall],
+    deferredSelectedTools: ['read', 'recall'],
+    deferredCallableTools: ['read', 'recall'],
+    deferredDefaultTools: ['read', 'recall'],
+    deferredDiscoveredTools: [],
+    deferredToolBp2Applied: true,
+  };
+  let current = null;
+  let route = {};
+  let pendingRoutePreparation = null;
+  const api = createLifecycleApi({
+    getSession: () => current,
+    setSession: (session) => { current = session; },
+    getRoute: () => route,
+    setRoute: (next) => { route = next; },
+    getConfig: () => ({}),
+    getMode: () => 'full',
+    getCurrentCwd: () => resumed.cwd,
+    getMcpScopeId: () => null,
+    getDesktopSession: () => null,
+    setSessionNeedsCwdRefresh: () => {},
+    clearRoutePreparation: () => {},
+    beginRoutePreparation: (prepare) => { pendingRoutePreparation = prepare; },
+    invalidateContextStatusCache: () => {},
+    invalidatePreSessionToolSurface: () => {},
+    applyResolvedCwd: () => {},
+    resolveRoute: (_config, next) => ({ ...next, effectiveEffort: next.effort }),
+    applyDeferredToolSurface,
+    getStandaloneTools: () => [read, recall],
+    mgr: {
+      async resumeSession() {
+        return resumed;
+      },
+    },
+  });
+
+  const result = await api.resume(resumed.id);
+
+  assert.equal(result.id, resumed.id);
+  assert.deepEqual(new Set(current.tools.map((tool) => tool.name)), new Set(['read', 'recall']));
+  assert.equal(current.deferredSelectedTools.includes('recall'), true);
+  assert.equal(typeof pendingRoutePreparation, 'function');
 });
 
 test('lifecycle listSessions applies durable child visibility at the public catalog boundary', () => {

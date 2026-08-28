@@ -128,6 +128,32 @@ test('groups consecutive mixed-category tools into one activity row', () => {
   assert.deepEqual(rows[0].items, [shell, search]);
 });
 
+test('Goal and load control tools stay hidden while ordinary tools remain visible', () => {
+  const visible = { kind: 'tool', id: 'read', name: 'read', result: 'ok' };
+  const hiddenNames = [
+    'goal',
+    'create_goal',
+    'get_goal',
+    'set_goal_tasks',
+    'update_goal',
+    'load_tool',
+    'tool_search',
+    'Skill',
+  ];
+  const hidden = hiddenNames.map((name, index) => ({
+    kind: 'tool',
+    id: `hidden-${index}`,
+    name,
+    result: 'ok',
+  }));
+  const rows = project([...hidden, visible]).rows;
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]._tag, 'ToolActivity');
+  assert.deepEqual(rows[0].items, [visible]);
+  assert.equal(project(hidden).rows.length, 0);
+});
+
 test('a visible assistant message seals the current tool activity run', () => {
   const first = { kind: 'tool', id: 'first', name: 'read', result: 'ok' };
   const message = { kind: 'assistant', id: 'message', text: 'Next check.' };

@@ -1,5 +1,5 @@
 const PAGE_TARGET = ['tab', 'background'];
-const SNAPSHOT_FILTERS = ['query', 'viewportOnly', 'maxElements'];
+const SNAPSHOT_FILTERS = ['query', 'viewportOnly', 'maxElements', 'maxChars'];
 const SCREENSHOT_OPTIONS = ['fullPage', 'format', 'quality'];
 const POST_ACTION = ['expect', 'settleMs'];
 const POST_ACTION_SNAPSHOT = [
@@ -169,6 +169,41 @@ export function validateBrowserToolArgs(args) {
   }
   if (action === 'navigate' && !hasValue('url') && input.reload !== true) {
     return { ok: false, error: 'browser action "navigate" requires input.url or input.reload=true' };
+  }
+  if (action === 'fill' && Object.hasOwn(input, 'fields')) {
+    if (!Array.isArray(input.fields) || !input.fields.length || input.fields.length > 30) {
+      return { ok: false, error: 'browser action "fill" input.fields requires 1 to 30 items' };
+    }
+    const allowedFieldNames = new Set(['ref', 'text', 'value', 'values', 'checked']);
+    for (let index = 0; index < input.fields.length; index += 1) {
+      const field = input.fields[index];
+      if (!field || typeof field !== 'object' || Array.isArray(field)) {
+        return { ok: false, error: `browser action "fill" input.fields[${index}] must be an object` };
+      }
+      const unsupportedFieldNames = Object.keys(field).filter((name) => !allowedFieldNames.has(name));
+      if (unsupportedFieldNames.length) {
+        return {
+          ok: false,
+          error: `browser action "fill" input.fields[${index}] does not accept field(s): ${unsupportedFieldNames.join(', ')}`,
+        };
+      }
+      if (typeof field.ref !== 'string' || !field.ref.trim()) {
+        return { ok: false, error: `browser action "fill" input.fields[${index}] requires ref` };
+      }
+      const hasText = typeof field.text === 'string';
+      const hasValue = typeof field.value === 'string';
+      const hasValues = Array.isArray(field.values)
+        && field.values.length > 0
+        && field.values.every((value) => typeof value === 'string');
+      const hasChecked = typeof field.checked === 'boolean';
+      const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
+      if (payloadCount !== 1 || (hasText && hasValue)) {
+        return {
+          ok: false,
+          error: `browser action "fill" input.fields[${index}] requires exactly one of text/value, values, or checked`,
+        };
+      }
+    }
   }
   if (action === 'scroll') {
     const targetForms = [['ref'], ['snapshotId', 'x', 'y']];

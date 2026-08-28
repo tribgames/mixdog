@@ -49,6 +49,12 @@ export function isParallelDispatchable(name) {
     return typeof name === 'string' && name.length > 0;
 }
 
+const SINGLE_CALL_PER_TURN_TOOL_NAMES = new Set(['computer']);
+
+export function isSingleCallPerTurnTool(name) {
+    return SINGLE_CALL_PER_TURN_TOOL_NAMES.has(name);
+}
+
 // Read-only is necessary but not sufficient for result deduplication. Loader
 // calls mutate the active session tool surface and must execute on every
 // explicit invocation so repeats can truthfully report `alreadyActive`.

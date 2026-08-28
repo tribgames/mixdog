@@ -231,58 +231,19 @@
      12px metadata remains the one quiet rung beneath them. */
   font-weight: var(--mx-weight-medium);
 }
-/* Quiet TUI-style marker instead of a check badge (user): ◈ + phrase, both in
-   NEUTRAL ink. A finished turn is history — colouring its text and mark was
-   too much (user: 폰트색까지 바꾸는 건 과하다 / 완료 후 도형도 굳이). The
-   emphasis budget belongs to the RUNNING band instead; this row only has to
-   stop reading as switched off, which one step up from faint already does. */
-.turn-status.complete::before,
-.turn-status.success::before {
-  /* GEOMETRY, not a character. As text the mark was U+25C8 in a font that does
-     not carry it, so Chromium fell back to Segoe UI Symbol and centred THAT
-     face's line box — the ink then sat off the row's optical centre while the
-     phrase and the clock sat on their own (user: 도형·시간 상하 정렬이 하나도
-     안 맞는다). The running band already abandoned the same character for
-     vector geometry; the settled mark now shares that fix, so a 7px square
-     turned 45° is centred by box math alone. */
-  content: "";
-  /* OUT of the flex flow: as an item it became the container's baseline source
-     and pinned the phrase away from the clock. Absolute keeps the mark exactly
-     centred on the row while the text owns the baseline. */
-  position: absolute;
-  /* Centred in the SAME 16px marker column the running band's
-     .live-activity-icon occupies (8px square → 8 - 4). */
-  left: 4px;
-  top: 50%;
-  /* EVEN box in an even row: at 7px the (24-7)/2 = 8.5px lead put the painted
-     square on a half device pixel while the text beside it snapped to a whole
-     one. 8px keeps the offset integral at every DPI. */
-  width: 8px;
-  height: 8px;
-  margin: 0;
-  background: currentColor;
-  transform: translateY(-50%) rotate(45deg);
+.turn-status.complete .turn-status-icon,
+.turn-status.success .turn-status-icon {
+  color: currentColor;
+  transform: none;
 }
-/* ONE left grammar for the running band and its settled twin: a 16px marker
-   column plus the row's 7px gap. The mark is absolute, so the column is paid
-   as padding below. */
-/* 16px marker column + 7px gap = the exact x .live-activity-status opens its
-   verb on. At 17px the phrase jumped 6px left the instant a turn settled
-   (user: done으로 전환될 때 위치 튀는 게 크다). */
-.turn-status.complete, .turn-status.success { padding-left: 23px; }
-/* Settling GLINT: the row arrives at full ink and eases down to its resting
-   soft tier, with the ◈ easing out of a slight overshoot at the same time —
-   the moment of completion flashes, then the row goes quiet on its own. No
-   hue is involved, so the emphasis budget still belongs to the running band.
-   `both` parks the animation on its end frame, which IS the resting color. */
 .turn-status.complete[data-animate="true"],
 .turn-status.success[data-animate="true"] {
   animation:
     transcript-milestone-enter 320ms cubic-bezier(.2, .9, .2, 1),
     turn-status-settle 1100ms var(--mx-ease-emphasized) 120ms both;
 }
-.turn-status.complete[data-animate="true"]::before,
-.turn-status.success[data-animate="true"]::before {
+.turn-status.complete[data-animate="true"] .turn-status-icon,
+.turn-status.success[data-animate="true"] .turn-status-icon {
   animation: turn-status-mark-settle 1100ms var(--mx-ease-emphasized) 120ms both;
 }
 @keyframes turn-status-settle {
@@ -290,12 +251,8 @@
   to { color: var(--mx-text-soft); }
 }
 @keyframes turn-status-mark-settle {
-  /* The rotation IS the shape now, so every frame has to carry it — a bare
-     scale() would unrotate the rhombus back into a square mid-glint. Keep the
-     centring translation too: animation keyframes replace the base transform,
-     so omitting it dropped the completed mark below the running one. */
-  from { color: var(--mx-text); transform: translateY(-50%) rotate(45deg) scale(1.25); }
-  to { color: var(--mx-text-soft); transform: translateY(-50%) rotate(45deg) scale(1); }
+  from { color: var(--mx-text); transform: scale(1.12); }
+  to { color: var(--mx-text-soft); transform: scale(1); }
 }
 .turn-status.failed {
   width: 100%;

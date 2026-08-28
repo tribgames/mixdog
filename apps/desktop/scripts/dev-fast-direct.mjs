@@ -38,6 +38,13 @@ export function asarPath(path) {
   return String(path).replace(/[\\/]+/g, sep);
 }
 
+export function fastDirectAsarOptions() {
+  return {
+    unpack: 'daemon.cjs',
+    unpackDir: asarPath('out/renderer'),
+  };
+}
+
 export function changedPlanGroups(planned = {}, current = {}) {
   return Object.keys(current).filter(
     (name) => planned?.[name]?.hash !== current?.[name]?.hash,
@@ -520,22 +527,20 @@ async function stageShell({ installDir, artifactDir, plan }) {
   await rm(join(stagingRoot, 'out', 'main', 'capture-window.js'), { force: true });
   await rm(join(stagingRoot, ...ptyPackageSegments), { recursive: true, force: true });
   try {
-    await createPackageWithOptions(stagingRoot, artifactArchive, {
-      unpackDir: 'out',
-    });
+    await createPackageWithOptions(stagingRoot, artifactArchive, fastDirectAsarOptions());
   } finally {
     // The cache keeps only the immutable installed shell. Current build output
     // is short-lived so a failed stage cannot be mistaken for a clean template.
     await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
   }
-  for (const file of [
-    'out/main/daemon.cjs',
-    'out/main/index.js',
-    'out/preload/index.js',
-    'out/renderer/index.html',
-  ]) {
+  for (const file of ['out/main/daemon.cjs', 'out/renderer/index.html']) {
     if (!statFile(artifactArchive, asarPath(file), false).unpacked) {
       throw new Error(`FastDirect artifact did not unpack ${file}`);
+    }
+  }
+  for (const file of ['out/main/index.js', 'out/preload/index.js']) {
+    if (statFile(artifactArchive, asarPath(file), false).unpacked) {
+      throw new Error(`FastDirect artifact unexpectedly unpacked ${file}`);
     }
   }
   const sourcePtyPackage = join(desktopDir, ...ptyPackageSegments);

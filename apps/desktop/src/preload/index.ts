@@ -533,6 +533,20 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.browserOpenRequested, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserOpenRequested, receive);
   },
+  browserProfileImportSources: () =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportSources),
+  browserProfileImportStart: (request) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportStart, request),
+  onBrowserProfileImportProgress: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      progress: Parameters<typeof listener>[0],
+    ): void => listener(progress);
+    ipcRenderer.on(DESKTOP_IPC.browserProfileImportProgress, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.browserProfileImportProgress, receive);
+  },
+  browserHistorySearch: (query) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserHistorySearch, query),
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),
   // Byte lane for gallery media: a plain URL the DOM fetches itself (cached

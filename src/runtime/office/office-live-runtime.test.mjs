@@ -225,7 +225,7 @@ test('persistent Excel sessions own one document and preserve UTF-8 text', {
     operations: [{ op: 'clear_cell', sheet: 'Sheet1', cell: 'A1501' }],
   }, { cwd }));
   const backgroundValidation = value(await executeOfficeTool({ action: 'validate', session: background.session }, { cwd }));
-  assert.equal(backgroundValidation.ok, true);
+  assert.equal(backgroundValidation.ok, true, JSON.stringify(backgroundValidation));
   assert.equal(backgroundValidation.native.opened, true);
 
   const failedBatch = await executeOfficeTool({
@@ -358,6 +358,18 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
       { op: 'append_text', text: '한글-日本語-中文 {{ name }}' },
       { op: 'set_header_footer', section: 1, kind: 'primary', header: true, text: 'Owner {{owner}}' },
       { op: 'fill_template', tokens: { name: '재영', owner: 'Mixdog' }, strict: true },
+      {
+        op: 'add_table',
+        values: [['Metric', 'Value'], ['Revenue', '120'], ['Summary', 'Ready']],
+        properties: { borders: true, columnWidths: [110, 110], alignment: 'center' },
+      },
+      { op: 'set_table_cell_style', table: 1, row: 1, col: 1, properties: { fillColor: 'D9EAF7', bold: true } },
+      { op: 'merge_table_cells', table: 1, row: 3, col: 1, colSpan: 2 },
+      {
+        op: 'set_paragraph_format',
+        paragraph: 1,
+        properties: { spacingAfter: 6, keepWithNext: true, tabStops: [{ position: 240, alignment: 'right', leader: 'dot' }] },
+      },
     ],
   }, { cwd }));
   const wordSnapshot = value(await executeOfficeTool({
@@ -370,10 +382,19 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   assert.doesNotMatch(JSON.stringify(wordSnapshot.document), /\{\{/);
   assert.notEqual(wordSnapshot.document.paragraphs[0].style, 'System.__ComObject');
   assert.ok(wordSnapshot.document.paragraphs[0].style.length > 0);
+  assert.equal(wordSnapshot.document.tableCount, 1);
+  assert.equal(wordSnapshot.document.tables[0].rows[0].cells[0].text, 'Metric');
+  assert.equal(wordSnapshot.document.tables[0].alignment, 1);
+  assert.equal(wordSnapshot.document.tables[0].columnWidths.length, 2);
+  assert.equal(wordSnapshot.document.paragraphs[0].format.spacingAfter, 6);
   value(await executeOfficeTool({
     action: 'batch',
     session: word.session,
-    operations: [{ op: 'add_comment', find: '한글-日本語-中文', text: '검토 의견' }],
+    operations: [
+      { op: 'add_comment', find: '한글-日本語-中文', text: '검토 의견' },
+      { op: 'add_comment_reply', comment: 1, text: '답글 확인' },
+      { op: 'set_comment_resolved', comment: 1, resolved: true },
+    ],
   }, { cwd }));
   const commented = value(await executeOfficeTool({
     action: 'snapshot',
@@ -382,6 +403,9 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   assert.equal(commented.document.commentCount, 1);
   assert.equal(commented.document.comments[0].text, '검토 의견');
   assert.equal(commented.document.comments[0].anchoredText, '한글-日本語-中文');
+  assert.equal(commented.document.comments[0].replies.length, 1);
+  assert.equal(commented.document.comments[0].replies[0].text, '답글 확인');
+  assert.equal(commented.document.comments[0].resolved, true);
   value(await executeOfficeTool({
     action: 'batch',
     session: word.session,
@@ -507,6 +531,19 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
           { name: 'Plan', values: [12, 18] },
         ],
       },
+      { op: 'set_chart_series', slide: 1, shape: 4, series: 2, chartType: 'line', secondaryAxis: true },
+      { op: 'set_chart_trendline', slide: 1, shape: 4, series: 1, type: 'linear' },
+      { op: 'set_chart_error_bars', slide: 1, shape: 4, series: 1, amount: 2, direction: 'y' },
+      { op: 'set_chart_data_labels', slide: 1, shape: 4, series: 1, showValue: true },
+      { op: 'set_transition', slide: 1, effect: 'fade', duration: 1, advanceOnTime: false },
+      { op: 'add_animation', slide: 1, shape: 2, effect: 'fade', trigger: 'afterprevious', duration: 0.5 },
+      {
+        op: 'set_shape',
+        slide: 1,
+        shape: 2,
+        properties: { fillTransparency: 0.1, marginLeft: 8, marginRight: 8, paragraphSpacing: 3 },
+      },
+      { op: 'add_comment', slide: 1, text: '차트와 전환 검토', author: 'Mixdog', initials: 'MD' },
       { op: 'align_shapes', slide: 1, shapes: [2, 3], align: 'top' },
       { op: 'set_hyperlink', slide: 1, shape: 2, address: 'https://mix.dog' },
       { op: 'z_order', slide: 1, shape: 2, command: 'front' },
@@ -533,6 +570,14 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   const chart = powerpointSnapshot.document.slides[0].shapes.find((shape) => shape.chart);
   assert.equal(chart.chart.title, 'Metrics');
   assert.equal(chart.chart.seriesCount, 2);
+  assert.equal(chart.chart.series[0].trendlineCount, 1);
+  assert.equal(chart.chart.series[0].hasErrorBars, true);
+  assert.equal(chart.chart.series[1].chartType, 4);
+  assert.equal(chart.chart.series[1].axisGroup, 2);
+  assert.equal(powerpointSnapshot.document.slides[0].comments.length, 1);
+  assert.equal(powerpointSnapshot.document.slides[0].animations.length, 1);
+  assert.notEqual(powerpointSnapshot.document.slides[0].transition.effect, 0);
+  assert.ok(powerpointSnapshot.document.designCount > 0);
   assert.match(powerpointSnapshot.document.slides[0].shapes.find((shape) => shape.text?.includes('Card')).text, /Bullet item/);
   value(await executeOfficeTool({
     action: 'batch',
@@ -552,9 +597,31 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   const powerpointIssues = value(await executeOfficeTool({ action: 'issues', session: powerpoint.session }, { cwd }));
   assert.ok(powerpointIssues.issues.some((issue) => issue.code === 'low_contrast'));
   const powerpointValidation = value(await executeOfficeTool({ action: 'validate', session: powerpoint.session }, { cwd }));
-  assert.equal(powerpointValidation.ok, true);
+  assert.equal(powerpointValidation.ok, true, JSON.stringify(powerpointValidation));
   assert.equal(powerpointValidation.native.opened, true);
   value(await executeOfficeTool({ action: 'close', session: powerpoint.session }, { cwd }));
+  const importedPowerPoint = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, '가져오기.pptx'),
+    format: 'pptx',
+    mode: 'background',
+  }, { cwd }));
+  const importedBatch = value(await executeOfficeTool({
+    action: 'batch',
+    session: importedPowerPoint.session,
+    operations: [
+      { op: 'import_slides', path: join(cwd, '발표.pptx'), after: 0, slides: [1] },
+    ],
+  }, { cwd }));
+  assert.equal(importedBatch.results[0].count, 1);
+  const importedSnapshot = value(await executeOfficeTool({
+    action: 'snapshot',
+    session: importedPowerPoint.session,
+  }, { cwd }));
+  assert.equal(importedSnapshot.document.slideCount, 1, JSON.stringify({ batch: importedBatch, snapshot: importedSnapshot }));
+  assert.match(JSON.stringify(importedSnapshot.document.slides[0]), /실제 템플릿/);
+  assert.notEqual(importedSnapshot.document.slides[0].transition.effect, 0);
+  value(await executeOfficeTool({ action: 'close', session: importedPowerPoint.session }, { cwd }));
 });
 
 test('native Office creates and reopens template and macro-enabled file kinds', {
@@ -636,7 +703,7 @@ test('native Office creates and reopens template and macro-enabled file kinds', 
       operations: entry.operations,
     }, { cwd }));
     const validation = value(await executeOfficeTool({ action: 'validate', session: created.session }, { cwd }));
-    assert.equal(validation.ok, true);
+    assert.equal(validation.ok, true, JSON.stringify(validation));
     assert.equal(validation.native.opened, true);
     value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
     const reopened = value(await executeOfficeTool({

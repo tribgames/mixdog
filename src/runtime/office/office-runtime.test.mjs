@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { generateKeyPairSync, sign as signBytes } from 'node:crypto';
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import JSZip from 'jszip';
@@ -20,8 +21,39 @@ import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { createOfficeSnapshotRequest, finalizeOfficeSnapshotPage } from './pagination.mjs';
 import { recalculateLibreOfficeWorkbook } from './portable-ooxml.mjs';
 import { renderPdfPages } from './pdf-render.mjs';
+import {
+  inferPdfTables,
+  parseOcrBlocks,
+  parseOcrTsv,
+} from './pdf-analysis.mjs';
+import {
+  classifyOoxmlValidationErrors,
+  ensureOoxmlValidator,
+  ooxmlValidatorManifest,
+} from './ooxml-validator.mjs';
 import { TOOL_DEFS } from './tool-defs.mjs';
 import { parseXlsxAutofitRange } from './xlsx-contract.mjs';
+import {
+  applyPdfDesign,
+  expandOfficeDesignOperations,
+  officeDesignCatalog,
+  pptxVisualReviewAcknowledged,
+  resolveOfficeDesign,
+  reviewOfficeDesign,
+  reviewPptxVisualCritique,
+} from './design-system.mjs';
+import {
+  canonicalOfficeDesignPack,
+  createPptxSlideSelection,
+  defaultOfficeTemplateDirectories,
+  indexOfficeTemplates,
+  inspectOfficeTemplate,
+  persistOfficeDesignBinding,
+  resolveOfficeDesignLibrary,
+  syncOfficeDesignLibrary,
+} from './design-library.mjs';
+
+process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
 async function workspace(t) {
   const path = await mkdtemp(join(tmpdir(), 'mixdog-office-'));
@@ -76,13 +108,19 @@ test('office is a first-class built-in tool with stateful document actions', () 
     assert.equal(Object.hasOwn(TOOL_DEFS[0].inputSchema.properties, removed), false);
   }
   assert.match(TOOL_DEFS[0].description, /\bsecure\b/);
-  assert.match(TOOL_DEFS[0].description, /operations on create\/open/);
-  assert.match(TOOL_DEFS[0].description, /\bfinalize\b/);
-  assert.match(TOOL_DEFS[0].description, /Inspect unfamiliar existing documents before editing/);
-  assert.match(TOOL_DEFS[0].description, /do not snapshot again/);
-  assert.match(TOOL_DEFS[0].description, /Call describe only when/);
+  assert.match(TOOL_DEFS[0].description, /Direct:/);
+  assert.match(TOOL_DEFS[0].description, /finalize:true/);
+  assert.match(TOOL_DEFS[0].description, /all known operations in one ordered array/);
+  assert.match(TOOL_DEFS[0].description, /Inspect unfamiliar existing files first/);
+  assert.match(TOOL_DEFS[0].description, /no snapshot unless/);
+  assert.match(TOOL_DEFS[0].description, /Describe only unknown/);
+  const deferredLead = TOOL_DEFS[0].description.slice(0, 220);
+  assert.match(deferredLead, /finalize:true/);
+  assert.match(deferredLead, /XLSX\/CSV\/TSV set_range/);
   assert.match(TOOL_DEFS[0].inputSchema.properties.action.description, /\bsecure\b/);
+  assert.match(TOOL_DEFS[0].inputSchema.properties.operations.description, /every operation whose inputs are known/);
   assert.match(TOOL_DEFS[0].inputSchema.properties.operations.description, /Call describe only when/);
+  assert.equal(TOOL_DEFS[0].inputSchema.properties.finalize.type, 'boolean');
   assert.match(TOOL_DEFS[0].inputSchema.properties.review.description, /Keep enabled for deliverables/);
   assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('visible'));
   assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('attach'));
@@ -94,6 +132,645 @@ test('office is a first-class built-in tool with stateful document actions', () 
   ].reduce((total, description) => total + description.length, 0);
   assert.ok(descriptionChars <= 5000, `Office schema descriptions grew to ${descriptionChars} characters`);
   assert.ok(JSON.stringify(TOOL_DEFS[0].inputSchema).length <= 7000, 'Office input schema exceeded its size budget');
+});
+
+test('Office design profiles expose semantic composition without decorative defaults', () => {
+  assert.deepEqual(officeDesignCatalog('pptx').map((entry) => entry.id), ['editorial', 'technical', 'data']);
+  const design = resolveOfficeDesign('pptx', {
+    profile: 'technical',
+    intent: 'Explain an Office runtime optimization',
+    audience: 'product and engineering leaders',
+    palette: { accent: '#00A896' },
+    signature: 'large operation traces',
+  });
+  assert.equal(design.tokens.colors.accent, '00A896');
+  assert.equal(design.intent, 'Explain an Office runtime optimization');
+  assert.equal(design.deck.backgroundMode, 'sandwich');
+  assert.equal(design.deck.roles.content, 'canvas');
+  const expanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [
+      { op: 'compose_slide', kind: 'cover', title: 'One clear argument', subtitle: 'A designed report' },
+      {
+        op: 'compose_slide',
+        kind: 'metrics',
+        title: 'The result',
+        metrics: [
+          { value: '22 → 3', label: 'calls' },
+          { value: '−44.6%', label: 'runtime' },
+          { value: '100%', label: 'accuracy' },
+        ],
+      },
+    ],
+    design,
+  });
+  assert.deepEqual(expanded.semantic.map((entry) => entry.kind), ['cover', 'metrics']);
+  assert.deepEqual(expanded.semantic.map((entry) => entry.backgroundRole), ['inverse', 'canvas']);
+  assert.deepEqual(expanded.semantic.map((entry) => entry.plan.visualType), ['statement', 'metrics']);
+  assert.equal(expanded.semantic[1].plan.message, 'The result');
+  assert.deepEqual(expanded.semantic[1].plan.evidence, ['22 → 3', '−44.6%', '100%']);
+  assert.equal(expanded.operations.filter((operation) => operation.op === 'add_slide').length, 2);
+  assert.equal(expanded.operations.some((operation) => {
+    if (operation.op !== 'add_shape') return false;
+    const width = Number(operation.properties?.width) || 0;
+    const height = Number(operation.properties?.height) || 0;
+    return (width <= 14 && height >= 180) || (height <= 7 && width >= 320);
+  }), false);
+});
+
+test('native Office templates expose sample-slide slots and drive strict template-first composition', async (t) => {
+  const cwd = await workspace(t);
+  const templates = join(cwd, 'templates');
+  const template = join(templates, 'executive.potx');
+  await mkdir(templates, { recursive: true });
+  const textShape = (id, name, text, placeholder = '') => `
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="${id}" name="${name}"/><p:cNvSpPr/><p:nvPr>${placeholder ? `<p:ph type="${placeholder}"/>` : ''}</p:nvPr></p:nvSpPr>
+      <p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="300" cy="400"/></a:xfrm></p:spPr>
+      <p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody>
+    </p:sp>`;
+  const slide = (body) => `<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><p:cSld><p:spTree>${body}</p:spTree></p:cSld></p:sld>`;
+  await writeZip(template, {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/><Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>',
+    'ppt/presentation.xml': '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="300" r:id="rId7"/><p:sldId id="256" r:id="rId3"/></p:sldIdLst></p:presentation>',
+    'ppt/_rels/presentation.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Target="slides/slide1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Id="rId3"/><Relationship Id="rId7" Target="slides/slide2.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"/></Relationships>',
+    'ppt/slides/slide2.xml': slide([
+      textShape(1, 'Title', '{{TITLE}}', 'title'),
+      textShape(2, 'Subtitle', '{{SUBTITLE}}', 'subTitle'),
+    ].join('')),
+    'ppt/slides/slide1.xml': slide([
+      textShape(1, 'Title', '{{TITLE}}', 'title'),
+      '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="2" name="Chart"/></p:nvGraphicFramePr><a:xfrm><a:off x="100" y="200"/><a:ext cx="300" cy="400"/></a:xfrm><a:graphic><a:graphicData><c:chart/></a:graphicData></a:graphic></p:graphicFrame>',
+      '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Table"/></p:nvGraphicFramePr><a:xfrm><a:off x="500" y="200"/><a:ext cx="300" cy="400"/></a:xfrm><a:graphic><a:graphicData><a:tbl/></a:graphicData></a:graphic></p:graphicFrame>',
+    ].join('')),
+    'ppt/slideLayouts/slideLayout1.xml': '<p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" type="title"><p:cSld name="Executive title"><p:spTree/></p:cSld></p:sldLayout>',
+    'ppt/theme/theme1.xml': '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Executive"><a:themeElements><a:fontScheme><a:majorFont><a:latin typeface="Georgia"/></a:majorFont><a:minorFont><a:latin typeface="Arial"/></a:minorFont></a:fontScheme></a:themeElements></a:theme>',
+  });
+  await writeFile(`${template}.mixdog.json`, JSON.stringify({
+    id: 'executive-native',
+    label: 'Executive Native',
+    profile: 'editorial',
+    samples: [
+      { slide: 1, id: 'executive-cover', kind: 'cover', density: 'light', strict: true, defaults: { background: '16191D' }, roles: { 1: 'title', 2: 'subtitle' } },
+      { slide: 2, id: 'executive-metrics', kind: 'metrics', density: 'light', strict: true, roles: { 1: 'title', 2: 'chart', 3: 'table' } },
+    ],
+  }));
+  await cp(template, join(templates, 'executive.mixdog-edit.pptx'));
+
+  const inspected = await inspectOfficeTemplate(template, { format: 'pptx' });
+  assert.equal(inspected.sampleSlides.length, 2);
+  assert.deepEqual(inspected.sampleSlides.map((entry) => entry.part), [2, 1]);
+  assert.deepEqual(inspected.sampleSlides[0].slots.map((slot) => slot.role), ['title', 'subtitle']);
+  assert.ok(inspected.sampleSlides[1].capabilities.includes('chart'));
+  assert.equal(inspected.nativeLayouts[0].name, 'Executive title');
+  assert.deepEqual(inspected.theme.fonts, ['Georgia', 'Arial']);
+  const selectedTemplate = join(templates, 'selected.mixdog-edit.pptx');
+  await createPptxSlideSelection(template, [1, 2, 1], selectedTemplate);
+  const selectedInspection = await inspectOfficeTemplate(selectedTemplate, { format: 'pptx' });
+  assert.deepEqual(selectedInspection.sampleSlides.map((entry) => entry.part), [1, 2, 3]);
+  assert.deepEqual(
+    selectedInspection.sampleSlides.map((entry) => entry.capabilities),
+    [[], ['chart', 'table'], []],
+  );
+
+  const config = {
+    templateDirectories: [templates],
+    discoverInstalledTemplates: false,
+    defaultTemplates: { pptx: 'executive-native' },
+  };
+  const indexed = await indexOfficeTemplates({ dataDir: join(cwd, 'data'), config });
+  assert.equal(indexed.count, 1);
+  assert.equal(indexed.templates[0].sampleSlides.length, 2);
+  assert.equal(indexed.templates[0].layouts[0].slots[0].role, 'title');
+  const library = await resolveOfficeDesignLibrary({
+    dataDir: join(cwd, 'data'),
+    documentPath: join(cwd, 'output.pptx'),
+    format: 'pptx',
+    created: true,
+    request: { template: 'executive-native' },
+    config,
+  });
+  const expanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: {
+      template: 'executive-native',
+      density: 'light',
+      deck: { templateMode: 'strict' },
+    },
+    library,
+    operations: [{
+      op: 'compose_slide',
+      kind: 'cover',
+      title: 'One native argument',
+      subtitle: 'Preserve the approved source formatting',
+    }],
+  });
+  assert.equal(expanded.operations[0].op, 'import_slides');
+  assert.equal(expanded.operations[0].path, template);
+  assert.deepEqual(expanded.operations[1], { op: 'set_slide_background', slide: 1, color: '16191D' });
+  assert.deepEqual(
+    expanded.operations.filter((operation) => operation.op === 'set_text').map((operation) => operation.text),
+    ['One native argument', 'Preserve the approved source formatting'],
+  );
+  assert.equal(expanded.semantic[0].renderMode, 'native-template');
+  const tableExpanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: {
+      template: 'executive-native',
+      density: 'light',
+      deck: { templateMode: 'strict' },
+    },
+    library,
+    operations: [{
+      op: 'compose_slide',
+      kind: 'metrics',
+      title: 'Native table',
+      table: { values: [['Metric', 'Value'], ['Calls', '1']] },
+      layoutId: 'executive-metrics',
+    }],
+  });
+  assert.deepEqual(
+    tableExpanded.operations.find((operation) => operation.op === 'set_table_data')?.values,
+    [['Metric', 'Value'], ['Calls', '1']],
+  );
+  const coalesced = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: {
+      template: 'executive-native',
+      density: 'light',
+      deck: { templateMode: 'strict' },
+    },
+    library,
+    operations: [
+      { op: 'compose_slide', kind: 'cover', layoutId: 'executive-cover', title: 'First' },
+      { op: 'compose_slide', kind: 'metrics', layoutId: 'executive-metrics', title: 'Second' },
+      { op: 'compose_slide', kind: 'cover', layoutId: 'executive-cover', title: 'Third' },
+    ],
+  });
+  assert.deepEqual(
+    coalesced.operations.filter((operation) => operation.op === 'import_slides'),
+    [{ op: 'import_slides', path: template, slides: [1, 2, 1] }],
+  );
+  assert.throws(() => expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: { deck: { templateMode: 'strict' } },
+    operations: [{ op: 'compose_slide', kind: 'cover', title: 'No fallback' }],
+  }), /requires an approved native template layout/);
+
+  const discovered = defaultOfficeTemplateDirectories({
+    platform: 'win32',
+    environment: {
+      ProgramFiles: 'C:\\Program Files',
+      APPDATA: 'C:\\Users\\User\\AppData\\Roaming',
+    },
+    home: 'C:\\Users\\User',
+  });
+  assert.ok(discovered.some((entry) => entry.endsWith('Microsoft Office\\root\\Templates')));
+  assert.ok(discovered.some((entry) => entry.endsWith('Microsoft\\Templates')));
+});
+
+test('PPTX deck plans enforce sandwich backgrounds while custom decks opt out', () => {
+  const request = {
+    profile: 'technical',
+    signature: 'native operation traces',
+    deck: { backgroundMode: 'sandwich' },
+  };
+  const design = resolveOfficeDesign('pptx', request);
+  const expanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [
+      { op: 'compose_slide', kind: 'cover', title: 'Cover' },
+      { op: 'compose_slide', kind: 'content', title: 'Body' },
+      { op: 'compose_slide', kind: 'closing', title: 'Close' },
+    ],
+    design: request,
+  });
+  assert.deepEqual(
+    expanded.operations.filter((operation) => operation.op === 'set_slide_background').map((operation) => operation.color),
+    [design.tokens.colors.inverse, design.tokens.colors.canvas, design.tokens.colors.inverse],
+  );
+  const slide = (index, color) => ({
+    index,
+    background: { color, followMaster: false, source: 'slide' },
+    shapes: [{ type: 17, text: `Slide ${index}`, left: 50, top: 40, width: 800, height: 80, font: { size: 42 } }],
+  });
+  const passing = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        slide(1, design.tokens.colors.inverse),
+        slide(2, design.tokens.colors.canvas),
+        slide(3, design.tokens.colors.inverse),
+      ],
+    },
+    design: request,
+  });
+  assert.equal(passing.status, 'pass');
+  const drifting = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        slide(1, design.tokens.colors.inverse),
+        slide(2, '7A5CFF'),
+        slide(3, design.tokens.colors.inverse),
+      ],
+    },
+    design: request,
+  });
+  assert.ok(drifting.issues.some((issue) => issue.code === 'theme_background_drift'));
+  const custom = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        slide(1, '111111'),
+        slide(2, '7A5CFF'),
+        slide(3, 'F5F2EC'),
+      ],
+    },
+    design: { ...request, deck: { backgroundMode: 'custom' } },
+  });
+  assert.equal(custom.issues.some((issue) => issue.code.startsWith('theme_')), false);
+  const semanticProcess = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        slide(1, design.tokens.colors.inverse),
+        {
+          ...slide(2, design.tokens.colors.canvas),
+          shapes: [
+            { type: 17, text: 'Frame → Select → Compose → Prove', font: { size: 24 } },
+            { type: 1, text: '', left: 80, top: 220, width: 700, height: 60 },
+          ],
+        },
+        slide(3, design.tokens.colors.inverse),
+      ],
+    },
+    design: {
+      ...request,
+      slidePlans: [{ slide: 2, visualType: 'process' }],
+    },
+  });
+  assert.equal(semanticProcess.issues.some((issue) => issue.code === 'meaningful_visual_missing'), false);
+});
+
+test('PPTX visual critique requires distinct per-slide evidence across five axes', () => {
+  const entry = (slide, note, overrides = {}) => ({
+    slide,
+    verdict: 'pass',
+    hierarchy: 4,
+    balance: 4,
+    legibility: 4,
+    cohesion: 4,
+    evidence: 4,
+    note,
+    fixes: [],
+    ...overrides,
+  });
+  const passing = reviewPptxVisualCritique({
+    pageCount: 3,
+    critique: [
+      entry(1, 'Cover establishes one dark focal statement and a clear numeric transition.'),
+      entry(2, 'Body uses one dominant comparison axis with readable supporting labels.'),
+      entry(3, 'Closing repeats the dark frame and lands one concise executive action.'),
+    ],
+  });
+  assert.equal(passing.status, 'pass');
+  const incomplete = reviewPptxVisualCritique({
+    pageCount: 3,
+    critique: [
+      entry(1, 'Repeated generic note that does not distinguish the slide composition.'),
+      entry(2, 'Repeated generic note that does not distinguish the slide composition.'),
+    ],
+  });
+  assert.ok(incomplete.issues.some((issue) => issue.code === 'visual_critique_missing_slide'));
+  const failed = reviewPptxVisualCritique({
+    pageCount: 1,
+    critique: [entry(1, 'The focal visual remains too weak and needs a larger evidence area.', {
+      verdict: 'needs-polish',
+      balance: 2,
+      fixes: ['Enlarge the evidence visual.'],
+    })],
+  });
+  assert.ok(failed.issues.some((issue) => issue.code === 'visual_critique_needs_polish'));
+  assert.equal(pptxVisualReviewAcknowledged({
+    reviewed: true,
+    providedToken: 'office_1:2',
+    expectedToken: 'office_1:2',
+    renderedVersion: 2,
+    snapshotVersion: 2,
+    critiqueOk: true,
+  }), true);
+  assert.equal(pptxVisualReviewAcknowledged({
+    reviewed: true,
+    providedToken: 'office_1:1',
+    expectedToken: 'office_1:2',
+    renderedVersion: 2,
+    snapshotVersion: 2,
+    critiqueOk: true,
+  }), false);
+  assert.equal(pptxVisualReviewAcknowledged({
+    reviewed: true,
+    providedToken: 'office_1:2',
+    expectedToken: 'office_1:2',
+    renderedVersion: 1,
+    snapshotVersion: 2,
+    critiqueOk: true,
+  }), false);
+});
+
+test('signed Office design packs hot-update new documents while existing bindings stay pinned', async (t) => {
+  const cwd = await workspace(t);
+  const dataDir = join(cwd, 'design-library-data');
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  const trustedKeys = {
+    'test-key': publicKey.export({ type: 'spki', format: 'pem' }),
+  };
+  const config = {
+    manifestUrl: 'https://design.example.test/stable.json',
+    trustedKeys,
+    channel: 'stable',
+    templateDirectories: [],
+  };
+  const makePack = (version, accent) => ({
+    schemaVersion: 1,
+    id: 'verified-layouts',
+    version,
+    channel: 'stable',
+    profiles: {
+      brand: {
+        extends: 'technical',
+        label: 'Verified Brand',
+        tokens: { colors: { accent } },
+      },
+    },
+    defaultProfiles: { pptx: 'brand' },
+    layouts: [{
+      id: `statement-${version.replaceAll('.', '-')}`,
+      format: 'pptx',
+      kind: 'statement',
+      profile: 'brand',
+      defaults: { titleSize: 42 },
+    }],
+    templates: [],
+  });
+  const envelopeFor = (pack, signingKey = privateKey) => ({
+    schemaVersion: 1,
+    keyId: 'test-key',
+    pack,
+    signature: signBytes(
+      null,
+      Buffer.from(canonicalOfficeDesignPack(pack)),
+      signingKey,
+    ).toString('base64'),
+  });
+  let envelope = envelopeFor(makePack('1.0.0', 'C43E2F'));
+  const fetchImpl = async () => new Response(JSON.stringify(envelope), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+  const firstSync = await syncOfficeDesignLibrary({
+    dataDir,
+    config,
+    fetchImpl,
+    force: true,
+  });
+  assert.equal(firstSync.ok, true, firstSync.warning);
+  assert.equal(firstSync.active.version, '1.0.0');
+  const firstDocument = join(cwd, 'first.pptx');
+  const firstLibrary = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: firstDocument,
+    format: 'pptx',
+    created: true,
+    request: {},
+    config,
+    fetchImpl,
+  });
+  await persistOfficeDesignBinding(dataDir, firstDocument, firstLibrary.binding);
+  assert.equal(firstLibrary.binding.packVersion, '1.0.0');
+
+  envelope = envelopeFor(makePack('2.0.0', '7C3AED'));
+  const secondSync = await syncOfficeDesignLibrary({
+    dataDir,
+    config,
+    fetchImpl,
+    force: true,
+  });
+  assert.equal(secondSync.ok, true, secondSync.warning);
+  assert.equal(secondSync.active.version, '2.0.0');
+  const pinned = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: firstDocument,
+    format: 'pptx',
+    created: false,
+    request: {},
+    config,
+    fetchImpl,
+  });
+  assert.equal(pinned.pack.version, '1.0.0');
+  assert.equal(pinned.pinned, true);
+  const secondLibrary = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: join(cwd, 'second.pptx'),
+    format: 'pptx',
+    created: true,
+    request: {},
+    config,
+    fetchImpl,
+  });
+  assert.equal(secondLibrary.pack.version, '2.0.0');
+  const resolved = resolveOfficeDesign('pptx', {}, { library: secondLibrary });
+  assert.equal(resolved.profile, 'brand');
+  assert.equal(resolved.tokens.colors.accent, '7C3AED');
+  const composed = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [{ op: 'compose_slide', kind: 'statement', title: 'Pinned layout' }],
+    design: {},
+    library: secondLibrary,
+  });
+  assert.equal(composed.semantic[0].layout, 'statement-2-0-0');
+  assert.equal(
+    composed.operations.find((operation) => operation.op === 'add_textbox' && operation.text === 'Pinned layout')?.properties?.fontSize,
+    42,
+  );
+
+  const tampered = makePack('3.0.0', 'DC2626');
+  envelope = {
+    ...envelopeFor(makePack('2.0.0', '7C3AED')),
+    pack: tampered,
+  };
+  const rejected = await syncOfficeDesignLibrary({
+    dataDir,
+    config,
+    fetchImpl,
+    force: true,
+  });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.warning, /signature verification failed/);
+  assert.equal(rejected.active.version, '2.0.0');
+});
+
+test('local Office template indexing detects changes without rebinding existing documents', async (t) => {
+  const cwd = await workspace(t);
+  const dataDir = join(cwd, 'design-library-data');
+  const templates = join(cwd, 'templates');
+  const template = join(templates, 'brand.pptx');
+  await mkdir(templates, { recursive: true });
+  await writeFile(template, Buffer.from('template-v1'));
+  await writeFile(`${template}.mixdog.json`, JSON.stringify({
+    id: 'brand-deck',
+    label: 'Brand Deck',
+    layouts: [{
+      id: 'brand-statement',
+      format: 'pptx',
+      kind: 'statement',
+      defaults: { titleSize: 44 },
+    }],
+  }));
+  const config = { templateDirectories: [templates] };
+  const first = await indexOfficeTemplates({ dataDir, config });
+  const firstTemplate = first.templates.find((entry) => entry.id === 'brand-deck');
+  assert.ok(firstTemplate);
+  const document = join(cwd, 'bound.pptx');
+  const selected = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: document,
+    format: 'pptx',
+    created: true,
+    request: { template: 'brand-deck' },
+    config,
+  });
+  assert.equal(selected.template.id, 'brand-deck');
+  assert.equal(selected.layouts[0].id, 'brand-statement');
+  await persistOfficeDesignBinding(dataDir, document, selected.binding);
+
+  await writeFile(template, Buffer.from('template-v2-with-new-content'));
+  const second = await indexOfficeTemplates({ dataDir, config });
+  const secondTemplate = second.templates.find((entry) => entry.id === 'brand-deck');
+  assert.equal(second.changed, true);
+  assert.notEqual(secondTemplate.version, firstTemplate.version);
+  const existing = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: document,
+    format: 'pptx',
+    created: false,
+    request: {},
+    config,
+  });
+  assert.equal(existing.binding.templateVersion, firstTemplate.version);
+  assert.equal(existing.template, null);
+  assert.match(existing.warning, /remains unchanged/);
+  const next = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: join(cwd, 'next.pptx'),
+    format: 'pptx',
+    created: true,
+    request: { template: 'brand-deck' },
+    config,
+  });
+  assert.equal(next.template.version, secondTemplate.version);
+
+  await writeFile(`${template}.mixdog.json`, JSON.stringify({ id: 'invalid template id' }));
+  const degraded = await syncOfficeDesignLibrary({
+    dataDir,
+    config,
+    allowRemote: false,
+    indexTemplates: true,
+  });
+  assert.equal(degraded.ok, false);
+  assert.match(degraded.warning, /template index was not updated/);
+  assert.equal(degraded.templates.revision, second.revision);
+  const fallback = await resolveOfficeDesignLibrary({
+    dataDir,
+    documentPath: join(cwd, 'fallback.pptx'),
+    format: 'pptx',
+    created: true,
+    request: {},
+    config,
+  });
+  assert.equal(fallback.source, 'mixdog-starter');
+  assert.match(fallback.warning, /template index was not updated/);
+});
+
+test('Office design composition maps Word, Excel, and PDF to native structures', () => {
+  const word = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [{
+      op: 'compose_document',
+      title: 'Decision brief',
+      subtitle: 'Prepared for review',
+      sections: [{
+        heading: 'Recommendation',
+        paragraphs: ['Adopt semantic composition.'],
+        bullets: ['Preserve native styles.'],
+        table: [['Owner', 'Status'], ['Mixdog', 'Ready']],
+      }],
+      pageNumbers: true,
+    }],
+  });
+  assert.ok(word.operations.some((operation) => operation.op === 'set_page'));
+  assert.ok(word.operations.some((operation) => operation.op === 'set_list'));
+  assert.ok(word.operations.some((operation) => operation.op === 'set_table_cell_style'));
+  const workbook = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [{
+      op: 'compose_sheet',
+      sheet: 'Summary',
+      title: 'Operating summary',
+      headers: ['Metric', 'Value'],
+      rows: [['Calls', 3], ['Accuracy', 1]],
+    }],
+  });
+  assert.ok(workbook.operations.some((operation) => operation.op === 'merge_cells'));
+  assert.ok(workbook.operations.some((operation) => operation.op === 'add_table'));
+  assert.ok(workbook.operations.some((operation) => operation.op === 'autofit_range'));
+  const pdf = applyPdfDesign([
+    { type: 'heading', text: 'Report' },
+    { type: 'table', rows: [['Metric', 'Value'], ['Calls', '3']] },
+  ], { profile: 'data' });
+  assert.equal(pdf.blocks[0].color, '1F2933');
+  assert.equal(pdf.blocks[1].headerFill, '183028');
+});
+
+test('Office design review rejects decorative stripes and repeated card grids', () => {
+  const cardSlide = (index) => ({
+    index,
+    shapes: [
+      { type: 17, text: `Slide ${index}`, left: 50, top: 40, width: 800, height: 50, font: { size: 34 } },
+      { type: 1, text: 'A', left: 60, top: 160, width: 240, height: 120 },
+      { type: 1, text: 'B', left: 330, top: 160, width: 240, height: 120 },
+      { type: 1, text: 'C', left: 600, top: 160, width: 240, height: 120 },
+      { type: 1, text: '', left: 40, top: 90, width: 7, height: 340 },
+    ],
+  });
+  const review = reviewOfficeDesign({
+    format: 'pptx',
+    document: { slides: [cardSlide(1), cardSlide(2), cardSlide(3), cardSlide(4), cardSlide(5), cardSlide(6)] },
+    design: { profile: 'editorial' },
+  });
+  assert.equal(review.status, 'needs-polish');
+  assert.ok(review.issues.some((issue) => issue.code === 'decorative_stripe'));
+  assert.ok(review.issues.some((issue) => issue.code === 'card_grid_overuse'));
+  assert.ok(review.issues.some((issue) => issue.code === 'repetitive_composition'));
 });
 
 test('XLSX autofit accepts bounded cell, whole-column, and whole-row selectors', () => {
@@ -109,6 +786,9 @@ test('Office COM authoring keeps paragraph structure, no-op gates, and render st
   assert.match(source, /Paragraphs\.Add\(\$range\)/);
   assert.match(source, /produced no change/);
   assert.match(source, /SetSourceData\(\$sheet\.Range\(\[string]\$op\.range\), 2\)/);
+  assert.match(source, /function Color-Hex/);
+  assert.match(source, /followMaster = \$followMasterBackground/);
+  assert.doesNotMatch(source, /\$series\.Formula\b/);
   assert.match(source, /\$pageSetup\.FitToPagesWide = 1/);
   assert.match(source, /\$state\.PageSetup\.FitToPagesWide = \$state\.FitToPagesWide/);
   assert.match(source, /SaveCopyAs\(\$output, 32\)/);
@@ -116,10 +796,18 @@ test('Office COM authoring keeps paragraph structure, no-op gates, and render st
   assert.match(sessionSource, /inspectIssues/);
   assert.match(sessionSource, /WaitForExit\(250\)/);
   assert.match(sessionSource, /FinalReleaseComObject/);
+  assert.match(sessionSource, /SetForegroundWindow/);
+  assert.match(sessionSource, /AttachThreadInput/);
+  assert.match(sessionSource, /\[DllImport\("kernel32\.dll"\)\]/);
+  assert.match(sessionSource, /\$mode -eq 'visible' -and \$format -eq 'pptx'/);
+  assert.match(sessionSource, /\$document\.Windows\.Item\(1\)\.HWND/);
+  assert.match(sessionSource, /FindWindowByClassAndTitle\('PPTFrameClass'/);
+  assert.match(sessionSource, /-not \$hWnd -and \$attempt -lt 20/);
+  assert.match(sessionSource, /foregroundActivated = \$state\.ForegroundActivated/);
   assert.match(sessionSource, /\$process\.Kill\(\)/);
 });
 
-test('create initial operations and finalize collapse a portable workflow', async (t) => {
+test('create initial operations and finalize collapse a portable workflow into one call', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'workflow.csv');
   const created = value(await executeOfficeTool({
@@ -129,9 +817,50 @@ test('create initial operations and finalize collapse a portable workflow', asyn
     operations: [
       { op: 'set_range', range: 'A1:B2', values: [['name', 'value'], ['alpha', 1]] },
     ],
+    finalize: true,
   }, { cwd }));
   assert.equal(created.document, undefined);
   assert.equal(created.batch.changeSummary.changed, 1);
+  assert.equal(created.finalized, true);
+  assert.equal(created.failOn, 'warning');
+  assert.equal(created.saved, true);
+  assert.equal(created.saveSkipped, true);
+  assert.equal(created.closed, true);
+});
+
+test('batch with finalize completes an inspected portable workflow in one remaining call', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'inspected.csv');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'csv',
+  }, { cwd }));
+  const completed = value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_range', range: 'A1:B2', values: [['name', 'value'], ['alpha', 1]] },
+    ],
+    finalize: true,
+  }, { cwd }));
+  assert.equal(completed.batch.changeSummary.changed, 1);
+  assert.equal(completed.finalized, true);
+  assert.equal(completed.saveSkipped, true);
+  assert.equal(completed.closed, true);
+});
+
+test('removed mutation actions remain rejected', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'removed-actions.csv');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path,
+    format: 'csv',
+    operations: [
+      { op: 'set_range', range: 'A1:B2', values: [['name', 'value'], ['alpha', 1]] },
+    ],
+  }, { cwd }));
   for (const removed of ['set', 'add', 'remove', 'move']) {
     const rejected = await executeOfficeTool({
       action: removed,
@@ -281,7 +1010,12 @@ test('operation registry matches every COM implementation and rejects unknown fi
       format,
       backend: 'microsoft-office-com',
     }).operations.sort();
-    assert.deepEqual(described, implemented, `${format} registry drifted from the COM backend`);
+    const native = described.filter((operation) => !describeOfficeCapabilities({
+      format,
+      backend: 'microsoft-office-com',
+      operation,
+    }).operation.virtual);
+    assert.deepEqual(native, implemented, `${format} registry drifted from the COM backend`);
     for (const operation of described) {
       const targeted = describeOfficeCapabilities({
         format,
@@ -592,6 +1326,81 @@ test('portable DOCX set creates editable runs in empty paragraphs', async (t) =>
   assert.equal(snapshot.document.paragraphs[1].style, 'Normal');
 });
 
+test('portable DOCX authors professional tables and paragraph layout', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'professional.docx');
+  const output = join(cwd, 'professional-output.docx');
+  await writeZip(source, {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    'word/document.xml': '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Summary</w:t></w:r></w:p><w:sectPr/></w:body></w:document>',
+  });
+  const opened = value(await executeOfficeTool({
+    action: 'open',
+    path: source,
+    output,
+    mode: 'portable',
+  }, { cwd }));
+  const edited = value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [
+      {
+        op: 'add_table',
+        values: [['Metric', 'Value'], ['Revenue', '120']],
+        properties: {
+          style: 'TableGrid',
+          columnWidths: [2400, 1200],
+          borders: { style: 'single', color: '808080', size: 4 },
+        },
+      },
+      { op: 'set_table_cell_style', table: 1, row: 1, col: 1, properties: { fillColor: 'D9EAF7', bold: true } },
+      { op: 'merge_table_cells', table: 1, row: 2, col: 1, colSpan: 2 },
+      {
+        op: 'set_paragraph_format',
+        paragraph: 1,
+        properties: {
+          alignment: 'center',
+          spacingAfter: 120,
+          border: { side: 'bottom', style: 'single', color: '2F5597', size: 8 },
+          tabStops: [{ position: 7200, alignment: 'right', leader: 'dot' }],
+        },
+      },
+    ],
+  }, { cwd }));
+  assert.equal(edited.changeSummary.changed, 4);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+  assert.equal(snapshot.document.tables.length, 1);
+  assert.equal(snapshot.document.tables[0].rows[0].cells[0].text, 'Metric');
+  const xml = await (await JSZip.loadAsync(await readFile(output))).file('word/document.xml').async('string');
+  assert.match(xml, /<w:tblStyle w:val="TableGrid"\/>/);
+  assert.match(xml, /<w:gridSpan w:val="2"\/>/);
+  assert.match(xml, /<w:tab w:val="right" w:pos="7200" w:leader="dot"\/>/);
+});
+
+test('DOCX redlining audit rejects untracked text edits', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'redline-source.docx');
+  const output = join(cwd, 'redline-output.docx');
+  await writeZip(source, {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    'word/document.xml': '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Original text</w:t></w:r></w:p></w:body></w:document>',
+  });
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, output, mode: 'portable' }, { cwd }));
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [{ op: 'set_paragraph_text', paragraph: 1, text: 'Untracked replacement' }],
+  }, { cwd }));
+  const validation = value(await executeOfficeTool({
+    action: 'validate',
+    session: opened.session,
+    auditProfile: 'redlining',
+  }, { cwd }));
+  assert.equal(validation.ok, false);
+  assert.equal(validation.redlining.ok, false);
+  assert.match(validation.redlining.reason, /untracked/i);
+});
+
 test('strict OOXML validation rejects missing relationship targets', async (t) => {
   const cwd = await workspace(t);
   const source = join(cwd, 'broken.docx');
@@ -787,27 +1596,57 @@ test('portable XLSX edits cells, ranges, formulas, and appended rows', async (t)
     session: opened.session,
     operations: [{ op: 'set_cell', sheet: 'Data', cell: 'F1', value: 'Committed' }],
   }, { cwd }));
-  let approvalRequest;
-  const deniedCommit = await executeOfficeTool(
-    { action: 'commit', session: opened.session },
-    {
-      cwd,
-      requestApproval: async (request) => {
-        approvalRequest = request;
-        return { approved: false, reason: 'review first' };
-      },
-    },
-  );
-  assert.equal(deniedCommit.isError, true);
-  assert.equal(JSON.parse(deniedCommit.content[0].text).code, 'transaction_approval_denied');
-  assert.equal(approvalRequest.args.action, 'commit');
-  assert.ok(approvalRequest.args.transaction.diff.summary.added > 0);
   const committed = value(await executeOfficeTool(
     { action: 'commit', session: opened.session },
-    { cwd, requestApproval: async () => ({ approved: true }) },
+    { cwd },
   ));
   assert.equal(committed.committed, true);
   assert.ok(committed.transaction.diff.summary.added > 0);
+});
+
+test('XLSX finalize assertions prove values, formulas, tie-outs, and errors', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'assertions-source.xlsx');
+  const output = join(cwd, 'assertions.xlsx');
+  await writeZip(source, {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+    'xl/workbook.xml': '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData></sheetData></worksheet>',
+  });
+  const created = value(await executeOfficeTool({
+    action: 'open',
+    path: source,
+    output,
+    mode: 'portable',
+  }, { cwd }));
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [
+      { op: 'set_range', sheet: 'Sheet1', range: 'A1:B2', values: [['Actual', 'Plan'], [120, 120]] },
+      { op: 'set_formula', sheet: 'Sheet1', cell: 'C2', formula: '=A2-B2' },
+    ],
+  }, { cwd }));
+  const passed = value(await executeOfficeTool({
+    action: 'validate',
+    session: created.session,
+    assertions: [
+      { kind: 'cell-value', sheet: 'Sheet1', cell: 'A2', equals: 120 },
+      { kind: 'cell-formula', sheet: 'Sheet1', cell: 'C2', equals: '=A2-B2' },
+      { kind: 'tie-out', sheet: 'Sheet1', left: 'A2', right: 'B2', tolerance: 0 },
+      { kind: 'no-errors', sheet: 'Sheet1' },
+    ],
+  }, { cwd }));
+  assert.equal(passed.ok, true, JSON.stringify(passed));
+  assert.equal(passed.assertions.passed, 4);
+  const failed = value(await executeOfficeTool({
+    action: 'validate',
+    session: created.session,
+    assertions: [{ kind: 'cell-value', sheet: 'Sheet1', cell: 'A2', equals: 999 }],
+  }, { cwd }));
+  assert.equal(failed.ok, false);
+  assert.equal(failed.assertions.issues[0].code, 'assertion_value_mismatch');
 });
 
 test('portable PPTX fills template tokens while preserving masters and layouts', async (t) => {
@@ -969,6 +1808,88 @@ test('PDF rendering compresses long documents into at most 12 contact sheets wit
     complete: true,
     remainingPages: [],
   });
+});
+
+test('PDF specialized queries expose positioned text, inferred tables, and embedded images', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'analysis.pdf');
+  const pdf = await PDFDocument.create();
+  const page = pdf.addPage([400, 300]);
+  page.drawText('Metric', { x: 40, y: 240, size: 12 });
+  page.drawText('Value', { x: 220, y: 240, size: 12 });
+  page.drawText('Revenue', { x: 40, y: 210, size: 12 });
+  page.drawText('120', { x: 220, y: 210, size: 12 });
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2S9sAAAAASUVORK5CYII=', 'base64');
+  const image = await pdf.embedPng(png);
+  page.drawImage(image, { x: 40, y: 40, width: 20, height: 20 });
+  await writeFile(path, await pdf.save());
+  const opened = value(await executeOfficeTool({ action: 'open', path, mode: 'portable' }, { cwd }));
+  const layout = value(await executeOfficeTool({
+    action: 'query',
+    session: opened.session,
+    queryKind: 'pdf-layout',
+  }, { cwd }));
+  assert.ok(layout.pages[0].items.some((item) => item.text === 'Metric'));
+  const tables = value(await executeOfficeTool({
+    action: 'query',
+    session: opened.session,
+    queryKind: 'pdf-tables',
+  }, { cwd }));
+  assert.equal(tables.tableCount, 1);
+  assert.deepEqual(tables.tables[0].rows[0], ['Metric', 'Value']);
+  const imagesResult = await executeOfficeTool({
+    action: 'query',
+    session: opened.session,
+    queryKind: 'pdf-images',
+  }, { cwd });
+  const images = value(imagesResult);
+  assert.ok(images.imageCount >= 1);
+  assert.ok(imagesResult.content.some((item) => item.type === 'image'));
+});
+
+test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic', async (t) => {
+  const words = parseOcrTsv('level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n5\t1\t1\t1\t1\t1\t10\t20\t30\t12\t92.5\tHello');
+  assert.deepEqual(words, [{
+    text: 'Hello',
+    confidence: 92.5,
+    left: 10,
+    top: 20,
+    width: 30,
+    height: 12,
+  }]);
+  assert.deepEqual(parseOcrBlocks([{
+    paragraphs: [{ lines: [{ words: [{ text: 'Block', confidence: 88, bbox: { x0: 2, y0: 3, x1: 12, y1: 9 } }] }] }],
+  }]), [{
+    text: 'Block',
+    confidence: 88,
+    left: 2,
+    top: 3,
+    width: 10,
+    height: 6,
+  }]);
+  const manifest = ooxmlValidatorManifest();
+  assert.equal(manifest.version, '0.3.0');
+  assert.equal(manifest.platforms.length, 6);
+  const classified = classifyOoxmlValidationErrors([
+    {
+      path: '/ppt/charts/chart1.xml',
+      xPath: '/c:chartSpace[1]/c:chart[1]/c:extLst[1]/c:ext[1]',
+      description: "The 'uri' attribute is not declared.",
+    },
+    {
+      path: '/xl/charts/chart1.xml',
+      xPath: '/c:chartSpace[1]/c:chart[1]/c:extLst[1]/c:ext[1]',
+      description: "The 'uri' attribute is not declared.",
+    },
+    { path: '/word/document.xml', xPath: '/w:document[1]', description: 'Invalid child.' },
+  ]);
+  assert.equal(classified.compatibilityWarnings.length, 2);
+  assert.equal(classified.errors.length, 1);
+  const unavailable = await ensureOoxmlValidator({
+    dataDir: await workspace(t),
+    download: false,
+  });
+  assert.equal(unavailable.disabled, true);
 });
 
 test('PDF text edits embed an explicit Unicode font for non-Latin text', async (t) => {

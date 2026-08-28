@@ -22,6 +22,7 @@ import {
 import { TOOL_DEFS as BROWSER_TOOL_DEFS } from './browser-bridge/tool-defs.mjs';
 import {
   computerBridgeAvailableSync,
+  deferComputerSessionRelease,
   executeComputerTool,
   releaseComputerSession,
 } from './computer-bridge/client.mjs';
@@ -60,6 +61,8 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 12_000);
   assert.deepEqual(propertyFor('fill', 'fields').items.required, ['ref']);
   assert.equal(propertyFor('fill', 'fields').items.additionalProperties, false);
+  assert.equal(propertyFor('fill', 'fields').items.properties.values.minItems, 1);
+  assert.equal(propertyFor('fill', 'fields').items.properties.checked.type, 'boolean');
   assert.equal(propertyFor('navigate', 'expect').additionalProperties, false);
   for (const action of [
     'snapshot', 'locate', 'evaluate', 'emulate', 'cookies', 'storage', 'performance',
@@ -96,7 +99,10 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.equal(propertyFor('downloads', 'attach').description.includes('8 MiB'), true);
   assert.ok(propertyFor('drag', 'targetX'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never replayed after dispatch'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('same assistant turn'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('Do not batch calls that need earlier results'));
   assert.equal(propertyFor('snapshot', 'maxElements').maximum, 500);
+  assert.equal(propertyFor('navigate', 'maxChars').maximum, 30_000);
   assert.equal(propertyFor('upload', 'paths').maxItems, 10);
   assert.ok(propertyFor('upload', 'confirm'));
   assert.ok(propertyFor('wait', 'textGone'));
@@ -116,12 +122,29 @@ test('browser action contract validates compact flat-schema calls', () => {
   });
   assert.deepEqual(validateBrowserToolArgs({
     action: 'navigate',
-    input: { url: 'https://example.com', includeScreenshot: true },
+    input: { url: 'https://example.com', includeScreenshot: true, maxChars: 8_000 },
   }), {
     ok: true,
     action: 'navigate',
-    input: { url: 'https://example.com', includeScreenshot: true },
+    input: { url: 'https://example.com', includeScreenshot: true, maxChars: 8_000 },
   });
+  assert.equal(validateBrowserToolArgs({
+    action: 'fill',
+    input: {
+      fields: [
+        { ref: 'p1-s1-e1', text: 'Ada' },
+        { ref: 'p1-s1-e2', values: ['engineer'] },
+        { ref: 'p1-s1-e3', checked: false },
+      ],
+    },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'fill',
+      input: { fields: [{ ref: 'p1-s1-e1', text: 'Ada', checked: true }] },
+    }).error,
+    /requires exactly one/,
+  );
   assert.match(
     validateBrowserToolArgs({ action: 'navigate', input: {} }).error,
     /requires input\.url or input\.reload/,
@@ -219,7 +242,7 @@ test('browser runtime manifest stays in parity with host command handlers', asyn
 
 test('computer tool contract exposes stable targets, frames, and explicit delivery', () => {
   const schema = COMPUTER_TOOL_DEFS[0].inputSchema;
-  assert.deepEqual(Object.keys(schema.properties), ['action', 'input', 'capture_after', 'safety']);
+  assert.deepEqual(Object.keys(schema.properties), ['action', 'input', 'capture_after']);
   assert.deepEqual(schema.required, ['action']);
   assert.ok(Array.isArray(schema.oneOf));
   const inputFor = (action) => schema.oneOf.find(
@@ -365,23 +388,48 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
       ],
     },
   }), /reuse focus and cannot carry a target/i);
-  assert.equal(validateComputerToolArgs({
+  assert.match(validateComputerToolArgs({
     action: 'click',
     input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
     safety: {
-      decision: 'require_confirmation',
-      category: 'communication',
-      explanation: 'This click sends a message.',
+      decision: 'confirm',
     },
-  }), null);
+  }), /does not accept root field/i);
   assert.match(validateComputerToolArgs({
-    action: 'capture',
-    safety: {
-      decision: 'require_confirmation',
-      category: 'other',
-      explanation: 'not a mutation',
+    action: 'launch',
+    input: {
+      app: 'mshta.exe C:\\Temp\\fixture.hta',
     },
-  }), /does not accept safety/i);
+  }), /blocks shells, script hosts, and shortcut files/i);
+  for (const app of [
+    'wt.exe',
+    'wsl.exe',
+    'bash.exe',
+    'C:\\Temp\\terminal.lnk',
+    'C:\\Temp\\website.url',
+    'C:\\Temp\\clickonce.appref-ms',
+  ]) {
+    assert.match(validateComputerToolArgs({
+      action: 'launch',
+      input: { app },
+    }), /blocks shells, script hosts, and shortcut files/i);
+  }
+  assert.equal(validateComputerToolArgs({
+    action: 'launch',
+    input: { app: 'C:\\Program Files\\Example App\\example.exe' },
+  }), null);
+  assert.equal(validateComputerToolArgs({
+    action: 'launch',
+    input: { app: 'C:\\Project\\mixdog\\Office-Use-Optimization-Report-v2.pptx' },
+  }), null);
+  assert.equal(validateComputerToolArgs({
+    action: 'launch',
+    input: { app: 'https://example.com' },
+  }), null);
+  assert.equal(validateComputerToolArgs({
+    action: 'launch',
+    input: { app: 'https://example.com/bash/download.url?left=1&&right=2' },
+  }), null);
   assert.deepEqual(toComputerHostCommand({
     action: 'click',
     input: { window_id: 'hwnd:0x123', ref: 'ref:1', button: 'right' },
@@ -469,6 +517,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('instead of recapturing by default'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('pixel_unavailable'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Browser Use'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('at most one computer call per model turn'));
 });
 
 test('bridge clients only surface fresh, compatible discovery records', async () => {
@@ -503,7 +552,6 @@ test('bridge clients authenticate and preserve text plus image results', async (
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = directory;
   const seen = [];
-  const approvals = [];
   const server = createServer((request, response) => {
     const chunks = [];
     request.on('data', (chunk) => chunks.push(chunk));
@@ -558,20 +606,9 @@ test('bridge clients authenticate and preserve text plus image results', async (
           : {
               action,
               input: { window_id: 'hwnd:0x123', ref: 'ref:1', button: 'left' },
-              safety: {
-                decision: 'require_confirmation',
-                category: 'communication',
-                explanation: 'This test click represents a send action.',
-              },
             },
         client.name === 'computer'
-          ? {
-              sessionId: 'computer-session-1',
-              requestApproval: async (request) => {
-                approvals.push(request);
-                return { approved: true };
-              },
-            }
+          ? { sessionId: 'computer-session-1' }
           : { sessionId: 'browser-session-1', turnId: 7 },
       );
       assert.equal(result.isError, undefined);
@@ -579,7 +616,7 @@ test('bridge clients authenticate and preserve text plus image results', async (
         {
           type: 'text',
           text: client.name === 'computer'
-            ? '{"ok":true,"action":"click","button":"left","safety_acknowledgement":{"decision":"confirmed","category":"communication","explanation":"This test click represents a send action."}}'
+            ? '{"ok":true,"action":"click","button":"left"}'
             : 'bridge ok',
         },
         {
@@ -596,19 +633,17 @@ test('bridge clients authenticate and preserve text plus image results', async (
           : []),
       ]);
     }
-    assert.equal(approvals.length, 1);
-    assert.equal(approvals[0].reason, 'This test click represents a send action.');
-    const deniedWithoutUi = await executeComputerTool({
-      action: 'click',
-      input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
-      safety: {
-        decision: 'require_confirmation',
-        category: 'communication',
-        explanation: 'Approval UI must exist before dispatch.',
-      },
-    }, { sessionId: 'computer-session-1' });
-    assert.equal(deniedWithoutUi.isError, true);
-    assert.match(deniedWithoutUi.content[0].text, /no approval UI is available/i);
+    assert.equal(deferComputerSessionRelease('computer-session-1', 20), true);
+    const continued = await executeComputerTool(
+      { action: 'list', input: { kind: 'windows' } },
+      { sessionId: 'computer-session-1' },
+    );
+    assert.equal(continued.isError, undefined);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(seen.filter((entry) => entry.body.action === 'session_release').length, 0);
+    assert.equal(deferComputerSessionRelease('computer-session-1', 20), true);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(seen.filter((entry) => entry.body.action === 'session_release').length, 1);
     assert.equal(await releaseComputerSession('computer-session-1'), true);
     assert.equal(await releaseComputerSession('computer-session-1'), true);
     assert.deepEqual(seen, [...CLIENTS.map((client) => ({
@@ -628,6 +663,18 @@ test('bridge clients authenticate and preserve text plus image results', async (
           : {}),
       },
     })), {
+      authorization: 'Bearer computer-token',
+      body: {
+        action: 'list_windows',
+        session_id: 'computer-session-1',
+      },
+    }, {
+      authorization: 'Bearer computer-token',
+      body: {
+        action: 'session_release',
+        session_id: 'computer-session-1',
+      },
+    }, {
       authorization: 'Bearer computer-token',
       body: {
         action: 'session_release',
@@ -703,7 +750,7 @@ test('computer client propagates caller cancellation to same-session host abort'
     const result = await execution;
     await abortSeen;
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /computer command aborted; input state and desktop lease were released/);
+    assert.match(result.content[0].text, /computer command aborted; input state and session resources were released/);
     assert.deepEqual(seen, [
       { action: 'wait', duration: 30, session_id: 'cancel-session' },
       { action: 'session_abort', session_id: 'cancel-session' },

@@ -185,6 +185,22 @@ const INTERNAL_TRANSCRIPT_CONTEXT_RE =
 const INTERNAL_TRANSCRIPT_SYNTHETIC_RE =
   /^(?:\[mixdog-runtime\]|A previous model worked on this task and produced the compacted handoff summary below\b|Re-attached after compaction\b|Reference files:\s)/i;
 const INTERNAL_TRANSCRIPT_ASYNC_HEAD_RE = /^Async .+ finished\./i;
+const TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES = new Set([
+  'goal',
+  'create_goal',
+  'get_goal',
+  'set_goal_tasks',
+  'update_goal',
+  'load_tool',
+  'tool_search',
+  'skill',
+]);
+
+export function isTranscriptHiddenControlToolName(name) {
+  const normalized = clean(name).toLowerCase().replace(/^functions\./, '');
+  return TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES.has(normalized);
+}
+
 // Persisted USER cancellation control rows ("[Request interrupted by user]"
 // and its tool-use variant) exist for the next model step, not for humans:
 // the human already saw the cancel they typed. The live engine path already

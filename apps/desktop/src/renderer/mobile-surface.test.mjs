@@ -9,6 +9,7 @@ import {
   resolveProjectPathAgainstCatalog,
   writeCachedProjectCatalog,
 } from "./project-catalog-cache.ts";
+import { resolveUnreadViewedSessionId } from "./app-unread-sessions.ts";
 
 const bootSource = readFileSync(new URL("./public/boot.js", import.meta.url), "utf8");
 const mobileChromeSource = readFileSync(
@@ -52,6 +53,31 @@ const markdownSource = readFileSync(
   "utf8",
 );
 
+test("phone sheets preserve unread activity until the conversation is visible again", () => {
+  const base = {
+    viewedSessionId: "session-a",
+    requestedSessionId: "",
+    mobile: true,
+    sidebarOpen: false,
+    dockOpen: false,
+    bottomPanelOpen: false,
+    settingsOpen: false,
+  };
+  assert.equal(resolveUnreadViewedSessionId(base), "session-a");
+  for (const coveredBy of ["sidebarOpen", "dockOpen", "bottomPanelOpen", "settingsOpen"]) {
+    assert.equal(resolveUnreadViewedSessionId({ ...base, [coveredBy]: true }), "");
+  }
+  assert.equal(resolveUnreadViewedSessionId({
+    ...base,
+    requestedSessionId: "session-b",
+  }), "session-b");
+  assert.equal(resolveUnreadViewedSessionId({
+    ...base,
+    mobile: false,
+    sidebarOpen: true,
+  }), "session-a");
+});
+
 test("an open Goal card stays inside its transcript pane and owns vertical overflow", () => {
   assert.match(
     markdownSource,
@@ -68,6 +94,14 @@ test("an open Goal card stays inside its transcript pane and owns vertical overf
   assert.match(
     markdownSource,
     /html\[data-mixdog-mobile-tabs\] \.transcript-shell > \.session-goal-island\s*\{[^}]*--session-goal-trigger-height:[^;}]*36px[^;}]*--mx-device-scale/su,
+  );
+  assert.match(
+    markdownSource,
+    /\.session-goal-title-region\s*\{[^}]*grid-template-columns:\s*15px minmax\(0, 1fr\);[^}]*gap:\s*3px;/su,
+  );
+  assert.match(
+    markdownSource,
+    /\.session-goal-meta\s*\{[^}]*justify-content:\s*flex-end;[^}]*white-space:\s*nowrap;/su,
   );
 });
 

@@ -30,6 +30,8 @@ const builderNativeModulesDir = join(runtimeDir, 'native-modules');
 const externalProcessArchivePaths = [
   'node_modules/mixdog/src/runtime/office/office-com-host.ps1',
   'node_modules/mixdog/src/runtime/office/office-com-session-host.ps1',
+  'node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx',
+  'node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx.mixdog.json',
 ];
 const externalProcessArchiveEntries = externalProcessArchivePaths.map((path) => `/${path}`);
 const desktopPtyPackageDir = join(
@@ -40,6 +42,16 @@ const desktopPtyPackageDir = join(
 );
 const builderDesktopPtyDir = join(runtimeDir, 'desktop-node-pty');
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
+const configuredBrowserImportNativeSourceDir = String(
+  process.env.MIXDOG_BROWSER_IMPORT_NATIVE_DIR ?? '',
+).trim();
+let browserImportNativeSourceDir = '';
+const browserImportNativeFileNames = [
+  'mixdog-browser-import.exe',
+  'bitwarden_chromium_import_helper.exe',
+  'LICENSE_GPL.txt',
+  'browser-import-NOTICE.txt',
+];
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
 const preparedRuntimeSchema = 1;
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
@@ -76,6 +88,7 @@ if (
   );
 }
 const dependencyCacheIdentity = await runtimeDependencyCacheIdentity(rootDir, embeddingTarget);
+let browserImportInputIdentity = null;
 
 function elapsedMs(startedAt) {
   return Math.round(performance.now() - startedAt);
@@ -92,6 +105,61 @@ async function timed(label, operation) {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+async function resolveBrowserImportInputIdentity() {
+  if (!browserImportNativeSourceDir) return null;
+  if (embeddingTarget.platform !== 'win32') {
+    throw new Error('Chrome password importer inputs are supported only for Windows targets.');
+  }
+  const sourceDirectory = resolve(browserImportNativeSourceDir);
+  const files = [];
+  for (const name of browserImportNativeFileNames) {
+    const path = join(sourceDirectory, name);
+    files.push({ name, sha256: sha256(await readFile(path)) });
+  }
+  return { files };
+}
+
+async function prepareBrowserImportNativeSource() {
+  if (embeddingTarget.platform !== 'win32') {
+    if (configuredBrowserImportNativeSourceDir) {
+      throw new Error('Chrome password importer inputs are supported only for Windows targets.');
+    }
+    return '';
+  }
+  if (configuredBrowserImportNativeSourceDir) {
+    return resolve(configuredBrowserImportNativeSourceDir);
+  }
+  if (process.platform !== 'win32') {
+    throw new Error('Building the Windows Chrome password importer requires a Windows host.');
+  }
+  const outputDirectory = join(
+    desktopDir,
+    '.cache',
+    'browser-import',
+    embeddingTarget.key,
+  );
+  const buildScript = join(rootDir, 'native', 'mixdog-browser-import', 'build.ps1');
+  await execFileAsync('pwsh', [
+    '-NoLogo',
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    buildScript,
+    '-Configuration',
+    'Release',
+    '-OutputDirectory',
+    outputDirectory,
+    '-TargetArchitecture',
+    embeddingTarget.arch,
+  ], {
+    cwd: rootDir,
+    windowsHide: true,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return outputDirectory;
 }
 
 /** Object headers sit at the front of the file; native addons reach hundreds of
@@ -197,6 +265,7 @@ async function runtimeInputFingerprint(manifest) {
     dependencies: dependencyCacheIdentity,
     preparationSha256: sha256(preparationSource),
     desktopLockfileSha256: sha256(desktopLockfile),
+    browserImport: browserImportInputIdentity,
     packageFiles,
   }));
 }
@@ -224,6 +293,9 @@ async function canReusePreparedRuntime(fingerprint) {
       ...NATIVE_TOOL_KINDS.map((kind) => access(
         join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget)),
       )),
+      ...(browserImportInputIdentity
+        ? browserImportNativeFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
+        : []),
     ]);
     return true;
   } catch (error) {
@@ -260,6 +332,17 @@ async function prepareDesktopNativeTools() {
     // Executability belongs to the target's OS, not the machine that packed it.
     if (embeddingTarget.platform !== 'win32' && kind !== 'token') {
       await chmod(destination, 0o755);
+    }
+  }
+  if (browserImportInputIdentity) {
+    const sourceDirectory = resolve(browserImportNativeSourceDir);
+    for (const name of browserImportNativeFileNames) {
+      const source = join(sourceDirectory, name);
+      const destination = join(desktopNativeToolsDir, name);
+      await cp(source, destination);
+      if (name.endsWith('.exe')) {
+        await assertTargetArchitecture(destination, `Browser import native tool ${name}`);
+      }
     }
   }
   await rm(downloadDataDir, { recursive: true, force: true });
@@ -415,6 +498,11 @@ async function prepareRuntime(manifest, fingerprint) {
         await mkdir(dirname(destination), { recursive: true });
         await cp(source, destination, { recursive: true });
       }
+      const officeTemplateDir = join(runtimePackageDir, 'src', 'runtime', 'office', 'templates');
+      const officeTemplates = await readdir(officeTemplateDir, { withFileTypes: true }).catch(() => []);
+      await Promise.all(officeTemplates
+        .filter((entry) => entry.isFile() && /\.mixdog-edit\.[^.]+$/i.test(entry.name))
+        .map((entry) => rm(join(officeTemplateDir, entry.name), { force: true })));
     });
 
     const runtimePackage = JSON.parse(await readFile(join(stagingDir, 'package.json'), 'utf8'));
@@ -446,7 +534,7 @@ async function prepareRuntime(manifest, fingerprint) {
             // @electron/asar matches this against absolute Windows paths with
             // matchBase enabled. A basename glob is therefore portable; **/*.node is
             // not, because minimatch treats Windows separators differently.
-            unpack: '*.{node,dll,dylib,so,so.*,ps1}',
+            unpack: '*.{node,dll,dylib,so,so.*,ps1,pptx,mixdog.json}',
           });
           return;
         } catch (error) {
@@ -647,6 +735,14 @@ async function acquireRuntimeLock() {
 const preparationStartedAt = performance.now();
 const releaseRuntimeLock = await timed('preparation-lock', () => acquireRuntimeLock());
 try {
+  browserImportNativeSourceDir = await timed(
+    'browser-import-native',
+    () => prepareBrowserImportNativeSource(),
+  );
+  browserImportInputIdentity = await timed(
+    'browser-import-identity',
+    () => resolveBrowserImportInputIdentity(),
+  );
   const manifest = await timed('package-manifest', () => resolveRuntimePackageManifest());
   const fingerprint = await timed(
     'input-fingerprint',

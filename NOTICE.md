@@ -15,6 +15,8 @@ Full license texts live in `LICENSES/`:
   compiled into the native binaries.
 - `LICENSES/editor-assets-NOTICE.txt` — the editor icon and language-data
   notice referenced by the generated files.
+- `LICENSES/browser-import-NOTICE.txt` — source and license boundary for the
+  optional GPL Chrome password import sidecar.
 
 ## MIT
 
@@ -105,3 +107,12 @@ upstream NOTICE file is preserved as `LICENSES/codex-NOTICE.txt`.
 The Apache-2.0 terms require this notice to travel with any redistribution of
 the derived files. Full license text: `LICENSES/Apache-2.0.txt`
 (<https://www.apache.org/licenses/LICENSE-2.0>).
+
+## GPL-3.0-only
+
+### Chrome password import sidecar
+
+The Windows password importer is a separate process built from the
+pinned source and Mixdog wrapper recorded in
+`LICENSES/browser-import-NOTICE.txt`. It is not linked into the MIT desktop
+application. Its complete GPL text ships beside the two native executables.

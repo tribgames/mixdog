@@ -12,8 +12,8 @@ the Unreleased section is empty, and stamps it with the released version.
   issue a coordinate frame, mutations invalidate prior pixel frames, one new
   same-process popup becomes the deterministic verification target, app-owned
   Electron text fields use renderer-native background insertion, recovery names
-  one next escalation rung, and dangerous session-ending keys or shell payloads
-  are blocked at the host boundary. A 23-scenario Windows dashboard now covers
+  one next escalation rung, and dangerous session-ending keys, shell payloads,
+  or shell/script-host launches are blocked at the host boundary. A 23-scenario Windows dashboard now covers
   native, Electron, Chrome, Korean OCR, secondary-display, stale-state, focus,
   popup, safety, and cleanup paths.
 - Computer Use observations and turns are faster without weakening the input
@@ -33,12 +33,25 @@ the Unreleased section is empty, and stamps it with the released version.
   use `capture`, window and clipboard lifecycle use operation fields, and one
   shared `capture_after` object configures automatic verification. Reference-
   aligned guidance requires fresh exact targets, prefers semantic elements,
-  and keeps Browser Use separate. The final schema is 2,644 estimated tokens
-  before the frontier extensions and 3,226 tokens afterward (-42.80% versus
-  the 28-action baseline), passing 36/36 first-call model scenarios. Read-only
+  and keeps Browser Use separate. The final schema was 2,644 estimated tokens
+  before the frontier extensions; the pre-removal frontier contract passed
+  36/36 first-call model scenarios. The current direct-dispatch contract is
+  3,210 estimated tokens and 14,485 wire bytes. Read-only
   `diagnose` reports Windows OCR/UIA readiness without screen pixels; bounded
   `sequence` stops on failure or target transition and returns one final fresh
-  state; structured safety decisions require runtime user acknowledgement.
+  state; strict call cardinality prevents parallel cross-target mutations both
+  in model guidance and before runtime eager dispatch. Extra same-turn
+  `computer` calls are not executed and receive a fresh-state recovery error.
+  Natural-language selection passed 4/4 safe focus chains and 4/4 transition
+  boundaries. In 10 repetitions, a two-action continuation used 50% fewer
+  model-facing calls and captures, with p50/p95 latency down 12.34%/32.31%.
+  Model-facing Computer Use confirmation and Office transaction approval
+  prompts were removed; user-requested actions now execute directly while
+  blocked key, payload, and script-host patterns remain hard errors.
+  Measured provider usage is 5,150 input tokens and 4,026 ms p50 per model
+  call. A 12-action post-observation schema reduced input 18.16% at 27/27
+  accuracy but was rejected because repeated latency outliers and mid-loop
+  schema changes would break the immutable provider-prefix cache contract.
   Semantic actions with deterministic exact-window transitions now report
   confirmed verification. No legacy call-shape fallback remains. After one
   development deployment, installed-app validation confirmed that left

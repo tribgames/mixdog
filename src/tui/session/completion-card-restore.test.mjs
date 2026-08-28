@@ -7,6 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { restoreTranscriptItems } from './session-api-ext.mjs';
+import { preserveGoalStateAfterTurn, transcriptToolCallDisplayMode } from './turn.mjs';
 
 const wrapper = (taskId, body) => [
   `Async shell task ${taskId} (completed, exit 0) finished.`,
@@ -108,4 +109,53 @@ test('task wait calls stay hidden when a session transcript is restored', () => 
   const items = restoreTranscriptItems(messages, { sessionId: 'sess_task_wait_restore' });
   assert.equal(items.some((item) => item?.kind === 'tool' && item?.args?.action === 'wait'), false);
   assert.equal(items.some((item) => item?.kind === 'tool' && item?.args?.action === 'read'), true);
+});
+
+test('Goal and load control calls never enter restored tool aggregates', () => {
+  const hiddenNames = [
+    'goal',
+    'create_goal',
+    'get_goal',
+    'set_goal_tasks',
+    'update_goal',
+    'load_tool',
+    'tool_search',
+    'Skill',
+  ];
+  const toolCalls = hiddenNames.map((name, index) => ({
+    id: `call_hidden_${index}`,
+    name,
+    arguments: { action: 'status' },
+  }));
+  toolCalls.push({ id: 'call_read', name: 'read', arguments: { file_path: 'visible.txt' } });
+  const messages = [
+    { role: 'assistant', toolCalls },
+    ...toolCalls.map((call) => ({
+      role: 'tool',
+      toolCallId: call.id,
+      content: 'ok',
+    })),
+  ];
+
+  const items = restoreTranscriptItems(messages, { sessionId: 'sess_hidden_controls_restore' });
+  const toolItems = items.filter((item) => item?.kind === 'tool');
+  assert.equal(toolItems.length, 1);
+  assert.equal(toolItems[0].name, 'read');
+  assert.equal(toolItems.some((item) =>
+    (item.toolMembers || []).some((member) => hiddenNames.includes(member?.name))), false);
+});
+
+test('live turn display policy suppresses Goal/load controls without hiding ordinary tools', () => {
+  assert.equal(transcriptToolCallDisplayMode('goal', { action: 'create' }), 'hidden-control');
+  assert.equal(transcriptToolCallDisplayMode('functions.load_tool', { name: 'browser' }), 'hidden-control');
+  assert.equal(transcriptToolCallDisplayMode('task', { action: 'wait' }), 'task-wait');
+  assert.equal(transcriptToolCallDisplayMode('read', { file_path: 'visible.txt' }), 'visible');
+});
+
+test('surface replacement preserves Goal state while an explicit user cancellation still pauses', () => {
+  assert.equal(preserveGoalStateAfterTurn({ cancelled: true, stale: true }), true);
+  assert.equal(preserveGoalStateAfterTurn({ cancelled: true, pendingSessionReset: true }), true);
+  assert.equal(preserveGoalStateAfterTurn({ cancelled: true, disposed: true }), true);
+  assert.equal(preserveGoalStateAfterTurn({ cancelled: true }), false);
+  assert.equal(preserveGoalStateAfterTurn({ cancelled: false, stale: true }), false);
 });

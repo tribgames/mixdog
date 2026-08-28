@@ -231,7 +231,7 @@ import { useAppSidebarSurface } from "./use-app-sidebar-surface";
 import { buildAppWorkbenchCommands } from "./app-workbench-commands";
 import { useAppPersistentPaneSurfaces } from "./use-app-persistent-pane-surfaces";
 import { useStableEvent } from "./use-stable-event";
-import { useUnreadSessions } from "./app-unread-sessions";
+import { resolveUnreadViewedSessionId, useUnreadSessions } from "./app-unread-sessions";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { useWorkbenchWorkspace } from "./workbench-workspace";
 import {
@@ -1304,7 +1304,15 @@ export function App() {
   // Viewing a session consumes its unread dot.
   const viewedSessionId = navigationSelection.kind === "session" ? navigationSelection.id : "";
   viewedSessionRef.current = viewedSessionId;
-  const unreadViewedSessionId = requestedSessionId || viewedSessionId;
+  const unreadViewedSessionId = resolveUnreadViewedSessionId({
+    viewedSessionId,
+    requestedSessionId,
+    mobile: isMobileRemoteSurface(),
+    sidebarOpen,
+    dockOpen,
+    bottomPanelOpen: bottomPanel.open,
+    settingsOpen,
+  });
   unreadViewedSessionRef.current = unreadViewedSessionId;
   useEffect(() => {
     consumeUnread(unreadViewedSessionId, sessions);

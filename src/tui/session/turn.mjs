@@ -10,8 +10,25 @@ import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
 import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, aggregateToolMembers, assignAggregateSummaryOrder, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
+import { isTranscriptHiddenControlToolName } from '../../runtime/shared/tool-execution-contract.mjs';
 
 export const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
+
+export function transcriptToolCallDisplayMode(name, args) {
+  if (isTaskWaitToolCall(name, args)) return 'task-wait';
+  if (isTranscriptHiddenControlToolName(name)) return 'hidden-control';
+  return 'visible';
+}
+
+export function preserveGoalStateAfterTurn({
+  cancelled = false,
+  stale = false,
+  pendingSessionReset = false,
+  disposed = false,
+} = {}) {
+  return cancelled === true
+    && (stale === true || pendingSessionReset === true || disposed === true);
+}
 
 function isUsageLimitError(error) {
   if (!error) return false;
@@ -124,9 +141,9 @@ export function createRunTurn(bag) {
     const toolCards = [];
     const toolGroups = new Map();
     const resultsDone = new Set();
-    // `task wait` is passive control flow, not user-visible work. Keep its call
-    // ids only long enough to suppress live/result cards and drive the spinner.
-    const suppressedTaskWaitCallIds = new Set();
+    // Passive task waits and internal Goal/load controls are runtime flow, not
+    // user-visible work. Keep ids only long enough to suppress result cards.
+    const suppressedTranscriptCallIds = new Set();
     const activeTaskWaitCallIds = new Set();
     const refreshTaskWaitSpinner = () => {
       if (!getState().spinner) return;
@@ -757,7 +774,7 @@ export function createRunTurn(bag) {
 
     const deliverToolResultMessage = (message) => {
       const suppressedCallId = toolResultCallId(message);
-      if (suppressedCallId && suppressedTaskWaitCallIds.has(suppressedCallId)) {
+      if (suppressedCallId && suppressedTranscriptCallIds.has(suppressedCallId)) {
         activeTaskWaitCallIds.delete(suppressedCallId);
         refreshTaskWaitSpinner();
         return;
@@ -839,7 +856,10 @@ export function createRunTurn(bag) {
           if (batchCalls.length === 0) return;
           const displayCalls = [];
           for (const call of batchCalls) {
-            if (!isTaskWaitToolCall(toolCallName(call), toolCallArgs(call))) {
+            const name = toolCallName(call);
+            const args = toolCallArgs(call);
+            const displayMode = transcriptToolCallDisplayMode(name, args);
+            if (displayMode === 'visible') {
               displayCalls.push(call);
               continue;
             }
@@ -851,8 +871,8 @@ export function createRunTurn(bag) {
               displayCalls.push(call);
               continue;
             }
-            suppressedTaskWaitCallIds.add(callId);
-            activeTaskWaitCallIds.add(callId);
+            suppressedTranscriptCallIds.add(callId);
+            if (displayMode === 'task-wait') activeTaskWaitCallIds.add(callId);
           }
           if (thinkingText && getState().thinking) {
             const thinkingLastEndedAt = closeThinkingSegment();
@@ -971,7 +991,7 @@ export function createRunTurn(bag) {
           const lastTouchedAggregate = [...touchedAggregates].at(-1) || null;
           lastTouchedAggregate?.ensureVisible?.();
           for (const [bufferedCallId, bufferedMessage] of earlyResultBuffer) {
-            if (suppressedTaskWaitCallIds.has(bufferedCallId)) {
+            if (suppressedTranscriptCallIds.has(bufferedCallId)) {
               deliverToolResultMessage(bufferedMessage);
               earlyResultBuffer.delete(bufferedCallId);
               continue;
@@ -1422,6 +1442,12 @@ export function createRunTurn(bag) {
         status: finalStatus,
         error: turnFailureDetail || null,
         usageLimited: turnFailureUsageLimited,
+        preserveGoalState: preserveGoalStateAfterTurn({
+          cancelled,
+          stale: !isCurrentTurn(),
+          pendingSessionReset: flags.pendingSessionReset,
+          disposed: flags.disposed,
+        }),
       });
     } catch {}
     try {

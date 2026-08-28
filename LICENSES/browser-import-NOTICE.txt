@@ -1,0 +1,11 @@
+Chrome password import sidecar
+
+The Windows password importer packaged beside Mixdog is a separate
+GPL-3.0-only process derived from:
+
+https://github.com/bitwarden/clients
+commit 6e2c2151f215df69b7cf75b43f189b2cba8b6b5e
+
+Mixdog's wrapper and reproducible build instructions are available under
+native/mixdog-browser-import/. The packaged native-tools directory also carries
+the complete LICENSE_GPL.txt copied from that pinned source.

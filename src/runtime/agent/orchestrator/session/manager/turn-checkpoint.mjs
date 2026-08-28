@@ -40,6 +40,9 @@ export function projectTurnCheckpointMessages(session, checkpoint) {
     if (checkpointGeneration !== sessionGeneration
         || (markerToken && !markerMatches)
         || (!markerToken && !checkpointIsNewer)) return source;
+    if (checkpoint.fullTranscript === true) {
+        return checkpoint.turnMessages.slice();
+    }
     let start = -1;
     for (let index = source.length - 1; index >= 0; index -= 1) {
         if (matchingUserMessage(source[index], checkpoint.currentUserContent)) {
@@ -80,6 +83,7 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
                     startedAt,
                     currentUserContent,
                     turnMessages: seed.turnMessages,
+                    ...(seed.fullTranscript ? { fullTranscript: true } : {}),
                     interruption: typeof interruption?.snapshot === 'function'
                         ? interruption.snapshot()
                         : emptyInterruptionSnapshot(),
@@ -196,10 +200,12 @@ export function recoverTurnCheckpoint(session) {
     });
     const current = Array.isArray(session.messages) ? session.messages : [];
     const start = findTurnStart(current, checkpoint.currentUserContent);
-    session.messages = [
-        ...(start >= 0 ? current.slice(0, start) : current),
-        ...finalized.messages,
-    ];
+    session.messages = checkpoint.fullTranscript === true
+        ? finalized.messages
+        : [
+            ...(start >= 0 ? current.slice(0, start) : current),
+            ...finalized.messages,
+        ];
     // Keep the last provider reading across restart. Pressure resolution
     // validates its message-prefix signature against this recovered transcript:
     // a matching durable prefix stays authoritative, while any rewritten

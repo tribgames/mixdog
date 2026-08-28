@@ -183,6 +183,7 @@ async function run(): Promise<void> {
         <button id="self-heal" onclick="document.querySelector('#state').textContent = 'Self-heal clicked'">Self-heal target</button>
         <label>First name <input aria-label="First name"></label>
         <label>Last name <input aria-label="Last name"></label>
+        <label>Preferred role <select aria-label="Preferred role" onchange="document.querySelector('#state').textContent = 'Role ' + this.value"><option value="designer">Designer</option><option value="engineer">Engineer</option></select></label>
         <button id="mouse-options" onmousedown="document.querySelector('#state').textContent = 'Mouse ' + event.button + ' ctrl=' + event.ctrlKey + ' shift=' + event.shiftKey">Mouse options</button>
         <label>Default checkbox <input type="checkbox" onchange="document.querySelector('#state').textContent = this.checked ? 'Checkbox checked' : 'Checkbox unchecked'"></label>
         <button id="hover-target" onmouseenter="document.querySelector('#state').textContent = 'Semantic hovered'">Hover target</button>
@@ -192,6 +193,7 @@ async function run(): Promise<void> {
         <div aria-hidden="true" onmouseenter="document.querySelector('#visual-state').textContent = 'Visual hovered'"
           onclick="const state = document.querySelector('#visual-state'); const count = Number(state.dataset.count || 0) + 1; state.dataset.count = count; state.textContent = 'Visual clicked ' + count"
           style="position:fixed;left:600px;top:100px;width:120px;height:60px;background:#fc0"></div>
+        <p>${'x'.repeat(2800)} Extended snapshot tail</p>
         <script>console.info('fixture-info-ready'); console.warn('fixture-warning-ready');</script>`);
       return;
     }
@@ -373,11 +375,15 @@ async function run(): Promise<void> {
       url: `${origin}/root`,
       background: true,
       tab: 'alpha',
+      maxChars: 6_000,
     });
+    assert.match(alpha.text, /Extended snapshot tail/);
+    assert.match(alpha.text, /fresh; use these refs directly, do not call snapshot again/);
     const alphaGuest = contentsWithUrl('/root');
     alphaGuest.setZoomFactor(0.75);
     assert.ok(Math.abs(alphaGuest.getZoomFactor() - 0.75) < 0.01);
     alpha = await command({ action: 'snapshot', tab: 'alpha' });
+    assert.doesNotMatch(alpha.text, /Extended snapshot tail/);
     progress('root navigation complete');
     assert.doesNotMatch(alpha.text, /do-not-leak-password/);
     const spaRef = refNamed(alpha.text, 'Update SPA');
@@ -461,16 +467,22 @@ async function run(): Promise<void> {
     turnId = 20;
     const firstNameRef = refNamed(alpha.text, 'First name');
     const lastNameRef = refNamed(alpha.text, 'Last name');
+    const preferredRoleRef = refNamed(alpha.text, 'Preferred role');
+    const checkboxRef = refNamed(alpha.text, 'Default checkbox');
     alpha = await command({
       action: 'fill',
       fields: [
         { ref: firstNameRef, text: 'Ada' },
         { ref: lastNameRef, value: 'Lovelace' },
+        { ref: preferredRoleRef, values: ['engineer'] },
+        { ref: checkboxRef, checked: true },
       ],
       tab: 'alpha',
     });
     assert.match(alpha.text, /value="Ada"/);
     assert.match(alpha.text, /value="Lovelace"/);
+    assert.match(alpha.text, /value="Engineer"/);
+    assert.match(alpha.text, /checkbox "Default checkbox" checked=true/);
     const mouseOptionsRef = refNamed(alpha.text, 'Mouse options');
     alpha = await command({
       action: 'click',
@@ -480,15 +492,15 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     assert.match(alpha.text, /Mouse 2 ctrl=true shift=true/);
-    const checkboxRef = refNamed(alpha.text, 'Default checkbox');
+    const uncheckedRef = refNamed(alpha.text, 'Default checkbox');
     alpha = await command({
       action: 'check',
-      ref: checkboxRef,
-      checked: true,
+      ref: uncheckedRef,
+      checked: false,
       tab: 'alpha',
     });
-    assert.match(alpha.text, /Checkbox checked/);
-    assert.match(alpha.text, /checkbox "Default checkbox" checked=true/);
+    assert.match(alpha.text, /Checkbox unchecked/);
+    assert.match(alpha.text, /checkbox "Default checkbox" checked=false/);
     const hoverRef = refNamed(alpha.text, 'Hover target');
     alpha = await command({ action: 'hover', ref: hoverRef, tab: 'alpha' });
     assert.match(alpha.text, /Semantic hovered/);
