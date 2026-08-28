@@ -179,20 +179,128 @@ function maintenanceRouteToPreset(routeOrName, agent) {
     return out;
 }
 
+const AGENT_DISPATCH_LIVE_CALLBACKS = Object.freeze([
+    'onSessionStart',
+    'onStageChange',
+    'onReasoningDelta',
+    'onTextDelta',
+    'onTextReset',
+    'onAssistantText',
+    'onAssistantMessageCommitted',
+    'onToolCall',
+    'onToolResult',
+]);
+
+function pickDispatchCallback(factoryOpts, callArgs, name) {
+    if (typeof callArgs?.[name] === 'function') return callArgs[name];
+    if (typeof factoryOpts?.[name] === 'function') return factoryOpts[name];
+    return undefined;
+}
+
 /**
- * Build an agent-backed dispatch callback.
+ * Resolve live Agent-dispatch callbacks.
  *
- * @param {object} opts
- * @param {string} opts.agent       — REQUIRED; canonical agent name (worker, cycle1-agent, ...)
- * @param {string} [opts.taskType]  — optional internal classification stamped on the session
- * @param {string} [opts.preset]    — explicit preset override (bypasses agent → preset lookup)
- * @param {string} [opts.parentSessionId] — parent agent session for trace aggregation
- * @param {string|null} [opts.ownerSessionId] — owning Mixdog session for statusline isolation
- * @param {AbortSignal} [opts.parentSignal] — optional AbortSignal from the fan-out coordinator;
- *   when aborted the agent session's own controller is also aborted so the
- *   provider call tears down promptly (parent→child cascade).
- * @returns {(args: { prompt, preset?, sourceName? }) => Promise<string>}
+ * `liveProjection` is a send-opt. It is true when the caller explicitly
+ * sets it or supplies a live-text callback (onTextDelta / onAssistantText /
+ * onTextReset). Tool/stage/reasoning observers do not un-suppress provider
+ * streaming. The flag must never be written onto the session object.
+ *
+ * @param {object} [factoryOpts]
+ * @param {object} [callArgs]
+ * @returns {{ callbacks: object, liveProjection: boolean }}
  */
+export function resolveAgentDispatchLiveCallbacks(factoryOpts = {}, callArgs = {}) {
+    const callbacks = {};
+    for (const name of AGENT_DISPATCH_LIVE_CALLBACKS) {
+        const fn = pickDispatchCallback(factoryOpts, callArgs, name);
+        if (fn) callbacks[name] = fn;
+    }
+    const liveProjection = factoryOpts.liveProjection === true
+        || callArgs.liveProjection === true
+        || typeof callbacks.onTextDelta === 'function'
+        || typeof callbacks.onAssistantText === 'function'
+        || typeof callbacks.onTextReset === 'function';
+    return { callbacks, liveProjection };
+}
+
+/**
+ * Adapt askSession's session-less callback signatures to the host contract
+ * by prepending the prepared session on every call:
+ *   onSessionStart(session)
+ *   onStageChange(session, stage, detail)
+ *   onReasoningDelta(session, chunk)
+ *   onTextDelta(session, chunk)
+ *   onTextReset(session, detail)  — return value is passed through unchanged
+ *   onAssistantText(session, text)
+ *   onAssistantMessageCommitted(session)
+ *   onToolCall(session, iteration, calls)
+ *   onToolResult(session, message)
+ */
+export function bindAgentDispatchHostCallbacks(hostCallbacks = {}, session) {
+    const bound = {};
+    if (typeof hostCallbacks.onSessionStart === 'function') {
+        bound.onSessionStart = () => hostCallbacks.onSessionStart(session);
+    }
+    if (typeof hostCallbacks.onStageChange === 'function') {
+        bound.onStageChange = (stage, detail) => hostCallbacks.onStageChange(session, stage, detail);
+    }
+    if (typeof hostCallbacks.onReasoningDelta === 'function') {
+        bound.onReasoningDelta = (chunk) => hostCallbacks.onReasoningDelta(session, chunk);
+    }
+    if (typeof hostCallbacks.onTextDelta === 'function') {
+        bound.onTextDelta = (chunk) => hostCallbacks.onTextDelta(session, chunk);
+    }
+    if (typeof hostCallbacks.onTextReset === 'function') {
+        bound.onTextReset = (detail) => hostCallbacks.onTextReset(session, detail);
+    }
+    if (typeof hostCallbacks.onAssistantText === 'function') {
+        bound.onAssistantText = (text) => hostCallbacks.onAssistantText(session, text);
+    }
+    if (typeof hostCallbacks.onAssistantMessageCommitted === 'function') {
+        bound.onAssistantMessageCommitted = () => hostCallbacks.onAssistantMessageCommitted(session);
+    }
+    if (typeof hostCallbacks.onToolCall === 'function') {
+        bound.onToolCall = (iteration, calls) => hostCallbacks.onToolCall(session, iteration, calls);
+    }
+    if (typeof hostCallbacks.onToolResult === 'function') {
+        bound.onToolResult = (message) => hostCallbacks.onToolResult(session, message);
+    }
+    return bound;
+}
+
+/**
+ * Build the positional `onToolCall` + askOpts bag forwarded to askSession.
+ * `interactiveSessionSurface` is intentionally dropped — that in-memory
+ * hint is owned by the standalone surface and must not be persisted or
+ * re-homed onto a dispatch session.
+ */
+export function buildAgentDispatchAskSessionArgs(factoryOpts = {}, callArgs = {}, extraAskOpts = {}, session = null) {
+    const { callbacks, liveProjection } = resolveAgentDispatchLiveCallbacks(factoryOpts, callArgs);
+    const bound = session && typeof session === 'object'
+        ? bindAgentDispatchHostCallbacks(callbacks, session)
+        : callbacks;
+    const onToolCall = typeof bound.onToolCall === 'function' ? bound.onToolCall : null;
+    const askOpts = { liveProjection };
+    for (const name of AGENT_DISPATCH_LIVE_CALLBACKS) {
+        if (name === 'onToolCall') continue;
+        if (typeof bound[name] === 'function') askOpts[name] = bound[name];
+    }
+    const extraCompact = extraAskOpts.onCompactEvent;
+    if (typeof extraCompact === 'function') {
+        const callerCompact = askOpts.onCompactEvent;
+        askOpts.onCompactEvent = (event) => {
+            extraCompact(event);
+            try { callerCompact?.(event); } catch { /* best-effort */ }
+        };
+    }
+    for (const [key, value] of Object.entries(extraAskOpts)) {
+        if (key === 'onCompactEvent' || key === 'liveProjection') continue;
+        if (key === 'interactiveSessionSurface') continue;
+        if (value !== undefined) askOpts[key] = value;
+    }
+    return { onToolCall, askOpts };
+}
+
 // runtime-liveness keeps one parent link per session because askSession swaps
 // its controller at turn start.  Agent dispatch can have several independent
 // cancellation sources, so collapse them before installing that one link.
@@ -227,16 +335,59 @@ export function composeAgentDispatchAbortSignal(signals) {
     };
 }
 
+/**
+ * Build an agent-backed dispatch callback.
+ *
+ * @param {object} opts
+ * @param {string} opts.agent       — REQUIRED; canonical agent name (worker, cycle1-agent, ...)
+ * @param {string} [opts.taskType]  — optional internal classification stamped on the session
+ * @param {string} [opts.preset]    — explicit preset override (bypasses agent → preset lookup)
+ * @param {string} [opts.parentSessionId] — parent agent session for trace aggregation
+ * @param {string|null} [opts.ownerSessionId] — owning Mixdog session for statusline isolation
+ * @param {AbortSignal} [opts.parentSignal] — optional AbortSignal from the fan-out coordinator;
+ *   when aborted the agent session's own controller is also aborted so the
+ *   provider call tears down promptly (parent→child cascade).
+ * @param {boolean} [opts.liveProjection] — request provider onTextDelta / mid-turn
+ *   text for this Agent. Never persisted on the session.
+ * @param {function} [opts.onSessionStart]
+ * @param {function} [opts.onStageChange]
+ * @param {function} [opts.onReasoningDelta]
+ * @param {function} [opts.onTextDelta]
+ * @param {function} [opts.onTextReset] — must return `true` to ack a retry retraction
+ * @param {function} [opts.onAssistantText]
+ * @param {function} [opts.onAssistantMessageCommitted]
+ * @param {function} [opts.onToolCall]
+ * @param {function} [opts.onToolResult]
+ * @returns {(args: { prompt, preset?, sourceName?, liveProjection?, onSessionStart?, onStageChange?, onReasoningDelta?, onTextDelta?, onTextReset?, onAssistantText?, onAssistantMessageCommitted?, onToolCall?, onToolResult? }) => Promise<string>}
+ */
 export function makeAgentDispatch(opts = {}) {
     if (!opts.agent || typeof opts.agent !== 'string') {
         throw new Error('[agent-dispatch] opts.agent is required');
     }
     const agent = opts.agent;
 
-    return async function agentDispatch({ prompt, preset: presetArg, sourceName: sourceNameArg, parentSignal: callParentSignal, idleTimeoutMs: callIdleTimeoutMs, cwd: callCwd, sessionId: callSessionId }) {
+    return async function agentDispatch(callArgs = {}) {
+        const {
+            prompt,
+            preset: presetArg,
+            sourceName: sourceNameArg,
+            parentSignal: callParentSignal,
+            idleTimeoutMs: callIdleTimeoutMs,
+            cwd: callCwd,
+            sessionId: callSessionId,
+        } = callArgs;
         if (typeof prompt !== 'string' || !prompt) {
             throw new Error(`[agent-dispatch] prompt required for agent "${agent}"`);
         }
+        const prepare = typeof opts.prepareAgentSession === 'function'
+            ? opts.prepareAgentSession
+            : prepareAgentSession;
+        const ask = typeof opts.askSession === 'function' ? opts.askSession : askSession;
+        const updateStatus = typeof opts.updateSessionStatus === 'function'
+            ? opts.updateSessionStatus
+            : updateSessionStatus;
+        const close = typeof opts.closeSession === 'function' ? opts.closeSession : closeSession;
+        const readSession = typeof opts.getSession === 'function' ? opts.getSession : getSession;
         const admission = opts.resourceAdmission || resourceAdmission;
         const admissionAbortLink = composeAgentDispatchAbortSignal([
             opts.parentSignal,
@@ -334,7 +485,7 @@ export function makeAgentDispatch(opts = {}) {
         // pooled or resumed. Cache prefix matching happens at the provider
         // layer (account-level), not the session level.
         const finalPrompt = prompt;
-        const { session } = prepareAgentSession({
+        const { session } = prepare({
             agent,
             presetName,
             preset,
@@ -359,7 +510,7 @@ export function makeAgentDispatch(opts = {}) {
             process.stderr.write(`[agent-dispatch] agent=${agent} tool-list (${_toolNames.length}): ${_toolNames.join(',')}\n`);
         } catch { /* best-effort diagnostic */ }
 
-        await updateSessionStatus(session.id, 'running');
+        await updateStatus(session.id, 'running');
         // Parent→child abort cascade: when opts.parentSignal (factory) or
         // callParentSignal (per-call) fires, abort the sub-session's own
         // controller so the provider call tears down promptly. Best-effort:
@@ -368,7 +519,7 @@ export function makeAgentDispatch(opts = {}) {
         const _linkSignal = _managerMod?.linkParentSignalToSession;
         const _getProgressSnapshot = _managerMod?.getSessionProgressSnapshot;
         const _getLastProgressAt = _managerMod?.getSessionLastProgressAt;
-        const _getSession = _managerMod?.getSession || getSession;
+        const _getSession = _managerMod?.getSession || readSession;
         // Watchdog policy is split:
         // - firstResponseTimeoutMs cuts quickly only when the model produces no
         //   first stream/tool activity at all.
@@ -442,12 +593,13 @@ export function makeAgentDispatch(opts = {}) {
             : null;
         if (_idleTimer && typeof _idleTimer.unref === 'function') _idleTimer.unref();
         let terminalStatus = 'idle';
+        let closeReason = 'ephemeral-done';
         process.stderr.write(`[agent-dispatch] agent=${agent} preset=${presetName} model=${preset.model} provider=${preset.provider} session=${session.id}\n`);
         const _agentDispatchT0 = Date.now();
         let _handoffMsgStart = 0;
         try {
-            _handoffMsgStart = resolveHandoffMessageStartIndex(getSession(session.id));
-            const result = await askSession(session.id, finalPrompt, null, null, cwd, undefined, {
+            _handoffMsgStart = resolveHandoffMessageStartIndex(readSession(session.id));
+            const { onToolCall, askOpts } = buildAgentDispatchAskSessionArgs(opts, callArgs, {
                 onCompactEvent: (event) => {
                     try {
                         const label = agentCompactEventLabel(event);
@@ -458,7 +610,10 @@ export function makeAgentDispatch(opts = {}) {
                         );
                     } catch { /* best-effort compact visibility */ }
                 },
-            });
+            }, session);
+            // liveProjection is a send-opt on askOpts only. Do not stamp it
+            // (or interactiveSessionSurface) onto `session`.
+            const result = await ask(session.id, finalPrompt, null, onToolCall, cwd, undefined, askOpts);
             process.stderr.write(`[agent-dispatch] agent=${agent} session=${session.id} elapsed=${Date.now() - _agentDispatchT0}ms\n`);
             const raw = result?.content || '';
             // Brief cap. Agent role answers (recall/search)
@@ -468,25 +623,23 @@ export function makeAgentDispatch(opts = {}) {
             // majority of answers untouched. Opt-out via `brief:false` when
             // the caller explicitly wants the full synthesis.
             if (opts.brief === false) {
-                try { closeSession(session.id, 'ephemeral-done'); } catch { /* ignore */ }
                 return raw;
             }
             const out = applyBriefCap(raw);
-            try { closeSession(session.id, 'ephemeral-done'); } catch { /* ignore */ }
             return out;
         } catch (err) {
-            const partial = watchdogPartialHandoffFromError(err, getSession(session.id), _handoffMsgStart)
+            terminalStatus = 'error';
+            closeReason = 'ephemeral-error';
+            const partial = watchdogPartialHandoffFromError(err, readSession(session.id), _handoffMsgStart)
                 ?? (salvagePartialRequested(err, _abortLink?.signal)
-                    ? partialHandoffTextFromSession(getSession(session.id), _handoffMsgStart)
+                    ? partialHandoffTextFromSession(readSession(session.id), _handoffMsgStart)
                     : null);
             if (partial) {
                 terminalStatus = 'idle';
-                try { closeSession(session.id, 'ephemeral-done'); } catch { /* ignore */ }
+                closeReason = 'ephemeral-done';
                 if (opts.brief === false) return partial;
                 return applyBriefCap(partial);
             }
-            terminalStatus = 'error';
-            try { closeSession(session.id, 'ephemeral-error'); } catch { /* ignore */ }
             throw err;
         } finally {
             _abortLink.dispose();
@@ -496,7 +649,11 @@ export function makeAgentDispatch(opts = {}) {
             // Always flip out of 'running' before returning so the sweep never
             // leaves a stateless Pool C session stuck in 'running' when the
             // try/catch falls through in unexpected ways.
-            try { await updateSessionStatus(session.id, terminalStatus); } catch { /* ignore */ }
+            try { await updateStatus(session.id, terminalStatus); } catch { /* ignore */ }
+            // closeSession plants a tombstone, after which status writes are
+            // rejected. Publish the terminal projection before closing so
+            // live Agent panes cannot retain their preceding busy:true state.
+            try { close(session.id, closeReason); } catch { /* ignore */ }
         }
         });
         } finally {

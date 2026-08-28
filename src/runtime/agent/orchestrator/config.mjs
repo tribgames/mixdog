@@ -1,6 +1,7 @@
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { readSection, updateSection, updateSectionAsync, getAgentApiKey, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
 import {
+    DEFAULT_DISABLED_AGENT_IDS,
     agentRouteStorageNeedsMigration,
     canonicalizeAgentRouteStorage,
 } from '../../shared/agent-route-config.mjs';
@@ -147,7 +148,7 @@ export const DEFAULT_PRESETS = Object.freeze([
     Object.freeze({ id: 'opus-mid', name: 'OPUS MID', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'medium', tools: 'full' }),
     Object.freeze({ id: 'opus-high', name: 'OPUS HIGH', type: 'agent', provider: 'anthropic-oauth', model: resolveAnthropicFamilyModel('opus'), effort: 'high', tools: 'full' }),
 ]);
-function buildDefaultConfig(options = {}) {
+export function buildDefaultConfig(options = {}) {
     const detectCredentials = options.detectCredentials !== false;
     const providers = {};
     // API providers — enabled if env key exists
@@ -196,7 +197,11 @@ function buildDefaultConfig(options = {}) {
     // Local providers — opt-in via setup UI after HTTP ping confirms server is running
     providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };
     providers.lmstudio = { enabled: false, baseURL: 'http://localhost:1234/v1' };
-    return { providers, workflow: { active: 'default' } };
+    return {
+        providers,
+        disabledAgents: [...DEFAULT_DISABLED_AGENT_IDS],
+        workflow: { active: 'default' },
+    };
 }
 
 function hasKeys(value) {

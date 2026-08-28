@@ -1,6 +1,10 @@
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
+import {
+  isAgentOnlySession,
+  isRootLeadSession,
+} from '../runtime/agent/orchestrator/session/store-summary-visibility.mjs';
 import { writeStatuslineRoute } from './statusline-route.mjs';
 import {
   sessionMessageText,
@@ -100,8 +104,14 @@ export function createLifecycleApi(deps) {
     return mgr.listSessions({
       refreshFromStorage: options?.refreshFromStorage === true,
     }).map(s => {
+    // Durable visibility is the catalog boundary. Apply it before the legacy
+    // lead-shape heuristics so an explicitly agent-only child cannot leak just
+    // because its owner field looks ordinary.
+    if (isAgentOnlySession(s)) return null;
     const owner = clean(s.owner || 'user').toLowerCase();
-    if (owner && !['cli', 'user', 'mixdog'].includes(owner)) return null;
+    // A root Lead can carry Agent ownership plus a self-link after recovery;
+    // it remains an ordinary resumable session, not a child dispatch.
+    if (!isRootLeadSession(s) && owner && !['cli', 'user', 'mixdog'].includes(owner)) return null;
     const sourceType = clean(s.sourceType || '').toLowerCase();
     const sourceName = clean(s.sourceName || '').toLowerCase();
     const agent = clean(s.agent || '').toLowerCase();
@@ -192,6 +202,17 @@ export function createLifecycleApi(deps) {
     } catch { /* best-effort: memory ingest must never break lifecycle paths */ }
   }
   return {
+    /** Plant the ordinary manager/store tombstone barrier for a canonical
+     *  child session without running whole-process teardown. */
+    closeCanonicalSession(reason = 'canonical-session-close') {
+      const session = getSession?.();
+      if (!session?.id || session.remoteAttached === true) return false;
+      const closed = mgr.closeSession(session.id, reason, { tombstone: true }) === true;
+      if (!closed) return false;
+      setSession?.(null);
+      invalidateContextStatusCache?.();
+      return true;
+    },
     async close(reason = 'cli-exit', options = {}) {
       const detach = options?.detach === true || options?.wait === false || options?.waitForExit === false;
       // Desktop multi-engine hosts dispose idle engines while other sessions

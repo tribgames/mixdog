@@ -7,6 +7,9 @@ import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
 import { toSessionWorkflowMeta, workflowDisallowsAgentTool } from './workflow.mjs';
 import { PATCH_TOOL_DEFS } from '../runtime/agent/orchestrator/tools/patch-tool-defs.mjs';
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
+import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
+import { GOAL_TOOL_DEFS } from './goal-runtime.mjs';
+import { finalizeSessionToolList } from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 
 const require = createRequire(import.meta.url);
 const { omitToolRoutes, buildSharedToolContent, buildAgentRoleContent } = require('../lib/rules-builder.cjs');
@@ -121,6 +124,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // Advisory drift check: update these anchors when the rule text
   // intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
+  assert.match(full, /Confirm destructive\/hard-to-reverse actions against explicit validated paths/i);
+  assert.match(full, /never `~`, a root, or unresolved variables\/globs/i);
   assert.match(full, /Determine the required outcome and missing evidence/i);
   assert.match(full, /Before exploration or implementation, consult prior work, current external\s+information, or repository state only when needed/i);
   assert.match(full, /Minimize tool turns by batching only calls that are independently necessary/i);
@@ -167,14 +172,18 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   const headings = ['# General', '# Tool Workflow', '# Research', '# Exploration', '# Editing', '# Execution', '# Verification', '# Delivery', '# Memory'];
   assert.deepEqual(headings.map((heading) => full.indexOf(heading)), headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b));
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));
+  assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('goal'));
   assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git_stage'), false);
+  assert.deepEqual(LEAD_DISALLOWED_TOOLS, [
+    'get_goal', 'create_goal', 'set_goal_tasks', 'update_goal',
+  ]);
 });
 
-test('agent git policy allows repository evidence but keeps mutations Lead-only', () => {
+test('agent common policy delegates verification unless AGENT.md explicitly owns it', () => {
   const rules = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
-  assert.match(rules, /Use `git` only for read-only repository evidence/i);
-  assert.match(rules, /Refuse Git mutations\s+including `add`\/`commit`\/`push`\/`stash`/i);
-  assert.doesNotMatch(rules, /Never touch git/i);
+  assert.match(rules, /Unless an agent's own `AGENT\.md` explicitly assigns a review or verification/i);
+  assert.match(rules, /skip builds, tests, lint, runtime checks/i);
+  assert.match(rules, /Lead or an explicitly verification-assigned agent owns verification/i);
 });
 
 test('apply_patch keeps grammar and mutation behavior on the freeform surface', () => {
@@ -199,14 +208,14 @@ test('toSessionWorkflowMeta keeps delegatesAgents for Solo packs', () => {
   assert.equal(workflowDisallowsAgentTool({ id: 'solo' }), false);
 });
 
-function surfaceFor({ session = null, denied = [], standalone = [] } = {}) {
+function surfaceFor({ session = null, denied = [], standalone = [], provider = 'grok-oauth' } = {}) {
   return createToolSurface({
     mgr: { previewSessionTools: () => standalone },
     mode: 'full',
     standaloneTools: standalone,
     agentToolNames: new Set(['agent']),
     getSession: () => session,
-    getRoute: () => ({ provider: 'grok-oauth' }),
+    getRoute: () => ({ provider }),
     getConfig: () => ({ workflow: { active: 'solo' } }),
     cfgMod: { getPluginData: () => '' },
     loadWorkflowPack: () => ({ id: 'solo', delegatesAgents: false }),
@@ -233,28 +242,72 @@ test('modelStandaloneTools hides agent and disabled web-search/memory tools', ()
   assert.deepEqual(modelStandaloneTools().map((tool) => tool.name), ['read']);
 });
 
-test('activateTools refreshes a stale session catalog before selecting new runtime tools', () => {
+test('Agent standalone and deferred tools match Lead except for agent control', () => {
+  const standalone = [
+    { name: 'agent' },
+    { name: 'load_tool', annotations: { agentHidden: true } },
+    { name: 'cwd', annotations: { agentHidden: true } },
+    { name: 'memory' },
+    { name: 'mcp__demo__tool' },
+  ];
+  const lead = surfaceFor({
+    session: { owner: 'cli', workflow: { delegatesAgents: true } },
+    standalone,
+  }).modelStandaloneTools().map((tool) => tool.name);
+  const agent = surfaceFor({
+    session: { owner: 'agent', visibility: 'agent-only', workflow: { delegatesAgents: true } },
+    standalone,
+  }).modelStandaloneTools().map((tool) => tool.name);
+  assert.deepEqual(lead, ['agent', 'load_tool', 'cwd', 'memory', 'mcp__demo__tool']);
+  assert.deepEqual(agent, ['load_tool', 'cwd', 'memory', 'mcp__demo__tool']);
+});
+
+test('Agent base tools keep every Lead tool except agent regardless of agentHidden metadata', () => {
+  const tools = [
+    { name: 'agent' },
+    { name: 'load_tool', annotations: { agentHidden: true } },
+    { name: 'cwd', annotations: { agentHidden: true } },
+    { name: 'read' },
+    { name: 'apply_patch' },
+  ];
+  assert.deepEqual(
+    finalizeSessionToolList(tools, { ownerIsAgent: true }).map((tool) => tool.name),
+    ['read', 'apply_patch', 'load_tool', 'cwd'],
+  );
+});
+
+test('Goal is always active on the native Lead tool surface', () => {
+  const surface = surfaceFor({
+    standalone: GOAL_TOOL_DEFS,
+    provider: 'openai-oauth',
+  }).activeToolSurface();
+  assert.deepEqual(surface.tools.map((tool) => tool.name), ['goal']);
+  assert.equal(surface.deferredCallableTools.includes('goal'), true);
+  assert.equal((surface.deferredToolCatalog || []).some((tool) => tool.name === 'create_goal'), false);
+});
+
+test('Goal stays active while legacy Goal schemas are removed from restored sessions', () => {
   const read = { name: 'read', annotations: { readOnlyHint: true } };
-  const updateGoal = { name: 'update_goal', annotations: { readOnlyHint: false } };
+  const legacyGoal = { name: 'update_goal', annotations: { readOnlyHint: false } };
+  const goal = { name: 'goal', annotations: { readOnlyHint: false } };
   const session = {
     provider: 'grok-oauth',
     messages: [{ role: 'system', content: '# Existing session' }],
-    tools: [read],
-    deferredToolCatalog: [read],
-    deferredCallableTools: ['read'],
-    deferredSelectedTools: ['read'],
+    tools: [read, legacyGoal],
+    deferredToolCatalog: [read, legacyGoal],
+    deferredCallableTools: ['read', 'update_goal'],
+    deferredSelectedTools: ['read', 'update_goal'],
     deferredToolBp2Applied: true,
   };
-  const surface = surfaceFor({ session, standalone: [read, updateGoal] });
-  const result = surface.activateTools(['update_goal']);
+  const surface = surfaceFor({ session, standalone: [read, goal] });
+  const result = surface.activateTools(['goal']);
   assert.deepEqual(result.missing, []);
-  assert.equal(
-    new Set([
-      ...session.tools.map((tool) => tool.name),
-      ...(session.deferredCallableTools || []),
-    ]).has('update_goal'),
-    true,
-  );
+  const visible = new Set([
+    ...session.tools.map((tool) => tool.name),
+    ...(session.deferredCallableTools || []),
+  ]);
+  assert.equal(visible.has('goal'), true);
+  assert.equal(visible.has('update_goal'), false);
 });
 
 test('empty session refresh strips denied tools and BP1 routes', async () => {

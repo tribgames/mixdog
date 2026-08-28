@@ -3,6 +3,15 @@ const REDUNDANT_WORKFLOW_PRESET_IDS = new Set([
   'workflow-memory',
 ]);
 
+export const DEFAULT_DISABLED_AGENT_IDS = Object.freeze([
+  'worker',
+  'heavy-worker',
+  'reviewer',
+  'security',
+  'front-worker',
+  'writer',
+]);
+
 function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }

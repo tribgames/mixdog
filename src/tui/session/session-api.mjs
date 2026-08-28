@@ -86,7 +86,7 @@ export function createSessionApiA(bag) {
     // normal post-tool boundary, where this queued prompt is injected.
     if (accepted !== false) {
       if ((intake.queueOptions.mode || 'prompt') === 'prompt') {
-        bag.archiveCompletedGoalOnUserInput?.();
+        bag.cancelQueuedGoalContinuations?.();
       }
       try { runtime.interruptTaskWait?.('user-message'); } catch {}
     }
@@ -135,6 +135,19 @@ export function createSessionApiA(bag) {
     }
     return await Promise.resolve(enqueueSubmission(intake)) !== false;
   };
+  const submitAndWait = async (text, options = {}) => {
+    let resolveSettled;
+    const settled = new Promise((resolve) => { resolveSettled = resolve; });
+    const accepted = await submitAsync(text, {
+      ...options,
+      onSettled: (detail) => {
+        try { options.onSettled?.(detail); } catch {}
+        resolveSettled(detail);
+      },
+    });
+    if (!accepted) return { status: 'rejected', result: null, session: null };
+    return await settled;
+  };
   return {
     getState: () => getPublishedState(),
     patchItem,
@@ -146,6 +159,7 @@ export function createSessionApiA(bag) {
     },
     submit,
     submitAsync,
+    submitAndWait,
     reserveSession: (sessionId) => {
       const id = runtime.reserveSessionId?.(sessionId);
       if (!id) return false;

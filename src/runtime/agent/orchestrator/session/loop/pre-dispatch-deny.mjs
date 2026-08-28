@@ -5,22 +5,13 @@
 // Error string the serial path would emit. The eager caller ignores the
 // message body and just treats non-null as "do not start eager".
 //
-// This is NOT a permission gate — runtime permission enforcement was removed
-// (every tool call is trusted). What remains is architectural scoping:
-// agent workers are sandboxed to code/research tools. They must never reach
-// owner/host control surfaces: session management, the ENTIRE channels module
-// (Discord messaging, schedules, webhook/config, channel-bridge toggle,
-// command injection), or host input injection. Explicit name list (no imports)
-// keeps this hot-path gate dependency-free; add new owner/channel tools here.
+// This is NOT a permission gate — every tool call is trusted. Lead and Agent
+// share the same runtime surface; only recursive Agent session control remains
+// Lead-only.
 import { isAgentOwner } from '../../agent-owner.mjs';
 
 const WORKER_DENIED_TOOLS = new Set([
-    // session control-plane — unified into the single `agent` tool
-    // (type=spawn|send|close|list). Denying the one name blocks all worker
-    // session control.
     'agent',
-    // host input injection
-    'inject_input',
 ]);
 
 const IMAGE_PATH_RE = /\.(?:png|jpe?g|gif|webp)(?:$|[?#])/i;
@@ -99,10 +90,6 @@ function _preDispatchDeny(call, toolKind, sessionRef) {
     const _controlPlaneTool = WORKER_DENIED_TOOLS.has(name);
     if (_agentOwned && _controlPlaneTool) {
         return `Error: control-plane tool "${name}" is Lead-only and not available to agent workers.`;
-    }
-    const noToolAgent = sessionRef?.agent === 'cycle1-agent' || sessionRef?.agent === 'cycle2-agent';
-    if (noToolAgent) {
-        return `Error: tool "${name}" is not available in agent "${sessionRef.agent}". Re-emit the answer as pipe-separated text per the agent's output format (first character a digit, NO tool_use blocks, NO JSON, NO prose, NO apology).`;
     }
     return null;
 }

@@ -1114,6 +1114,14 @@ export function SourceControlDock({
       <ProgressSpinner size={16} aria-hidden="true" /> Loading…
     </div>;
   }
+  if (!status && statusError) {
+    // Git status is a background read. A cold host/repository can miss the
+    // first pass, so keep that failure in the panel's neutral empty-state
+    // grammar instead of flashing the red action-error bar.
+    return <p className="utility-dock-empty" role="status">
+      Source Control is temporarily unavailable.
+    </p>;
+  }
   if (status && !status.repository) {
     return <p className="utility-dock-empty">
       The selected project is not a Git repository.
@@ -1263,7 +1271,7 @@ export function SourceControlDock({
       </div>;
       })()}
     </div>}
-    {(error || statusError) && <p className="dock-scm-error" role="alert">{error || statusError}</p>}
+    {error && <p className="dock-scm-error" role="alert">{error}</p>}
     {!prOnly && status?.operation && <div className="dock-scm-operation" role="status">
       <div>
         <b>{status.operation.replace("-", " ")} in progress</b>

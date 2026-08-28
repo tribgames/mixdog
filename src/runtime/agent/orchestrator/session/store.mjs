@@ -71,7 +71,7 @@ import { _ensureSummaryCacheDataDir, _cachedSummaryRows, _setSummaryRowsCache, _
 import { _lastSaveError, _liveSessions, _droppedSaveIds, setLiveSession, _clearLiveSession, LIVE_MEDIA_RETENTION_MS, _messagesCarryLiveMedia, getSessionSaveError, clearSessionSaveError, _recordSaveFailure, _recordSaveDrop, _clearSaveStateIfCurrent, _nextSaveEpoch, _acquireSessionIncarnation, _releaseSessionIncarnation, _isCurrentSessionIncarnation, _retireSessionIncarnation, _clearSessionSaveState, SAVE_OUTCOME_SAVED, SAVE_OUTCOME_DROPPED, SAVE_OUTCOME_STALE, hasSessionSaveFailure, getFailedSaveSnapshot, _recordLifecycleCommitFailure, clearSessionLifecycleCommitError } from './store/live-state.mjs';
 import { _saveWorkerPending, _saveAsyncQueued, _saveAsyncInflight, _deferredSessionSaves, saveSessionAsync, saveSessionAsyncDeferred, _resetSaveWorkerBookkeeping } from './store/save-worker.mjs';
 import { purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping } from './store/save-worker.mjs';
-import { _setSessionWriteAuthorityCheck } from './store/save-worker.mjs';
+import { _setLiveSessionPublisher, _setSessionWriteAuthorityCheck } from './store/save-worker.mjs';
 import {
     _commitSessionWrite,
     _discardSaveTmp,
@@ -120,6 +120,8 @@ function _publishLiveSession(session) {
         try { listener(session); } catch { /* observers never affect persistence */ }
     }
 }
+
+_setLiveSessionPublisher(_publishLiveSession);
 
 function _runSessionPurgeHooks(id) {
     for (const hook of _sessionPurgeHooks) {

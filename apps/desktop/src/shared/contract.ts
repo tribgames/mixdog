@@ -234,6 +234,10 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   tag: string;
   sessionId: string;
   ownerSessionId: string | null;
+  /** Immediate spawn parent. Equals `ownerSessionId` for a first-generation
+   *  child; a nested descendant points at the agent session that spawned it,
+   *  which is how the Agent window reconstructs the Parent–Child hierarchy. */
+  parentSessionId?: string | null;
   title?: string | null;
   agent: string | null;
   provider: string | null;
@@ -276,24 +280,23 @@ export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> 
   name?: string;
 }
 
-export interface DesktopGoalCriterion extends Readonly<Record<string, unknown>> {
+export interface DesktopGoalTask extends Readonly<Record<string, unknown>> {
   id?: string;
   text?: string;
-  satisfied?: boolean;
-  evidence?: string;
+  status?: 'pending' | 'in_progress' | 'completed';
+  kind?: 'work' | 'verification';
 }
 
 export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
   id?: string;
   sessionId?: string;
   objective?: string;
+  title?: string;
   status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete';
-  criteria?: DesktopGoalCriterion[];
-  criteriaCompleted?: number;
-  criteriaTotal?: number;
-  progressSummary?: string;
+  tasks?: DesktopGoalTask[];
+  tasksCompleted?: number;
+  tasksTotal?: number;
   blocker?: string;
-  completionEvidence?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;
   remainingMs?: number;
@@ -314,7 +317,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   spinner?: DesktopActivityState | null;
   commandStatus?: DesktopActivityState | null;
   goal?: DesktopGoalState | null;
-  progressHint?: { text?: string; tone?: string } | null;
+  progressHint?: { text?: string; tone?: string; percent?: number } | null;
   fast?: boolean;
   fastCapable?: boolean;
   modelParameters?: Readonly<Record<string, string>>;

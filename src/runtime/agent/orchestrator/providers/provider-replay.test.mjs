@@ -12,6 +12,7 @@ import { convertMessagesToResponsesInput } from './openai-responses-payload.mjs'
 import { toOpenAIMessages, toXaiResponsesInput } from './openai-compat-wire.mjs';
 import { estimateMessagesTokens } from '../session/context-utils.mjs';
 import { _sessionForDisk } from '../session/store/serialize.mjs';
+import { recallFastTrackCompactMessages } from '../session/compact.mjs';
 
 function interleavedAnthropicBlocks() {
     const blocks = [{ type: 'thinking', thinking: '', signature: 'sig-a' }];
@@ -231,5 +232,57 @@ test('provider replay survives disk projection and contributes to context size',
     assert.ok(
         estimateMessagesTokens([message])
         > estimateMessagesTokens([{ role: 'assistant', content: '' }]),
+    );
+});
+
+test('recall prose projection removes native calls whose tool outputs were removed', () => {
+    const callId = 'call_compact_replay_orphan';
+    const compacted = recallFastTrackCompactMessages([
+        { role: 'system', content: 'system rules stay mandatory' },
+        { role: 'user', content: 'older retained request' },
+        {
+            role: 'assistant',
+            content: 'running the older shell command',
+            toolCalls: [{ id: callId, name: 'shell', arguments: { command: 'node old-test.mjs' } }],
+            providerReplay: createProviderReplay('openai-responses', [
+                {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'running the older shell command' }],
+                },
+                {
+                    type: 'function_call',
+                    call_id: callId,
+                    name: 'shell',
+                    arguments: '{"command":"node old-test.mjs"}',
+                },
+            ]),
+        },
+        { role: 'tool', toolCallId: callId, content: 'background task started' },
+        { role: 'user', content: 'newest request remains live' },
+        { role: 'assistant', content: 'newest answer remains live' },
+    ], 20_000, {
+        tailTurns: 2,
+        force: true,
+        recallText: 'recall hit: older retained request',
+        query: 'provider replay projection',
+        querySha: 'providerreplayprojection',
+    });
+
+    const projectedAssistant = compacted.messages.find(
+        (message) => message?.role === 'assistant'
+            && message.content === 'running the older shell command',
+    );
+    assert.ok(projectedAssistant);
+    assert.equal(projectedAssistant.toolCalls, undefined);
+    assert.equal(projectedAssistant.providerReplay, undefined);
+
+    const wire = convertMessagesToResponsesInput(
+        compacted.messages,
+        { replayEncryptedReasoning: true },
+    );
+    assert.equal(
+        wire.some((item) => item?.type === 'function_call' && item.call_id === callId),
+        false,
     );
 });

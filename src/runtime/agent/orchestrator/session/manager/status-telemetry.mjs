@@ -58,9 +58,12 @@ export function recordStandaloneStatusTelemetry(session, result, durationMs) {
             ...summarizeGatewayUsage(routeInfo, providerOut, _compactArg, durationMs),
             requestKind: 'chat',
             sessionId: session.id || null,
+            sourceType: session.sourceType || 'lead',
+            sourceName: session.sourceName || session.agent || null,
             toolCount: result.toolCallsTotal ?? null,
             messageCount: Array.isArray(session.messages) ? session.messages.length : null,
             cacheStrategy: session.providerCacheOpts?.cacheStrategy || null,
+            transportTiming: result.transportTiming || null,
         };
         recordGatewayUsageEvent(summary);
     } catch {

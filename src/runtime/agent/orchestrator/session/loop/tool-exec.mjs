@@ -333,7 +333,10 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
             clientHostPid: sessionRef?.clientHostPid,
             signal: executeOpts.signal,
             routingSessionId: callerSessionId,
+            turnId: Number(sessionRef?.usageMetricsTurnId) || 0,
             notifyFn,
+            toolApprovalHook,
+            toolCallId: executeOpts.toolCallId || null,
             invocationSource: 'model-tool',
         });
     }

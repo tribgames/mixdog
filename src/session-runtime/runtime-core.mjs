@@ -279,8 +279,14 @@ import { TOOL_DEFS as BROWSER_BRIDGE_TOOL_DEFS } from '../runtime/browser-bridge
 import {
   computerBridgeAvailableSync,
   executeComputerTool,
+  releaseComputerSession,
 } from '../runtime/computer-bridge/client.mjs';
 import { TOOL_DEFS as COMPUTER_BRIDGE_TOOL_DEFS } from '../runtime/computer-bridge/tool-defs.mjs';
+import {
+  executeOfficeTool,
+  initializeOfficeTransactions,
+} from '../runtime/office/index.mjs';
+import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../runtime/office/tool-defs.mjs';
 import {
   dispatchWebSearchRuntimeTool,
   memoryToolArgsForCaller,
@@ -329,6 +335,9 @@ const {
 export async function createMixdogSessionRuntime({
   provider,
   model,
+  effort,
+  fast,
+  modelParameters,
   cwd = process.cwd(),
   toolMode = 'full',
   approvalMode = null,
@@ -337,6 +346,8 @@ export async function createMixdogSessionRuntime({
   initialConfig = null,
   remote = false,
   desktopSession: initialDesktopSession = null,
+  sessionProfile: initialSessionProfile = null,
+  executeAgentControl = null,
 } = {}) {
   // Shared mutable runtime state, promoted from closure `let`s so extracted
   // modules can read/write live values through one reference.
@@ -345,6 +356,9 @@ export async function createMixdogSessionRuntime({
   rt.disallowDelegation = disallowDelegation === true;
   rt.mcpScopeId = randomUUID();
   rt.desktopSession = initialDesktopSession;
+  rt.sessionProfile = initialSessionProfile && typeof initialSessionProfile === 'object'
+    ? { ...initialSessionProfile }
+    : null;
   bootProfile('session-runtime:start', { provider, model, toolMode, cwd });
   // Last assistant text handed to the transcript writer (via onAssistantText),
   // so the post-turn final-content append can skip an exact duplicate.
@@ -355,6 +369,10 @@ export async function createMixdogSessionRuntime({
     rootDir: STANDALONE_ROOT,
     dataDir: STANDALONE_DATA_DIR,
   });
+  const pendingOfficeTransactions = await initializeOfficeTransactions(STANDALONE_DATA_DIR).catch(() => []);
+  rt.officeRecoveryContext = pendingOfficeTransactions.length
+    ? `<office-recovery>\n${pendingOfficeTransactions.length} unfinished Office transaction journal(s) were found after startup. Do not overwrite them. Use office action=transactions, show the diff/preview to the user, then recover with explicit commit, rollback, or discard approval.\n${pendingOfficeTransactions.slice(0, 10).map((item) => `- ${item.id} ${item.format} ${item.phase} ${item.output}`).join('\n')}\n</office-recovery>`
+    : '';
   bootProfile('standalone-env:ready', { ms: (performance.now() - standaloneStartedAt).toFixed(1) });
   const keychainPrewarmPromise = keychain.prewarmSecrets();
   rt.keychainPrewarmWaitDone = false;
@@ -529,6 +547,11 @@ export async function createMixdogSessionRuntime({
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);
   rt.configHasSecrets = false;
   rt.route = resolveRoute(rt.config, { provider, model });
+  if (effort !== undefined) rt.route = { ...rt.route, effort: effort || null };
+  if (fast === true || fast === false) rt.route = { ...rt.route, fast };
+  if (modelParameters && typeof modelParameters === 'object') {
+    rt.route = { ...rt.route, modelParameters: { ...modelParameters } };
+  }
   // Unset means the default "follow the Main Model" route, not "unconfigured".
   rt.webSearchRoute = normalizeWebSearchRouteConfig(rt.config.webSearchRoute)
     || normalizeWebSearchRouteConfig({
@@ -857,13 +880,20 @@ export async function createMixdogSessionRuntime({
   const routedAgentTool = {
     ...agentTool,
     execute(args, context = {}) {
-      return remoteAgentControlEnabled()
+      return typeof executeAgentControl === 'function'
+        ? executeAgentControl(args, context)
+        : remoteAgentControlEnabled()
         ? executeRemoteAgentControl(args, context)
         : agentTool.execute(args, context);
     },
     closeAll(reason, scope = {}) {
-      if (!remoteAgentControlEnabled()) return agentTool.closeAll(reason, scope);
-      void executeRemoteAgentControl({
+      if (typeof executeAgentControl !== 'function' && !remoteAgentControlEnabled()) {
+        return agentTool.closeAll(reason, scope);
+      }
+      const execute = typeof executeAgentControl === 'function'
+        ? executeAgentControl
+        : executeRemoteAgentControl;
+      void execute({
         type: '__close_all',
         reason: String(reason || 'agent owner closed'),
       }, {
@@ -893,6 +923,12 @@ export async function createMixdogSessionRuntime({
   };
   goalRuntime = createGoalRuntime({
     dataDir: cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
+    generateTitle: async (source, options = {}) => {
+      const { generateSessionTitle } = await import(
+        '../runtime/agent/orchestrator/agent-runtime/title-completion.mjs'
+      );
+      return generateSessionTitle(source, options);
+    },
   });
   if (rt.session?.id || rt.reservedSessionId) {
     goalRuntime.watchSession(rt.session?.id || rt.reservedSessionId);
@@ -934,6 +970,7 @@ export async function createMixdogSessionRuntime({
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
     ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser'),
     ...COMPUTER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'computer'),
+    ...OFFICE_TOOL_DEFS.filter((tool) => tool?.name === 'office'),
     ...goalRuntime.tools,
     ...agentTool.tools,
   ].map(applyStandaloneToolDefaults);
@@ -948,7 +985,6 @@ export async function createMixdogSessionRuntime({
   // replay) lives in tool-surface.mjs.
   const {
     modelStandaloneTools,
-    activateTools: activateRuntimeTools,
     invalidatePreSessionToolSurface,
     activeToolSurface,
     applyPreSessionToolSelection,
@@ -1005,13 +1041,33 @@ export async function createMixdogSessionRuntime({
         if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_BROWSER') === false) {
           throw new Error('the browser tool is disabled in this environment');
         }
-        return await executeBrowserTool(args);
+        return await executeBrowserTool(args, {
+          sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
+          turnId: callerCtx?.turnId || rt.session?.usageMetricsTurnId,
+          signal: callerCtx?.signal || rt.session?.controller?.signal || null,
+        });
       }
       if (name === 'computer') {
         if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_COMPUTER') === false) {
           throw new Error('the computer tool is disabled in this environment');
         }
-        return await executeComputerTool(args);
+        return await executeComputerTool(args, {
+          sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
+          cwd: callerCwd,
+          requestApproval: callerCtx?.toolApprovalHook,
+          toolCallId: callerCtx?.toolCallId || null,
+          signal: callerCtx?.signal || rt.session?.controller?.signal || null,
+        });
+      }
+      if (name === 'office') {
+        return await executeOfficeTool(args, {
+          cwd: callerCwd,
+          dataDir: STANDALONE_DATA_DIR,
+          requestApproval: callerCtx?.toolApprovalHook,
+          sessionId: callerCtx?.sessionId,
+          toolCallId: callerCtx?.toolCallId,
+          signal: callerCtx?.signal || rt.session?.controller?.signal || null,
+        });
       }
       if (name === 'web_search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
         return dispatchWebSearchRuntimeTool(name, args, callerCtx, {
@@ -1062,7 +1118,7 @@ export async function createMixdogSessionRuntime({
       if (name === 'Skill') {
         return skillToolContent(args?.name);
       }
-      if (name === 'get_goal' || name === 'create_goal' || name === 'update_goal') {
+      if (name === 'goal' || name === 'get_goal' || name === 'create_goal' || name === 'set_goal_tasks' || name === 'update_goal') {
         return await goalRuntime.executeTool(name, args || {}, {
           callerSessionId: callerCtx?.callerSessionId || rt.session?.id || rt.reservedSessionId || null,
         });
@@ -1572,16 +1628,14 @@ export async function createMixdogSessionRuntime({
   });
   const resourceApi = createResourceApi({
     getConfig: () => rt.config,
-    getSession: () => rt.session,
     getCurrentCwd: () => rt.currentCwd,
     cfgMod,
-    mgr,
     hooks,
     STANDALONE_DATA_DIR,
     saveConfigAndAdopt,
     connectConfiguredMcp,
     invalidatePreSessionToolSurface,
-    recreateCurrentSessionIfReady,
+    refreshEmptySessionToolPolicy,
     normalizeMcpServerInput,
     mcpStatus,
     getMcpServerConfig,
@@ -1597,7 +1651,6 @@ export async function createMixdogSessionRuntime({
     reloadFullConfig,
     flushSkillsSave,
     awaitKeychainPrewarm,
-    getActiveTurnCount: () => rt.activeTurnCount,
   });
   disposeGlobalExtensionSubscription = () => resourceApi.disposeGlobalExtensionSubscription?.();
   const modelRouteApi = createModelRouteApi({
@@ -1636,9 +1689,7 @@ export async function createMixdogSessionRuntime({
     getRoute: () => rt.route,
     setRouteState: (v) => { rt.route = v; },
     getSession: () => rt.session,
-    setSession: adoptSession,
     cfgMod,
-    mgr,
     STANDALONE_DATA_DIR,
     resolveRoute,
     lookupModelMeta,
@@ -1656,8 +1707,6 @@ export async function createMixdogSessionRuntime({
     getOutputStyleStatusCached,
     seedOutputStyleStatusCache,
     scheduleOutputStyleSave,
-    recreateCurrentSessionIfReady,
-    notifyFnForSession,
     invalidateContextStatusCache,
     invalidatePreSessionToolSurface,
     refreshEmptySessionToolPolicy,
@@ -1696,8 +1745,8 @@ export async function createMixdogSessionRuntime({
     scheduleProviderModelWarmup,
     invalidateContextStatusCache,
     agentTool: routedAgentTool,
-    recreateCurrentSessionIfReady,
     invalidatePreSessionToolSurface,
+    refreshEmptySessionToolPolicy,
     activeToolSurface,
     applyResolvedCwd,
     resolveCwdPath,
@@ -1709,6 +1758,7 @@ export async function createMixdogSessionRuntime({
     getReservedSessionId: () => rt.reservedSessionId,
     registerActiveTurnController,
     sessionTitles,
+    releaseComputerSessionLease: releaseComputerSession,
   });
 
   return {
@@ -1775,20 +1825,20 @@ export async function createMixdogSessionRuntime({
         sessionId = rt.session?.id || rt.reservedSessionId || null;
       }
       if (!sessionId) throw new Error('goal: session could not be created');
-      const result = await goalRuntime.control(sessionId, args);
-      if (result?.goal?.status === 'active') {
-        activateRuntimeTools(goalRuntime.tools.map((tool) => tool.name));
-      }
-      return result;
+      return goalRuntime.control(sessionId, args);
     },
     goalContinuation() {
       const sessionId = rt.session?.id || rt.reservedSessionId || null;
       if (!sessionId) return { run: false, reason: 'missing-session', goal: null };
-      const continuation = goalRuntime.continuation(sessionId, { agentStatus: agentStatusState() });
-      if (continuation.run) {
-        activateRuntimeTools(goalRuntime.tools.map((tool) => tool.name));
-      }
-      return continuation;
+      return goalRuntime.continuation(sessionId, { agentStatus: agentStatusState() });
+    },
+    goalTurnStarted() {
+      const sessionId = rt.session?.id || rt.reservedSessionId || null;
+      return sessionId ? goalRuntime.startTurn(sessionId) : null;
+    },
+    goalTurnSettled(detail = {}) {
+      const sessionId = rt.session?.id || rt.reservedSessionId || null;
+      return sessionId ? goalRuntime.settleTurn(sessionId, detail) : null;
     },
     archiveCompletedGoalOnUserInput() {
       const sessionId = rt.session?.id || rt.reservedSessionId || null;

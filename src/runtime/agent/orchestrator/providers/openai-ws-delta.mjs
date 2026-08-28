@@ -196,6 +196,31 @@ function _normalizedResponseItemDiagnosticHash(item) {
         .digest('hex');
 }
 
+export function _requestInputMismatchDiagnostics(currentInput, previousInput) {
+    const current = Array.isArray(currentInput) ? currentInput : [];
+    const previous = Array.isArray(previousInput) ? previousInput : [];
+    let index = Math.min(current.length, previous.length);
+    const limit = Math.min(current.length, previous.length);
+    for (let cursor = 0; cursor < limit; cursor += 1) {
+        if (_requestInputItemsMatch(current[cursor], previous[cursor])) continue;
+        index = cursor;
+        break;
+    }
+    const expected = previous[index];
+    const actual = current[index];
+    return {
+        inputPrefixMismatchIndex: index,
+        inputPrefixMismatchPreviousCount: previous.length,
+        inputPrefixMismatchCurrentCount: current.length,
+        inputPrefixMismatchExpectedType: expected?.type
+            || (expected?.role === 'assistant' ? 'message' : (expected ? 'unknown' : 'missing')),
+        inputPrefixMismatchExpectedHash: _normalizedResponseItemDiagnosticHash(expected),
+        inputPrefixMismatchActualType: actual?.type
+            || (actual?.role === 'assistant' ? 'message' : (actual ? 'unknown' : 'missing')),
+        inputPrefixMismatchActualHash: _normalizedResponseItemDiagnosticHash(actual),
+    };
+}
+
 function _responseOutputMismatchDiagnostics(inputItem, responseItem, replayItemCount, responseItemCount) {
     return {
         response_output_mismatch_expected_type: responseItem?.type || 'unknown',
@@ -312,16 +337,11 @@ export function _buildResponseCreateFrame(body, { previousResponseId = null, inp
 
 export function _computeDelta({ entry, body, traceProvider }) {
     // DEFAULT: full-frame sends. codex's delta path is only cache-safe with
-    // the x-codex-turn-state sticky-routing token. R11-R14 (2026-07-03)
-    // measured zero turn-state EVENTS across 200+ calls despite
-    // UA/version/beta-features/client_metadata parity, and delta at 18-28% warm
-    // miss vs full-frame 0.0%. The event channel is still silent, but the
-    // conclusion "the backend never issues it to us" was wrong: the token
-    // arrives on the handshake 101 response instead (2026-08-21 bench: 81 of 88
-    // calls carried it from iteration 1, before any response event existed), so
-    // the pool captures it at upgrade and the frame metadata replays it.
-    // Without the sticky token, previous_response_id requests hop cache nodes
-    // and only the first prefix blocks hit.
+    // the x-codex-turn-state sticky-routing token. The token is request-scoped:
+    // response metadata establishes it, later response.create frames replay it
+    // for the same logical turn, and a new turn starts empty even when it reuses
+    // the physical connection. Handshake state is deliberately ignored because
+    // a connection can outlive the turn that created it.
     // Delta gating flows through the single transport-policy switch
     // (MIXDOG_OAI_TRANSPORT: ws-full | ws-delta | http-sse). Default ws-delta
     // selects the refs-compatible safe delta; 'ws-full'/'http-sse' force full
@@ -379,7 +399,12 @@ export function _computeDelta({ entry, body, traceProvider }) {
     const curInput = Array.isArray(body.input) ? body.input : [];
     const afterPreviousInput = _stripRequestPrefix(curInput, entry.lastRequestInput);
     if (!afterPreviousInput) {
-        return { mode: 'full', reason: 'input_prefix_mismatch', frame: buildFrame(body) };
+        return {
+            mode: 'full',
+            reason: 'input_prefix_mismatch',
+            requestInputMismatch: _requestInputMismatchDiagnostics(curInput, entry.lastRequestInput),
+            frame: buildFrame(body),
+        };
     }
     const stripped = _stripResponseItemsFromHead(afterPreviousInput, entry.lastResponseItems);
     if (!stripped.ok) {

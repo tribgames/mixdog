@@ -97,10 +97,13 @@ export function createStandaloneAgent({
   mcpScopeId = null,
   onSubagentEvent,
   notifySessionCompletion,
+  sessionSurface = null,
   awaitKeychainPrewarm = async () => {},
   isKeychainPrewarmReady = () => true,
 }) {
   const mgr = baseMgr;
+  const canUseSessionSurface = (session) => typeof sessionSurface?.runTurn === 'function'
+    && sessionSurface.canRun?.(session) !== false;
   const statusListeners = new Set();
   const notifyStatusChange = () => {
     for (const listener of [...statusListeners]) {
@@ -118,6 +121,8 @@ export function createStandaloneAgent({
       notifyContext?.callerSessionId
       || notifyContext?.sessionId
       || notifyContext?.routingSessionId
+      || session?.parentSessionId
+      || notifyContext?.ownerSessionId
       || session?.ownerSessionId,
     );
     const handle = beginAgentTurnReview(ownerSessionId, session?.id, { tag, agent });
@@ -230,6 +235,7 @@ export function createStandaloneAgent({
       emitSubagentEvent,
       notifyStatusChange,
       notifySessionCompletion,
+      sessionSurface,
       scheduleReap,
       cfgMod,
       dataDir,
@@ -288,11 +294,12 @@ export function createStandaloneAgent({
           provider: session.provider,
           model: session.model,
           content: result?.content || '',
+          ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
           ...(abnormalError ? { error: abnormalError } : {}),
         };
       };
       handoffMsgStart = resolveHandoffMessageStartIndex(mgr.getSession(sessionId));
-      const result = await mgr.askSession(sessionId, prompt, args.context || null, null, session.cwd || defaultCwd, null, {
+      const turnHooks = {
         notifyFn: workerNotifyFn(sessionId, notifyContext || {}),
         onToolResult: (message) => turnReview.onToolResult(message),
         ...(job ? {
@@ -304,7 +311,24 @@ export function createStandaloneAgent({
             reconcileJobTerminalResult(job, value);
           },
         } : {}),
-      });
+      };
+      const result = canUseSessionSurface(session)
+        ? await sessionSurface.runTurn({
+            session,
+            prompt,
+            context: args.context || null,
+            cwd: session.cwd || defaultCwd,
+            ...turnHooks,
+          })
+        : await mgr.askSession(
+            sessionId,
+            prompt,
+            args.context || null,
+            null,
+            session.cwd || defaultCwd,
+            null,
+            turnHooks,
+          );
       // Early preview no longer suppresses the canonical body notification;
       // notifyTaskCompletion fires once with output via resolve/reconcile.
       const finalValue = completionValue(result);
@@ -359,7 +383,9 @@ export function createStandaloneAgent({
   // live session (reuse path). Busy sessions queue the prompt; idle ones run a
   // background send job that continues the existing session (context kept).
   function dispatchToExistingSession(prepared, notifyContext, extras = {}) {
-    if (isSessionBusy(prepared.sessionId) && typeof mgr.enqueuePendingMessage === 'function') {
+    if (!canUseSessionSurface(prepared.session)
+      && isSessionBusy(prepared.sessionId)
+      && typeof mgr.enqueuePendingMessage === 'function') {
       const queueDepth = mgr.enqueuePendingMessage(prepared.sessionId, prepared.prompt);
       return renderResult({
         queued: true,
@@ -383,7 +409,7 @@ export function createStandaloneAgent({
     return renderResult({ ...extras, ...renderJob(job, false) });
   }
 
-  function close(args, context = {}) {
+  async function close(args, context = {}) {
     const scopedContext = agentScope(args, context);
     refreshTagsFromSessions({ scanSessions: wantsSessionScan(args), context: scopedContext });
     const taskId = taskIdFromArgs(args);
@@ -415,6 +441,9 @@ export function createStandaloneAgent({
       throw new Error(`agent close: target "${target}" is a Lead session`);
     }
     cancelReap(sessionId);
+    const descendantSessionIds = typeof mgr.descendantSessionIds === 'function'
+      ? mgr.descendantSessionIds(sessionId)
+      : [];
     const tag = tagForSession(sessionId);
     clearAgentStatuslineRoute(sessionId);
     // Cancel any running background task bound to this session BEFORE closing
@@ -430,13 +459,18 @@ export function createStandaloneAgent({
     // Close (and stamp cancelStatus) BEFORE dropping the worker row. Removing
     // the row first left the next pool read with only a leftover heartbeat,
     // which republished the session as `running`.
-    const ok = mgr.closeSession(sessionId, 'cli-agent-close');
+    const ok = await mgr.closeSession(sessionId, 'cli-agent-close');
     if (task?.taskId) cancelBackgroundTask(task.taskId, 'cancelled by agent close');
     // Drop the row only once the cancellation is DURABLY recorded. A close that
     // failed still forgot the row, leaving the next pool read with a fresh
     // heartbeat and no cancelled state — which republished the session as
     // `running`, the exact lingering row this whole path exists to prevent.
     if (ok) forgetTerminalSession(tag, sessionId);
+    if (ok) {
+      for (const descendantSessionId of descendantSessionIds) {
+        removeWorkerRow({ sessionId: descendantSessionId });
+      }
+    }
     return { closed: ok, tag, sessionId, task_id: task?.taskId || null };
   }
 
@@ -455,7 +489,7 @@ export function createStandaloneAgent({
     };
   }
 
-  function closeAll(reason = 'cli-agent-close-all', scope = {}) {
+  async function closeAll(reason = 'cli-agent-close-all', scope = {}) {
     // Scoped teardown (one Lead closing/deleting/switching) must close ONLY
     // that Lead's workers: the worker index and task registry are shared by
     // every Lead in the process, and the old unscoped sweep wiped sibling
@@ -467,7 +501,7 @@ export function createStandaloneAgent({
     const failed = [];
     for (const { tag, session } of agentSessionEntries({ scanSessions: false, context })) {
       try {
-        closed.push(close({ sessionId: session.id }, context));
+        closed.push(await close({ sessionId: session.id }, context));
       } catch (err) {
         failed.push({ tag, error: presentErrorText(err, { surface: 'agent' }) });
       }
@@ -538,12 +572,25 @@ export function createStandaloneAgent({
       const callerCwd = clean(context.cwd || context.callerCwd);
       const scopedContext = agentScope(args, context);
       const notifyContext = context;
+      if (typeof mgr.rehydrateAgentSessions === 'function') {
+        await mgr.rehydrateAgentSessions();
+        // Rebuild tag ownership from canonical records even if a daemon crash
+        // happened before the auxiliary worker row was flushed.
+        refreshTagsFromSessions({ scanSessions: true, context: scopedContext });
+      }
       if (type === 'list') return renderResult({ workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }), jobs: listJobs(scopedContext) });
       if (type === 'status') return renderResult(renderJob(getJobOrWorker(args, scopedContext), false));
-      if (type === 'read') return renderResult(renderJob(getJobOrWorker(args, scopedContext), true));
+      if (type === 'read') {
+        const job = getJobOrWorker(args, scopedContext);
+        if (job?.taskId == null && typeof mgr.readSessionHandoff === 'function') {
+          const handoff = await mgr.readSessionHandoff(job.meta?.sessionId);
+          if (handoff) job.result = handoff;
+        }
+        return renderResult(renderJob(job, true));
+      }
       if (type === 'cleanup') return renderResult(cleanup(args, scopedContext));
-      if (type === 'cancel') return renderResult(close(args, scopedContext));
-      if (type === 'close') return renderResult(close(args, scopedContext));
+      if (type === 'cancel') return renderResult(await close(args, scopedContext));
+      if (type === 'close') return renderResult(await close(args, scopedContext));
       if (type === 'send') {
         try {
           const prepared = await prepareSend(args, scopedContext);

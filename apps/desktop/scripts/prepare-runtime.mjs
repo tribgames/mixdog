@@ -27,6 +27,11 @@ const runtimePackageDir = join(stagingDir, 'node_modules', 'mixdog');
 const runtimeArchive = join(runtimeDir, 'runtime.asar');
 const runtimeSidecar = `${runtimeArchive}.unpacked`;
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
+const externalProcessArchivePaths = [
+  'node_modules/mixdog/src/runtime/office/office-com-host.ps1',
+  'node_modules/mixdog/src/runtime/office/office-com-session-host.ps1',
+];
+const externalProcessArchiveEntries = externalProcessArchivePaths.map((path) => `/${path}`);
 const desktopPtyPackageDir = join(
   desktopDir,
   'node_modules',
@@ -211,6 +216,10 @@ async function canReusePreparedRuntime(fingerprint) {
     await Promise.all([
       access(runtimeSidecar),
       access(builderNativeModulesDir),
+      ...externalProcessArchivePaths.flatMap((path) => [
+        access(join(runtimeSidecar, ...path.split('/'))),
+        access(join(builderNativeModulesDir, ...path.split('/').slice(1))),
+      ]),
       access(join(builderDesktopPtyDir, 'package.json')),
       ...NATIVE_TOOL_KINDS.map((kind) => access(
         join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget)),
@@ -417,7 +426,8 @@ async function prepareRuntime(manifest, fingerprint) {
 
     // NSIS is very slow when it has to create the production dependency tree one
     // file at a time. Electron reads ASARs directly, so install one archive and
-    // unpack only native addons that the OS loader must access as real files.
+    // unpack only native addons and scripts that external processes must access
+    // as real files.
     // @electron/asar crawls the staging tree first and only then lstats every
     // entry it collected. On Windows a real-time AV scan can hold a freshly
     // installed dependency file across that gap, so the lstat reports ENOENT for
@@ -436,7 +446,7 @@ async function prepareRuntime(manifest, fingerprint) {
             // @electron/asar matches this against absolute Windows paths with
             // matchBase enabled. A basename glob is therefore portable; **/*.node is
             // not, because minimatch treats Windows separators differently.
-            unpack: '*.{node,dll,dylib,so,so.*}',
+            unpack: '*.{node,dll,dylib,so,so.*,ps1}',
           });
           return;
         } catch (error) {
@@ -467,6 +477,9 @@ async function prepareRuntime(manifest, fingerprint) {
       '/package.json',
       '/node_modules/mixdog/package.json',
       '/node_modules/mixdog/src/tui/session.mjs',
+      '/node_modules/mixdog/src/runtime/office/journal.mjs',
+      '/node_modules/mixdog/src/runtime/office/visual-diff.mjs',
+      ...externalProcessArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
       '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
@@ -493,24 +506,30 @@ async function prepareRuntime(manifest, fingerprint) {
     const nativeBinaryEntries = [...archiveEntries].filter(
       (entry) => /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry),
     );
-    await timed('native-module-mirror', async () => {
-      for (const entry of nativeBinaryEntries) {
+    const unpackedRuntimeEntries = [...new Set([
+      ...nativeBinaryEntries,
+      ...externalProcessArchiveEntries,
+    ])];
+    await timed('unpacked-runtime-mirror', async () => {
+      for (const entry of unpackedRuntimeEntries) {
         const archivePath = entry.replace(/^\/+/, '');
         const metadata = statFile(runtimeArchive, archivePath.replaceAll('/', sep));
         if (!metadata.unpacked) {
-          throw new Error(`Native addon is not marked unpacked in runtime.asar: ${entry}`);
+          throw new Error(`Runtime file is not marked unpacked in runtime.asar: ${entry}`);
         }
 
         const pathParts = archivePath.split('/');
         const source = join(runtimeSidecar, ...pathParts);
         await access(source);
-        await assertTargetArchitecture(source, `Runtime addon ${entry}`);
+        if (/\.(?:node|dll|dylib|so(?:\.\d+)*)$/i.test(entry)) {
+          await assertTargetArchitecture(source, `Runtime addon ${entry}`);
+        }
 
         // electron-builder filters paths containing a source node_modules
         // directory. Stage its contents under a neutral name, then map that neutral
         // root back to the exact runtime.asar.unpacked/node_modules destination.
         if (pathParts.shift() !== 'node_modules') {
-          throw new Error(`Native addon is outside the supported runtime node_modules layout: ${entry}`);
+          throw new Error(`Unpacked runtime file is outside the supported node_modules layout: ${entry}`);
         }
         const destination = join(builderNativeModulesDir, ...pathParts);
         await mkdir(dirname(destination), { recursive: true });
@@ -528,7 +547,7 @@ async function prepareRuntime(manifest, fingerprint) {
     prepared = true;
     console.log(
       `Prepared ${embeddingTarget.key} runtime.asar with ${archiveEntries.size} entries, including ` +
-        `${manifest.files.length} Mixdog package files and ${nativeBinaryEntries.length} unpacked native binary file(s).`,
+        `${manifest.files.length} Mixdog package files and ${unpackedRuntimeEntries.length} unpacked runtime file(s).`,
     );
   } finally {
     // `npm ci`, ASAR creation, or native mirroring can all fail after creating

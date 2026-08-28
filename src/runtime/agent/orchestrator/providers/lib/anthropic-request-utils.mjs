@@ -325,7 +325,15 @@ export function deferredAnthropicTools(activeTools, messages, opts, provider) {
             if (key) discovered.add(key);
         }
     }
-    const catalog = Array.isArray(opts.session.deferredToolCatalog) ? opts.session.deferredToolCatalog : [];
+    const catalogByName = new Map();
+    for (const tool of [
+        ...(Array.isArray(opts.session.deferredToolCatalog) ? opts.session.deferredToolCatalog : []),
+        ...(Array.isArray(opts.session.deferredLateToolCatalog) ? opts.session.deferredLateToolCatalog : []),
+    ]) {
+        const name = String(tool?.name || '').trim();
+        if (name) catalogByName.set(name, tool);
+    }
+    const catalog = [...catalogByName.values()];
     return catalog
         .filter((tool) => tool?.name && discovered.has(String(tool.name)) && !active.has(String(tool.name)))
         .map((tool) => ({ ...tool, deferLoading: true }));

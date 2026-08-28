@@ -134,21 +134,28 @@ export function ProjectContextSelector({ projects, activePath, activeLabel, disa
   const normalized = activePath.replace(/[\\/]+/g, "/").toLocaleLowerCase();
   const activeProject = projects.find((project) =>
     project.path.replace(/[\\/]+/g, "/").toLocaleLowerCase() === normalized);
+  const fallbackActiveLabel = activePath
+    ? activeLabel.trim() || displayProject(activePath).name || "Project"
+    : "";
   const options = [
     { value: PROJECT_CONTEXT_LOCAL, label: "No project" },
+    ...(activePath && !activeProject
+      ? [{ value: activePath, label: fallbackActiveLabel }]
+      : []),
     ...projects.map((project) => ({
       value: project.path,
       label: project.alias?.trim() || project.name?.trim() || displayProject(project.path).name || "Project",
     })),
   ];
-  const value = activeProject?.path || PROJECT_CONTEXT_LOCAL;
+  const value = activeProject?.path || activePath || PROJECT_CONTEXT_LOCAL;
   return <div className="composer-project-context">
     <Folder size={14} />
     <OpenSelect className="context-pill-select project-context-select" ariaLabel="Project context"
-      value={value} displayValue={activeProject ? activeLabel || "Project" : "Project"} disabled={disabled}
+      value={value} displayValue={activeProject ? activeLabel || "Project" : fallbackActiveLabel || "Project"}
+      disabled={disabled}
       options={options} onChange={(next) => {
         if (next === PROJECT_CONTEXT_LOCAL) {
-          if (activeProject) onClear();
+          if (activePath) onClear();
         } else if (next !== activeProject?.path) onSelect(next);
       }} />
   </div>;

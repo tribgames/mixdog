@@ -26,6 +26,11 @@ import {
 // Human-readable transport label for handshake/acquire error messages. Shared
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
 import { _envOn, _codexBetaFeatures, _dumpHandshakeHeaders, _dumpFrame, _formatRedactedHeaders, _cfCookieHeader, _cfCookieCapture } from './openai-ws-headers.mjs';
+import {
+    clearAllCodexTurnStates,
+    clearCodexTurnStateScope,
+    retireCodexTurnStateOwner,
+} from './openai-turn-state.mjs';
 export function _wsErrLabel(p) {
     if (p === 'xai') return 'xAI WS';
     if (p === 'openai-direct' || p === 'openai') return 'OpenAI WS';
@@ -81,44 +86,94 @@ const MAX_POOLED_SOCKETS_PER_KEY = 8;
 export const _wsPool = new Map();
 let _releaseSequence = 0;
 
-// The server issues an `x-codex-turn-state` sticky-routing token on the
-// handshake 101 response; it pins the backend node that holds the warm prefix.
-// codex keeps that token in a turn-scoped cell and replays it on the RECONNECT
-// handshake (build_responses_headers -> connect_websocket), so a replacement
-// connection re-pins the same node instead of cold-starting the prefix. Our
-// pool entry dies with its socket, so the token is retained here at poolKey
-// scope and replayed only for a replacement socket. A parallel peer must still
-// open clean: inheriting a sibling's token makes openai-oauth treat the request
-// as a continuation of another in-flight turn ("No tool output found for
-// function call ...").
-const _turnStateByPoolKey = new Map();
-const MAX_RETAINED_TURN_STATE_KEYS = 4096;
+// Codex gives one turn-scoped session exclusive use of one WebSocket until its
+// response stream ends. Mirror that ownership per poolKey: a concurrent acquire
+// waits instead of opening a sibling connection with a mismatched response
+// chain. The claim is retained through close when keep=false so only an actual
+// close can hand turn state to a replacement socket.
+const _poolOwnerByKey = new Map();
 
-function _retainTurnState(poolKey, entry) {
-    if (!poolKey || !entry) return;
-    const turnState = typeof entry.turnState === 'string' ? entry.turnState : '';
-    // A token already retired by the per-turn drop guard must not be revived.
-    if (!turnState) return;
-    // Bounded like the other pool maps so a long-lived process cannot
-    // accumulate one token per dead session.
-    if (!_turnStateByPoolKey.has(poolKey) && _turnStateByPoolKey.size >= MAX_RETAINED_TURN_STATE_KEYS) {
-        const oldest = _turnStateByPoolKey.keys().next().value;
-        if (oldest !== undefined) _turnStateByPoolKey.delete(oldest);
-    }
-    _turnStateByPoolKey.set(poolKey, {
-        turnState,
-        // Carry the turn owner so the per-turn drop guard still retires a
-        // replayed token when turn_id moves on.
-        turnStateTurnId: entry.turnStateTurnId ?? null,
+function _acquireAbortError(externalSignal) {
+    const reason = externalSignal?.reason;
+    return reason instanceof Error ? reason : new Error('OpenAI OAuth WS acquire aborted');
+}
+
+function _waitForPoolOwnerRelease(claim, externalSignal) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            claim.waiters.delete(onRelease);
+            try { externalSignal?.removeEventListener('abort', onAbort); } catch {}
+            fn(value);
+        };
+        const onRelease = () => finish(resolve);
+        const onAbort = () => finish(reject, _acquireAbortError(externalSignal));
+        claim.waiters.add(onRelease);
+        if (externalSignal) {
+            if (externalSignal.aborted) {
+                onAbort();
+                return;
+            }
+            externalSignal.addEventListener('abort', onAbort, { once: true });
+        }
     });
 }
 
-function _replacementTurnState(poolKey) {
+async function _claimPoolOwner(poolKey, externalSignal) {
     if (!poolKey) return null;
-    // A live entry in the bucket means this handshake is a parallel peer, not
-    // a reconnect.
-    if (hasPooledWebSocket(poolKey)) return null;
-    return _turnStateByPoolKey.get(poolKey) || null;
+    const waitStartedAt = performance.now();
+    for (;;) {
+        if (externalSignal?.aborted) throw _acquireAbortError(externalSignal);
+        const current = _poolOwnerByKey.get(poolKey);
+        if (!current) {
+            const claim = {
+                entry: null,
+                waiters: new Set(),
+                waitMs: Math.max(0, performance.now() - waitStartedAt),
+            };
+            _poolOwnerByKey.set(poolKey, claim);
+            return claim;
+        }
+        await _waitForPoolOwnerRelease(current, externalSignal);
+    }
+}
+
+function _bindPoolOwner(poolKey, claim, entry) {
+    if (!poolKey || !claim) return;
+    if (_poolOwnerByKey.get(poolKey) !== claim) {
+        try { entry?.socket?.close?.(1000, 'pool_owner_changed'); } catch {}
+        _scheduleForcedTerminate(entry?.socket);
+        throw new Error('OpenAI OAuth WS ownership changed during acquire');
+    }
+    claim.entry = entry;
+    entry.poolOwnerClaim = claim;
+}
+
+function _releasePoolOwner(poolKey, owner) {
+    if (!poolKey || !owner) return;
+    const claim = owner.poolOwnerClaim || owner;
+    if (_poolOwnerByKey.get(poolKey) !== claim) return;
+    _poolOwnerByKey.delete(poolKey);
+    if (claim.entry?.poolOwnerClaim === claim) {
+        try { delete claim.entry.poolOwnerClaim; } catch {}
+    }
+    for (const waiter of [...claim.waiters]) {
+        try { waiter(); } catch {}
+    }
+    claim.waiters.clear();
+}
+
+function _clearPoolOwnerScope(poolKey) {
+    const claim = poolKey ? _poolOwnerByKey.get(poolKey) : null;
+    if (claim) _releasePoolOwner(poolKey, claim);
+}
+
+function _clearAllPoolOwners() {
+    for (const [poolKey, claim] of [..._poolOwnerByKey.entries()]) {
+        _releasePoolOwner(poolKey, claim);
+    }
 }
 
 function _poolCompatibility(auth, cacheKey) {
@@ -141,12 +196,9 @@ function _entryCompatible(entry, compatibility) {
         && entry?.cacheKeyIdentity === compatibility.cacheKeyIdentity;
 }
 
-// A previous_response_id is valid on the connection that produced it. When
-// concurrency temporarily creates sibling sockets for one pool key, continue
-// on the most recently completed sibling instead of whichever socket happened
-// to be inserted first. This is the closest representation of Codex's
-// turn-local single-connection ownership without weakening the existing
-// full-frame fallback checks.
+// A previous_response_id is valid on the connection that produced it. If a
+// bucket contains multiple legacy idle entries, continue on the most recently
+// completed one instead of whichever socket happened to be inserted first.
 function _selectIdleEntry(entries, compatibility) {
     let selected;
     for (const entry of entries || []) {
@@ -203,9 +255,6 @@ function _removeFromPool(poolKey, entry) {
     // idle-close or liveness-ping interval.
     _clearIdle(entry);
     _clearLiveness(entry);
-    // The entry is going away; keep its shard pin so the session's next socket
-    // can reconnect onto the same backend node.
-    _retainTurnState(poolKey, entry);
     if (!poolKey) return;
     const arr = _wsPool.get(poolKey);
     if (!arr) return;
@@ -375,7 +424,7 @@ export function _sendFrame(entry, frame, sendSpan = null, timeoutMs = WS_SEND_TI
     });
 }
 
-function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cacheKey, codexHeaders }) {
+function _buildHandshakeHeaders({ auth, sessionToken, cacheKey: _cacheKey, codexHeaders }) {
     // xAI WS: do NOT pin x-grok-conv-id. Measured parallel runs show that
     // forcing a routing shard via that header alternates cold caches across
     // parallel workers; the automatic prompt-prefix cache holds up better
@@ -431,7 +480,6 @@ function _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey: _cach
         // distinguishable across reconnects.
         headers['x-client-request-id'] = randomBytes(16).toString('hex');
     }
-    if (turnState) headers['x-codex-turn-state'] = turnState;
     // Probe knobs (cache-route hunt 2026-07-04): see jar block at top of file.
     if (isOpenAiOauth) {
         const jar = _cfCookieHeader(auth);
@@ -454,8 +502,8 @@ function _mintSessionToken(cacheKey, auth) {
     return cacheKey || 'mixdog-default';
 }
 
-function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, codexHeaders }) {
-    const headers = _buildHandshakeHeaders({ auth, sessionToken, turnState, cacheKey, codexHeaders });
+function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeaders }) {
+    const headers = _buildHandshakeHeaders({ auth, sessionToken, cacheKey, codexHeaders });
     const baseUrl = auth.type === 'xai'
         ? XAI_WS_URL
         : auth.type === 'openai-direct'
@@ -510,11 +558,8 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
             ));
         }, WS_ACQUIRE_TIMEOUT_MS);
         try { acquireTimer.unref?.(); } catch {}
-        const capturedHeaders = { turnState: null };
         socket.once('upgrade', (res) => {
             try {
-                const ts = res?.headers?.['x-codex-turn-state'];
-                if (typeof ts === 'string' && ts.length) capturedHeaders.turnState = ts;
                 _cfCookieCapture(auth, res?.headers?.['set-cookie']);
                 // Probe: dump the full 101-upgrade response header set so we can
                 // see what the server actually issues (turn-state investigation).
@@ -541,7 +586,7 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
             if (process.env.MIXDOG_DEBUG_AGENT) {
                 process.stderr.write(`[agent-trace] ws-open-ok elapsed=${Date.now() - _wsOpenStart}ms\n`);
             }
-            settle(true, { socket, turnState: capturedHeaders.turnState });
+            settle(true, { socket });
         });
         socket.once('error', (err) => {
             if (process.env.MIXDOG_DEBUG_AGENT) {
@@ -590,15 +635,23 @@ function _openSocket({ auth, sessionToken, turnState, externalSignal, cacheKey, 
 
 let _openSocketImpl = _openSocket;
 
-export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, forceFresh, externalSignal }) {
+export async function acquireWebSocket({
+    auth,
+    poolKey,
+    cacheKey,
+    codexHeaders,
+    forceFresh,
+    externalSignal,
+}) {
     const _acqStart = Date.now();
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] acquire-start poolKey=${poolKey} cacheKey=${cacheKey} forceFresh=${forceFresh} externalAborted=${!!externalSignal?.aborted} ts=${_acqStart}\n`);
     }
     if (externalSignal?.aborted) {
-        const reason = externalSignal.reason;
-        throw reason instanceof Error ? reason : new Error('OpenAI OAuth WS acquire aborted');
+        throw _acquireAbortError(externalSignal);
     }
+    const ownerClaim = await _claimPoolOwner(poolKey, externalSignal);
+    try {
     if (poolKey && !forceFresh) {
         const arr = _wsPool.get(poolKey) || [];
         const compatibility = _poolCompatibility(auth, cacheKey);
@@ -610,13 +663,6 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
             if (!_isOpen(arr[i]) || arr[i].closing || incompatibleIdle) {
                 if (incompatibleIdle) {
                     try { arr[i].socket.close(1000, 'pool_boundary_changed'); } catch {}
-                } else {
-                    // A dead socket pruned here never reaches _removeFromPool,
-                    // so retain its shard pin explicitly — this is the common
-                    // reconnect path and the one the replacement handshake
-                    // below reads. A boundary change deliberately drops the
-                    // pin: it belongs to the old auth/cache identity.
-                    _retainTurnState(poolKey, arr[i]);
                 }
                 _clearIdle(arr[i]);
                 _clearLiveness(arr[i]);
@@ -660,7 +706,8 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
             if (process.env.MIXDOG_DEBUG_AGENT) {
                 process.stderr.write(`[agent-trace] acquire-reuse poolKey=${poolKey} openSockets=${arr.length} elapsed=${Date.now() - _acqStart}ms\n`);
             }
-            return { entry: idle, reused: true };
+            _bindPoolOwner(poolKey, ownerClaim, idle);
+            return { entry: idle, reused: true, ownerWaitMs: ownerClaim?.waitMs || 0 };
         }
         // All entries busy and bucket at cap: fall through to ephemeral socket.
         if (arr.length >= MAX_POOLED_SOCKETS_PER_KEY) {
@@ -668,7 +715,7 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
                 process.stderr.write(`[agent-trace] acquire-ephemeral cacheKey=${cacheKey} reason=cap elapsed=${Date.now() - _acqStart}ms\n`);
             }
             const ephSessionToken = _mintSessionToken(cacheKey, auth);
-            const { socket, turnState } = await _openSocketImpl({ auth, sessionToken: ephSessionToken, turnState: null, externalSignal, cacheKey, codexHeaders });
+            const { socket } = await _openSocketImpl({ auth, sessionToken: ephSessionToken, externalSignal, cacheKey, codexHeaders });
             // Drain-complete fence: same invariant as the normal acquire path —
             // if drain fired during the await, do NOT push an ephemeral entry
             // back into the pool.
@@ -688,7 +735,7 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
                 lastInputPrefixHash: null,
                 releaseSequence: 0,
                 ...compatibility,
-                turnState: turnState || null,
+                turnState: null,
                 closing: false,
                 ephemeral: true,
                 sessionToken: ephSessionToken,
@@ -698,26 +745,27 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
             entry.probing = false;
             socket.on('pong', () => { entry.lastAliveAt = Date.now(); });
             socket.on('message', () => { entry.lastAliveAt = Date.now(); });
-            socket.on('close', () => { entry.closing = true; _untrackUnpooled(entry); });
+            socket.on('close', () => {
+                entry.closing = true;
+                retireCodexTurnStateOwner(entry.turnStateScope || poolKey, entry);
+                _releasePoolOwner(poolKey, entry);
+                _untrackUnpooled(entry);
+            });
             // Cap-overflow ephemeral: never pooled, still owned by this session.
             _trackUnpooled(entry, poolKey);
-            return { entry, reused: false };
+            _bindPoolOwner(poolKey, ownerClaim, entry);
+            return { entry, reused: false, ownerWaitMs: ownerClaim?.waitMs || 0 };
         }
     }
-    // Parallel sockets must not inherit sibling turnState or the openai-oauth server
-    // treats the new request as a continuation of another in-flight turn and
-    // returns "No tool output found for function call …". turnState only
-    // propagates within a single entry across its own iterations — plus the
-    // codex reconnect case below, where the bucket holds no live entry and the
-    // retained token re-pins the shard the dead socket was using. forceFresh
-    // asks for a deliberately unpinned socket, so it always opens clean.
+    // A handshake is scoped to a physical connection, while turn state belongs
+    // to one logical turn. Every new socket therefore opens without turn state;
+    // request metadata restores it later only when the turn id matches.
     const sessionToken = _mintSessionToken(cacheKey, auth);
     const compatibility = _poolCompatibility(auth, cacheKey);
-    const retainedTurnState = forceFresh ? null : _replacementTurnState(poolKey);
     if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] acquire-new tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _acqStart}ms\n`);
     }
-    const { socket, turnState } = await _openSocketImpl({ auth, sessionToken, turnState: retainedTurnState?.turnState || null, externalSignal, cacheKey, codexHeaders });
+    const { socket } = await _openSocketImpl({ auth, sessionToken, externalSignal, cacheKey, codexHeaders });
     // Drain may complete while the normal handshake is awaiting 'open'. Never
     // return or insert that late socket into the already-drained process pool.
     if (_drainComplete) {
@@ -736,11 +784,8 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
         lastInputPrefixHash: null,
         releaseSequence: 0,
         ...compatibility,
-        // A token issued on THIS handshake supersedes the replayed one and is
-        // attributed on first use; a surviving retained token keeps its
-        // original turn owner so the per-turn drop guard still retires it.
-        turnState: turnState || retainedTurnState?.turnState || null,
-        turnStateTurnId: turnState ? null : (retainedTurnState?.turnStateTurnId ?? null),
+        turnState: null,
+        turnStateTurnId: null,
         closing: false,
         ephemeral: false,
         sessionToken,
@@ -757,10 +802,17 @@ export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, 
     else _trackUnpooled(entry, poolKey);
     socket.on('close', () => {
         entry.closing = true;
+        retireCodexTurnStateOwner(entry.turnStateScope || poolKey, entry);
+        _releasePoolOwner(poolKey, entry);
         _untrackUnpooled(entry);
         _removeFromPool(poolKey, entry);
     });
-    return { entry, reused: false };
+    _bindPoolOwner(poolKey, ownerClaim, entry);
+    return { entry, reused: false, ownerWaitMs: ownerClaim?.waitMs || 0 };
+    } catch (err) {
+        _releasePoolOwner(poolKey, ownerClaim);
+        throw err;
+    }
 }
 
 export function releaseWebSocket({ entry, poolKey, keep }) {
@@ -790,14 +842,13 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
     // Idle pooled sockets retain reuse state without retaining the process.
     // acquireWebSocket re-refs the transport before probing or handing it out.
     _setTransportReferenced(entry, false);
+    _releasePoolOwner(poolKey, entry);
 }
 
 export function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') {
     if (!poolKey) return;
-    // The session is over, so its shard pin must not survive into a later
-    // session that reuses the key. Clearing each entry's token before the
-    // close() calls also keeps the async 'close' handlers from re-retaining it.
-    _turnStateByPoolKey.delete(poolKey);
+    _clearPoolOwnerScope(poolKey);
+    clearCodexTurnStateScope(poolKey);
     const closeReason = String(reason || 'session_closed');
     const entries = _wsPool.get(poolKey);
     if (entries) {
@@ -859,6 +910,7 @@ export function hasPooledWebSocket(poolKey) {
 }
 
 export function _clearWebSocketPoolForTest() {
+    _clearAllPoolOwners();
     for (const arr of _wsPool.values()) {
         for (const entry of arr) {
             entry.turnState = null;
@@ -875,7 +927,7 @@ export function _clearWebSocketPoolForTest() {
     }
     _unpooledSockets.clear();
     _wsPool.clear();
-    _turnStateByPoolKey.clear();
+    clearAllCodexTurnStates();
     _releaseSequence = 0;
 }
 
@@ -892,6 +944,8 @@ let _drainComplete = false;
 // Force-closes pooled sockets and fences subsequent acquires.
 export function drainOpenaiWsPool(reason = 'shutdown', { immediate = false } = {}) {
     _drainComplete = true;
+    _clearAllPoolOwners();
+    clearAllCodexTurnStates();
     for (const arr of _wsPool.values()) {
         // _shutdownEntry tears down per-entry timers before the map is dropped
         // (otherwise the idle-close and liveness-ping intervals outlive the

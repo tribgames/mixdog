@@ -40,6 +40,7 @@ export function restoredTranscriptMetadata(message) {
     ...(typeof value.model === 'string' && value.model ? { model: value.model } : {}),
     ...(typeof value.provider === 'string' && value.provider ? { provider: value.provider } : {}),
     ...(typeof value.agent === 'string' && value.agent ? { agent: value.agent } : {}),
+    ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(completion ? { completion } : {}),
   };
 }
@@ -1090,6 +1091,12 @@ export function createSessionApiB(bag) {
         flushEmitImmediate();
       }
     },
+
+    deliverToolCompletion: (sessionId, text, meta = {}) =>
+      runtime.deliverToolCompletion?.(sessionId, text, meta) === true,
+
+    closeCanonicalSession: (reason = 'canonical-session-close') =>
+      runtime.closeCanonicalSession?.(reason) === true,
 
     dispose: async (reason = 'cli-react-exit', options = {}) => {
       if (flags.disposed) return;

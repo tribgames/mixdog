@@ -75,6 +75,7 @@ import { WorkspaceEmptyState } from "./WorkspaceEmptyState";
 import { ActivityRail } from "./ActivityRail";
 import { preloadAgentPool } from "./AgentActivityPane";
 import {
+  desktopBootPrerequisitesReady,
   markBootStage,
 } from "./boot-metrics";
 import { BottomPanel } from "./BottomPanel";
@@ -212,6 +213,12 @@ import {
 
 import { useDesktopState } from "./app-desktop-state";
 import { createProjectActions } from "./app-project-actions";
+import {
+  acceptedProjectCatalog,
+  readCachedProjectCatalog,
+  resolveProjectPathAgainstCatalog,
+  writeCachedProjectCatalog,
+} from "./project-catalog-cache";
 import { useSessionCatalog } from "./app-session-catalog";
 import { useAppShellPanels } from "./use-app-shell-panels";
 import {
@@ -353,8 +360,15 @@ export function App() {
   useEffect(() => {
     if (updaterState.status !== "ready") setUpdateDialogOpen(false);
   }, [updaterState.status]);
-  const [projects, setProjects] = useState<DesktopProjectSummary[]>([]);
-  const [projectCatalogReady, setProjectCatalogReady] = useState(false);
+  const [projects, setProjects] = useState<DesktopProjectSummary[]>(
+    readCachedProjectCatalog,
+  );
+  const [projectCatalogReady, setProjectCatalogReady] = useState(
+    // Only the relay-backed phone needs cache-first boot. Desktop keeps its
+    // existing authoritative catalog gate and merely refreshes the cache.
+    () => projects.length > 0 && isMobileRemoteSurface(),
+  );
+  const [projectCatalogValidated, setProjectCatalogValidated] = useState(false);
   const registeredProjectPath = useCallback(
     (candidate: unknown) => registeredDesktopProjectPath(projects, candidate),
     [projects],
@@ -370,14 +384,14 @@ export function App() {
       ...recent.map((path) => String(path || "")),
       String(projects[0]?.path || ""),
     ].filter(Boolean);
-    if (!projectCatalogReady) return candidates[0] || "";
+    if (!projectCatalogValidated) return candidates[0] || "";
     for (const candidate of candidates) {
       const registered = registeredProjectPath(candidate);
       if (registered) return registered;
     }
     return "";
   }, [
-    projectCatalogReady,
+    projectCatalogValidated,
     projects,
     registeredProjectPath,
     snapshot.currentProject,
@@ -385,9 +399,13 @@ export function App() {
   ]);
   const effectiveDraftProjectPath = useCallback((candidate: unknown): string => {
     const requested = String(candidate || "").trim();
-    if (!requested || !projectCatalogReady) return requested;
-    return registeredProjectPath(requested) || preferredDraftProjectPath;
-  }, [preferredDraftProjectPath, projectCatalogReady, registeredProjectPath]);
+    return resolveProjectPathAgainstCatalog(
+      requested,
+      projectCatalogValidated,
+      registeredProjectPath(requested),
+      preferredDraftProjectPath,
+    );
+  }, [preferredDraftProjectPath, projectCatalogValidated, registeredProjectPath]);
   // Persisted panes restore synchronously. Session addresses are reconciled
   // incrementally after first paint and remain guarded by exact daemon reads.
   const paneWorkspace = usePaneWorkspace();
@@ -512,7 +530,7 @@ export function App() {
     selection,
     selectionRef,
     snapshot,
-    projectCatalogReady,
+    projectCatalogValidated,
     preferredDraftProjectPath,
     effectiveDraftProjectPath,
   });
@@ -881,14 +899,24 @@ export function App() {
       return changed ? next : current;
     });
   }, [sessions]);
-  const refreshProjects = useCallback(async () => {
+  const refreshProjects = useCallback(async (
+    options: { acceptEmpty?: boolean } = {},
+  ) => {
     const host = window.mixdogDesktop;
     const listProjects = (host as {
       listProjects?: () => Promise<DesktopProjectSummary[]>;
     } | undefined)?.listProjects;
     if (!listProjects) return [];
     const next = await listProjects();
-    setProjects(Array.isArray(next) ? next : []);
+    const accepted = acceptedProjectCatalog(
+      Array.isArray(next) ? next : [],
+      options.acceptEmpty !== false,
+    );
+    if (accepted) {
+      setProjects(accepted);
+      setProjectCatalogValidated(true);
+      writeCachedProjectCatalog(accepted);
+    }
     return next;
   }, []);
   useEffect(() => {
@@ -896,34 +924,43 @@ export function App() {
     // React commits child pane effects before this parent effect, so visible
     // file/session/Studio reads enter the worker queue first. The lightweight
     // catalog may then reconcile without adding another frame of sidebar lag.
-    void invoke(async () => {
-      try {
-        await refreshSessions();
-      } finally {
-        if (live) setSessionCatalogReady(true);
-      }
+    // Catalog hydration is a background read, not a user action. A host that
+    // is still settling may reject this first pass; revealing a global red
+    // error for that transient miss makes whichever side view opens first look
+    // broken. Recovery events and later explicit refreshes remain authoritative.
+    void refreshSessions().catch(() => undefined).finally(() => {
+      if (live) setSessionCatalogReady(true);
     });
-    void invoke(refreshProjects).finally(() => {
+    void refreshProjects({
+      // An empty phone result before the relay leg connects is not an
+      // authoritative project registry. Keep the cached catalog until a
+      // recovered connection can answer.
+      acceptEmpty: !isMobileRemoteSurface(),
+    }).catch(() => []).finally(() => {
       if (live) setProjectCatalogReady(true);
     });
     return () => { live = false; };
-  }, [invoke, refreshProjects, refreshSessions]);
+  }, [refreshProjects, refreshSessions]);
   // A phone's first catalog read can land before the relay leg is up. The boot
   // pass then settles to an EMPTY list and nothing ever asks again, so the
   // composer's project pill stays blank (user: 모바일에서 오래 비어 있다).
-  // Every recovered remote connection re-reads it while it is still empty.
+  // A gap may still be mid-recovery, so its empty response remains
+  // unverified. Reconnected is the authority boundary and may legitimately
+  // replace the cache with an empty registry.
   useEffect(() => {
     const retry = () => {
-      if (projects.length) return;
-      void refreshProjects().catch(() => undefined);
+      void refreshProjects({ acceptEmpty: false }).catch(() => undefined);
+    };
+    const revalidate = () => {
+      void refreshProjects({ acceptEmpty: true }).catch(() => undefined);
     };
     window.addEventListener("mixdog:remote-state-gap", retry);
-    window.addEventListener("mixdog:remote-reconnected", retry);
+    window.addEventListener("mixdog:remote-reconnected", revalidate);
     return () => {
       window.removeEventListener("mixdog:remote-state-gap", retry);
-      window.removeEventListener("mixdog:remote-reconnected", retry);
+      window.removeEventListener("mixdog:remote-reconnected", revalidate);
     };
-  }, [projects.length, refreshProjects]);
+  }, [refreshProjects]);
   useAppStartupRestore({
     restorePending: paneWorkspace.restorePending,
     restoredFromStorage: paneWorkspace.restoredFromStorage,
@@ -1213,7 +1250,7 @@ export function App() {
   const conversationOpenProjects = useStableEvent(() => {
     if (!desktopFeatureEnabled("projects")) return;
     openProjects();
-    void refreshProjects();
+    void refreshProjects().catch(() => undefined);
   });
   const conversationSelectProject = useStableEvent((path: string) => {
     // The composer selector edits the focused draft in place. Project-panel
@@ -1764,7 +1801,6 @@ export function App() {
     startTask,
     openSession,
     openStudioTab,
-    openBrowserTab,
     openTerminalTab,
     openFolderTab,
     refreshProjects,
@@ -1926,7 +1962,7 @@ export function App() {
       const panel = id as SidebarPanelKey;
       mountSidebarPanel(panel);
       trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
-      if (panel === "projects") void refreshProjects();
+      if (panel === "projects") void refreshProjects().catch(() => undefined);
     } else {
       setDockTab(id as typeof dockTab);
     }
@@ -2183,11 +2219,18 @@ export function App() {
   const activeBottomPanelTab: WorkbenchPanelId = isWorkbenchPanelId(bottomPanel.tab)
     ? bottomPanel.tab
     : "problems";
-  const desktopBootReady = snapshotHydrated
-    && projectCatalogReady
-    && onboardingReady
-    && updaterStateReady
-    && startupSettled;
+  // The restored pane tree does not mount its Conversation owners until
+  // validation completes. Keep the opaque boot cover up until then, so those
+  // owners can register with the surface barrier and reveal only after their
+  // real transcript frame has painted.
+  const desktopBootReady = desktopBootPrerequisitesReady({
+    snapshotHydrated,
+    projectCatalogReady,
+    onboardingReady,
+    updaterStateReady,
+    startupSettled,
+    restorePending: paneWorkspace.restorePending,
+  });
   // PANE tabs are part of the visible workspace: a session tab that is
   // already open must not cold-load on its first click (user: PANE에 이미
   // 올라간 게 왜 콜드냐). Once boot settles, idle-prewarm each open tab's
@@ -2449,7 +2492,7 @@ export function App() {
           }}
           onOpenProjects={() => {
             openProjects();
-            void refreshProjects();
+            void refreshProjects().catch(() => undefined);
           }}
           onPrefetchProjects={() => {
             trackSidebarPanelModule("projects", loadSidebarPanelModule.projects());

@@ -10,8 +10,10 @@
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { validateBrowserToolArgs } from './action-schema.mjs';
 
 const DISCOVERY_FILE = 'browser-bridge.json';
+const DISCOVERY_VERSION = 1;
 /** Bridge heartbeat touches the file every 60s; anything older is a crash
  *  leftover and must not surface a dead tool. */
 const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
@@ -30,52 +32,79 @@ function discoveryPath() {
 
 /** Sync gate for the session tool surface (featureDisallowedTools). */
 export function browserBridgeAvailableSync() {
-  try {
-    return Date.now() - statSync(discoveryPath()).mtimeMs < DISCOVERY_MAX_AGE_MS;
-  } catch {
-    return false;
-  }
+  return readDiscovery() !== null;
 }
 
 function readDiscovery() {
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync(discoveryPath(), 'utf8'));
+    const path = discoveryPath();
+    if (Date.now() - statSync(path).mtimeMs >= DISCOVERY_MAX_AGE_MS) return null;
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
     return null;
   }
+  const version = Number(parsed?.version);
   const port = Number(parsed?.port);
   const token = String(parsed?.token || '');
-  if (!Number.isInteger(port) || port <= 0 || port > 65_535 || !token) return null;
+  if (version !== DISCOVERY_VERSION
+    || !Number.isInteger(port) || port <= 0 || port > 65_535 || !token) return null;
   return { port, token };
 }
 
 /** Execute one `browser` tool call. Returns MCP-shaped content so the
  *  internal-tools normalizer forwards text and screenshot images as-is. */
-export async function executeBrowserTool(args) {
-  if (!browserBridgeAvailableSync()) {
-    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
+export async function executeBrowserTool(args, options = {}) {
+  const validated = validateBrowserToolArgs(args);
+  if (!validated.ok) {
+    return { content: [{ type: 'text', text: `Error: ${validated.error}` }], isError: true };
   }
-  const discovery = readDiscovery();
+  let discovery = readDiscovery();
   if (!discovery) {
     return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
   }
+  const payload = {
+    action: validated.action,
+    ...validated.input,
+    ...(options.sessionId ? { session_id: String(options.sessionId) } : {}),
+    ...(Number.isFinite(Number(options.turnId)) && Number(options.turnId) > 0
+      ? { turn_id: Math.trunc(Number(options.turnId)) }
+      : {}),
+  };
   let response;
-  try {
-    response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${discovery.token}`,
-      },
-      body: JSON.stringify(args ?? {}),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch (error) {
-    const reason = error?.name === 'TimeoutError'
-      ? 'browser bridge timed out'
-      : BRIDGE_UNAVAILABLE_MESSAGE;
-    return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${discovery.token}`,
+        },
+        body: JSON.stringify(payload),
+        signal: options.signal
+          ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), options.signal])
+          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      break;
+    } catch (error) {
+      if (error?.name === 'TimeoutError') {
+        return { content: [{ type: 'text', text: 'Error: browser bridge timed out and cancelled the active command' }], isError: true };
+      }
+      if (options.signal?.aborted) {
+        return { content: [{ type: 'text', text: 'Error: browser command cancelled' }], isError: true };
+      }
+      const replacement = readDiscovery();
+      const changed = replacement
+        && (replacement.port !== discovery.port || replacement.token !== discovery.token);
+      if (attempt === 0 && changed) {
+        discovery = replacement;
+        continue;
+      }
+      return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
+    }
+  }
+  if (!response) {
+    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
   }
   let body;
   try {
@@ -98,6 +127,26 @@ export async function executeBrowserTool(args) {
         data: String(value.image.data),
       },
     });
+  }
+  if (value.file?.data && value.file?.mimeType) {
+    const mimeType = String(value.file.mimeType);
+    if (mimeType.startsWith('image/')) {
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: mimeType,
+          data: String(value.file.data),
+        },
+      });
+    } else {
+      content.push({
+        type: 'file',
+        data: String(value.file.data),
+        mimeType,
+        filename: String(value.file.name || 'download'),
+      });
+    }
   }
   return { content };
 }

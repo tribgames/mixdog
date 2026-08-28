@@ -270,7 +270,7 @@ export function toolActivitySubject(
     case "skill_view":
     case "skills_list":
     case "use_skill":
-      return toolActivityFirstText(args, "name", "skill", "skill_name", "query") || fallback;
+      return "";
     case "task":
       return toolActivityCompact([
         toolActivityFirstText(args, "action"),
@@ -338,6 +338,9 @@ export function toolActivityTitle(
       return t("Fetch");
     case "load_tool": return t("Load");
     case "task": return t("Task");
+    case "browser": return t("Browser control");
+    case "computer": return t("Computer control");
+    case "office": return t("Document work");
     case "agent":
     case "bridge":
       return t("Agent");
@@ -348,7 +351,7 @@ export function toolActivityTitle(
     case "skill_view":
     case "skills_list":
     case "use_skill":
-      return t("Skill");
+      return toolActivityFirstText(args, "name", "skill", "skill_name", "query") || t("Skill");
     default:
       return surfaceLabel || originalName || t("Tool");
   }

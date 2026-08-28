@@ -1,7 +1,8 @@
 // Deferred-tool catalog: measured-usage ordering, kind/bucket classification,
 // tool_search ranking + auto-selection, and the session tool-surface
 // application/selection logic. Pure module (session objects passed in).
-import { clean, LATE_TOOL_ANNOUNCEMENT_SENTINEL } from './session-text.mjs';
+import { clean } from './session-text.mjs';
+import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
 import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import {
   applyInitialDeferredToolManifestToBp2,
@@ -272,9 +273,12 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   if (!session || !Array.isArray(session.tools)) return session;
   const providerMode = deferredProviderMode(options.provider || session.provider);
   const byName = new Map();
-  const candidates = filterModelEditTools(
-    [...session.tools, ...(extraTools || [])],
-    options.model || session.model,
+  const candidates = filterDisallowedTools(
+    filterModelEditTools(
+      [...session.tools, ...(extraTools || [])],
+      options.model || session.model,
+    ),
+    options.disallowed,
   );
   for (const tool of candidates) {
     const name = clean(tool?.name);
@@ -450,12 +454,9 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
  * one the Anthropic providers serialize as defer_loading tools — is never
  * touched, so the tools request parameter (and its cache hash) is byte-identical
  * until a late tool is actually loaded (promoted onto session.tools).
- * When the late pool gains MCP names not yet advertised, deliver ONE persistent
- * <system-reminder> through the pending-message queue (options.enqueue) so it
- * rides inside the next real user turn; if that queue is unreachable, fall back
- * to a tail append ONLY when the transcript tail is an assistant turn, else defer
- * the announcement (names stay un-announced and are retried next turn). No filler
- * assistant messages are ever appended.
+ * Late additions/removals are merged into one persistent typed delta. The ask
+ * boundary attaches that delta to the next real prompt and acknowledges it only
+ * after the provider accepts the turn; a catalog change never creates a turn.
  * A disconnected server's unloaded tools leave the late pool; a loaded (active)
  * tool stays on session.tools, is never announced as removed, and is re-linked to
  * the fresh server tool on reconnect.
@@ -528,100 +529,38 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options =
     }
   }
 
-  const announced = new Set(Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : []);
-  // Commit-based dedupe: a late tool counts as announced only once its reminder
-  // actually LANDED in session.messages (the tail-append path lands immediately;
-  // the enqueue path lands when the pending queue drains into the next user
-  // turn). Fold those committed names in now and persist them so a later
-  // transcript trim can never resurrect an already-delivered announcement. A
-  // crash BETWEEN enqueue and drain leaves the name uncommitted, so the next
-  // reconcile re-announces instead of silently dropping it; the scan is
-  // idempotent, so a double-drain never double-marks.
-  const lateMcpNames = session.deferredLateToolCatalog
-    .map((tool) => clean(tool?.name))
-    .filter((name) => name && isMcp(name));
-  let announcedChanged = false;
-  for (const name of committedAnnouncedLateTools(session, lateMcpNames)) {
-    if (!announced.has(name)) { announced.add(name); announcedChanged = true; }
-  }
-  if (announcedChanged) session.deferredAnnouncedTools = sortedNamesByMeasuredUsage([...announced]);
-  const fresh = [];
+  const previousNames = new Set(
+    lateCatalog.map((tool) => clean(tool?.name)).filter((name) => name && isMcp(name)),
+  );
+  const nextNames = new Set(
+    session.deferredLateToolCatalog
+      .map((tool) => clean(tool?.name))
+      .filter((name) => name && isMcp(name)),
+  );
+  const startupNames = new Set(
+    Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : [],
+  );
+  const bootNames = new Set(
+    (Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [])
+      .map((tool) => clean(tool?.name))
+      .filter(Boolean),
+  );
+  const added = [];
   for (const tool of session.deferredLateToolCatalog) {
     const name = clean(tool?.name);
     if (!name || !isMcp(name)) continue;
-    if (active.has(name) || announced.has(name)) continue;
-    fresh.push({ name, description: lateAnnouncementDescription(tool?.description) });
+    if (previousNames.has(name) || active.has(name) || startupNames.has(name)) continue;
+    added.push({ name, description: lateAnnouncementDescription(tool?.description) });
   }
-  if (!fresh.length) return null;
-
-  const manifest = buildDeferredToolManifest(fresh);
-  if (!manifest) return null;
-  const reminder = `<system-reminder>\nTools from MCP servers that ${LATE_TOOL_ANNOUNCEMENT_SENTINEL} are now available. Call any tool listed below directly by name; it loads on first use.\n\n${manifest}\n</system-reminder>`;
-  const delivery = deliverDeferredAnnouncement(session, reminder, options);
-  if (!delivery) return null;
-  // Only the tail-append path commits into session.messages synchronously, so
-  // mark it announced now. Enqueued reminders are marked on the next reconcile's
-  // transcript scan (post-drain) — never at enqueue time (crash-safety above).
-  if (delivery === 'committed') {
-    for (const entry of fresh) announced.add(entry.name);
-    session.deferredAnnouncedTools = sortedNamesByMeasuredUsage([...announced]);
+  const removed = [];
+  for (const name of previousNames) {
+    if (nextNames.has(name) || active.has(name) || bootNames.has(name)) continue;
+    removed.push(name);
   }
+  if (!added.length && !removed.length) return null;
+  mergePendingDeferredToolDelta(session, { added, removed });
   session.updatedAt = Date.now();
-  return fresh.map((entry) => entry.name);
-}
-
-// Sentinel phrase carried in every late-tool reminder; used to recognise a
-// delivered (committed) announcement inside session.messages regardless of
-// whether the pending drain merged it with other queued user content.
-// Single source of truth lives in session-text.mjs (imported above) so the
-// hide-from-UI detection can never drift from the emitted reminder text.
-function reminderMessageText(content) {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    return content.map((b) => (typeof b === 'string' ? b : String(b?.text || ''))).join('\n');
-  }
-  return '';
-}
-
-// Late-tool names whose reminder is already present in session.messages (either
-// tail-appended directly or drained in from the pending queue). Idempotent.
-function committedAnnouncedLateTools(session, lateNames) {
-  const names = Array.isArray(lateNames) ? lateNames.filter(Boolean) : [];
-  if (!names.length) return [];
-  const msgs = Array.isArray(session?.messages) ? session.messages : [];
-  const blob = msgs
-    .filter((m) => m && m.role === 'user')
-    .map((m) => reminderMessageText(m.content))
-    .filter((t) => t.includes(LATE_TOOL_ANNOUNCEMENT_SENTINEL))
-    .join('\n');
-  if (!blob) return [];
-  return names.filter((name) => blob.includes(name));
-}
-
-// Deliver the late-tool <system-reminder> without any '.' filler turn. Primary
-// path: the pending-message queue (options.enqueue) — the SAME mechanism that
-// carries tool-completion notifications. The queue drains AFTER the current
-// turn's assistant terminal response (ask-session.mjs), so the reminder rides a
-// fresh follow-up user turn that always follows an assistant turn; strict
-// role-alternation holds and no wire-level same-role merge is needed (the
-// Anthropic/OpenAI lowering never merges two plain user turns, and none occurs
-// here). Returns 'enqueued' (commit deferred to drain) on that path.
-// Fallback (queue unreachable, e.g. unit tests): append a user reminder ONLY
-// when the transcript tail is an assistant turn — that commits synchronously
-// ('committed'); otherwise defer to the next turn (null).
-function deliverDeferredAnnouncement(session, reminder, options) {
-  const enqueue = typeof options?.enqueue === 'function' ? options.enqueue : null;
-  if (enqueue) {
-    try { if (enqueue(reminder) === true) return 'enqueued'; }
-    catch { /* fall through to the tail-append fallback */ }
-  }
-  const messages = session.messages;
-  const tail = messages[messages.length - 1];
-  if (tail && tail.role === 'assistant') {
-    messages.push({ role: 'user', meta: 'hook', content: reminder });
-    return 'committed';
-  }
-  return null;
+  return [...added.map((entry) => entry.name), ...removed];
 }
 
 export function selectDeferredTools(session, names, mode) {

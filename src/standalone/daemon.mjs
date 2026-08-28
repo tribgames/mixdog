@@ -577,9 +577,59 @@ async function main() {
   };
   let sessionRuntimePrewarmStarted = false;
   let sessionRuntimePrewarmPromise = null;
+  let canonicalAgentToolPromise = null;
+  function canonicalAgentTool() {
+    if (!sessionService) {
+      return Promise.reject(new Error('canonical session service is not ready'));
+    }
+    canonicalAgentToolPromise ??= Promise.all([
+      import('./agent-tool.mjs'),
+      import('../runtime/agent/orchestrator/config.mjs'),
+      import('../runtime/agent/orchestrator/providers/registry.mjs'),
+    ]).then(([agentModule, cfgMod, reg]) => agentModule.createStandaloneAgent({
+      cfgMod,
+      reg,
+      mgr: sessionService.agentManager,
+      dataDir: cfgMod.getPluginData(),
+      cwd: CWD,
+      awaitKeychainPrewarm: async () => {},
+      isKeychainPrewarmReady: () => true,
+      sessionSurface: sessionService.agentSurface,
+      notifySessionCompletion(ownerSessionId, text, meta = {}) {
+        return sessionRuntimeHost?.notifySessionCompletion?.(ownerSessionId, text, meta) === true;
+      },
+    })).catch((error) => {
+      canonicalAgentToolPromise = null;
+      throw error;
+    });
+    return canonicalAgentToolPromise;
+  }
+  async function executeCanonicalAgentControl(args = {}, context = {}) {
+    const tool = await canonicalAgentTool();
+    const parentSessionId = String(context?.callerSessionId || '').trim();
+    await sessionService.rehydrateAgentSessions();
+    const scopedContext = {
+      ...context,
+      callerSessionId: parentSessionId || null,
+      ownerSessionId: sessionService.rootOwnerSessionId(parentSessionId),
+    };
+    if (String(args?.type || '') === '__close_all') {
+      await tool.closeAll?.(
+        String(args?.reason || 'agent owner closed'),
+        { callerSessionId: parentSessionId || null },
+      );
+      await sessionService.cancelAgentDescendants(
+        parentSessionId,
+        String(args?.reason || 'agent owner closed'),
+      );
+      return 'agent close all: ok';
+    }
+    return await tool.execute(args, scopedContext);
+  }
   sessionRuntimeHost = createDaemonSessionRuntimeHost({
     cwd: CWD,
     log,
+    executeAgentControl: executeCanonicalAgentControl,
   });
   // Codex-style runtime: daemon routing and independent async session actors
   // share one V8 isolate and module graph. CPU-heavy work stays in bounded
@@ -602,12 +652,10 @@ async function main() {
         log(`session runtime/keychain prewarm failed (non-fatal): ${error?.message || error}`);
         return false;
       });
-    return sessionRuntimePrewarmPromise;
+      return sessionRuntimePrewarmPromise;
   }
   sessionService = createSessionService({
     createSessionRuntime: (options) => sessionRuntimeHost.create(options),
-    subscribeExternalSessionStates: (listener) =>
-      sessionRuntimeHost.subscribeAgentSessionStates(listener),
     sessionExists: async (sessionId) => {
       const store = await desktopRuntime.loadSessionStore();
       return store.storedSessionExists?.(sessionId) === true;
@@ -621,6 +669,23 @@ async function main() {
       return await store.readStoredSessionTranscript(sessionId, options) ?? null;
     },
     listSessions: async (options = {}) => {
+      if (options.includeAgentOnly === true) {
+        // Agent discovery is metadata-only. Exact session reads/subscriptions
+        // keep using the canonical session id after the user opens a worker.
+        const store = await import('../runtime/agent/orchestrator/session/store.mjs');
+        const summaries = store.listStoredSessionSummaries({
+          refreshFromStorage: options.refreshFromStorage === true,
+        });
+        const viewStore = await desktopRuntime.loadSessionStore();
+        const links = viewStore.listStoredAgentWorkerLinks?.() || [];
+        if (!links.length) return summaries;
+        const linksById = new Map(links.map((link) => [link.sessionId, link]));
+        return summaries.map((row) => {
+          if (row?.parentSessionId) return row;
+          const link = linksById.get(row?.id);
+          return link ? { ...row, ...link, id: row.id } : row;
+        });
+      }
       const store = await desktopRuntime.loadSessionStore();
       return store.listStoredSessionSummaries({
         refreshFromStorage: options.refreshFromStorage === true,
@@ -673,9 +738,7 @@ async function main() {
       ...eventLoopStatus(),
     }),
     onClientsEmpty: () => { maybeSelfShutdown('no live session clients'); },
-    onClientRegistered: () => {
-      void prewarmSessionRuntime();
-    },
+    onClientRegistered: () => { void prewarmSessionRuntime(); },
     onClientDropped: (token) => { try { sessionService.releaseClient(token); } catch {} },
     onUpgradeRequested: requestDaemonReplacement,
   });

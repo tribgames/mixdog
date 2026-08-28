@@ -4,16 +4,18 @@
 // that still means "follow the Main Model" when left unset.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  DEFAULT_DISABLED_AGENT_IDS,
   canonicalizeAgentRouteStorage,
   disabledAgentIds,
   isAgentDisabled,
   withAgentDisabled,
 } from '../runtime/shared/agent-route-config.mjs';
+import { buildDefaultConfig } from '../runtime/agent/orchestrator/config.mjs';
 import {
   createWorkflowHelpers,
   isDefaultWebSearchRouteConfig,
@@ -42,6 +44,23 @@ function fixture(agentIds = ['worker', 'reviewer']) {
   });
   return { root, data, helpers };
 }
+
+test('fresh installs ship every starter Agent disabled with a complete definition', () => {
+  const defaults = buildDefaultConfig({ detectCredentials: false });
+  assert.deepEqual(disabledAgentIds(defaults), [...DEFAULT_DISABLED_AGENT_IDS].sort());
+
+  const agentsRoot = join(process.cwd(), 'src', 'agents');
+  for (const id of DEFAULT_DISABLED_AGENT_IDS) {
+    const manifestPath = join(agentsRoot, id, 'agent.json');
+    const rulesPath = join(agentsRoot, id, 'AGENT.md');
+    assert.equal(existsSync(manifestPath), true, `${id} manifest must ship`);
+    assert.equal(existsSync(rulesPath), true, `${id} rules must ship`);
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    assert.equal(manifest.id, id);
+    assert.ok(String(manifest.description || '').trim(), `${id} description must be non-empty`);
+    assert.ok(readFileSync(rulesPath, 'utf8').trim(), `${id} rules must be non-empty`);
+  }
+});
 
 test('disabled agents are stored apart from the route and survive canonicalization', () => {
   const config = { agents: { worker: { provider: 'anthropic-oauth', model: 'claude-opus-5' } } };

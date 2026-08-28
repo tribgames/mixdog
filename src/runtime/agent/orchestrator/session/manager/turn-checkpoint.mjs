@@ -200,6 +200,10 @@ export function recoverTurnCheckpoint(session) {
         ...(start >= 0 ? current.slice(0, start) : current),
         ...finalized.messages,
     ];
+    // Keep the last provider reading across restart. Pressure resolution
+    // validates its message-prefix signature against this recovered transcript:
+    // a matching durable prefix stays authoritative, while any rewritten
+    // prefix falls back to a local estimate until the next provider response.
     delete session.activeTurnCheckpoint;
     delete session.providerState;
     delete session._providerPrefixGuardState;

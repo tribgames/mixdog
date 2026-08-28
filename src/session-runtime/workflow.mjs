@@ -9,7 +9,11 @@ import { normalizeEffortInput } from './effort.mjs';
 import { isLikelyRawModelId } from './config-helpers.mjs';
 import { readTextSafe, readJsonSafe } from './fs-utils.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
-import { configuredAgentRouteCandidates, isAgentDisabled } from '../runtime/shared/agent-route-config.mjs';
+import {
+  DEFAULT_DISABLED_AGENT_IDS,
+  configuredAgentRouteCandidates,
+  isAgentDisabled,
+} from '../runtime/shared/agent-route-config.mjs';
 
 export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'memory'];
 export const AGENT_DELETED_MARKER = '.deleted';
@@ -24,11 +28,9 @@ const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 const BUILTIN_SLOT_AGENT_IDS = new Set(
   FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id),
 );
-const STARTER_AGENT_ORDER = new Map([
-  ['worker', 0],
-  ['heavy-worker', 1],
-  ['reviewer', 2],
-]);
+const STARTER_AGENT_ORDER = new Map(
+  DEFAULT_DISABLED_AGENT_IDS.map((id, index) => [id, index]),
+);
 // Fallback workflow for a config with no explicit selection, for an unknown
 // id, and for the pack reset after a delete. Solo is the shipped default
 // working mode; the cowork pack (directory id `default`) is opt-in.

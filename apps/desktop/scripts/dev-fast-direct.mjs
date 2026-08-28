@@ -33,6 +33,16 @@ const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(desktopDir, '../..');
 const schemaVersion = 2;
 const desktopPackageManifest = join(desktopDir, 'package.json');
+
+export function asarPath(path) {
+  return String(path).replace(/[\\/]+/g, sep);
+}
+
+export function changedPlanGroups(planned = {}, current = {}) {
+  return Object.keys(current).filter(
+    (name) => planned?.[name]?.hash !== current?.[name]?.hash,
+  );
+}
 const repoPackageManifest = join(repoRoot, 'package.json');
 // electron-builder keeps this package unpacked (asarUnpack). The daemon runs
 // from app.asar.unpacked and resolves it through the real file system, and a
@@ -374,7 +384,7 @@ async function outputMatchesInstalled(installDir) {
   const outputFiles = [];
   await walkFiles(join(desktopDir, 'out'), outputFiles);
   for (const file of outputFiles) {
-    const archivePath = relative(desktopDir, file).replaceAll('/', sep);
+    const archivePath = asarPath(relative(desktopDir, file));
     if (archivePath.endsWith(`${sep}capture-window.js`) || archivePath.endsWith('.map')) continue;
     let installed;
     const metadata = statFile(archive, archivePath, false);
@@ -524,7 +534,7 @@ async function stageShell({ installDir, artifactDir, plan }) {
     'out/preload/index.js',
     'out/renderer/index.html',
   ]) {
-    if (!statFile(artifactArchive, file.replaceAll('/', sep), false).unpacked) {
+    if (!statFile(artifactArchive, asarPath(file), false).unpacked) {
       throw new Error(`FastDirect artifact did not unpack ${file}`);
     }
   }
@@ -594,6 +604,16 @@ async function main() {
     return;
   }
   const plan = JSON.parse(await readFile(planPath, 'utf8'));
+  if (action === 'assert-current') {
+    const changed = changedPlanGroups(plan.groups, await currentGroups());
+    if (changed.length) {
+      throw new Error(
+        `FastDirect inputs changed after planning/build (${changed.join(', ')}); rerun the deploy so stale artifacts are never installed`,
+      );
+    }
+    process.stdout.write('[fastdirect] planned inputs are still current\n');
+    return;
+  }
   if (action === 'stage-shell') {
     await stageShell({
       installDir,

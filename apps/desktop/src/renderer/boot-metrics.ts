@@ -1,5 +1,28 @@
 import type { DesktopBootContext } from "../shared/contract";
 
+export function desktopBootPrerequisitesReady({
+  snapshotHydrated,
+  projectCatalogReady,
+  onboardingReady,
+  updaterStateReady,
+  startupSettled,
+  restorePending,
+}: {
+  snapshotHydrated: boolean;
+  projectCatalogReady: boolean;
+  onboardingReady: boolean;
+  updaterStateReady: boolean;
+  startupSettled: boolean;
+  restorePending: boolean;
+}): boolean {
+  return snapshotHydrated
+    && projectCatalogReady
+    && onboardingReady
+    && updaterStateReady
+    && startupSettled
+    && !restorePending;
+}
+
 export interface BootMetricEntry {
   bootId: string;
   scenario?: string;

@@ -45,6 +45,7 @@ export function createSpawnFlow({
   emitSubagentEvent,
   notifyStatusChange = () => {},
   notifySessionCompletion,
+  sessionSurface = null,
   scheduleReap,
   cfgMod,
   dataDir,
@@ -56,7 +57,7 @@ export function createSpawnFlow({
 }) {
   function closePreparedSpawn(prepared, reason = 'agent-task-cancel') {
     if (!prepared?.session?.id) return;
-    try { mgr.closeSession(prepared.session.id, reason); } catch {}
+    try { Promise.resolve(mgr.closeSession(prepared.session.id, reason)).catch(() => {}); } catch {}
     try { clearAgentStatuslineRoute(prepared.session.id); } catch {}
     forgetTerminalSession(prepared.tag, prepared.session.id);
   }
@@ -68,14 +69,17 @@ export function createSpawnFlow({
 
   function startJob(type, meta, run, notifyContext = null) {
     const clientHostPid = terminalPidForContext(notifyContext);
-    const ownerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
+    const callerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
+    const ownerSessionId = clean(notifyContext?.ownerSessionId) || callerSessionId;
+    const handoffSessionId = callerSessionId || ownerSessionId;
     const ownerNotifyContext = {
-      callerSessionId: ownerSessionId || null,
+      callerSessionId: callerSessionId || null,
+      ownerSessionId: ownerSessionId || null,
       clientHostPid: clientHostPid || null,
-      notifyFn: ownerSessionId && typeof notifySessionCompletion === 'function'
-        ? (text, completionMeta = {}) => notifySessionCompletion(ownerSessionId, text, {
+      notifyFn: handoffSessionId && typeof notifySessionCompletion === 'function'
+        ? (text, completionMeta = {}) => notifySessionCompletion(handoffSessionId, text, {
             ...(completionMeta && typeof completionMeta === 'object' ? completionMeta : {}),
-            caller_session_id: ownerSessionId,
+            caller_session_id: handoffSessionId,
           })
         : null,
     };
@@ -98,7 +102,9 @@ export function createSpawnFlow({
         try { admissionController.abort(new Error('agent task cancelled before resource admission')); } catch {}
         const currentMeta = task?.meta || jobMeta;
         if (currentMeta?.sessionId) {
-          try { mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel'); } catch {}
+          try {
+            Promise.resolve(mgr.closeSession(currentMeta.sessionId, 'agent-task-cancel')).catch(() => {});
+          } catch {}
         }
         setImmediate(notifyStatusChange);
       },
@@ -281,7 +287,10 @@ export function createSpawnFlow({
       sourceType: 'cli',
       sourceName: agent,
       parentSessionId: clean(context?.callerSessionId || context?.sessionId) || null,
-      ownerSessionId: clean(context?.callerSessionId || context?.sessionId) || null,
+      ownerSessionId: clean(context?.ownerSessionId)
+        || clean(context?.callerSessionId || context?.sessionId)
+        || null,
+      visibility: 'agent-only',
       clientHostPid: terminalPidForContext(context) || null,
       agentTag: tag,
       taskType: clean(args.taskType) || clean(args.typeHint) || undefined,
@@ -330,18 +339,31 @@ export function createSpawnFlow({
 
   async function prepareSpawnInProcess(args, callerCwd = null, context = {}, prepState = null) {
     const plan = await resolveSpawnPlan(args, callerCwd, context, prepState);
-    await ensureProvider(plan.config, plan.preset.provider);
-    if (prepState?.timedOut) {
-      throw new Error('agent spawn prep timed out before session bind');
-    }
     const spec = spawnSessionSpec(plan, args, context);
-    const { session, effectiveCwd } = prepareAgentSession(spec);
+    let created;
+    if (sessionSurface?.canonical === true
+      && typeof sessionSurface.createChild === 'function') {
+      created = await sessionSurface.createChild({
+        spec,
+        prompt: plan.prompt,
+        tag: plan.tag,
+      });
+    } else {
+      await ensureProvider(plan.config, plan.preset.provider);
+      if (prepState?.timedOut) {
+        throw new Error('agent spawn prep timed out before session bind');
+      }
+      created = prepareAgentSession(spec);
+    }
+    const { session, effectiveCwd } = created;
     bindSpawnedSession(session, plan);
     // Spawn prewarm builds the materialized stable prompt and keeps the
     // resulting Codex-style client handle reserved for the first turn.
     // Fire-and-forget: failures fall back to the lazy per-send handshake.
     // MIXDOG_AGENT_SPAWN_WS_PREWARM=0 disables.
-    maybePrewarmSpawnTransport(plan, session);
+    if (sessionSurface?.canonical !== true) {
+      maybePrewarmSpawnTransport(plan, session);
+    }
     return preparedSpawnResult(
       { ...plan, workerCwd: effectiveCwd || plan.workerCwd },
       args,
@@ -403,11 +425,12 @@ export function createSpawnFlow({
           effort: preset.effort || null,
           fast: preset.fast === true,
           content: result?.content || '',
+          ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
           ...(abnormalError ? { error: abnormalError } : {}),
         };
       };
       handoffMsgStart = resolveHandoffMessageStartIndex(mgr.getSession(session.id));
-      const result = await mgr.askSession(session.id, prompt, args.context || null, null, workerCwd, null, {
+      const turnHooks = {
         notifyFn: workerNotifyFn(session.id, notifyContext || {}),
         onToolResult: (message) => turnReview.onToolResult(message),
         ...(job ? {
@@ -419,7 +442,25 @@ export function createSpawnFlow({
             reconcileJobTerminalResult(job, value);
           },
         } : {}),
-      });
+      };
+      const result = typeof sessionSurface?.runTurn === 'function'
+        && sessionSurface.canRun?.(session) !== false
+        ? await sessionSurface.runTurn({
+            session,
+            prompt,
+            context: args.context || null,
+            cwd: workerCwd,
+            ...turnHooks,
+          })
+        : await mgr.askSession(
+            session.id,
+            prompt,
+            args.context || null,
+            null,
+            workerCwd,
+            null,
+            turnHooks,
+          );
       // The early preview no longer promises body suppression, so the canonical
       // notifyTaskCompletion is left to fire exactly once with output via the
       // resolve/reconcile/finally path.
@@ -453,6 +494,10 @@ export function createSpawnFlow({
         if (job) job._terminalResultValue = value;
         reconcileJobWatchdogPartial(job, value);
         return value;
+      }
+      if (job?.status === 'cancelled') {
+        finalStatus = 'cancelled';
+        throw error;
       }
       finalStatus = 'error';
       reconcileJobStreamStalled(job, error);

@@ -596,6 +596,7 @@ export class SessionHost implements DesktopService {
     method: string,
     args: unknown[] = [],
   ): Promise<{ value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }> {
+    const replayable = READ_CAPABILITIES.has(method);
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const sessionId = await this.ensureControlSession();
       try {
@@ -615,9 +616,12 @@ export class SessionHost implements DesktopService {
           result,
         };
       } catch (error) {
-        if (attempt > 0) throw error;
         this.sessionProjections.delete(sessionId);
         this.controlSessionId = '';
+        // Reads are safe to replay after a stale control session. A mutation
+        // may already have committed before its reply failed (as with the MCP
+        // durable-address error), so replaying it can duplicate side effects.
+        if (!replayable || attempt > 0) throw error;
       }
     }
     throw new Error('Service control session is unavailable.');

@@ -59,6 +59,7 @@ function normalizeAgentCompactionConfig(value = {}) {
  * @param {number}  [opts.maxLoopIterations]
  * @param {string}  [opts.parentSessionId]
  * @param {string|null} [opts.ownerSessionId] - owning Mixdog MCP instance id for statusline isolation
+ * @param {string|null} [opts.visibility] - catalog visibility scope
  * @param {string|null} [opts.mcpScopeId] - owning session-runtime MCP registry scope
  * @returns {{ session: object, effectiveCwd: string|null }}
  */
@@ -77,6 +78,7 @@ export function prepareAgentSession({
     maxLoopIterations,
     parentSessionId,
     ownerSessionId,
+    visibility,
     clientHostPid,
     agentTag,
     cacheKeyOverride,
@@ -115,7 +117,9 @@ export function prepareAgentSession({
         maxLoopIterations: Number.isFinite(effectiveMaxLoopIterations) ? effectiveMaxLoopIterations : undefined,
         sourceType: sourceType || undefined,
         sourceName: sourceName || undefined,
+        parentSessionId: parentSessionId || null,
         ownerSessionId: effectiveOwnerSessionId || null,
+        visibility: visibility || null,
         clientHostPid: clientHostPid || null,
         compaction: compaction || undefined,
         mcpScopeId: mcpScopeId || null,

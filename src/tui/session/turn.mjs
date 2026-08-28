@@ -13,6 +13,14 @@ import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, agg
 
 export const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
 
+function isUsageLimitError(error) {
+  if (!error) return false;
+  const status = Number(error?.httpStatus || error?.status || error?.response?.status || 0);
+  if (error?.providerQuota === true || error?.quotaExceeded === true || status === 429) return true;
+  const text = String(error?.message || error);
+  return /\brate[_ -]?limit\b|\bquota\b|too many requests|resource exhausted|insufficient_quota|quota_exceeded/i.test(text);
+}
+
 export function createRunTurn(bag) {
   const {
     runtime, nextId, tuiDebug, flags, pending, itemIndexById, getState, set, flushEmit, flushEmitImmediate, pushItem, appendItems, patchItem, replaceItems, updateStreamingTail: updateStreamingTailFromStore, settleStreamingTail: settleStreamingTailFromStore, clearStreamingTail: clearStreamingTailFromStore, pushNotice, pushUserOrSyntheticItem, markToolCallActive, markToolCallDone, clearActiveToolSummary, agentStatusState, routeState, transcriptRouteMetadata, syncContextStats, denyAllToolApprovals, requestToolApproval, patchToolCardResult, flushToolResults, flushDeferredExecutionPendingResumeKick, drainPendingSteering,
@@ -42,9 +50,14 @@ export function createRunTurn(bag) {
     const turnIndex = getState().stats.turns || 0;
     const startedAt = Date.now();
     const completionVerb = pickDoneVerb(turnIndex);
-    const baseTranscriptMeta = flags.pendingTranscriptMeta
-      || transcriptRouteMetadata?.(startedAt)
-      || { at: startedAt };
+    const baseTranscriptMeta = {
+      ...(flags.pendingTranscriptMeta
+        || transcriptRouteMetadata?.(startedAt)
+        || { at: startedAt }),
+      ...(options.transcriptMeta && typeof options.transcriptMeta === 'object'
+        ? options.transcriptMeta
+        : {}),
+    };
     const turnTranscriptMeta = { ...baseTranscriptMeta, completionVerb };
     flags.pendingTranscriptMeta = null;
     const { at: _userItemAt, ...turnRouteMeta } = turnTranscriptMeta;
@@ -72,6 +85,7 @@ export function createRunTurn(bag) {
         : [],
     };
     set({ busy: true, lastTurn: null, spinner: { active: true, verb: pickVerb(turnIndex), startedAt, responseLength: 0, inputTokens: 0, outputTokens: 0, mode: 'requesting' } });
+    try { await bag.onGoalTurnStarted?.(); } catch {}
 
     let assistantText = '';
     let currentAssistantId = null;
@@ -95,6 +109,7 @@ export function createRunTurn(bag) {
     let cancelled = false;
     let failed = false;
     let turnFailureDetail = '';
+    let turnFailureUsageLimited = false;
     let askResult = null;
     let turnFinishedNormally = false;
     let transcriptCompactedThisTurn = false;
@@ -762,6 +777,7 @@ export function createRunTurn(bag) {
         id: submittedIds[0],
         submittedAt: options.submittedAt,
         transcriptMeta: turnTranscriptMeta,
+        context: options.context || null,
         drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
         onStreamDelta: () => {
           markTurnProgress('stream-delta');
@@ -799,9 +815,15 @@ export function createRunTurn(bag) {
               value,
               steeringIds[0],
               'injected',
-              Array.isArray(steeringMeta?.images) && steeringMeta.images.length
-                ? { images: steeringMeta.images }
-                : null,
+              {
+                ...(Array.isArray(steeringMeta?.images) && steeringMeta.images.length
+                  ? { images: steeringMeta.images }
+                  : {}),
+                ...(typeof steeringMeta?.transcriptMeta?.sender === 'string'
+                  && steeringMeta.transcriptMeta.sender
+                  ? { sender: steeringMeta.transcriptMeta.sender }
+                  : {}),
+              },
             );
           }
         },
@@ -962,12 +984,22 @@ export function createRunTurn(bag) {
         },
         onToolResult: (message) => {
           if (!markTurnProgress('tool-result')) return;
+          try { options.onToolResult?.(message); } catch {}
           const callId = toolResultCallId(message);
           if (callId && !cardByCallId.has(callId) && !resultsDone.has(callId)) {
             earlyResultBuffer.set(callId, message);
             return;
           }
           deliverToolResultMessage(message);
+        },
+        onToolPhaseCompleted: () => {
+          if (!markTurnProgress('tool-phase-completed')) return;
+          const spinner = getState().spinner;
+          if (!spinner || spinner.mode === 'requesting') return;
+          // A completed tool batch is not the end of the turn. Publish the
+          // provider-resume phase immediately instead of leaving the last tool
+          // state parked on screen until the next model event arrives.
+          set({ spinner: { ...spinner, mode: 'requesting' } });
         },
         onToolApproval: async (request) => {
           if (!markTurnProgress('tool-approval')) return { approved: false, reason: 'turn no longer active' };
@@ -1277,6 +1309,7 @@ export function createRunTurn(bag) {
         } else {
           failed = true;
           finalizeToolHeaders();
+          turnFailureUsageLimited = isUsageLimitError(error);
           turnFailureDetail = toolErrorDisplay(error, 'turn').replace(/^Error:\s*/i, '');
           pushNotice(turnFailureDetail, 'error');
         }
@@ -1384,7 +1417,21 @@ export function createRunTurn(bag) {
     flushEmit?.();
     _publishedThinkingActive = false; // turn teardown cleared getState().thinking
     const finalStatus = cancelled ? 'cancelled' : (failed ? 'failed' : 'done');
-    try { bag.onGoalTurnSettled?.(finalStatus); } catch {}
+    try {
+      await bag.onGoalTurnSettled?.({
+        status: finalStatus,
+        error: turnFailureDetail || null,
+        usageLimited: turnFailureUsageLimited,
+      });
+    } catch {}
+    try {
+      options.onSettled?.({
+        status: finalStatus,
+        result: askResult,
+        session: runtime.session || null,
+        error: turnFailureDetail || null,
+      });
+    } catch {}
     tuiDebug(`runTurn end turn=${turnIndex} status=${finalStatus} elapsedMs=${Date.now() - startedAt} pending=${pending.length}`);
     return finalStatus;
   }

@@ -231,7 +231,9 @@ export function createJobViews({
       && (typeof m.content === 'string' ? m.content.trim() : m.content));
     const resultText = lastAssistant
       ? (typeof lastAssistant.content === 'string' ? lastAssistant.content : JSON.stringify(lastAssistant.content))
-      : '(worker session has no assistant output yet)';
+      : (typeof session.lastHandoff === 'string' && session.lastHandoff.trim()
+          ? session.lastHandoff
+          : '(worker session has no assistant output yet)');
     return {
       taskId: null,
       operation: 'worker',

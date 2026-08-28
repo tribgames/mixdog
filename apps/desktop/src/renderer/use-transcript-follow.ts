@@ -105,6 +105,10 @@ export function pointerShouldReleaseFollow({
   return upwardMove > RELEASE_MOVE_PX;
 }
 
+export function selectionAutoScrollShouldReleaseFollow(delta: number): boolean {
+  return Number.isFinite(delta) && delta < 0;
+}
+
 /** Follow releases only on a real reader leave: wheel, scrollbar, or key.
  *  Tool resize and content clicks change scrollTop but are not a leave. */
 export function readerScrollShouldReleaseFollow({
@@ -258,6 +262,7 @@ export interface TranscriptFollow {
   handlePointerDown(event: PointerLike): void;
   handlePointerMove(event: PointerLike): void;
   handlePointerUp(): void;
+  handleSelectionAutoScroll(delta: number): void;
   handleTouchStart(event: TouchLike): void;
   handleTouchMove(event: TouchLike): void;
   handleTouchEnd(): void;
@@ -550,6 +555,16 @@ export function useTranscriptFollow({
     chromeScroll.current = false;
   }, []);
 
+  const handleSelectionAutoScroll = useCallback((delta: number) => {
+    if (!Number.isFinite(delta) || delta === 0) return;
+    // Claim reader ownership before TranscriptList writes scrollTop so the
+    // virtual end anchor cannot pull against that write in the same frame.
+    markGesture();
+    if (selectionAutoScrollShouldReleaseFollow(delta)) {
+      stop("selection", lastTop.current);
+    }
+  }, [markGesture, stop]);
+
   const handleTouchStart = useCallback((event: TouchLike) => {
     touchGesture.current = event.touches[0]?.clientY;
   }, []);
@@ -779,6 +794,7 @@ export function useTranscriptFollow({
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
+    handleSelectionAutoScroll,
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,

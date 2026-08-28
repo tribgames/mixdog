@@ -20,7 +20,7 @@ import {
     persistenceMessagesForConfirmedImageRejection,
     promptHasInlineImages,
     shouldStripImagesForRetry,
-    stripInlineImages,
+    stripInlineImagesFromLatestTurn,
 } from './image-strip-recovery.mjs';
 import { setTimeout as sleepMs } from 'timers/promises';
 import { readStreamOutcome } from '../providers/lib/stream-outcome.mjs';
@@ -508,7 +508,7 @@ export async function sendWithRecovery(ctx) {
                 && relayWitness.toolCallsDispatched === 0
                 && (outcome.replaySafe === true || await retractExposedTextForReplay())
             ) {
-                const stripped = stripInlineImages(recoveryMessages);
+                const stripped = stripInlineImagesFromLatestTurn(recoveryMessages);
                 if (stripped.stripped > 0) {
                     try {
                         process.stderr.write(

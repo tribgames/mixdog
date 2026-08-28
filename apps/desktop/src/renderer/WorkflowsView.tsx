@@ -18,8 +18,7 @@ import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { preferredModelEffort, routeOption } from './model-route-utils';
-import { dismissDesktopToast, showDesktopToast } from './notifications';
-import { OpenSelect } from './OpenSelect';
+import { showDesktopToast } from './notifications';
 import {
   ModelRouteLabel,
   modelDisplayName,
@@ -119,8 +118,6 @@ const NEW_WORKFLOW_BODY = [
 ].join('\n');
 
 const NEW_AGENT_BODY = [
-  '# New Agent',
-  '',
   'Describe this agent role: what it owns, how it works, and what it must',
   'deliver back to the Lead.',
 ].join('\n');
@@ -214,12 +211,9 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
           <span>{t('Agents')}</span>
           <small>{t('Whether this workflow can delegate to agents.')}</small>
           <div className="workflows-agent-mode-field">
-            <OpenSelect ariaLabel={t('Agents')} value={delegates ? 'allow' : 'none'} disabled={busy}
-              options={[
-                { value: 'allow', label: t('Allow agents') },
-                { value: 'none', label: t('Use no agents') },
-              ]}
-              onChange={(value) => setDelegates(value === 'allow')} />
+            <span>{t(delegates ? 'Allow agents' : 'Use no agents')}</span>
+            <CompactSwitch label={t('Allow agents')} checked={delegates}
+              disabled={busy} onChange={setDelegates} />
           </div>
         </div>
         <label className="schedules-field workflows-md-field"><span data-i18n-skip>WORKFLOW.md</span>
@@ -376,7 +370,7 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave,
         onCancel();
       }
     }}>
-    <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true"
+    <section className="schedules-dialog workflows-dialog workflows-route-dialog" role="dialog" aria-modal="true"
       aria-labelledby="route-dialog-title">
       <header>
         <h2 id="route-dialog-title">{t('Edit {{name}}', { name: target.label })}</h2>
@@ -444,7 +438,7 @@ export function WorkflowsPane({
 }) {
   // App pre-mounts rail destinations while idle, and boot prewarms these keys,
   // so a normal first click is already a warm, atomic reveal.
-  const { values, loading, error: referenceError, completeMutation } =
+  const { values, loading, completeMutation } =
     useSidebarReferences(api, WORKFLOW_REFERENCE_KEYS, active);
   const workflows = values.workflows;
   const agents = values.agents;
@@ -473,11 +467,6 @@ export function WorkflowsPane({
     setRouteEditor(null);
   });
   const busy = Boolean(pending) || loading;
-  useEffect(() => {
-    if (!active || !referenceError) return undefined;
-    const toastId = showDesktopToast(referenceError, 'error');
-    return () => dismissDesktopToast(toastId);
-  }, [active, referenceError]);
   const run = async (
     capability: DesktopCapability,
     args: unknown[] = [],

@@ -25,6 +25,9 @@ function steeringEntryMetadata(entry) {
         ...(ids.length ? { ids } : {}),
         ...(Number.isFinite(submittedAt) && submittedAt > 0 ? { submittedAt } : {}),
         ...(Array.isArray(entry.images) && entry.images.length ? { images: entry.images } : {}),
+        ...(entry.transcriptMeta && typeof entry.transcriptMeta === 'object'
+            ? { transcriptMeta: { ...entry.transcriptMeta } }
+            : {}),
     };
 }
 
@@ -51,10 +54,13 @@ function mergeSteeringMetadata(entries) {
     const submittedTimes = entries.map((entry) => Number(entry.submittedAt))
         .filter((value) => Number.isFinite(value) && value > 0);
     const images = entries.flatMap((entry) => Array.isArray(entry.images) ? entry.images : []);
+    const transcriptMeta = entries.find((entry) =>
+        entry.transcriptMeta && typeof entry.transcriptMeta === 'object')?.transcriptMeta;
     return {
         ...(ids.length ? { ids } : {}),
         ...(submittedTimes.length ? { submittedAt: Math.min(...submittedTimes) } : {}),
         ...(images.length ? { images } : {}),
+        ...(transcriptMeta ? { transcriptMeta: { ...transcriptMeta } } : {}),
     };
 }
 

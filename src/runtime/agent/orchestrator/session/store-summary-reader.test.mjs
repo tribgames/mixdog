@@ -581,3 +581,67 @@ test('cancel-unconfirmed stays distinguishable from a confirmed cancel under a f
     assert.notEqual(row?.status, 'cancelled');
   });
 });
+
+test('stored Agent pool preserves root ownership and immediate nested parent links', () => {
+  withAgentPoolRoot('mixdog-agent-pool-nested-', (root) => {
+    writeAgentChild(root, 'child-direct', {
+      ownerSessionId: 'root-lead',
+      parentSessionId: 'root-lead',
+      tag: 'direct',
+    });
+    writeAgentChild(root, 'grandchild', {
+      ownerSessionId: 'root-lead',
+      parentSessionId: 'child-direct',
+      tag: 'nested',
+      closed: true,
+      status: 'closed',
+      stage: 'closed',
+    });
+    writeFileSync(join(root, 'sessions', 'root-lead.json'), JSON.stringify({
+      id: 'root-lead',
+      owner: 'user',
+      ownerSessionId: 'root-lead',
+      agent: 'lead',
+      status: 'idle',
+      messages: [{ role: 'user', content: 'root task' }],
+    }));
+    writeAgentWorkerIndex(root, {
+      direct: {
+        tag: 'direct',
+        sessionId: 'child-direct',
+        ownerSessionId: 'root-lead',
+        parentSessionId: 'root-lead',
+        agent: 'reviewer',
+        status: 'idle',
+        stage: 'idle',
+      },
+    });
+    writeFileSync(join(root, 'lead-workers.json'), JSON.stringify({
+      workers: {
+        root: {
+          sessionId: 'root-lead',
+          ownerSessionId: 'root-lead',
+          agent: 'lead',
+          status: 'idle',
+          stage: 'idle',
+          updatedAt: new Date().toISOString(),
+          reapAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
+    }));
+    // No worker-index row: the heartbeat/session fallback must carry the same
+    // production ancestry shape for a live nested descendant.
+    writeFreshHeartbeat(root, 'grandchild');
+
+    const rows = listStoredAgentWorkers();
+    const rootLead = rows.find((row) => row.sessionId === 'root-lead');
+    const direct = rows.find((row) => row.sessionId === 'child-direct');
+    const nested = rows.find((row) => row.sessionId === 'grandchild');
+    assert.equal(rootLead?.ownerSessionId, 'root-lead');
+    assert.equal(rootLead?.parentSessionId, null);
+    assert.equal(direct?.ownerSessionId, 'root-lead');
+    assert.equal(direct?.parentSessionId, 'root-lead');
+    assert.equal(nested?.ownerSessionId, 'root-lead');
+    assert.equal(nested?.parentSessionId, 'child-direct');
+  });
+});

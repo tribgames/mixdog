@@ -42,6 +42,13 @@ const {
     createTurnInterruptionTracker,
     finalizeTurnInterruptionSnapshot,
 } = await import('./turn-interruption.mjs');
+const {
+    recordProviderContextBaseline,
+    resolveCompactionPressureTokens,
+    resolveWorkerCompactPolicy,
+    shouldCompactForSession,
+} = await import('../loop/compact-policy.mjs');
+const { estimateMessagesTokens } = await import('../context-utils.mjs');
 
 function startTurn(sessionId, prompt = 'do the thing') {
     const tracker = createTurnInterruptionTracker();
@@ -161,16 +168,42 @@ test('crash recovery matches the live finalize path (text reset, tool pairing)',
         id: sessionId,
         generation: 3,
         updatedAt: 0,
+        provider: 'openai-oauth',
+        model: 'gpt-5.6-sol',
+        contextWindow: 272_000,
+        compactBoundaryTokens: 272_000,
+        compaction: { auto: true },
+        tools: [],
         messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: prompt }],
         activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
         _providerPrefixGuardState: { messageHashes: ['stale'], requestPrefixHash: 'stale' },
+        contextPressureBaselineTokens: 300_000,
+        contextPressureBaselineOutputTokens: 0,
+        contextPressureBaselineMessageCount: 2,
+        contextPressureBaselinePrefixSignature: 'stale-prefix',
+        contextPressureBaselineProvider: 'openai-oauth',
+        contextPressureBaselineModel: 'gpt-5.6-sol',
+        contextPressureBaselineToolSignature: 'stale-tools',
+        contextPressureBaselineBoundary: 'complete',
+        contextPressureBaselineUpdatedAt: Date.now(),
+        lastContextTokensStaleAfterCompact: false,
     };
+    const staleBaselineUpdatedAt = session.contextPressureBaselineUpdatedAt;
     const recovery = recoverTurnCheckpoint(session);
     assert.equal(recovery.recovered, true);
     // A recovered (rewritten) transcript must never keep the mid-turn provider
     // prefix snapshot: a stale one flags every following send as
     // history_shrink ("Session state changed unexpectedly.").
     assert.equal(Object.prototype.hasOwnProperty.call(session, '_providerPrefixGuardState'), false);
+    // Keep the saved reading so a matching durable prefix can still use it.
+    // This deliberately stale signature must instead be rejected by pressure
+    // resolution without mutating the persisted provider snapshot.
+    assert.equal(session.contextPressureBaselineTokens, 300_000);
+    assert.equal(session.contextPressureBaselineMessageCount, 2);
+    assert.equal(session.contextPressureBaselinePrefixSignature, 'stale-prefix');
+    assert.equal(session.contextPressureBaselineToolSignature, 'stale-tools');
+    assert.equal(session.contextPressureBaselineUpdatedAt, staleBaselineUpdatedAt);
+    assert.equal(session.lastContextTokensStaleAfterCompact, false);
     const expected = finalizeTurnInterruptionSnapshot({
         turnOutgoing: checkpoint.turnMessages,
         currentUserContent: checkpoint.currentUserContent,
@@ -181,6 +214,74 @@ test('crash recovery matches the live finalize path (text reset, tool pairing)',
     assert.equal(session.messages.at(-1).content, '[Request interrupted by process restart]');
     // Every observed call is paired with a result in the recovered transcript.
     assert.ok(session.messages.some((m) => m.role === 'tool' && m.toolCallId === 'call-a'));
+    const policy = resolveWorkerCompactPolicy(session, session.tools);
+    const messageTokensEst = estimateMessagesTokens(session.messages);
+    const pressureTokens = resolveCompactionPressureTokens(messageTokensEst, policy, {
+        messages: session.messages,
+        sessionRef: session,
+    });
+    assert.ok(pressureTokens < policy.triggerTokens);
+    assert.equal(
+        shouldCompactForSession(messageTokensEst, policy, {
+            messages: session.messages,
+            sessionRef: session,
+            pressureTokens,
+        }),
+        false,
+    );
+});
+
+test('crash recovery preserves a provider baseline for a matching durable prefix', async () => {
+    const sessionId = 'sess-baseline-prefix';
+    const prompt = 'resume from provider baseline';
+    const turn = startTurn(sessionId, prompt);
+    turn.flush();
+    await settleTurnCheckpointWrites(sessionId);
+
+    const session = {
+        id: sessionId,
+        generation: 3,
+        updatedAt: 0,
+        provider: 'openai-oauth',
+        model: 'gpt-5.6-sol',
+        contextWindow: 272_000,
+        compactBoundaryTokens: 272_000,
+        compaction: { auto: true },
+        tools: [],
+        messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: prompt }],
+        activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
+    };
+    assert.equal(recordProviderContextBaseline(
+        session,
+        session.messages.slice(0, 1),
+        { promptTokens: 210_000, outputTokens: 1_200 },
+        { sendTools: session.tools },
+    ), true);
+    const baselineUpdatedAt = session.contextPressureBaselineUpdatedAt;
+
+    const recovery = recoverTurnCheckpoint(session);
+    assert.equal(recovery.recovered, true);
+    assert.equal(session.contextPressureBaselineTokens, 211_200);
+    assert.equal(session.contextPressureBaselineMessageCount, 1);
+    assert.equal(session.contextPressureBaselineUpdatedAt, baselineUpdatedAt);
+    assert.equal(session.lastContextTokensStaleAfterCompact, false);
+
+    const policy = resolveWorkerCompactPolicy(session, session.tools);
+    const messageTokensEst = estimateMessagesTokens(session.messages);
+    const pressureTokens = resolveCompactionPressureTokens(messageTokensEst, policy, {
+        messages: session.messages,
+        sessionRef: session,
+    });
+    assert.ok(pressureTokens > 211_200);
+    assert.ok(pressureTokens < policy.triggerTokens);
+    assert.equal(
+        shouldCompactForSession(messageTokensEst, policy, {
+            messages: session.messages,
+            sessionRef: session,
+            pressureTokens,
+        }),
+        false,
+    );
 });
 
 test('a crash-torn trailing record is discarded and the durable prefix survives', async () => {

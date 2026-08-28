@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
+import { activateCodexTurnState } from './openai-turn-state.mjs';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let _installationId = null;
@@ -206,39 +207,30 @@ export function _codexWsCompatibilityHeaders(context = {}) {
 export function _withCodexWsClientMetadata(frame, entry, enabled, context = {}) {
     if (!enabled || !frame || typeof frame !== 'object') return frame;
     const base = _codexMetadataBase(entry, context);
-    const requestKind = _codexRequestKind(context?.sendOpts, context?.poolKey || '');
-    const isPrewarmRequest = requestKind === 'prewarm';
+    const explicitLogicalTurnId = _cleanMetaString(
+        context?.sendOpts?.turnId
+        || context?.sendOpts?.codexTurnId
+        || context?.sendOpts?.session?.turnId,
+    );
+    const logicalTurnId = explicitLogicalTurnId
+        ? _codexUuidV7(explicitLogicalTurnId)
+        : base.turn_id;
+    const turnStateScope = _cleanMetaString(context?.poolKey);
     const metadata = {
         ...base,
         ...(frame.client_metadata && typeof frame.client_metadata === 'object' ? frame.client_metadata : {}),
         'x-codex-ws-stream-request-start-ms': String(Date.now()),
     };
     if (entry && typeof entry === 'object') {
-        // x-codex-turn-state is scoped to ONE turn while
-        // pooled sockets span turns: attribute a captured token to the FIRST
-        // turn that observes it, then drop it once turn_id moves on. An empty
-        // turn_id (parity prewarm) is a valid owner, so the check is against
-        // null rather than falsiness.
-        if (entry.turnState) {
-            if (entry.turnStateTurnId == null) {
-                entry.turnStateTurnId = base.turn_id;
-            } else if (entry.turnStateTurnId !== base.turn_id) {
-                // Codex startup prewarm owns the handshake turn-state until
-                // the first real turn consumes that prewarmed client session.
-                // Adopt it once across prewarm→turn; ordinary turn changes
-                // still retire the old token.
-                if (entry.turnStateFromPrewarm === true && !isPrewarmRequest) {
-                    entry.turnStateTurnId = base.turn_id;
-                } else {
-                    entry.turnState = null;
-                    entry.turnStateTurnId = null;
-                }
-            }
+        const priorTurnId = entry.turnStateTurnId;
+        if (turnStateScope && logicalTurnId) {
+            entry.turnState = activateCodexTurnState(turnStateScope, logicalTurnId, entry);
+        } else if (priorTurnId != null && priorTurnId !== logicalTurnId) {
+            entry.turnState = null;
         }
-        if (!isPrewarmRequest && entry.turnStateFromPrewarm === true) {
-            entry.turnStateFromPrewarm = false;
-        }
-        entry.currentTurnId = base.turn_id;
+        entry.turnStateScope = turnStateScope || null;
+        entry.turnStateTurnId = logicalTurnId || null;
+        entry.currentTurnId = logicalTurnId || null;
     }
     if (entry?.turnState) metadata['x-codex-turn-state'] = String(entry.turnState);
     return { ...frame, client_metadata: metadata };

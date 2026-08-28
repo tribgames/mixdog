@@ -362,6 +362,7 @@ export function PersistentPanePortal({
     element.className = `persistent-pane-surface${className ? ` ${className}` : ""}`;
     return element;
   });
+  const [attached, setAttached] = useState(false);
   // Scroll offsets are recorded from the surfaces' own scroll events, so the
   // relocation itself never has to force layout to read them back.
   const [scrollOffsets] = useState(() => new Map<Element, PersistentSurfaceScroll>());
@@ -380,10 +381,31 @@ export function PersistentPanePortal({
     return () => host.removeEventListener("scroll", remember, true);
   }, [host, scrollOffsets]);
   useLayoutEffect(() => {
-    const target = document.getElementById(targetId);
-    if (target && host.parentElement !== target) {
-      movePersistentPaneHost(host, target, scrollOffsets);
-    }
+    let observer: MutationObserver | null = null;
+    const attachToTarget = (): boolean => {
+      const target = document.getElementById(targetId);
+      if (!target) return false;
+      if (host.parentElement !== target) {
+        movePersistentPaneHost(host, target, scrollOffsets);
+      }
+      // Portal children run their layout effects before their owner's layout
+      // effect. Keep a fresh surface unmounted until its host is physically in
+      // the pane, otherwise Conversation can measure the detached intrinsic box
+      // and temporarily collapse its transcript above the composer.
+      if (!attached && host.parentElement === target) setAttached(true);
+      return host.parentElement === target;
+    };
+    if (attachToTarget()) return undefined;
+    // A fresh utility can be registered before its empty pane commits the
+    // matching slot. Without another React render the detached host would stay
+    // unmounted forever, so attach as soon as that target enters the document.
+    observer = new window.MutationObserver(() => {
+      if (!attachToTarget()) return;
+      observer?.disconnect();
+      observer = null;
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    return () => observer?.disconnect();
   });
   // React portal events follow the owner tree, not this host's physical DOM
   // ancestry. Listen on the host itself so clicking Studio/xterm/diff inside
@@ -394,5 +416,5 @@ export function PersistentPanePortal({
     return () => host.removeEventListener("pointerdown", onPointerDownCapture, true);
   }, [host, onPointerDownCapture]);
   useLayoutEffect(() => () => host.remove(), [host]);
-  return createPortal(children, host);
+  return attached ? createPortal(children, host) : null;
 }

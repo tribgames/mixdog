@@ -243,30 +243,37 @@ export function createSessionLifecycle({
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       // Load the active WORKFLOW.md pack once for both summary + context block.
       const { summary: workflow, context: workflowContext } = activeWorkflowContext(rt.config, dataDir);
+      const sessionProfile = rt.sessionProfile && typeof rt.sessionProfile === 'object'
+        ? rt.sessionProfile
+        : null;
+      const agentOwned = sessionProfile?.owner === 'agent'
+        || sessionProfile?.visibility === 'agent-only';
       const sessionOpts = {
         ...(rt.reservedSessionId ? { id: rt.reservedSessionId } : {}),
         provider: rt.route.provider,
         model: rt.route.model,
         preset: rt.route.preset || undefined,
         tools: toolSpecForMode(rt.mode),
-        owner: 'cli',
-        agent: 'lead',
-        lane: 'cli',
-        sourceType: 'lead',
-        sourceName: 'main',
+        owner: agentOwned ? 'agent' : 'cli',
+        agent: agentOwned ? (sessionProfile?.agent || 'worker') : 'lead',
+        lane: agentOwned ? 'agent' : 'cli',
+        sourceType: agentOwned ? (sessionProfile?.sourceType || 'agent') : 'lead',
+        sourceName: agentOwned ? (sessionProfile?.sourceName || sessionProfile?.agent || 'agent') : 'main',
         ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
-        clientHostPid: process.pid,
+        clientHostPid: sessionProfile?.clientHostPid || process.pid,
         mcpScopeId: rt.mcpScopeId,
-        disallowedTools: [
-          ...LEAD_DISALLOWED_TOOLS,
-          ...(rt.disallowDelegation ? ['agent'] : []),
-          ...featureDisallowedTools(),
-        ],
+        disallowedTools: agentOwned
+          ? [...featureDisallowedTools()]
+          : [
+              ...LEAD_DISALLOWED_TOOLS,
+              ...(rt.disallowDelegation ? ['agent'] : []),
+              ...featureDisallowedTools(),
+            ],
         cwd: rt.currentCwd,
         ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
         coreMemoryContext,
         workflow,
-        workflowContext,
+        workflowContext: [workflowContext, rt.officeRecoveryContext].filter(Boolean).join('\n\n'),
         fast: rt.route.fast === true,
         modelParameters: rt.route.modelParameters || {},
         contextPercent: rt.route.contextPercent,
@@ -274,6 +281,21 @@ export function createSessionLifecycle({
         compaction: rt.config.compaction && typeof rt.config.compaction === 'object'
           ? normalizeCompactionConfig(rt.config.compaction)
           : undefined,
+        ...(agentOwned ? {
+          parentSessionId: sessionProfile?.parentSessionId || null,
+          ownerSessionId: sessionProfile?.ownerSessionId || sessionProfile?.parentSessionId || null,
+          visibility: 'agent-only',
+          agentTag: sessionProfile?.agentTag || null,
+          taskType: sessionProfile?.taskType || null,
+          maxLoopIterations: Number.isFinite(sessionProfile?.maxLoopIterations)
+            ? sessionProfile.maxLoopIterations
+            : undefined,
+          permission: sessionProfile?.permission || undefined,
+          permissionMode: sessionProfile?.permissionMode || undefined,
+          schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)
+            ? sessionProfile.schemaAllowedTools
+            : undefined,
+        } : {}),
       };
       if (hasOwn(rt.route, 'effort') || rt.route.effectiveEffort) {
         sessionOpts.effort = rt.route.effectiveEffort || null;

@@ -58,7 +58,7 @@
   line-height: var(--mx-line-meta);
   text-align: center;
 }
-.extensions-pane .settings-group-body:has(> .settings-empty-list):not(:has(> .extensions-create)) {
+.extensions-pane .settings-group-body:has(> .settings-empty-list) {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
@@ -188,46 +188,6 @@
   background: var(--mx-text-faint);
 }
 .extensions-row .sidebar-resource-status.on { background: var(--mx-success); }
-/* Create form: opened by the header's +, closed on submit. One column, one
-   primary action, and the same item surface the rail cards wear — no third
-   input grammar in the pane. */
-.extensions-create {
-  display: grid;
-  gap: var(--mx-rail-gap);
-  padding: 12px var(--mx-rail-gutter);
-  border-radius: var(--mx-radius-lg);
-  background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
-}
-.extensions-create > header b {
-  font-size: var(--mx-font-item);
-  font-weight: var(--mx-weight-semibold);
-}
-.extensions-create input {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  outline: 1px solid transparent;
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
-  font: inherit;
-  font-size: var(--mx-font-ui);
-}
-.extensions-create input:focus {
-  outline: 1px solid var(--mx-focus);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
-}
-.extensions-create > footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
 
 /* Detail dialog: the schedules editor card with a facts list where the form
    would be. The body owns the 20px gutter that card's sticky footer assumes in
@@ -294,7 +254,7 @@
   display: grid;
   overflow: hidden;
   border-radius: var(--mx-radius-xl);
-  background: var(--mx-bg-raised);
+  background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .extensions-mcp-card > .schedules-field,
@@ -332,17 +292,44 @@
 }
 .extensions-mcp-transport button {
   min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   padding: 0 10px;
   border: 0;
   border-radius: calc(var(--mx-radius-md) - 2px);
   color: var(--mx-text-muted);
   background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
 }
-.extensions-mcp-transport button.active {
-  color: var(--mx-text-primary);
-  background: var(--mx-bg-raised);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
+.extensions-mcp-transport button > svg {
+  flex: 0 0 auto;
+  color: transparent;
 }
+.extensions-mcp-transport button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.extensions-mcp-transport button.active,
+.extensions-mcp-transport button[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-3);
+  box-shadow: inset 0 0 0 1px var(--mx-focus);
+  font-weight: var(--mx-weight-semibold);
+}
+.extensions-mcp-transport button.active > svg,
+.extensions-mcp-transport button[aria-pressed="true"] > svg {
+  color: var(--mx-focus);
+}
+.extensions-mcp-transport button:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px var(--mx-focus);
+}
+.extensions-mcp-transport button:disabled { cursor: default; opacity: var(--mx-op-disabled); }
 .extensions-mcp-list {
   display: grid;
   gap: 7px;

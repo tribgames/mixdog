@@ -5,6 +5,47 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Windows Computer Use now runs a smaller CUA-style observation loop: compact
+  accessibility and a plain screenshot are returned together by default,
+  post-action state is immediately refreshed, AX and fallback OCR share one
+  strict element budget, unusable black, white, or mismatched captures never
+  issue a coordinate frame, mutations invalidate prior pixel frames, one new
+  same-process popup becomes the deterministic verification target, app-owned
+  Electron text fields use renderer-native background insertion, recovery names
+  one next escalation rung, and dangerous session-ending keys or shell payloads
+  are blocked at the host boundary. A 23-scenario Windows dashboard now covers
+  native, Electron, Chrome, Korean OCR, secondary-display, stale-state, focus,
+  popup, safety, and cleanup paths.
+- Computer Use observations and turns are faster without weakening the input
+  boundary: lightweight Win32 transition/frame snapshots, exact-window capture,
+  bounded modern Chromium accessibility, adaptive launch polling, capture
+  resource guards, and verified focus/cursor recovery replace repeated full app
+  enumeration and unbounded fallbacks. Element-targeted literal typing can
+  focus and type in one action, and bounded OCR can be included in the mandatory
+  post-action capture. The final 23-scenario × 10 source-host matrix reached
+  230/230 semantic passes and reduced baseline p50/p95 scenario latency by
+  90.55%/94.01%; a separate dense/minimized/stale-target stress matrix passed
+  40/40. All 30 redundant post-action recaptures were removed, and calls fell
+  36.84% in the five batchable action workflows. Arbitrary mutation batching
+  remains unsupported.
+- Computer Use now exposes one strict 15-action contract instead of 28
+  overlapping actions or a flat optional-field schema. Observation/search/zoom
+  use `capture`, window and clipboard lifecycle use operation fields, and one
+  shared `capture_after` object configures automatic verification. Reference-
+  aligned guidance requires fresh exact targets, prefers semantic elements,
+  and keeps Browser Use separate. The final schema is 2,644 estimated tokens
+  before the frontier extensions and 3,226 tokens afterward (-42.80% versus
+  the 28-action baseline), passing 36/36 first-call model scenarios. Read-only
+  `diagnose` reports Windows OCR/UIA readiness without screen pixels; bounded
+  `sequence` stops on failure or target transition and returns one final fresh
+  state; structured safety decisions require runtime user acknowledgement.
+  Semantic actions with deterministic exact-window transitions now report
+  confirmed verification. No legacy call-shape fallback remains. After one
+  development deployment, installed-app validation confirmed that left
+  `click(ref)` uses semantic activation and that a native file-association
+  launch returns its selected target with fresh state; marks and coordinates
+  remain explicit pointer operations.
+
 ## v0.9.152 - 2026-08-27
 
 - Goal mode can now carry a long-running objective across turns with durable

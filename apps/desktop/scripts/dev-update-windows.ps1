@@ -35,6 +35,7 @@ param(
   [switch]$ReuseBuild,
   [switch]$BuildOnly,
   [switch]$RuntimeOnly,
+  [switch]$RuntimeOnlyWorker,
   [switch]$NoLaunch,
   [switch]$KeepDaemon,
   [switch]$DryRun,
@@ -52,6 +53,9 @@ trap {
   # Windows PowerShell can return exit 0 for an uncaught terminating error in
   # a -File script. FastDirect callers must never report a failed build/swap as
   # success, especially when the detached worker was never launched.
+  if ($RuntimeOnlyWorker -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
+    try { Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message } catch {}
+  }
   [Console]::Error.WriteLine(($_ | Out-String))
   exit 1
 }
@@ -135,6 +139,34 @@ function Start-FastDirectWorker {
   }
   if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
     throw "Failed to start detached fast deploy worker (WMI return $($created.ReturnValue))."
+  }
+  Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
+  return [int]$created.ProcessId
+}
+
+function Start-RuntimeOnlyWorker {
+  if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
+    throw 'RuntimeOnly worker receipt path is required.'
+  }
+  $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
+  $scriptPath = $PSCommandPath
+  $quote = {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "''") + "'"
+  }
+  $workerCommand = "& $(& $quote $scriptPath) -RuntimeOnly -RuntimeOnlyWorker -SkipBuild" `
+    + " -InstallDir $(& $quote $InstallDir)" `
+    + " -ReceiptPath $(& $quote $ReceiptPath)" `
+    + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
+  $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
+  # WMI owns the worker so stopping the daemon cannot terminate the runtime
+  # archive swap that follows.
+  $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+    CommandLine = $commandLine
+  }
+  if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
+    throw "Failed to start detached runtime deploy worker (WMI return $($created.ReturnValue))."
   }
   Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
   return [int]$created.ProcessId
@@ -463,6 +495,14 @@ function Get-FastDirectPlan {
   return ($output | Out-String | ConvertFrom-Json)
 }
 
+function Assert-FastDirectPlanCurrent {
+  & node $fastDirectHelper --action=assert-current "--install-dir=$InstallDir" `
+    "--plan=$FastPlanPath"
+  if ($LASTEXITCODE -ne 0) {
+    throw 'FastDirect inputs changed after planning/build; rerun the deploy before installing artifacts.'
+  }
+}
+
 function Get-FastRendererWatchState {
   if (-not (Test-Path -LiteralPath $fastRendererWatchState -PathType Leaf)) { return $null }
   try {
@@ -649,6 +689,7 @@ function Invoke-FastDirectChangedOutputs {
 function Invoke-FastDirectIncrementalBuild {
   param([object]$Plan)
   Invoke-FastDirectChangedOutputs $Plan
+  Assert-FastDirectPlanCurrent
   $targets = @($Plan.targets)
   if ($targets.Count -gt 0 -or $Plan.daemon) {
     Write-Step 'staging incremental app.asar'
@@ -923,9 +964,25 @@ if ($RuntimeOnly) {
   if (-not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)) {
     throw "Runtime artifact missing: $runtimeArtifact"
   }
+  if (-not $RuntimeOnlyWorker) {
+    if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
+      $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-runtime-deploy.json'
+    }
+    Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
+    $workerPid = Start-RuntimeOnlyWorker
+    Write-Step "runtime deploy handed to detached worker pid=$workerPid"
+    Write-Host "receipt         : $ReceiptPath"
+    exit 0
+  }
 
-  Write-Step 'stopping the session daemon (the app window stays up)'
+  Write-FastDirectReceipt -Status 'worker-started'
+  Start-Sleep -Seconds 2
+  Write-Step 'stopping the installed app'
+  Stop-MixdogApp
+  Write-Step 'stopping the session daemon'
   Stop-Daemon
+  Write-Step 'waiting for installed Mixdog processes to release runtime.asar'
+  Stop-InstalledMixdogProcess
   $installedRuntime = Join-Path $installedResources 'runtime.asar'
   $installedRuntimeUnpacked = Join-Path $installedResources 'runtime.asar.unpacked'
   $backupDir = Join-Path $env:TEMP ("mixdog-runtime-backup-" + [guid]::NewGuid().ToString('N'))
@@ -959,18 +1016,25 @@ if ($RuntimeOnly) {
     throw $failure
   }
 
-  Write-Step 'waiting for the app to respawn a fresh daemon'
-  $daemonAfterSwap = Wait-ForFreshDaemon -Previous $daemonBefore -TimeoutSeconds 45
+  $daemonAfterSwap = $null
+  if (-not $NoLaunch) {
+    Write-Step 'starting the installed app'
+    Start-InstalledMixdogApp
+    Write-Step 'waiting for a fresh daemon'
+    $daemonAfterSwap = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -TimeoutSeconds 45
+  }
   Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
   Write-Host ''
   Write-Host 'result' -ForegroundColor Green
   Write-Host "  runtime.asar      : swapped ($([math]::Round((Get-Item -LiteralPath $installedRuntime).Length / 1MB, 1)) MB)"
-  Write-Host "  session daemon    : $(if ($daemonAfterSwap) { "pid=$($daemonAfterSwap.pid) port=$($daemonAfterSwap.port)" } else { 'respawns on the next app action' })"
+  Write-Host "  session daemon    : $(if ($daemonAfterSwap) { "pid=$($daemonAfterSwap.pid) port=$($daemonAfterSwap.port)" } elseif ($NoLaunch) { '(stopped)' } else { 'did not appear' })"
+  Write-FastDirectReceipt -Status 'completed'
   exit 0
 }
 
 if ($FastDirect -and $SkipBuild) {
   $fastPlan = Get-Content -LiteralPath $FastPlanPath -Raw | ConvertFrom-Json
+  Assert-FastDirectPlanCurrent
 }
 if (-not $SkipBuild) {
   if ($FastDirect) {
@@ -981,6 +1045,7 @@ if (-not $SkipBuild) {
       Stop-FastRendererWatch
       Write-Step 'native/package inputs changed; building complete win-unpacked fallback'
       Invoke-Build $targetVersion -DirectoryOnly -Plan $fastPlan
+      Assert-FastDirectPlanCurrent
     } else {
       if (-not $ReuseBuild -and [bool]$fastPlan.changed.renderer -and
           -not [bool]$fastPlan.prebuilt.renderer) {

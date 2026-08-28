@@ -35,6 +35,7 @@ import {
 import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { _wsErrLabel, WS_MAX_INCOMING_FRAME_BYTES } from './openai-ws-pool.mjs';
+import { captureCodexTurnState } from './openai-turn-state.mjs';
 import {
     _sansInput,
     _stableStringify,
@@ -181,24 +182,19 @@ function _hasHeaderKey(headers, name) {
 
 export function _captureTurnStateFromEvent(entry, event) {
     if (!entry || entry.turnState || !event || typeof event !== 'object') return;
-    // The token normally arrives on the WebSocket 101 handshake and is held
-    // write-once per entry, which is what keeps sticky routing stable across
-    // previous_response_id calls. This event path is the fallback for
-    // deployments that surface the header on a response event instead; the
-    // write-once guard above means it can never swap a live chain's token.
+    // WebSocket turn state is returned by response metadata and replayed only
+    // in later response.create metadata for the same logical turn.
     const turnState = _headerString(event.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.response?.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.response?.metadata?.headers, X_CODEX_TURN_STATE_HEADER)
         || _headerString(event.metadata?.headers, X_CODEX_TURN_STATE_HEADER);
     if (turnState) {
-        entry.turnState = turnState;
-        // Attribute the captured token to the turn currently on the wire so
-        // the per-turn drop guard (_withCodexWsClientMetadata) can retire it
-        // once turn_id advances; null falls back to first-use attribution. An
-        // empty turn_id (parity prewarm) is a valid owner — preserve '' rather
-        // than collapsing it to null, so a prewarm-captured token is retired on
-        // the next real turn instead of leaking onto it.
-        entry.turnStateTurnId = entry.currentTurnId != null ? entry.currentTurnId : null;
+        entry.turnState = captureCodexTurnState(
+            entry.turnStateScope,
+            entry.turnStateTurnId,
+            turnState,
+            entry,
+        ) || ((!entry.turnStateScope || !entry.turnStateTurnId) ? turnState : null);
     }
 }
 

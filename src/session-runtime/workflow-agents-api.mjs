@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { clean, hasOwn, sessionHasConversationMessages, tombstoneOnClose } from './session-text.mjs';
+import { clean, hasOwn } from './session-text.mjs';
 import { serializeFrontmatterDoc } from '../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
 import {
@@ -35,13 +35,13 @@ import {
 // session locals plus the closure callbacks.
 export function createWorkflowAgentsApi(deps) {
   const {
-    getConfig, getRoute, setRouteState, getSession, setSession,
-    cfgMod, mgr, STANDALONE_DATA_DIR,
+    getConfig, getRoute, setRouteState, getSession,
+    cfgMod, STANDALONE_DATA_DIR,
     resolveRoute, lookupModelMeta, adoptConfig, saveConfigAndAdopt, displayConfig, ensureProvidersReady,
     agentRouteFromConfig, loadAgentDefinition, activeWorkflowId, listWorkflowPacks,
     loadWorkflowPack, workflowSummary, listCustomAgentIds,
     getOutputStyleStatusCached, seedOutputStyleStatusCache, scheduleOutputStyleSave,
-    recreateCurrentSessionIfReady, notifyFnForSession, invalidateContextStatusCache,
+    invalidateContextStatusCache,
     invalidatePreSessionToolSurface, refreshEmptySessionToolPolicy,
   } = deps;
   return {
@@ -119,9 +119,7 @@ export function createWorkflowAgentsApi(deps) {
       saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
       if (defaultRoute) {
         setRouteState(resolveRoute(getConfig(), { provider: defaultRoute.provider, model: defaultRoute.model, effort: defaultRoute.effort }));
-        const session = getSession();
-        if (session?.id) mgr.closeSession(session.id, 'cli-onboarding-complete', { tombstone: tombstoneOnClose(session) });
-        await recreateCurrentSessionIfReady();
+        invalidatePreSessionToolSurface?.();
       }
       return this.getOnboardingStatus();
     },
@@ -198,24 +196,9 @@ export function createWorkflowAgentsApi(deps) {
       scheduleOutputStyleSave(selected.id);
       const freshStatus = { configured: selected.id, current: selected, styles: before.styles };
       seedOutputStyleStatusCache(freshStatus);
-      const session = getSession();
-      const hasConversation = sessionHasConversationMessages(session);
-      let appliedToCurrentSession = !hasConversation;
-      if (session?.id && !hasConversation) {
-        const closedSessionId = session.id;
-        mgr.closeSession(closedSessionId, 'cli-output-style-switch');
-        setSession(null);
-        setTimeout(() => {
-          recreateCurrentSessionIfReady().catch((err) => {
-            try {
-              notifyFnForSession(closedSessionId)(
-                `Failed to start a new session after output style change: ${err?.message || err}`,
-                { level: 'error' },
-              );
-            } catch {}
-          });
-        }, 0);
-      }
+      // Output style is global configuration for future turns/sessions. Never
+      // replace an addressed session merely to rebuild its frozen prompt.
+      const appliedToCurrentSession = !getSession()?.id;
       invalidateContextStatusCache();
       return { ...freshStatus, appliedToCurrentSession };
     },

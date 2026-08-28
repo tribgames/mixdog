@@ -27,7 +27,7 @@ function hasMeaningfulTitleText(value) {
   return /[\p{L}\p{N}]/u.test(String(value || ''));
 }
 
-function compactTitle(value, maximum = 32) {
+export function compactSessionTitle(value, maximum = 32) {
   const line = String(value || '')
     .replace(/<think>[\s\S]*?<\/think>\s*/gi, '')
     .split(/\r?\n/)
@@ -179,7 +179,7 @@ export function createSessionTitleController(deps = {}) {
         }),
         timeout,
       ]);
-      const title = compactTitle(raw);
+      const title = compactSessionTitle(raw);
       log(`generated id=${sessionId} stage=${stage} title=${JSON.stringify(title)}`);
       if (title) await promote(sessionId, title, stage);
     } finally {

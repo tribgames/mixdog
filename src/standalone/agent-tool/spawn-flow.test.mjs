@@ -61,3 +61,44 @@ test('agent job completion uses immutable caller owner and never invokes stale n
   assert.match(deliveries.at(-1).text, /owner handoff/);
   cleanupBackgroundTasks({ surface: 'agent', force: true });
 });
+
+test('a user-cancelled Agent turn settles the worker row as cancelled, not error', async () => {
+  const updates = [];
+  const flow = createSpawnFlow({
+    mgr: {
+      getSession: () => ({ messages: [] }),
+    },
+    upsertWorkerSessionDeferred(_session, _tag, patch) {
+      updates.push(patch);
+    },
+    emitSubagentEvent() {},
+    scheduleReap() {},
+    createTurnReviewCollector: () => ({
+      onToolResult() {},
+      complete() {},
+    }),
+    sessionSurface: {
+      canonical: true,
+      canRun: () => true,
+      async runTurn() {
+        throw new Error('cancelled by agent close');
+      },
+    },
+  });
+  const job = { taskId: 'task-agent-cancelled', status: 'cancelled' };
+
+  await assert.rejects(flow.runSpawn({
+    args: {},
+    tag: 'cancelled-worker',
+    session: { id: 'sess_cancelled_worker' },
+    agent: 'worker',
+    preset: { provider: 'test-provider', model: 'test-model' },
+    presetName: 'worker-route',
+    workerCwd: 'C:\\Project\\tree',
+    prompt: 'cancel me',
+    watchdogPolicy: null,
+  }, { callerSessionId: 'sess_lead' }, job), /cancelled by agent close/);
+
+  assert.equal(updates.at(-1).status, 'cancelled');
+  assert.equal(updates.at(-1).stage, 'cancelled');
+});

@@ -67,7 +67,12 @@ export const SKILL_TOOL = {
   },
 };
 
-export const LEAD_DISALLOWED_TOOLS = Object.freeze([]);
+export const LEAD_DISALLOWED_TOOLS = Object.freeze([
+  'get_goal',
+  'create_goal',
+  'set_goal_tasks',
+  'update_goal',
+]);
 const AGENT_HIDDEN_WRAPPER_TOOLS = new Set([]);
 
 export function applyStandaloneToolDefaults(tool) {

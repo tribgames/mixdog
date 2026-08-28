@@ -7,6 +7,8 @@ import { JSDOM } from "jsdom";
 import {
   AGENT_POOL_RECONCILE_MS,
   AgentActivityPane,
+  agentActivityGroups,
+  flattenAgentActivityNodes,
   liveAgentRows,
   liveTaskCount,
 } from "./AgentActivityPane.tsx";
@@ -16,7 +18,12 @@ import {
   desktopCancelOutcome,
 } from "../shared/agent-activity.ts";
 import { LiveWorkIndicator, SessionStatusIsland } from "./SessionStatusIsland.tsx";
-import { SessionGoalIsland } from "./SessionGoalIsland.tsx";
+import {
+  formatGoalDuration,
+  goalElapsedLabel,
+  goalTimeLabel,
+  SessionGoalIsland,
+} from "./SessionGoalIsland.tsx";
 import { PaneStatusIsland } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
@@ -319,7 +326,7 @@ test("header snapshot equality ignores unrelated stats but tracks visible contex
   }), false);
 });
 
-test("Goal island uses condition counts only for multi-condition Goals", async () => {
+test("Goal island gives title, task progress, and elapsed time dedicated header regions", async () => {
   const dom = installDom();
   try {
     await act(async () => {
@@ -328,44 +335,71 @@ test("Goal island uses condition counts only for multi-condition Goals", async (
           sessionId: "goal-session",
           goal: {
             id: "goal-simple",
-            objective: "Simple Goal",
+            title: "Short Goal Title",
+            objective: "A much longer objective that should not consume the progress and elapsed-time regions",
             status: "active",
-            criteriaTotal: 1,
-            criteriaCompleted: 0,
+            tasks: [
+              { id: "task_1", text: "Implement the change", status: "completed", kind: "work" },
+              { id: "task_2", text: "Check mobile layout", status: "in_progress", kind: "work" },
+              { id: "task_3", text: "Verify the objective", status: "pending", kind: "verification" },
+            ],
+            tasksTotal: 3,
+            tasksCompleted: 1,
+            timeLimitMs: 60 * 60 * 1000,
+            timeUsedMs: 5 * 60 * 1000,
             remainingMs: 60 * 60 * 1000,
             deadlineAt: Date.now() + 60 * 60 * 1000,
           },
         },
       }));
     });
-    assert.match(document.body.textContent, /Simple Goal/);
-    assert.match(document.body.textContent, /in progress/);
-    assert.doesNotMatch(document.body.textContent, /0\/1/);
+    assert.equal(document.querySelector(".session-goal-objective")?.textContent, "Short Goal Title");
+    assert.equal(document.querySelector(".session-goal-progress")?.textContent, "1/3");
+    assert.match(document.querySelector(".session-goal-time")?.textContent || "", /^\d+:\d{2}$/);
 
     await act(async () => {
-      dom.root.render(React.createElement(SessionGoalIsland, {
-        snapshot: {
-          sessionId: "goal-session",
-          goal: {
-            id: "goal-multi",
-            objective: "Multi Goal",
-            status: "active",
-            criteriaTotal: 4,
-            criteriaCompleted: 2,
-            remainingMs: 30 * 60 * 1000,
-            deadlineAt: Date.now() + 30 * 60 * 1000,
-          },
-        },
-      }));
+      document.querySelector(".session-goal-trigger")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
-    assert.match(document.body.textContent, /2\/4/);
+    assert.match(document.body.textContent, /Tasks 1\/3/);
+    assert.equal(document.querySelectorAll(".session-goal-task-list > li").length, 3);
+    assert.match(document.body.textContent, /Verification/);
+    assert.equal(document.querySelector(".session-goal-popover button.primary")?.disabled, true);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
   }
 });
 
-test("completed Goal island labels elapsed time instead of in-progress work", async () => {
+test("blocked Goal island renders the specific blocker", async () => {
+  const dom = installDom();
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(SessionGoalIsland, {
+        snapshot: {
+          sessionId: "goal-session",
+          goal: {
+            id: "goal-blocked",
+            objective: "Deploy the verified result",
+            status: "blocked",
+            blocker: "Waiting for deployment credentials",
+          },
+        },
+      }));
+    });
+    await act(async () => {
+      document.querySelector(".session-goal-trigger")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(
+      document.querySelector(".session-goal-blocker")?.textContent,
+      "Waiting for deployment credentials",
+    );
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("completed Goal island keeps the compact elapsed clock and no resume action", async () => {
   const dom = installDom();
   try {
     await act(async () => {
@@ -382,12 +416,33 @@ test("completed Goal island labels elapsed time instead of in-progress work", as
       }));
     });
     const time = document.querySelector(".session-goal-time")?.textContent || "";
-    assert.match(time, /elapsed/);
+    assert.equal(time, "1:00");
     assert.doesNotMatch(time, /in progress/);
+    assert.doesNotMatch(document.body.textContent, /Resume/);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
   }
+});
+
+test("Goal clock labels explicit elapsed, total, and remaining time", () => {
+  const now = 1_000_000;
+  assert.equal(formatGoalDuration(40_619), "0:41");
+  assert.equal(formatGoalDuration(3_661_000), "1:01:01");
+  assert.equal(goalTimeLabel({
+    status: "active",
+    timeLimitMs: 300_000,
+    timeUsedMs: 40_619,
+    remainingMs: 259_381,
+    deadlineAt: now + 259_381,
+  }, now), "0:41 / 5:00 · 4:19 remaining");
+  assert.equal(goalElapsedLabel({
+    status: "active",
+    timeLimitMs: 300_000,
+    timeUsedMs: 40_619,
+    remainingMs: 259_381,
+    deadlineAt: now + 259_381,
+  }, now), "0:41");
 });
 
 test("running background agent jobs drive the header icon until terminal", async () => {
@@ -1201,4 +1256,341 @@ test("an unconfirmed cancel is reported as unconfirmed, never as a successful ca
   assert.equal(desktopCancelOutcome({ status: "cancelled" }), "cancelled");
   assert.equal(desktopCancelOutcome({ status: "completed" }), "");
   assert.equal(desktopCancelOutcome(null), "");
+});
+
+const hierarchyPool = () => [
+  {
+    tag: "lead", agent: "lead", status: "running", stage: "running",
+    sessionId: "lead-a", ownerSessionId: "lead-a",
+    turnStartedAt: new Date(Date.now() - 5_000).toISOString(),
+  },
+  {
+    tag: "research", agent: "researcher", status: "running", stage: "running",
+    sessionId: "child-a", ownerSessionId: "lead-a", parentSessionId: "lead-a",
+    turnStartedAt: new Date(Date.now() - 4_000).toISOString(),
+  },
+  {
+    // Producer shape: every descendant carries the ROOT owner session, and the
+    // immediate edge is a separate parentSessionId.
+    tag: "review", agent: "reviewer", status: "running", stage: "running",
+    sessionId: "grand-a", ownerSessionId: "lead-a", parentSessionId: "child-a",
+    turnStartedAt: new Date(Date.now() - 3_000).toISOString(),
+  },
+  {
+    tag: "plan", agent: "planner", status: "idle", stage: "idle",
+    sessionId: "great-a", ownerSessionId: "lead-a", parentSessionId: "grand-a",
+    updatedAt: new Date(Date.now() - 65_000).toISOString(),
+  },
+  {
+    // Legacy row: no parentSessionId at all, so ownerSessionId is the link.
+    tag: "docs", agent: "writer", status: "running", stage: "running",
+    sessionId: "child-legacy", ownerSessionId: "lead-a",
+    turnStartedAt: new Date(Date.now() - 2_000).toISOString(),
+  },
+  {
+    // The immediate parent already finished and left the pool: the row must
+    // stay visible as a top-level orphan under its valid root.
+    tag: "audit", agent: "auditor", status: "running", stage: "running",
+    sessionId: "orphan-a", ownerSessionId: "lead-a", parentSessionId: "gone-a",
+    turnStartedAt: new Date(Date.now() - 1_000).toISOString(),
+  },
+];
+
+test("the owner session is the authoritative root and the parent edge only nests", () => {
+  const groups = agentActivityGroups(hierarchyPool(), (id) => id === "lead-a");
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].ownerId, "lead-a");
+  assert.equal(groups[0].agents.length, 6);
+  const rows = flattenAgentActivityNodes(groups[0].nodes);
+  // Lead → direct child → descendant, with the orphan kept at the Lead's own
+  // child level rather than dropped or buried.
+  assert.deepEqual(rows.map((node) => [node.sessionId, node.depth, node.parentSessionId]), [
+    ["lead-a", 0, ""],
+    ["child-a", 1, "lead-a"],
+    ["grand-a", 2, "child-a"],
+    ["great-a", 3, "grand-a"],
+    ["child-legacy", 1, "lead-a"],
+    ["orphan-a", 1, "lead-a"],
+  ]);
+  assert.deepEqual(rows.map((node) => `${node.posInSet}/${node.setSize}`), [
+    "1/1", "1/3", "1/1", "1/1", "2/3", "3/3",
+  ]);
+  // A group is real only through its root: no catalog row, no surface.
+  assert.deepEqual(agentActivityGroups(hierarchyPool(), () => false), []);
+});
+
+test("a descendant without a root stamp still resolves through its parent chain", () => {
+  // Older producer shape: ownerSessionId is the IMMEDIATE parent, so the root
+  // is reached by climbing, and never by adopting a non-catalog id.
+  const groups = agentActivityGroups([
+    {
+      tag: "research", agent: "researcher", status: "running", stage: "running",
+      sessionId: "child-a", ownerSessionId: "lead-a",
+    },
+    {
+      tag: "review", agent: "reviewer", status: "running", stage: "running",
+      sessionId: "legacy-grand", ownerSessionId: "child-a", parentSessionId: "child-a",
+    },
+    {
+      // Nothing links this row to a catalog session: an internal reservation.
+      tag: "spare", agent: "reviewer", status: "running", stage: "running",
+      sessionId: "unrooted", ownerSessionId: "ghost-a", parentSessionId: "ghost-a",
+    },
+  ], (id) => id === "lead-a");
+  assert.equal(groups.length, 1);
+  assert.deepEqual(
+    flattenAgentActivityNodes(groups[0].nodes)
+      .map((node) => [node.sessionId, node.depth]),
+    [["child-a", 0], ["legacy-grand", 1]],
+  );
+});
+
+test("Agent hierarchy survives a cyclic or self-referencing spawn chain", () => {
+  const groups = agentActivityGroups([
+    {
+      tag: "lead", agent: "lead", status: "running", stage: "running",
+      sessionId: "lead-a", ownerSessionId: "lead-a",
+    },
+    {
+      // A self-parent still belongs to its owner instead of vanishing.
+      tag: "self", agent: "researcher", status: "running", stage: "running",
+      sessionId: "child-self", ownerSessionId: "lead-a", parentSessionId: "child-self",
+    },
+    {
+      tag: "x", agent: "reviewer", status: "running", stage: "running",
+      sessionId: "cycle-x", ownerSessionId: "lead-a", parentSessionId: "cycle-y",
+    },
+    {
+      tag: "y", agent: "reviewer", status: "running", stage: "running",
+      sessionId: "cycle-y", ownerSessionId: "lead-a", parentSessionId: "cycle-x",
+    },
+  ], (id) => id === "lead-a");
+  assert.equal(groups.length, 1);
+  // Nothing in a cycle is lost: it re-enters the tree beneath the valid root.
+  assert.deepEqual(
+    flattenAgentActivityNodes(groups[0].nodes).map((node) => [node.sessionId, node.depth]),
+    [["lead-a", 0], ["child-self", 1], ["cycle-x", 1], ["cycle-y", 2]],
+  );
+});
+
+test("the Agent window renders the Parent-Child tree and folds every generation", async () => {
+  const dom = installDom();
+  window.mixdogDesktop = {
+    async listAgentPool() { return hierarchyPool(); },
+    subscribeAgentPool() { return () => {}; },
+  };
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(AgentActivityPane, {
+        active: true,
+        sessions: [{
+          id: "lead-a", title: "First task", preview: "", updatedAt: 2,
+          messageCount: 1, cwd: "C:\\a", classification: "task", projectPath: null,
+          working: true, leadWorking: true, agentWorking: true,
+        }],
+        unreadSessionIds: new Set(["great-a"]),
+      }));
+    });
+
+    const tree = document.querySelector(".agent-activity-page .schedules-list");
+    assert.equal(tree.getAttribute("role"), "tree");
+    assert.equal(tree.getAttribute("aria-label"), "First task");
+    const rowAt = (sessionId) =>
+      document.querySelector(`[data-agent-session-id="${sessionId}"]`);
+    assert.deepEqual(
+      [...document.querySelectorAll("[data-agent-session-id]")]
+        .map((node) => node.getAttribute("data-agent-session-id")),
+      ["lead-a", "child-a", "grand-a", "great-a", "child-legacy", "orphan-a"],
+    );
+    assert.deepEqual(
+      [...document.querySelectorAll("[data-agent-session-id]")]
+        .map((node) => node.getAttribute("data-agent-depth")),
+      ["0", "1", "2", "3", "1", "1"],
+    );
+    assert.equal(rowAt("grand-a").getAttribute("data-agent-parent-session-id"), "child-a");
+    assert.equal(rowAt("great-a").getAttribute("data-agent-parent-session-id"), "grand-a");
+    // A lost parent never hides real work: the orphan stays at the Lead's own
+    // child level.
+    assert.equal(rowAt("orphan-a").getAttribute("data-agent-parent-session-id"), "lead-a");
+    // Accessibility: one flat tree, hierarchy announced by level and position.
+    assert.equal(rowAt("child-a").getAttribute("role"), "treeitem");
+    assert.equal(rowAt("lead-a").getAttribute("aria-level"), "1");
+    assert.equal(rowAt("child-a").getAttribute("aria-level"), "2");
+    assert.equal(rowAt("grand-a").getAttribute("aria-level"), "3");
+    assert.equal(rowAt("lead-a").style.marginInlineStart, "");
+    assert.equal(rowAt("child-a").style.marginInlineStart, "");
+    assert.equal(rowAt("child-a").style.width, "");
+    assert.equal(rowAt("grand-a").style.marginInlineStart, "");
+    assert.equal(rowAt("grand-a").style.width, "");
+    assert.equal(rowAt("child-a").style.paddingInlineStart, "");
+    assert.equal(rowAt("great-a").getAttribute("aria-level"), "4");
+    assert.equal(rowAt("child-a").getAttribute("aria-posinset"), "1");
+    assert.equal(rowAt("orphan-a").getAttribute("aria-posinset"), "3");
+    assert.equal(rowAt("orphan-a").getAttribute("aria-setsize"), "3");
+    assert.equal(rowAt("child-a").getAttribute("aria-expanded"), "true");
+    assert.equal(rowAt("great-a").getAttribute("aria-expanded"), null);
+    // Roving tab focus: exactly one row per tree is tabbable.
+    assert.equal(rowAt("lead-a").getAttribute("tabindex"), "0");
+    assert.deepEqual(
+      [...document.querySelectorAll('[data-agent-session-id]:not([tabindex="-1"])')].length,
+      1,
+    );
+    assert.equal(rowAt("grand-a").getAttribute("aria-label"), "Reviewer · review");
+    // Status, model and timing behavior is unchanged at any depth.
+    assert.match(rowAt("grand-a").querySelector(".agent-activity-elapsed").textContent, /^\d/);
+    const unreadIdle = rowAt("great-a").querySelector(".agent-activity-elapsed");
+    assert.equal(unreadIdle.getAttribute("data-state"), "done");
+    assert.equal(unreadIdle.textContent, "Completed");
+
+    const heading = document.querySelector('[data-lead-session-id="lead-a"]');
+    await act(async () => heading.click());
+    assert.equal(heading.getAttribute("aria-expanded"), "false");
+    assert.deepEqual(
+      [...document.querySelectorAll("[data-agent-session-id]")]
+        .map((node) => node.getAttribute("data-agent-session-id")),
+      ["lead-a"],
+    );
+    // Truthful expansion: the surviving row reports the fold that hides its
+    // subtree instead of claiming to be open.
+    assert.equal(rowAt("lead-a").getAttribute("aria-expanded"), "false");
+    await act(async () => heading.click());
+    assert.ok(rowAt("great-a"));
+    assert.equal(rowAt("lead-a").getAttribute("aria-expanded"), "true");
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("a nested Agent row opens its exact child session without touching session lists", async () => {
+  const dom = installDom();
+  const touched = [];
+  const host = {
+    async listAgentPool() { return hierarchyPool(); },
+    subscribeAgentPool() { return () => {}; },
+  };
+  window.mixdogDesktop = new Proxy(host, {
+    get(target, key) {
+      if (typeof key === "string") touched.push(key);
+      return target[key];
+    },
+  });
+  const sessions = [{
+    id: "lead-a", title: "First task", preview: "", updatedAt: 2,
+    messageCount: 1, cwd: "C:\\a", classification: "task", projectPath: null,
+  }];
+  const catalogBefore = JSON.stringify(sessions);
+  const opened = [];
+  const prefetched = [];
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(AgentActivityPane, {
+        active: true,
+        sessions,
+        onPrefetchSession: (sessionId) => prefetched.push(sessionId),
+        onOpenLeadSession: (sessionId) => opened.push(["lead", sessionId]),
+        onOpenSession: (sessionId, title, ownerSessionId) =>
+          opened.push(["agent", sessionId, title, ownerSessionId]),
+      }));
+    });
+    // Hidden children are reachable ONLY here: they are absent from the
+    // session catalog this pane was handed.
+    assert.equal(sessions.some((session) => session.id === "grand-a"), false);
+
+    const click = (sessionId) => act(async () => {
+      const row = document.querySelector(`[data-agent-session-id="${sessionId}"]`);
+      row.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+      row.click();
+    });
+    await click("grand-a");
+    await click("great-a");
+    await click("lead-a");
+    assert.deepEqual(opened, [
+      ["agent", "grand-a", "review", "lead-a"],
+      ["agent", "great-a", "plan", "lead-a"],
+      ["lead", "lead-a"],
+    ]);
+    // Opening a child pane never writes to Recent/Resume: the catalog handed
+    // in is untouched and no session-catalog host call is made at all.
+    assert.equal(JSON.stringify(sessions), catalogBefore);
+    assert.deepEqual(touched.filter((name) => /session/i.test(name)), []);
+    assert.deepEqual([...new Set(touched)].sort(), ["listAgentPool", "subscribeAgentPool"]);
+    assert.deepEqual(prefetched, ["grand-a", "great-a", "lead-a"]);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test("the Agent tree supports arrow, Home/End and expand-collapse keyboard control", async () => {
+  const dom = installDom();
+  window.mixdogDesktop = {
+    async listAgentPool() { return hierarchyPool(); },
+    subscribeAgentPool() { return () => {}; },
+  };
+  const rowAt = (sessionId) =>
+    document.querySelector(`[data-agent-session-id="${sessionId}"]`);
+  const focusedId = () => document.activeElement?.getAttribute("data-agent-session-id");
+  const press = (key) => act(async () => {
+    document.activeElement.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key, bubbles: true }),
+    );
+  });
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(AgentActivityPane, {
+        active: true,
+        sessions: [{
+          id: "lead-a", title: "First task", preview: "", updatedAt: 2,
+          messageCount: 1, cwd: "C:\\a", classification: "task", projectPath: null,
+        }],
+      }));
+    });
+    await act(async () => rowAt("lead-a").focus());
+
+    await press("ArrowDown");
+    assert.equal(focusedId(), "child-a");
+    // Roving focus follows the keyboard, so Tab returns to the same row.
+    assert.equal(rowAt("child-a").getAttribute("tabindex"), "0");
+    assert.equal(rowAt("lead-a").getAttribute("tabindex"), "-1");
+    await press("ArrowRight");
+    assert.equal(focusedId(), "grand-a");
+    await press("ArrowUp");
+    assert.equal(focusedId(), "child-a");
+
+    await press("End");
+    assert.equal(focusedId(), "orphan-a");
+    await press("Home");
+    assert.equal(focusedId(), "lead-a");
+
+    // Left closes a real subtree, and the row reports the closure.
+    await act(async () => rowAt("child-a").focus());
+    await press("ArrowLeft");
+    assert.equal(rowAt("child-a").getAttribute("aria-expanded"), "false");
+    assert.equal(rowAt("grand-a"), null);
+    assert.equal(focusedId(), "child-a");
+    // Left again climbs to the parent row instead of closing anything.
+    await press("ArrowLeft");
+    assert.equal(focusedId(), "lead-a");
+    // Right reopens exactly what was closed.
+    await act(async () => rowAt("child-a").focus());
+    await press("ArrowRight");
+    assert.equal(rowAt("child-a").getAttribute("aria-expanded"), "true");
+    assert.ok(rowAt("great-a"));
+
+    // At the root row, Left folds the whole group and Right reopens it.
+    await act(async () => rowAt("lead-a").focus());
+    await press("ArrowLeft");
+    assert.equal(rowAt("lead-a").getAttribute("aria-expanded"), "false");
+    await press("ArrowLeft");
+    const heading = document.querySelector('[data-lead-session-id="lead-a"]');
+    assert.equal(heading.getAttribute("aria-expanded"), "false");
+    assert.equal(document.querySelectorAll("[data-agent-session-id]").length, 1);
+    await act(async () => rowAt("lead-a").focus());
+    await press("ArrowRight");
+    assert.equal(heading.getAttribute("aria-expanded"), "true");
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
 });

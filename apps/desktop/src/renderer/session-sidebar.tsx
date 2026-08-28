@@ -660,7 +660,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 {automationsHaveHeadingDot
                   && <span className="sidebar-heading-dot" role="status" aria-label={t("Automations have new activity")} />}
               </button>
-              {!automationsHaveHeadingDot && <RowOverflowMenu label="Actions" width={232} items={[{
+              {!automationsHaveHeadingDot && <RowOverflowMenu label="Actions" items={[{
                 id: "archive-all",
                 label: "Archive all",
                 disabled: Boolean(bulkAction) || automationRows.length === 0,
@@ -730,7 +730,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               {recentHasHeadingDot
                 && <span className="sidebar-heading-dot" role="status" aria-label={t("Recent has new activity")} />}
             </button>
-            {!recentHasHeadingDot && <RowOverflowMenu label="Actions" width={232} items={[{
+            {!recentHasHeadingDot && <RowOverflowMenu label="Actions" items={[{
                 id: "archive-all",
                 label: "Archive all",
                 disabled: Boolean(bulkAction) || rows.length === 0,
@@ -984,6 +984,7 @@ const SessionRow = React.memo(function SessionRow({
   const resume = useCallback(() => onResumeSession(session.id), [onResumeSession, session.id]);
   const titleInput = useRef<HTMLInputElement>(null);
   const nativeDrag = useRef<PaneDragSession | null>(null);
+  const dragSourceMounted = useRef(true);
   const suppressClick = useRef(false);
   const [dragging, setDragging] = useState(false);
   const dragTitle = sessionLabel(session);
@@ -1019,10 +1020,26 @@ const SessionRow = React.memo(function SessionRow({
     cancelPrefetch();
     resume();
   }, [cancelPrefetch, confirmingDelete, deleting, editing, resume]);
-  useEffect(() => () => {
-    if (nativeDrag.current) finishPaneDrag();
+  const clearNativeDrag = useCallback(() => {
+    const drag = nativeDrag.current;
     nativeDrag.current = null;
     delete document.body.dataset.tabDragging;
+    if (!dragSourceMounted.current) return;
+    setDragging(false);
+    if (!drag) return;
+    suppressClick.current = true;
+    window.setTimeout(() => {
+      suppressClick.current = false;
+    }, 0);
+  }, []);
+  useEffect(() => {
+    dragSourceMounted.current = true;
+    return () => {
+      dragSourceMounted.current = false;
+      if (nativeDrag.current) finishPaneDrag();
+      nativeDrag.current = null;
+      delete document.body.dataset.tabDragging;
+    };
   }, []);
   return (
     <div
@@ -1048,21 +1065,14 @@ const SessionRow = React.memo(function SessionRow({
           title: dragTitle,
           selection: dragSelection,
         };
+        beginPaneDrag(event.nativeEvent, drag, event.currentTarget, clearNativeDrag);
         nativeDrag.current = drag;
-        beginPaneDrag(event.nativeEvent, drag, event.currentTarget);
         cancelPrefetch();
         setDragging(true);
         document.body.dataset.tabDragging = "1";
       }}
       onDragEnd={() => {
         finishPaneDrag();
-        nativeDrag.current = null;
-        setDragging(false);
-        delete document.body.dataset.tabDragging;
-        suppressClick.current = true;
-        window.setTimeout(() => {
-          suppressClick.current = false;
-        }, 0);
       }}
       onClick={activateFromClick}
       onDoubleClick={(event) => {

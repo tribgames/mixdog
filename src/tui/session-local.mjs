@@ -217,10 +217,15 @@ export { parseBackgroundTaskEnvelope } from './session/agent-envelope.mjs';
 export async function createLocalSessionRuntime({
   provider: providerName,
   model,
+  effort,
+  fast,
+  modelParameters,
   toolMode = 'full',
   remote = false,
   cwd,
   desktopSession,
+  sessionProfile,
+  executeAgentControl,
 } = {}) {
   const startedAt = performance.now();
   bootProfile('session:create:start', { provider: providerName, model, toolMode, remote });
@@ -238,10 +243,15 @@ export async function createLocalSessionRuntime({
   const runtime = await createMixdogSessionRuntime({
     provider: providerName,
     model,
+    effort,
+    fast,
+    modelParameters,
     toolMode,
     remote,
     ...(cwd ? { cwd } : {}),
     ...(desktopSession ? { desktopSession } : {}),
+    ...(sessionProfile && typeof sessionProfile === 'object' ? { sessionProfile } : {}),
+    ...(typeof executeAgentControl === 'function' ? { executeAgentControl } : {}),
   });
   bootProfile('session:create:runtime-ready', { ms: (performance.now() - startedAt).toFixed(1) });
   const runtimeCwd = runtime.cwd || process.cwd();
@@ -708,6 +718,7 @@ export async function createLocalSessionRuntime({
     if (origin === 'user') flags.pendingTranscriptMeta = transcriptMeta;
     pushItem({
       kind: 'user', id, text, ...transcriptMeta,
+      ...(extra && typeof extra.sender === 'string' && extra.sender ? { sender: extra.sender } : {}),
       // Byte-free attachment metadata (name/mime/size) from the queue entry —
       // lets the desktop transcript render image chips without ever carrying
       // base64 payloads through snapshots.
@@ -788,9 +799,16 @@ export async function createLocalSessionRuntime({
   // renders until explicitly cleared (setProgressHint('', ...) or a falsy
   // text), and App.jsx's inputHint falls back to it only when no promptHint
   // and no live toast currently cover the same line.
-  const setProgressHint = (text, tone = 'info') => {
+  const setProgressHint = (text, tone = 'info', percent) => {
     const value = String(text ?? '').trim();
-    set({ progressHint: value ? { text: value, tone } : null });
+    const numericPercent = Number(percent);
+    set({ progressHint: value ? {
+      text: value,
+      tone,
+      ...(Number.isFinite(numericPercent)
+        ? { percent: Math.max(0, Math.min(100, Math.round(numericPercent))) }
+        : {}),
+    } : null });
   };
   const {
     presentNextToolApproval,

@@ -180,6 +180,7 @@ export function WorkspaceTabStrip({
   const tabNodes = useRef(new Map<string, HTMLDivElement>());
   const tabStrip = useRef<HTMLElement>(null);
   const nativeDrag = useRef<PaneDragSession | null>(null);
+  const dragSourceMounted = useRef(true);
   const suppressTabClick = useRef("");
   const [draggingKey, setDraggingKey] = useState("");
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -383,21 +384,31 @@ export function WorkspaceTabStrip({
     return () => window.removeEventListener("mixdog:close-active-tab", closeActive);
   }, [activeKey, focused, onCloseTab, tabs]);
 
-  const finishNativeDrag = useCallback(() => {
+  const clearNativeDrag = useCallback(() => {
     const drag = nativeDrag.current;
-    finishPaneDrag();
     nativeDrag.current = null;
+    delete document.body.dataset.tabDragging;
+    if (!dragSourceMounted.current) return;
     setDraggingKey("");
     setDraggingGroup(false);
     setDragScroll(false);
     setDropIndex(null);
-    delete document.body.dataset.tabDragging;
     if (drag?.kind === "tab") {
       suppressTabClick.current = drag.key;
       window.setTimeout(() => {
         if (suppressTabClick.current === drag.key) suppressTabClick.current = "";
       }, 0);
     }
+  }, []);
+  const finishNativeDrag = useCallback(() => finishPaneDrag(), []);
+  useEffect(() => {
+    dragSourceMounted.current = true;
+    return () => {
+      dragSourceMounted.current = false;
+      if (nativeDrag.current) finishPaneDrag();
+      nativeDrag.current = null;
+      delete document.body.dataset.tabDragging;
+    };
   }, []);
 
   const startNativeDrag = useCallback((
@@ -416,12 +427,12 @@ export function WorkspaceTabStrip({
       selection: sourceTab.selection,
       sourceLeafId: paneId,
     };
+    beginPaneDrag(event.nativeEvent, drag, event.currentTarget, clearNativeDrag);
     nativeDrag.current = drag;
-    beginPaneDrag(event.nativeEvent, drag, event.currentTarget);
     if (kind === "group") setDraggingGroup(true);
     else setDraggingKey(sourceTab.key);
     document.body.dataset.tabDragging = "1";
-  }, [paneId]);
+  }, [clearNativeDrag, paneId]);
 
   const dropIndexAt = useCallback((clientX: number, target: EventTarget | null): number | null => {
     const strip = tabStrip.current;

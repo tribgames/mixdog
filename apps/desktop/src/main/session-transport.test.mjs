@@ -196,7 +196,7 @@ test('a dead daemon is reattached internally and replays an in-flight request on
   await transport.close();
 });
 
-test('global capabilities recreate a stale service control session without exposing the failure', async () => {
+test('global reads recreate a stale service control session without exposing the failure', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-session-host-'));
   let host = null;
   let hooks = null;
@@ -269,6 +269,68 @@ test('global capabilities recreate a stale service control session without expos
       'control_1', 'control_1', 'control_1',
       'control_2', 'control_3', 'control_3', 'control_4',
     ]);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('global mutations are not replayed after an ambiguous control-session failure', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-session-host-'));
+  let host = null;
+  let createCount = 0;
+  let configureCount = 0;
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    async create() {
+      createCount += 1;
+      const sessionId = `control_${createCount}`;
+      return {
+        sessionId,
+        revision: 0,
+        snapshot: { sessionId, items: [], queued: [] },
+      };
+    },
+    read: unsupported,
+    subscribe: unsupported,
+    unsubscribe: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    async configure({ sessionId }) {
+      configureCount += 1;
+      throw new Error(`session ${sessionId} changed its durable address`);
+    },
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient() { return client; },
+      loadProjects: unsupported,
+      loadSessionStore: unsupported,
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+
+    await assert.rejects(
+      host.invokeCapability('setAutoUpdate', [true]),
+      /changed its durable address/,
+    );
+    assert.equal(createCount, 1);
+    assert.equal(configureCount, 1);
+
+    await assert.rejects(
+      host.invokeCapability('setAutoUpdate', [false]),
+      /changed its durable address/,
+    );
+    assert.equal(createCount, 2);
+    assert.equal(configureCount, 2);
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });

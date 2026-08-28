@@ -1,5 +1,8 @@
 # Tool Workflow
 
+- Confirm destructive/hard-to-reverse actions against explicit validated paths;
+  never `~`, a root, or unresolved variables/globs; report material deletion
+  recoverability.
 - Determine the required outcome and missing evidence; requirements are not
   evidence. Trust internal and framework guarantees.
 - Before exploration or implementation, consult prior work, current external

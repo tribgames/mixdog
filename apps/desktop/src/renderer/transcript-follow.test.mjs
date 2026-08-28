@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { nextTranscriptHistoryLimit } from "./transcript-history.ts";
-import { shouldDeferTranscriptScrollAdjustment } from "./TranscriptList.tsx";
+import {
+  shouldDeferTranscriptScrollAdjustment,
+  transcriptSelectionAutoScrollDelta,
+} from "./TranscriptList.tsx";
 import {
   boundaryGestureReached,
   grewWhileAtBottom,
   pointerShouldReleaseFollow,
   programmaticWriteMatches,
   readerScrollShouldReleaseFollow,
+  selectionAutoScrollShouldReleaseFollow,
   touchMoveShouldReleaseFollow,
   wheelShouldReleaseFollow,
   TRANSCRIPT_OVERFLOW_ANCHOR,
@@ -117,6 +121,18 @@ test("a pointer drag releases follow only after leaving the tail upward", () => 
   // Downward and sub-pixel travel are not a leave either.
   assert.equal(pointerShouldReleaseFollow({ distance: 400, upwardMove: -20 }), false);
   assert.equal(pointerShouldReleaseFollow({ distance: 400, upwardMove: 1 }), false);
+});
+
+test("selection edge scrolling is smooth, directional, and releases upward follow", () => {
+  const nearTop = transcriptSelectionAutoScrollDelta(150, 100, 500);
+  const outsideTop = transcriptSelectionAutoScrollDelta(50, 100, 500);
+  const nearBottom = transcriptSelectionAutoScrollDelta(450, 100, 500);
+  assert.ok(nearTop < 0);
+  assert.ok(outsideTop < nearTop);
+  assert.ok(nearBottom > 0);
+  assert.equal(transcriptSelectionAutoScrollDelta(300, 100, 500), 0);
+  assert.equal(selectionAutoScrollShouldReleaseFollow(nearTop), true);
+  assert.equal(selectionAutoScrollShouldReleaseFollow(nearBottom), false);
 });
 
 test("only a chrome-pointer upward move counts as a reader scroll release", () => {

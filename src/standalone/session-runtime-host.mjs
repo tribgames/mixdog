@@ -35,7 +35,9 @@ const RUNTIME_METHODS = new Set([
   'reserveSession',
   'resume',
   'submitAsync',
+  'submitAndWait',
   'abort',
+  'closeCanonicalSession',
   'resolveToolApproval',
   'dispose',
 ]);
@@ -155,14 +157,6 @@ class SessionRuntimeShard {
     }
     if (message.type === 'unhealthy') {
       this.recycleUnhealthy(child, message.detail);
-      return;
-    }
-    if (message.type === 'agent-session-state') {
-      const sessionId = String(message.sessionId || '');
-      const snapshot = message.snapshot;
-      if (sessionId && snapshot && typeof snapshot === 'object') {
-        this.onAgentSessionState?.({ sessionId, snapshot });
-      }
       return;
     }
     if (message.type === 'state') {
@@ -728,17 +722,29 @@ class SessionRuntimeProxy {
  * capacity cooldowns discovered by one shard are replayed into the others.
  */
 class SessionRuntimeShardPool {
-  constructor({ workerEntry, cwd, env, log, shardCount, onAgentSessionState }) {
+  constructor({
+    workerEntry,
+    cwd,
+    env,
+    log,
+    shardCount,
+    onAgentSessionState,
+    executeAgentControl,
+  }) {
     this.log = typeof log === 'function' ? log : () => {};
     this.closed = false;
     this.ownership = createShardOwnership();
     this.dispatchOwners = new Map(); // dispatchId -> shard index
     this.agentControlOwners = new Map(); // controlId -> shard index
+    this.agentControlRuns = new Map(); // controlId -> AbortController
     this.agentTaskOwners = new Map(); // taskId -> shard index
     this.agentTagOwners = new Map(); // ownerSessionId\0tag -> shard index
     this.agentSessionOwners = new Map(); // agent sessionId -> shard index
     this.agentOwnerOrigins = new Map(); // owner sessionId -> source shard index
     this.providerCooldown = { untilMs: 0, disabledReason: null, updatedAt: 0 };
+    this.executeCanonicalAgentControl = typeof executeAgentControl === 'function'
+      ? executeAgentControl
+      : null;
     this.prewarmRequested = false;
     this.workloadCache = { refreshedAt: 0, shards: [] };
     this.workloadRefresh = null;
@@ -942,12 +948,20 @@ class SessionRuntimeShardPool {
   handleAgentControl(originShard, originChild, message) {
     const controlId = String(message?.controlId || '');
     if (!controlId) return;
-    void this.executeAgentControl(
-      originShard,
-      message.args || {},
-      message.context || {},
-      controlId,
-    ).then((value) => {
+    const controller = new AbortController();
+    this.agentControlRuns.set(controlId, controller);
+    const context = {
+      ...(message.context || {}),
+      signal: controller.signal,
+    };
+    const ownerSessionId = String(context?.callerSessionId || '');
+    if (ownerSessionId) {
+      this.agentOwnerOrigins.set(ownerSessionId, originShard.index);
+    }
+    const execution = this.executeCanonicalAgentControl
+      ? this.executeCanonicalAgentControl(message.args || {}, context)
+      : Promise.reject(new Error('canonical Agent control is unavailable'));
+    void Promise.resolve(execution).then((value) => {
       if (originShard.child !== originChild || originChild?.killed) return;
       safeIpcSend(originChild, {
         type: 'agent-control-result',
@@ -968,11 +982,18 @@ class SessionRuntimeShardPool {
           code: error?.code || null,
         },
       }, { onError: () => {} });
+    }).finally(() => {
+      this.agentControlRuns.delete(controlId);
     });
   }
 
   cancelAgentControl(message) {
     const controlId = String(message?.controlId || '');
+    const canonical = this.agentControlRuns.get(controlId);
+    if (canonical) {
+      try { canonical.abort(new Error(String(message?.reason || 'agent control canceled'))); } catch {}
+      return true;
+    }
     const index = this.agentControlOwners.get(controlId);
     if (index == null) return false;
     const shard = this.shardAt(index);
@@ -1092,23 +1113,8 @@ export function createSessionRuntimeHost({
   env = process.env,
   log = () => {},
   shardCount = null,
+  executeAgentControl = null,
 } = {}) {
-  const agentSessionListeners = new Set();
-  const agentSessionSnapshots = new Map();
-  const publishAgentSessionState = (update) => {
-    const sessionId = String(update?.sessionId || '');
-    if (!sessionId || !update?.snapshot) return;
-    agentSessionSnapshots.delete(sessionId);
-    agentSessionSnapshots.set(sessionId, update.snapshot);
-    while (agentSessionSnapshots.size > 256) {
-      const oldest = agentSessionSnapshots.keys().next().value;
-      if (oldest === undefined) break;
-      agentSessionSnapshots.delete(oldest);
-    }
-    for (const listener of [...agentSessionListeners]) {
-      try { listener({ sessionId, snapshot: update.snapshot }); } catch {}
-    }
-  };
   const pool = new SessionRuntimeShardPool({
     workerEntry,
     cwd,
@@ -1117,7 +1123,7 @@ export function createSessionRuntimeHost({
     shardCount: Number(shardCount) > 0
       ? normalizeShardCount(shardCount)
       : resolveShardCount(),
-    onAgentSessionState: publishAgentSessionState,
+    executeAgentControl,
   });
   // One machine-global native counter stays warm in the daemon. Session
   // runtimes relay requests over the worker IPC channel and never spawn
@@ -1175,23 +1181,32 @@ export function createSessionRuntimeHost({
     },
     async agentControl(args = {}, context = {}) {
       if (closed) throw new Error('session runtime host is closed');
-      const ownerSessionId = String(context?.callerSessionId || '');
-      const ownerIndex = pool.ownership.peek(ownerSessionId);
-      const originShard = pool.shardAt(ownerIndex ?? selectShardIndex(
-        `owner:${ownerSessionId || randomUUID()}`,
-        pool.shardCount,
-        (candidate) => pool.isPlaceable(candidate),
-      ));
-      return pool.executeAgentControl(originShard, args, context);
+      if (typeof executeAgentControl === 'function') {
+        return await executeAgentControl(args, context);
+      }
+      throw new Error('canonical Agent control is unavailable');
+    },
+    notifySessionCompletion(ownerSessionId, text, meta = {}) {
+      return pool.routeAgentControlNotification({
+        ownerSessionId: String(ownerSessionId || ''),
+        text: String(text || ''),
+        meta,
+      });
+    },
+    async agentSessionAction(sessionId, action, args = []) {
+      void sessionId;
+      void action;
+      void args;
+      throw new Error('Agent sessions are owned by the canonical session service');
     },
     refreshRuntimeWorkload,
     subscribeAgentSessionStates(listener) {
-      if (typeof listener !== 'function') return () => {};
-      agentSessionListeners.add(listener);
-      for (const [sessionId, snapshot] of agentSessionSnapshots) {
-        try { listener({ sessionId, snapshot }); } catch {}
-      }
-      return () => agentSessionListeners.delete(listener);
+      void listener;
+      return () => {};
+    },
+    agentSessionState(sessionId) {
+      void sessionId;
+      return null;
     },
     get workloads() {
       if (!closed && Date.now() - pool.workloadCache.refreshedAt > WORKLOAD_TTL_MS) {
@@ -1211,8 +1226,6 @@ export function createSessionRuntimeHost({
     async close(reason = 'session runtime host closed') {
       if (closed) return;
       closed = true;
-      agentSessionListeners.clear();
-      agentSessionSnapshots.clear();
       await pool.close(reason);
     },
     get status() {

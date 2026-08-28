@@ -581,6 +581,7 @@ function truncateMessageForRecallTail(text, maxChars) {
 
 function withoutRecallReplayMetadata(message) {
     const copy = { ...(message || {}) };
+    delete copy.providerReplay;
     delete copy.providerMetadata;
     delete copy.thinkingBlocks;
     delete copy.reasoningItems;
@@ -746,7 +747,7 @@ function proseOnlyTurn(turn) {
         if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
             const text = messageText(m).trim();
             if (!text) continue;
-            const copy = { ...m };
+            const copy = withoutRecallReplayMetadata(m);
             delete copy.toolCalls;
             out.push(copy);
             continue;

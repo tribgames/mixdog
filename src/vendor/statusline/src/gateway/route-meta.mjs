@@ -584,6 +584,33 @@ function compactTelemetry(compact) {
   return out;
 }
 
+function compactTransportTiming(timing) {
+  if (!timing || typeof timing !== 'object') return null;
+  const ms = value => Number.isFinite(Number(value))
+    ? Math.max(0, Math.round(Number(value)))
+    : null;
+  const count = value => Number.isFinite(Number(value))
+    ? Math.max(0, Math.round(Number(value)))
+    : null;
+  return {
+    transport: cleanString(timing.transport) || null,
+    outcome: cleanString(timing.outcome) || null,
+    admissionQueueWaitMs: ms(timing.admissionQueueWaitMs),
+    providerConcurrentRequests: count(timing.providerConcurrentRequests),
+    providerQueuedRequests: count(timing.providerQueuedRequests),
+    poolOwnerWaitMs: ms(timing.poolOwnerWaitMs),
+    socketAcquireMs: ms(timing.socketAcquireMs),
+    poolAcquireMs: ms(timing.poolAcquireMs),
+    requestBuildSerializationMs: ms(timing.requestBuildSerializationMs),
+    preResponseCreatedMs: ms(timing.preResponseCreatedMs),
+    providerFirstEventMs: ms(timing.providerFirstEventMs),
+    retryBackoffMs: ms(timing.retryBackoffMs),
+    handshakeRetries: count(timing.handshakeRetries),
+    acquireAttempts: count(timing.acquireAttempts),
+    acquireMode: cleanString(timing.acquireMode) || null,
+  };
+}
+
 export function recordGatewayUsageEvent(summary) {
   const event = {
     ts: summary?.at || Date.now(),
@@ -605,6 +632,8 @@ export function recordGatewayUsageEvent(summary) {
     durationMs: Number.isFinite(Number(summary?.durationMs)) ? Math.max(0, Math.round(summary.durationMs)) : null,
     requestKind: cleanString(summary?.requestKind) || null,
     sessionId: cleanString(summary?.sessionId) || null,
+    sourceType: cleanString(summary?.sourceType) || null,
+    sourceName: cleanString(summary?.sourceName) || null,
     toolCount: Number.isFinite(Number(summary?.toolCount)) ? Math.max(0, Math.round(summary.toolCount)) : null,
     systemCount: Number.isFinite(Number(summary?.systemCount)) ? Math.max(0, Math.round(summary.systemCount)) : null,
     messageCount: Number.isFinite(Number(summary?.messageCount)) ? Math.max(0, Math.round(summary.messageCount)) : null,
@@ -621,6 +650,8 @@ export function recordGatewayUsageEvent(summary) {
   };
   const compact = compactTelemetry(summary?.compact);
   if (compact) event.compact = compact;
+  const transportTiming = compactTransportTiming(summary?.transportTiming);
+  if (transportTiming) event.transportTiming = transportTiming;
   pendingUsageEvents.push(event);
   if (pendingUsageEvents.length >= 20) flushGatewayUsageEvents();
   else scheduleGatewayUsageFlush();

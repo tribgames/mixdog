@@ -2,7 +2,9 @@ import { type TranscriptItem } from "./desktop-types";
 import { t } from "./i18n";
 import { asRecord, oneLine } from "./text-format";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { aggregateToolCategoryEntry, classifyToolCategory, formatToolSurface } from "../../../../src/runtime/shared/tool-surface.mjs";
+import { aggregateToolCategoryEntry, classifyToolCategory, formatToolSurface, toolLoadingTargets } from "../../../../src/runtime/shared/tool-surface.mjs";
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { parseMcpToolName, titleCaseMcpServer } from "../../../../src/runtime/shared/tool-primitives.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { deriveToolOutcomeTone } from "../../../../src/runtime/shared/tool-card-model.mjs";
 
@@ -94,6 +96,9 @@ function localizedToolActivityCategory(category: string): string {
   if (category === "Agent") return t("Agents");
   if (category === "Task") return t("Tasks");
   if (category === "Setup") return t("Setup");
+  if (category === "Browser") return t("Browser control");
+  if (category === "Computer") return t("Computer control");
+  if (category === "Office") return t("Document work");
   return t("External tools");
 }
 
@@ -147,6 +152,38 @@ function localizedToolActivityUnit(category: string, done: string, noun: string)
   }
 }
 
+function namedToolActivityUnit(
+  name: unknown,
+  args: unknown,
+  category: string,
+  done: string,
+  noun: string,
+): { unitKey: string; label: string } {
+  const modeledName = desktopToolActivityModeledName(name, args);
+  const surface = formatToolSurface(modeledName, args);
+  if (category === "MCP") {
+    const mcp = parseMcpToolName(String(name || modeledName));
+    const server = titleCaseMcpServer(mcp?.server || "");
+    if (server) return { unitKey: `MCP|${mcp.server}`, label: server };
+  }
+  if (category === "Skill") {
+    const skills = toolLoadingTargets(modeledName, surface.args);
+    const skill = skills.join(", ");
+    if (skill) return { unitKey: `Skill|${skill}`, label: skill };
+  }
+  if (category === "Browser" || category === "Computer" || category === "Office") {
+    return { unitKey: category, label: localizedToolActivityCategory(category) };
+  }
+  if (category === "Other") {
+    const label = String(surface.label || modeledName || t("Tool"));
+    return { unitKey: `Other|${surface.normalizedName}`, label };
+  }
+  return {
+    unitKey: toolActivityUnitKey(category, done, noun),
+    label: localizedToolActivityUnit(category, done, noun),
+  };
+}
+
 export function flattenedToolActivityItems(items: readonly TranscriptItem[]): TranscriptItem[] {
   const flattened: TranscriptItem[] = [];
   for (const item of items) {
@@ -188,6 +225,9 @@ export function desktopToolActivityModeledName(name: unknown, args: unknown): st
 export function desktopToolActivityCategory(name: unknown, args: unknown): string {
   const modeledName = desktopToolActivityModeledName(name, args);
   const surface = formatToolSurface(modeledName, args);
+  if (surface.normalizedName === "browser") return "Browser";
+  if (surface.normalizedName === "computer") return "Computer";
+  if (surface.normalizedName === "office") return "Office";
   return String(classifyToolCategory(modeledName, surface.args) || "Other");
 }
 
@@ -196,17 +236,19 @@ export function desktopToolActivityUnit(name: unknown, args: unknown): {
   done: string;
   noun: string;
   unitKey: string;
+  label: string;
 } {
   const modeledName = desktopToolActivityModeledName(name, args);
   const surface = formatToolSurface(modeledName, args);
-  const category = String(classifyToolCategory(modeledName, surface.args) || "Other");
+  const category = desktopToolActivityCategory(modeledName, surface.args);
   const entry = aggregateToolCategoryEntry(modeledName, surface.args, category) as {
     done?: string;
     noun?: string;
   } | null;
   const done = String(entry?.done || "");
   const noun = String(entry?.noun || "");
-  return { category, done, noun, unitKey: toolActivityUnitKey(category, done, noun) };
+  const named = namedToolActivityUnit(name, args, category, done, noun);
+  return { category, done, noun, unitKey: named.unitKey, label: named.label };
 }
 
 export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem[]) {
@@ -229,7 +271,7 @@ export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem
     groups.set(unit.unitKey, {
       unitKey: unit.unitKey,
       category: unit.category,
-      label: localizedToolActivityUnit(unit.category, unit.done, unit.noun),
+      label: unit.label,
       count,
       items: [item],
     });

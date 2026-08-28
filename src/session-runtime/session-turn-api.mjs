@@ -1,4 +1,4 @@
-import { clean, tombstoneOnClose } from './session-text.mjs';
+import { clean } from './session-text.mjs';
 import { envFlag } from './env.mjs';
 import { normalizeToolMode } from './effort.mjs';
 import {
@@ -44,10 +44,11 @@ export function createSessionTurnApi(deps) {
     ensureSessionTranscriptWriter, channels,
     hooks, hookCommonPayload, mgr, notifyFnForSession, subscribeRuntimeNotification, bootProfile,
     scheduleProviderWarmup, scheduleProviderModelWarmup, invalidateContextStatusCache,
-    agentTool, recreateCurrentSessionIfReady, invalidatePreSessionToolSurface,
+    agentTool, invalidatePreSessionToolSurface, refreshEmptySessionToolPolicy,
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
     awaitInitialMcpConnect, mcpTurnGraceMs = 0, awaitRoutePreparation,
     getReservedSessionId, sessionTitles, registerActiveTurnController,
+    releaseComputerSessionLease = async () => false,
     beginTurnSnapshotForTurn = beginTurnSnapshot,
     cancelTurnSnapshotForTurn = cancelTurnSnapshot,
     completeTurnSnapshotForTurn = completeTurnSnapshot,
@@ -269,14 +270,10 @@ export function createSessionTurnApi(deps) {
           try { await awaitTurn(() => awaitMcpGrace()); }
           catch { /* gate must never break the turn */ }
           try {
-            reconcileDeferredMcpToolCatalog(session0, getMcpTools(session0.mcpScopeId), {
-              // Deliver the late-tool announcement through the pending-message
-              // queue so it rides inside the next real user turn as a persisted
-              // system-reminder (no synthetic user + '.' assistant pair).
-              enqueue: (text) => (typeof mgr.enqueuePendingMessage === 'function'
-                ? mgr.enqueuePendingMessage(session0.id, text) > 0
-                : false),
-            });
+            // Persist a typed world-state delta on the session. askSession
+            // attaches it to THIS real prompt; reconciliation itself never
+            // enqueues a follow-up turn.
+            reconcileDeferredMcpToolCatalog(session0, getMcpTools(session0.mcpScopeId));
           }
           catch { /* MCP delta must never break the turn */ }
         }
@@ -425,6 +422,12 @@ export function createSessionTurnApi(deps) {
         } catch { /* best-effort: StopFailure hook must never break teardown */ }
         throw error;
       } finally {
+        try {
+          await settleWithin(
+            Promise.resolve(releaseComputerSessionLease(session0.id)),
+            turnCleanupSettleMs,
+          );
+        } catch { /* computer lease cleanup never overrides turn settlement */ }
         releaseFirstTitle?.();
         emitTurnTiming(turnTimingStatus);
         armHeavyRuntimeWarmup('turn-settled');
@@ -503,10 +506,11 @@ export function createSessionTurnApi(deps) {
     async setToolMode(nextMode) {
       const mode = normalizeToolMode(nextMode);
       setMode(mode);
-      invalidatePreSessionToolSurface();
-      const session = getSession();
-      if (session?.id) mgr.closeSession(session.id, 'cli-mode-switch', { tombstone: tombstoneOnClose(session) });
-      await recreateCurrentSessionIfReady();
+      if (typeof refreshEmptySessionToolPolicy === 'function') {
+        await refreshEmptySessionToolPolicy();
+      } else {
+        invalidatePreSessionToolSurface();
+      }
       return mode;
     },
     agentStatus() {

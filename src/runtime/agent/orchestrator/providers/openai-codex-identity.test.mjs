@@ -13,6 +13,12 @@ import {
     _withCodexWsClientMetadata,
 } from './openai-codex-metadata.mjs';
 import { codexOriginator, codexUserAgent } from './codex-client-meta.mjs';
+import { _captureTurnStateFromEvent } from './openai-ws-stream.mjs';
+import { _buildOpenAIHttpFallbackHeaders } from './openai-oauth-http-sse.mjs';
+import {
+    _clearCodexTurnStatesForTest,
+    retireCodexTurnStateOwner,
+} from './openai-turn-state.mjs';
 
 test('Codex wire identity is a real time-based UUIDv7 and remains session-stable', () => {
     const now = Date.now();
@@ -150,4 +156,69 @@ test('compaction shares the session identity and cache slot with its turns', () 
     assert.equal(turnMetadata.request_kind, 'compaction');
     assert.equal(turnMetadata.session_id, turn.codexSessionId);
     assert.equal(turnMetadata.thread_id, turn.codexThreadId);
+});
+
+test('Codex turn state follows the logical turn across WS reconnect and HTTP fallback', (t) => {
+    _clearCodexTurnStatesForTest();
+    t.after(_clearCodexTurnStatesForTest);
+    const poolKey = 'turn-state-parity-session';
+    const cacheKey = mintUuidV7();
+    const turnId = mintUuidV7();
+    const nextTurnId = mintUuidV7();
+    const context = {
+        poolKey,
+        cacheKey,
+        sendOpts: { turnId },
+    };
+
+    const firstEntry = {};
+    const firstFrame = _withCodexWsClientMetadata({}, firstEntry, true, context);
+    assert.equal(firstFrame.client_metadata['x-codex-turn-state'], undefined);
+
+    _captureTurnStateFromEvent(firstEntry, {
+        type: 'response.metadata',
+        headers: { 'x-codex-turn-state': 'ts-first' },
+    });
+    _captureTurnStateFromEvent(firstEntry, {
+        type: 'response.metadata',
+        headers: { 'x-codex-turn-state': 'ts-later' },
+    });
+
+    const siblingEntry = {};
+    const siblingFrame = _withCodexWsClientMetadata({}, siblingEntry, true, context);
+    assert.equal(siblingFrame.client_metadata['x-codex-turn-state'], undefined);
+
+    const httpHeaders = _buildOpenAIHttpFallbackHeaders({
+        auth: { type: 'openai-oauth', access_token: 'token', account_id: 'account' },
+        cacheKey,
+        poolKey,
+        turnId,
+    });
+    assert.equal(httpHeaders['x-codex-turn-state'], 'ts-first');
+
+    retireCodexTurnStateOwner(poolKey, firstEntry);
+    const reconnectEntry = {};
+    const reconnectFrame = _withCodexWsClientMetadata({}, reconnectEntry, true, context);
+    assert.equal(reconnectFrame.client_metadata['x-codex-turn-state'], 'ts-first');
+
+    const nextTurnFrame = _withCodexWsClientMetadata({}, reconnectEntry, true, {
+        ...context,
+        sendOpts: { turnId: nextTurnId },
+    });
+    assert.equal(nextTurnFrame.client_metadata['x-codex-turn-state'], undefined);
+    const nextTurnHttpHeaders = _buildOpenAIHttpFallbackHeaders({
+        auth: { type: 'openai-oauth', access_token: 'token', account_id: 'account' },
+        cacheKey,
+        poolKey,
+        turnId: nextTurnId,
+    });
+    assert.equal(nextTurnHttpHeaders['x-codex-turn-state'], undefined);
+
+    const directHeaders = _buildOpenAIHttpFallbackHeaders({
+        auth: { type: 'openai-direct', apiKey: 'key' },
+        cacheKey,
+        poolKey,
+        turnId,
+    });
+    assert.equal(directHeaders['x-codex-turn-state'], undefined);
 });

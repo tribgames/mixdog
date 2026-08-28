@@ -35,6 +35,7 @@ import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './l
 import { recordToolBatch } from '../tools/tool-batch-trace.mjs';
 import { projectProviderEvidence } from './evidence-union.mjs';
 import { prepareProviderPrefixGuard } from './provider-prefix-guard.mjs';
+import { traceCacheBreak } from '../cache-break-trace.mjs';
 
 
 import { resolve as resolvePath, isAbsolute } from 'path';
@@ -147,6 +148,7 @@ const MAX_OUTPUT_EXHAUSTED_NOTICE = '[mixdog-runtime] Output remained truncated 
  *                tool. When aborted, throws SessionClosedError so the ask
  *                wrapper can propagate a clean cancellation.
  *   - `onStageChange(stage)` / `onStreamDelta()` — forwarded to provider.send for heartbeats
+ *   - `liveProjection` — when true, Agent sessions keep provider onTextDelta / mid-turn text
  */
 // Stop reasons that signal the turn was cut short mid-synthesis (token cap,
 // provider pause). Empty content + one of these reasons means the worker
@@ -160,6 +162,19 @@ export function attachAssistantTranscriptMetadata(message, opts = {}) {
     if (!transcript) return message;
     const meta = message?.meta && typeof message.meta === 'object' ? message.meta : {};
     return { ...message, meta: { ...meta, transcript } };
+}
+
+// Agent mid-turn text is suppressed unless THIS send explicitly requested a
+// live projection. The request is a send-opt (`liveProjection`) — never a
+// durable session field — so a transient Agent pane cannot leak into later
+// silent dispatches or stored session JSON. The standalone surface still
+// flips `interactiveSessionSurface` on the in-memory session; honor that
+// in-process hint without treating it as something dispatch should persist.
+export function shouldSuppressAgentMidTurnText(sessionRef, opts = {}) {
+    if (!isAgentOwner(sessionRef)) return false;
+    if (opts?.liveProjection === true) return false;
+    if (sessionRef?.interactiveSessionSurface === true) return false;
+    return true;
 }
 
 export async function agentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts) {
@@ -203,6 +218,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     };
     const sessionRef = opts.session || null;
     let _providerPrefixGuardState = sessionRef?._providerPrefixGuardState || null;
+    const _cacheBreakTraceKeys = new Set();
     // Provider tool snapshots are request-loop state, never durable session
     // state. Older builds persisted this field, which let a resumed session
     // keep advertising a retired schema even after session.tools was rebuilt.
@@ -222,7 +238,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     //   - buffered   : opts.onAssistantText skipped (response.content below)
     //   - history    : tool-call turn content blanked before messages.push
     // Reasoning/thinking deltas, tool calls, and the final answer are kept.
-    const suppressMidTurnText = isAgentOwner(sessionRef);
+    // Provider onTextDelta is restored only when live projection was
+    // explicitly requested for THIS send (`opts.liveProjection`). Absence
+    // of that flag preserves the silent Agent path even if a tracker
+    // wrapper was installed upstream.
+    const suppressMidTurnText = shouldSuppressAgentMidTurnText(sessionRef, opts);
     if (suppressMidTurnText) opts.onTextDelta = undefined;
     // Deferred mutation-body compaction: bodies left verbatim by a previous
     // turn's push (deferBodies below) collapse to markers now — the model has
@@ -264,6 +284,13 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const submissionIds = Array.isArray(merged.ids) ? merged.ids : [];
             const submittedAt = Number(merged.submittedAt);
             const injectedAt = Date.now();
+            const steeringTranscriptMeta = merged.transcriptMeta
+                && typeof merged.transcriptMeta === 'object'
+                ? {
+                    at: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : injectedAt,
+                    ...merged.transcriptMeta,
+                }
+                : null;
             if (Number.isFinite(submittedAt) && submittedAt > 0) {
                 maxQueueWaitMs = Math.max(maxQueueWaitMs, injectedAt - submittedAt);
             }
@@ -277,6 +304,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 meta: {
                     source: 'steering',
                     ...(submissionIds.length ? { submissionIds } : {}),
+                    ...(steeringTranscriptMeta ? { transcript: steeringTranscriptMeta } : {}),
                 },
             });
             const text = merged.text || steeringContentText(merged.content);
@@ -289,6 +317,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     injectedAt,
                     stage,
                     ...(Array.isArray(merged.images) && merged.images.length ? { images: merged.images } : {}),
+                    ...(steeringTranscriptMeta ? { transcriptMeta: steeringTranscriptMeta } : {}),
                 });
             } catch {}
         }
@@ -621,6 +650,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             pathAliases: false,
         });
         const _providerMessages = _evidenceProjection.messages;
+        const _prefixMutationSource = opts.cacheBreakIntent === 'transcript_rebuild'
+            ? 'transcript_rebuild'
+            : (_evidenceProjection.stats.changedToolResults > 0 ? 'evidence_union' : null);
         const _providerPrefixGuardCandidate = prepareProviderPrefixGuard(
             _providerPrefixGuardState,
             _providerMessages,
@@ -630,7 +662,28 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             },
             {
                 provider: sessionRef?.provider || provider?.name || null,
+                model: model || null,
                 cacheBreakIntent: opts.cacheBreakIntent,
+                mutationSource: _prefixMutationSource,
+                onCacheBreak: (details) => {
+                    const key = [
+                        details.classification,
+                        details.reason,
+                        details.index,
+                        details.previousHash,
+                        details.nextHash,
+                        details.previousRequestPrefixHash,
+                        details.nextRequestPrefixHash,
+                    ].join('|');
+                    if (_cacheBreakTraceKeys.has(key)) return;
+                    _cacheBreakTraceKeys.add(key);
+                    traceCacheBreak({
+                        sessionId,
+                        iteration: nextIteration,
+                        intentionalTransition: opts.cacheBreakIntent,
+                        ...details,
+                    });
+                },
             },
         );
         if (_evidenceProjection.stats.reusedRows > 0
@@ -701,8 +754,24 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         response = _sendResult.response;
         _providerPrefixGuardState = _providerPrefixGuardCandidate;
         if (sessionRef) sessionRef._providerPrefixGuardState = _providerPrefixGuardState;
-        if (_imageStripActive && Array.isArray(_pendingImageStripPersistMessages)) {
-            messages.splice(0, messages.length, ..._pendingImageStripPersistMessages);
+        if (_imageStripActive) {
+            if (Array.isArray(_pendingImageStripPersistMessages)) {
+                messages.splice(0, messages.length, ..._pendingImageStripPersistMessages);
+            } else {
+                _providerPrefixGuardState = null;
+                if (sessionRef) delete sessionRef._providerPrefixGuardState;
+                traceCacheBreak({
+                    sessionId,
+                    iteration: nextIteration,
+                    classification: 'intentional',
+                    reason: 'image_strip_nonpersistent_rebaseline',
+                    source: 'image_strip_retry',
+                    provider: sessionRef?.provider || provider?.name || null,
+                    model: model || null,
+                    previousCount: _providerMessages.length,
+                    nextCount: messages.length,
+                });
+            }
             _imageStripActive = false;
             _pendingImageStripPersistMessages = null;
         }

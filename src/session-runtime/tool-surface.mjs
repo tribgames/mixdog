@@ -52,13 +52,24 @@ export function createToolSurface({
   }
 
   function modelStandaloneTools() {
-    const workflowTools = workflowAllowsAgents()
-      ? standaloneTools
-      : standaloneTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')));
+    const session = getSession();
+    const agentOwned = session?.owner === 'agent' || session?.visibility === 'agent-only';
+    const hideAgentTool = agentOwned || !workflowAllowsAgents();
+    const workflowTools = hideAgentTool
+      ? standaloneTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')))
+      : standaloneTools;
     const denied = new Set(getFeatureDisallowedTools().map((name) => String(name || '')));
     return denied.size
       ? workflowTools.filter((tool) => !denied.has(String(tool?.name || '')))
       : workflowTools;
+  }
+
+  function disallowedTools() {
+    return [
+      ...LEAD_DISALLOWED_TOOLS,
+      ...getFeatureDisallowedTools(),
+      ...(workflowAllowsAgents() ? [] : [...agentToolNames]),
+    ];
   }
 
   function buildPreSessionSurface() {
@@ -68,15 +79,13 @@ export function createToolSurface({
         modelName: getRoute().model,
       })
       : [];
-    const tools = filterDisallowedTools(previewTools, [
-      ...LEAD_DISALLOWED_TOOLS,
-      ...getFeatureDisallowedTools(),
-      ...(workflowAllowsAgents() ? [] : [...agentToolNames]),
-    ]);
+    const denied = disallowedTools();
+    const tools = filterDisallowedTools(previewTools, denied);
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [], mcpScopeId: getMcpScopeId() };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {
       provider: getRoute().provider,
       model: getRoute().model,
+      disallowed: denied,
     });
     return surface;
   }
@@ -88,6 +97,7 @@ export function createToolSurface({
     applyDeferredToolSurface(session, surfaceMode, modelStandaloneTools(), {
       provider: getRoute().provider,
       model: getRoute().model,
+      disallowed: disallowedTools(),
     });
     return selectDeferredTools(session, names, surfaceMode);
   }

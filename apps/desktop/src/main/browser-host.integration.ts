@@ -1,0 +1,984 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { appendFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { createServer, type ServerResponse } from 'node:http';
+import { readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { app, BrowserWindow, nativeImage, webContents, type WebContents } from 'electron';
+import { createBrowserHost, type BrowserHost } from './browser-host';
+
+interface Discovery {
+  port: number;
+  token: string;
+}
+
+interface CommandResponse {
+  ok: boolean;
+  value?: {
+    text?: string;
+    image?: { mimeType?: string; data?: string };
+    file?: { mimeType?: string; data?: string; name?: string };
+  };
+  error?: string;
+}
+
+const progressPath = process.env.MIXDOG_BROWSER_INTEGRATION_LOG || '';
+function progress(message: string): void {
+  if (progressPath) appendFileSync(progressPath, `${message}\n`);
+}
+
+function percentile(values: number[], ratio: number): number {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio))];
+}
+
+const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-host-profile-'));
+const dataDirectory = join(profile, 'data');
+const downloadsDirectory = join(profile, 'downloads');
+mkdirSync(downloadsDirectory, { recursive: true });
+process.env.MIXDOG_DATA_DIR = dataDirectory;
+app.setPath('userData', join(profile, 'user-data'));
+app.setPath('downloads', downloadsDirectory);
+app.disableHardwareAcceleration();
+progress('module loaded; profile configured');
+
+function refNamed(snapshot: string, name: string): string {
+  const line = snapshot.split('\n').find(
+    (entry) => entry.includes(JSON.stringify(name)) && /\[p\d+-s\d+-e\d+\]/.test(entry),
+  );
+  const ref = line?.match(/\[(p\d+-s\d+-e\d+)\]/)?.[1];
+  assert.ok(ref, `snapshot did not contain ${JSON.stringify(name)}:\n${snapshot}`);
+  return ref;
+}
+
+function visualGrounding(snapshot: string): {
+  snapshotId: string;
+  imageWidth: number;
+  imageHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+} {
+  const match = snapshot.match(
+    /Visual screenshot: (p\d+-s\d+) is (\d+)x(\d+) image px; viewport (\d+)x(\d+) CSS px/,
+  );
+  assert.ok(match, `visual snapshot result did not contain grounding metadata:\n${snapshot}`);
+  return {
+    snapshotId: match[1],
+    imageWidth: Number(match[2]),
+    imageHeight: Number(match[3]),
+    viewportWidth: Number(match[4]),
+    viewportHeight: Number(match[5]),
+  };
+}
+
+function networkRequestId(network: string, urlPart: string): string {
+  const line = network.split('\n').find((entry) => entry.includes(urlPart));
+  const requestId = line?.match(/\[(r\d+)\]/)?.[1];
+  assert.ok(requestId, `network list did not contain ${JSON.stringify(urlPart)}:\n${network}`);
+  return requestId;
+}
+
+function contentsWithUrl(urlPart: string): WebContents {
+  const found = webContents.getAllWebContents().find((entry) => entry.getURL().includes(urlPart));
+  assert.ok(found, `no Electron WebContents matched ${JSON.stringify(urlPart)}`);
+  return found;
+}
+
+function imagePixel(
+  data: string,
+  xRatio: number,
+  yRatio: number,
+): [number, number, number] {
+  const image = nativeImage.createFromBuffer(Buffer.from(data, 'base64'));
+  const { width, height } = image.getSize();
+  const x = Math.min(width - 1, Math.max(0, Math.round((width - 1) * xRatio)));
+  const y = Math.min(height - 1, Math.max(0, Math.round((height - 1) * yRatio)));
+  const bitmap = image.toBitmap();
+  const offset = (y * width + x) * 4;
+  return [bitmap[offset + 2], bitmap[offset + 1], bitmap[offset]];
+}
+
+async function eventually<T>(
+  operation: () => Promise<T>,
+  accept: (value: T) => boolean,
+  timeoutMs = 5_000,
+): Promise<T> {
+  const startedAt = Date.now();
+  let latest = await operation();
+  while (!accept(latest) && Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    latest = await operation();
+  }
+  assert.ok(accept(latest), `condition was not met within ${timeoutMs}ms`);
+  return latest;
+}
+
+async function readDiscovery(path: string): Promise<Discovery> {
+  return await eventually(
+    async () => {
+      try {
+        return JSON.parse(await readFile(path, 'utf8')) as Discovery;
+      } catch {
+        return { port: 0, token: '' };
+      }
+    },
+    (value) => Number.isInteger(value.port) && value.port > 0 && Boolean(value.token),
+  );
+}
+
+async function run(): Promise<void> {
+  const stalledResponses = new Set<ServerResponse>();
+  const socketFixture = createServer();
+  socketFixture.on('upgrade', (request, socket) => {
+    const key = String(request.headers['sec-websocket-key'] || '');
+    const accept = createHash('sha1')
+      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest('base64');
+    socket.write(
+      'HTTP/1.1 101 Switching Protocols\r\n'
+      + 'Upgrade: websocket\r\n'
+      + 'Connection: Upgrade\r\n'
+      + `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+    );
+    socket.on('data', (frame) => {
+      if (frame.length < 6) return;
+      const opcode = frame[0] & 0x0f;
+      if (opcode === 8) {
+        socket.end(Buffer.from([0x88, 0x00]));
+        return;
+      }
+      const length = frame[1] & 0x7f;
+      if (length >= 126 || frame.length < 6 + length) return;
+      const mask = frame.subarray(2, 6);
+      const payload = Buffer.alloc(length);
+      for (let index = 0; index < length; index += 1) {
+        payload[index] = frame[6 + index] ^ mask[index % 4];
+      }
+      const response = Buffer.from(`echo:${payload.toString('utf8')}`);
+      socket.write(Buffer.concat([Buffer.from([0x81, response.length]), response]));
+    });
+  });
+  let frameOrigin = '';
+  const frameFixture = createServer((_request, response) => {
+    response.setHeader('content-type', 'text/html; charset=utf-8');
+    response.end(`<!doctype html><title>Cross-origin frame</title>
+      <p>Cross-frame evidence</p>
+      <button onclick="this.textContent = 'Frame clicked'">Frame action</button>`);
+  });
+  const fixture = createServer((request, response) => {
+    const origin = `http://${request.headers.host}`;
+    const path = new URL(request.url || '/', origin).pathname;
+    response.setHeader('content-type', 'text/html; charset=utf-8');
+    if (path === '/root') {
+      response.end(`<!doctype html><title>Root fixture</title>
+        <p id="state">Waiting</p>
+        <label>Password <input type="password" value="do-not-leak-password"></label>
+        <button onclick="setTimeout(() => { const state = document.querySelector('#state'); const count = Number(state.dataset.spa || 0) + 1; state.dataset.spa = count; state.textContent = 'SPA done ' + count; }, 100)">Update SPA</button>
+        <button onclick="document.querySelector('#state').textContent = confirm('Proceed with fixture?') ? 'Dialog accepted' : 'Dialog dismissed'">Open dialog</button>
+        <a href="${origin}/popup" target="_blank">Open popup</a>
+        <button onclick="setTimeout(() => { const target = document.querySelector('#self-heal'); target.replaceWith(target.cloneNode(true)); }, 700)">Arm rerender</button>
+        <button id="self-heal" onclick="document.querySelector('#state').textContent = 'Self-heal clicked'">Self-heal target</button>
+        <label>First name <input aria-label="First name"></label>
+        <label>Last name <input aria-label="Last name"></label>
+        <button id="mouse-options" onmousedown="document.querySelector('#state').textContent = 'Mouse ' + event.button + ' ctrl=' + event.ctrlKey + ' shift=' + event.shiftKey">Mouse options</button>
+        <label>Default checkbox <input type="checkbox" onchange="document.querySelector('#state').textContent = this.checked ? 'Checkbox checked' : 'Checkbox unchecked'"></label>
+        <button id="hover-target" onmouseenter="document.querySelector('#state').textContent = 'Semantic hovered'">Hover target</button>
+        <button id="drag-source" style="position:fixed;left:600px;top:200px" onmousedown="window.fixtureDragging=true">Drag source</button>
+        <button id="drag-target" style="position:fixed;left:820px;top:200px" onmousemove="if (event.buttons === 1 && window.fixtureDragging) document.querySelector('#state').textContent = 'Mouse dragged'" onmouseup="window.fixtureDragging=false">Drag target</button>
+        <p id="visual-state">Visual idle</p>
+        <div aria-hidden="true" onmouseenter="document.querySelector('#visual-state').textContent = 'Visual hovered'"
+          onclick="const state = document.querySelector('#visual-state'); const count = Number(state.dataset.count || 0) + 1; state.dataset.count = count; state.textContent = 'Visual clicked ' + count"
+          style="position:fixed;left:600px;top:100px;width:120px;height:60px;background:#fc0"></div>
+        <script>console.info('fixture-info-ready'); console.warn('fixture-warning-ready');</script>`);
+      return;
+    }
+    if (path === '/popup') {
+      response.end('<!doctype html><title>Popup fixture</title><p>Popup ready</p>');
+      return;
+    }
+    if (path === '/secondary') {
+      response.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Secondary fixture</title>
+        <style>body{min-height:1800px;background:linear-gradient(to bottom,#f44 0 33%,#4f4 33% 66%,#44f 66% 100%)}#touch-target{position:fixed;left:100px;top:100px;width:120px;height:50px;background:#4af}#touch-drag-source{position:fixed;left:100px;top:200px;width:80px;height:50px}#touch-drag-target{position:fixed;left:330px;top:200px;width:50px;height:50px}#input-probe{position:fixed;right:0;bottom:0;max-width:360px;pointer-events:none}</style>
+        <p>Secondary page</p>
+        <button id="touch-target" ontouchstart="this.textContent='Touched'">Touch target</button>
+        <button id="touch-drag-source" ontouchmove="if (event.touches[0] && event.touches[0].clientX > 300) document.querySelector('p').textContent='Touch dragged'">Touch drag source</button>
+        <button id="touch-drag-target">Touch drag target</button>
+        <p id="input-probe">Input idle</p>
+        <div id="scroll-box" style="position:fixed;left:300px;top:300px;width:260px;height:120px;overflow:auto;border:1px solid">
+          <button>Scroll inside</button><div style="width:900px;height:900px"></div>
+        </div>
+        <script>
+          window.inputProbe = [];
+          const sourceRect = document.querySelector('#touch-drag-source').getBoundingClientRect();
+          window.sourceRectLabel = 'source:'
+            + [sourceRect.left, sourceRect.top, sourceRect.right, sourceRect.bottom].map(Math.round).join(',');
+          document.querySelector('#input-probe').textContent = window.sourceRectLabel;
+          for (const type of ['touchstart','touchmove','touchend','pointerdown','pointermove','pointerup','mousedown','mousemove','mouseup','click']) {
+            document.addEventListener(type, (event) => {
+              const point = event.touches?.[0] || event.changedTouches?.[0] || event;
+              window.inputProbe.push(type + ':' + (event.target?.id || event.target?.tagName)
+                + '@' + Math.round(point.clientX || 0) + ',' + Math.round(point.clientY || 0));
+              const events = window.inputProbe.length <= 8
+                ? window.inputProbe.join(' | ')
+                : [...window.inputProbe.slice(0, 3), ...window.inputProbe.slice(-5)].join(' | ');
+              document.querySelector('#input-probe').textContent = window.sourceRectLabel + ' | ' + events;
+            }, true);
+          }
+        </script>`);
+      return;
+    }
+    if (path === '/api/submit') {
+      let body = '';
+      request.on('data', (chunk) => { body += String(chunk); });
+      request.on('end', () => {
+        response.setHeader('content-type', 'application/json');
+        response.setHeader('x-fixture', 'network-detail');
+        response.end(JSON.stringify({ ok: true, received: JSON.parse(body) }));
+      });
+      return;
+    }
+    if (path === '/download') {
+      response.setHeader('content-type', 'text/plain; charset=utf-8');
+      response.setHeader('content-disposition', 'attachment; filename="browser-fixture.txt"');
+      response.end('download attachment ready');
+      return;
+    }
+    if (path === '/initial-dialog') {
+      response.end(`<!doctype html><title>Initial dialog fixture</title>
+        <script>document.documentElement.dataset.answer = confirm('Initial fixture dialog') ? 'yes' : 'no';</script>
+        <p>Initial dialog complete</p>`);
+      return;
+    }
+    if (path === '/frames') {
+      response.end(`<!doctype html><title>Frame host fixture</title>
+        <h1>Frame host</h1><iframe src="${frameOrigin}/frame"></iframe>`);
+      return;
+    }
+    if (path === '/recovered') {
+      response.end('<!doctype html><title>Recovered fixture</title><p>Queue recovered</p>');
+      return;
+    }
+    if (path === '/stall') {
+      response.write('<!doctype html><title>Stalled fixture</title><p>Still loading');
+      stalledResponses.add(response);
+      response.once('close', () => stalledResponses.delete(response));
+      return;
+    }
+    response.statusCode = 404;
+    response.end('<!doctype html><title>Missing</title>');
+  });
+
+  let parent: BrowserWindow | null = null;
+  let host: BrowserHost | null = null;
+  try {
+    progress('starting fixture server');
+    await new Promise<void>((resolve, reject) => {
+      socketFixture.once('error', reject);
+      socketFixture.listen(0, '127.0.0.1', () => resolve());
+    });
+    const socketAddress = socketFixture.address();
+    assert.ok(socketAddress && typeof socketAddress === 'object');
+    const socketUrl = `ws://127.0.0.1:${socketAddress.port}/socket`;
+    await new Promise<void>((resolve, reject) => {
+      frameFixture.once('error', reject);
+      frameFixture.listen(0, '0.0.0.0', () => resolve());
+    });
+    const frameAddress = frameFixture.address();
+    assert.ok(frameAddress && typeof frameAddress === 'object');
+    frameOrigin = `http://127.0.0.2:${frameAddress.port}`;
+    await new Promise<void>((resolve, reject) => {
+      fixture.once('error', reject);
+      fixture.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = fixture.address();
+    assert.ok(address && typeof address === 'object');
+    const origin = `http://127.0.0.1:${address.port}`;
+
+    progress('creating browser host');
+    parent = new BrowserWindow({ show: false });
+    host = createBrowserHost(parent);
+    host.setBridgeEnabled(true);
+    const discovery = await readDiscovery(join(dataDirectory, 'browser-bridge.json'));
+    progress('browser bridge discovered');
+    let turnId = 1;
+    const commandDurations = new Map<string, number[]>();
+    const commandDurationDetails = new Map<string, Array<{ label: string; duration: number }>>();
+
+    const command = async (
+      input: Record<string, unknown>,
+      signal?: AbortSignal,
+    ): Promise<{
+      text: string;
+      image?: { mimeType?: string; data?: string };
+      file?: { mimeType?: string; data?: string; name?: string };
+    }> => {
+      const action = String(input.action || 'unknown');
+      const startedAt = performance.now();
+      try {
+        const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${discovery.token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            session_id: 'browser-integration-session',
+            turn_id: turnId,
+            ...input,
+          }),
+          signal,
+        });
+        const payload = await response.json() as CommandResponse;
+        if (!payload.ok) throw new Error(payload.error || 'browser command failed');
+        return {
+          text: String(payload.value?.text || ''),
+          ...(payload.value?.image ? { image: payload.value.image } : {}),
+          ...(payload.value?.file ? { file: payload.value.file } : {}),
+        };
+      } finally {
+        const duration = performance.now() - startedAt;
+        const samples = commandDurations.get(action) || [];
+        samples.push(duration);
+        commandDurations.set(action, samples);
+        const details = commandDurationDetails.get(action) || [];
+        details.push({
+          label: [
+            String(input.tab || 'visible'),
+            input.expect ? 'expect' : '',
+            input.includeScreenshot ? 'screenshot' : '',
+          ].filter(Boolean).join('+'),
+          duration,
+        });
+        commandDurationDetails.set(action, details);
+      }
+    };
+
+    const initialDialogStartedAt = Date.now();
+    const initialDialog = await command({
+      action: 'navigate',
+      url: `${origin}/initial-dialog`,
+      background: true,
+      tab: 'initial-dialog',
+    });
+    assert.match(initialDialog.text, /dialog is blocking the page/i);
+    assert.ok(Date.now() - initialDialogStartedAt < 6_000);
+    await command({ action: 'handle_dialog', accept: false, tab: 'initial-dialog' });
+    progress('initial navigation dialog interception complete');
+
+    let alpha = await command({
+      action: 'navigate',
+      url: `${origin}/root`,
+      background: true,
+      tab: 'alpha',
+    });
+    const alphaGuest = contentsWithUrl('/root');
+    alphaGuest.setZoomFactor(0.75);
+    assert.ok(Math.abs(alphaGuest.getZoomFactor() - 0.75) < 0.01);
+    alpha = await command({ action: 'snapshot', tab: 'alpha' });
+    progress('root navigation complete');
+    assert.doesNotMatch(alpha.text, /do-not-leak-password/);
+    const spaRef = refNamed(alpha.text, 'Update SPA');
+    alpha = await command({
+      action: 'click',
+      ref: spaRef,
+      expect: { text: 'SPA done 1', timeoutMs: 2_000 },
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Postcondition met/);
+    assert.match(alpha.text, /SPA done 1/);
+    const secondSpaRef = refNamed(alpha.text, 'Update SPA');
+    await assert.rejects(
+      command({
+        action: 'click',
+        ref: secondSpaRef,
+        expect: { text: 'condition that never appears', timeoutMs: 600 },
+        tab: 'alpha',
+      }),
+      /Postcondition failed[\s\S]*executed once and was not retried[\s\S]*SPA done 2/,
+    );
+    alpha = await command({ action: 'snapshot', settleMs: 150, tab: 'alpha' });
+    assert.match(alpha.text, /Explicit settle completed/);
+    assert.match(alpha.text, /SPA done 2/);
+    assert.doesNotMatch(alpha.text, /SPA done 3/);
+    const weakExpectationRef = refNamed(alpha.text, 'Update SPA');
+    const weakExpectation = await command({
+      action: 'click',
+      ref: weakExpectationRef,
+      expect: { text: 'Update SPA', timeoutMs: 2_000 },
+      includeScreenshot: true,
+      tab: 'alpha',
+    });
+    assert.match(weakExpectation.text, /Postcondition is inconclusive because it was already satisfied/);
+    assert.doesNotMatch(weakExpectation.text, /Postcondition met/);
+    assert.match(weakExpectation.text, /SPA done 3/);
+    assert.equal(weakExpectation.image?.mimeType, 'image/jpeg');
+    progress('SPA postcondition and no-replay failure complete');
+    const pageConsole = await command({ action: 'console', tab: 'alpha' });
+    assert.doesNotMatch(pageConsole.text, /ACTION_SETTLE_QUIET_MS|ReferenceError/);
+    turnId = 25;
+    await assert.rejects(
+      command({
+        action: 'wait',
+        text: 'condition that never appears',
+        timeoutMs: 500,
+        tab: 'alpha',
+      }),
+      /Wait timed out[\s\S]*Root fixture/,
+    );
+
+    const observed = await command({ action: 'snapshot', mode: 'both', tab: 'alpha' });
+    assert.match(observed.text, /Snapshot: p\d+-s\d+/);
+    assert.equal(observed.image?.mimeType, 'image/jpeg');
+    assert.ok((observed.image?.data?.length || 0) > 100);
+    alpha = { text: observed.text };
+    progress('combined visual snapshot complete');
+
+    const dialogRef = refNamed(alpha.text, 'Open dialog');
+    const dialogStartedAt = Date.now();
+    const blocked = await command({ action: 'click', ref: dialogRef, tab: 'alpha' });
+    assert.ok(Date.now() - dialogStartedAt < 2_000, 'dialog interception should not wait for native CDP timeout');
+    if (!/dialog is blocking the page/i.test(blocked.text)) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const status = await command({ action: 'status', tab: 'alpha' });
+      assert.match(`${blocked.text}\n\nStatus:\n${status.text}`, /dialog is blocking the page/i);
+    }
+    alpha = await command({ action: 'handle_dialog', accept: false, tab: 'alpha' });
+    progress('dialog handling complete');
+
+    turnId = 2;
+    const armRef = refNamed(alpha.text, 'Arm rerender');
+    const armed = await command({ action: 'click', ref: armRef, tab: 'alpha' });
+    const healingRef = refNamed(armed.text, 'Self-heal target');
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    alpha = await command({ action: 'click', ref: healingRef, tab: 'alpha' });
+    assert.match(alpha.text, /Automatic ref recovery before input dispatch \(no action replay\)/);
+    assert.match(alpha.text, /Self-heal clicked/);
+    progress('stale ref self-healing complete');
+
+    turnId = 20;
+    const firstNameRef = refNamed(alpha.text, 'First name');
+    const lastNameRef = refNamed(alpha.text, 'Last name');
+    alpha = await command({
+      action: 'fill',
+      fields: [
+        { ref: firstNameRef, text: 'Ada' },
+        { ref: lastNameRef, value: 'Lovelace' },
+      ],
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /value="Ada"/);
+    assert.match(alpha.text, /value="Lovelace"/);
+    const mouseOptionsRef = refNamed(alpha.text, 'Mouse options');
+    alpha = await command({
+      action: 'click',
+      ref: mouseOptionsRef,
+      button: 'right',
+      modifiers: ['Control', 'Shift'],
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Mouse 2 ctrl=true shift=true/);
+    const checkboxRef = refNamed(alpha.text, 'Default checkbox');
+    alpha = await command({
+      action: 'check',
+      ref: checkboxRef,
+      checked: true,
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Checkbox checked/);
+    assert.match(alpha.text, /checkbox "Default checkbox" checked=true/);
+    const hoverRef = refNamed(alpha.text, 'Hover target');
+    alpha = await command({ action: 'hover', ref: hoverRef, tab: 'alpha' });
+    assert.match(alpha.text, /Semantic hovered/);
+    const dragSourceRef = refNamed(alpha.text, 'Drag source');
+    const dragTargetRef = refNamed(alpha.text, 'Drag target');
+    alpha = await command({
+      action: 'drag',
+      ref: dragSourceRef,
+      targetRef: dragTargetRef,
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Mouse dragged/);
+    const infoConsole = await command({
+      action: 'console',
+      level: 'info',
+      query: 'fixture-info',
+      tab: 'alpha',
+    });
+    assert.match(infoConsole.text, /\[info\].*fixture-info-ready/);
+    const visualOnly = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      format: 'png',
+      tab: 'alpha',
+    });
+    assert.equal(visualOnly.image?.mimeType, 'image/png');
+    assert.doesNotMatch(visualOnly.text, /Snapshot: p\d+-s\d+/);
+    progress('compressed interaction fields and visual-only snapshot complete');
+
+    turnId = 21;
+    const visual = await command({ action: 'snapshot', mode: 'both', tab: 'alpha' });
+    let grounding = visualGrounding(visual.text);
+    const visualHovered = await command({
+      action: 'hover',
+      snapshotId: grounding.snapshotId,
+      x: 660 * grounding.imageWidth / grounding.viewportWidth,
+      y: 130 * grounding.imageHeight / grounding.viewportHeight,
+      tab: 'alpha',
+    });
+    assert.match(visualHovered.text, /Visual hovered/);
+    const clickGrounding = await command({ action: 'snapshot', mode: 'both', tab: 'alpha' });
+    grounding = visualGrounding(clickGrounding.text);
+    const visualClicked = await command({
+      action: 'click',
+      snapshotId: grounding.snapshotId,
+      x: 660 * grounding.imageWidth / grounding.viewportWidth,
+      y: 130 * grounding.imageHeight / grounding.viewportHeight,
+      tab: 'alpha',
+    });
+    assert.match(visualClicked.text, /Visual clicked 1/);
+    await assert.rejects(
+      command({
+        action: 'click',
+        snapshotId: grounding.snapshotId,
+        x: 660 * grounding.imageWidth / grounding.viewportWidth,
+        y: 130 * grounding.imageHeight / grounding.viewportHeight,
+        tab: 'alpha',
+      }),
+      /latest snapshot\(mode=both\) or locate result/,
+    );
+    alpha = await command({ action: 'snapshot', tab: 'alpha' });
+    assert.match(alpha.text, /Visual clicked 1/);
+    const dragVisual = await command({ action: 'snapshot', mode: 'both', tab: 'alpha' });
+    grounding = visualGrounding(dragVisual.text);
+    const coordinateDragged = await command({
+      action: 'drag',
+      snapshotId: grounding.snapshotId,
+      x: 640 * grounding.imageWidth / grounding.viewportWidth,
+      y: 225 * grounding.imageHeight / grounding.viewportHeight,
+      targetX: 850 * grounding.imageWidth / grounding.viewportWidth,
+      targetY: 225 * grounding.imageHeight / grounding.viewportHeight,
+      tab: 'alpha',
+    });
+    assert.match(coordinateDragged.text, /Mouse dragged/);
+    turnId = 22;
+    const located = await command({ action: 'locate', query: 'yellow', tab: 'alpha' });
+    assert.equal(located.image?.mimeType, 'image/jpeg');
+    assert.match(located.text, /Visual candidates[\s\S]*yellow[\s\S]*center=\(\d+,\d+\) image px/);
+    alpha = { text: located.text };
+    progress('visual grounding and stale-coordinate replay guard complete');
+
+    const popupRef = refNamed(alpha.text, 'Open popup');
+    await command({ action: 'click', ref: popupRef, tab: 'alpha' });
+    const tabs = await eventually(
+      () => command({ action: 'list_tabs' }),
+      (result) => result.text.includes('popup-1') && result.text.includes('Popup fixture'),
+    );
+    assert.match(tabs.text, /p\d+ \["popup-1"\] \(popup from p\d+\)/);
+    progress('popup tracking complete');
+
+    turnId = 3;
+    await command({
+      action: 'navigate',
+      url: `${origin}/secondary`,
+      background: true,
+      tab: 'beta',
+    });
+    const betaGuest = contentsWithUrl('/secondary');
+    betaGuest.setZoomFactor(0.75);
+    assert.ok(Math.abs(betaGuest.getZoomFactor() - 0.75) < 0.01);
+    assert.match((await command({ action: 'snapshot', tab: 'alpha' })).text, /Root fixture/);
+    const betaSnapshot = await command({ action: 'snapshot', tab: 'beta' });
+    assert.match(betaSnapshot.text, /Secondary fixture/);
+    const betaStatus = await command({ action: 'status', tab: 'beta' });
+    assert.match(betaStatus.text, /Pending requests: 0/);
+    const betaDocuments = await command({
+      action: 'network',
+      query: '/secondary',
+      resourceTypes: ['document'],
+      tab: 'beta',
+    });
+    const betaDocumentId = networkRequestId(betaDocuments.text, '/secondary');
+    const betaDocument = await command({
+      action: 'network',
+      requestId: betaDocumentId,
+      maxChars: 2_000,
+      tab: 'beta',
+    });
+    assert.doesNotMatch(betaDocument.text, /still pending/);
+    assert.match(betaDocument.text, /Status: 200 OK/);
+    turnId = 23;
+    const scrollInsideRef = refNamed(betaSnapshot.text, 'Scroll inside');
+    await command({
+      action: 'scroll',
+      ref: scrollInsideRef,
+      dy: 180,
+      tab: 'beta',
+    });
+    const nestedScroll = await command({
+      action: 'evaluate',
+      script: `(() => {
+        const box = document.querySelector('#scroll-box');
+        return { scrollLeft: box.scrollLeft, scrollTop: box.scrollTop };
+      })()`,
+      tab: 'beta',
+    });
+    assert.match(nestedScroll.text, /"scrollLeft": 0/);
+    assert.match(nestedScroll.text, /"scrollTop": [1-9]\d*/);
+    const resetNestedScroll = await command({
+      action: 'evaluate',
+      script: `(() => {
+        const box = document.querySelector('#scroll-box');
+        box.scrollTo(0, 0);
+        return { scrollLeft: box.scrollLeft, scrollTop: box.scrollTop };
+      })()`,
+      tab: 'beta',
+    });
+    const horizontalScrollRef = refNamed(resetNestedScroll.text, 'Scroll inside');
+    await command({
+      action: 'scroll',
+      ref: horizontalScrollRef,
+      dx: 120,
+      tab: 'beta',
+    });
+    const horizontalScroll = await command({
+      action: 'evaluate',
+      script: `(() => {
+        const box = document.querySelector('#scroll-box');
+        return { scrollLeft: box.scrollLeft, scrollTop: box.scrollTop };
+      })()`,
+      tab: 'beta',
+    });
+    assert.match(horizontalScroll.text, /"scrollLeft": [1-9]\d*/);
+    assert.match(horizontalScroll.text, /"scrollTop": 0/);
+    const evaluated = await command({
+      action: 'evaluate',
+      script: `new Promise((resolve) => setTimeout(() => {
+        document.querySelector('p').textContent = 'Secondary evaluated';
+        resolve({ title: document.title, status: 'async complete' });
+      }, 50))`,
+      tab: 'beta',
+    });
+    assert.match(evaluated.text, /"status": "async complete"/);
+    assert.match(evaluated.text, /Secondary evaluated/);
+    const reloaded = await command({ action: 'navigate', reload: true, tab: 'beta' });
+    assert.match(reloaded.text, /Secondary page/);
+    assert.doesNotMatch(reloaded.text, /Secondary evaluated/);
+    const fullPage = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      fullPage: true,
+      format: 'jpeg',
+      quality: 60,
+      tab: 'beta',
+    });
+    assert.equal(fullPage.image?.mimeType, 'image/jpeg');
+    assert.match(fullPage.text, /Full-page screenshot/);
+    assert.ok((fullPage.image?.data?.length || 0) > 1_000);
+    const fullPageImage = nativeImage.createFromBuffer(Buffer.from(fullPage.image?.data || '', 'base64'));
+    const fullPageSize = fullPageImage.getSize();
+    assert.ok(fullPageSize.height > 1_000, `full-page capture was too short: ${fullPageSize.height}px`);
+    const topPixel = imagePixel(fullPage.image?.data || '', 0.9, 0.1);
+    const bottomPixel = imagePixel(fullPage.image?.data || '', 0.9, 0.9);
+    const colorDistance = topPixel.reduce(
+      (total, channel, index) => total + Math.abs(channel - bottomPixel[index]),
+      0,
+    );
+    assert.ok(colorDistance > 150, `full-page capture repeated vertically: ${topPixel} vs ${bottomPixel}`);
+    turnId = 24;
+    await command({
+      action: 'evaluate',
+      script: `fetch(${JSON.stringify(`${origin}/api/submit`)}, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer do-not-leak' },
+        body: JSON.stringify({ message: 'hello network' }),
+      }).then((response) => response.json())`,
+      tab: 'beta',
+    });
+    const network = await command({
+      action: 'network',
+      query: '/api/submit',
+      resourceTypes: ['fetch'],
+      tab: 'beta',
+    });
+    assert.match(network.text, /POST fetch 200/);
+    const requestId = networkRequestId(network.text, '/api/submit');
+    const request = await command({ action: 'network', requestId, tab: 'beta' });
+    assert.match(request.text, /Request body:[\s\S]*hello network/);
+    assert.match(request.text, /Response body:[\s\S]*"ok":true/);
+    assert.match(request.text, /x-fixture: network-detail/i);
+    assert.doesNotMatch(request.text, /do-not-leak/);
+    progress('background isolation complete');
+
+    turnId = 30;
+    await command({
+      action: 'cookies',
+      operation: 'set',
+      name: 'mixdog-fixture',
+      value: 'cookie-ready',
+      httpOnly: true,
+      tab: 'beta',
+    });
+    const cookies = await command({
+      action: 'cookies',
+      operation: 'list',
+      name: 'mixdog-fixture',
+      tab: 'beta',
+    });
+    assert.match(cookies.text, /cookie-ready/);
+    assert.match(cookies.text, /"httpOnly": true/);
+    await command({
+      action: 'storage',
+      operation: 'set',
+      storageType: 'local',
+      name: 'mixdog-fixture',
+      value: 'storage-ready',
+      tab: 'beta',
+    });
+    const storage = await command({
+      action: 'storage',
+      operation: 'get',
+      storageType: 'local',
+      name: 'mixdog-fixture',
+      tab: 'beta',
+    });
+    assert.match(storage.text, /storage-ready/);
+    progress('cookie and storage management complete');
+
+    turnId = 31;
+    await command({
+      action: 'emulate',
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 2,
+      mobile: true,
+      touch: true,
+      userAgent: 'MixdogMobileFixture/1.0',
+      locale: 'en-US',
+      timezone: 'UTC',
+      colorScheme: 'dark',
+      tab: 'beta',
+    });
+    const emulated = await command({
+      action: 'evaluate',
+      script: `({
+        width: innerWidth,
+        touchPoints: navigator.maxTouchPoints,
+        userAgent: navigator.userAgent,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dark: matchMedia('(prefers-color-scheme: dark)').matches,
+      })`,
+      tab: 'beta',
+    });
+    assert.match(emulated.text, /"width": 390/);
+    assert.match(emulated.text, /"touchPoints": 5/);
+    assert.match(emulated.text, /MixdogMobileFixture/);
+    assert.match(emulated.text, /"timezone": "UTC"/);
+    assert.match(emulated.text, /"dark": true/);
+    const touchObserved = await command({ action: 'snapshot', mode: 'both', tab: 'beta' });
+    const touchGrounding = visualGrounding(touchObserved.text);
+    const touched = await command({
+      action: 'click',
+      pointer: 'touch',
+      snapshotId: touchGrounding.snapshotId,
+      x: 160 * touchGrounding.imageWidth / touchGrounding.viewportWidth,
+      y: 125 * touchGrounding.imageHeight / touchGrounding.viewportHeight,
+      tab: 'beta',
+    });
+    assert.match(touched.text, /Touched/);
+    await command({
+      action: 'evaluate',
+      script: `(() => {
+        window.inputProbe = [];
+        const rect = document.querySelector('#touch-drag-source').getBoundingClientRect();
+        window.sourceRectLabel = 'source:' + [
+          rect.left, rect.top, rect.right, rect.bottom,
+        ].map(Math.round).join(',');
+        document.querySelector('#input-probe').textContent = window.sourceRectLabel;
+        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+      })()`,
+      tab: 'beta',
+    });
+    const touchDragObserved = await command({ action: 'snapshot', mode: 'both', tab: 'beta' });
+    const touchDragGrounding = visualGrounding(touchDragObserved.text);
+    const touchDragged = await command({
+      action: 'drag',
+      pointer: 'touch',
+      snapshotId: touchDragGrounding.snapshotId,
+      x: 140 * touchDragGrounding.imageWidth / touchDragGrounding.viewportWidth,
+      y: 225 * touchDragGrounding.imageHeight / touchDragGrounding.viewportHeight,
+      targetX: 350 * touchDragGrounding.imageWidth / touchDragGrounding.viewportWidth,
+      targetY: 225 * touchDragGrounding.imageHeight / touchDragGrounding.viewportHeight,
+      tab: 'beta',
+    });
+    assert.match(touchDragged.text, /Touch dragged/);
+    progress('mobile emulation and touch complete');
+
+    turnId = 32;
+    await command({ action: 'performance', operation: 'start', tab: 'beta' });
+    await command({
+      action: 'evaluate',
+      script: `(() => {
+        const started = performance.now();
+        while (performance.now() - started < 25) Math.sqrt(Math.random());
+        return 'trace work complete';
+      })()`,
+      tab: 'beta',
+    });
+    const trace = await command({ action: 'performance', operation: 'stop', tab: 'beta' });
+    assert.match(trace.text, /Performance trace stopped/);
+    assert.match(trace.text, /Events: [1-9]\d*/);
+    const metrics = await command({ action: 'performance', operation: 'metrics', tab: 'beta' });
+    assert.match(metrics.text, /JSHeapUsedSize|TaskDuration/);
+
+    await command({
+      action: 'evaluate',
+      script: `new Promise((resolve, reject) => {
+        const socket = new WebSocket(${JSON.stringify(socketUrl)});
+        socket.onopen = () => socket.send('hello-server');
+        socket.onerror = () => reject(new Error('socket failed'));
+        socket.onmessage = (event) => { const value = event.data; socket.close(); resolve(value); };
+      })`,
+      tab: 'beta',
+    });
+    const sockets = await command({
+      action: 'network',
+      query: '/socket',
+      resourceTypes: ['websocket'],
+      tab: 'beta',
+    });
+    const socketRequestId = networkRequestId(sockets.text, '/socket');
+    const socketDetail = await command({
+      action: 'network',
+      requestId: socketRequestId,
+      frameLimit: 10,
+      tab: 'beta',
+    });
+    assert.match(socketDetail.text, /WebSocket frames/);
+    assert.match(socketDetail.text, /hello-server/);
+    assert.match(socketDetail.text, /echo:hello-server/);
+    progress('performance trace and WebSocket frames complete');
+
+    turnId = 4;
+    const frameSnapshot = await command({
+      action: 'navigate',
+      url: `${origin}/frames`,
+      background: true,
+      tab: 'frames',
+    });
+    assert.match(frameSnapshot.text, /Cross-frame evidence/);
+    assert.doesNotMatch(frameSnapshot.text, /rootwebarea/);
+    const frameRef = refNamed(frameSnapshot.text, 'Frame action');
+    const frameEvaluated = await command({
+      action: 'evaluate',
+      ref: frameRef,
+      script: '({ text: element.textContent, origin: location.origin })',
+      tab: 'frames',
+    });
+    assert.match(frameEvaluated.text, /"text": "Frame action"/);
+    assert.match(frameEvaluated.text, new RegExp(frameOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    const evaluatedFrameRef = refNamed(frameEvaluated.text, 'Frame action');
+    const frameClicked = await command({ action: 'click', ref: evaluatedFrameRef, tab: 'frames' });
+    assert.match(frameClicked.text, /Frame clicked/);
+    progress('cross-origin frame accessibility complete');
+
+    turnId = 40;
+    await command({
+      action: 'navigate',
+      url: `${origin}/download`,
+      background: true,
+      tab: 'download',
+    });
+    const download = await command({
+      action: 'downloads',
+      wait: true,
+      attach: true,
+      timeoutMs: 5_000,
+    });
+    assert.equal(download.file?.name, 'browser-fixture.txt');
+    assert.equal(download.file?.mimeType, 'text/plain');
+    assert.equal(
+      Buffer.from(download.file?.data || '', 'base64').toString('utf8'),
+      'download attachment ready',
+    );
+    progress('download inline attachment complete');
+
+    turnId = 5;
+    const abort = new AbortController();
+    const stalled = command({
+      action: 'navigate',
+      url: `${origin}/stall`,
+      tab: 'alpha',
+    }, abort.signal);
+    setTimeout(() => abort.abort(), 250);
+    await assert.rejects(stalled, /abort/i);
+    const recovered = await Promise.race([
+      command({ action: 'navigate', url: `${origin}/recovered`, tab: 'alpha' }),
+      new Promise<never>((_resolve, reject) => setTimeout(
+        () => reject(new Error('queue recovery timed out')),
+        5_000,
+      )),
+    ]);
+    assert.match(recovered.text, /Queue recovered/);
+    progress('queue recovery complete');
+
+    turnId = 98;
+    for (const removed of [
+      'observe', 'screenshot', 'click_at', 'tap', 'hover_at', 'drag_at', 'swipe', 'fill_form',
+    ]) {
+      await assert.rejects(
+        command({ action: removed, tab: 'alpha' }),
+        new RegExp(`unknown browser action "${removed}"`),
+      );
+    }
+
+    turnId = 99;
+    for (let index = 0; index < 10; index += 1) {
+      await command({ action: 'open', tab: 'beta' });
+    }
+    await assert.rejects(
+      command({ action: 'open', tab: 'beta' }),
+      /per-turn action limit \(10\)/,
+    );
+    progress('per-turn action budget complete');
+
+    for (const action of ['navigate', 'snapshot', 'click']) {
+      const samples = commandDurations.get(action) || [];
+      progress(
+        `latency ${action}: n=${samples.length} p50=${percentile(samples, 0.5).toFixed(1)}ms `
+        + `p95=${percentile(samples, 0.95).toFixed(1)}ms`,
+      );
+      if (action === 'click' || action === 'navigate') {
+        progress(
+          `latency samples ${action}: ${(commandDurationDetails.get(action) || [])
+            .map((sample) => `${sample.label}=${sample.duration.toFixed(1)}ms`)
+            .join(', ')}`,
+        );
+      }
+    }
+    progress('integration passed');
+    console.log('Browser host integration passed: device emulation and touch, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, performance tracing, download attachment, recovery, dialogs, popup tracking, isolation, queue recovery, and action budget.');
+  } finally {
+    for (const response of stalledResponses) response.destroy();
+    await host?.dispose();
+    if (parent && !parent.isDestroyed()) parent.destroy();
+    await new Promise<void>((resolve) => fixture.close(() => resolve()));
+    await new Promise<void>((resolve) => frameFixture.close(() => resolve()));
+    await new Promise<void>((resolve) => socketFixture.close(() => resolve()));
+  }
+}
+
+progress('waiting for Electron ready');
+void app.whenReady().then(async () => {
+  progress('Electron ready');
+  await run();
+  await rm(profile, { recursive: true, force: true });
+  app.exit(0);
+}).catch(async (error) => {
+  console.error(error);
+  await rm(profile, { recursive: true, force: true });
+  process.exitCode = 1;
+  app.exit(1);
+});

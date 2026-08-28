@@ -41,6 +41,10 @@ import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { envFlag as _envFlag } from './lib/env-utils.mjs';
+import {
+    activateCodexTurnState,
+    captureCodexTurnState,
+} from './openai-turn-state.mjs';
 export { envPositiveInt as _envPositiveInt } from './lib/env-utils.mjs';
 export { _envFlag };
 
@@ -164,7 +168,13 @@ function _pushOutputTextAnnotations(part, citations, citationKeys) {
     }
 }
 
-function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey, statelessConversation = false }) {
+export function _buildOpenAIHttpFallbackHeaders({
+    auth,
+    cacheKey,
+    statelessConversation = false,
+    poolKey = null,
+    turnId = null,
+}) {
     if (auth?.type === 'openai-direct') {
         // Public API-key auth: Bearer <OPENAI_API_KEY>, no chatgpt-account-id /
         // originator (mirrors openai-ws-pool _buildHandshakeHeaders' direct
@@ -195,6 +205,8 @@ function _buildOpenAIHttpFallbackHeaders({ auth, cacheKey, statelessConversation
         headers['session-id'] = sid;
         headers['thread-id'] = sid;
     }
+    const turnState = activateCodexTurnState(poolKey, turnId);
+    if (turnState) headers['x-codex-turn-state'] = turnState;
     return headers;
 }
 
@@ -251,7 +263,14 @@ export async function sendViaHttpSse({
     const totalTimeout = createPassthroughSignal(externalSignal);
     const statelessConversation = opts?.statelessConversation === true
         || _envFlag('MIXDOG_OAI_STATELESS_HTTP', false);
-    const headers = _buildOpenAIHttpFallbackHeaders({ auth, cacheKey, statelessConversation });
+    const turnId = opts?.turnId || opts?.codexTurnId || opts?.session?.turnId || null;
+    const headers = _buildOpenAIHttpFallbackHeaders({
+        auth,
+        cacheKey,
+        statelessConversation,
+        poolKey,
+        turnId,
+    });
     const fetchStartedAt = Date.now();
     const responsesUrl = auth?.type === 'openai-direct'
         ? OPENAI_DIRECT_RESPONSES_URL
@@ -379,6 +398,10 @@ export async function sendViaHttpSse({
         err.initialResponseError = true;
         totalTimeout.cleanup();
         throw err;
+    }
+    if (auth?.type !== 'openai-direct') {
+        const responseTurnState = response.headers?.get?.('x-codex-turn-state');
+        if (responseTurnState) captureCodexTurnState(poolKey, turnId, responseTurnState);
     }
     if (!response.body) {
         totalTimeout.cleanup();

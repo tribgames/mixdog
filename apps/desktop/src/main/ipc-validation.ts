@@ -626,7 +626,7 @@ export function requiredZoomFactor(value: unknown): number {
 
 export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
   if (value === 'autoClear' || value === 'autoCompact' || value === 'keepAwake'
-    || value === 'usagePinned') return value;
+    || value === 'usagePinned' || value === 'computerControl' || value === 'browserControl') return value;
   throw new TypeError('setting key is invalid.');
 }
 

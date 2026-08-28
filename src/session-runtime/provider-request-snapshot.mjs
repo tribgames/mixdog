@@ -1,5 +1,5 @@
 // Provider request-tool resolution + JSON-safe snapshot machinery, extracted from tool-catalog.mjs.
-import { clean, LATE_TOOL_ANNOUNCEMENT_SENTINEL } from './session-text.mjs';
+import { clean } from './session-text.mjs';
 import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import {
   applyInitialDeferredToolManifestToBp2,
@@ -50,7 +50,15 @@ export function resolveProviderRequestTools({
   }
   if (discovered.size === 0) return activeTools;
   const activeNames = new Set(activeTools.map((tool) => clean(tool?.name)).filter(Boolean));
-  const catalog = Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [];
+  const catalogByName = new Map();
+  for (const tool of [
+    ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
+    ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
+  ]) {
+    const name = clean(tool?.name);
+    if (name) catalogByName.set(name, tool);
+  }
+  const catalog = [...catalogByName.values()];
   const deferredTools = catalog
     .filter((tool) => {
       const name = clean(tool?.name);
@@ -306,15 +314,31 @@ export function snapshotProviderRequestTools(options = {}) {
     || names.size === 0) {
     return finish();
   }
-  // Anthropic tools precede every cache_control breakpoint. Adding a schema
-  // after tool_search therefore invalidates the whole provider cache prefix.
-  // Send the complete defer_loading catalog from the first request instead;
-  // tool_search controls callability, not provider-visible schema membership.
+  const discovered = new Set(
+    parseToolSelection(session?.deferredDiscoveredTools),
+  );
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const native = message?.nativeToolSearch;
+    const source = clean(native?.provider).toLowerCase();
+    if (source && source !== normalizedProvider
+      && !(ANTHROPIC_NATIVE_PROVIDERS.has(source)
+        && ANTHROPIC_NATIVE_PROVIDERS.has(normalizedProvider))) continue;
+    for (const name of parseToolSelection(native?.toolReferences)) discovered.add(name);
+  }
+  if (discovered.size === 0) return finish();
+  // Claude-compatible deferred loading: the catalog stays metadata-only until
+  // tool_search/load_tool selects a name. Only selected schemas join the next
+  // request, marked defer_loading; active schemas continue to win by name.
   const seenCatalogRefs = new WeakSet();
-  const catalog = [
+  const catalogByName = new Map();
+  for (const tool of [
     ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
     ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
-  ];
+  ]) {
+    const name = clean(tool?.name);
+    if (name) catalogByName.set(name, tool);
+  }
+  const catalog = [...catalogByName.values()];
   for (const tool of catalog) {
     if (tool && typeof tool === 'object') {
       if (activeCandidateRefs.has(tool) || seenCatalogRefs.has(tool)) continue;
@@ -322,7 +346,7 @@ export function snapshotProviderRequestTools(options = {}) {
     }
     const capturedName = tool?.name;
     const selectionName = typeof capturedName === 'string' ? clean(capturedName) : '';
-    if (!selectionName || names.has(selectionName)) continue;
+    if (!selectionName || !discovered.has(selectionName) || names.has(selectionName)) continue;
     appendSnapshot(tool, capturedName, true);
   }
   return finish();

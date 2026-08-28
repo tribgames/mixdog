@@ -37,8 +37,8 @@ extraResources:
   - from: .runtime/runtime.asar
     to: runtime.asar
   # electron-builder filters a source path containing node_modules. The
-  # preparation step mirrors only native binaries under this neutral root;
-  # restore Electron's exact ASAR-unpacked layout at the destination.
+  # preparation step mirrors native binaries and external-process scripts under
+  # this neutral root; restore Electron's exact ASAR-unpacked layout at the destination.
   - from: .runtime/native-modules
     to: runtime.asar.unpacked/node_modules
   # The desktop daemon imports node-pty from app.asar.unpacked. Stage the

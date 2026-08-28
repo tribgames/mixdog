@@ -5,6 +5,7 @@
 // window bar beside the sidebar toggle (user: 다운로드 아이콘 위치).
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from "../shared/window-layout";
 import {
   desktopFeatureEnabled,
   desktopSidebarDestinationEnabled,
@@ -359,7 +360,10 @@ export function ActivityRail({
       </button>}
       {/* The flyout's bottom edge tracks the Usage button itself (user). */}
       {desktopFeatureEnabled("usage") && usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}
-        style={{ "--rail-usage-popup-bottom": `${usageAnchorBottom}px` } as React.CSSProperties}
+        style={{
+          "--rail-usage-popup-bottom": `${usageAnchorBottom}px`,
+          width: DESKTOP_SIDEBAR_DEFAULT_WIDTH,
+        } as React.CSSProperties}
         data-state="open">
         {/* The popup shares the rail's host API so its open-time revalidation
             hits the same store entry the rail already prewarmed. */}

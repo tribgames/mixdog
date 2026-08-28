@@ -255,7 +255,7 @@
 .mx-dialog input {
   box-sizing: border-box;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
@@ -268,6 +268,11 @@
 .schedules-dialog input:focus,
 .settings-oauth-dialog input:focus,
 .mx-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+.schedules-dialog textarea,
+.settings-oauth-dialog textarea,
+.mx-dialog textarea {
+  padding-inline: 8px;
+}
 /* Guided setup keeps its hero, but its body text joins the shared ramp. */
 .onboarding-hero p { font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
 /* Guided-setup surfaces are flat too (user: 아이템 프레임이 블록처럼 느껴진다):
@@ -334,7 +339,7 @@
   box-sizing: border-box;
   height: 32px;
   min-height: 32px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
   outline: 1px solid transparent;
@@ -434,6 +439,7 @@
 .utility-dock {
   --mx-rail-gutter: 12px;
   --mx-rail-gap: 8px;
+  --mx-rail-trailing-center: 20px;
 }
 /* ── Left-rail BOX LINE ──────────────────────────────────────────────────
    ONE 12px inset from the panel edge is THE line (user: 아이템까지의
@@ -452,13 +458,22 @@
 /* Every trailing rail control shares the framed rows' 20px centerline. A 28px
    header action would otherwise center at 14px, so move its box 6px inward. */
 .session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
-  margin-right: 6px;
+  margin-right: calc(var(--mx-rail-trailing-center) - 14px);
 }
-/* In-card trailing actions (⋯/✎) close flush on the card edge, so every
-   action pill in the rail shares one right column with the boxes. */
+/* Grouped panel headers reserve 2px inside their divider edge. Their 28px
+   desktop action spends the remaining 4px before its 14px half-width. */
+.session-sidebar .sidebar-view-section-actions > .session-panel-action:last-child {
+  margin-right: calc(var(--mx-rail-trailing-center) - 2px - 14px);
+}
+/* In-card controls start after the card's 12px inner gutter. Position their
+   24px desktop box by glyph center, not by its outer pill edge. */
 .session-sidebar-panels .schedules-row .row-overflow-trigger,
 .session-sidebar-panels .schedules-row .session-panel-action {
-  margin-right: calc(-1 * var(--mx-rail-gutter));
+  margin-right: calc(
+    var(--mx-rail-trailing-center) -
+    var(--mx-rail-gutter) -
+    12px
+  );
 }
 .session-sidebar .session-group h2,
 .session-sidebar .sidebar-section-heading,

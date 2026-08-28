@@ -1,0 +1,6 @@
+{
+  "id": "front-worker",
+  "name": "Front Worker",
+  "description": "Use for web frontend, GUI, UI, visual presentation, and 2D or 3D asset implementation.",
+  "entry": "AGENT.md"
+}

@@ -49,23 +49,22 @@ export type Toast = RecordValue & {
   message?: string;
   tone?: string;
 };
-export type GoalCriterion = {
+export type GoalTask = {
   id?: string;
   text?: string;
-  satisfied?: boolean;
-  evidence?: string;
+  status?: 'pending' | 'in_progress' | 'completed';
+  kind?: 'work' | 'verification';
 };
 export type GoalSnapshot = {
   id?: string;
   sessionId?: string;
   objective?: string;
+  title?: string;
   status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete';
-  criteria?: GoalCriterion[];
-  criteriaCompleted?: number;
-  criteriaTotal?: number;
-  progressSummary?: string;
+  tasks?: GoalTask[];
+  tasksCompleted?: number;
+  tasksTotal?: number;
   blocker?: string;
-  completionEvidence?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;
   remainingMs?: number;

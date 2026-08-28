@@ -34,6 +34,7 @@ import {
 import { _saveAsyncQueued, _saveWorkerPending } from './save-worker.mjs';
 import { STORED_SESSION_UNREADABLE, _ensureLifecycleFields, _storedSessionFromFile } from './serialize.mjs';
 import { _savePending, deleteSession, markSessionClosed } from '../store.mjs';
+import { isOrdinarySession } from '../store-summary-visibility.mjs';
 
 // Disk mtime of the summary index when the in-memory cache was last refreshed
 // from it — the cross-process staleness detector.
@@ -98,9 +99,15 @@ export function listStoredSessions(options = {}) {
         if (/^[A-Za-z0-9_-]+$/.test(storageId)) invalidStorageIds.add(storageId);
     }
     const stored = [...sessionsById.values()];
-    return options.includeLive === true
+    const listed = options.includeLive === true
         ? _withUnpersistedSessions(stored, invalidStorageIds)
         : stored.sort((a, b) => b.updatedAt - a.updatedAt);
+    // This full-record API is the ordinary catalog boundary. Agent discovery
+    // uses the durable summary/worker indexes instead; callers that explicitly
+    // own an Agent surface can request the unfiltered internal rows.
+    return options.includeAgentOnly === true
+        ? listed
+        : listed.filter(isOrdinarySession);
 }
 
 function _withUnpersistedSessions(stored, invalidStorageIds = new Set()) {

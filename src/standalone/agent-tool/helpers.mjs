@@ -60,7 +60,7 @@ export function callerSessionForContext(context = {}) {
 export function sessionMatchesContext(session, context = {}) {
   const wantedSession = callerSessionForContext(context);
   if (wantedSession) {
-    return clean(session?.ownerSessionId || session?.parentSessionId) === wantedSession;
+    return clean(session?.parentSessionId || session?.ownerSessionId) === wantedSession;
   }
   const wantedPid = terminalPidForContext(context);
   if (!wantedPid) return true;
@@ -70,7 +70,7 @@ export function sessionMatchesContext(session, context = {}) {
 
 export function rowMatchesContext(row, context = {}) {
   const wantedSession = callerSessionForContext(context);
-  if (wantedSession) return clean(row?.ownerSessionId) === wantedSession;
+  if (wantedSession) return clean(row?.parentSessionId || row?.ownerSessionId) === wantedSession;
   const wantedPid = terminalPidForContext(context);
   if (!wantedPid) return true;
   const rowPid = positiveInt(row?.clientHostPid);

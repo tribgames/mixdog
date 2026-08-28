@@ -12,7 +12,7 @@ import {
   preferredModelEffort,
   preferredModelParameters,
 } from './model-route-utils';
-import { dismissDesktopToast, showDesktopToast } from './notifications';
+import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
@@ -424,7 +424,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
   // Seeded synchronously from the shared cache: a warm boot paints rows on the
   // first render instead of showing a loading cover, and re-entry revalidates
   // silently underneath the rows that are already there.
-  const { values, loading, error: referenceError, completeMutation } =
+  const { values, loading, completeMutation } =
     useSidebarReferences(api, SCHEDULE_REFERENCE_KEYS, active);
   const setup = values.channelSetup;
   // Same configured-provider semantics as the Workflows panel: a disconnected
@@ -449,11 +449,6 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
     setEditor(null);
   });
   const busy = Boolean(pending) || loading;
-  useEffect(() => {
-    if (!active || !referenceError) return undefined;
-    const toastId = showDesktopToast(referenceError, 'error');
-    return () => dismissDesktopToast(toastId);
-  }, [active, referenceError]);
   const run = async (
     capability: DesktopCapability,
     args: unknown[] = [],

@@ -44,10 +44,6 @@ let sessionModulePromise = null;
 let stopping = false;
 let unhealthyDetail = null;
 let unhealthyReported = false;
-let unsubscribeAgentSessionPublisher = null;
-let agentSessionPublisherPromise = null;
-const pendingAgentSessionProjections = new Map();
-const activeAgentSessionProjections = new Set();
 const pendingAbortPressureChecks = new WeakSet();
 const ABORT_PRESSURE_RETENTION_CHECK_MS = 30_000;
 
@@ -261,94 +257,6 @@ function publish(record, forceFull = false) {
   });
 }
 
-function agentOwnedSession(session) {
-  const owner = String(session?.owner || '').trim().toLowerCase();
-  const agent = String(session?.agent || '').trim().toLowerCase();
-  return Boolean(session?.id)
-    && (owner === 'agent' || (agent && agent !== 'lead'));
-}
-
-async function projectAgentSession(session) {
-  const [
-    { restoreTranscriptItems },
-    { getSessionProgressSnapshot },
-  ] = await Promise.all([
-    import('../tui/session/session-api-ext.mjs'),
-    import('../runtime/agent/orchestrator/session/manager.mjs'),
-  ]);
-  const sessionId = String(session.id || '');
-  const status = String(session.status || '').trim().toLowerCase();
-  const progress = getSessionProgressSnapshot?.(sessionId) || null;
-  const stage = String(progress?.stage || '').trim().toLowerCase();
-  const busy = status === 'running' || status === 'queued'
-    || (stage && stage !== 'idle' && stage !== 'done' && stage !== 'closed');
-  return sanitizeForWire({
-    sessionId,
-    items: restoreTranscriptItems(
-      Array.isArray(session.messages) ? session.messages : [],
-      { sessionId, itemLimit: 512 },
-    ),
-    queued: [],
-    busy,
-    commandBusy: false,
-    provider: session.provider || '',
-    model: session.model || '',
-    effort: session.effort || '',
-    fast: session.fast === true,
-    modelParameters: session.modelParameters || {},
-    cwd: session.cwd || '',
-    desktopSession: session.desktopSession || null,
-    workflow: session.workflow || null,
-    ownerClientHostPid: Number(session.clientHostPid) || process.pid,
-  }) || null;
-}
-
-function scheduleAgentSessionProjection(session) {
-  if (!agentOwnedSession(session) || stopping) return;
-  const sessionId = String(session.id);
-  pendingAgentSessionProjections.set(sessionId, session);
-  if (activeAgentSessionProjections.has(sessionId)) return;
-  activeAgentSessionProjections.add(sessionId);
-  queueMicrotask(() => {
-    void (async () => {
-      while (!stopping) {
-        const latest = pendingAgentSessionProjections.get(sessionId);
-        if (!latest) break;
-        pendingAgentSessionProjections.delete(sessionId);
-        const snapshot = await projectAgentSession(latest);
-        if (!snapshot || stopping) continue;
-        send({ type: 'agent-session-state', sessionId, snapshot });
-      }
-    })().catch((error) => {
-      try {
-        process.stderr.write(
-          `[session-runtime-worker] agent session projection failed session=${sessionId}: `
-          + `${error?.message || error}\n`,
-        );
-      } catch {}
-    }).finally(() => {
-      activeAgentSessionProjections.delete(sessionId);
-      if (pendingAgentSessionProjections.has(sessionId) && !stopping) {
-        scheduleAgentSessionProjection(pendingAgentSessionProjections.get(sessionId));
-      }
-    });
-  });
-}
-
-async function ensureAgentSessionPublisher() {
-  if (unsubscribeAgentSessionPublisher) return;
-  agentSessionPublisherPromise ??= import(
-    '../runtime/agent/orchestrator/session/store.mjs'
-  ).then((store) => {
-    unsubscribeAgentSessionPublisher = store.subscribeLiveSessions(
-      scheduleAgentSessionProjection,
-    );
-  }).finally(() => {
-    agentSessionPublisherPromise = null;
-  });
-  await agentSessionPublisherPromise;
-}
-
 async function createRuntime(message) {
   const module = await sessionModule();
   const runtime = await module.createLocalSessionRuntime(message.options || {});
@@ -395,105 +303,29 @@ async function callRuntime(message) {
 // first dispatch; an in-flight dispatch holds an 'agent' admission lease, so
 // the host's recycle guard (activeResources) never interrupts one.
 let agentGraphPromise = null;
-function agentGraph() {
-  agentGraphPromise ??= Promise.all([
+function loadAgentGraph() {
+  const testModule = process.env.NODE_ENV === 'test'
+    ? String(process.env.MIXDOG_SESSION_RUNTIME_TEST_AGENT_GRAPH || '')
+    : '';
+  if (testModule) {
+    return import(testModule).then((module) => module.default || module);
+  }
+  return Promise.all([
     import('../runtime/agent/orchestrator/config.mjs'),
     import('../runtime/agent/orchestrator/providers/registry.mjs'),
     import('../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs'),
-  ]).then(
-    ([config, registry, dispatch]) => ({ config, registry, dispatch }),
-    (error) => {
+  ]).then(([config, registry, dispatch]) => ({ config, registry, dispatch }));
+}
+
+function agentGraph() {
+  agentGraphPromise ??= loadAgentGraph().catch((error) => {
       agentGraphPromise = null;
       throw error;
-    },
-  );
+    });
   return agentGraphPromise;
 }
 const agentDispatchers = new Map();
 const agentDispatchRuns = new Map(); // dispatchId -> AbortController
-let distributedAgentToolPromise = null;
-const distributedAgentControlRuns = new Map(); // controlId -> AbortController
-
-function distributedAgentTool() {
-  distributedAgentToolPromise ??= Promise.all([
-    import('../standalone/agent-tool.mjs'),
-    import('../runtime/agent/orchestrator/config.mjs'),
-    import('../runtime/agent/orchestrator/providers/registry.mjs'),
-    import('../runtime/agent/orchestrator/session/manager.mjs'),
-  ]).then(async ([agentModule, cfgMod, reg, mgr]) => {
-    await ensureAgentSessionPublisher();
-    return agentModule.createStandaloneAgent({
-      cfgMod,
-      reg,
-      mgr,
-      dataDir: cfgMod.getPluginData(),
-      cwd: process.cwd(),
-      awaitKeychainPrewarm: async () => {},
-      isKeychainPrewarmReady: () => true,
-      notifySessionCompletion(ownerSessionId, text, meta = {}) {
-        return send({
-          type: 'agent-control-notification',
-          ownerSessionId: String(ownerSessionId || ''),
-          text: String(text || ''),
-          meta: sanitizeForWire(meta) || {},
-        });
-      },
-    });
-  }).catch((error) => {
-    distributedAgentToolPromise = null;
-    throw error;
-  });
-  return distributedAgentToolPromise;
-}
-
-async function runDistributedAgentControl(message) {
-  const controlId = String(message.controlId || '');
-  if (!controlId) throw new Error('agent control id is required');
-  if (distributedAgentControlRuns.has(controlId)) {
-    throw new Error(`agent control ${controlId} is already running`);
-  }
-  const controller = new AbortController();
-  distributedAgentControlRuns.set(controlId, controller);
-  try {
-    const tool = await distributedAgentTool();
-    if (controller.signal.aborted) throw controller.signal.reason;
-    const context = message.context && typeof message.context === 'object'
-      ? message.context
-      : {};
-    if (String(message.args?.type || '') === '__close_all') {
-      tool.closeAll?.(
-        String(message.args?.reason || 'agent owner closed'),
-        { callerSessionId: context.callerSessionId || null },
-      );
-      return 'agent close all: ok';
-    }
-    return await tool.execute(message.args || {}, {
-      callerCwd: context.callerCwd || process.cwd(),
-      invocationSource: context.invocationSource || 'model-tool',
-      callerSessionId: context.callerSessionId || null,
-      clientHostPid: Number(context.clientHostPid) || process.pid,
-      signal: controller.signal,
-    });
-  } finally {
-    distributedAgentControlRuns.delete(controlId);
-  }
-}
-
-async function distributedAgentStatus(message) {
-  const tool = await distributedAgentTool();
-  return tool.getStatus?.(message.context || {}) || { workers: [], jobs: [], scope: null };
-}
-
-function cancelDistributedAgentControl(message) {
-  const controlId = String(message.controlId || '');
-  const controller = distributedAgentControlRuns.get(controlId);
-  if (!controller) return { cancelled: false };
-  abortDispatchController(
-    controller,
-    new Error(String(message.reason || 'agent control canceled')),
-  );
-  return { cancelled: true };
-}
 
 async function deliverDistributedAgentNotification(message) {
   const ownerSessionId = String(message.ownerSessionId || '');
@@ -609,8 +441,6 @@ async function runAgentDispatch(message) {
     const agent = String(message.agent || '');
     const { dispatch } = await agentGraph();
     throwIfDispatchAborted(controller);
-    await ensureAgentSessionPublisher();
-    throwIfDispatchAborted(controller);
     await prepareAgentProviders();
     throwIfDispatchAborted(controller);
     ensureProviderCooldownBridge();
@@ -623,8 +453,9 @@ async function runAgentDispatch(message) {
       agentDispatchers.set(agent, dispatcher);
     }
     const params = message.params && typeof message.params === 'object' ? message.params : {};
+    const prompt = String(params.prompt ?? '');
     const value = await dispatcher({
-      prompt: String(params.prompt ?? ''),
+      prompt,
       preset: params.preset || undefined,
       cwd: typeof params.cwd === 'string' && params.cwd ? params.cwd : undefined,
       parentSignal: controller.signal,
@@ -720,17 +551,9 @@ async function stopAll(reason = 'session runtime worker shutdown') {
   try { cooldownBridgeUnsubscribe?.(); } catch {}
   cooldownBridgeUnsubscribe = null;
   retainedDispatchCancels.clear();
-  for (const controller of distributedAgentControlRuns.values()) {
-    abortDispatchController(controller, new Error(reason));
-  }
-  distributedAgentControlRuns.clear();
   for (const controller of agentDispatchRuns.values()) {
     try { controller.abort(new Error(reason)); } catch { /* settled */ }
   }
-  try { unsubscribeAgentSessionPublisher?.(); } catch {}
-  unsubscribeAgentSessionPublisher = null;
-  pendingAgentSessionProjections.clear();
-  try { (await distributedAgentToolPromise)?.closeAll?.(); } catch {}
   for (const record of [...records.values()]) {
     try {
       await disposeSessionRuntimeRecord(
@@ -770,11 +593,6 @@ process.on('message', (message) => {
     if (message.type === 'workload') return workloadSnapshot();
     if (message.type === 'agent-dispatch') return runAgentDispatch(message);
     if (message.type === 'agent-dispatch-cancel') return cancelAgentDispatch(message);
-    if (message.type === 'agent-control-local') return runDistributedAgentControl(message);
-    if (message.type === 'agent-control-status') return distributedAgentStatus(message);
-    if (message.type === 'agent-control-local-cancel') {
-      return cancelDistributedAgentControl(message);
-    }
     if (message.type === 'shutdown') {
       await stopAll(message.reason);
       return { stopped: true };

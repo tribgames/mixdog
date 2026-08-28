@@ -32,6 +32,7 @@ import {
     grokCacheChainTraceFields,
     appendAgentTrace,
 } from '../agent-trace.mjs';
+import { traceCacheBreak } from '../cache-break-trace.mjs';
 import {
     classifyHandshakeError,
     classifyMidstreamError,
@@ -65,7 +66,10 @@ import {
     parseToolSearchArgs,
     _streamResponse,
 } from './openai-ws-stream.mjs';
-import { _buildResponseCreateFrame } from './openai-ws-delta.mjs';
+import {
+    _buildResponseCreateFrame,
+    _requestInputMismatchDiagnostics,
+} from './openai-ws-delta.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import { envPositiveInt } from './lib/env-utils.mjs';
 
@@ -589,6 +593,10 @@ export async function sendViaWebSocket({
     // One compact row per logical iteration. Values aggregate all handshake
     // and mid-stream attempts, including warmup, without retaining request data.
     const sendSpan = {
+        admissionQueueWaitMs: Math.max(0, Number(sendOpts?._providerAdmission?.queueWaitMs) || 0),
+        providerConcurrentRequests: Math.max(1, Number(sendOpts?._providerAdmission?.active) || 1),
+        providerQueuedRequests: Math.max(0, Number(sendOpts?._providerAdmission?.queued) || 0),
+        poolOwnerWaitMs: 0,
         poolAcquireMs: 0,
         requestBuildSerializationMs: 0,
         preResponseCreatedMs: 0,
@@ -598,14 +606,44 @@ export async function sendViaWebSocket({
         acquireAttempts: 0,
         acquireMode: null,
         emitted: false,
+        timing: null,
     };
-    const emitSendSpan = (outcome) => {
-        if (sendSpan.emitted) return;
+    const emitSendSpan = (outcome, target = null) => {
+        if (sendSpan.emitted) {
+            if (target && sendSpan.timing) {
+                try { target.transportTiming = sendSpan.timing; } catch {}
+            }
+            return sendSpan.timing;
+        }
         sendSpan.emitted = true;
+        const socketAcquireMs = Math.max(0, sendSpan.poolAcquireMs - sendSpan.poolOwnerWaitMs);
+        const timing = {
+            transport: 'websocket',
+            outcome,
+            admissionQueueWaitMs: sendSpan.admissionQueueWaitMs,
+            providerConcurrentRequests: sendSpan.providerConcurrentRequests,
+            providerQueuedRequests: sendSpan.providerQueuedRequests,
+            poolOwnerWaitMs: sendSpan.poolOwnerWaitMs,
+            socketAcquireMs,
+            poolAcquireMs: sendSpan.poolAcquireMs,
+            requestBuildSerializationMs: sendSpan.requestBuildSerializationMs,
+            preResponseCreatedMs: sendSpan.preResponseCreatedMs,
+            providerFirstEventMs: sendSpan.firstEventMs,
+            retryBackoffMs: sendSpan.retryBackoffMs,
+            handshakeRetries: sendSpan.handshakeRetries,
+            acquireAttempts: sendSpan.acquireAttempts,
+            acquireMode: sendSpan.acquireMode || 'failed',
+        };
+        sendSpan.timing = timing;
         const payload = {
             provider: traceProvider,
             model: useModel,
             transport: 'websocket',
+            admission_queue_wait_ms: timing.admissionQueueWaitMs,
+            provider_concurrent_requests: timing.providerConcurrentRequests,
+            provider_queued_requests: timing.providerQueuedRequests,
+            pool_owner_wait_ms: timing.poolOwnerWaitMs,
+            socket_acquire_ms: timing.socketAcquireMs,
             acquire_mode: sendSpan.acquireMode || 'failed',
             acquire_attempts: sendSpan.acquireAttempts,
             handshake_retries: sendSpan.handshakeRetries,
@@ -625,6 +663,10 @@ export async function sendViaWebSocket({
                 payload,
             });
         } catch {}
+        if (target) {
+            try { target.transportTiming = timing; } catch {}
+        }
+        return timing;
     };
     // Single caller-visible recovery path for both handshake/acquire retries
     // and retryable stream failures. The session/TUI stage bridge renders this
@@ -699,6 +741,7 @@ export async function sendViaWebSocket({
         } catch (err) {
             _stampWarmup(err);
             sendSpan.poolAcquireMs += performance.now() - handshakeStart;
+            sendSpan.poolOwnerWaitMs += Math.max(0, Number(err?.ownerWaitMs) || 0);
             // Provenance only; policy remains provider-owned below. This lets
             // the direct wrapper distinguish an upgrade rejection from an
             // application error carrying the same HTTP status.
@@ -744,6 +787,7 @@ export async function sendViaWebSocket({
             const retryable = classifier
                 && Number(err?.httpStatus || 0) !== 401
                 && Number(err?.httpStatus || 0) !== 426
+                && err?.unsafeToRetry !== true
                 && !externalSignal?.aborted;
             if (retryable && attemptIndex < MAX_MIDSTREAM_RETRIES) {
                 if (!firstAttemptError) {
@@ -777,7 +821,7 @@ export async function sendViaWebSocket({
                     try { err.midstreamClassifier = classifier; } catch {}
                     try { err.wsRetriesExhausted = true; } catch {}
                 }
-                emitSendSpan('error');
+                emitSendSpan('error', err);
                 throw _stampTool(_stampLiveText(err));
             }
             if (attemptIndex > 0 && firstAttemptError) {
@@ -794,6 +838,7 @@ export async function sendViaWebSocket({
         }
         const { entry, reused } = acquired;
         sendSpan.poolAcquireMs += performance.now() - handshakeStart;
+        sendSpan.poolOwnerWaitMs += Math.max(0, Number(acquired?.ownerWaitMs) || 0);
         sendSpan.acquireMode = acquired.prewarmed
             ? 'prewarmed'
             : entry?.ephemeral ? 'ephemeral' : (reused ? 'reused' : 'new');
@@ -863,6 +908,7 @@ export async function sendViaWebSocket({
         let strippedResponseItems = 0;
         let skippedResponseItems = 0;
         let responseOutputMismatch = null;
+        let requestInputMismatch = null;
         let wireFrameHadTurnState = false;
         let wireFrameMetadataTrace = _metadataTrace(null);
         let framePrefixHash = null;
@@ -950,7 +996,6 @@ export async function sendViaWebSocket({
                 entry.lastInputPrefixHash = createHash('sha256')
                     .update(JSON.stringify(warmupInputArr))
                     .digest('hex');
-                entry.turnStateFromPrewarm = true;
                 try {
                     const warmupPayload = {
                         provider: traceProvider,
@@ -976,7 +1021,7 @@ export async function sendViaWebSocket({
             // Codex performs generate:false during session startup, then hands
             // this live client session to the first real turn. Startup callers
             // stop here; the pooled entry retains its response id, request
-            // snapshot, socket, and turn-state for the later real send.
+            // snapshot and socket for the later real send.
             if (sendOpts?._startupPrewarmOnly === true) {
                 const responseId = warmupResult?.responseId
                     || startupWarmupResponseId
@@ -984,8 +1029,7 @@ export async function sendViaWebSocket({
                     || null;
                 if (responseId) entry.startupWarmupResponseId = responseId;
                 else releaseWebSocket({ entry, poolKey, keep: false });
-                emitSendSpan('ok');
-                return {
+                const out = {
                     content: '',
                     model: warmupResult?.model || useModel,
                     toolCalls: [],
@@ -1001,6 +1045,8 @@ export async function sendViaWebSocket({
                         ? { entry, poolKey, cacheKey }
                         : null,
                 };
+                out.transportTiming = emitSendSpan('ok');
+                return out;
             }
 
             // A completed generate:false prewarm is a valid continuation
@@ -1015,6 +1061,7 @@ export async function sendViaWebSocket({
             strippedResponseItems = delta.strippedResponseItems || 0;
             skippedResponseItems = delta.skippedResponseItems || 0;
             responseOutputMismatch = delta.responseOutputMismatch || null;
+            requestInputMismatch = delta.requestInputMismatch || null;
             const wireFrame = _withCodexWsClientMetadata(frame, entry, useCodexWsClientMetadata, codexMetadataContext);
             wireFrameHadTurnState = !!wireFrame?.client_metadata?.['x-codex-turn-state'];
             wireFrameMetadataTrace = _metadataTrace(wireFrame?.client_metadata);
@@ -1312,6 +1359,12 @@ export async function sendViaWebSocket({
             body: requestBody,
             traceProvider,
         });
+        if (cacheContinuityResetReason === 'input_prefix_mismatch' && !requestInputMismatch) {
+            requestInputMismatch = _requestInputMismatchDiagnostics(
+                requestBody?.input,
+                entry?.lastRequestInput,
+            );
+        }
         if (result.responseId && keepResponseChain) {
             entry.lastResponseId = result.responseId;
             entry.lastRequestSansInput = _stableStringify(_sansInput(requestBody, {
@@ -1431,6 +1484,23 @@ export async function sendViaWebSocket({
                 });
             } catch {}
         }
+        if (cacheObservation.actualMiss) {
+            traceCacheBreak({
+                sessionId: poolKey,
+                iteration,
+                classification: 'provider_miss',
+                reason: cacheObservation.missReason || 'warm_session_cache_miss',
+                source: 'provider_usage',
+                provider: traceProvider,
+                model: liveModel,
+                transport: 'websocket',
+                cachedTokens: cacheObservation.cachedTokens,
+                promptTokens: cacheObservation.promptTokens,
+                uncachedTokens: cacheObservation.uncachedTokens,
+                cacheRatio: cacheObservation.cacheRatio,
+                actualCacheMiss: true,
+            }, { traceFn: _agentTraceFn });
+        }
         // Rebase after a genuine provider retreat so one eviction produces one
         // diagnostic instead of a long run of duplicate "dropped" rows. The
         // request that exposed the retreat has already rebuilt the prefix; its
@@ -1494,7 +1564,7 @@ export async function sendViaWebSocket({
                 ws_client_metadata_has_turn_state: wireFrameHadTurnState,
                 ws_entry_turn_state_available: useCodexWsClientMetadata && !!entry.turnState,
                 // Fingerprint only. The token is a routing credential, so it is
-                // hashed like every other handshake secret; the length still
+                // hashed rather than logged; the length still
                 // distinguishes a real server token from a stub value, and the
                 // hash shows whether one session keeps a single pin or is
                 // re-issued (reconnect / turn rollover).
@@ -1505,6 +1575,7 @@ export async function sendViaWebSocket({
                 chain_stripped_response_items: strippedResponseItems,
                 chain_skipped_response_items: skippedResponseItems,
                 ...(responseOutputMismatch || {}),
+                ...(requestInputMismatch || {}),
                 chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
                 body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
                 frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
@@ -1532,10 +1603,29 @@ export async function sendViaWebSocket({
                 const intentionalTransition = typeof sendOpts?.cacheBreakIntent === 'string'
                     ? sendOpts.cacheBreakIntent
                     : null;
+                traceCacheBreak({
+                    sessionId: poolKey,
+                    iteration,
+                    classification: intentionalTransition ? 'intentional' : 'provider_transition',
+                    reason: mode === 'delta' ? deltaReason : (deltaReason || 'full_frame'),
+                    source: 'openai_ws_delta',
+                    provider: traceProvider,
+                    model: liveModel,
+                    transport: 'websocket',
+                    intentionalTransition,
+                    cachedTokens: cacheObservation.cachedTokens,
+                    promptTokens: cacheObservation.promptTokens,
+                    uncachedTokens: cacheObservation.uncachedTokens,
+                    cacheRatio: cacheObservation.cacheRatio,
+                    actualCacheMiss: cacheObservation.actualMiss,
+                    ...(requestInputMismatch || {}),
+                }, { traceFn: null });
                 _agentTraceFn({
                     sessionId: poolKey,
                     iteration,
                     kind: 'cache_break',
+                    classification: intentionalTransition ? 'intentional' : 'provider_transition',
+                    source: 'openai_ws_delta',
                     provider: traceProvider,
                     model: liveModel,
                     payload: {
@@ -1544,6 +1634,8 @@ export async function sendViaWebSocket({
                         transport: 'websocket',
                         ws_mode: mode,
                         reason: mode === 'delta' ? deltaReason : (deltaReason || 'full_frame'),
+                        classification: intentionalTransition ? 'intentional' : 'provider_transition',
+                        source: 'openai_ws_delta',
                         intentional_transition: intentionalTransition,
                         request_tool_choice: requestBody.tool_choice ?? null,
                         cache_key_hash: transportCacheKeyHash,
@@ -1556,6 +1648,7 @@ export async function sendViaWebSocket({
                         chain_stripped_response_items: strippedResponseItems,
                         chain_skipped_response_items: skippedResponseItems,
                         ...(responseOutputMismatch || {}),
+                        ...(requestInputMismatch || {}),
                         chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
                         body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
                         frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
@@ -1584,7 +1677,7 @@ export async function sendViaWebSocket({
         // Leave a breadcrumb on the result so downstream callers can observe
         // that a retry was used (0 = first-try success, up to 2 for ws_1006/1011).
         try { Object.defineProperty(out, '__midstreamRetries', { value: attemptIndex, enumerable: false }); } catch {}
-        emitSendSpan('ok');
+        out.transportTiming = emitSendSpan('ok');
         return out;
     }
     // Unreachable — the loop either returns or throws above.

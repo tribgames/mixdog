@@ -37,14 +37,14 @@ export function useDraftPanePreferences({
   selection,
   selectionRef,
   snapshot,
-  projectCatalogReady,
+  projectCatalogValidated,
   preferredDraftProjectPath,
   effectiveDraftProjectPath,
 }: {
   selection: NavigationSelection;
   selectionRef: MutableRefObject<NavigationSelection>;
   snapshot: Snapshot;
-  projectCatalogReady: boolean;
+  projectCatalogValidated: boolean;
   preferredDraftProjectPath: string;
   effectiveDraftProjectPath(candidate: unknown): string;
 }) {
@@ -338,7 +338,7 @@ export function useDraftPanePreferences({
     setDraftPrefsVersion((value) => value + 1);
   }, [activeDraftKey, persistDraftPanePrefs, resolvedDraftPrefsFor]);
   useEffect(() => {
-    if (!projectCatalogReady) return;
+    if (!projectCatalogValidated) return;
     let changed = false;
     for (const [key, prefs] of draftPanePrefs.current) {
       const projectPath = effectiveDraftProjectPath(prefs.projectPath);
@@ -366,7 +366,7 @@ export function useDraftPanePreferences({
     activeDraftKey,
     effectiveDraftProjectPath,
     persistDraftPanePrefs,
-    projectCatalogReady,
+    projectCatalogValidated,
     resolvedDraftPrefsFor,
   ]);
   // Requested navigation is lightweight sidebar chrome only. The pane,

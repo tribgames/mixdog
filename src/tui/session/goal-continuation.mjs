@@ -91,8 +91,19 @@ export function createGoalContinuation({
     refreshGoalState,
     scheduleGoalContinuation,
     shouldRunGoalContinuation,
-    onGoalTurnSettled(status) {
-      if (status === 'done') scheduleGoalContinuation();
+    async onGoalTurnStarted() {
+      const goal = await Promise.resolve(runtime.goalTurnStarted?.());
+      if (goal !== undefined && getState().goal !== goal) set({ goal: goal || null });
+      return goal;
+    },
+    async onGoalTurnSettled(detail = {}) {
+      const status = clean(typeof detail === 'string' ? detail : detail.status).toLowerCase();
+      const goal = await Promise.resolve(runtime.goalTurnSettled?.(
+        typeof detail === 'string' ? { status } : detail,
+      ));
+      if (goal !== undefined && getState().goal !== goal) set({ goal: goal || null });
+      if (status === 'done' && goal?.status === 'active') scheduleGoalContinuation();
+      return goal;
     },
     archiveCompletedGoalOnUserInput() {
       cancelQueuedGoalContinuations();

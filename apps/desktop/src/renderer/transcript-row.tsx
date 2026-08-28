@@ -220,6 +220,15 @@ export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boole
   );
 }
 
+// Attribution badge above a user-role bubble. Only a Lead-authored brief in an
+// Agent session earns a visible badge: in the user's own conversation a USER
+// label is pure noise above a bubble that already reads as theirs. The `sender`
+// metadata stays intact for every message — this is a display rule only.
+export function transcriptSourceLabel(item: TranscriptItem): string {
+  if (item.kind !== "user") return "";
+  return String(item.sender || "").toLowerCase() === "lead" ? "LEAD" : "";
+}
+
 export const TranscriptRow = memo(function TranscriptRow({
   item,
   completion,
@@ -252,6 +261,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   }
   if (item.kind !== "user" && item.kind !== "assistant") return null;
   const user = item.kind === "user";
+  const sourceLabel = transcriptSourceLabel(item);
   const text = user ? userTranscriptDisplayText(item) : String(item.text || "");
   if (user && isTranscriptCancelledStatusText(text)) {
     return <CompletionStatus item={{ kind: "turndone", status: "cancelled", elapsedMs: 0 } as TranscriptItem} />;
@@ -269,9 +279,10 @@ export const TranscriptRow = memo(function TranscriptRow({
   const webhookFold = user ? extractWebhookPayload(pastedFold.text) : { text: pastedFold.text, payload: "" };
   return (
     <>
-      <article className={`message ${user ? "user" : "assistant"} ${item.streaming ? "streaming" : "settled"} ${item.pending ? "pending" : ""} ${user && attachedUser ? "attached-user" : ""}`}
+      <article className={`message ${user ? "user" : "assistant"} ${sourceLabel ? "sourced-message" : ""} ${item.streaming ? "streaming" : "settled"} ${item.pending ? "pending" : ""} ${user && attachedUser ? "attached-user" : ""}`}
         aria-live={item.streaming || announceSettled ? "off" : undefined}
         aria-busy={item.pending === true ? "true" : undefined}>
+        {sourceLabel && <small className="message-source">{sourceLabel}</small>}
         <div className="message-body" onDragStart={(event) => event.preventDefault()}>
           {user ? <>
             {(attachedImages.length > 0 || markerChips.length > 0 || pastedFold.chips.length > 0)

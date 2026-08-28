@@ -12,7 +12,7 @@ import {
   preferredModelEffort,
   preferredModelParameters,
 } from './model-route-utils';
-import { dismissDesktopToast, showDesktopToast } from './notifications';
+import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
@@ -412,7 +412,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
 }) {
   // Cached seed → no loading cover on a warm first visit; the secret itself is
   // never cached (it is minted or rotated in the editor, never read back).
-  const { values, loading, error: referenceError, completeMutation } =
+  const { values, loading, completeMutation } =
     useSidebarReferences(api, WEBHOOK_REFERENCE_KEYS, active);
   const setup = values.channelSetup;
   // Configured-provider filtering matches Schedules and Workflows: models from
@@ -435,13 +435,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
   useSidebarPanelDismiss(active, () => {
     setEditor(null);
   });
-
   const busy = Boolean(pending) || loading;
-  useEffect(() => {
-    if (!active || !referenceError) return undefined;
-    const toastId = showDesktopToast(referenceError, 'error');
-    return () => dismissDesktopToast(toastId);
-  }, [active, referenceError]);
   const run = async (
     capability: DesktopCapability,
     args: unknown[] = [],

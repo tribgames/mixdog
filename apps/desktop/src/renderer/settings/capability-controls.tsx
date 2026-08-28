@@ -26,18 +26,20 @@ export function Group({ title, description, children }: {
     <div className="settings-group-body">{children}</div></section>;
 }
 
-export function ToggleRow({ title, description: _description, checked, disabled, onChange }: {
-  title: string; description?: string; checked: boolean; disabled?: boolean; onChange(value: boolean): void;
+export function ToggleRow({ title, description: _description, checked, disabled, optimistic, onChange }: {
+  title: string; description?: string; checked: boolean; disabled?: boolean; optimistic?: boolean;
+  onChange(value: boolean): void;
 }) {
   const displayTitle = t(title);
   return <div className="mixdog-settings__row"><div className="mixdog-settings__copy">
     <span className="mixdog-settings__row-title">{displayTitle}</span>
   </div><div className="settings-row-control"><CompactSwitch label={displayTitle} checked={checked}
-    disabled={disabled} onChange={onChange} /></div></div>;
+    disabled={disabled} optimistic={optimistic} onChange={onChange} /></div></div>;
 }
 
-export function CompactSwitch({ label, checked, disabled, className = '', onChange }: {
-  label: string; checked: boolean; disabled?: boolean; className?: string; onChange(value: boolean): void;
+export function CompactSwitch({ label, checked, disabled, optimistic = true, className = '', onChange }: {
+  label: string; checked: boolean; disabled?: boolean; optimistic?: boolean; className?: string;
+  onChange(value: boolean): void;
 }) {
   // Optimistic: the switch follows the click immediately and each further click
   // flips the LAST intended value, so a burst is not coalesced against a
@@ -45,19 +47,19 @@ export function CompactSwitch({ label, checked, disabled, className = '', onChan
   // the refreshed value agrees.
   const [override, setOverride] = useState<boolean | null>(null);
   useEffect(() => {
-    setOverride((current) => (current === null || current === checked ? null : current));
-  }, [checked]);
-  const value = override ?? checked;
+    setOverride((current) => (!optimistic || current === null || current === checked ? null : current));
+  }, [checked, optimistic]);
+  const value = optimistic ? override ?? checked : checked;
   // A toggle stays clickable while ITS OWN write is in flight: disabling it for
   // the round trip swallowed rapid consecutive clicks (the second press landed
   // on a disabled control). Writes are serialized and idempotent, so the last
   // click wins.
-  const blocked = disabled === true && override === null;
+  const blocked = disabled === true && (!optimistic || override === null);
   return <label className={`mixdog-settings__switch compact-switch ${className}`.trim()}>
     <input type="checkbox" aria-label={label} checked={value}
     disabled={blocked} onChange={(event) => {
       const next = event.currentTarget.checked;
-      setOverride(next);
+      if (optimistic) setOverride(next);
       onChange(next);
     }} /><span aria-hidden="true" />
   </label>;

@@ -21,7 +21,6 @@ import {
     _buildLeadMetaContext,
 } from './rules-cache.mjs';
 import {
-    applyToolPermissionNarrowing,
     finalizeSessionToolList,
     resolveSessionTools,
     permissionFromToolSpec,
@@ -213,11 +212,8 @@ export function createSession(opts) {
     const resolvedAgent = opts.agent || opts.role || profile?.taskType || null;
     const hiddenAgent = getHiddenAgent(resolvedAgent);
     const isRetrievalAgent = hiddenAgent?.kind === 'retrieval';
-    // Skill schema is fixed for public agent sessions, but hidden retrieval /
-    // maintenance roles are deliberately narrowed away from the Skill tool.
-    // Do not leak a Skill manifest into those hidden prompts when no Skill()
-    // loader is available.
-    const skills = (opts.skipSkills || hiddenAgent) ? [] : collectPromptSkillsCached(opts.cwd);
+    // Lead and Agent share the same cwd-scoped Skill inventory.
+    const skills = opts.skipSkills ? [] : collectPromptSkillsCached(opts.cwd);
 
     // BP1 is shared tool policy. BP2 holds persistent profile/tool catalogs;
     // BP3 holds workflow/role and session/project environment.
@@ -230,7 +226,6 @@ export function createSession(opts) {
     // override role-inapplicable entries.
     const sessionDeny = [
         ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
-        ...(hiddenAgent ? ['Skill'] : []),
         ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
     ];
     // The edit dialect this model never receives is omitted from the rules as
@@ -245,60 +240,31 @@ export function createSession(opts) {
             ? _buildAgentRules(agentRulesProfile)
             : _buildLeadRules({ includeLeadBrief: !delegationFree }));
     const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
-    // Prompt permission is metadata for the write bundle, but a read-only role
-    // is stamped BEFORE the toolSpec decision so its schema ships the narrowed
-    // bundle. Resolve toolPermission (with profile/preset fallbacks) first, and
-    // let the stored/logged `permission` reflect that resolved value — not just
-    // opts.permission — so diagnostics show the effective read/write class.
+    // Role permission is prompt/diagnostic metadata only. Resolve and persist
+    // it without shaping the provider-visible Agent schema.
     const toolPermission = opts.permission
         || profile?.permission
         || permissionFromToolSpec(toolPreset)
         || null;
     const permission = toolPermission;
 
-    // Agent sessions do not inherit arbitrary role/profile/preset tool
-    // narrowing — that would shatter provider prefix reuse into one shard per
-    // role. Instead they collapse onto exactly TWO stable, bit-identical
-    // bundles, one cache group each:
-    //   - read-only roles (reviewer / hidden retrieval, i.e. any
-    //     session resolving to permission 'read') -> 'readonly' bundle:
-    //     read builtins (code_graph/find/glob/list/grep/read) + retrieval
-        // (web_search/web_fetch/Skill) + shell/task for self-verification
-    //     (agent-owned readonly bundle only), no apply_patch, no MCP-write.
-    //     applyToolPermissionNarrowing('read') below trims the
-    //     bundle to AGENT_STRING_PERMISSION_READ_ALLOW so the final surface is
-    //     bit-identical across these roles regardless of MCP registry state.
-    //   - write roles (worker / heavy-worker / maintainer / …) -> 'full'
-    //     bundle: the historical full schema.
-    // Call-time permission enforcement below is UNCHANGED (defense in depth):
-    // applyToolPermissionNarrowing still runs so the bundle choice never
-    // widens effective access.
-    const isReadOnlyAgentBundle = ownerIsAgent && toolPermission === 'read';
+    // Exactly two schema surfaces exist: Lead and Agent. Every Agent role gets
+    // the full Lead-capable base bundle; the recursive `agent` control tool is
+    // removed later at the owner boundary. Role permission remains prompt/
+    // diagnostic metadata and does not fragment the provider-visible schema.
     const toolSpec = ownerIsAgent
-        ? (isReadOnlyAgentBundle ? 'readonly' : 'full')
+        ? 'full'
         : (Array.isArray(profile?.tools) ? profile.tools : toolPreset);
     let toolsForRouting = resolveSessionTools(toolSpec, skills, {
         ownerIsAgentSession: ownerIsAgent,
         mcpScopeId: opts.mcpScopeId || null,
         modelName,
     });
-    // Fail-closed permission intersection: when a session declares an explicit
-    // object-form permission, intersect the
-    // resolved tool list with the permission's allow/deny lists. If the
-    // intersection produces an empty set the permission config is broken —
-    // fail closed (zero tools) rather than silently falling back to the full
-    // preset, which would grant the role more surface than declared.
-    if (ownerIsAgent) {
-        // Pass the RESOLVED agent (opts.agent || opts.role): narrowing keys
-        // retrieval/locator roles off this name to strip
-        // shell/task; verifying read roles (reviewer) keep them.
-        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, toolPermission, resolvedAgent);
-    }
 
     const workflowMeta = toSessionWorkflowMeta(opts.workflow);
     const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
     const tools = finalizeSessionToolList(toolsForRouting, {
-        schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools : null,
+        schemaAllowedTools: ownerIsAgent ? null : (hasCallerAllow ? opts.schemaAllowedTools : null),
         disallowedTools: sessionDeny,
         ownerIsAgent,
         resolvedAgent,
@@ -478,7 +444,9 @@ export function createSession(opts) {
         profileId: profile?.id || null,
         permissionMode: opts.permissionMode ?? null,
         providerCacheOpts: providerCacheOpts || null,
+        parentSessionId: opts.parentSessionId || null,
         ownerSessionId: opts.ownerSessionId || null,
+        visibility: opts.visibility || null,
         clientHostPid: opts.clientHostPid || null,
     };
     refreshSessionBp3Environment(session, opts.cwd);
@@ -643,7 +611,7 @@ const _preparedResumes = new Map();
 
 function _prepareResumeTools(session, preset) {
     const ownerIsAgent = isAgentOwner(session);
-    const skills = ownerIsAgent ? [] : collectPromptSkillsCached(session.cwd);
+    const skills = collectPromptSkillsCached(session.cwd);
     let toolSpec = ownerIsAgent ? 'full' : (preset || session.preset || 'full');
     const agentRuntime = getAgentRuntimeSync();
     if (session.profileId && agentRuntime?.getProfile) {
@@ -657,19 +625,17 @@ function _prepareResumeTools(session, preset) {
         mcpScopeId: session.mcpScopeId || null,
         modelName: session.model,
     });
-    if (ownerIsAgent) {
-        toolsForRouting = applyToolPermissionNarrowing(toolsForRouting, session.toolPermission, session.agent || null);
-    }
     return {
         session,
         preset,
         toolSpec,
         ownerIsAgent,
         tools: finalizeSessionToolList(toolsForRouting, {
-            schemaAllowedTools: Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
+            schemaAllowedTools: ownerIsAgent
+                ? null
+                : (Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null),
             disallowedTools: [
                 ...(Array.isArray(session.disallowedTools) ? session.disallowedTools : []),
-                ...(getHiddenAgent(session.agent || null) ? ['Skill'] : []),
                 ...(!isAgentOwner(session) && workflowDisallowsAgentTool(session.workflow) ? ['agent'] : []),
             ],
             ownerIsAgent,

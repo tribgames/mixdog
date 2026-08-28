@@ -37,11 +37,12 @@ import {
 import type { PaneDropZone, usePaneWorkspace } from "./pane-workspace-state";
 import { defaultSessionLaneStore } from "./session-lane-store";
 import {
+  cancelPaneDragPreview,
   currentPaneDrag,
   dropPaneDrag,
-  leavePaneDrag,
   movePaneDrag,
   subscribePaneDrag,
+  type PaneDragFrame,
 } from "./pane-drag-session";
 import { navigationKey } from "./text-format";
 
@@ -85,14 +86,313 @@ function sameDropPreview(left: DropPreview | null, right: DropPreview): boolean 
     && left.rect.height === right.rect.height);
 }
 
-type TreeDropOperation = {
-  kind: "tab" | "group";
-  sourceLeafId: string;
-  key: string;
+type PaneWorkspaceModel = ReturnType<typeof usePaneWorkspace>;
+
+type PaneDropAction =
+  | {
+    type: "move-group-to-node-edge";
+    sourceLeafId: string;
+    targetPath: string;
+    zone: PaneDropZone;
+  }
+  | {
+    type: "move-tab-to-node-edge";
+    sourceLeafId: string;
+    key: string;
+    targetPath: string;
+    zone: PaneDropZone;
+  }
+  | {
+    type: "move-group";
+    sourceLeafId: string;
+    targetLeafId: string;
+    zone: PaneDropZone;
+  }
+  | {
+    type: "merge-group";
+    sourceLeafId: string;
+    targetLeafId: string;
+    insertIndex?: number;
+  }
+  | {
+    type: "open-in-leaf";
+    targetLeafId: string;
+    selection: WorkspaceSelection;
+    insertIndex?: number;
+  }
+  | {
+    type: "move-tab";
+    sourceLeafId: string;
+    key: string;
+    targetLeafId: string;
+    insertIndex?: number;
+  }
+  | {
+    type: "split-leaf";
+    targetLeafId: string;
+    zone: PaneDropZone;
+    selection: WorkspaceSelection;
+    sourceLeafId: string;
+  };
+
+type PaneDropIntent = {
+  preview: DropPreview;
+  action: PaneDropAction;
   selection: WorkspaceSelection;
-  targetPath: string;
-  zone: PaneDropZone;
 };
+
+/** Resolve preview and commit data from the same native frame. */
+export function resolvePaneDropIntent(
+  frame: PaneDragFrame,
+  current: PaneWorkspaceModel,
+  panelElement: HTMLElement,
+): PaneDropIntent | null {
+  const groupDrag = frame.kind === "group";
+  const sessionDrag = frame.kind === "session";
+  const sourceLeafId = sessionDrag
+    ? current.leaves.find((leaf) =>
+      leaf.tabs.some((tab) => navigationKey(tab) === frame.key))?.id ?? ""
+    : frame.sourceLeafId || "";
+  const sourceLeaf = current.leaves.find((leaf) => leaf.id === sourceLeafId);
+  const sourceOwnsTab = sourceLeaf?.tabs.some((tab) =>
+    navigationKey(tab) === frame.key) === true;
+  const canDetachAtRoot = groupDrag
+    ? current.leaves.length > 1
+    : sourceOwnsTab && (current.leaves.length > 1 || (sourceLeaf?.tabs.length ?? 0) > 1);
+  const pointedElement = frame.target;
+  const pointedStrip = pointedElement?.closest?.(".workspace-tabs-shell") ?? null;
+  const panelRect = panelElement.getBoundingClientRect();
+  // A visible tab strip is an explicit insertion target. It wins over the
+  // workspace edge bands that geometrically overlap the top and side rails.
+  const outerZone = !sessionDrag && sourceLeafId && !pointedStrip
+    ? paneOuterDropZone(panelRect, frame.x, frame.y)
+    : null;
+  const candidates: PaneHierarchyCandidate[] = [
+    ...panelElement.querySelectorAll<HTMLElement>("[data-pane-path]"),
+  ].map((element) => ({
+    path: element.dataset.panePath ?? "",
+    rect: element.getBoundingClientRect(),
+  }));
+  if (!candidates.some((candidate) =>
+    candidate.path === "" && candidate.rect.width > 0 && candidate.rect.height > 0)) {
+    candidates.push({ path: "", rect: panelRect });
+  }
+  const hierarchyTarget = canDetachAtRoot && outerZone
+    ? paneHierarchyDropTarget(panelRect, outerZone, frame.x, frame.y, candidates)
+    : null;
+  if (outerZone && hierarchyTarget
+    && canSplitPaneSize(
+      outerZone === "left" || outerZone === "right" ? "row" : "column",
+      hierarchyTarget.rect.width,
+      hierarchyTarget.rect.height,
+    )) {
+    const direction = outerZone === "left" || outerZone === "right" ? "row" : "column";
+    const addsPane = !groupDrag && (sourceLeaf?.tabs.length ?? 0) > 1;
+    const position = outerZone === "left" || outerZone === "top" ? "before" : "after";
+    const previewLayout = addsPane
+      ? movePaneTabToNodeEdge(
+        current.layout,
+        sourceLeafId,
+        frame.key,
+        hierarchyTarget.path,
+        direction,
+        position,
+        DROP_PREVIEW_LEAF_ID,
+      )
+      : null;
+    const relativeRect = previewLayout
+      ? paneLeafRelativeRect(previewLayout, DROP_PREVIEW_LEAF_ID)
+      : null;
+    const preview: DropPreview = relativeRect
+      ? {
+        leafId: sourceLeafId,
+        zone: "center",
+        rect: {
+          left: panelRect.left + relativeRect.left * panelRect.width,
+          top: panelRect.top + relativeRect.top * panelRect.height,
+          width: relativeRect.width * panelRect.width,
+          height: relativeRect.height * panelRect.height,
+        },
+      }
+      : {
+        leafId: sourceLeafId,
+        zone: outerZone,
+        rect: {
+          left: hierarchyTarget.rect.left,
+          top: hierarchyTarget.rect.top,
+          width: hierarchyTarget.rect.width,
+          height: hierarchyTarget.rect.height,
+        },
+      };
+    return {
+      preview,
+      selection: frame.selection,
+      action: groupDrag
+        ? {
+          type: "move-group-to-node-edge",
+          sourceLeafId,
+          targetPath: hierarchyTarget.path,
+          zone: outerZone,
+        }
+        : {
+          type: "move-tab-to-node-edge",
+          sourceLeafId,
+          key: frame.key,
+          targetPath: hierarchyTarget.path,
+          zone: outerZone,
+        },
+    };
+  }
+
+  let leafId = "";
+  let rect: DOMRect | null = null;
+  let paneScope: HTMLElement | null = null;
+  const paneNode = pointedElement?.closest?.(".pane-leaf") as HTMLElement | null;
+  if (paneNode?.dataset.paneId) {
+    leafId = paneNode.dataset.paneId;
+    rect = paneNode.getBoundingClientRect();
+    paneScope = paneNode;
+  } else if (frame.x >= panelRect.left && frame.x <= panelRect.right
+    && frame.y >= panelRect.top && frame.y <= panelRect.bottom) {
+    // A single-pane workspace has no .pane-leaf wrapper.
+    leafId = current.leaves[0]?.id ?? "";
+    rect = panelRect;
+    paneScope = panelElement;
+  }
+  const target = leafId ? current.leaves.find((leaf) => leaf.id === leafId) : undefined;
+  if (!target || !rect) return null;
+  if (sourceLeafId === leafId
+    && (groupDrag || (sourceOwnsTab && (sourceLeaf?.tabs.length ?? 0) < 2))) {
+    return null;
+  }
+
+  const stripRect = paneScope
+    ?.querySelector(".workspace-tabs-shell")?.getBoundingClientRect() ?? null;
+  const editorTop = stripRect && stripRect.height > 0
+    && stripRect.top <= rect.top + 1 && stripRect.bottom < rect.bottom
+    ? stripRect.bottom
+    : rect.top;
+  const dropRect = {
+    left: rect.left,
+    top: editorTop,
+    right: rect.right,
+    bottom: rect.bottom,
+    width: rect.width,
+    height: rect.bottom - editorTop,
+  };
+  const overStrip = Boolean(pointedStrip);
+  let zone: PaneDropZone | "center" = overStrip
+    ? "center"
+    : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
+  if (zone !== "center") {
+    const direction = zone === "left" || zone === "right" ? "row" : "column";
+    if (!canSplitPaneSize(direction, dropRect.width, dropRect.height)) zone = "center";
+  }
+  const targetActive = paneActiveSelection(target);
+  if (zone === "center") {
+    if ((!sessionDrag && (!sourceLeafId || sourceLeafId === leafId))
+      || (sessionDrag && sourceLeafId === leafId && !overStrip)) return null;
+  } else if (!groupDrag && sourceLeafId !== leafId && targetActive
+    && navigationKey(targetActive) === navigationKey(frame.selection)) {
+    return null;
+  }
+
+  let insertIndex: number | undefined;
+  let insertBar: DropPreview["rect"] | null = null;
+  if (overStrip && pointedStrip && zone === "center" && sourceLeafId !== leafId) {
+    const targetStripRect = pointedStrip.getBoundingClientRect();
+    const stripTabs = [...pointedStrip.querySelectorAll<HTMLElement>(".workspace-tab")];
+    insertIndex = stripTabs.length;
+    let barX = stripTabs.length
+      ? stripTabs[stripTabs.length - 1].getBoundingClientRect().right
+      : targetStripRect.left + 6;
+    for (let at = 0; at < stripTabs.length; at += 1) {
+      const tabRect = stripTabs[at].getBoundingClientRect();
+      if (frame.x < tabRect.left + tabRect.width / 2) {
+        insertIndex = at;
+        barX = tabRect.left;
+        break;
+      }
+    }
+    if (targetStripRect.width > 0 && targetStripRect.height > 0) {
+      insertBar = {
+        left: barX - 1,
+        top: targetStripRect.top + 4,
+        width: 2,
+        height: Math.max(0, targetStripRect.height - 8),
+      };
+    }
+  }
+  const preview: DropPreview = insertBar
+    ? { leafId, zone: "insert", rect: insertBar }
+    : {
+      leafId,
+      zone,
+      rect: {
+        left: dropRect.left,
+        top: dropRect.top,
+        width: dropRect.width,
+        height: dropRect.height,
+      },
+    };
+  let action: PaneDropAction;
+  if (groupDrag && zone !== "center") {
+    action = { type: "move-group", sourceLeafId, targetLeafId: leafId, zone };
+  } else if (groupDrag) {
+    action = { type: "merge-group", sourceLeafId, targetLeafId: leafId, insertIndex };
+  } else if (sessionDrag && zone === "center") {
+    action = { type: "open-in-leaf", targetLeafId: leafId, selection: frame.selection, insertIndex };
+  } else if (zone === "center") {
+    action = {
+      type: "move-tab",
+      sourceLeafId,
+      key: frame.key,
+      targetLeafId: leafId,
+      insertIndex,
+    };
+  } else {
+    action = {
+      type: "split-leaf",
+      targetLeafId: leafId,
+      zone,
+      selection: frame.selection,
+      sourceLeafId,
+    };
+  }
+  return { preview, action, selection: frame.selection };
+}
+
+function commitPaneDropAction(current: PaneWorkspaceModel, action: PaneDropAction): void {
+  switch (action.type) {
+    case "move-group-to-node-edge":
+      current.moveGroupToNodeEdge(action.sourceLeafId, action.targetPath, action.zone);
+      return;
+    case "move-tab-to-node-edge":
+      current.moveTabToNodeEdge(
+        action.sourceLeafId, action.key, action.targetPath, action.zone);
+      return;
+    case "move-group":
+      current.moveGroupAt(action.sourceLeafId, action.targetLeafId, action.zone);
+      return;
+    case "merge-group":
+      if (action.insertIndex === undefined) {
+        current.mergeGroup(action.sourceLeafId, action.targetLeafId);
+      } else {
+        current.mergeGroup(action.sourceLeafId, action.targetLeafId, action.insertIndex);
+      }
+      return;
+    case "open-in-leaf":
+      current.openInLeaf(action.targetLeafId, action.selection, action.insertIndex);
+      return;
+    case "move-tab":
+      current.moveTab(
+        action.sourceLeafId, action.key, action.targetLeafId, action.insertIndex);
+      return;
+    case "split-leaf":
+      current.splitLeafAt(
+        action.targetLeafId, action.zone, action.selection, action.sourceLeafId);
+  }
+}
 
 type ConversationOwner = {
   key: string;
@@ -348,12 +648,11 @@ export function PaneWorkspace({
       onFocusSelection: (selection) => swipeFocusSelection.current(selection),
     });
   }, []);
-  // Drag-to-split: the titlebar strip publishes pointer frames
-  // once a tab drag leaves the strip band; hit-test the pane under the
+  // Drag-to-split: native dragover publishes target-local frames once a tab
+  // leaves the strip band; hit-test the pane under the
   // pointer, preview the edge zone, and split on drop. Refs keep the single
   // subscription stable across renders.
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
-  const treeDropOperation = useRef<TreeDropOperation | null>(null);
   const conversationOwnerSequence = useRef(0);
   const conversationOwners = useRef<ConversationOwner[]>([]);
   const previousPaneSurfaces = useRef(new Map<string, PaneSurfaceSnapshot>());
@@ -365,271 +664,27 @@ export function PaneWorkspace({
   focusSelectionRef.current = onFocusSelection;
   useEffect(() => subscribePaneDrag((frame) => {
     if (frame.phase === "cancel") {
-      treeDropOperation.current = null;
       setDropPreview(null);
       return;
     }
     const current = workspaceRef.current;
-    const groupDrag = frame.kind === "group";
-    const sessionDrag = frame.kind === "session";
-    const dragKind: TreeDropOperation["kind"] = groupDrag ? "group" : "tab";
-    const sourceLeafId = sessionDrag
-      ? current.leaves.find((leaf) =>
-        leaf.tabs.some((tab) => navigationKey(tab) === frame.key))?.id ?? ""
-      : frame.sourceLeafId || "";
-    const commitTreeDrop = (operation: TreeDropOperation) => {
-      if (operation.kind === "group") {
-        current.moveGroupToNodeEdge(
-          operation.sourceLeafId, operation.targetPath, operation.zone);
-      } else {
-        current.moveTabToNodeEdge(
-          operation.sourceLeafId, operation.key, operation.targetPath, operation.zone);
-      }
-      focusSelectionRef.current(operation.selection);
-    };
-    const pendingTreeDrop = treeDropOperation.current;
-    if (frame.phase === "drop" && pendingTreeDrop
-      && pendingTreeDrop.kind === dragKind
-      && pendingTreeDrop.sourceLeafId === sourceLeafId
-      && (groupDrag || pendingTreeDrop.key === frame.key)) {
-      treeDropOperation.current = null;
-      setDropPreview(null);
-      commitTreeDrop(pendingTreeDrop);
-      return;
-    }
-    const pointedElement = frame.target;
-    const panelRect = document.querySelector(".main-panel")?.getBoundingClientRect() ?? null;
-    const sourceLeaf = current.leaves.find((leaf) => leaf.id === sourceLeafId);
-    const sourceOwnsTab = sourceLeaf?.tabs.some((tab) => navigationKey(tab) === frame.key) === true;
-    const canDetachAtRoot = groupDrag
-      ? current.leaves.length > 1
-      : sourceOwnsTab && (current.leaves.length > 1 || (sourceLeaf?.tabs.length ?? 0) > 1);
-    const pointedStrip = pointedElement?.closest?.(".workspace-tabs-shell") ?? null;
-    const outerZone = !sessionDrag && sourceLeafId && panelRect
-      ? paneOuterDropZone(panelRect, frame.x, frame.y)
-      : null;
     const panelElement = document.querySelector<HTMLElement>(".main-panel");
-    const candidates: PaneHierarchyCandidate[] = panelElement
-      ? [...panelElement.querySelectorAll<HTMLElement>("[data-pane-path]")]
-        .map((element) => ({
-          path: element.dataset.panePath ?? "",
-          rect: element.getBoundingClientRect(),
-        }))
-      : [];
-    if (panelRect && !candidates.some((candidate) =>
-      candidate.path === "" && candidate.rect.width > 0 && candidate.rect.height > 0)) {
-      candidates.push({ path: "", rect: panelRect });
-    }
-    const hierarchyTarget = canDetachAtRoot && outerZone && panelRect
-      ? paneHierarchyDropTarget(
-        panelRect, outerZone, frame.x, frame.y, candidates)
+    const intent = panelElement
+      ? resolvePaneDropIntent(frame, current, panelElement)
       : null;
-    if (outerZone && hierarchyTarget && panelRect) {
-      const direction = outerZone === "left" || outerZone === "right"
-        ? "row" : "column";
-      if (canSplitPaneSize(
-        direction,
-        hierarchyTarget.rect.width,
-        hierarchyTarget.rect.height,
-      )) {
-        const operation: TreeDropOperation = {
-          kind: dragKind,
-          sourceLeafId,
-          key: frame.key,
-          selection: frame.selection,
-          targetPath: hierarchyTarget.path,
-          zone: outerZone,
-        };
-        if (frame.phase === "move") {
-          treeDropOperation.current = operation;
-          const addsPane = !groupDrag && (sourceLeaf?.tabs.length ?? 0) > 1;
-          const position = outerZone === "left" || outerZone === "top" ? "before" : "after";
-          const previewLayout = addsPane
-            ? movePaneTabToNodeEdge(
-              current.layout,
-              sourceLeafId,
-              frame.key,
-              hierarchyTarget.path,
-              direction,
-              position,
-              DROP_PREVIEW_LEAF_ID,
-            )
-            : null;
-          const relativeRect = previewLayout
-            ? paneLeafRelativeRect(previewLayout, DROP_PREVIEW_LEAF_ID)
-            : null;
-          const nextPreview: DropPreview = relativeRect
-            ? {
-              leafId: sourceLeafId,
-              zone: "center",
-              rect: {
-                left: panelRect.left + relativeRect.left * panelRect.width,
-                top: panelRect.top + relativeRect.top * panelRect.height,
-                width: relativeRect.width * panelRect.width,
-                height: relativeRect.height * panelRect.height,
-              },
-            }
-            : {
-              leafId: sourceLeafId,
-              zone: outerZone,
-              rect: {
-                left: hierarchyTarget.rect.left,
-                top: hierarchyTarget.rect.top,
-                width: hierarchyTarget.rect.width,
-                height: hierarchyTarget.rect.height,
-              },
-            };
-          setDropPreview((currentPreview) =>
-            sameDropPreview(currentPreview, nextPreview) ? currentPreview : nextPreview);
-        } else {
-          treeDropOperation.current = null;
-          setDropPreview(null);
-          commitTreeDrop(operation);
-        }
-        return;
-      }
-    }
-    treeDropOperation.current = null;
-    let leafId = "";
-    let rect: DOMRect | null = null;
-    let paneScope: HTMLElement | null = null;
-    const paneNode = pointedElement?.closest?.(".pane-leaf") as HTMLElement | null;
-    if (paneNode?.dataset.paneId) {
-      leafId = paneNode.dataset.paneId;
-      rect = paneNode.getBoundingClientRect();
-      paneScope = paneNode;
-    } else {
-      // A single-pane workspace has no .pane-leaf wrapper; the whole main
-      // panel is its drop surface.
-      if (panelRect && frame.x >= panelRect.left && frame.x <= panelRect.right
-        && frame.y >= panelRect.top && frame.y <= panelRect.bottom) {
-        leafId = current.leaves[0]?.id ?? "";
-        rect = panelRect;
-        paneScope = panelElement;
-      }
-    }
-    const target = leafId ? current.leaves.find((leaf) => leaf.id === leafId) : undefined;
-    if (!target || !rect) {
-      setDropPreview(null);
-      return;
-    }
-    // A drop that cannot move anything draws no overlay at
-    // all — a group over its own pane, or a single-tab group over itself
-    // (the overlay stays hidden for both instead of previewing a
-    // silent no-op).
-    if (sourceLeafId === leafId
-      && (groupDrag || (sourceOwnsTab && (sourceLeaf?.tabs.length ?? 0) < 2))) {
-      setDropPreview(null);
-      return;
-    }
-    // Drops target the editor area BELOW the tab row
-    // — both the zone bands and the preview overlay
-    // exclude the strip so top-split geometry is not skewed by it.
-    const stripRect = paneScope
-      ?.querySelector(".workspace-tabs-shell")?.getBoundingClientRect() ?? null;
-    const editorTop = stripRect && stripRect.height > 0
-      && stripRect.top <= rect.top + 1 && stripRect.bottom < rect.bottom
-      ? stripRect.bottom
-      : rect.top;
-    const dropRect = {
-      left: rect.left,
-      top: editorTop,
-      right: rect.right,
-      bottom: rect.bottom,
-      width: rect.width,
-      height: rect.bottom - editorTop,
-    };
-    const overStrip = Boolean(pointedStrip);
-    let zone: PaneDropZone | "center" = overStrip
-      ? "center"
-      : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
-    if (zone !== "center") {
-      const direction = zone === "left" || zone === "right" ? "row" : "column";
-      if (!canSplitPaneSize(direction, dropRect.width, dropRect.height)) {
-        zone = "center";
-      }
-    }
-    const targetActive = paneActiveSelection(target);
-    if (zone === "center") {
-      // Merging needs a foreign source group; a same-group or sourceless
-      // center drop has nothing to move.
-      if ((!sessionDrag && (!sourceLeafId || sourceLeafId === leafId))
-        || (sessionDrag && sourceLeafId === leafId && !overStrip)) {
-        setDropPreview(null);
-        return;
-      }
-    } else if (!groupDrag && sourceLeafId !== leafId && targetActive
-      && navigationKey(targetActive) === navigationKey(frame.selection)) {
-      // An edge drop beside a pane that already shows the view is a no-op;
-      // splitting a group with its OWN tab stays allowed.
-      setDropPreview(null);
-      return;
-    }
-    // Foreign-strip hover inserts at the pointed tab position (a
-    // tabs-container drop): the feedback is an insertion caret in the strip,
-    // not the editor-area merge wash, and the drop lands at that index.
-    let insertIndex: number | undefined;
-    let insertBar: DropPreview["rect"] | null = null;
-    if (overStrip && pointedStrip && zone === "center" && sourceLeafId !== leafId) {
-      const stripRect2 = pointedStrip.getBoundingClientRect();
-      const stripTabs = [...pointedStrip.querySelectorAll<HTMLElement>(".workspace-tab")];
-      insertIndex = stripTabs.length;
-      let barX = stripTabs.length
-        ? stripTabs[stripTabs.length - 1].getBoundingClientRect().right
-        : stripRect2.left + 6;
-      for (let at = 0; at < stripTabs.length; at += 1) {
-        const tabRect = stripTabs[at].getBoundingClientRect();
-        if (frame.x < tabRect.left + tabRect.width / 2) {
-          insertIndex = at;
-          barX = tabRect.left;
-          break;
-        }
-      }
-      if (stripRect2.width > 0 && stripRect2.height > 0) {
-        insertBar = {
-          left: barX - 1,
-          top: stripRect2.top + 4,
-          width: 2,
-          height: Math.max(0, stripRect2.height - 8),
-        };
-      }
-    }
     if (frame.phase === "move") {
-      const nextPreview: DropPreview = insertBar
-        ? { leafId, zone: "insert", rect: insertBar }
-        : {
-          leafId,
-          zone,
-          rect: {
-            left: dropRect.left,
-            top: dropRect.top,
-            width: dropRect.width,
-            height: dropRect.height,
-          },
-        };
-      setDropPreview((currentPreview) =>
-        sameDropPreview(currentPreview, nextPreview) ? currentPreview : nextPreview);
+      if (!intent) {
+        setDropPreview(null);
+      } else {
+        setDropPreview((currentPreview) =>
+          sameDropPreview(currentPreview, intent.preview) ? currentPreview : intent.preview);
+      }
       return;
     }
     setDropPreview(null);
-    if (groupDrag) {
-      if (zone !== "center") current.moveGroupAt(sourceLeafId, leafId, zone);
-      // Keep the classic 2-arg call for plain center merges: the optional
-      // strip index only rides along when a strip drop actually produced one.
-      else if (insertIndex === undefined) current.mergeGroup(sourceLeafId, leafId);
-      else current.mergeGroup(sourceLeafId, leafId, insertIndex);
-    } else if (sessionDrag && zone === "center") {
-      current.openInLeaf(leafId, frame.selection, insertIndex);
-    } else if (zone === "center" && insertIndex !== undefined) {
-      current.moveTab(sourceLeafId, frame.key, leafId, insertIndex);
-    } else if (zone === "center") {
-      current.moveTab(sourceLeafId, frame.key, leafId);
-    } else {
-      current.splitLeafAt(leafId, zone, frame.selection, sourceLeafId);
-    }
-    // The dropped view owns the new focused pane; App navigates its
-    // interactive surface there (resume for sessions, editor for files).
-    focusSelectionRef.current(frame.selection);
+    if (!intent) return;
+    commitPaneDropAction(current, intent.action);
+    focusSelectionRef.current(intent.selection);
   }), []);
   useEffect(() => {
     const panel = document.querySelector<HTMLElement>(".main-panel");
@@ -646,23 +701,35 @@ export function PaneWorkspace({
     const onDragEnter = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
       enterCounter += 1;
-      if (isSourceStripReorder(event)) return;
-      movePaneDrag(event);
+      if (isSourceStripReorder(event)) {
+        cancelPaneDragPreview();
+        return;
+      }
+      // dragenter coordinates can be synthetic or stale in Chromium. It only
+      // admits the native drop; dragover owns every preview coordinate.
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     };
     const onDragOver = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
-      if (isSourceStripReorder(event)) return;
+      if (isSourceStripReorder(event)) {
+        cancelPaneDragPreview();
+        return;
+      }
       movePaneDrag(event);
     };
     const onDragLeave = (): void => {
       if (!currentPaneDrag()) return;
       enterCounter = Math.max(0, enterCounter - 1);
-      if (enterCounter === 0) leavePaneDrag();
+      if (enterCounter === 0) cancelPaneDragPreview();
     };
     const onDrop = (event: DragEvent): void => {
       if (!currentPaneDrag()) return;
       enterCounter = 0;
-      if (isSourceStripReorder(event)) return;
+      if (isSourceStripReorder(event)) {
+        cancelPaneDragPreview();
+        return;
+      }
       dropPaneDrag(event);
     };
     panel.addEventListener("dragenter", onDragEnter);

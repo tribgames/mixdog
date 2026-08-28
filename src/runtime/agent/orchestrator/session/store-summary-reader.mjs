@@ -14,6 +14,11 @@ import { join } from 'path';
 // authoritative store uses, so the cold catalog cannot disagree with it.
 import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
+import {
+    isAgentOnlySession,
+    isRootLeadSession,
+    sessionVisibility,
+} from './store-summary-visibility.mjs';
 
 const SESSION_SUMMARY_INDEX_VERSION = 2;
 const DEAD_AGENT_STATUS =
@@ -45,7 +50,8 @@ const LEAD_OWNERS = new Set(['cli', 'user', 'mixdog']);
 
 function isLeadVisibleRow(row) {
     const owner = String(row.owner || 'user').trim().toLowerCase();
-    if (owner && !LEAD_OWNERS.has(owner)) return false;
+    if (isAgentOnlySession(row)) return false;
+    if (!isRootLeadSession(row) && owner && !LEAD_OWNERS.has(owner)) return false;
     // Mirror listLeadSessions: a previewless zero-message row is an unusable
     // scratch (desktop boot leftovers, crashed first turns) — resuming it
     // shows an empty conversation, so the catalog hides it.
@@ -72,8 +78,33 @@ function positiveNumber(value, fallback = 0) {
     return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
+function runtimeAlive(pid) {
+    const id = positiveNumber(pid, 0);
+    if (id <= 0 || id === process.pid) return true;
+    try {
+        process.kill(id, 0);
+        return true;
+    } catch (error) {
+        return error?.code === 'EPERM';
+    }
+}
+
 function cleanValue(value) {
     return String(value || '').trim();
+}
+
+function workerOwnerSessionId(row, session) {
+    return cleanValue(
+        row?.ownerSessionId || session?.ownerSessionId
+        || row?.parentSessionId || session?.parentSessionId,
+    ) || null;
+}
+
+function workerParentSessionId(row, session) {
+    return cleanValue(
+        row?.parentSessionId || session?.parentSessionId
+        || row?.ownerSessionId || session?.ownerSessionId,
+    ) || null;
 }
 
 function archivedAgentNotification(content, sessionId) {
@@ -265,6 +296,41 @@ export function storedLeadWorkerIndexPath() {
     return join(dataDir(), 'lead-workers.json');
 }
 
+function storedAgentWorkerIndexRows() {
+    let parsed = null;
+    try {
+        parsed = JSON.parse(readFileSync(storedAgentWorkerIndexPath(), 'utf8'));
+    } catch {
+        return [];
+    }
+    return Array.isArray(parsed?.workers)
+        ? parsed.workers
+        : parsed?.workers && typeof parsed.workers === 'object'
+            ? Object.values(parsed.workers)
+            : [];
+}
+
+/** Lightweight ancestry seam used to migrate pre-parentSessionId summary
+ * rows. It reads only agent-workers.json and never opens session transcripts. */
+export function listStoredAgentWorkerLinks() {
+    return storedAgentWorkerIndexRows()
+        .map((row) => {
+            if (!row || typeof row !== 'object') return null;
+            const sessionId = cleanValue(row.sessionId);
+            const parentSessionId = cleanValue(row.parentSessionId);
+            const ownerSessionId = cleanValue(row.ownerSessionId || row.parentSessionId);
+            if (!/^[A-Za-z0-9_-]+$/.test(sessionId) || (!parentSessionId && !ownerSessionId)) {
+                return null;
+            }
+            return {
+                sessionId,
+                parentSessionId: parentSessionId || ownerSessionId,
+                ownerSessionId: ownerSessionId || parentSessionId,
+            };
+        })
+        .filter(Boolean);
+}
+
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
  * cross-process running source even when their durable session is detached
  * (`closed`) and a terminal reaper has already removed the worker-index row.
@@ -272,16 +338,10 @@ export function storedLeadWorkerIndexPath() {
  * published before the heartbeat or by runtimes without a sidecar. No runtime
  * starts and durable session history is never projected into either pool. */
 export function listStoredAgentWorkers() {
-    let parsed = null;
-    try {
-        parsed = JSON.parse(readFileSync(storedAgentWorkerIndexPath(), 'utf8'));
-    } catch { /* heartbeat-backed rows remain authoritative without the index */ }
-    const source = Array.isArray(parsed?.workers)
-        ? parsed.workers
-        : parsed?.workers && typeof parsed.workers === 'object'
-            ? Object.values(parsed.workers)
-            : [];
+    const source = storedAgentWorkerIndexRows();
     const bySessionId = new Map();
+    const now = Date.now();
+    const heartbeatMtimes = sessionHeartbeatMtimes();
     for (const row of source) {
         if (!row || typeof row !== 'object') continue;
         // Cancelled rows stay visible so the 2-minute heartbeat lease cannot
@@ -300,28 +360,45 @@ export function listStoredAgentWorkers() {
                 'utf8',
             ));
         } catch { /* a new row may precede its first session save */ }
+        const declaredStatus = cleanValue(row.status) || 'running';
+        const declaredStage = cleanValue(row.stage || row.status) || 'running';
+        const declaredWorking = WORKING_AGENT_STATUS.test(declaredStatus)
+            || WORKING_AGENT_STATUS.test(declaredStage);
+        const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
+        const heartbeatFresh = heartbeatAt > 0
+            && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+        const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
+        const recentlyUpdated = updatedAt > 0
+            && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+        const runtimePid = positiveNumber(row.runtimePid, 0);
+        const working = declaredWorking
+            && (!runtimePid || runtimeAlive(runtimePid))
+            && (heartbeatFresh || recentlyUpdated);
+        const projectedStatus = declaredWorking && !working ? 'idle' : declaredStatus;
+        const projectedStage = declaredWorking && !working ? 'idle' : declaredStage;
         bySessionId.set(sessionId, {
             tag,
             sessionId,
-            ownerSessionId: cleanValue(
-                row.ownerSessionId || row.parentSessionId
-                || session?.ownerSessionId || session?.parentSessionId,
-            ) || null,
+            // Root ownership and immediate ancestry are independent. Nested
+            // descendants keep the Lead/root owner while pointing at the Agent
+            // session that directly spawned them.
+            ownerSessionId: workerOwnerSessionId(row, session),
+            parentSessionId: workerParentSessionId(row, session),
             title: cleanValue(row.title || session?.title) || null,
             agent: cleanValue(row.agent || session?.agent) || null,
             provider: cleanValue(row.provider || session?.provider) || null,
             model: cleanValue(row.model || session?.model) || null,
             effort: cleanValue(row.effort || session?.effort) || null,
             fast: row.fast === true || session?.fast === true,
-            status: cleanValue(row.status) || 'running',
-            stage: cleanValue(row.stage || row.status) || 'running',
+            status: projectedStatus,
+            stage: projectedStage,
             startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
-            turnStartedAt: row.turnStartedAt || null,
+            turnStartedAt: working ? (row.turnStartedAt || null) : null,
             createdAt: row.createdAt || session?.createdAt || null,
             updatedAt: row.updatedAt || session?.updatedAt || null,
             idleSince: frozenIdleSince(
                 sessionId,
-                WORKING_AGENT_STATUS.test(cleanValue(row.stage || row.status)),
+                working,
                 row.finishedAt || row.updatedAt || session?.updatedAt || null,
             ),
             reapAt: row.reapAt || null,
@@ -330,8 +407,6 @@ export function listStoredAgentWorkers() {
             taskId: cleanValue(row.task_id || row.taskId) || null,
         });
     }
-    const now = Date.now();
-    const heartbeatMtimes = sessionHeartbeatMtimes();
     for (const [sessionId, heartbeatAt] of heartbeatMtimes) {
         if (now - heartbeatAt > AGENT_POOL_HEARTBEAT_FRESH_MS) continue;
         let session;
@@ -343,13 +418,12 @@ export function listStoredAgentWorkers() {
         } catch {
             continue;
         }
-        const ownerSessionId = cleanValue(
-            session?.ownerSessionId || session?.parentSessionId,
-        );
+        const current = bySessionId.get(sessionId) || {};
+        const ownerSessionId = workerOwnerSessionId(current, session);
+        const parentSessionId = workerParentSessionId(current, session);
         const owner = cleanValue(session?.owner).toLowerCase();
         const agent = cleanValue(session?.agent);
         if (!ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
-        const current = bySessionId.get(sessionId) || {};
         // The durable index row is authoritative for FINISHED work: a worker's
         // runtime unloads at turn end but its heartbeat sidecar stays fresh for
         // up to the 2-minute window, and overwriting an idle row to `running`
@@ -381,6 +455,7 @@ export function listStoredAgentWorkers() {
                     || `${agent || 'agent'}:${sessionId}`,
                 sessionId,
                 ownerSessionId,
+                parentSessionId,
                 title: cleanValue(session?.title) || current.title || null,
                 agent: agent || current.agent || null,
                 provider: cleanValue(session?.provider) || current.provider || null,
@@ -409,6 +484,7 @@ export function listStoredAgentWorkers() {
                 || `${agent || 'agent'}:${sessionId}`,
             sessionId,
             ownerSessionId,
+            parentSessionId,
             title: cleanValue(session?.title) || current.title || null,
             agent: agent || current.agent || null,
             provider: cleanValue(session?.provider) || current.provider || null,
@@ -467,6 +543,7 @@ export function listStoredAgentWorkers() {
             tag: `lead:${sessionId}`,
             sessionId,
             ownerSessionId: sessionId,
+            parentSessionId: null,
             agent: 'lead',
             provider: cleanValue(row.provider) || null,
             model: cleanValue(row.model) || null,
@@ -548,7 +625,8 @@ function normalizedRow(row, heartbeatAt = 0) {
         sourceName: row.sourceName || null,
         sourceDelivery: row.sourceDelivery || null,
         scopeKey: row.scopeKey || null,
-        ownerSessionId: row.ownerSessionId || null,
+        ownerSessionId: row.ownerSessionId || row.parentSessionId || null,
+        visibility: sessionVisibility(row),
         clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
         cwd: row.cwd || '',
         desktopSession: desktopSession(row.desktopSession, row.cwd),
@@ -761,11 +839,47 @@ export async function readStoredSessionTranscript(id, options = {}) {
     // Same strict authority as the store, and the same fail-closed rule: an
     // absent, unreadable, ambiguous or foreign record yields no transcript.
     const read = readTextFile(join(dataDir(), 'sessions', `${sessionId}.json`));
-    if (read.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
+    if (read.state === PROBE_ABSENT) {
+        return options.metadataOnly === true ? null : readArchivedAgentResult(sessionId);
+    }
     if (read.state !== PROBE_PRESENT) return null;
     const record = readTopLevelLifecycleRecord(read.text);
     if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
     let session = record.doc;
+    if (options.metadataOnly === true) {
+        return {
+            id: sessionId,
+            sessionId,
+            owner: session.owner || null,
+            agent: session.agent || null,
+            parentSessionId: session.parentSessionId || null,
+            ownerSessionId: session.ownerSessionId || session.parentSessionId || null,
+            visibility: sessionVisibility(session),
+            agentTag: session.agentTag || null,
+            cwd: session.cwd || '',
+            provider: session.provider || null,
+            model: session.model || null,
+            presetName: session.presetName || session.profileId || null,
+            effort: session.effort || null,
+            fast: session.fast === true,
+            modelParameters: session.modelParameters || null,
+            taskType: session.taskType || null,
+            maxLoopIterations: session.maxLoopIterations ?? null,
+            permission: session.permission || null,
+            permissionMode: session.permissionMode || null,
+            toolPermission: session.toolPermission || null,
+            schemaAllowedTools: Array.isArray(session.schemaAllowedTools)
+                ? session.schemaAllowedTools
+                : null,
+            sourceType: session.sourceType || null,
+            sourceName: session.sourceName || null,
+            clientHostPid: session.clientHostPid || null,
+            createdAt: session.createdAt || null,
+            updatedAt: session.updatedAt || session.lastUsedAt || null,
+            status: session.status || (session.closed === true ? 'closed' : 'idle'),
+            closed: session.closed === true,
+        };
+    }
     const owner = cleanValue(session.owner).toLowerCase();
     const agent = cleanValue(session.agent).toLowerCase();
     const liveDetachedAgent = session.closed === true

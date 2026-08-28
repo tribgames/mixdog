@@ -1161,11 +1161,19 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
    opposite transcript edge. The capsule carries only objective/progress/time;
    completion evidence and controls live in its downward card. */
 .transcript-shell > .session-goal-island {
+  --session-goal-width: 320px;
+  --session-goal-trigger-height: 28px;
+  --session-goal-padding: 2px;
+  --session-goal-capsule-height:
+    calc(var(--session-goal-trigger-height) + var(--session-goal-padding) + var(--session-goal-padding));
   position: absolute;
   z-index: 9;
   top: var(--pane-chrome-inset);
   left: var(--pane-chrome-inset);
-  max-width: min(360px, calc(100% - 92px));
+  width: min(var(--session-goal-width), calc(100% - 92px));
+  max-width: none;
+  box-sizing: border-box;
+  padding: var(--session-goal-padding);
   border-radius: var(--mx-radius-pill);
 }
 .transcript-shell > .session-goal-island::before {
@@ -1179,24 +1187,46 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   backdrop-filter: blur(12px) saturate(140%);
   box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
 }
+.transcript-shell > .session-goal-island[data-open="true"] {
+  bottom: var(--pane-chrome-inset);
+  pointer-events: none;
+}
+.transcript-shell > .session-goal-island[data-open="true"]::before {
+  bottom: auto;
+  height: var(--session-goal-capsule-height);
+}
+.session-goal-island[data-open="true"] :is(.session-goal-trigger, .session-goal-popover) {
+  pointer-events: auto;
+}
 html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   background: color-mix(in srgb, var(--mx-bg-base) 92%, transparent);
   backdrop-filter: none;
 }
 .session-goal-trigger {
   min-width: 0;
+  width: 100%;
   max-width: 100%;
-  height: 32px;
-  display: flex;
+  box-sizing: border-box;
+  height: var(--session-goal-trigger-height, 28px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px 58px;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px 0 8px;
+  column-gap: 6px;
+  padding: 0 8px 0 6px;
   border: 0;
-  border-radius: inherit;
+  border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: transparent;
   box-shadow: none;
+  font-family: inherit;
   cursor: pointer;
+}
+.session-goal-title-region {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
 }
 .session-goal-trigger:hover,
 .session-goal-trigger:focus-visible,
@@ -1237,157 +1267,212 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
 }
 .session-goal-objective {
   min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   color: var(--mx-text);
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-semibold);
-  line-height: 1;
+  line-height: var(--mx-line-minor);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-goal-separator {
-  flex: 0 0 auto;
-  color: var(--mx-text-faint);
-}
 .session-goal-progress,
 .session-goal-time {
-  flex: 0 0 auto;
+  min-width: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.session-goal-progress { text-align: center; }
+.session-goal-time {
+  overflow: hidden;
+  text-align: right;
+  text-overflow: clip;
 }
 .session-goal-popover {
   position: absolute;
   z-index: 20;
   top: calc(100% + 6px);
   left: 0;
-  width: 320px;
-  max-width: calc(100vw - 24px);
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   padding: 10px;
-  border: .5px solid var(--mx-border);
-  border-radius: var(--mx-radius-lg);
+  border: .5px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-floating);
+  font-family: inherit;
+}
+.session-goal-island[data-open="true"] .session-goal-popover {
+  top: calc(var(--session-goal-capsule-height) + 6px);
+  max-height: calc(100% - var(--session-goal-capsule-height) - 6px);
+  overflow: hidden;
 }
 .session-goal-popover > header {
   min-width: 0;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
   align-items: start;
-  gap: 8px;
+  gap: 10px;
 }
 .session-goal-popover > header > div {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 2px;
 }
 .session-goal-popover > header strong {
   overflow: hidden;
   font-size: var(--mx-font-body);
-  line-height: 1.35;
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-body);
+  letter-spacing: var(--mx-tracking-tight);
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .session-goal-popover > header small,
-.session-goal-criteria small {
+.session-goal-tasks small {
+  min-width: 0;
+  overflow: hidden;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.session-goal-criteria {
+.session-goal-content {
+  min-height: 0;
   display: grid;
-  gap: 6px;
-  padding-top: 9px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+.session-goal-tasks {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 10px;
   border-top: .5px solid var(--mx-border);
 }
-.session-goal-criteria > b {
+.session-goal-tasks > b {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-minor);
 }
-.session-goal-criteria ul {
+.session-goal-tasks ul {
+  min-height: 0;
+  max-height: min(320px, 40dvh);
   display: grid;
-  gap: 4px;
+  gap: 0;
   margin: 0;
   padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   list-style: none;
 }
-.session-goal-criteria li {
+.session-goal-tasks li {
   min-width: 0;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 6px;
-  padding: 6px;
-  border-radius: var(--mx-radius-md);
-  background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-radius: 0;
+  background: transparent;
 }
-.session-goal-criteria li > span {
+.session-goal-tasks li + li { border-top: .5px solid var(--mx-border-muted); }
+.session-goal-tasks li > span {
   color: var(--mx-text-faint);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
   text-align: center;
 }
-.session-goal-criteria li[data-satisfied="true"] > span { color: var(--mx-success); }
-.session-goal-criteria li > div {
+.session-goal-tasks li[data-status="completed"] > span { color: var(--mx-success); }
+.session-goal-tasks li[data-status="in_progress"] > span { color: var(--mx-text-accent); }
+.session-goal-tasks li > div {
   min-width: 0;
   display: grid;
   gap: 2px;
 }
-.session-goal-criteria li > div > span {
+.session-goal-tasks li > div > span {
   overflow-wrap: anywhere;
   font-size: var(--mx-font-minor);
-  line-height: 1.35;
+  line-height: var(--mx-line-minor);
 }
 .session-goal-empty,
-.session-goal-summary,
-.session-goal-blocker,
-.session-goal-evidence {
+.session-goal-blocker {
   margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
   line-height: 1.4;
 }
 .session-goal-blocker { color: var(--mx-warning); }
-.session-goal-evidence { color: var(--mx-success); }
 .session-goal-popover > footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  padding-top: 9px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 10px;
   border-top: .5px solid var(--mx-border);
 }
 .session-goal-popover > footer button {
-  min-height: 28px;
+  min-width: 0;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 7px;
   padding: 0 8px;
-  border: .5px solid var(--mx-border);
+  border: 0;
   border-radius: var(--mx-radius-md);
-  color: var(--mx-text-muted);
-  background: transparent;
+  color: var(--mx-text);
+  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-minor);
   cursor: pointer;
 }
+.session-goal-popover > footer button svg { flex: 0 0 auto; color: var(--mx-icon-muted); }
 .session-goal-popover > footer button:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
 }
-.session-goal-popover > footer button.danger:hover:not(:disabled) { color: var(--mx-danger); }
-.session-goal-popover > footer button:disabled { opacity: var(--mx-op-dim); cursor: wait; }
+.session-goal-popover > footer button.primary,
+.session-goal-popover > footer button.danger { grid-column: 1 / -1; }
+.session-goal-popover > footer button.danger {
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
+}
+.session-goal-popover > footer button.danger svg { color: currentColor; }
+.session-goal-popover > footer button.danger:hover:not(:disabled) {
+  color: var(--mx-danger);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
+}
+.session-goal-popover > footer button:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.session-goal-popover > footer button:disabled {
+  color: var(--mx-text-faint);
+  cursor: default;
+}
 
 html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island {
-  max-width: 48vw;
+  --session-goal-trigger-height: calc(36px * var(--mx-device-scale, 2.5));
+  --session-goal-padding: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
+  max-width: 72vw;
+  padding: var(--session-goal-padding);
 }
 html[data-mixdog-mobile-tabs] .session-goal-trigger {
-  height: calc(36px * var(--mx-device-scale, 2.5));
   gap: calc(5px * var(--mx-device-scale, 2.5));
   padding-inline: calc(8px * var(--mx-device-scale, 2.5));
-}
-html[data-mixdog-mobile-tabs] .session-goal-objective {
-  max-width: calc(70px * var(--mx-device-scale, 2.5));
-}
-html[data-mixdog-mobile-tabs] .session-goal-time,
-html[data-mixdog-mobile-tabs] .session-goal-separator:nth-last-child(2) {
-  display: none;
 }

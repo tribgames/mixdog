@@ -1,13 +1,11 @@
-// Session tool schema resolution + permission narrowing, extracted verbatim
-// from manager.mjs. Behavior-preserving: same toolset ids, same ordering,
-// same dedup, same fail-closed permission intersection.
+// Session tool schema resolution. Lead and Agent share one full-capability
+// catalog; Agent removes only the recursive `agent` control tool.
 import { getMcpTools } from '../../mcp/client.mjs';
 import { getInternalTools } from '../../internal-tools.mjs';
 import { BUILTIN_TOOLS } from '../../tools/builtin/builtin-tools.mjs';
 import { PATCH_TOOL_DEFS } from '../../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../../tools/code-graph-tool-defs.mjs';
 import { buildSkillToolDefs } from '../../context/collect.mjs';
-import { getHiddenAgent } from '../../internal-agents.mjs';
 import { filterModelEditTools } from '../../../../shared/edit-tool-dialect.mjs';
 
 // Merge externally-connected MCP tools with the plugin's in-process tools
@@ -81,101 +79,6 @@ const READONLY_TOOL_NAMES = new Set([
     'read',
 ]);
 
-const AGENT_STRING_PERMISSION_READ_ALLOW = Object.freeze([
-    'code_graph',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'read',
-    // shell/task: verifying read-role agents (reviewer) must run their own
-    // verification (tests/repro). task is required because shell's
-    // auto-background transition settles with a bare jobId — agent sessions
-    // get no completion notification, so `task wait/read` is the only way to
-    // collect a long-running result. apply_patch stays excluded: read roles
-    // keep the no-edit contract.
-    'shell',
-    'task',
-    'web_search',
-    'web_fetch',
-    'Skill',
-]);
-
-// Retrieval roles never self-verify, so they keep the historical no-shell
-// read surface. Covers hidden retrieval agents and invokedBy wrapper roles,
-// the same set
-// pre-dispatch-deny treats as recursive wrappers. Only verifying read roles
-// (reviewer) get shell/task.
-const AGENT_STRING_PERMISSION_READ_RETRIEVAL_ALLOW = Object.freeze(
-    AGENT_STRING_PERMISSION_READ_ALLOW.filter((n) => n !== 'shell' && n !== 'task'),
-);
-
-function isRetrievalToolRole(agent) {
-    if (!agent) return false;
-  return getHiddenAgent(agent)?.kind === 'retrieval';
-}
-
-function stringToolPermissionAllowList(toolPermission, { retrieval = false } = {}) {
-    if (toolPermission === 'read') {
-        return retrieval ? AGENT_STRING_PERMISSION_READ_RETRIEVAL_ALLOW : AGENT_STRING_PERMISSION_READ_ALLOW;
-    }
-    if (toolPermission === 'read-write') return AGENT_STRING_PERMISSION_READ_WRITE_ALLOW;
-    if (toolPermission === 'none') return [];
-    return null;
-}
-
-// Read-write agent bundle: full edit surface INCLUDING shell/task so
-// write-role agents can run their own verification (build/test) without
-// bouncing it back to Lead. Deploy/ship remains a workflow-level rule,
-// not a tool-surface restriction.
-const AGENT_STRING_PERMISSION_READ_WRITE_ALLOW = Object.freeze([
-    'code_graph',
-    'find',
-    'glob',
-    'list',
-    'grep',
-    'read',
-    'edit',
-    'apply_patch',
-    'git',
-    'git_stage',
-    'shell',
-    'task',
-    'web_search',
-    'web_fetch',
-    'Skill',
-]);
-
-export function applyToolPermissionNarrowing(tools, toolPermission, warnRole = null) {
-    if (toolPermission === 'none') return [];
-    const allowList = stringToolPermissionAllowList(toolPermission, { retrieval: isRetrievalToolRole(warnRole) });
-    if (allowList) {
-        const allowSet = new Set(allowList.map((n) => String(n).toLowerCase()));
-        return tools.filter((t) => allowSet.has(String(t?.name || '').toLowerCase()));
-    }
-    if (toolPermission && typeof toolPermission === 'object') {
-        const allowSet = Array.isArray(toolPermission.allow) && toolPermission.allow.length > 0
-            ? new Set(toolPermission.allow.map(n => String(n).toLowerCase()))
-            : null;
-        const denySet = Array.isArray(toolPermission.deny) && toolPermission.deny.length > 0
-            ? new Set(toolPermission.deny.map(n => String(n).toLowerCase()))
-            : null;
-        if (allowSet || denySet) {
-            const filtered = tools.filter(t => {
-                const name = String(t?.name || '').toLowerCase();
-                if (denySet && denySet.has(name)) return false;
-                if (allowSet && !allowSet.has(name)) return false;
-                return true;
-            });
-            if (filtered.length === 0) {
-                process.stderr.write(`[session] WARN: role permission intersection produced 0 tools — failing closed (role=${warnRole || 'unknown'})\n`);
-            }
-            return filtered;
-        }
-    }
-    return tools;
-}
-
 export function finalizeSessionToolList(tools, {
     schemaAllowedTools = null,
     disallowedTools = null,
@@ -194,7 +97,7 @@ export function finalizeSessionToolList(tools, {
         out = out.filter(t => !denySet.has(String(t?.name || '').toLowerCase()));
     }
     if (ownerIsAgent) {
-        out = out.filter(t => !t?.annotations?.agentHidden);
+        out = out.filter(t => String(t?.name || '').toLowerCase() !== 'agent');
         out = orderSessionTools(out);
     }
     return out;
@@ -312,16 +215,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
             return orderSessionTools(_dedupByName([...mcp, ...skillTools]));
         case 'readonly': {
             const readTools = ALL_BUILTIN_SESSION_TOOLS.filter(t => READONLY_TOOL_NAMES.has(t.name));
-// Read-ROLE agent sessions (reviewer) must self-verify, so
-            // their base bundle carries shell/task defs. The 'read' permission
-            // allowlist (AGENT_STRING_PERMISSION_READ_ALLOW) is a pure FILTER —
-            // it can only keep tools already assembled here, so without this the
-            // allowlist's shell/task entries were dead letters. Non-agent
-            // 'readonly' profiles stay strictly read-only.
-            const verifyTools = ownerIsAgentSession
-                ? ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task')
-                : [];
-            return orderSessionTools(_dedupByName([...readTools, ...verifyTools, ...mcp, ...skillTools]));
+            return orderSessionTools(_dedupByName([...readTools, ...mcp, ...skillTools]));
         }
         case 'full':
         default:

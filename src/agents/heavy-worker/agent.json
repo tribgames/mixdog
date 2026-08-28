@@ -1,6 +1,6 @@
 {
   "id": "heavy-worker",
   "name": "Heavy Worker",
-  "description": "Use for complex, high-difficulty tasks.",
+  "description": "Use only for large refactors, cross-cutting architectural changes, difficult root-cause investigations, or implementation beyond the default Worker's normal scope.",
   "entry": "AGENT.md"
 }

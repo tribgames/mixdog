@@ -394,6 +394,12 @@ html[data-mixdog-mobile-tabs] .projects-memory-add-trigger > svg {
   width: 22px;
   height: 22px;
 }
+/* Workflow and agent section actions keep the desktop 20px trailing
+   centerline while their touch box grows from 28px to 44px. */
+html[data-mixdog-mobile-tabs]
+  .session-sidebar-panels .workflows-section-head > .schedules-new {
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 22px);
+}
 html[data-mixdog-mobile-tabs] .mobile-tab-card > header {
   height: 48px;
   flex-basis: 48px;
@@ -429,7 +435,7 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-panel-header-actions > .
    only, so a slot holding two actions keeps its own gap. */
 html[data-mixdog-mobile-tabs]
   .session-sidebar .session-panel-header-actions > .session-panel-action:last-child {
-  margin-right: calc((28px - 44px) / 2 + 6px);
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 22px);
 }
 /* Chrome has NO hairlines above/below its toolbar (user: 상하 테두리 없네);
    the toolbar band runs uninterrupted into the sheet on mobile. The pills
@@ -688,6 +694,10 @@ html[data-mixdog-mobile-tabs] :is(
   scrollbar-width: none;
   scrollbar-gutter: auto;
 }
+/* The desktop rail deliberately expands its scroller into the reserved
+   scrollbar column. Mobile hides that column entirely, so keeping the
+   negative compensation consumes the sheet's trailing inset. */
+html[data-mixdog-mobile-tabs] .session-sidebar-scroll { margin-right: 0; }
 html[data-mixdog-mobile-tabs] :is(
   .utility-dock-pane,
   .agent-activity-page,
@@ -1164,8 +1174,24 @@ html[data-mixdog-mobile-tabs] .sidebar-usage-heading > .sidebar-usage-pin {
   flex-basis: var(--mx-touch-row);
 }
 html[data-mixdog-mobile-tabs]
-  .sidebar-category-header > .row-overflow .row-overflow-trigger {
-  margin-right: 0;
+  .session-sidebar .sidebar-category-header > .row-overflow .row-overflow-trigger {
+  /* Restate size at greater specificity than the later desktop category
+     rule; otherwise the computed box falls back to 28px despite this mobile
+     layer declaring 36px above. */
+  width: var(--mx-touch-row);
+  height: var(--mx-touch-row);
+  flex-basis: var(--mx-touch-row);
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 18px);
+}
+/* Card actions start after a 12px inner gutter. A 36px overflow target ends
+   2px before the card edge so its glyph center stays on the same 20px line. */
+html[data-mixdog-mobile-tabs]
+  .session-sidebar-panels .schedules-row .row-overflow-trigger {
+  margin-right: calc(
+    var(--mx-rail-trailing-center, 20px) -
+    var(--mx-rail-gutter, 12px) -
+    18px
+  );
 }
 html[data-mixdog-mobile-tabs] .sidebar-section-heading,
 html[data-mixdog-mobile-tabs] .project-group-heading,
@@ -1181,6 +1207,37 @@ html[data-mixdog-mobile-tabs] .project-task-add {
   width: var(--mx-touch);
   height: var(--mx-touch);
   flex-basis: var(--mx-touch);
+}
+/* Grouped rail destinations own a real divider/header row. Their primary +
+   must use the same mobile action tier without overflowing a desktop 34px
+   row, and its center resolves against the divider's own 2px inner padding. */
+html[data-mixdog-mobile-tabs]
+  .session-sidebar .sidebar-view-section[data-active="true"][data-sectioned="true"] {
+  min-height: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs]
+  .session-sidebar .sidebar-view-section[data-sectioned="true"][data-collapsed="true"] {
+  flex-basis: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .sidebar-view-section-header {
+  height: var(--mx-touch);
+  flex-basis: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs]
+  .session-sidebar .sidebar-view-section-actions > .session-panel-action {
+  width: var(--mx-touch);
+  height: var(--mx-touch);
+  min-width: var(--mx-touch);
+  flex-basis: var(--mx-touch);
+}
+html[data-mixdog-mobile-tabs]
+  .session-sidebar .sidebar-view-section-actions > .session-panel-action > svg {
+  width: var(--mx-touch-glyph);
+  height: var(--mx-touch-glyph);
+}
+html[data-mixdog-mobile-tabs]
+  .session-sidebar .sidebar-view-section-actions > .session-panel-action:last-child {
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 2px - 22px);
 }
 
 /* ── 5. Utility dock / side sheet ──────────────────────────────────────────

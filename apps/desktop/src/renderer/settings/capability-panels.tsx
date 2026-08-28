@@ -1,4 +1,5 @@
 import {
+  Check,
   ChevronRight,
   X,
 } from 'lucide-react';
@@ -7,7 +8,8 @@ import { createPortal } from 'react-dom';
 
 import type {
   DesktopApi,
-  DesktopRemoteAccessInfo
+  DesktopRemoteAccessInfo,
+  DesktopSettingKey,
 } from '../../shared/contract';
 import {
   desktopThemeOptions,
@@ -28,7 +30,6 @@ import { registerMobileBack, useMobileBack } from '../mobile-back';
 import { showDesktopToast } from '../notifications';
 import { providerDisplayName } from '../provider-display';
 import { acquireTitleBarDim } from '../titlebar-dim';
-import { Button } from '../ui/primitives';
 import { record } from '../record-utils';
 import {
   getSidePanelMode,
@@ -480,6 +481,94 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   </Group>;
 }
 
+type VoiceInstallDialogMode = 'confirm' | 'installing' | 'failed';
+
+function VoiceInstallDialog({ mode, progressText, progressPercent, onClose, onInstall }: {
+  mode: VoiceInstallDialogMode;
+  progressText: string;
+  progressPercent: number | null;
+  onClose(): void;
+  onInstall(): void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const modeRef = useRef(mode);
+  const onCloseRef = useRef(onClose);
+  modeRef.current = mode;
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const releaseTitleBarDim = acquireTitleBarDim();
+    return () => {
+      releaseTitleBarDim();
+      prior?.focus({ preventScroll: true });
+    };
+  }, []);
+  useEffect(() => {
+    if (mode !== 'installing') closeRef.current?.focus();
+  }, [mode]);
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || modeRef.current === 'installing') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, []);
+  useEffect(() => registerMobileBack(() => {
+    if (modeRef.current !== 'installing') onCloseRef.current();
+  }), []);
+
+  const title = mode === 'confirm'
+    ? t('Install voice transcription?')
+    : mode === 'installing'
+      ? t('Installing…')
+      : `${t('Voice transcription')} · ${t('Failed')}`;
+  const progressStyle = progressPercent === null
+    ? undefined
+    : { width: `${progressPercent}%` };
+  return createPortal(
+    <div className="settings-confirm-layer" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && mode !== 'installing') onClose();
+    }}>
+      <section className="settings-confirm-dialog voice-install-dialog" role="alertdialog" aria-modal="true"
+        aria-labelledby="voice-settings-install-title" aria-describedby="voice-settings-install-description"
+        data-settings-nested-dialog>
+        <header>
+          <h3 id="voice-settings-install-title">{title}</h3>
+          {mode !== 'installing' && <button type="button" aria-label={t('Close confirmation')}
+            data-settings-nested-close onClick={onClose}>
+            <X aria-hidden="true" size={16} />
+          </button>}
+        </header>
+        {mode === 'confirm'
+          ? <p id="voice-settings-install-description">{t('Install & enable')}</p>
+          : mode === 'installing'
+            ? <div id="voice-settings-install-description" className="voice-install-progress">
+              <p role="status">{progressText || t('Installing…')}</p>
+              <span className={`voice-install-progress-bar${progressPercent === null ? ' is-indeterminate' : ''}`}
+                role="progressbar" aria-valuenow={progressPercent ?? undefined}
+                aria-valuemin={0} aria-valuemax={100}
+                aria-valuetext={progressText || t('Installing…')}>
+                <span style={progressStyle} />
+              </span>
+            </div>
+            : <p id="voice-settings-install-description">{t('Failed')}</p>}
+        {mode !== 'installing' && <footer>
+          <button ref={closeRef} type="button" onClick={onClose}>
+            {mode === 'confirm' ? t('Cancel') : t('Close')}
+          </button>
+          <button type="button" className="primary" onClick={onInstall}>
+            {mode === 'confirm' ? t('Install') : t('Retry')}
+          </button>
+        </footer>}
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
   const profile = record(data.profile);
   const toolModules = record(data.toolModules);
@@ -490,11 +579,27 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
   // 음성전사만 일반으로): the managed Whisper runtime powers voice input.
   const voice = record(data.voice);
   const voiceProgress = record(record(snapshot).progressHint);
-  const voiceComponents = record(voice.components);
   const voiceReady = voice.enabled === true && voice.installed === true;
+  const [voiceInstallDialog, setVoiceInstallDialog] = useState<VoiceInstallDialogMode | null>(null);
+  const voiceProgressText = String(voiceProgress.text || '');
+  const fallbackPercent = Number(voiceProgressText.match(/(\d+)%/)?.[1]);
+  const hintedPercent = Number(voiceProgress.percent);
+  const rawPercent = Number.isFinite(hintedPercent) ? hintedPercent : fallbackPercent;
+  const voiceProgressPercent = Number.isFinite(rawPercent)
+    ? Math.max(0, Math.min(100, Math.round(rawPercent)))
+    : null;
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const experienceLevelOptions = rows(profile.experienceLevels).map((entry) => ({ value: String(entry.id || entry.value || ''), label: label(entry) }));
   const busy = Boolean(pending);
+  const installVoice = async () => {
+    setVoiceInstallDialog('installing');
+    const result = record(await run('toggleVoice', [], 'voice-toggle'));
+    if (result.enabled === true && result.installed === true) {
+      setVoiceInstallDialog(null);
+      return;
+    }
+    setVoiceInstallDialog('failed');
+  };
   return <>
     <Group title="Profile">
       <AutoSaveRow title="Title" name="title" value={String(profile.title || '')}
@@ -512,16 +617,19 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
       <ToggleRow title="Memory" description={t("Memory and recall tools, core-memory injection, and background memory upkeep.")}
         checked={memoryModule.enabled !== false && recap.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setMemoryToolsEnabled', [enabled])} />
-      <ResourceRow title="Voice transcription"
-        description={voiceProgress.text ? String(voiceProgress.text) : voice.installed
-          ? 'Managed Whisper and ffmpeg runtime is ready for voice input.'
-          : `Runtime components · Whisper ${voiceComponents.whisper ? 'ready' : 'missing'} · model ${voiceComponents.model ? 'ready' : 'missing'} · ffmpeg ${voiceComponents.ffmpeg ? 'ready' : 'missing'}`}
-        status={voiceReady ? 'On' : voiceProgress.text || voice.busy ? 'Installing…' : 'Off'}
-        actions={<ActionButton disabled={busy || voice.busy === true}
-          onClick={() => void run('toggleVoice', [], 'voice-toggle')}>
-          {voiceReady ? 'Disable voice' : voice.installed ? 'Enable voice' : 'Install & enable'}
-        </ActionButton>} />
+      <ToggleRow title="Voice transcription" checked={voiceReady} optimistic={false}
+        disabled={busy || voice.busy === true || voiceInstallDialog !== null}
+        onChange={(enabled) => {
+          if (!enabled || voice.installed === true) {
+            void run('toggleVoice', [], 'voice-toggle');
+            return;
+          }
+          setVoiceInstallDialog('confirm');
+        }} />
     </Group>
+    {voiceInstallDialog && <VoiceInstallDialog mode={voiceInstallDialog}
+      progressText={voiceProgressText} progressPercent={voiceProgressPercent}
+      onClose={() => setVoiceInstallDialog(null)} onInstall={() => void installVoice()} />}
     <UiLanguageChoices pending={pending} />
         <ThemeChoices data={data} pending={pending} />
     <SidePanelChoices pending={pending} />
@@ -1122,10 +1230,16 @@ function McpEditorDialog({ server, busy, onClose, onSave, onToggle, onRemove }: 
               : <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
                 <button type="button" className={transport === 'stdio' ? 'active' : ''}
                   aria-pressed={transport === 'stdio'} disabled={busy}
-                  onClick={() => setTransport('stdio')}>{t('stdio')}</button>
+                  onClick={() => setTransport('stdio')}>
+                  <Check size={12} aria-hidden="true" />
+                  <span>{t('stdio')}</span>
+                </button>
                 <button type="button" className={transport === 'http' ? 'active' : ''}
                   aria-pressed={transport === 'http'} disabled={busy}
-                  onClick={() => setTransport('http')}>{t('Streamable HTTP')}</button>
+                  onClick={() => setTransport('http')}>
+                  <Check size={12} aria-hidden="true" />
+                  <span>{t('Streamable HTTP')}</span>
+                </button>
               </div>}
           </div>
         </section>
@@ -1184,28 +1298,51 @@ function McpEditorDialog({ server, busy, onClose, onSave, onToggle, onRemove }: 
   </div>, document.body);
 }
 
-function ExtensionCreateForm({ title, submitLabel, busy, onClose, onSubmit, children }: {
-  title: string;
-  submitLabel: string;
+function PluginInstallDialog({ busy, onClose, onSubmit }: {
   busy: boolean;
   onClose(): void;
-  onSubmit(data: FormData): void;
-  children: ReactNode;
+  onSubmit(source: string): void;
 }) {
-  return <form className="extensions-create" onSubmit={(event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    onSubmit(new FormData(form));
-    form.reset();
-    onClose();
-  }}>
-    <header><b>{t(title)}</b></header>
-    {children}
-    <footer>
-      <Button variant="ghost" onClick={onClose}>{t('Cancel')}</Button>
-      <Button type="submit" variant="primary" disabled={busy}>{t(submitLabel)}</Button>
-    </footer>
-  </form>;
+  useMobileBack(true, onClose);
+  useEffect(() => acquireTitleBarDim(), []);
+  return createPortal(<div className="schedules-dialog-layer"
+    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    onKeyDown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    }}>
+    <section className="schedules-dialog workflows-dialog extensions-plugin-dialog"
+      role="dialog" aria-modal="true" aria-labelledby="extensions-plugin-dialog-title">
+      <header>
+        <h2 id="extensions-plugin-dialog-title">{t('Install plugin')}</h2>
+        <div className="schedules-dialog-header-actions">
+          <button type="button" aria-label={t('Close')} onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+      <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const source = String(new FormData(event.currentTarget).get('source') || '').trim();
+        if (!source) return;
+        onSubmit(source);
+        onClose();
+      }}>
+        <label className="schedules-field">
+          <span>{t('Source')}</span>
+          <input name="source" placeholder="https://github.com/org/plugin or C:\path"
+            required autoFocus disabled={busy} />
+        </label>
+        <footer>
+          <button type="button" disabled={busy} onClick={onClose}>{t('Cancel')}</button>
+          <button type="submit" disabled={busy}>{t('Install')}</button>
+        </footer>
+      </form>
+    </section>
+  </div>, document.body);
 }
 
 function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
@@ -1328,11 +1465,9 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
   const [openId, setOpenId] = useState('');
   const open = openId ? plugins.find((plugin) => String(plugin.id || plugin.name) === openId) : undefined;
   return <Group>
-    {createOpen && <ExtensionCreateForm title="Install plugin" submitLabel="Install" busy={busy}
+    {createOpen && <PluginInstallDialog busy={busy}
       onClose={() => closeCreate?.()}
-      onSubmit={(form) => void run('addPlugin', [form.get('source')])}>
-      <input name="source" placeholder="https://github.com/org/plugin or C:\path" required />
-    </ExtensionCreateForm>}
+      onSubmit={(source) => void run('addPlugin', [source])} />}
     {plugins.length ? plugins.map((plugin) => {
       const id = String(plugin.id || plugin.name);
       const enabled = plugin.enabled !== false;
@@ -1458,53 +1593,64 @@ function DesktopPowerGroup() {
   </Group>;
 }
 
+function DesktopAgentControlGroup({
+  settingKey,
+  title,
+  description,
+  toggleTitle,
+  hidden = false,
+}: {
+  settingKey: Extract<DesktopSettingKey, 'computerControl' | 'browserControl'>;
+  title: string;
+  description: string;
+  toggleTitle: string;
+  hidden?: boolean;
+}) {
+  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void api?.readSettings?.().then((settings) => {
+      if (live) setEnabled(settings[settingKey] === true);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [api, settingKey]);
+  if (hidden || enabled === null || !api?.updateSetting) return null;
+  return <Group title={title} description={description}>
+    <ToggleRow title={toggleTitle} checked={enabled} disabled={saving}
+      onChange={(value) => {
+        if (saving) return;
+        const previous = enabled;
+        setEnabled(value);
+        setSaving(true);
+        void api.updateSetting?.(settingKey, value).then((settings) => {
+          setEnabled(settings[settingKey] === true);
+        }).catch((reason) => {
+          setEnabled(previous);
+          showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+        }).finally(() => setSaving(false));
+      }} />
+  </Group>;
+}
+
 // Desktop-local Computer Use opt-in (Windows only): exposes the agent
 // `computer` tool that reads UI Automation trees and drives real windows.
 // High risk, so default off; the main process starts/stops the bridge live.
 function DesktopComputerUseGroup() {
-  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  useEffect(() => {
-    let live = true;
-    void api?.readSettings?.().then((settings) => {
-      if (live) setEnabled(settings.computerControl === true);
-    }).catch(() => {});
-    return () => { live = false; };
-  }, [api]);
-  if (enabled === null || !api?.updateSetting) return null;
-  if (!navigator.userAgent.includes('Windows')) return null;
-  return <Group title="Computer Use"
-    description="Let agents read app UI and operate real windows on this PC. Windows only.">
-    <ToggleRow title="Enable Computer Use" checked={enabled}
-      onChange={(value) => {
-        setEnabled(value);
-        void api.updateSetting?.('computerControl', value).catch(() => {});
-      }} />
-  </Group>;
+  return <DesktopAgentControlGroup settingKey="computerControl" title="Computer Use"
+    description="Let agents inspect screens, read UI and clipboard text, and operate real windows with the mouse and keyboard. Windows only."
+    toggleTitle="Enable Computer Use"
+    hidden={!navigator.userAgent.includes('Windows')} />;
 }
 
 // Browser Use opt-in: exposes the agent `browser` tool that drives the in-app
 // browser. Only the agent bridge starts/stops with this toggle — the browser
 // window itself stays available to the user either way.
 function DesktopBrowserUseGroup() {
-  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  useEffect(() => {
-    let live = true;
-    void api?.readSettings?.().then((settings) => {
-      if (live) setEnabled(settings.browserControl === true);
-    }).catch(() => {});
-    return () => { live = false; };
-  }, [api]);
-  if (enabled === null || !api?.updateSetting) return null;
-  return <Group title="Browser Use"
-    description="Let agents drive the in-app browser to visit and operate web pages.">
-    <ToggleRow title="Enable Browser Use" checked={enabled}
-      onChange={(value) => {
-        setEnabled(value);
-        void api.updateSetting?.('browserControl', value).catch(() => {});
-      }} />
-  </Group>;
+  return <DesktopAgentControlGroup settingKey="browserControl" title="Browser Use"
+    description="Let agents operate pages in the in-app browser, including signed-in sessions and hidden background tabs."
+    toggleTitle="Enable Browser Use" />;
 }
 
 function SystemPanelBody(context: PanelContext) {

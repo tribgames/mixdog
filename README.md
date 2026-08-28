@@ -20,16 +20,14 @@ to everyone—from beginners to experts.
 
 ### Desktop
 
-| Platform | Download |
-| --- | --- |
-| Windows x64 | [Installer](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe) |
-| macOS Apple silicon | [DMG](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-arm64.dmg) |
-| macOS Intel | [DMG](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-mac-x64.dmg) |
-| Linux x86_64 | [AppImage](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-x86_64.AppImage) |
-| Linux arm64 | [AppImage](https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-linux-arm64.AppImage) |
+<p align="center">
+  <a href="https://github.com/tribgames/mixdog/releases/latest/download/mixdog-desktop-win-x64.exe">
+    <img src="https://img.shields.io/badge/Download_for_Windows_x64-0078D4?style=for-the-badge&logo=windows11&logoColor=white" alt="Download Mixdog for Windows x64" height="56">
+  </a>
+</p>
 
-Desktop packages are currently unsigned, so Windows SmartScreen or macOS
-Gatekeeper may show a security warning.
+The Windows installer is currently unsigned, so Windows SmartScreen may show a
+security warning.
 
 ### CLI
 

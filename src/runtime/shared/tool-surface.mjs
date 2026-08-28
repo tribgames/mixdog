@@ -157,6 +157,8 @@ export function displayToolName(name, args = {}) {
       return 'Browser';
     case 'computer':
       return 'Computer';
+    case 'office':
+      return 'Office';
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
@@ -288,6 +290,11 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return compactParts([
         String(a.action || ''),
         a.window ? truncateToolText(a.window, max) : a.ref ? String(a.ref) : a.app ? truncateToolText(a.app, max) : '',
+      ]);
+    case 'office':
+      return compactParts([
+        String(a.action || ''),
+        a.path ? truncateToolText(a.path, max) : a.session ? String(a.session) : '',
       ]);
     case 'read_mcp_resource':
       return truncateToolText(a.uri || '', max);
@@ -577,6 +584,8 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' });
     case 'computer':
       return unitDescriptor('Computer', { count: 1, active: 'Operating', done: 'Operated', noun: 'action' });
+    case 'office':
+      return unitDescriptor('Office', { count: 1, active: 'Editing', done: 'Edited', noun: 'document action' });
     case 'fetch': {
       const fetchLimit = Number(a.limit ?? a.messages);
       const fetchCount = Number.isFinite(fetchLimit) && fetchLimit > 0

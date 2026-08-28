@@ -312,6 +312,7 @@ export function Conversation({
     handlePointerDown: handleTranscriptPointerDown,
     handlePointerMove: handleTranscriptPointerMove,
     handlePointerUp: handleTranscriptPointerUp,
+    handleSelectionAutoScroll: handleTranscriptSelectionAutoScroll,
     handleTouchStart: handleTranscriptTouchStart,
     handleTouchMove: handleTranscriptTouchMove,
     handleTouchEnd: handleTranscriptTouchEnd,
@@ -1100,6 +1101,7 @@ export function Conversation({
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
             markProgrammaticScroll={markTranscriptProgrammaticScroll}
             hasScrollGesture={hasTranscriptScrollGesture}
+            onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
             setAnchorBottomRef={setTranscriptAnchorBottomRef}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
         </div>

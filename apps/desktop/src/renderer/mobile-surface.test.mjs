@@ -2,10 +2,33 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { JSDOM } from "jsdom";
+import {
+  PROJECT_CATALOG_CACHE_KEY,
+  acceptedProjectCatalog,
+  readCachedProjectCatalog,
+  resolveProjectPathAgainstCatalog,
+  writeCachedProjectCatalog,
+} from "./project-catalog-cache.ts";
 
 const bootSource = readFileSync(new URL("./public/boot.js", import.meta.url), "utf8");
 const mobileChromeSource = readFileSync(
   new URL("./desktop/07-mobile-chrome.css", import.meta.url),
+  "utf8",
+);
+const sidebarUsageSource = readFileSync(
+  new URL("./desktop/11-sidebar-usage.css", import.meta.url),
+  "utf8",
+);
+const railPagesSource = readFileSync(
+  new URL("./desktop/10-rail-pages.css", import.meta.url),
+  "utf8",
+);
+const dialogsSource = readFileSync(
+  new URL("./desktop/30-dialogs.css", import.meta.url),
+  "utf8",
+);
+const activityRailSource = readFileSync(
+  new URL("./ActivityRail.tsx", import.meta.url),
   "utf8",
 );
 const tokensSource = readFileSync(
@@ -24,6 +47,29 @@ const editorSource = readFileSync(
   new URL("./desktop/26-editor.css", import.meta.url),
   "utf8",
 );
+const markdownSource = readFileSync(
+  new URL("./desktop/22-markdown.css", import.meta.url),
+  "utf8",
+);
+
+test("an open Goal card stays inside its transcript pane and owns vertical overflow", () => {
+  assert.match(
+    markdownSource,
+    /\.transcript-shell > \.session-goal-island\[data-open="true"\]\s*\{[^}]*bottom:\s*var\(--pane-chrome-inset\);[^}]*pointer-events:\s*none;/su,
+  );
+  assert.match(
+    markdownSource,
+    /\.session-goal-island\[data-open="true"\] \.session-goal-popover\s*\{[^}]*max-height:\s*calc\(100% - var\(--session-goal-capsule-height\) - 6px\);[^}]*overflow:\s*hidden;/su,
+  );
+  assert.match(
+    markdownSource,
+    /\.session-goal-tasks ul\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/su,
+  );
+  assert.match(
+    markdownSource,
+    /html\[data-mixdog-mobile-tabs\] \.transcript-shell > \.session-goal-island\s*\{[^}]*--session-goal-trigger-height:[^;}]*36px[^;}]*--mx-device-scale/su,
+  );
+});
 
 test("the narrow-band dock sheet never re-frames the panel-nested dock", () => {
   // The right panel already IS the phone/narrow sheet; its nested dock must
@@ -168,7 +214,19 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
   );
   assert.match(
     mobileChromeSource,
+    /\.session-panel-header-actions > \.session-panel-action:last-child\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 22px\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.session-row-unread-dot\s*\{\s*right:\s*16\.5px;\s*\}[\s\S]*?\.session-row-status\s*\{\s*right:\s*14px;\s*\}/u,
+  );
+  assert.match(
+    mobileChromeSource,
     /html\[data-mixdog-mobile-tabs\] \.transcript\s*\{[^}]*scrollbar-gutter:\s*auto;[^}]*touch-action:\s*pan-y;/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /html\[data-mixdog-mobile-tabs\] \.session-sidebar-scroll\s*\{\s*margin-right:\s*0;\s*\}/su,
   );
   assert.match(
     mobileChromeSource,
@@ -197,6 +255,65 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
   assert.match(
     mobileChromeSource,
     /\.desktop-body > \.utility-dock\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su,
+  );
+});
+
+test("rail trailing controls resolve to one 20px centerline", () => {
+  assert.match(dialogsSource, /--mx-rail-trailing-center:\s*20px;/u);
+  assert.match(
+    railPagesSource,
+    /\.sidebar-category-header > \.row-overflow \.row-overflow-trigger\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 14px\);/su,
+  );
+  assert.match(
+    railPagesSource,
+    /\.workflows-section-head > \.schedules-new\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 14px\);/su,
+  );
+  assert.match(
+    dialogsSource,
+    /\.sidebar-view-section-actions > \.session-panel-action:last-child\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center\) - 2px - 14px\);/su,
+  );
+  assert.match(
+    dialogsSource,
+    /\.schedules-row \.row-overflow-trigger,[\s\S]*?margin-right:\s*calc\(\s*var\(--mx-rail-trailing-center\) -\s*var\(--mx-rail-gutter\) -\s*12px\s*\);/u,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.session-sidebar \.sidebar-category-header > \.row-overflow \.row-overflow-trigger\s*\{[^}]*width:\s*var\(--mx-touch-row\);[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 18px\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.session-sidebar-panels \.workflows-section-head > \.schedules-new\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 22px\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.session-sidebar \.sidebar-view-section-actions > \.session-panel-action\s*\{[^}]*width:\s*var\(--mx-touch\);[^}]*height:\s*var\(--mx-touch\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.session-sidebar \.sidebar-view-section-actions > \.session-panel-action:last-child\s*\{[^}]*margin-right:\s*calc\(var\(--mx-rail-trailing-center,\s*20px\) - 2px - 22px\);/su,
+  );
+  assert.match(
+    mobileChromeSource,
+    /\.session-sidebar-panels \.schedules-row \.row-overflow-trigger\s*\{[^}]*margin-right:\s*calc\(\s*var\(--mx-rail-trailing-center,\s*20px\) -\s*var\(--mx-rail-gutter,\s*12px\) -\s*18px\s*\);/su,
+  );
+});
+
+test("PC and phone usage flyouts share the desktop sidebar default width", () => {
+  assert.match(
+    activityRailSource,
+    /import \{ DESKTOP_SIDEBAR_DEFAULT_WIDTH \} from "\.\.\/shared\/window-layout";/u,
+  );
+  assert.match(
+    activityRailSource,
+    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH,/u,
+  );
+  assert.doesNotMatch(
+    sidebarUsageSource,
+    /\.rail-usage-popup\s*\{[^}]*width:/su,
+  );
+  assert.doesNotMatch(
+    sidebarUsageSource,
+    /html\[data-mixdog-mobile-tabs\] \.rail-usage-popup/u,
   );
 });
 
@@ -516,4 +633,36 @@ test("the entry route names the desktop to ask, by path or by relay cookie", asy
   // the route from the URL it launched at and asks for a new approval.
   clearStoredRemotePairing({ removeItem: (key) => { cells.delete(key); } });
   assert.equal(cells.size, 0);
+});
+
+test("mobile cold boot hydrates the composer project catalog from local cache", () => {
+  const cells = new Map();
+  const storage = {
+    getItem: (key) => cells.get(key) ?? null,
+    setItem: (key, value) => { cells.set(key, value); },
+  };
+  const cached = [
+    { name: "Mixdog", path: "C:\\Project\\mixdog", alias: "Core" },
+    { name: "Duplicate", path: "c:/project/mixdog/", alias: null },
+  ];
+
+  writeCachedProjectCatalog(cached, storage);
+
+  assert.equal(cells.has(PROJECT_CATALOG_CACHE_KEY), true);
+  assert.deepEqual(readCachedProjectCatalog(storage), [cached[0]]);
+});
+
+test("an uncertain empty mobile probe preserves the last project until reconnect validates it", () => {
+  const lastProject = "C:\\Project\\mixdog";
+
+  assert.equal(acceptedProjectCatalog([], false), null);
+  assert.deepEqual(acceptedProjectCatalog([], true), []);
+  assert.equal(
+    resolveProjectPathAgainstCatalog(lastProject, false, "", ""),
+    lastProject,
+  );
+  assert.equal(
+    resolveProjectPathAgainstCatalog(lastProject, true, "", "C:\\Project\\GamerScroll"),
+    "C:\\Project\\GamerScroll",
+  );
 });

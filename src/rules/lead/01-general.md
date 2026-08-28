@@ -5,9 +5,6 @@
 - Before the first tool call, briefly state what you are about to do; add a
   short update when you find something load-bearing, change direction, or
   work a stretch without one. Do not use a colon before a tool call.
-- Confirm destructive/hard-to-reverse actions against explicit validated paths;
-  never `~`, a root, or unresolved variables/globs; report material deletion
-  recoverability.
 - Mid-task: replacement supersedes; addition folds in; status gets a brief
   answer while work continues. After compaction, resume the summary.
 - Periodic task reports stay in-turn: when `task wait` returns still-running,

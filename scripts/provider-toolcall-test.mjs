@@ -10,6 +10,7 @@
 // documented inline per provider block below.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { parse } from 'acorn';
 import { analyze } from 'eslint-scope';
@@ -3502,13 +3503,9 @@ test('responses transport policy: _gateTransportMode down-shifts per capability'
 });
 
 // === 11. x-codex-turn-state parity =======================================
-// Server-issued sticky-routing token, held per turn: captured ONCE at turn
-// start from the
-// `x-codex-turn-state` RESPONSE header, replayed unchanged on every request
-// within that turn, never fabricated, and dropped between turns (a fresh
-// per-turn holder). These tests pin that exact contract
-// against our pooled-socket emulation (capture + first-use/turn-id attribution
-// + per-turn drop guard).
+// Server-issued sticky-routing token, held per logical turn: captured once
+// from response metadata, replayed unchanged in later request metadata within
+// that turn, never fabricated, and dropped between turns.
 test('codex turn-state: captures server response header once, never synthesizes', () => {
     const entry = {};
     // No header on the event → nothing captured (never fabricated).
@@ -3552,16 +3549,28 @@ test('codex turn-state: echoed within a turn, dropped across turns, never fabric
     assert.equal(entry.turnState, null);
 });
 
-test('codex turn-state: startup prewarm pin is adopted once by the first real turn', () => {
+test('codex turn-state: a prewarm response can seed its logical turn', () => {
     const sessionId = '019fc135-f07a-7880-8767-ec3b7be1de63';
     const firstTurnId = '019fc135-f07a-7880-8767-ec3b7be1de64';
     const nextTurnId = '019fc135-f07a-7880-8767-ec3b7be1de65';
-    const entry = {
-        turnState: 'tok-prewarm',
-        turnStateTurnId: '',
-        turnStateFromPrewarm: true,
-    };
+    const poolKey = 'prewarm-turn-state-session';
+    const entry = {};
+    const prewarm = _withCodexWsClientMetadata({}, entry, true, {
+        poolKey,
+        sendOpts: {
+            requestKind: 'prewarm',
+            turnId: firstTurnId,
+            codexSessionId: sessionId,
+            threadId: sessionId,
+        },
+    });
+    assert.equal(prewarm.client_metadata['x-codex-turn-state'], undefined);
+    _captureTurnStateFromEvent(entry, {
+        type: 'response.metadata',
+        headers: { 'x-codex-turn-state': 'tok-prewarm' },
+    });
     const firstTurn = _withCodexWsClientMetadata({}, entry, true, {
+        poolKey,
         sendOpts: {
             requestKind: 'turn',
             turnId: firstTurnId,
@@ -3571,9 +3580,9 @@ test('codex turn-state: startup prewarm pin is adopted once by the first real tu
     });
     assert.equal(firstTurn.client_metadata['x-codex-turn-state'], 'tok-prewarm');
     assert.equal(entry.turnStateTurnId, firstTurnId);
-    assert.equal(entry.turnStateFromPrewarm, false);
 
     const nextTurn = _withCodexWsClientMetadata({}, entry, true, {
+        poolKey,
         sendOpts: {
             requestKind: 'turn',
             turnId: nextTurnId,
@@ -3600,26 +3609,28 @@ import {
     _setOpenSocketForTest,
 } from '../src/runtime/agent/orchestrator/providers/openai-ws-pool.mjs';
 
-// The server issues the x-codex-turn-state token on the handshake 101 response
-// and it pins the backend node holding the warm prefix. codex replays it on the
-// RECONNECT handshake (codex-rs/core/src/client.rs: build_responses_headers ->
-// connect_websocket) so a replacement connection re-pins the same node. Our
-// pooled entry dies with its socket, so the pool retains the token per poolKey.
-// This pins the three cases that matter: nothing to replay on a first
-// handshake, replay on a replacement, and never onto a parallel peer or a
-// different session.
-test('codex turn-state: replayed only on a replacement handshake', async () => {
-    const fakeSocket = () => ({
-        readyState: 1, // WebSocket.OPEN
-        on() {}, once() {}, removeListener() {},
-        close() {}, terminate() {},
-    });
+// A connection handshake has a different lifetime from a logical turn.
+// Upgrade headers are ignored and every fresh socket opens without turn state.
+test('codex turn-state: never enters a connection handshake', async () => {
+    const fakeSocket = () => {
+        const socket = new EventEmitter();
+        socket.readyState = 1; // WebSocket.OPEN
+        socket.close = () => {
+            if (socket.readyState === 3) return;
+            socket.readyState = 3;
+            socket.emit('close');
+        };
+        socket.terminate = socket.close;
+        socket.ref = () => {};
+        socket.unref = () => {};
+        return socket;
+    };
     const openedWith = [];
     _clearWebSocketPoolForTest();
     _setOpenSocketForTest(async ({ turnState }) => {
         openedWith.push(turnState ?? null);
-        // The backend issues a token on the first handshake only, so the
-        // replacement below has nothing but the retained pin to go on.
+        // Even if an upgrade response exposes a token, connection acquisition
+        // must ignore it; response metadata owns turn-state capture.
         return { socket: fakeSocket(), turnState: openedWith.length === 1 ? 'tok-shard-1' : null };
     });
     try {
@@ -3628,8 +3639,8 @@ test('codex turn-state: replayed only on a replacement handshake', async () => {
         const cacheKey = 'cache-turn-state-1';
 
         const first = await acquireWebSocket({ auth, poolKey, cacheKey });
-        assert.equal(openedWith[0], null, 'a first handshake has no pin to replay');
-        assert.equal(first.entry.turnState, 'tok-shard-1');
+        assert.equal(openedWith[0], null);
+        assert.equal(first.entry.turnState, null);
 
         // The socket dies while pooled; the next acquire prunes it and opens a
         // replacement.
@@ -3637,22 +3648,30 @@ test('codex turn-state: replayed only on a replacement handshake', async () => {
         first.entry.socket.readyState = 3; // CLOSED
 
         const replacement = await acquireWebSocket({ auth, poolKey, cacheKey });
-        assert.equal(openedWith[1], 'tok-shard-1', 'a replacement handshake re-pins the shard');
-        assert.equal(replacement.entry.turnState, 'tok-shard-1', 'the pin survives a handshake that issues none');
+        assert.equal(openedWith[1], null);
+        assert.equal(replacement.entry.turnState, null);
 
-        // A parallel peer on the same key must open clean: inheriting a live
-        // sibling's token makes openai-oauth treat the request as a
-        // continuation of another in-flight turn.
-        const parallel = await acquireWebSocket({ auth, poolKey, cacheKey });
-        assert.equal(openedWith[2], null);
+        // A concurrent acquire for the same session waits for the live owner
+        // and then reuses it instead of opening a sibling connection.
+        let parallelResolved = false;
+        const parallelPromise = acquireWebSocket({ auth, poolKey, cacheKey }).then((value) => {
+            parallelResolved = true;
+            return value;
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.equal(parallelResolved, false);
+        assert.equal(openedWith.length, 2);
+        releaseWebSocket({ entry: replacement.entry, poolKey, keep: true });
+        const parallel = await parallelPromise;
+        assert.equal(parallel.entry, replacement.entry);
+        assert.equal(openedWith.length, 2);
 
         // A different session never inherits the pin.
         const other = await acquireWebSocket({ auth, poolKey: 'sess-turn-state-2', cacheKey });
-        assert.equal(openedWith[3], null);
+        assert.equal(openedWith[2], null);
 
         releaseWebSocket({ entry: other.entry, poolKey: 'sess-turn-state-2', keep: false });
         releaseWebSocket({ entry: parallel.entry, poolKey, keep: false });
-        releaseWebSocket({ entry: replacement.entry, poolKey, keep: false });
     } finally {
         _setOpenSocketForTest(null);
         _clearWebSocketPoolForTest();

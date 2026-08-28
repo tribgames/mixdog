@@ -36,6 +36,66 @@ test('every advertised session action exists on the session surface', () => {
   assert.deepEqual(missing, []);
 });
 
+test('submitAndWait resolves with the main turn settlement', async () => {
+  let state = { commandBusy: false, busy: false };
+  const api = createSessionApi(stubBag({
+    nextId: () => 'submission-1',
+    getState: () => state,
+    set: (patch) => { state = { ...state, ...patch }; },
+    autoClearBeforeSubmit: async () => {},
+    enqueue: (_text, options) => {
+      queueMicrotask(() => options.onSettled({
+        status: 'done',
+        result: { content: 'answer' },
+        session: { id: 'sess_agent' },
+      }));
+      return true;
+    },
+  }));
+
+  const settled = await api.submitAndWait('question');
+  assert.equal(settled.status, 'done');
+  assert.equal(settled.result.content, 'answer');
+  assert.equal(settled.session.id, 'sess_agent');
+});
+
+test('canonical child close is exposed on the session surface', () => {
+  const calls = [];
+  const api = createSessionApi(stubBag({
+    runtime: {
+      closeCanonicalSession(reason) {
+        calls.push(reason);
+        return true;
+      },
+    },
+  }));
+
+  assert.equal(typeof api.closeCanonicalSession, 'function');
+  assert.equal(api.closeCanonicalSession('cli-agent-close'), true);
+  assert.deepEqual(calls, ['cli-agent-close']);
+});
+
+test('canonical Agent completion is delivered through the session surface', () => {
+  const calls = [];
+  const api = createSessionApi(stubBag({
+    runtime: {
+      deliverToolCompletion(sessionId, text, meta) {
+        calls.push({ sessionId, text, meta });
+        return true;
+      },
+    },
+  }));
+  const meta = { type: 'agent_task_result', execution_id: 'task-agent-1' };
+
+  assert.equal(typeof api.deliverToolCompletion, 'function');
+  assert.equal(api.deliverToolCompletion('sess_lead', 'Agent handoff', meta), true);
+  assert.deepEqual(calls, [{
+    sessionId: 'sess_lead',
+    text: 'Agent handoff',
+    meta,
+  }]);
+});
+
 test('extension editor actions are advertised and forwarded', async () => {
   const calls = [];
   let state = { commandBusy: false, stats: {} };

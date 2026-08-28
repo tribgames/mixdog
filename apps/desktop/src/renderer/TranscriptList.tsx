@@ -102,6 +102,27 @@ function caretPointFromPointer(x: number, y: number): SelectionPoint | null {
   return range ? { node: range.startContainer, offset: range.startOffset } : null;
 }
 
+const SELECTION_SCROLL_EDGE_PX = 56;
+const SELECTION_SCROLL_MAX_STEP_PX = 28;
+
+/** One vertical selection-scroll velocity for both viewport edges. */
+export function transcriptSelectionAutoScrollDelta(
+  pointerY: number,
+  top: number,
+  bottom: number,
+): number {
+  if (!Number.isFinite(pointerY) || !Number.isFinite(top) || !Number.isFinite(bottom)
+    || bottom <= top) return 0;
+  const edge = Math.max(1, Math.min(SELECTION_SCROLL_EDGE_PX, (bottom - top) / 3));
+  const velocity = (distance: number): number => {
+    const pressure = Math.min(1, Math.max(0, distance / edge));
+    return Math.max(1, Math.round(SELECTION_SCROLL_MAX_STEP_PX * pressure * pressure));
+  };
+  if (pointerY < top + edge) return -velocity(top + edge - pointerY);
+  if (pointerY > bottom - edge) return velocity(pointerY - (bottom - edge));
+  return 0;
+}
+
 export function TranscriptList({
   sessionKey,
   rows,
@@ -113,6 +134,7 @@ export function TranscriptList({
   renderRow,
   markProgrammaticScroll,
   hasScrollGesture,
+  onSelectionAutoScroll,
 }: {
   sessionKey: string;
   rows: readonly TranscriptRowModel[];
@@ -129,6 +151,8 @@ export function TranscriptList({
   markProgrammaticScroll?: (top: number, intended?: number) => void;
   /** True from the first wheel/touch/drag intent through its inertial tail. */
   hasScrollGesture: () => boolean;
+  /** Claims reader ownership before this list writes selection auto-scroll. */
+  onSelectionAutoScroll(delta: number): void;
 }) {
   const spacer = useRef<HTMLDivElement>(null);
   // Web snapshots and native scrolling can update in the same frame. Keep
@@ -518,6 +542,7 @@ export function TranscriptList({
     let seedY = 0;
     let lastGood: { anchor: SelectionPoint; focus: SelectionPoint } | null = null;
     let lastPointer = { x: 0, y: 0 };
+    let selectionScrollFrame = 0;
     const endpointForNode = (node: Node | null): SelectionEndpoint | null => {
       const element = node instanceof Element ? node : node?.parentElement;
       const row = element?.closest<HTMLElement>(".transcript-virtual-row");
@@ -583,6 +608,71 @@ export function TranscriptList({
         : null;
       if (start && end) applyRange(start, end);
     };
+    const stopSelectionAutoScroll = () => {
+      if (!selectionScrollFrame) return;
+      window.cancelAnimationFrame(selectionScrollFrame);
+      selectionScrollFrame = 0;
+    };
+    const extendSelectionToViewportEdge = () => {
+      if (!selecting || !seed) return;
+      const view = root.getBoundingClientRect();
+      const goingDown = lastPointer.y >= seedY;
+      const visibleRows = [
+        ...root.querySelectorAll<HTMLElement>(".transcript-virtual-row"),
+      ].filter((row) => {
+        const rect = row.getBoundingClientRect();
+        return rect.bottom > view.top && rect.top < view.bottom;
+      });
+      const edgeRow = goingDown ? visibleRows.at(-1) : visibleRows[0];
+      const seedRow = rowElement(seed.index);
+      const anchor = seedPoint && root.contains(seedPoint.node)
+        ? seedPoint
+        : (seedRow ? (goingDown ? firstTextPoint(seedRow) : lastTextPoint(seedRow)) : null);
+      const pointerX = Math.min(view.right - 1, Math.max(view.left + 1, lastPointer.x));
+      const pointerY = Math.min(view.bottom - 1, Math.max(view.top + 1, lastPointer.y));
+      const pointed = caretPointFromPointer(pointerX, pointerY);
+      const focus = pointed && root.contains(pointed.node) && endpointForNode(pointed.node)
+        ? pointed
+        : (edgeRow ? (goingDown ? lastTextPoint(edgeRow) : firstTextPoint(edgeRow)) : null);
+      if (!anchor || !focus) return;
+      applyRange(anchor, focus);
+      lastGood = { anchor, focus };
+      const anchorEndpoint = endpointForNode(anchor.node);
+      const focusEndpoint = endpointForNode(focus.node);
+      if (anchorEndpoint && focusEndpoint) {
+        setSelectionPin({ anchor: anchorEndpoint, focus: focusEndpoint });
+      }
+    };
+    const selectionAutoScrollStep = () => {
+      selectionScrollFrame = 0;
+      if (!selecting) return;
+      const view = root.getBoundingClientRect();
+      const delta = transcriptSelectionAutoScrollDelta(
+        lastPointer.y, view.top, view.bottom);
+      if (!delta) return;
+      const previousTop = root.scrollTop;
+      onSelectionAutoScroll(delta);
+      root.scrollTop = previousTop + delta;
+      if (root.scrollTop === previousTop) {
+        extendSelectionToViewportEdge();
+        return;
+      }
+      extendSelectionToViewportEdge();
+      selectionScrollFrame = window.requestAnimationFrame(selectionAutoScrollStep);
+    };
+    const updateSelectionAutoScroll = () => {
+      const view = root.getBoundingClientRect();
+      const delta = transcriptSelectionAutoScrollDelta(
+        lastPointer.y, view.top, view.bottom);
+      if (!delta) {
+        stopSelectionAutoScroll();
+        return false;
+      }
+      if (!selectionScrollFrame) {
+        selectionScrollFrame = window.requestAnimationFrame(selectionAutoScrollStep);
+      }
+      return true;
+    };
     const selectionCrossedSeed = (
       anchor: SelectionEndpoint | null,
       focus: SelectionEndpoint | null,
@@ -625,6 +715,7 @@ export function TranscriptList({
       if (event.button !== 0) return;
       const endpoint = endpointForNode(event.target as Node | null);
       if (!endpoint) {
+        stopSelectionAutoScroll();
         selecting = false;
         seed = null;
         seedPoint = null;
@@ -647,6 +738,11 @@ export function TranscriptList({
     const handlePointerMove = (event: PointerEvent) => {
       if (!selecting) return;
       lastPointer = { x: event.clientX, y: event.clientY };
+      if (updateSelectionAutoScroll()) {
+        event.preventDefault();
+        extendSelectionToViewportEdge();
+        return;
+      }
       if (!pointerOverTranscriptRow()) {
         // Chromium remaps an extending native range to the nearest selectable
         // text when the pointer enters the non-selectable composer. Cancel that
@@ -658,13 +754,14 @@ export function TranscriptList({
     };
     const handleMouseMove = (event: MouseEvent) => {
       if (!selecting) return;
-      lastPointer = { x: event.clientX, y: event.clientY };
-      if (!pointerOverTranscriptRow()) {
+      const view = root.getBoundingClientRect();
+      const edgeScrolling = transcriptSelectionAutoScrollDelta(
+        lastPointer.y, view.top, view.bottom) !== 0;
+      if (edgeScrolling || !pointerOverTranscriptRow()) {
         // Text-range extension is a mouse default action in Chromium even
-        // when Pointer Events are enabled, so cancel the compatibility event
-        // as well as pointermove.
+        // when Pointer Events are enabled. Pointermove is the sole state owner;
+        // this compatibility event only suppresses the duplicate native write.
         event.preventDefault();
-        clampOutside();
       }
     };
     const handleSelectStart = (event: Event) => {
@@ -674,6 +771,7 @@ export function TranscriptList({
     };
     const finishSelection = () => {
       if (!selecting) return;
+      stopSelectionAutoScroll();
       syncSelectionPin();
       selecting = false;
       seed = null;
@@ -698,10 +796,11 @@ export function TranscriptList({
       document.removeEventListener("selectionchange", syncSelectionPin);
       document.removeEventListener("pointerup", finishSelection, true);
       document.removeEventListener("pointercancel", finishSelection, true);
+      stopSelectionAutoScroll();
       markSelecting(false);
       selectionPinned.current = null;
     };
-  }, [sessionKey, setSelectionPin, viewport]);
+  }, [onSelectionAutoScroll, sessionKey, setSelectionPin, viewport]);
 
   useEffect(() => () => {
     if (resizePinFrame.current) window.cancelAnimationFrame(resizePinFrame.current);

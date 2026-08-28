@@ -35,7 +35,6 @@ export function useAppSidebarSurface({
   startTask,
   openSession,
   openStudioTab,
-  openBrowserTab,
   openTerminalTab,
   openFolderTab,
   refreshProjects,
@@ -70,7 +69,6 @@ export function useAppSidebarSurface({
   startTask(): unknown;
   openSession(sessionId: string): unknown;
   openStudioTab(): unknown;
-  openBrowserTab(): unknown;
   openTerminalTab(): unknown;
   openFolderTab(): unknown;
   refreshProjects(): Promise<DesktopProjectSummary[]>;
@@ -226,7 +224,6 @@ export function useAppSidebarSurface({
   // panel stays selected so repeated launches need no re-entry (user: 한번
   // 누르면 세션창으로 이동되는데 그냥 유지되도록).
   const utilitiesOpenStudio = useStableEvent(() => openStudioTab());
-  const utilitiesOpenBrowser = useStableEvent(() => openBrowserTab());
   const utilitiesOpenTerminal = useStableEvent(() => openTerminalTab());
   const utilitiesOpenExplorer = useStableEvent(() => openFolderTab());
   const projectsCreate = useStableEvent(async (path: string, name?: string) => {
@@ -259,7 +256,6 @@ export function useAppSidebarSurface({
     const content = panel === "utilities"
       ? <UtilitiesPane active={active}
           onOpenStudio={utilitiesOpenStudio}
-          onOpenBrowser={utilitiesOpenBrowser}
           onOpenTerminal={utilitiesOpenTerminal}
           onOpenExplorer={utilitiesOpenExplorer} />
       : panel === "schedules"
@@ -320,7 +316,6 @@ export function useAppSidebarSurface({
     panelSurface("utilities", "Utilities", (active) =>
       <UtilitiesPane active={active}
         onOpenStudio={utilitiesOpenStudio}
-        onOpenBrowser={utilitiesOpenBrowser}
         onOpenTerminal={utilitiesOpenTerminal}
         onOpenExplorer={utilitiesOpenExplorer} />)
     )}
@@ -385,7 +380,6 @@ export function useAppSidebarSurface({
     presentedSidebarGroup,
     utilitiesOpenExplorer,
     utilitiesOpenStudio,
-    utilitiesOpenBrowser,
     utilitiesOpenTerminal,
   ]);
 

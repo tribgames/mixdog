@@ -10,6 +10,7 @@ import {
     promptHasInlineImages,
     shouldStripImagesForRetry,
     stripInlineImages,
+    stripInlineImagesFromLatestTurn,
 } from './image-strip-recovery.mjs';
 import { isRetryableStreamErrorEvent } from '../providers/retry-classifier.mjs';
 
@@ -92,6 +93,20 @@ test('confirmed rejection persistently removes only one newly introduced image',
     assert.equal(persistenceMessagesForConfirmedImageRejection(err, ambiguous), null);
 });
 
+test('image retry projection preserves images from already-sent turns', () => {
+    const oldImage = { type: 'image', data: 'old', mimeType: 'image/png' };
+    const newImage = { type: 'image', data: 'new', mimeType: 'image/png' };
+    const messages = [
+        { role: 'user', content: [oldImage] },
+        { role: 'assistant', content: 'seen' },
+        { role: 'user', content: [newImage] },
+    ];
+    const projected = stripInlineImagesFromLatestTurn(messages);
+    assert.equal(projected.stripped, 1);
+    assert.equal(projected.messages[0].content[0].type, 'image');
+    assert.equal(projected.messages[2].content[0].text, IMAGE_STRIP_PLACEHOLDER);
+});
+
 test('agent loop heals one rejected tail image and the next turn stays usable', async () => {
     const imageParts = (messages) => messages.flatMap((message) => {
         const content = Array.isArray(message?.content)
@@ -119,7 +134,11 @@ test('agent loop heals one rejected tail image and the next turn stays usable', 
                     { httpStatus: 400 },
                 );
             }
-            assert.equal(imageParts(sentMessages).length, 0, 'retry must omit request images');
+            assert.deepEqual(
+                imageParts(sentMessages).map((part) => part.data),
+                ['old-valid'],
+                'retry must preserve cached images and omit only the rejected turn image',
+            );
             return { content: 'recovered', toolCalls: [], stopReason: 'end_turn' };
         },
     };

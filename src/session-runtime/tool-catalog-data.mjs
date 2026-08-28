@@ -38,7 +38,7 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   // cwd / web_fetch demoted to the deferred manifest 2026-08:
   // 0 / 10 calls in a 3-day 7.6k-call trace window; they auto-load on
   // first direct call.
-  'edit', 'apply_patch', 'git', 'shell', 'task', 'agent', 'recall', 'web_search',
+  'edit', 'apply_patch', 'git', 'shell', 'task', 'agent', 'recall', 'web_search', 'goal',
   'Skill', 'load_tool',
 ]);
 

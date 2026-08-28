@@ -429,11 +429,13 @@ test("a browser without interactive transitions still steps to the next tab", ()
   const { activations, focused, uninstall } = swipeHarness();
   try {
     touch(surface, "touchstart", 300, 200, 0);
-    touch(surface, "touchmove", 280, 202, 16);
+    const move = touch(surface, "touchmove", 280, 202, 16);
     // No snapshot exists, so nothing is marked and nothing moves until release.
+    assert.equal(move.defaultPrevented, true);
     assert.equal(root.dataset.mobileTabSwipe, undefined);
     assert.deepEqual(activations, []);
-    touch(surface, "touchend", 160, 204, 48);
+    const release = touch(surface, "touchend", 160, 204, 48);
+    assert.equal(release.defaultPrevented, true);
     assert.deepEqual(activations, [["leaf-1", "session:b"]]);
     assert.deepEqual(focused, [{ kind: "session", id: "b" }]);
   } finally {
@@ -458,8 +460,10 @@ test("a mostly vertical drag never switches tabs", () => {
   const { activations, uninstall } = swipeHarness();
   try {
     touch(surface, "touchstart", 300, 200, 0);
-    touch(surface, "touchmove", 296, 260, 16);
-    touch(surface, "touchend", 292, 400, 32);
+    const move = touch(surface, "touchmove", 296, 260, 16);
+    const release = touch(surface, "touchend", 292, 400, 32);
+    assert.equal(move.defaultPrevented, false);
+    assert.equal(release.defaultPrevented, false);
     assert.deepEqual(activations, []);
     assert.equal(view.state.transitions, 0);
     assert.equal(root.dataset.mobileTabSwipe, undefined);

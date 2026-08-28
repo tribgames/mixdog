@@ -193,7 +193,7 @@ test('desktop activity groups by work unit, not by shared category', () => {
     { kind: 'tool', id: 'stage-1', name: 'git_stage', args: { diff_id: 'd1', change_ids: ['c1'] }, result: 'staged' },
     { kind: 'tool', id: 'graph-1', name: 'code_graph', args: { mode: 'overview', files: ['a.ts'] }, result: 'ok' },
     { kind: 'tool', id: 'read-1', name: 'read', args: { file_path: 'a.ts' }, result: 'ok' },
-    // External MCP nouns carry the server name; the bucket must stay whole.
+    // External MCP calls keep separate server-name buckets.
     { kind: 'tool', id: 'mcp-1', name: 'mcp__srv__a', args: { q: 'x' }, result: 'ok' },
     { kind: 'tool', id: 'mcp-2', name: 'mcp__other__b', args: { q: 'y' }, result: 'ok' },
   ]);
@@ -203,8 +203,42 @@ test('desktop activity groups by work unit, not by shared category', () => {
     { unitKey: 'Git|Staged|change', category: 'Git', label: 'Git staging', count: 1 },
     { unitKey: 'Read|Read|code map', category: 'Read', label: 'Code structure', count: 1 },
     { unitKey: 'Read|Read|file', category: 'Read', label: 'File reading', count: 1 },
-    { unitKey: 'MCP', category: 'MCP', label: 'MCP tool use', count: 2 },
+    { unitKey: 'MCP|srv', category: 'MCP', label: 'Srv', count: 1 },
+    { unitKey: 'MCP|other', category: 'MCP', label: 'Other', count: 1 },
   ]);
+});
+
+test('desktop activity uses concrete control, MCP server, and skill names', () => {
+  const groups = desktopToolActivityCategoryGroups([
+    { kind: 'tool', id: 'browser', name: 'browser', args: { action: 'open' }, result: 'ok' },
+    { kind: 'tool', id: 'computer', name: 'computer', args: { action: 'click' }, result: 'ok' },
+    { kind: 'tool', id: 'office', name: 'office', args: { action: 'inspect' }, result: 'ok' },
+    { kind: 'tool', id: 'unity', name: 'mcp__UnityMCP__manage_scene', args: { action: 'get' }, result: 'ok' },
+    { kind: 'tool', id: 'skill', name: 'Skill', args: { name: 'gamerscroll-article' }, result: 'ok' },
+  ]);
+
+  assert.deepEqual(groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })), [
+    { unitKey: 'Browser', category: 'Browser', label: 'Browser control', count: 1 },
+    { unitKey: 'Computer', category: 'Computer', label: 'Computer control', count: 1 },
+    { unitKey: 'Office', category: 'Office', label: 'Document work', count: 1 },
+    { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'UnityMCP', count: 1 },
+    { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'gamerscroll-article', count: 1 },
+  ]);
+
+  assert.equal(desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'browser-item',
+    name: 'browser',
+    args: { action: 'open' },
+    result: 'ok',
+  }).title, 'Browser control');
+  assert.equal(desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'skill-item',
+    name: 'Skill',
+    args: { name: 'gamerscroll-article' },
+    result: 'ok',
+  }).title, 'gamerscroll-article');
 });
 
 test('desktop activity normalizes common provider tool aliases', () => {
@@ -306,8 +340,8 @@ test('desktop activity masks secret fields and keeps routine load results collap
     result: 'Loaded skill',
     completedAt: 1,
   });
-  assert.equal(skill.title, 'Skill');
-  assert.equal(skill.subject, 'setup');
+  assert.equal(skill.title, 'setup');
+  assert.equal(skill.subject, '');
   assert.equal(skill.resultLabel, '');
   assert.equal(skill.hasDetails, false);
 });

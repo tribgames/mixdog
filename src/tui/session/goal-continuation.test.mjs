@@ -10,17 +10,17 @@ test('idle Goal schedules one hidden continuation and user input cancels it', as
   const state = { busy: false, commandBusy: false, sessionId: 'sess_goal', goal };
   const pending = [];
   let listener = null;
-  let archived = 0;
   const controller = createGoalContinuation({
     runtime: {
       id: 'sess_goal',
       goalStatus: () => goal,
       goalContinuation: () => ({ run: true, reason: 'idle', goal, prompt: 'hidden continuation' }),
+      goalTurnStarted: async () => goal,
+      goalTurnSettled: async () => goal,
       onGoalStatusChange: (next) => {
         listener = next;
         return () => { listener = null; };
       },
-      archiveCompletedGoalOnUserInput: async () => { archived += 1; },
     },
     flags: { disposed: false, pendingSessionReset: false },
     getState: () => state,
@@ -40,10 +40,8 @@ test('idle Goal schedules one hidden continuation and user input cancels it', as
     assert.equal(pending[0].priority, 'later');
     assert.equal(controller.shouldRunGoalContinuation(pending[0]), true);
 
-    controller.archiveCompletedGoalOnUserInput();
+    controller.cancelQueuedGoalContinuations();
     assert.equal(pending.length, 0);
-    await settleImmediate();
-    assert.equal(archived, 1);
 
     listener?.({ sessionId: 'sess_goal', goal: { ...goal, status: 'paused' } });
     await settleImmediate();
@@ -75,7 +73,7 @@ test('busy or agent-parked Goal does not enqueue a continuation', async () => {
     await settleImmediate();
     assert.equal(pending.length, 0);
     state.busy = false;
-    controller.onGoalTurnSettled('done');
+    await controller.onGoalTurnSettled({ status: 'done' });
     await settleImmediate();
     assert.equal(pending.length, 0);
   } finally {

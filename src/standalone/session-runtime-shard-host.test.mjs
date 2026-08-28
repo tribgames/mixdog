@@ -46,6 +46,7 @@ const syncs = [];
 const cancels = [];
 const agentJobs = [];
 const agentNotifications = [];
+const agentControlWaiters = new Map();
 let prewarms = 0;
 function send(message) { if (process.connected) process.send(message); }
 function respond(requestId, value) { if (requestId) send({ type: 'response', requestId, ok: true, value }); }
@@ -54,6 +55,13 @@ process.on('message', (message) => {
   if (message.type === 'provider-cooldown-sync') { syncs.push(message); return; }
   if (message.type === 'agent-control-notification') {
     agentNotifications.push(message);
+    return;
+  }
+  if (message.type === 'agent-control-result') {
+    const waitingRequestId = agentControlWaiters.get(String(message.controlId || ''));
+    if (!waitingRequestId) return;
+    agentControlWaiters.delete(String(message.controlId || ''));
+    respond(waitingRequestId, message.ok === false ? { error: message.error?.message } : message.value);
     return;
   }
   const requestId = String(message.requestId || '');
@@ -168,6 +176,20 @@ process.on('message', (message) => {
   if (message.type === 'call') {
     const args = Array.isArray(message.args) ? message.args : [];
     const command = args[0];
+    if (command === 'canonical-agent-control') {
+      const controlId = 'canonical-control-' + SHARD + '-' + requestId;
+      agentControlWaiters.set(controlId, requestId);
+      send({
+        type: 'agent-control',
+        controlId,
+        args: { type: 'spawn', tag: 'canonical', agent: 'worker', prompt: 'brief' },
+        context: {
+          callerSessionId: message.options?.sessionId || 'sess_canonical_parent',
+          callerCwd: process.cwd(),
+        },
+      });
+      return;
+    }
     if (command === 'lag') {
       const value = Number(args[1]) || 0;
       send({ type: 'event-loop-lag', shard: SHARD, sample: {
@@ -215,7 +237,11 @@ process.on('message', (message) => {
 });
 `;
 
-async function withShardHost(run, { shardCount = SHARDS, env = {} } = {}) {
+async function withShardHost(run, {
+  shardCount = SHARDS,
+  env = {},
+  executeAgentControl = null,
+} = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'mixdog-runtime-shard-'));
   const workerEntry = join(dir, 'shard-stub.mjs');
   const logs = [];
@@ -226,6 +252,7 @@ async function withShardHost(run, { shardCount = SHARDS, env = {} } = {}) {
     env: { ...process.env, ...env },
     shardCount,
     log: (line) => logs.push(line),
+    executeAgentControl,
   });
   try {
     await run({ host, logs });
@@ -288,7 +315,53 @@ test('agent dispatch fans out across shards and cancel follows its shard', async
   });
 });
 
-test('one Lead distributes persistent Agent tags across shards and receives their completions', async () => {
+test('runtime shard Agent control is executed by the daemon canonical controller', async () => {
+  const calls = [];
+  await withShardHost(async ({ host }) => {
+    const ownerSessionId = keyForShard(0, 'canonical-owner');
+    const owner = await host.create({ sessionId: ownerSessionId });
+    const result = await owner.submitAsync('canonical-agent-control');
+    assert.deepEqual(result, {
+      task_id: 'task_agent_canonical',
+      status: 'running',
+      sessionId: 'sess_canonical_child',
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args.type, 'spawn');
+    assert.equal(calls[0].args.tag, 'canonical');
+    assert.ok(calls[0].context.signal instanceof AbortSignal);
+    assert.equal(host.notifySessionCompletion(
+      ownerSessionId,
+      'canonical owner handoff',
+      {
+        type: 'agent_task_result',
+        execution_surface: 'agent',
+        execution_id: 'task_agent_canonical',
+        status: 'completed',
+      },
+    ), true);
+    const notifications = await waitFor(async () => {
+      const row = await owner.submitAsync('agent-notifications');
+      return row.agentNotifications.some((entry) => entry.text === 'canonical owner handoff')
+        ? row.agentNotifications
+        : null;
+    }, 'canonical Agent completion owner routing');
+    assert.equal(notifications.some((entry) =>
+      entry.ownerSessionId === ownerSessionId
+      && entry.meta?.execution_id === 'task_agent_canonical'), true);
+  }, {
+    executeAgentControl: async (args, context) => {
+      calls.push({ args, context });
+      return {
+        task_id: 'task_agent_canonical',
+        status: 'running',
+        sessionId: 'sess_canonical_child',
+      };
+    },
+  });
+});
+
+test.skip('retired shard-local Agent execution is replaced by daemon canonical sessions', async () => {
   await withShardHost(async ({ host }) => {
     const ownerSessionId = keyForShard(0, 'lead-agent-owner');
     const owner = await host.create({ sessionId: ownerSessionId });

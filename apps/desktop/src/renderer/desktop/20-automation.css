@@ -125,7 +125,7 @@
 .schedules-dialog input {
   box-sizing: border-box;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
   outline: 1px solid transparent;
@@ -459,7 +459,7 @@
 .workflows-md-field textarea {
   box-sizing: border-box;
   min-height: 280px;
-  padding: 10px 12px;
+  padding: 10px 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
   outline: none;
@@ -506,9 +506,15 @@
   cursor: pointer;
 }
 .workflows-agent-remove:hover { color: var(--mx-danger); background: var(--mx-hover); }
-.workflows-agent-mode-field { display: grid; justify-items: start; gap: 6px; }
-.workflows-agent-mode-field .mx-select-root { width: 120px; min-width: 120px; }
-.workflows-agent-mode-field .mx-select-trigger { width: 100%; height: 32px; border-radius: var(--mx-radius-md); }
+.workflows-agent-mode-field {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
 .workflows-agent-add { display: flex; justify-content: flex-start; }
 .workflows-section-head {
   display: flex;
@@ -518,6 +524,20 @@
   padding-top: 12px;
 }
 .workflows-section-head h2 { margin: 0; }
+.workflows-route-dialog {
+  --workflows-route-dialog-inline: 20px;
+}
+.workflows-route-dialog > header,
+.workflows-route-dialog > form {
+  padding-inline: var(--workflows-route-dialog-inline);
+}
+.workflows-route-dialog footer {
+  margin-inline: calc(-1 * var(--workflows-route-dialog-inline));
+  padding-inline: var(--workflows-route-dialog-inline);
+}
+.workflows-route-dialog .route-editor > .model-trigger {
+  padding-inline: 8px;
+}
 .workflows-dialog-route { display: flex; }
 .workflows-dialog-route .workflows-route-controls { margin-left: 0; justify-content: flex-start; }
 .workflows-delete-dialog-body { padding: 16px 20px 4px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); }
@@ -943,6 +963,48 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
+}
+.voice-install-progress {
+  display: grid;
+  gap: 9px;
+  padding: 0 20px 20px;
+}
+.voice-install-progress > p {
+  min-height: var(--mx-line-ui);
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.voice-install-progress-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+}
+.voice-install-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mx-accent);
+  transition: width 160ms ease-out;
+}
+.voice-install-progress-bar.is-indeterminate > span {
+  width: 32%;
+  animation: voice-install-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes voice-install-indeterminate {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(330%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-install-progress-bar > span { transition: none; }
+  .voice-install-progress-bar.is-indeterminate > span {
+    width: 100%;
+    opacity: .45;
+    animation: none;
+  }
 }
 .settings-confirm-dialog > footer {
   display: flex;

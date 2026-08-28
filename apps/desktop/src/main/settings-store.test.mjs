@@ -135,6 +135,8 @@ test('IPC accepts only the runtime-backed setting keys', () => {
   assert.equal(requiredDesktopSettingKey('autoClear'), 'autoClear');
   assert.equal(requiredDesktopSettingKey('autoCompact'), 'autoCompact');
   assert.equal(requiredDesktopSettingKey('keepAwake'), 'keepAwake');
+  assert.equal(requiredDesktopSettingKey('computerControl'), 'computerControl');
+  assert.equal(requiredDesktopSettingKey('browserControl'), 'browserControl');
   assert.throws(() => requiredDesktopSettingKey('homeAccess'), /invalid/);
   assert.throws(() => requiredDesktopSettingKey('updates'), /invalid/);
   assert.throws(() => requiredDesktopSettingKey({}), /invalid/);

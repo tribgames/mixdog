@@ -80,6 +80,17 @@ export function stripInlineImages(messages, { startIndex = 0 } = {}) {
     return { messages: stripped ? next : messages, stripped, uniqueImages: identities.size };
 }
 
+export function stripInlineImagesFromLatestTurn(messages) {
+    if (!Array.isArray(messages)) return { messages, stripped: 0, uniqueImages: 0 };
+    let startIndex = 0;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.role !== 'assistant') continue;
+        startIndex = index + 1;
+        break;
+    }
+    return stripInlineImages(messages, { startIndex });
+}
+
 export function confirmedImageRejection(err) {
     if (errorStatus(err) !== 400) return false;
     const code = errorCode(err);
@@ -89,14 +100,7 @@ export function confirmedImageRejection(err) {
 
 export function persistenceMessagesForConfirmedImageRejection(err, messages) {
     if (!confirmedImageRejection(err) || !Array.isArray(messages)) return null;
-    let startIndex = 0;
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-        if (messages[i]?.role === 'assistant') {
-            startIndex = i + 1;
-            break;
-        }
-    }
-    const tail = stripInlineImages(messages, { startIndex });
+    const tail = stripInlineImagesFromLatestTurn(messages);
     return tail.stripped > 0 && tail.uniqueImages === 1 ? tail.messages : null;
 }
 

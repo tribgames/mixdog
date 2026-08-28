@@ -531,7 +531,9 @@
 .session-sidebar-panels .workflows-packs > .workflows-section-head { padding-top: 0; }
 .session-sidebar-panels .workflows-section-head { align-items: center; gap: 8px; padding: 6px 0 0; }
 .session-sidebar-panels .workflows-section-head h2 { flex: 1; margin: 0; }
-.session-sidebar-panels .workflows-section-head > .schedules-new { margin-right: 6px; }
+.session-sidebar-panels .workflows-section-head > .schedules-new {
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
+}
 /* Workflow and agent lists share the same two-line summary row. Model, effort,
    and fast are edited only in the overflow-owned dialog. */
 .session-sidebar-panels .workflows-agent-summary-row > .row-overflow {
@@ -893,7 +895,7 @@
 .sidebar-category-header > .row-overflow .row-overflow-trigger {
   width: 28px;
   height: 28px;
-  margin-right: 6px;
+  margin-right: calc(var(--mx-rail-trailing-center, 20px) - 14px);
 }
 /* Empty-state line matches the section rows' type (user). */
 .sidebar-section-empty {

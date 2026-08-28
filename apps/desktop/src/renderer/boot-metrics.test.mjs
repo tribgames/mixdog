@@ -5,8 +5,28 @@ import {
   _resetBootMetricsForTest,
   beginBootSurface,
   createBootSurfaceBarrier,
+  desktopBootPrerequisitesReady,
   reportBootSurfaceStage,
 } from "./boot-metrics.ts";
+
+test("desktop boot stays covered until pane layout restoration completes", () => {
+  const prerequisites = {
+    snapshotHydrated: true,
+    projectCatalogReady: true,
+    onboardingReady: true,
+    updaterStateReady: true,
+    startupSettled: true,
+  };
+
+  assert.equal(desktopBootPrerequisitesReady({
+    ...prerequisites,
+    restorePending: true,
+  }), false);
+  assert.equal(desktopBootPrerequisitesReady({
+    ...prerequisites,
+    restorePending: false,
+  }), true);
+});
 
 test("cold boot barrier releases on first paint instead of waiting for ready", async () => {
   _resetBootMetricsForTest();

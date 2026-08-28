@@ -1,4 +1,4 @@
-import { ChevronRight, Files, Globe, Sparkles, SquareTerminal } from "lucide-react";
+import { ChevronRight, Files, Sparkles, SquareTerminal } from "lucide-react";
 
 import { t } from "./i18n";
 import { usePersistedListOrder } from "./use-persisted-list-order";
@@ -6,13 +6,11 @@ import { usePersistedListOrder } from "./use-persisted-list-order";
 export function UtilitiesPane({
   active = true,
   onOpenStudio,
-  onOpenBrowser,
   onOpenTerminal,
   onOpenExplorer,
 }: {
   active?: boolean;
   onOpenStudio(): void;
-  onOpenBrowser(): void;
   onOpenTerminal(): void;
   onOpenExplorer(): void;
 }) {
@@ -34,12 +32,6 @@ export function UtilitiesPane({
       description: "Browse and edit project files.",
       icon: Files,
       run: onOpenExplorer,
-    },
-    {
-      label: "Browser",
-      description: "Browse the web in a tab agents can drive.",
-      icon: Globe,
-      run: onOpenBrowser,
     },
   ] as const;
   const order = usePersistedListOrder(

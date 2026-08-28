@@ -5,6 +5,8 @@
  * OpenAI-compatible providers without a document contract receive page-ordered
  * text extracted here, so they never see an unsupported inline Base64 block.
  */
+import { resolvedPdfJs } from './pdfjs-runtime.mjs';
+
 const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 
@@ -23,6 +25,7 @@ export async function inspectPdfBuffer(buffer, {
   pageRange = null,
 } = {}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new TypeError('PDF payload is empty');
+  await resolvedPdfJs();
   const { getDocumentProxy } = await import('unpdf');
   const pdf = await getDocumentProxy(new Uint8Array(buffer));
   try {

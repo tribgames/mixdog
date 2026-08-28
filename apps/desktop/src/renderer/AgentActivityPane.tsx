@@ -303,8 +303,218 @@ function poolRowKey(agent: DesktopAgentPoolRow, index: number): string {
   return String(agent.sessionId || agent.tag || agent.taskId || index);
 }
 
-function poolOwnerId(agent: DesktopAgentPoolRow): string {
-  return String(agent.ownerSessionId || agent.sessionId || '').trim();
+function poolSessionId(agent: DesktopAgentPoolRow): string {
+  return String(agent.sessionId || '').trim();
+}
+
+/** The IMMEDIATE spawn parent of one pool row. `parentSessionId` is the exact
+ *  link; `ownerSessionId` carries the same value for a first-generation child
+ *  and is the only link older rows publish, so it stays the fallback. */
+function poolParentId(agent: DesktopAgentPoolRow): string {
+  const sessionId = poolSessionId(agent);
+  const parent = String(agent.parentSessionId || '').trim();
+  if (parent && parent !== sessionId) return parent;
+  const owner = String(agent.ownerSessionId || '').trim();
+  // A row that owns itself is a root (Lead): it has no parent to climb to.
+  if (owner && owner !== sessionId) return owner;
+  return '';
+}
+
+/** Guard for a self-referencing or corrupted spawn chain: a hierarchy this
+ *  deep is a defect, and walking it forever would freeze the window. */
+const MAX_AGENT_TREE_DEPTH = 16;
+
+export interface AgentActivityNode {
+  agent: DesktopAgentPoolRow;
+  sessionId: string;
+  /** Immediate parent as rendered: '' for a row that sits directly under the
+   *  owner heading. */
+  parentSessionId: string;
+  depth: number;
+  /** 1-based position among its rendered siblings, for aria-posinset. */
+  posInSet: number;
+  setSize: number;
+  children: AgentActivityNode[];
+}
+
+export interface AgentActivityGroup {
+  ownerId: string;
+  agents: DesktopAgentPoolRow[];
+  nodes: AgentActivityNode[];
+}
+
+/** Root owner of one row.
+ *
+ *  `ownerSessionId` is the AUTHORITATIVE root: the producer stamps every
+ *  descendant with the owning Lead session, so a grandchild is filed under its
+ *  Lead even when its immediate parent already finished or is hidden here.
+ *  `parentSessionId` is only the immediate edge and is consulted as a fallback
+ *  for older rows that carry no separate root — climbing it can never move a
+ *  row to a non-catalog id, because every step is accepted only when the id is
+ *  a real session-catalog row. A row that resolves to nothing is an internal
+ *  reservation, not a user task. */
+export function agentRootSessionId(
+  agent: DesktopAgentPoolRow,
+  rowsBySessionId: ReadonlyMap<string, DesktopAgentPoolRow>,
+  isOwnerSession: (sessionId: string) => boolean,
+): string {
+  const owner = String(agent.ownerSessionId || '').trim();
+  if (owner && isOwnerSession(owner)) return owner;
+  // A Lead row owns itself and is its own root.
+  const sessionId = poolSessionId(agent);
+  if (sessionId && isOwnerSession(sessionId)) return sessionId;
+  let current = agent;
+  const seen = new Set<string>(sessionId ? [sessionId] : []);
+  for (let step = 0; step < MAX_AGENT_TREE_DEPTH; step += 1) {
+    const parent = poolParentId(current);
+    if (!parent || seen.has(parent)) return '';
+    if (isOwnerSession(parent)) return parent;
+    const parentRow = rowsBySessionId.get(parent);
+    if (!parentRow) return '';
+    const parentOwner = String(parentRow.ownerSessionId || '').trim();
+    if (parentOwner && isOwnerSession(parentOwner)) return parentOwner;
+    seen.add(parent);
+    current = parentRow;
+  }
+  return '';
+}
+
+function leadFirst(left: DesktopAgentPoolRow, right: DesktopAgentPoolRow): number {
+  const leftLead = String(left.agent || '').toLowerCase() === 'lead' ? 0 : 1;
+  const rightLead = String(right.agent || '').toLowerCase() === 'lead' ? 0 : 1;
+  return leftLead - rightLead;
+}
+
+function agentTreeNodes(
+  ownerId: string,
+  agents: readonly DesktopAgentPoolRow[],
+): AgentActivityNode[] {
+  const idsInGroup = new Set(agents.map(poolSessionId).filter(Boolean));
+  const childrenByParent = new Map<string, DesktopAgentPoolRow[]>();
+  const top: DesktopAgentPoolRow[] = [];
+  // When the owner's own Lead row is present it is the visible root of the
+  // group, so every other row hangs beneath it: Lead → direct child →
+  // descendant. Without a Lead row the direct children ARE the top level.
+  const leadRow = agents.find((agent) => poolSessionId(agent) === ownerId);
+  const attach = (parentId: string, agent: DesktopAgentPoolRow): void => {
+    const siblings = childrenByParent.get(parentId);
+    if (siblings) siblings.push(agent);
+    else childrenByParent.set(parentId, [agent]);
+  };
+  for (const agent of agents) {
+    const sessionId = poolSessionId(agent);
+    if (sessionId && sessionId === ownerId) {
+      top.push(agent);
+      continue;
+    }
+    const parent = poolParentId(agent);
+    // A live parent inside this group nests the row; a missing, hidden or
+    // already-finished parent must never hide it — it stays a top-level orphan
+    // under the same valid root.
+    if (sessionId && parent && parent !== sessionId && parent !== ownerId
+      && idsInGroup.has(parent)) {
+      attach(parent, agent);
+      continue;
+    }
+    if (leadRow) attach(ownerId, agent);
+    else top.push(agent);
+  }
+  const placed = new Set<string>();
+  const build = (
+    rows: readonly DesktopAgentPoolRow[],
+    depth: number,
+    parentId: string,
+  ): AgentActivityNode[] => {
+    const ordered = [...rows].sort(leadFirst)
+      .filter((agent) => {
+        const sessionId = poolSessionId(agent);
+        if (sessionId && placed.has(sessionId)) return false;
+        if (sessionId) placed.add(sessionId);
+        return true;
+      });
+    return ordered.map((agent, index) => {
+      const sessionId = poolSessionId(agent);
+      return {
+        agent,
+        sessionId,
+        parentSessionId: parentId,
+        depth,
+        posInSet: index + 1,
+        setSize: ordered.length,
+        children: depth < MAX_AGENT_TREE_DEPTH && sessionId
+          ? build(childrenByParent.get(sessionId) || [], depth + 1, sessionId)
+          : [],
+      };
+    });
+  };
+  const nodes = build(top, 0, '');
+  // A cyclic parent chain leaves rows that no traversal reached. They are real
+  // work and stay visible: re-enter them as orphans under the root.
+  const stranded = agents.filter((agent) => {
+    const sessionId = poolSessionId(agent);
+    return Boolean(sessionId) && !placed.has(sessionId);
+  });
+  if (stranded.length === 0) return nodes;
+  const leadNode = nodes.find((node) => node.sessionId === ownerId);
+  const host = leadNode ? leadNode.children : nodes;
+  for (const agent of stranded) {
+    if (placed.has(poolSessionId(agent))) continue;
+    host.push(...build([agent], leadNode ? leadNode.depth + 1 : 0, leadNode ? ownerId : ''));
+  }
+  host.forEach((node, index) => {
+    node.posInSet = index + 1;
+    node.setSize = host.length;
+  });
+  return nodes;
+}
+
+/** Owner-rooted Parent–Child hierarchy for the Agent window. Rows are grouped
+ *  by their ROOT owner session and nested by their immediate parent. */
+export function agentActivityGroups(
+  rows: readonly DesktopAgentPoolRow[] | null | undefined,
+  isOwnerSession: (sessionId: string) => boolean,
+): AgentActivityGroup[] {
+  const visible = (rows || []).filter(visibleAgentActivityRow);
+  const bySessionId = new Map<string, DesktopAgentPoolRow>();
+  for (const agent of visible) {
+    const sessionId = poolSessionId(agent);
+    if (sessionId && !bySessionId.has(sessionId)) bySessionId.set(sessionId, agent);
+  }
+  const byOwner = new Map<string, DesktopAgentPoolRow[]>();
+  for (const agent of visible) {
+    // Internal control reservations and abandoned pre-submit runtimes are
+    // resident pool entries, not user tasks: a group is real only once its
+    // root owner has a resumable session-catalog row.
+    const ownerId = agentRootSessionId(agent, bySessionId, isOwnerSession);
+    if (!ownerId) continue;
+    const group = byOwner.get(ownerId);
+    if (group) group.push(agent);
+    else byOwner.set(ownerId, [agent]);
+  }
+  return [...byOwner.entries()].map(([ownerId, agents]) => ({
+    ownerId,
+    agents,
+    nodes: agentTreeNodes(ownerId, agents),
+  }));
+}
+
+/** Depth-first render order: a parent is immediately followed by its subtree. */
+export function flattenAgentActivityNodes(
+  nodes: readonly AgentActivityNode[],
+): AgentActivityNode[] {
+  return nodes.flatMap((node) => [node, ...flattenAgentActivityNodes(node.children)]);
+}
+
+/** Rendered rows in depth-first order, skipping the subtree of every row the
+ *  user collapsed. This is the list the tree's roving focus walks, so the
+ *  keyboard can only ever reach rows that are actually painted. */
+export function visibleAgentTreeRows(
+  nodes: readonly AgentActivityNode[],
+  collapsedSessionIds: ReadonlySet<string> = new Set<string>(),
+): AgentActivityNode[] {
+  return nodes.flatMap((node) => (collapsedSessionIds.has(node.sessionId)
+    ? [node]
+    : [node, ...visibleAgentTreeRows(node.children, collapsedSessionIds)]));
 }
 
 /** Ordering signal for the dock: the moment an agent LAST WENT IDLE (user
@@ -361,6 +571,13 @@ function AgentPoolRow({
   agent,
   clock,
   ownerSessionId,
+  depth = 0,
+  parentSessionId = '',
+  hasChildren = false,
+  expanded = true,
+  posInSet,
+  setSize,
+  tabIndex,
   unread = false,
   onPrefetchSession,
   onOpenLeadSession,
@@ -369,6 +586,18 @@ function AgentPoolRow({
   agent: DesktopAgentPoolRow;
   clock: number;
   ownerSessionId: string;
+  /** Generations below the group heading: 0 for the visible root row (the Lead
+   *  when the pool publishes one), 1 for its direct children, and so on. */
+  depth?: number;
+  parentSessionId?: string;
+  hasChildren?: boolean;
+  /** Real expansion state of this row's subtree; undefined for a leaf, which
+   *  must not claim an expansion it does not have. */
+  expanded?: boolean;
+  posInSet?: number;
+  setSize?: number;
+  /** Roving tab focus: exactly one row per tree is in the tab order. */
+  tabIndex?: number;
   /** The owner session has unseen activity: this rest is a FINISHED turn, not
    *  an idle sit — the row carries the completion notice the Recent dot does. */
   unread?: boolean;
@@ -421,6 +650,16 @@ function AgentPoolRow({
     className="schedules-row workflows-agent-summary-row agent-pool-row"
     data-agent-tag={agent.tag || undefined}
     data-agent-session-id={sessionId || undefined}
+    data-agent-parent-session-id={parentSessionId || undefined}
+    data-agent-depth={depth}
+    // Flat-tree ARIA: the DOM stays one row per control, so the hierarchy is
+    // carried by level/position, and the tree owns arrow-key navigation.
+    role="treeitem"
+    aria-level={depth + 1}
+    aria-posinset={posInSet}
+    aria-setsize={setSize}
+    aria-expanded={hasChildren ? expanded !== false : undefined}
+    tabIndex={tabIndex}
     aria-label={name}
     disabled={!sessionId}
     onPointerEnter={prefetch}
@@ -447,6 +686,122 @@ function AgentPoolRow({
       </time>
     </span>
   </button>;
+}
+
+const AGENT_TREE_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']);
+
+/** One owner group rendered as a real ARIA tree: roving tab focus, Arrow
+ *  Up/Down through the painted rows, Arrow Right/Left to open, close and climb
+ *  the hierarchy, Home/End to its ends. Every `aria-expanded` here reports the
+ *  state the surface actually paints — including a row whose subtree is folded
+ *  away with its group. */
+function AgentActivityTree({
+  group,
+  label,
+  groupExpanded,
+  clock,
+  unreadSessionIds,
+  onExpandGroup,
+  onCollapseGroup,
+  onPrefetchSession,
+  onOpenLeadSession,
+  onOpenSession,
+}: {
+  group: { ownerId: string; nodes: readonly AgentActivityNode[] };
+  label: string;
+  groupExpanded: boolean;
+  clock: number;
+  unreadSessionIds?: ReadonlySet<string>;
+  onExpandGroup?(): void;
+  onCollapseGroup?(): void;
+  onPrefetchSession?(sessionId: string): void;
+  onOpenLeadSession?(sessionId: string): void;
+  onOpenSession?(sessionId: string, title: string, ownerSessionId: string): void;
+}): React.ReactElement {
+  const treeRef = useRef<HTMLDivElement | null>(null);
+  const [collapsedRowIds, setCollapsedRowIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const [focusedSessionId, setFocusedSessionId] = useState('');
+  const rows = useMemo(() => {
+    const visible = visibleAgentTreeRows(group.nodes, collapsedRowIds);
+    // A collapsed GROUP keeps exactly the owner's own row: every descendant,
+    // at any generation, folds away with it.
+    return groupExpanded
+      ? visible
+      : visible.filter((node) => node.sessionId === group.ownerId);
+  }, [collapsedRowIds, group.nodes, group.ownerId, groupExpanded]);
+  const focusedIndex = rows.findIndex((node) => node.sessionId === focusedSessionId);
+  const activeIndex = focusedIndex >= 0 ? focusedIndex : 0;
+  const rowExpanded = (node: AgentActivityNode): boolean =>
+    groupExpanded && !collapsedRowIds.has(node.sessionId);
+  const focusRow = (index: number): void => {
+    const node = rows[Math.min(Math.max(index, 0), rows.length - 1)];
+    if (!node) return;
+    setFocusedSessionId(node.sessionId);
+    treeRef.current
+      ?.querySelector<HTMLElement>(`[data-agent-session-id="${node.sessionId}"]`)
+      ?.focus();
+  };
+  const setRowCollapsed = (sessionId: string, collapsed: boolean): void => {
+    setFocusedSessionId(sessionId);
+    setCollapsedRowIds((current) => {
+      if (current.has(sessionId) === collapsed) return current;
+      const next = new Set(current);
+      if (collapsed) next.add(sessionId);
+      else next.delete(sessionId);
+      return next;
+    });
+  };
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (!AGENT_TREE_KEYS.has(event.key)) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const originId = (event.target as HTMLElement | null)
+      ?.closest<HTMLElement>('[data-agent-session-id]')?.dataset.agentSessionId || '';
+    const found = rows.findIndex((node) => node.sessionId === originId);
+    const index = found >= 0 ? found : activeIndex;
+    const node = rows[index];
+    if (!node) return;
+    event.preventDefault();
+    if (event.key === 'ArrowDown') return focusRow(index + 1);
+    if (event.key === 'ArrowUp') return focusRow(index - 1);
+    if (event.key === 'Home') return focusRow(0);
+    if (event.key === 'End') return focusRow(rows.length - 1);
+    const hasChildren = node.children.length > 0;
+    if (event.key === 'ArrowRight') {
+      // The root row of a folded group opens the group itself: that fold is
+      // the only thing hiding its subtree.
+      if (!groupExpanded && node.sessionId === group.ownerId) return onExpandGroup?.();
+      if (!hasChildren) return undefined;
+      if (!rowExpanded(node)) return setRowCollapsed(node.sessionId, false);
+      // Expanded: its first child is the next row in depth-first order.
+      return focusRow(index + 1);
+    }
+    if (hasChildren && rowExpanded(node)) return setRowCollapsed(node.sessionId, true);
+    const parentIndex = rows.findIndex((row) => row.sessionId === node.parentSessionId);
+    if (parentIndex >= 0) return focusRow(parentIndex);
+    if (groupExpanded) return onCollapseGroup?.();
+    return undefined;
+  };
+  return <div ref={treeRef} className="schedules-list" role="tree" aria-label={label}
+    onKeyDown={onKeyDown}>
+    {rows.map((node, index) => <AgentPoolRow
+      key={poolRowKey(node.agent, index)}
+      agent={node.agent}
+      clock={clock}
+      depth={node.depth}
+      parentSessionId={node.parentSessionId}
+      hasChildren={node.children.length > 0}
+      expanded={rowExpanded(node)}
+      posInSet={node.posInSet}
+      setSize={node.setSize}
+      tabIndex={index === activeIndex ? 0 : -1}
+      ownerSessionId={group.ownerId}
+      unread={unreadSessionIds?.has(node.sessionId) === true}
+      onPrefetchSession={onPrefetchSession}
+      onOpenLeadSession={onOpenLeadSession}
+      onOpenSession={onOpenSession} />)}
+  </div>;
 }
 
 export function AgentActivityPane({
@@ -509,47 +864,25 @@ export function AgentActivityPane({
     };
   }, [active, poolStore]);
   const groups = useMemo(() => {
-    const byOwner = new Map<string, {
-      ownerId: string;
-      session: DesktopSessionSummary;
-      agents: DesktopAgentPoolRow[];
-    }>();
     const sessionById = new Map(sessions.map((session) => [session.id, session]));
-    for (const agent of agents || []) {
-      if (!visibleAgentActivityRow(agent)) continue;
-      const ownerId = poolOwnerId(agent);
-      if (!ownerId) continue;
-      const session = sessionById.get(ownerId);
-      // Internal control reservations and abandoned pre-submit runtimes are
-      // resident pool entries, not user tasks. A real Lead is visible only
-      // once its owner has a resumable session-catalog row.
-      if (!session) continue;
-      let group = byOwner.get(ownerId);
-      if (!group) {
-        group = { ownerId, session, agents: [] };
-        byOwner.set(ownerId, group);
-      }
-      group.agents.push(agent);
-    }
-    for (const group of byOwner.values()) {
-      group.agents.sort((left, right) => {
-        const leftLead = String(left.agent || '').toLowerCase() === 'lead' ? 0 : 1;
-        const rightLead = String(right.agent || '').toLowerCase() === 'lead' ? 0 : 1;
-        return leftLead - rightLead;
-      });
-    }
+    const built = agentActivityGroups(agents, (ownerId) => sessionById.has(ownerId));
     // Rebuilt each pass so departed sessions drop out; surviving groups carry
     // their stamp forward, which is what keeps live rows from shuffling.
     const order = new Map<string, number>();
-    for (const group of byOwner.values()) {
+    for (const group of built) {
       order.set(group.ownerId, stickyGroupOrder(orderRef.current, group.ownerId, group.agents));
     }
     orderRef.current = order;
-    return [...byOwner.values()].sort((left, right) => {
-      const leftTime = order.get(left.ownerId) || 0;
-      const rightTime = order.get(right.ownerId) || 0;
-      return rightTime - leftTime || left.ownerId.localeCompare(right.ownerId);
-    });
+    return built
+      .flatMap((group) => {
+        const session = sessionById.get(group.ownerId);
+        return session ? [{ ...group, session }] : [];
+      })
+      .sort((left, right) => {
+        const leftTime = order.get(left.ownerId) || 0;
+        const rightTime = order.get(right.ownerId) || 0;
+        return rightTime - leftTime || left.ownerId.localeCompare(right.ownerId);
+      });
   }, [agents, sessions]);
   const hasLiveClock = (agents || []).length > 0;
   useEffect(() => {
@@ -577,39 +910,38 @@ export function AgentActivityPane({
     {groups.map((group) => {
       const title = sessionSummaryTitle(group.session);
       const expanded = !collapsedOwnerIds.has(group.ownerId);
-      const visibleAgents = expanded
-        ? group.agents
-        : group.agents.filter((agent) =>
-          String(agent.sessionId || '').trim() === group.ownerId);
+      const setGroupCollapsed = (collapsed: boolean): void =>
+        setCollapsedOwnerIds((current) => {
+          if (current.has(group.ownerId) === collapsed) return current;
+          const next = new Set(current);
+          if (collapsed) next.add(group.ownerId);
+          else next.delete(group.ownerId);
+          return next;
+        });
       return <section key={group.ownerId} className="workflows-models"
         data-agent-owner-session-id={group.ownerId}>
         <div className="workflows-section-head">
           <button type="button" className="agent-session-heading" aria-label={title}
             aria-expanded={expanded}
             data-lead-session-id={group.ownerId}
-            onClick={() => setCollapsedOwnerIds((current) => {
-              const next = new Set(current);
-              if (next.has(group.ownerId)) next.delete(group.ownerId);
-              else next.add(group.ownerId);
-              return next;
-            })}>
+            onClick={() => setGroupCollapsed(expanded)}>
             <h2>{title}</h2>
             <span className="agent-session-chevron" aria-hidden="true">
               {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </span>
           </button>
         </div>
-        <div className="schedules-list">
-          {visibleAgents.map((agent, index) => <AgentPoolRow
-            key={poolRowKey(agent, index)}
-            agent={agent}
-            clock={clock}
-            ownerSessionId={group.ownerId}
-            unread={unreadSessionIds?.has(String(agent.sessionId || '').trim()) === true}
-            onPrefetchSession={onPrefetchSession}
-            onOpenLeadSession={onOpenLeadSession}
-            onOpenSession={onOpenSession} />)}
-        </div>
+        <AgentActivityTree
+          group={group}
+          label={title}
+          groupExpanded={expanded}
+          clock={clock}
+          unreadSessionIds={unreadSessionIds}
+          onExpandGroup={() => setGroupCollapsed(false)}
+          onCollapseGroup={() => setGroupCollapsed(true)}
+          onPrefetchSession={onPrefetchSession}
+          onOpenLeadSession={onOpenLeadSession}
+          onOpenSession={onOpenSession} />
       </section>;
     })}
   </div>;

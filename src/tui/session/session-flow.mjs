@@ -74,6 +74,12 @@ export function createSessionFlow(bag) {
       pastedTexts: options.pastedTexts && typeof options.pastedTexts === 'object' ? options.pastedTexts : null,
       images: promptContentImageMeta(text, options.pastedImages),
       onCommitted: typeof options.onCommitted === 'function' ? options.onCommitted : null,
+      onSettled: typeof options.onSettled === 'function' ? options.onSettled : null,
+      onToolResult: typeof options.onToolResult === 'function' ? options.onToolResult : null,
+      transcriptMeta: options.transcriptMeta && typeof options.transcriptMeta === 'object'
+        ? { ...options.transcriptMeta }
+        : null,
+      context: options.context || null,
       mode,
       priority,
       key: options.key || null,
@@ -242,11 +248,14 @@ export function createSessionFlow(bag) {
             }
             continue;
           }
+          const sender = String(entry.transcriptMeta?.sender || '').trim().toLowerCase();
           pushUserOrSyntheticItem(
             entry.text,
             entry.id,
             isQueuedEntryEditable(entry) ? 'user' : 'injected',
-            Array.isArray(entry.images) && entry.images.length ? { images: entry.images } : null,
+            Array.isArray(entry.images) && entry.images.length
+              ? { images: entry.images, ...(sender ? { sender } : {}) }
+              : sender ? { sender } : null,
           );
         }
         const nonEditable = batch.filter((entry) => !isQueuedEntryEditable(entry));
@@ -277,6 +286,18 @@ export function createSessionFlow(bag) {
           restorable: nonEditable.length === 0,
           requeueOnAbort,
           discardExecutionPendingResumeKeys,
+          transcriptMeta: batch[0]?.transcriptMeta || null,
+          context: batch.map((entry) => String(entry.context || '').trim()).filter(Boolean).join('\n\n') || null,
+          onToolResult: (message) => {
+            for (const entry of batch) {
+              try { entry.onToolResult?.(message); } catch {}
+            }
+          },
+          onSettled: (detail) => {
+            for (const entry of batch) {
+              try { entry.onSettled?.(detail); } catch {}
+            }
+          },
         });
         if (flags.drainEpoch !== drainEpoch) return;
         // A deferred cleared-session UI sync (from a late-settling abandoned
@@ -365,6 +386,9 @@ export function createSessionFlow(bag) {
           id: entry.id,
           submittedAt: entry.submittedAt,
           ...(Array.isArray(entry.images) && entry.images.length ? { images: entry.images } : {}),
+          ...(entry.transcriptMeta && typeof entry.transcriptMeta === 'object'
+            ? { transcriptMeta: entry.transcriptMeta }
+            : {}),
         };
         if (entry.suppressDisplay) {
           // Model-visible twin of an already-rendered live completion: deliver

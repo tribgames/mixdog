@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  asarPath,
+  changedPlanGroups,
   decidePlan,
   packagingManifestForFingerprint,
 } from './dev-fast-direct.mjs';
@@ -23,6 +26,20 @@ const previous = {
     Object.entries(groups).map(([name, value]) => [name, { hash: value.hash }]),
   ),
 };
+
+test('ASAR API paths always use native separators', () => {
+  const expected = join('out', 'main', 'daemon.cjs');
+  assert.equal(asarPath('out\\main\\daemon.cjs'), expected);
+  assert.equal(asarPath('out/main/daemon.cjs'), expected);
+});
+
+test('FastDirect rejects a plan when build inputs changed before staging', () => {
+  assert.deepEqual(changedPlanGroups(groups, structuredClone(groups)), []);
+  const changedGroups = structuredClone(groups);
+  changedGroups.main.hash = 'main-new';
+  changedGroups.runtime.hash = 'runtime-new';
+  assert.deepEqual(changedPlanGroups(groups, changedGroups), ['main', 'runtime']);
+});
 
 test('renderer build cache stays warm briefly and then releases memory', () => {
   assert.equal(resolveRendererWatchIdleMs(undefined), DEFAULT_RENDERER_WATCH_IDLE_MS);

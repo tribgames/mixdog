@@ -10,9 +10,8 @@
   z-index: 1090;
   left: 56px;
   bottom: var(--rail-usage-popup-bottom, 48px);
-  /* Wider track (user: 좀더 가로로 길게): the meter rows carry a per-window
-     reset column now, so the bar keeps its length instead of paying for it. */
-  width: 380px;
+  /* ActivityRail supplies the shared desktop sidebar default width inline,
+     so PC and phone open the same panel-sized flyout. */
   max-height: calc(100vh - 60px);
   overflow-y: auto;
   overscroll-behavior: contain;

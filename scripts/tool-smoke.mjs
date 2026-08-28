@@ -11,6 +11,7 @@ import {
   applyInitialDeferredToolManifestToBp2,
   buildDeferredToolManifest,
   buildSkillToolEnvelope,
+  invalidateSkillsCache,
   loadSkillResource,
 } from '../src/runtime/agent/orchestrator/context/collect.mjs';
 import { refreshSessionBp3Environment, resetSessionBp3Environment } from '../src/runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
@@ -62,6 +63,7 @@ import {
   applyDeferredToolSurface,
   reconcileDeferredMcpToolCatalog,
 } from '../src/session-runtime/tool-catalog.mjs';
+import { snapshotPendingDeferredToolDelta } from '../src/session-runtime/deferred-tool-delta.mjs';
 import { prepareDeferredToolCallThrough } from '../src/runtime/agent/orchestrator/session/loop/deferred-call-through.mjs';
 import { composeSystemPrompt } from '../src/runtime/agent/orchestrator/context/collect.mjs';
 import { setInternalToolsProvider } from '../src/runtime/agent/orchestrator/internal-tools.mjs';
@@ -2162,8 +2164,10 @@ setInternalToolsProvider({
 {
   await initProviders({ 'openai-oauth': { enabled: true } });
   const skillManifestTmp = mkdtempSync(join(tmpdir(), 'mixdog-skill-manifest-'));
+  const previousSkillDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(skillManifestTmp, 'data');
   try {
-    const skillDir = join(skillManifestTmp, '.mixdog', 'skills', 'demo-skill');
+    const skillDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'demo-skill');
     mkdirSync(skillDir, { recursive: true });
     writeFileSync(join(skillDir, 'SKILL.md'), [
       '---',
@@ -2177,6 +2181,7 @@ setInternalToolsProvider({
       'Read ${MIXDOG_SKILL_DIR}/reference.md when needed.',
       '',
     ].join('\n'));
+    invalidateSkillsCache();
     const loadedSkill = loadSkillResource('demo-skill', skillManifestTmp);
     if (!loadedSkill
       || /^---/m.test(loadedSkill.content)
@@ -2267,6 +2272,9 @@ setInternalToolsProvider({
       if (!/available-skills/i.test(systemVisible) || !/demo-skill/i.test(systemVisible) || !/Skill\(\{"name":"<skill-name>"\}\)/.test(systemVisible)) {
         throw new Error(`agent BP2 must carry the compact skill manifest alongside the frozen Skill tool: ${systemVisible.slice(0, 1200)}`);
       }
+      if (/# Demo Skill|Use this skill for manifest smoke tests|\$\{MIXDOG_SKILL_DIR\}/.test(systemVisible)) {
+        throw new Error(`agent Skill manifest must expose metadata only, never SKILL.md body: ${systemVisible.slice(0, 1200)}`);
+      }
       if (!/# General/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
         throw new Error(`agent system layers must carry BP1 tool policy and BP3 role rules: ${systemVisible.slice(0, 1200)}`);
       }
@@ -2291,6 +2299,9 @@ setInternalToolsProvider({
       closeSession(agentSkillSession.id, 'tool-smoke');
     }
   } finally {
+    invalidateSkillsCache();
+    if (previousSkillDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousSkillDataDir;
     rmSync(skillManifestTmp, { recursive: true, force: true });
   }
   const workerSession = createSession({
@@ -3253,6 +3264,45 @@ if (JSON.stringify(geminiManifestSession.tools) !== geminiTurnManifest) {
 reconcileDeferredMcpToolCatalog(geminiManifestSession, [geminiLate]);
 if (!geminiManifestSession.tools.some((tool) => tool.name === 'mcp__gemini__late')) {
   throw new Error('Gemini must adopt the complete ordered live manifest at the next user turn');
+}
+const nativeLateSession = {
+  provider: 'openai-oauth',
+  deferredProviderMode: 'native',
+  deferredNativeTools: true,
+  deferredToolCatalog: manifestBase,
+  deferredLateToolCatalog: [],
+  deferredAnnouncedTools: manifestBase.map((tool) => tool.name),
+  deferredSurfaceMode: 'full',
+  deferredCallableTools: ['load_tool', 'read'],
+  tools: manifestBase.slice(),
+  messages: [
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'real task' },
+    { role: 'assistant', content: 'done' },
+  ],
+};
+const nativeLateMessagesBefore = JSON.stringify(nativeLateSession.messages);
+let nativeLateEnqueueCalls = 0;
+reconcileDeferredMcpToolCatalog(nativeLateSession, [{
+  name: 'mcp__demo__late',
+  description: 'Late tool metadata.',
+  inputSchema: { type: 'object', properties: {} },
+}], {
+  enqueue() {
+    nativeLateEnqueueCalls += 1;
+    return true;
+  },
+});
+const nativeLateDelta = snapshotPendingDeferredToolDelta(nativeLateSession);
+if (nativeLateEnqueueCalls !== 0
+  || JSON.stringify(nativeLateSession.messages) !== nativeLateMessagesBefore
+  || nativeLateSession.pendingDeferredToolDelta?.type !== 'deferred_tools_delta'
+  || !nativeLateDelta?.content.includes('mcp__demo__late: Late tool metadata.')) {
+  throw new Error(`late MCP reconcile must persist one typed delta without creating a turn: ${JSON.stringify({
+    nativeLateEnqueueCalls,
+    messages: nativeLateSession.messages,
+    delta: nativeLateSession.pendingDeferredToolDelta,
+  })}`);
 }
 // Skill-style deferred manifest: `- name: description` lines, `<`/`>` sanitized,
 // bare names allowed, header instructs direct calls, empty pool → ''.

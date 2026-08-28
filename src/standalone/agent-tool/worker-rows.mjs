@@ -74,7 +74,7 @@ export function applyWorkerRowUpsert(byKey, normalized) {
   if (!key) return;
   const prev = byKey.get(key) || {};
   const merged = { ...prev, ...normalized };
-  for (const field of ['ownerSessionId', 'agent', 'provider', 'model', 'preset', 'effort', 'fast', 'clientHostPid', 'cwd', 'task_id', 'permission', 'toolPermission', 'turnStartedAt']) {
+  for (const field of ['parentSessionId', 'ownerSessionId', 'agent', 'provider', 'model', 'preset', 'effort', 'fast', 'clientHostPid', 'runtimePid', 'cwd', 'task_id', 'permission', 'toolPermission', 'turnStartedAt']) {
     if ((merged[field] === null || merged[field] === '') && prev[field] != null && prev[field] !== '') {
       merged[field] = prev[field];
     }
@@ -89,6 +89,7 @@ export function applyWorkerRowUpsert(byKey, normalized) {
 export function workerRowToSession(row = {}) {
   return {
     id: row.sessionId,
+    parentSessionId: row.parentSessionId || row.ownerSessionId || null,
     ownerSessionId: row.ownerSessionId || null,
     agentTag: row.tag,
     agent: row.agent || null,

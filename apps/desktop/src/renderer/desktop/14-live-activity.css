@@ -485,6 +485,32 @@
 .approval-heading b { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); }
 .approval-heading small, .approval-card p { color: var(--mx-text-muted); font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
 .approval-card dl { border-top-color: var(--mx-border-muted); color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
+.office-approval-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.office-approval-preview figure {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-bg-base);
+  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+}
+.office-approval-preview img {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  background: white;
+}
+.office-approval-preview figcaption {
+  padding: 4px 7px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
 .approval-actions button, .diff-toggle {
   min-height: 28px;
   padding: 0 11px;

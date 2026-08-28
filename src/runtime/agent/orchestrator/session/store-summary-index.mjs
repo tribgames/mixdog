@@ -14,6 +14,7 @@ import {
     isSessionPreviewNoise,
     sessionMessageText,
 } from '../../../../session-runtime/session-text.mjs';
+import { sessionVisibility } from './store-summary-visibility.mjs';
 
 export const SESSION_SUMMARY_INDEX_VERSION = 2;
 
@@ -139,16 +140,32 @@ export function _sessionSummary(session) {
         sourceName: session.sourceName || null,
         sourceDelivery: session.sourceDelivery || null,
         scopeKey: session.scopeKey || null,
-        ownerSessionId: session.ownerSessionId || null,
+        parentSessionId: session.parentSessionId || null,
+        ownerSessionId: session.ownerSessionId || session.parentSessionId || null,
+        visibility: sessionVisibility(session),
         clientHostPid: _positiveNumber(session.clientHostPid, 0) || null,
         cwd: session.cwd || '',
         desktopSession: _desktopSessionSummary(session.desktopSession, session.cwd),
         provider: session.provider || null,
         model: session.model || null,
+        presetName: session.presetName || session.profileId || null,
+        effort: session.effort || null,
+        fast: session.fast === true,
+        modelParameters: session.modelParameters && typeof session.modelParameters === 'object'
+            ? { ...session.modelParameters }
+            : null,
         agentTag: session.agentTag || null,
         task_id: session.task_id || session.taskId || null,
         permission: session.permission || null,
+        permissionMode: session.permissionMode || null,
         toolPermission: session.toolPermission || null,
+        schemaAllowedTools: Array.isArray(session.schemaAllowedTools)
+            ? session.schemaAllowedTools.map((name) => String(name))
+            : null,
+        taskType: session.taskType || null,
+        maxLoopIterations: Number.isFinite(session.maxLoopIterations)
+            ? session.maxLoopIterations
+            : null,
         messageCount: messageProjection.count,
         title: _cleanPreview(session.title || '', 100),
         preview: messageProjection.preview,
@@ -175,17 +192,34 @@ function _normalizeSummaryRow(row) {
         agent: row.agent || null,
         sourceType: row.sourceType || null,
         sourceName: row.sourceName || null,
+        sourceDelivery: row.sourceDelivery || null,
         scopeKey: row.scopeKey || null,
-        ownerSessionId: row.ownerSessionId || null,
+        parentSessionId: row.parentSessionId || null,
+        ownerSessionId: row.ownerSessionId || row.parentSessionId || null,
+        visibility: sessionVisibility(row),
         clientHostPid: _positiveNumber(row.clientHostPid, 0) || null,
         cwd: row.cwd || '',
         desktopSession: _desktopSessionSummary(row.desktopSession, row.cwd),
         provider: row.provider || null,
         model: row.model || null,
+        presetName: row.presetName || row.profileId || null,
+        effort: row.effort || null,
+        fast: row.fast === true,
+        modelParameters: row.modelParameters && typeof row.modelParameters === 'object'
+            ? { ...row.modelParameters }
+            : null,
         agentTag: row.agentTag || null,
         task_id: row.task_id || null,
         permission: row.permission || null,
+        permissionMode: row.permissionMode || null,
         toolPermission: row.toolPermission || null,
+        schemaAllowedTools: Array.isArray(row.schemaAllowedTools)
+            ? row.schemaAllowedTools.map((name) => String(name))
+            : null,
+        taskType: row.taskType || null,
+        maxLoopIterations: Number.isFinite(row.maxLoopIterations)
+            ? row.maxLoopIterations
+            : null,
         messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
         title: _cleanPreview(row.title || '', 100),
         preview: _cleanPreview(row.preview || ''),

@@ -20,10 +20,21 @@ import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } from '../runtime/attachments/store.mjs';
-import { hasActiveBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
+import {
+  cancelBackgroundTasks,
+  hasActiveBackgroundTasks,
+} from '../runtime/shared/background-tasks.mjs';
 
 const MAX_CLONE_DEPTH = 24;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const requireDesktopService = createRequire(import.meta.url);
+const EXTERNAL_SESSION_ACTIONS = new Set([
+  ...SESSION_READ_ACTION_SET,
+  ...SESSION_CONFIGURE_ACTION_SET,
+  'submitAsync',
+  'abort',
+  'resolveToolApproval',
+]);
 
 async function loadDesktopServiceModule(moduleUrl) {
   const parsed = new URL(moduleUrl);
@@ -98,6 +109,8 @@ export function createSessionService({
   sessionExists = null,
   readStoredSession = null,
   subscribeExternalSessionStates = null,
+  invokeExternalSessionAction = null,
+  readExternalSessionState = null,
   listSessions = null,
   getRemoteSessionState = null,
   desktopRuntime = null,
@@ -124,6 +137,15 @@ export function createSessionService({
   // addressed by clients; sessionId is the only identity outside this module.
   const sessions = new Set();
   const sessionsById = new Map();
+  // Agent children are catalog metadata over ordinary daemon-owned sessions.
+  // Their transcript/execution state remains exclusively in `sessionsById`;
+  // this index carries only the Parent–Child relationship and public Agent
+  // routing fields needed before/after a turn.
+  const agentSessions = new Map();
+  const agentChildren = new Map();
+  const agentCancelRuns = new Map();
+  let agentRehydrated = false;
+  let agentRehydratePromise = null;
   let busyEntries = 0;
   // Desktop adapters are keyed by their exact module URL so a dev preview and
   // installed build never share module state accidentally.
@@ -495,9 +517,27 @@ export function createSessionService({
       let state = { ...snapshot, sessionId };
       const runtime = {
         isWireSafe: true,
+        externalAction: typeof invokeExternalSessionAction === 'function',
         getState: () => state,
         setState: (next) => { state = next; },
       };
+      Object.defineProperties(runtime, {
+        id: { get: () => sessionId },
+        provider: { get: () => String(state.provider || '') },
+        model: { get: () => String(state.model || '') },
+        session: {
+          get: () => ({
+            id: sessionId,
+            provider: String(state.provider || ''),
+            model: String(state.model || ''),
+          }),
+        },
+      });
+      if (typeof invokeExternalSessionAction === 'function') {
+        for (const name of EXTERNAL_SESSION_ACTIONS) {
+          runtime[name] = (...args) => invokeExternalSessionAction(sessionId, name, args);
+        }
+      }
       entry = {
         runtime,
         subscribers: new Set(),
@@ -587,9 +627,13 @@ export function createSessionService({
       cwd: params.cwd || process.cwd(),
       provider: params.provider,
       model: params.model,
+      effort: params.effort,
+      fast: params.fast,
+      modelParameters: params.modelParameters,
       toolMode: params.toolMode || 'full',
       remote: params.remote === true,
       desktopSession: params.desktopSession ?? null,
+      sessionProfile: params.sessionProfile ?? null,
     });
     const entry = {
       runtime, cwd: params.cwd || process.cwd(), timer: null, disposed: false,
@@ -660,11 +704,64 @@ export function createSessionService({
     return entry;
   }
 
+  /** Bind a retained external Agent snapshot into the ordinary view entry
+   *  without materializing a daemon runtime. publishExternalSessionState
+   *  adopts pending viewers so a completed turn is visible immediately. */
+  async function bindExternalSessionView(sessionId) {
+    const id = String(sessionId || '');
+    if (!id) return null;
+    const owner = sessionOwner(id);
+    if (owner) return owner;
+    const existing = externalEntryForView(id);
+    if (existing) return existing;
+    if (typeof readExternalSessionState !== 'function') return null;
+
+    // Register the address before the retained-snapshot read. Even a
+    // synchronous reader crosses an `await` boundary, so a newer external
+    // frame can otherwise arrive in that microtask, find no pending viewer,
+    // and be dropped before the stale retained snapshot is bound.
+    const placeholder = new Set();
+    const ownsPlaceholder = !pendingViewers.has(id);
+    if (ownsPlaceholder) pendingViewers.set(id, placeholder);
+    const clearPlaceholder = () => {
+      if (ownsPlaceholder
+        && pendingViewers.get(id) === placeholder
+        && placeholder.size === 0) {
+        pendingViewers.delete(id);
+      }
+    };
+
+    let snapshot = null;
+    try {
+      snapshot = await readExternalSessionState(id);
+    } catch (error) {
+      log(`external session state read failed session=${id}: ${error?.message || error}`);
+      const raced = sessionOwner(id) || externalEntryForView(id);
+      clearPlaceholder();
+      return raced;
+    }
+    const raced = sessionOwner(id) || externalEntryForView(id);
+    if (raced) {
+      clearPlaceholder();
+      return raced;
+    }
+    if (!snapshot || typeof snapshot !== 'object') {
+      clearPlaceholder();
+      return null;
+    }
+    publishExternalSessionState({ sessionId: id, snapshot });
+    const bound = sessionOwner(id) || externalEntryForView(id);
+    if (!bound) clearPlaceholder();
+    return bound;
+  }
+
   /** The runtime hosting sessionId: the existing owner, or a fresh load. One
    *  load per session at a time — concurrent panes converge on one session runtime. */
   async function entryForSession(sessionId, hints = {}) {
     const owner = sessionOwner(sessionId);
     if (owner) return owner;
+    const external = await bindExternalSessionView(sessionId);
+    if (external?.runtime?.externalAction === true) return external;
     const inFlight = sessionLoads.get(sessionId);
     if (inFlight) return inFlight;
     let loading;
@@ -809,7 +906,12 @@ export function createSessionService({
     if (typeof listSessions !== 'function') {
       throw new Error('session catalog is unavailable');
     }
-    const sessions = await listSessions(options || {});
+    const sessions = await listSessions({
+      ...(options || {}),
+      // Agent-only records are an internal ancestry/reuse source, never part
+      // of the ordinary session catalog returned over the public transport.
+      includeAgentOnly: false,
+    });
     const remoteSession = typeof getRemoteSessionState === 'function'
       ? await getRemoteSessionState()
       : null;
@@ -976,7 +1078,9 @@ export function createSessionService({
     }
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = await liveEntryForView(id) || externalEntryForView(id);
+    const live = await liveEntryForView(id)
+      || externalEntryForView(id)
+      || await bindExternalSessionView(id);
     if (live) {
       const step = advance(live);
       retainUnwatched(live, 'headless session read');
@@ -1017,7 +1121,9 @@ export function createSessionService({
   ) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const live = await liveEntryForView(id) || externalEntryForView(id);
+    const live = await liveEntryForView(id)
+      || externalEntryForView(id)
+      || await bindExternalSessionView(id);
     if (live) {
       addSubscriber(live, ctx);
       const step = advance(live);
@@ -1095,7 +1201,18 @@ export function createSessionService({
     // Await intake only: submitAsync resolves once the prompt is represented by
     // the queue/user row, while provider execution remains daemon-owned and
     // detached.
-    const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, intake.options));
+    const submissionOptions = entry.runtime.externalAction === true
+      ? {
+          ...intake.options,
+          transcriptMeta: {
+            ...(intake.options?.transcriptMeta && typeof intake.options.transcriptMeta === 'object'
+              ? intake.options.transcriptMeta
+              : {}),
+            sender: 'user',
+          },
+        }
+      : intake.options;
+    const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, submissionOptions));
     const firstSubmit = accepted === true && entry.reservedOnly;
     if (accepted === true) {
       entry.reservedOnly = false;
@@ -1129,7 +1246,32 @@ export function createSessionService({
     const entry = await entryForSession(id, openHints || {});
     const target = entry.runtime.abort;
     if (typeof target !== 'function') throw new TypeError('session action abort is unavailable');
-    const rawResult = await target.call(entry.runtime, options || {});
+    const state = entry.runtime.getState?.() || {};
+    const parentId = String(state.parentSessionId || state.ownerSessionId || '').trim();
+    const isLegacyAgentChild = String(state.owner || '').trim().toLowerCase() === 'agent'
+      && String(state.agent || '').trim().toLowerCase() !== 'lead'
+      && parentId
+      && parentId !== id;
+    const abortsAgentTurn = agentSessions.has(id)
+      || String(state.visibility || '').trim().toLowerCase() === 'agent-only'
+      || isLegacyAgentChild;
+    let rawResult;
+    try {
+      rawResult = target.call(entry.runtime, options || {});
+    } finally {
+      // Lead cancellation must leave delegated work alive. An Agent cancelling
+      // its own turn, however, is the live parent signal for Agent work nested
+      // under that turn; task cancellation reaches the child's own controller
+      // without enumerating durable sessions.
+      if (abortsAgentTurn) {
+        cancelBackgroundTasks({
+          surface: 'agent',
+          callerSessionId: id,
+          reason: 'parent Agent turn aborted',
+        });
+      }
+    }
+    rawResult = await rawResult;
     const abortResult = rawResult && typeof rawResult === 'object'
       ? rawResult
       : { aborted: rawResult === true };
@@ -1138,6 +1280,437 @@ export function createSessionService({
     retainUnwatched(entry, 'headless session abort');
     return sessionResult(entry, step, baseRevision, abortResult);
   }
+
+  function linkAgentDescriptor(descriptor) {
+    const sessionId = String(descriptor?.id || '').trim();
+    const parentSessionId = String(descriptor?.parentSessionId || '').trim();
+    if (!sessionId || !parentSessionId) {
+      throw new TypeError('agent child requires session and parent ids');
+    }
+    const previous = agentSessions.get(sessionId);
+    if (previous?.parentSessionId && previous.parentSessionId !== parentSessionId) {
+      agentChildren.get(previous.parentSessionId)?.delete(sessionId);
+    }
+    const linked = {
+      ...(previous || {}),
+      ...descriptor,
+      id: sessionId,
+      parentSessionId,
+      ownerSessionId: String(
+        descriptor.ownerSessionId
+        || previous?.ownerSessionId
+        || agentSessions.get(parentSessionId)?.ownerSessionId
+        || parentSessionId,
+      ),
+      owner: 'agent',
+      visibility: 'agent-only',
+      closed: descriptor.closed === true,
+    };
+    agentSessions.set(sessionId, linked);
+    let children = agentChildren.get(parentSessionId);
+    if (!children) agentChildren.set(parentSessionId, children = new Set());
+    children.add(sessionId);
+    return linked;
+  }
+
+  function validLinkedSessionId(value, ownId = '') {
+    const id = String(value || '').trim();
+    return SESSION_ID_PATTERN.test(id) && id !== ownId ? id : '';
+  }
+
+  function storedAgentCandidate(row) {
+    const id = String(row?.id || '').trim();
+    if (!SESSION_ID_PATTERN.test(id)) return null;
+    const parentSessionId = validLinkedSessionId(
+      row?.parentSessionId || row?.ownerSessionId,
+      id,
+    );
+    if (!parentSessionId) return null;
+    const declaredVisibility = String(
+      row?.visibility || row?.sessionVisibility || '',
+    ).trim().toLowerCase() === 'agent-only';
+    const legacyAgentChild = String(row?.owner || '').trim().toLowerCase() === 'agent';
+    if (!declaredVisibility && !legacyAgentChild) return null;
+    return { row, id, parentSessionId };
+  }
+
+  function lastStoredAgentHandoff(row) {
+    if (typeof row?.lastHandoff === 'string') return row.lastHandoff;
+    const messages = Array.isArray(row?.messages) ? row.messages : [];
+    const assistant = [...messages].reverse().find((message) => (
+      message?.role === 'assistant'
+      && (typeof message.content === 'string' ? message.content.trim() : message.content)
+    ));
+    if (!assistant) return '';
+    return typeof assistant.content === 'string'
+      ? assistant.content
+      : JSON.stringify(assistant.content);
+  }
+
+  /** Rebuild the Agent-only routing layer from lightweight durable summaries
+   *  after daemon replacement. Transcripts remain store/runtime owned and are
+   *  loaded by exact canonical session id only when a caller needs one. */
+  async function rehydrateAgentSessions() {
+    if (agentRehydrated) return agentSessions.size;
+    if (agentRehydratePromise) return agentRehydratePromise;
+    if (typeof listSessions !== 'function') {
+      agentRehydrated = true;
+      return agentSessions.size;
+    }
+    let loading;
+    loading = (async () => {
+      const stored = await listSessions({
+        includeAgentOnly: true,
+        summaryOnly: true,
+        refreshFromStorage: false,
+      });
+      let candidates = (Array.isArray(stored) ? stored : [])
+        .map(storedAgentCandidate)
+        .filter(Boolean);
+      if (typeof readStoredSession === 'function') {
+        candidates = await Promise.all(candidates.map(async (candidate) => {
+          if (candidate.row?.parentSessionId) return candidate;
+          try {
+            const metadata = await readStoredSession(candidate.id, { metadataOnly: true });
+            return storedAgentCandidate({
+              ...candidate.row,
+              ...(metadata && typeof metadata === 'object' ? metadata : {}),
+              id: candidate.id,
+            }) || candidate;
+          } catch (error) {
+            log(`agent metadata migration failed session=${candidate.id}: ${error?.message || error}`);
+            return candidate;
+          }
+        }));
+      }
+      const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+      const roots = new Map();
+      const resolveRoot = (candidate, seen = new Set()) => {
+        if (!candidate || seen.has(candidate.id)) return candidate?.parentSessionId || '';
+        if (roots.has(candidate.id)) return roots.get(candidate.id);
+        seen.add(candidate.id);
+        const explicitOwner = validLinkedSessionId(candidate.row?.ownerSessionId, candidate.id);
+        if (explicitOwner && explicitOwner !== candidate.parentSessionId) {
+          roots.set(candidate.id, explicitOwner);
+          return explicitOwner;
+        }
+        const parent = byId.get(candidate.parentSessionId);
+        const root = parent ? resolveRoot(parent, seen) : (explicitOwner || candidate.parentSessionId);
+        roots.set(candidate.id, root);
+        return root;
+      };
+      for (const candidate of candidates) {
+        // A child created while the summary load was in flight is newer than
+        // the stored row and must never be rolled back by rehydration.
+        if (agentSessions.has(candidate.id)) continue;
+        const row = candidate.row;
+        linkAgentDescriptor({
+          id: candidate.id,
+          parentSessionId: candidate.parentSessionId,
+          ownerSessionId: resolveRoot(candidate),
+          owner: 'agent',
+          visibility: 'agent-only',
+          agent: row.agent || row.sourceName || 'worker',
+          agentTag: row.agentTag || row.tag || null,
+          cwd: row.cwd || process.cwd(),
+          provider: row.provider || null,
+          model: row.model || null,
+          presetName: row.presetName || row.preset || row.profileId || null,
+          effort: row.effort || null,
+          fast: row.fast === true,
+          modelParameters: row.modelParameters || null,
+          taskType: row.taskType || null,
+          maxLoopIterations: row.maxLoopIterations,
+          permission: row.permission || null,
+          permissionMode: row.permissionMode || null,
+          toolPermission: row.toolPermission || null,
+          schemaAllowedTools: Array.isArray(row.schemaAllowedTools)
+            ? row.schemaAllowedTools
+            : null,
+          sourceType: row.sourceType || 'agent',
+          sourceName: row.sourceName || row.agent || 'agent',
+          clientHostPid: row.clientHostPid || null,
+          createdAt: row.createdAt || null,
+          updatedAt: row.updatedAt || row.lastUsedAt || null,
+          status: row.closed === true ? 'closed' : (row.status || 'idle'),
+          stage: row.closed === true ? 'closed' : (row.stage || row.status || 'idle'),
+          messageCount: Number(row.messageCount)
+            || (Array.isArray(row.messages) ? row.messages.length : 0),
+          lastHandoff: lastStoredAgentHandoff(row),
+          closed: row.closed === true,
+        });
+      }
+      agentRehydrated = true;
+      return agentSessions.size;
+    })().finally(() => {
+      if (agentRehydratePromise === loading) agentRehydratePromise = null;
+    });
+    agentRehydratePromise = loading;
+    return loading;
+  }
+
+  function agentDescriptor(sessionId) {
+    const id = String(sessionId || '').trim();
+    const descriptor = agentSessions.get(id);
+    if (!descriptor) return null;
+    const owner = sessionOwner(id);
+    const state = owner?.runtime?.getState?.() || {};
+    const status = descriptor.closed
+      ? (descriptor.status || 'closed')
+      : stateBusy(state)
+        ? 'running'
+        : (descriptor.status || 'idle');
+    return {
+      ...descriptor,
+      status,
+      stage: status,
+      messageCount: Array.isArray(state.items) && state.items.length > 0
+        ? state.items.length
+        : Math.max(0, Number(descriptor.messageCount) || 0),
+      updatedAt: descriptor.updatedAt || Date.now(),
+    };
+  }
+
+  function rootOwnerSessionId(sessionId) {
+    const id = String(sessionId || '').trim();
+    return agentSessions.get(id)?.ownerSessionId || id || null;
+  }
+
+  async function createAgentChild({ spec = {}, prompt = '', tag = null } = {}) {
+    await rehydrateAgentSessions();
+    const parentSessionId = String(spec.parentSessionId || '').trim();
+    if (!parentSessionId) throw new TypeError('agent child parentSessionId is required');
+    const ownerSessionId = String(
+      spec.ownerSessionId
+      || agentSessions.get(parentSessionId)?.ownerSessionId
+      || parentSessionId,
+    );
+    const preset = spec.preset && typeof spec.preset === 'object' ? spec.preset : {};
+    const provider = String(preset.provider || spec.provider || '').trim();
+    const model = String(preset.model || spec.model || '').trim();
+    if (!provider || !model) throw new Error('agent child route is incomplete');
+    const sessionProfile = {
+      owner: 'agent',
+      agent: String(spec.agent || 'worker'),
+      parentSessionId,
+      ownerSessionId,
+      visibility: 'agent-only',
+      agentTag: String(spec.agentTag || tag || '').trim() || null,
+      taskType: spec.taskType || null,
+      maxLoopIterations: spec.maxLoopIterations,
+      permission: spec.permission || null,
+      permissionMode: spec.permissionMode || null,
+      schemaAllowedTools: Array.isArray(spec.schemaAllowedTools)
+        ? spec.schemaAllowedTools
+        : null,
+      sourceType: spec.sourceType || 'agent',
+      sourceName: spec.sourceName || spec.agent || 'agent',
+      clientHostPid: spec.clientHostPid || null,
+    };
+    const created = await createSession({
+      cwd: spec.cwd || process.cwd(),
+      provider,
+      model,
+      effort: preset.effort,
+      fast: preset.fast === true,
+      modelParameters: preset.modelParameters,
+      toolMode: 'full',
+      sessionProfile,
+    });
+    const descriptor = linkAgentDescriptor({
+      id: created.sessionId,
+      ...sessionProfile,
+      cwd: spec.cwd || process.cwd(),
+      provider,
+      model,
+      presetName: preset.id || preset.name || null,
+      effort: preset.effort || null,
+      fast: preset.fast === true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      status: 'idle',
+      stage: 'idle',
+    });
+    void prompt;
+    return { session: descriptor, effectiveCwd: descriptor.cwd };
+  }
+
+  async function runAgentTurn({
+    session,
+    prompt,
+    context = null,
+    onToolResult,
+    onTerminalResult,
+  } = {}) {
+    await rehydrateAgentSessions();
+    const sessionId = String(session?.id || session || '').trim();
+    const descriptor = agentSessions.get(sessionId);
+    if (!descriptor || descriptor.closed) {
+      throw new Error(`agent session ${sessionId || '(empty)'} is closed`);
+    }
+    const entry = await entryForSession(sessionId, {
+      cwd: descriptor.cwd,
+      provider: descriptor.provider,
+      model: descriptor.model,
+      toolMode: 'full',
+    });
+    const target = entry.runtime.submitAndWait;
+    if (typeof target !== 'function') {
+      throw new TypeError('session runtime must implement submitAndWait');
+    }
+    descriptor.status = 'running';
+    descriptor.stage = 'running';
+    descriptor.updatedAt = Date.now();
+    try {
+      const options = {
+        id: `agent-turn-${randomUUID()}`,
+        mode: 'prompt',
+        priority: 'next',
+        context,
+        transcriptMeta: { sender: 'lead' },
+        ...(entry.runtime.isWireSafe === true || typeof onToolResult !== 'function'
+          ? {}
+          : { onToolResult }),
+      };
+      const detail = await target.call(entry.runtime, String(prompt || ''), options);
+      if (detail?.status === 'failed') {
+        throw new Error(String(detail.error || 'agent session turn failed'));
+      }
+      if (detail?.status === 'cancelled') {
+        throw new Error('agent session turn cancelled');
+      }
+      const result = detail?.result || { content: '' };
+      descriptor.status = 'idle';
+      descriptor.stage = 'idle';
+      descriptor.lastHandoff = typeof result?.content === 'string' ? result.content : '';
+      try { onTerminalResult?.(result); } catch {}
+      return result;
+    } catch (error) {
+      descriptor.status = /cancel/i.test(String(error?.message || '')) ? 'cancelled' : 'error';
+      descriptor.stage = descriptor.status;
+      throw error;
+    } finally {
+      descriptor.updatedAt = Date.now();
+      retainUnwatched(entry, 'agent child idle');
+    }
+  }
+
+  function cancelAgentTree(sessionId, reason = 'agent session cancelled') {
+    const id = String(sessionId || '').trim();
+    if (!id) return Promise.resolve(false);
+    const active = agentCancelRuns.get(id);
+    if (active) return active;
+    let run;
+    run = (async () => {
+      await rehydrateAgentSessions();
+      cancelBackgroundTasks({
+        surface: 'agent',
+        callerSessionId: id,
+        reason,
+      });
+      const children = [...(agentChildren.get(id) || [])];
+      await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
+      const descriptor = agentSessions.get(id);
+      if (!descriptor) return children.length > 0;
+      if (descriptor.closed) return true;
+      let entry = sessionOwner(id);
+      if (!entry) {
+        try {
+          entry = await entryForSession(id, {
+            cwd: descriptor.cwd,
+            provider: descriptor.provider,
+            model: descriptor.model,
+            toolMode: 'full',
+          });
+        } catch (error) {
+          log(`agent cancel load failed session=${id}: ${error?.message || error}`);
+        }
+      }
+      const closeCanonical = entry?.runtime?.closeCanonicalSession;
+      if (typeof closeCanonical !== 'function') {
+        throw new TypeError('session runtime must implement closeCanonicalSession');
+      }
+      const closed = await closeCanonical.call(entry.runtime, reason);
+      if (closed !== true) throw new Error(`agent session ${id} could not be durably closed`);
+      descriptor.closed = true;
+      descriptor.status = 'closed';
+      descriptor.stage = 'closed';
+      descriptor.updatedAt = Date.now();
+      return true;
+    })().finally(() => {
+      if (agentCancelRuns.get(id) === run) agentCancelRuns.delete(id);
+    });
+    agentCancelRuns.set(id, run);
+    return run;
+  }
+
+  async function cancelAgentDescendants(parentSessionId, reason = 'parent session cancelled') {
+    await rehydrateAgentSessions();
+    const parentId = String(parentSessionId || '');
+    cancelBackgroundTasks({
+      surface: 'agent',
+      callerSessionId: parentId,
+      reason,
+    });
+    const children = [...(agentChildren.get(parentId) || [])];
+    if (!children.length) return false;
+    await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
+    return true;
+  }
+
+  function agentDescendantSessionIds(parentSessionId) {
+    const descendants = [];
+    const seen = new Set();
+    const visit = (parentId) => {
+      for (const childId of agentChildren.get(String(parentId || '')) || []) {
+        if (seen.has(childId)) continue;
+        seen.add(childId);
+        descendants.push(childId);
+        visit(childId);
+      }
+    };
+    visit(parentSessionId);
+    return descendants;
+  }
+
+  const agentSurface = Object.freeze({
+    canonical: true,
+    canRun: (session) => Boolean(agentSessions.get(String(session?.id || ''))),
+    createChild: createAgentChild,
+    runTurn: runAgentTurn,
+  });
+
+  const agentManager = Object.freeze({
+    rehydrateAgentSessions,
+    descendantSessionIds: agentDescendantSessionIds,
+    getSession: (sessionId) => agentDescriptor(sessionId),
+    listSessions: ({ includeClosed = false } = {}) => [...agentSessions.keys()]
+      .map(agentDescriptor)
+      .filter((session) => session && (includeClosed || session.closed !== true)),
+    getSessionRuntime: (sessionId) => {
+      const session = agentDescriptor(sessionId);
+      return session ? { stage: session.stage || session.status || 'idle' } : null;
+    },
+    async readSessionHandoff(sessionId) {
+      const id = String(sessionId || '').trim();
+      const descriptor = agentSessions.get(id);
+      if (!descriptor) return '';
+      if (typeof descriptor.lastHandoff === 'string' && descriptor.lastHandoff.trim()) {
+        return descriptor.lastHandoff;
+      }
+      if (typeof readStoredSession !== 'function') return '';
+      const stored = await readStoredSession(id, { includeMessages: true });
+      const handoff = lastStoredAgentHandoff(stored);
+      if (handoff) descriptor.lastHandoff = handoff;
+      return handoff;
+    },
+    async closeSession(sessionId, reason = 'agent session closed') {
+      await rehydrateAgentSessions();
+      return cancelAgentTree(sessionId, reason);
+    },
+    unloadSessionRuntime: () => false,
+    hideSessionFromList: () => false,
+  });
 
   async function approveSession({
     sessionId, approvalId, decision, open: openHints = {}, baseRevision = null,
@@ -1355,6 +1928,8 @@ export function createSessionService({
     closed = true;
     try { unsubscribeExternalSessionStates(); } catch {}
     externalViewEntries.clear();
+    agentSessions.clear();
+    agentChildren.clear();
     if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
     const services = [...new Set(desktopServicesById.values())];
     desktopServicesById.clear();
@@ -1374,6 +1949,8 @@ export function createSessionService({
     handleCall, listSessionCatalog, createSession, readSession, subscribeSession, unsubscribeSession,
     submitSession, materializeSession, abortSession, approveSession,
     configureSession, stop, releaseClient,
+    agentSurface, agentManager, agentDescriptor, rootOwnerSessionId, rehydrateAgentSessions,
+    cancelAgentTree, cancelAgentDescendants,
     get size() { return sessions.size; },
     /** Live work the daemon must not abandon (self-shutdown guard). */
     get busyCount() { return liveBusyCount(); },

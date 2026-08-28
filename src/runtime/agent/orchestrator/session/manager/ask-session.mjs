@@ -14,6 +14,10 @@ import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { estimateJsonBytes } from '../../../../shared/json-metrics.mjs';
 import { logLlmCall } from '../../../../shared/llm/usage-log.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
+import {
+    acknowledgePendingDeferredToolDelta,
+    snapshotPendingDeferredToolDelta,
+} from '../../../../../session-runtime/deferred-tool-delta.mjs';
 import { recordStandaloneStatusTelemetry } from './status-telemetry.mjs';
 import { normalizeStaleCompactingStage } from './compaction-runner.mjs';
 import { resolveSessionContextMeta, positiveContextWindow } from './context-meta.mjs';
@@ -78,6 +82,37 @@ export async function settleAskCleanup(promise, { timeoutMs } = {}) {
         ? Number(timeoutMs)
         : (Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_ASK_CLEANUP_SETTLE_MS);
     return await settleWithin(promise, budget);
+}
+
+// Live Agent projection is a per-ask send opt, never a session field.
+// Callers that pass onTextDelta/onAssistantText still need `liveProjection`
+// to un-suppress provider streaming: askSession always wraps those
+// callbacks for interruption tracking, so agent-loop cannot infer intent
+// from `typeof opts.onTextDelta === 'function'`.
+export function resolveAskLiveProjection(askOpts = {}) {
+    return askOpts?.liveProjection === true;
+}
+
+export function emitAskSessionStart(askOpts, detail) {
+    if (typeof askOpts?.onSessionStart !== 'function') return;
+    try { askOpts.onSessionStart(detail); } catch { /* best-effort */ }
+}
+
+// Replacement is opt-in and transactional: a delta-only consumer cannot
+// retract already exposed bytes, so absence, false, or rejection must
+// preserve the original partial and force the provider's terminal
+// no-replay behavior. Live projection never auto-acks.
+export async function acknowledgeAskTextReset(askOpts, detail, onAcknowledged) {
+    if (typeof askOpts?.onTextReset !== 'function') return false;
+    let acknowledged = false;
+    try {
+        acknowledged = await askOpts.onTextReset(detail) === true;
+    } catch {
+        return false;
+    }
+    if (!acknowledged) return false;
+    if (typeof onAcknowledged === 'function') onAcknowledged(detail);
+    return true;
 }
 
 export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.now()) {
@@ -194,6 +229,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             ...(typeof _rawTranscriptMeta.model === 'string' && _rawTranscriptMeta.model ? { model: _rawTranscriptMeta.model } : {}),
             ...(typeof _rawTranscriptMeta.provider === 'string' && _rawTranscriptMeta.provider ? { provider: _rawTranscriptMeta.provider } : {}),
             ...(typeof _rawTranscriptMeta.agent === 'string' && _rawTranscriptMeta.agent ? { agent: _rawTranscriptMeta.agent } : {}),
+            ...(typeof _rawTranscriptMeta.sender === 'string' && _rawTranscriptMeta.sender ? { sender: _rawTranscriptMeta.sender } : {}),
         }
         : null;
     const _takeAssistantTranscriptMetadata = () => {
@@ -229,6 +265,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     // can compare against the last turn's generation.
     let askGeneration = 0;
     let _crashRecoveryChecked = false;
+    let _sessionStartEmitted = false;
     try {
       // Turn loop (pendingMessages pattern): run the current prompt, then drain
       // any `agent type=send` messages that were queued while this turn was in
@@ -238,6 +275,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       for (;;) {
         let _pwstTurnDrained = null;
         let _turnPendingEntries = [];
+        let _turnDeferredToolDelta = null;
         // After the first turn, the next prompt comes from the drained queue.
         // (On the first iteration _pendingTail is empty and `prompt` is the
         // caller's original message.)
@@ -333,6 +371,16 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             linkParentSignalToSession(sessionId, _linkedParentSignal);
         }
         markSessionAskStart(sessionId);
+        if (!_sessionStartEmitted) {
+            _sessionStartEmitted = true;
+            emitAskSessionStart(askOpts, {
+                sessionId,
+                agent: preSession.agent || null,
+                model: preSession.model || null,
+                provider: preSession.provider || null,
+                owner: preSession.owner || null,
+            });
+        }
         // Preprocessing is inside try so provider-not-available / trim failures
         // fall into the catch and mark the session as errored rather than
         // leaving stage='connecting' forever.
@@ -540,9 +588,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 process.stderr.write(`[session] Warning: prompt is very large (est. ${Math.round(promptTokenEstimate)} tokens vs ${softBudget} soft budget)\n`);
             }
             const _currentTimeBlock = buildCurrentTimeBlock(prompt);
-            const _turnReminderBlock = _currentTimeBlock
-                ? `<system-reminder>\n# Current Time\n${_currentTimeBlock}\n</system-reminder>`
-                : '';
+            _turnDeferredToolDelta = snapshotPendingDeferredToolDelta(session);
+            const _turnReminderBlock = [
+                _currentTimeBlock
+                    ? `<system-reminder>\n# Current Time\n${_currentTimeBlock}\n</system-reminder>`
+                    : '',
+                _turnDeferredToolDelta?.content || '',
+            ].filter(Boolean).join('\n\n');
             const _baseUserTurnContent = prefixUserTurnContent(prompt, _contextBlock);
             const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _turnReminderBlock);
             cancelledUserTurnContent = _userTurnContent;
@@ -623,23 +675,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 _scheduleTurnCheckpoint();
                 if (typeof askOpts?.onTextDelta === 'function') askOpts.onTextDelta(chunk);
             };
-            const _trackTextReset = async (detail) => {
-                // Replacement is opt-in and transactional: a delta-only
-                // consumer cannot retract already exposed bytes, so absence,
-                // false, or rejection must preserve the original partial and
-                // force the provider's terminal no-replay behavior.
-                if (typeof askOpts?.onTextReset !== 'function') return false;
-                let acknowledged = false;
-                try {
-                    acknowledged = await askOpts.onTextReset(detail) === true;
-                } catch {
-                    return false;
-                }
-                if (!acknowledged) return false;
-                _turnInterruption.tombstoneText(detail?.chars);
+            const _trackTextReset = async (detail) => acknowledgeAskTextReset(askOpts, detail, (resetDetail) => {
+                _turnInterruption.tombstoneText(resetDetail?.chars);
                 _scheduleTurnCheckpoint(true);
-                return true;
-            };
+            });
             const _trackReasoningDelta = (chunk) => {
                 _turnInterruption.recordReasoningDelta(chunk);
                 _scheduleTurnCheckpoint();
@@ -679,9 +718,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     onReasoningDelta: _trackReasoningDelta,
                     onAssistantText: _trackAssistantText,
                     takeAssistantTranscriptMetadata: _takeAssistantTranscriptMetadata,
-                    onAssistantMessageCommitted: () => {
+                    // Send-opt only. Never copy onto `session` — a transient
+                    // interactive/live flag must not survive this ask.
+                    liveProjection: resolveAskLiveProjection(askOpts),
+                    onAssistantMessageCommitted: (message) => {
                         _turnInterruption.markAssistantMessageCommitted();
                         _scheduleTurnCheckpoint(true);
+                        try { askOpts?.onAssistantMessageCommitted?.(message); } catch {}
                     },
                     onAssistantToolCallObserved: (call, detail) => {
                         _turnInterruption.recordToolCalls([call], detail);
@@ -1008,6 +1051,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     promptTokens,
                     prefixHash: prefixHashForLog,
                     costUsd,
+                    transportTiming: result.transportTiming || null,
                 });
                 recordStandaloneStatusTelemetry(session, result, Date.now() - _askStartedAt);
             }
@@ -1019,6 +1063,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 delete session.providerState;
             } else if (result.providerStateUpdated === true || result.providerState !== undefined) {
                 session.providerState = result.providerState;
+            }
+            if (_turnDeferredToolDelta) {
+                acknowledgePendingDeferredToolDelta(session, _turnDeferredToolDelta.revision);
             }
             const terminalResultPreview = {
                 ...result,
@@ -1214,13 +1261,25 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // renderer's ephemeral failure toast.
             try {
                 const _status = Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0;
+                const _errorDetails = err?.details && typeof err.details === 'object'
+                    ? err.details
+                    : null;
                 const _parts = [
                     `session=${sessionId}`,
                     `name=${err?.name || 'Error'}`,
                     _status ? `status=${_status}` : null,
                     err?.code ? `code=${err.code}` : null,
                     err?.providerErrorType ? `type=${err.providerErrorType}` : null,
-                    `kind=${classifyError(err)}`,
+                    `kind=${_errorDetails?.kind || classifyError(err)}`,
+                    _errorDetails?.reason ? `reason=${_errorDetails.reason}` : null,
+                    _errorDetails?.source ? `source=${_errorDetails.source}` : null,
+                    Number.isFinite(Number(_errorDetails?.index)) ? `index=${_errorDetails.index}` : null,
+                    Number.isFinite(Number(_errorDetails?.previousCount))
+                        ? `previousCount=${_errorDetails.previousCount}`
+                        : null,
+                    Number.isFinite(Number(_errorDetails?.nextCount))
+                        ? `nextCount=${_errorDetails.nextCount}`
+                        : null,
                     Number.isFinite(Number(err?.attempts)) ? `attempts=${err.attempts}` : null,
                     Number.isFinite(Number(err?.midstreamRetries)) ? `midstreamRetries=${err.midstreamRetries}` : null,
                     err?.midstreamClassifier ? `midstream=${err.midstreamClassifier}` : null,

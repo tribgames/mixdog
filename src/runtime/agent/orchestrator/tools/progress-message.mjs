@@ -66,6 +66,10 @@ export function formatToolStartProgress(name, args = {}) {
             return a.action === 'snapshot' && a.window
                 ? `reading ${_t(a.window)}`
                 : `computer ${_t(a.action || 'command')}`;
+        case 'office':
+            return a.path
+                ? `office ${_t(a.action || 'command')} ${_t(a.path)}`
+                : `office ${_t(a.action || 'command')}`;
 
         // ── agent module: agent / models ─────────────────────────────────
         case 'agent': {

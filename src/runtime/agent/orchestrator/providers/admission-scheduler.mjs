@@ -201,7 +201,12 @@ export class ProviderAdmissionScheduler {
         // owns a slot, so reacquiring the same lane could deadlock a full wave.
         const current = this.context.getStore();
         if (current?.scheduler === this && current.key === laneKey) {
-            return Promise.resolve().then(() => task(signal));
+            return Promise.resolve().then(() => task(signal, {
+                queueWaitMs: 0,
+                active: current.lane.active,
+                queued: current.lane.queue.length,
+                limit: Number.isFinite(current.lane.limit) ? current.lane.limit : null,
+            }));
         }
         if (this.closedReason) return Promise.reject(this.closedReason);
         if (signal?.aborted) return Promise.reject(abortError(signal));
@@ -323,7 +328,14 @@ export class ProviderAdmissionScheduler {
                 priority: item.priority,
                 rateLimited: false,
             };
-            this.context.run(admission, () => Promise.resolve().then(() => item.task(controller.signal)))
+            const admissionMetrics = {
+                queueWaitMs: Math.max(0, this.now() - item.queuedAt),
+                active: lane.active,
+                queued: lane.queue.length,
+                limit: Number.isFinite(lane.limit) ? lane.limit : null,
+            };
+            this.context.run(admission, () => Promise.resolve().then(() =>
+                item.task(controller.signal, admissionMetrics)))
                 .then((value) => {
                     // A retry that eventually succeeds is not evidence that
                     // the lane should begin recovery from the 429 it just saw.
@@ -582,7 +594,7 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
         // resource controller reacquires the agent lease before model output
         // continues through local context/tool processing.
         return resourceAdmission.runYielded(() =>
-            scheduler.run(key, (admissionSignal) => {
+            scheduler.run(key, (admissionSignal, admissionMetrics) => {
                 // Admission is the common request-clock boundary for WS/SSE/HTTP.
                 // Queue wait therefore cannot consume first-byte or agent-watchdog
                 // time. Provider-local retry remains the sole retry owner.
@@ -590,6 +602,7 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
                 return originalSend.call(this, messages, model, tools, {
                     ...opts,
                     signal: admissionSignal,
+                    _providerAdmission: admissionMetrics,
                 });
             }, {
                 signal,

@@ -23,7 +23,24 @@ export type PaneDragFrame = PaneDragSession & {
 
 const listeners = new Set<(frame: PaneDragFrame) => void>();
 let activeSession: PaneDragSession | null = null;
-let dropped = false;
+let settled = false;
+let previewActive = false;
+let sourceCleanup: (() => void) | null = null;
+type PaneDragPoint = { x: number; y: number; target: Element | null };
+let lastPoint: PaneDragPoint | null = null;
+
+function paneDragPoint(event: DragEvent): PaneDragPoint | null {
+  const x = event.clientX;
+  const y = event.clientY;
+  // Chromium can emit a synthetic (0, 0) while crossing nested drag targets.
+  // It is not a workspace coordinate and must not reverse the split preview.
+  if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return null;
+  return {
+    x,
+    y,
+    target: event.target instanceof Element ? event.target : null,
+  };
+}
 
 function publishPaneDrag(frame: PaneDragFrame): void {
   for (const listener of [...listeners]) {
@@ -35,13 +52,32 @@ function publishPaneDrag(frame: PaneDragFrame): void {
   }
 }
 
+function resetPaneDrag(): void {
+  const cleanup = sourceCleanup;
+  activeSession = null;
+  settled = false;
+  previewActive = false;
+  sourceCleanup = null;
+  lastPoint = null;
+  try {
+    cleanup?.();
+  } catch {
+    // Source UI cleanup must not leak a completed global drag session.
+  }
+}
+
 export function beginPaneDrag(
   event: DragEvent,
   session: PaneDragSession,
   dragImageContainer: HTMLElement,
+  onFinish?: () => void,
 ): void {
+  if (activeSession) finishPaneDrag();
   activeSession = session;
-  dropped = false;
+  settled = false;
+  previewActive = false;
+  sourceCleanup = onFinish ?? null;
+  lastPoint = null;
   if (!event.dataTransfer) return;
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData(PANE_DRAG_MIME, session.key);
@@ -61,53 +97,66 @@ export function currentPaneDrag(): PaneDragSession | null {
 
 export function movePaneDrag(event: DragEvent): boolean {
   const session = activeSession;
-  if (!session) return false;
+  if (!session || settled) return false;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  const point = paneDragPoint(event);
+  if (!point) return true;
+  lastPoint = point;
+  previewActive = true;
   publishPaneDrag({
     ...session,
     phase: "move",
-    x: event.clientX,
-    y: event.clientY,
-    target: event.target instanceof Element ? event.target : null,
+    x: point.x,
+    y: point.y,
+    target: point.target,
   });
   return true;
 }
 
 export function dropPaneDrag(event: DragEvent): boolean {
   const session = activeSession;
-  if (!session) return false;
+  if (!session || settled) return false;
   event.preventDefault();
-  dropped = true;
+  const point = paneDragPoint(event) ?? lastPoint;
+  if (!point) return false;
+  settled = true;
+  previewActive = false;
   publishPaneDrag({
     ...session,
     phase: "drop",
-    x: event.clientX,
-    y: event.clientY,
-    target: event.target instanceof Element ? event.target : null,
+    x: point.x,
+    y: point.y,
+    target: point.target,
   });
+  resetPaneDrag();
   return true;
 }
 
 export function acceptPaneDrag(): boolean {
-  if (!activeSession) return false;
-  dropped = true;
+  if (!activeSession || settled) return false;
+  cancelPaneDragPreview();
+  settled = true;
+  resetPaneDrag();
   return true;
 }
 
-export function leavePaneDrag(): void {
+export function cancelPaneDragPreview(): void {
   const session = activeSession;
-  if (!session) return;
-  publishPaneDrag({ ...session, phase: "cancel", x: 0, y: 0, target: null });
+  if (!session || !previewActive) return;
+  previewActive = false;
+  publishPaneDrag({
+    ...session,
+    phase: "cancel",
+    x: 0,
+    y: 0,
+    target: null,
+  });
 }
 
 export function finishPaneDrag(): void {
-  const session = activeSession;
-  if (session && !dropped) {
-    publishPaneDrag({ ...session, phase: "cancel", x: 0, y: 0, target: null });
-  }
-  activeSession = null;
-  dropped = false;
+  if (!settled) cancelPaneDragPreview();
+  resetPaneDrag();
 }
 
 export function subscribePaneDrag(listener: (frame: PaneDragFrame) => void): () => void {

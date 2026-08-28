@@ -147,6 +147,9 @@ export function renderResult(value) {
     }
 
     if (value.content !== undefined) {
+      if (value.handoffOnly === true) {
+        return stripFinalAnswerWrapper(value.content);
+      }
       const header = [
         value.respawned ? 'agent respawned' : 'agent result',
         value.tag ? `tag=${value.tag}` : null,

@@ -214,7 +214,8 @@ export function PullRequestsPane({
 }) {
   const api = window.mixdogDesktop;
   const [categories, setCategories] = useState<DesktopPullRequestCategory[] | null>(null);
-  const [listError, setListError] = useState("");
+  const [readError, setReadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [loading, setLoading] = useState(false);
   const [listView, setListView] = useState<PullRequestListView>("open");
   const [filter, setFilter] = useState("");
@@ -259,10 +260,10 @@ export function PullRequestsPane({
       setBaseBranchNames(baseNames.length ? baseNames : ["main"]);
       setDefaultBranchName(remoteDefaultBranch
         || (baseNames.includes("main") ? "main" : baseNames.includes("master") ? "master" : baseNames[0] ?? "main"));
-      setListError("");
+      setReadError("");
     } catch (cause) {
       if (epoch !== listEpoch.current) return;
-      setListError(cause instanceof Error ? cause.message : String(cause));
+      setReadError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       if (epoch === listEpoch.current) setLoading(false);
     }
@@ -278,7 +279,8 @@ export function PullRequestsPane({
     if (loadedProject.current !== projectPath) {
       loadedProject.current = projectPath;
       setCategories(null);
-      setListError("");
+      setReadError("");
+      setActionError("");
       setListView("open");
       setFilter("");
       setCreateOpen(false);
@@ -290,13 +292,13 @@ export function PullRequestsPane({
 
   const run = useCallback(async (key: string, action: () => Promise<unknown> | undefined) => {
     setBusy(key);
+    setActionError("");
     try {
       await action();
-      setListError("");
       await loadList();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      setListError(message);
+      setActionError(message);
     } finally {
       setBusy("");
     }
@@ -382,7 +384,7 @@ export function PullRequestsPane({
     if (raw === null) return;
     const match = /^#?(\d+)$/.exec(raw.trim());
     if (!match) {
-      setListError("Enter a valid pull request number.");
+      setActionError("Enter a valid pull request number.");
       return;
     }
     const number = Number(match[1]);
@@ -516,21 +518,26 @@ export function PullRequestsPane({
         </footer>
       </form>}
       {!createOpen && <>
-      {listError && <div className="dock-pr-error-state" role="alert">
+      {actionError && <div className="dock-pr-error-state" role="alert">
         <Github size={18} aria-hidden="true" />
         <div>
-          <b>Could not load pull requests</b>
-          <span>{listError}</span>
+          <b>Pull request action failed</b>
+          <span>{actionError}</span>
         </div>
         <button type="button" onClick={() =>
           void api?.openExternal?.("https://cli.github.com/manual/gh_auth_login")}>
           GitHub CLI help
         </button>
       </div>}
-      {categories === null && !listError && <p className="utility-dock-empty">
+      {categories === null && readError && <div className="dock-pr-empty" role="status">
+        <Github size={24} aria-hidden="true" />
+        <b>Pull requests are temporarily unavailable</b>
+        <span>Refresh when the project is ready.</span>
+      </div>}
+      {categories === null && !readError && <p className="utility-dock-empty">
         <ProgressSpinner size={14} aria-hidden="true" /> Loading pull requests…
       </p>}
-      {pullRequestViews && !listError && visiblePullRequests.length === 0 &&
+      {pullRequestViews && visiblePullRequests.length === 0 &&
         <div className="dock-pr-empty" role="status">
           <GitPullRequestArrow size={24} aria-hidden="true" />
           <b>{emptyTitle}</b>
@@ -540,7 +547,7 @@ export function PullRequestsPane({
               Create pull request
             </button>}
         </div>}
-      {pullRequestViews && !listError && visiblePullRequests.length > 0 &&
+      {pullRequestViews && visiblePullRequests.length > 0 &&
         <div className="dock-pr-results" role="list"
           aria-label={`${viewLabels[listView]} pull requests`}>
           {visiblePullRequests.map((pr) => {

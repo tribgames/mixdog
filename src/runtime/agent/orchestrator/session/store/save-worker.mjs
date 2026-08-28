@@ -139,9 +139,18 @@ let _faultSyncedKey = null;
 // optimistic summary row is published: foreign/ambiguous records must never be
 // cached as owned, not even transiently.
 let _writeAuthorityCheck = null;
+let _liveSessionPublisher = null;
 
 export function _setSessionWriteAuthorityCheck(check) {
     _writeAuthorityCheck = typeof check === 'function' ? check : null;
+}
+
+export function _setLiveSessionPublisher(publish) {
+    _liveSessionPublisher = typeof publish === 'function' ? publish : null;
+}
+
+function _publishAdmittedLiveSession(session) {
+    try { _liveSessionPublisher?.(session); } catch { /* observers never affect persistence */ }
 }
 
 function _refuseUnownedWrite(id) {
@@ -528,6 +537,7 @@ export function saveSessionAsync(session, opts, options = {}) {
         // Pin the live snapshot BEFORE anything can fail: every failure below
         // leaves this process's memory as the only copy of the newest turn.
         setLiveSession(session);
+        if (options.publishLive !== false) _publishAdmittedLiveSession(session);
         summaryVersion = _cacheSessionSummary(session);
         // The guard carries this snapshot's epoch across the thread boundary,
         // so the worker's own commit is fenced against a newer landed write.
@@ -601,6 +611,7 @@ export function saveSessionAsyncDeferred(session, opts) {
         try {
             _ensureLifecycleFields(session);
             setLiveSession(session);
+            _publishAdmittedLiveSession(session);
             _cacheSessionSummary(session);
         } catch (err) {
             _failWorkerWrite(session?.id, null, [], err, epoch, null, err?.attemptSnapshot ?? null);
@@ -625,7 +636,10 @@ export function saveSessionAsyncDeferred(session, opts) {
             // The promoted save takes its own stamp.
             _releaseSessionIncarnation(pending.incarnation);
             try {
-                saveSessionAsync(pending.session, pending.opts, { epoch: pending.epoch }).then(resolve, reject);
+                saveSessionAsync(pending.session, pending.opts, {
+                    epoch: pending.epoch,
+                    publishLive: false,
+                }).then(resolve, reject);
             } catch (err) {
                 _failWorkerWrite(session?.id, null, [], err, epoch, null, err?.attemptSnapshot ?? null);
                 reject(err);

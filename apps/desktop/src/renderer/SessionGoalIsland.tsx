@@ -8,25 +8,15 @@ import { showDesktopToast } from './notifications';
 
 const ACTIVE_AGENT_STAGE = /^(?:connecting|requesting|streaming|tool_running|running|cancelling)$/i;
 
-function localeName(): string {
-  if (typeof document !== 'undefined' && document.documentElement.lang) return document.documentElement.lang;
-  if (typeof navigator !== 'undefined' && navigator.language) return navigator.language;
-  return 'en';
-}
-
 export function formatGoalDuration(milliseconds: number): string {
-  const totalMinutes = Math.max(0, Math.round(Number(milliseconds || 0) / 60_000));
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-  const locale = localeName();
-  const unit = (value: number, name: 'day' | 'hour' | 'minute') =>
-    new Intl.NumberFormat(locale, { style: 'unit', unit: name, unitDisplay: 'narrow' }).format(value);
-  return [
-    days ? unit(days, 'day') : '',
-    hours ? unit(hours, 'hour') : '',
-    minutes || (!days && !hours) ? unit(minutes, 'minute') : '',
-  ].filter(Boolean).join(' ');
+  const totalSeconds = Math.max(0, Math.round(Number(milliseconds || 0) / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function useGoalClock(active: boolean): number {
@@ -34,7 +24,7 @@ function useGoalClock(active: boolean): number {
   useEffect(() => {
     if (!active) return undefined;
     setClock(Date.now());
-    const timer = window.setInterval(() => setClock(Date.now()), 15_000);
+    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [active]);
   return clock;
@@ -57,23 +47,44 @@ function goalStatusLabel(goal: GoalSnapshot): string {
   if (status === 'blocked') return t('Blocked');
   if (status === 'budget_limited') return t('Time limit reached');
   if (status === 'usage_limited') return t('Usage limited');
-  const total = Math.max(0, Number(goal.criteriaTotal) || goal.criteria?.length || 0);
-  const completed = Math.max(0, Number(goal.criteriaCompleted)
-    || goal.criteria?.filter((criterion) => criterion.satisfied === true).length
-    || 0);
-  return total >= 2 ? `${completed}/${total}` : t('in progress');
+  return t('in progress');
 }
 
-function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
-  if (goal.status === 'complete') {
-    return t('{{time}} elapsed', { time: formatGoalDuration(Number(goal.timeUsedMs) || 0) });
-  }
-  if (goal.status !== 'active') return '';
+function goalElapsedMs(goal: GoalSnapshot, clock: number): number {
+  const snapshotUsed = Math.max(0, Number(goal.timeUsedMs) || 0);
+  if (goal.status !== 'active' && goal.status !== 'paused') return snapshotUsed;
   const deadlineAt = Number(goal.deadlineAt) || 0;
   const remaining = deadlineAt > 0
     ? Math.max(0, deadlineAt - clock)
     : Math.max(0, Number(goal.remainingMs) || 0);
-  return formatGoalDuration(remaining);
+  const total = Math.max(0, Number(goal.timeLimitMs) || snapshotUsed + remaining);
+  return total > 0 ? Math.min(total, Math.max(snapshotUsed, total - remaining)) : snapshotUsed;
+}
+
+export function goalElapsedLabel(goal: GoalSnapshot, clock: number): string {
+  return formatGoalDuration(goalElapsedMs(goal, clock));
+}
+
+export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
+  if (goal.status === 'complete') {
+    return t('{{time}} elapsed', { time: formatGoalDuration(Number(goal.timeUsedMs) || 0) });
+  }
+  if (goal.status !== 'active' && goal.status !== 'paused') return '';
+  const deadlineAt = Number(goal.deadlineAt) || 0;
+  const remaining = deadlineAt > 0
+    ? Math.max(0, deadlineAt - clock)
+    : Math.max(0, Number(goal.remainingMs) || 0);
+  const snapshotUsed = Math.max(0, Number(goal.timeUsedMs) || 0);
+  const total = Math.max(0, Number(goal.timeLimitMs) || snapshotUsed + remaining);
+  if (total <= 0) {
+    return t('{{time}} elapsed', { time: formatGoalDuration(snapshotUsed) });
+  }
+  const elapsed = goalElapsedMs(goal, clock);
+  return t('{{elapsed}} / {{total}} · {{remaining}} remaining', {
+    elapsed: formatGoalDuration(elapsed),
+    total: formatGoalDuration(total),
+    remaining: formatGoalDuration(remaining),
+  });
 }
 
 function GoalGlyph({ status }: { status?: GoalSnapshot['status'] }) {
@@ -107,7 +118,20 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
 
   const statusLabel = useMemo(() => goal ? goalStatusLabel(goal) : '', [goal]);
   const timeLabel = goal ? goalTimeLabel(goal, clock) : '';
+  const elapsedLabel = goal ? goalElapsedLabel(goal, clock) : '';
   if (!goal) return null;
+  const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
+  const tasksTotal = Math.max(tasks.length, Number(goal.tasksTotal) || 0);
+  const tasksCompleted = Math.min(tasksTotal, Math.max(
+    tasks.filter((task) => task.status === 'completed').length,
+    Number(goal.tasksCompleted) || 0,
+  ));
+  const progressLabel = `${tasksCompleted}/${tasksTotal}`;
+  const canComplete = tasks.length > 0
+    && tasks.every((task) => task.status === 'completed')
+    && tasks.some((task) => task.kind === 'verification' && task.status === 'completed');
+  const title = String(goal.title || goal.objective || t('Goal'));
+  const objective = String(goal.objective || '');
 
   const control = async (action: string) => {
     if (!sessionId || workingAction) return;
@@ -133,47 +157,46 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     setOpen(false);
   };
 
-  const criteria = Array.isArray(goal.criteria) ? goal.criteria : [];
   return <div ref={root} className="session-goal-island"
     data-status={goal.status || 'active'} data-waiting={waiting ? 'true' : 'false'}
     data-open={open ? 'true' : 'false'}>
     <button type="button" className="session-goal-trigger"
       aria-expanded={open} aria-haspopup="dialog"
-      aria-label={t('Goal: {{objective}}', { objective: String(goal.objective || '') })}
+      aria-label={t('Goal: {{objective}}', { objective })}
       onClick={() => setOpen((value) => !value)}>
-      <span className="session-goal-glyph"><GoalGlyph status={goal.status} /></span>
-      <span className="session-goal-objective">{String(goal.objective || t('Goal'))}</span>
-      <span className="session-goal-separator">·</span>
-      <span className="session-goal-progress">{statusLabel}</span>
-      {timeLabel ? <>
-        <span className="session-goal-separator">·</span>
-        <span className="session-goal-time">{timeLabel}</span>
-      </> : null}
+      <span className="session-goal-title-region">
+        <span className="session-goal-glyph"><GoalGlyph status={goal.status} /></span>
+        <span className="session-goal-objective" title={objective}>{title}</span>
+      </span>
+      <span className="session-goal-progress">{progressLabel}</span>
+      <span className="session-goal-time">{elapsedLabel}</span>
     </button>
     {open ? <section className="session-goal-popover" role="dialog" aria-label={t('Goal details')}>
       <header>
         <span className="session-goal-popover-glyph"><GoalGlyph status={goal.status} /></span>
         <div>
-          <strong>{String(goal.objective || t('Goal'))}</strong>
+          <strong title={objective}>{title}</strong>
           <small>{statusLabel}{timeLabel ? ` · ${timeLabel}` : ''}</small>
         </div>
       </header>
-      {criteria.length > 0 ? <div className="session-goal-criteria">
-        <b>{t('Completion conditions')} {Math.max(0, Number(goal.criteriaCompleted) || 0)}/{criteria.length}</b>
-        <ul>
-          {criteria.map((criterion, index) => <li key={String(criterion.id || index)}
-            data-satisfied={criterion.satisfied ? 'true' : 'false'}>
-            <span>{criterion.satisfied ? '✓' : '○'}</span>
-            <div>
-              <span>{String(criterion.text || '')}</span>
-              {criterion.evidence ? <small>{String(criterion.evidence)}</small> : null}
-            </div>
-          </li>)}
-        </ul>
-      </div> : <p className="session-goal-empty">{t('No completion conditions yet.')}</p>}
-      {goal.progressSummary ? <p className="session-goal-summary">{String(goal.progressSummary)}</p> : null}
-      {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
-      {goal.completionEvidence ? <p className="session-goal-evidence">{String(goal.completionEvidence)}</p> : null}
+      <div className="session-goal-content">
+        <div className="session-goal-tasks">
+          <b>{t('Tasks')} {tasksCompleted}/{tasksTotal}</b>
+          {tasks.length > 0 ? <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
+            {tasks.map((task, index) => {
+              const taskStatus = task.status || 'pending';
+              return <li key={String(task.id || index)} data-status={taskStatus}>
+                <span>{taskStatus === 'completed' ? '✓' : taskStatus === 'in_progress' ? '◐' : '○'}</span>
+                <div>
+                  <span>{String(task.text || '')}</span>
+                  {task.kind === 'verification' ? <small>{t('Verification')}</small> : null}
+                </div>
+              </li>;
+            })}
+          </ul> : <p className="session-goal-empty">{t('No tasks yet.')}</p>}
+        </div>
+        {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
+      </div>
       <footer>
         {goal.status === 'active'
           ? <button type="button" disabled={Boolean(workingAction)} onClick={() => void control('pause')}>
@@ -183,13 +206,12 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             ? <button type="button" disabled={Boolean(workingAction)} onClick={() => void control('resume')}>
               <CirclePlay size={14} />{t('Resume')}
             </button>
-            : <button type="button" disabled={Boolean(workingAction)} onClick={() => void control('resume')}>
-              <CirclePlay size={14} />{t('Resume')}
-            </button>}
+            : null}
         <button type="button" disabled={Boolean(workingAction)} onClick={edit}>
           <Pencil size={14} />{t('Edit')}
         </button>
-        {goal.status !== 'complete' ? <button type="button" disabled={Boolean(workingAction)}
+        {goal.status !== 'complete' ? <button type="button" className="primary"
+          disabled={Boolean(workingAction) || !canComplete}
           onClick={() => void control('complete')}>
           <Check size={14} />{t('Complete')}
         </button> : null}

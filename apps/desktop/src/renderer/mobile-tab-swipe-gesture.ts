@@ -408,6 +408,10 @@ export function installMobileTabSwipe({
         }
         return;
       }
+      // Claim a decisive horizontal drag before asking for an interactive
+      // transition. Browsers without View Transitions otherwise keep their
+      // native text-selection drag active throughout the discrete fallback.
+      event.preventDefault();
       if (!beginInteractiveTransition(intent)) return;
     }
     if (!lockedIntent || !activeTransition) return;
@@ -451,6 +455,7 @@ export function installMobileTabSwipe({
       clearGestureTargetListeners();
       return;
     }
+    event.preventDefault();
     if (gestureCell && beginInteractiveTransition(intent)) {
       gestureCell = null;
       clearGestureTargetListeners();

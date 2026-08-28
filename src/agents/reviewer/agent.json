@@ -1,6 +1,6 @@
 {
   "id": "reviewer",
   "name": "Reviewer",
-  "description": "Use when an implementation finishes: cross-verify the change for correctness and risk before reporting.",
+  "description": "Use after implementation to independently verify correctness, regressions, risks, and stated acceptance criteria before final reporting.",
   "entry": "AGENT.md"
 }

@@ -62,7 +62,11 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
 
   function notifyOwnerAgentCompletionEarly(job, resultValue, notifyContext = {}) {
     if (!job || job._earlyCompletionNotified === true) return false;
-    const ownerSessionId = clean(notifyContext?.callerSessionId || notifyContext?.sessionId);
+    const ownerSessionId = clean(
+      notifyContext?.callerSessionId
+      || notifyContext?.sessionId
+      || notifyContext?.ownerSessionId
+    );
     const finishedAt = new Date().toISOString();
     // An abnormal-empty finish carries an `error` — the early preview must NOT
     // present it as a benign `completed` card, or the Lead sees success before
