@@ -980,8 +980,8 @@ function Snapshot-PowerPoint($presentation, $payload) {
                     } else { $null })
                   }
                 }
-                $items
-              } catch { @() })
+                ,$items
+              } catch { ,@() })
               axes = $(try {
                 $axes = @()
                 foreach ($axisSpec in @(
@@ -2359,15 +2359,23 @@ function Set-PowerPointChartData($chart, $categoryValues, $seriesValues) {
     $source = $worksheet.Range("A1:${lastColumn}$($pointCount + 1)")
     $null = ($source.Value2 = $matrix)
     $collection = $chart.SeriesCollection()
-    while ($collection.Count -gt 0) { $null = $collection.Item(1).Delete() }
-    $sheetName = ([string]$worksheet.Name).Replace("'", "''")
-    $lastRow = $pointCount + 1
-    for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
-      $column = Excel-ColumnLabel ($seriesIndex + 1)
-      $series = $collection.NewSeries()
-      $formula = "=SERIES('$sheetName'!`$$column`$1,'$sheetName'!`$A`$2:`$A`$$lastRow,'$sheetName'!`$$column`$2:`$$column`$$lastRow,$seriesIndex)"
-      $null = ($series.Formula = $formula)
+    $placeholderSeriesCount = [int]$collection.Count
+    $categoryArray = New-Object 'object[]' $pointCount
+    for ($pointIndex = 0; $pointIndex -lt $pointCount; $pointIndex++) {
+      $categoryArray[$pointIndex] = if ($pointIndex -lt $categories.Count) { $categories[$pointIndex] } else { "Item $($pointIndex + 1)" }
     }
+    for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
+      $series = $collection.NewSeries()
+      $values = @($specs[$seriesIndex - 1].values)
+      $valueArray = New-Object 'object[]' $pointCount
+      for ($pointIndex = 0; $pointIndex -lt $pointCount; $pointIndex++) {
+        if ($pointIndex -lt $values.Count) { $valueArray[$pointIndex] = $values[$pointIndex] }
+      }
+      $null = ($series.Name = [string]$specs[$seriesIndex - 1].name)
+      $null = ($series.XValues = $categoryArray)
+      $null = ($series.Values = $valueArray)
+    }
+    for ($seriesIndex = 0; $seriesIndex -lt $placeholderSeriesCount; $seriesIndex++) { $null = $collection.Item(1).Delete() }
     $null = $chart.Refresh()
   } finally {
     if ($null -ne $workbook) { try { $null = $workbook.Close($true) } catch {} }

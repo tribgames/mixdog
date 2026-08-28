@@ -788,11 +788,12 @@ test('Office COM authoring keeps paragraph structure, no-op gates, and render st
   assert.match(source, /SetSourceData\(\$sheet\.Range\(\[string]\$op\.range\), 2\)/);
   assert.match(source, /\$chart\.ChartData/);
   assert.match(source, /\$source\.Value2 = \$matrix/);
-  assert.match(source, /\$series\.Formula = \$formula/);
+  assert.match(source, /\$placeholderSeriesCount = \[int\]\$collection\.Count/);
   assert.match(source, /tablegrid = -155/);
   assert.match(source, /function Color-Hex/);
   assert.match(source, /followMaster = \$followMasterBackground/);
-  assert.doesNotMatch(source, /\$series\.Values = "='\$sheetName'!/);
+  assert.match(source, /\$series\.Values = \$valueArray/);
+  assert.doesNotMatch(source, /\$series\.Formula\b/);
   assert.match(source, /\$pageSetup\.FitToPagesWide = 1/);
   assert.match(source, /\$state\.PageSetup\.FitToPagesWide = \$state\.FitToPagesWide/);
   assert.match(source, /SaveCopyAs\(\$output, 32\)/);

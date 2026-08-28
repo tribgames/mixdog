@@ -95,25 +95,39 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'src\main.rs') -Destination (Joi
 $cargoArgs = @('build')
 if ($isRelease) { $cargoArgs += '--release' }
 if ($cargoTarget) { $cargoArgs += @('--target', $cargoTarget) }
+$targetKey = if ($cargoTarget) { $cargoTarget } else { 'host' }
+$previousCargoTargetDirectory = $env:CARGO_TARGET_DIR
+if ([string]::IsNullOrWhiteSpace($previousCargoTargetDirectory)) {
+  $env:CARGO_TARGET_DIR = Join-Path $env:TEMP "mx-bi-$($UpstreamCommit.Substring(0, 8))-$targetKey"
+}
+$cargoTargetRoot = [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)
 $env:CARGO_NET_GIT_FETCH_WITH_CLI = 'true'
-& cargo @cargoArgs --manifest-path (Join-Path $wrapperDestination 'Cargo.toml')
-if ($LASTEXITCODE -ne 0) { throw 'Unable to build mixdog-browser-import.' }
-Push-Location $nativeRoot
 try {
-  & cargo @cargoArgs -p bitwarden_chromium_import_helper
-  if ($LASTEXITCODE -ne 0) { throw 'Unable to build the elevated browser import helper.' }
+  & cargo @cargoArgs --manifest-path (Join-Path $wrapperDestination 'Cargo.toml')
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to build mixdog-browser-import.' }
+  Push-Location $nativeRoot
+  try {
+    & cargo @cargoArgs -p bitwarden_chromium_import_helper
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to build the elevated browser import helper.' }
+  } finally {
+    Pop-Location
+  }
 } finally {
-  Pop-Location
+  if ($null -eq $previousCargoTargetDirectory) {
+    Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+  } else {
+    $env:CARGO_TARGET_DIR = $previousCargoTargetDirectory
+  }
 }
 
 $profile = $Configuration.ToLowerInvariant()
-$targetRelative = if ($cargoTarget) {
-  "target\$cargoTarget\$profile"
+$targetProfileDirectory = if ($cargoTarget) {
+  Join-Path $cargoTargetRoot "$cargoTarget\$profile"
 } else {
-  "target\$profile"
+  Join-Path $cargoTargetRoot $profile
 }
-$importer = Join-Path $wrapperDestination "$targetRelative\mixdog-browser-import.exe"
-$helper = Join-Path $nativeRoot "$targetRelative\bitwarden_chromium_import_helper.exe"
+$importer = Join-Path $targetProfileDirectory 'mixdog-browser-import.exe'
+$helper = Join-Path $targetProfileDirectory 'bitwarden_chromium_import_helper.exe'
 if (-not (Test-Path -LiteralPath $importer) -or -not (Test-Path -LiteralPath $helper)) {
   throw 'Browser importer build did not produce both executables.'
 }
