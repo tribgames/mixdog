@@ -97,21 +97,67 @@ function Remove-SnapshotWorktree {
   } finally { $ErrorActionPreference = $previous }
 }
 
-# A deploy that ends with an app restart never reaches its own finally block, so
-# the worktree it left behind is cleaned up by the next run — or on demand.
-if ($CleanupOnly) {
-  $stale = @(Get-ChildItem $env:TEMP -Directory -Filter 'mxsnap-*' -ErrorAction SilentlyContinue)
-  if (-not $stale) { Write-Step 'no snapshot worktrees to remove'; exit 0 }
-  foreach ($dir in $stale) {
-    Write-Step "removing $($dir.Name)"
-    Remove-SnapshotWorktree $dir.FullName
+# A dependency tree can exist as a directory and still be useless: the junction
+# accident this script now guards against emptied both trees without removing
+# them. The snapshot links to these, so an empty one would surface much later as
+# "the frozen copy does not compile" and burn three retries on a cause that has
+# nothing to do with a mid-save edit.
+function Test-DependencyTree {
+  param([string]$Root)
+  $modules = Join-Path $Root 'node_modules'
+  if (-not (Test-Path -LiteralPath $modules)) { return $false }
+  return @(Get-ChildItem -LiteralPath $modules -Force -ErrorAction SilentlyContinue).Count -gt 0
+}
+
+function Restore-DependencyTree {
+  param([string]$Root, [string]$Label)
+  if (Test-DependencyTree $Root) { return }
+  Write-Step "$Label dependencies are missing; running npm ci"
+  Push-Location $Root
+  $code = 1
+  try {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & npm.cmd ci --prefer-offline --no-audit --no-fund 2>&1 | Out-Null
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previous
+    Pop-Location
   }
-  Write-Step 'done'
+  if ($code -ne 0) { throw "npm ci failed in $Root (exit $code)" }
+  if (-not (Test-DependencyTree $Root)) { throw "npm ci left $Root without dependencies" }
+  Write-Host "  restored $Label dependencies"
+}
+
+function Remove-StaleSnapshots {
+  param([string]$Except = '')
+  $stale = @(
+    Get-ChildItem $env:TEMP -Directory -Filter 'mxsnap-*' -ErrorAction SilentlyContinue |
+      Where-Object { $_.FullName -ne $Except }
+  )
+  if (-not $stale) { return 0 }
+  foreach ($dir in $stale) { Remove-SnapshotWorktree $dir.FullName }
+  return $stale.Count
+}
+
+# This deploy ends by restarting the app, which kills the script before its
+# finally block runs — so the worktree from the PREVIOUS run is still on disk.
+# Sweeping it here keeps the whole flow to one command: there is no separate
+# cleanup step to remember, and no way to reach for the unsafe manual one.
+if ($CleanupOnly) {
+  $removed = Remove-StaleSnapshots
+  Write-Step $(if ($removed) { "removed $removed snapshot worktree(s)" } else { 'no snapshot worktrees to remove' })
   exit 0
 }
 
 try {
   Push-Location $repoRoot
+
+  $swept = Remove-StaleSnapshots
+  if ($swept) { Write-Step "swept $swept snapshot worktree(s) left by an earlier restart" }
+
+  Restore-DependencyTree $repoRoot 'root'
+  Restore-DependencyTree $desktopDir 'desktop'
 
   # A commit object for the current tree, index included. It is unreachable
   # until the worktree references it, and nothing in the real checkout moves.
