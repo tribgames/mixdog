@@ -47,7 +47,6 @@ export {
 export {
     buildRecallFastTrackQuery,
     splitRecallRootBlocks,
-    fitRecallRootsMessage,
 } from './compact/summary.mjs';
 
 export {

@@ -717,13 +717,6 @@ function truncateTailToCap(messages, cap) {
     return estimateMessagesTokens(sanitized) <= cap ? sanitized : [];
 }
 
-function splitRecallFitInputs(recallText) {
-    return {
-        recall: String(recallText || '').trim(),
-        prior: '',
-    };
-}
-
 function recallTailStartIndex(live, tail) {
     if (!tail.length) return live.length;
     const first = tail[0];
@@ -837,9 +830,9 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
         head: recallHead,
         lastTurnStartIdx = recallHead.length,
     } = selectRecallPreservedTail(live, recallTailOpts);
-    const recallFit = splitRecallFitInputs(opts.recallText);
+    const recallText = String(opts.recallText || '').trim();
     if (recallHead.length === 0
-        && !(recallFit.recall || recallFit.prior || opts.allowEmptyRecall === true)) {
+        && !(recallText || opts.allowEmptyRecall === true)) {
         throw new Error('recallFastTrackCompactMessages: no compactable prior history before preserved tail');
     }
 
@@ -851,7 +844,7 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     }
     const budgetRaisedBy = Math.max(0, budget - originalBudget);
 
-    if (!recallFit.recall && !recallFit.prior && opts.allowEmptyRecall !== true) {
+    if (!recallText && opts.allowEmptyRecall !== true) {
         throw new Error('recallFastTrackCompactMessages: recall text is empty');
     }
     const oldHistory = recallHead;
@@ -871,14 +864,14 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
         ? Math.min(recallRoomUncapped, Math.max(512, recallTokenCap - tailTokens))
         : recallRoomUncapped;
     const toolLines = collectToolOutcomeLines(recallHead)
-        .filter((line) => !recallFit.recall.includes(String(line || '').trim()));
+        .filter((line) => !recallText.includes(String(line || '').trim()));
     const workingFiles = collectWorkingFileGroups(recallHead, undefined, {
         cwd: opts.cwd,
         previousSummary: '',
         now: Date.now(),
     });
     const conversationLines = excludeTailFromConversation(
-        conversationLinesFromMemoryText(recallFit.recall),
+        conversationLinesFromMemoryText(recallText),
         recallTail,
     );
     const composedRecall = composeRecallHandoff({
@@ -894,7 +887,6 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
         fittedRecall,
         recallRoom,
         recallMeta,
-        '',
     );
     if (!summaryMessage) {
         throw new Error(`recallFastTrackCompactMessages: summary cannot fit remaining budget=${recallRoom}`);
@@ -936,20 +928,15 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
         remainingTokens: budget - mandatoryCost,
         recallTokenCap: (Number.isFinite(recallTokenCap) && recallTokenCap > 0) ? recallTokenCap : null,
         recallRoom,
-        recallChars: recallFit.recall.length,
-        recallBytes: textByteLength(recallFit.recall),
-        priorChars: 0,
-        priorBytes: 0,
+        recallChars: recallText.length,
+        recallBytes: textByteLength(recallText),
         summaryMessageChars: summaryContent.length,
         summaryMessageBytes: textByteLength(summaryContent),
-        recallEmpty: !recallFit.recall,
-        priorEmpty: !recallFit.prior,
-        recallTruncatedInSummary: !!recallFit.recall && !summaryContent.includes(recallFit.recall),
-        priorTruncatedInSummary: false,
+        recallEmpty: !recallText,
+        recallTruncatedInSummary: !!recallText && !summaryContent.includes(recallText),
         tailTruncated: recallTail.some((m) => messageContentHasMarker(m, RECALL_TAIL_TRUNCATION_MARKER) || messageContentHasMarker(m, RECALL_TAIL_SHORT_TRUNCATION_MARKER)),
         fileReattached: reattach.reattached,
         tailOptions: recallTailOpts,
-        previousSummary: false,
         durationMs: Date.now() - startedAt,
     };
     compactDebugLog('recall-fasttrack result', diagnostics);

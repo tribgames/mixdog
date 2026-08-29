@@ -410,106 +410,15 @@ export function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, 
 export const RECALL_TAIL_TRUNCATION_MARKER = '[... truncated during recall tail preservation ...]';
 export const RECALL_TAIL_SHORT_TRUNCATION_MARKER = '[truncated]';
 
-const PRIOR_COMPACTED_CONTEXT_OPEN = '<prior-compacted-context>';
-const PRIOR_COMPACTED_CONTEXT_CLOSE = '</prior-compacted-context>';
-// Matches ONLY a structural wrapper BOUNDARY line — a line whose sole content is
-// the open or close tag (optionally surrounded by whitespace). It deliberately
-// does NOT match an inline occurrence embedded in real content (e.g. a user note
-// like "keep <prior-compacted-context> literal here"), so flattening the wrapper
-// can never splice words together or corrupt marker-like text. The production
-// wrapper is always emitted on its own line, so boundary-line stripping removes
-// every real wrapper while leaving inline literals verbatim.
-const PRIOR_COMPACTED_CONTEXT_BOUNDARY_RE = /^[ \t]*<\/?prior-compacted-context>[ \t]*$/;
-
-// Strip the STRUCTURAL <prior-compacted-context> / </prior-compacted-context>
-// boundary lines from prior text so re-wrapping never nests, while preserving
-// any inline marker-like text inside real content exactly as written. Returns
-// the bare inner content with the blank lines the removed boundary lines leave
-// behind collapsed.
-export function stripPriorCompactedContextWrappers(text) {
-    const raw = String(text ?? '');
-    if (!raw) return '';
-    // Keep every non-structural byte, including leading/trailing and repeated
-    // newlines.  Removing only the structural line itself (not trim/collapse)
-    // preserves the layout of all remaining content.
-    return raw
-        .split('\n')
-        .filter((line) => !PRIOR_COMPACTED_CONTEXT_BOUNDARY_RE.test(line))
-        .join('\n');
-}
-
-// Remove only STRUCTURALLY IDENTICAL blank-line-separated blocks (byte-for-byte
-// repeats) so a prior context re-fed across many compaction cycles keeps every
-// distinct requirement/fact and cannot grow without bound. The dedupe is
-// content-preserving: the key is the block's EXACT text — internal whitespace is
-// never collapsed and meaningful block content is never trimmed — so distinct
-// strings such as `printf 'a  b'` and `printf 'a b'` are BOTH kept verbatim.
-// Only an exact repeat of a previously emitted block is dropped; blank
-// separators (whitespace-only splits) are skipped, never real content.
-function dedupePriorCompactedBlocks(text) {
-    const raw = String(text ?? '');
-    if (!raw.trim()) return '';
-    const seen = new Set();
-    const parts = raw.split(/(\n{2,})/);
-    const out = [];
-    let separator = '';
-    for (let i = 0; i < parts.length; i += 1) {
-        const part = parts[i];
-        if (i % 2 === 1) {
-            separator += part;
-            continue;
-        }
-        // Whitespace-only parts are layout, not a duplicate candidate.
-        if (!part.trim()) {
-            out.push(separator, part);
-            separator = '';
-            continue;
-        }
-        if (seen.has(part)) {
-            // Drop only the exact repeated structural block and its preceding
-            // separator; all retained text and whitespace stay byte-for-byte.
-            separator = '';
-            continue;
-        }
-        out.push(separator, part);
-        separator = '';
-        seen.add(part);
-    }
-    out.push(separator);
-    return out.join('');
-}
-
-// Canonicalize prior compacted context to AT MOST ONE wrapper: flatten any
-// nested/duplicated wrappers accumulated by earlier cycles, dedupe repeated
-// blocks, then wrap the surviving content exactly once. Repeated compaction can
-// therefore never nest or duplicate the prior context, each distinct
-// requirement/fact is preserved exactly once, and repeated-cycle token size
-// stays bounded.
-//
-// Optimization-safe empty-prior interpretation: when there is NO prior content
-// (empty / blank / boundary-tag-only input) this returns '' so the generated
-// summary carries ZERO wrappers instead of an empty
-// <prior-compacted-context></prior-compacted-context> pair. The production
-// summary body joins only non-empty parts (makeRecall*SummaryMessageParts), so
-// an empty wrapper cannot be carried and would only waste tokens. "Exactly one
-// wrapper" is thus realized as: exactly one when prior content exists, none when
-// it does not — and never more than one, never nested.
-export function formatPriorCompactedContextBlock(priorText) {
-    const flattened = dedupePriorCompactedBlocks(stripPriorCompactedContextWrappers(priorText));
-    if (!flattened) return '';
-    return `${PRIOR_COMPACTED_CONTEXT_OPEN}\n${flattened}\n${PRIOR_COMPACTED_CONTEXT_CLOSE}`;
-}
-
+// Peel the structural summary header off a prior summary body so semantic
+// compaction can feed bare text into its <previous-summary> block. Sessions
+// stored before recall-fasttrack stopped chaining summaries may still carry a
+// <prior-compacted-context> wrapper, so those boundary lines are dropped too.
 export function stripNestedSummaryHeaderLines(text) {
     const raw = String(text ?? '');
-    // A generated recall summary has a canonical, provenance-bearing shape:
-    //   header + "\n\n" + OPEN + "\n" + prior + "\n" + CLOSE + "\n\n" + recall
-    // Extracting it as lines loses ownership of a run of newlines: in
-    // `X\n` + join + live `X`, generic block dedupe cannot know that one
-    // newline belongs to X and must survive dropping the duplicate live X.
-    // Peel only the emitted wrapper/header/join bytes and retain the inner
-    // prior slice verbatim. The live recall is dropped only when it is the
-    // same payload the wrapper already carries.
+    // Peel only the emitted wrapper/header/join bytes and keep the inner slice
+    // verbatim: splitting into lines would lose ownership of a run of newlines,
+    // where one newline belongs to the content and must survive.
     const openMatch = /^[ \t]*<prior-compacted-context>[ \t]*\n/m.exec(raw);
     if (openMatch) {
         const closeRe = /\n[ \t]*<\/prior-compacted-context>[ \t]*(?=\n|$)/g;
@@ -544,10 +453,9 @@ export function stripNestedSummaryHeaderLines(text) {
             followsStructuralHeader = true;
             continue;
         }
-        // Summary parts are joined with "\n\n".  The first empty line after
+        // Summary parts are joined with "\n\n". The first empty line after
         // stripped summary metadata is that join's structural separator, not
-        // prior content; retaining it makes every refeed gain a newline when
-        // formatPriorCompactedContextBlock wraps the result again.
+        // content.
         if (followsStructuralHeader && line === '') {
             followsStructuralHeader = false;
             continue;
@@ -570,46 +478,19 @@ export function stripNestedSummaryHeaderLines(text) {
     return out.join('\n');
 }
 
-function makeRecallFastTrackSummaryMessageParts(oldHistory, recallPart, priorPart, recallMeta = {}) {
+function makeRecallFastTrackSummaryMessageParts(oldHistory, recallPart, recallMeta = {}) {
     const header = compactHeader(oldHistory);
     header.push(`compact_type=${COMPACT_TYPE_RECALL_FASTTRACK} source=recall-fasttrack query_sha=${recallMeta.querySha || 'none'}`);
     const parts = [header.join('\n')];
-    const priorBlock = formatPriorCompactedContextBlock(priorPart);
-    if (priorBlock) parts.push(priorBlock);
     const recall = String(recallPart || '').trim();
     if (recall) parts.push(recall);
     return makeSummaryMessage(parts.join('\n\n'));
 }
 
-export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, priorPart = '') {
+export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}) {
     const recall = String(recallText || '').trim();
-    const prior = String(priorPart || '');
 
-    let fittedPrior = prior;
-    if (prior) {
-        let lo = 0;
-        let hi = prior.length;
-        let bestPriorLen = 0;
-        while (lo <= hi) {
-            const mid = Math.floor((lo + hi) / 2);
-            const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, '', prior.slice(0, mid), recallMeta);
-            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
-                bestPriorLen = mid;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        fittedPrior = prior.slice(0, bestPriorLen);
-        if (!fittedPrior && prior) {
-            const markerOnly = makeRecallFastTrackSummaryMessageParts(oldHistory, '', RECALL_TAIL_TRUNCATION_MARKER, recallMeta);
-            if (estimateMessagesTokens([markerOnly]) <= remainingTokens) {
-                fittedPrior = RECALL_TAIL_TRUNCATION_MARKER;
-            }
-        }
-    }
-
-    const minimal = makeRecallFastTrackSummaryMessageParts(oldHistory, '', fittedPrior, recallMeta);
+    const minimal = makeRecallFastTrackSummaryMessageParts(oldHistory, '', recallMeta);
     if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
     if (!recall) return minimal;
 
@@ -618,14 +499,14 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
         // Root-block granularity fit: drop the OLDEST blocks WHOLE (never cut
         // a `# chunk` / `# raw_pending` / `# raw_terminal` block mid-entry);
         // dropping more leading blocks only shrinks the body, so binary-search
-        // the minimal drop count (mirrors fitRecallRootsMessage).
+        // the minimal drop count.
         let loB = 0;
         let hiB = blocks.length;
         let bestLo = -1;
         while (loB <= hiB) {
             const midB = Math.floor((loB + hiB) / 2);
             const body = [preamble, ...blocks.slice(midB)].filter(Boolean).join('\n\n');
-            const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, body, fittedPrior, recallMeta);
+            const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, body, recallMeta);
             if (estimateMessagesTokens([candidate]) <= remainingTokens) {
                 bestLo = midB;
                 hiB = midB - 1;
@@ -635,12 +516,11 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
         }
         if (bestLo >= 0) {
             const body = [preamble, ...blocks.slice(bestLo)].filter(Boolean).join('\n\n');
-            return makeRecallFastTrackSummaryMessageParts(oldHistory, body, fittedPrior, recallMeta);
+            return makeRecallFastTrackSummaryMessageParts(oldHistory, body, recallMeta);
         }
-        // Even zero blocks (preamble alone) overflows alongside the fitted
-        // prior - try preamble alone, else the no-recall minimal message.
+        // Even the preamble alone overflows: try it, else the minimal message.
         if (preamble) {
-            const preambleOnly = makeRecallFastTrackSummaryMessageParts(oldHistory, preamble, fittedPrior, recallMeta);
+            const preambleOnly = makeRecallFastTrackSummaryMessageParts(oldHistory, preamble, recallMeta);
             if (estimateMessagesTokens([preambleOnly]) <= remainingTokens) return preambleOnly;
         }
         return minimal;
@@ -654,7 +534,7 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
     let best = minimal;
     while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
-        const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, recall.slice(0, mid), fittedPrior, recallMeta);
+        const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, recall.slice(0, mid), recallMeta);
         if (estimateMessagesTokens([candidate]) <= remainingTokens) {
             best = candidate;
             lo = mid + 1;
@@ -708,97 +588,3 @@ export function splitRecallRootBlocks(text) {
     return { preamble, blocks };
 }
 
-// Minimal-header summary-message wrapper for the smart-compact roots path.
-// Keeps the SUMMARY_PREFIX anchor (isSummaryMessage / selectCompactionWindow
-// / clear-preserve / TUI all key off startsWith(SUMMARY_PREFIX)) but skips the
-// full sha256/roleCounts header line that fitRecallFastTrackSummaryMessage
-// computes — smart-arrival replacement is a lightweight prefix swap, not the
-// anchored LLM-summary compact, so a heavy per-call header is unneeded cost.
-function makeRecallRootsSummaryMessageParts(oldHistory, rootsPart, priorPart, recallMeta = {}) {
-    const header = `${SUMMARY_PREFIX}\nmessages=${(oldHistory || []).length} compact_type=${COMPACT_TYPE_RECALL_FASTTRACK} source=smart-arrival query_sha=${recallMeta.querySha || 'none'}`;
-    const parts = [header];
-    const priorBlock = formatPriorCompactedContextBlock(priorPart);
-    if (priorBlock) parts.push(priorBlock);
-    const roots = String(rootsPart || '').trim();
-    if (roots) parts.push(roots);
-    return makeSummaryMessage(parts.join('\n\n'));
-}
-
-// Root-block-aware fit for the smart-compact arrival path (Step1). Mirrors
-// fitRecallFastTrackSummaryMessage's prior-block binary-search fit, but the
-// recall body is fit at ROOT-BLOCK granularity: when the full set of root
-// blocks (kept in original time order) exceeds remainingTokens, the OLDEST
-// blocks are dropped WHOLE (never character-truncated mid-block) until the
-// remaining (newest-biased) suffix fits. Because dropping more leading
-// blocks can only shrink (never grow) the serialized size, the minimal-drop
-// threshold is found via binary search on the drop count.
-export function fitRecallRootsMessage(oldHistory, recallText, remainingTokens, recallMeta = {}, priorPart = '') {
-    const prior = String(priorPart || '');
-
-    let fittedPrior = prior;
-    if (prior) {
-        let lo = 0;
-        let hi = prior.length;
-        let bestPriorLen = 0;
-        while (lo <= hi) {
-            const mid = Math.floor((lo + hi) / 2);
-            const candidate = makeRecallRootsSummaryMessageParts(oldHistory, '', prior.slice(0, mid), recallMeta);
-            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
-                bestPriorLen = mid;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        fittedPrior = prior.slice(0, bestPriorLen);
-        if (!fittedPrior && prior) {
-            const markerOnly = makeRecallRootsSummaryMessageParts(oldHistory, '', RECALL_TAIL_TRUNCATION_MARKER, recallMeta);
-            if (estimateMessagesTokens([markerOnly]) <= remainingTokens) {
-                fittedPrior = RECALL_TAIL_TRUNCATION_MARKER;
-            }
-        }
-    }
-
-    const minimal = makeRecallRootsSummaryMessageParts(oldHistory, '', fittedPrior, recallMeta);
-    if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
-
-    const { preamble, blocks } = splitRecallRootBlocks(recallText);
-    if (blocks.length === 0) {
-        // No parseable root-block boundaries (empty / non-dump recallText) —
-        // degrade to keep-whole-if-it-fits, else drop entirely. Never
-        // mid-truncates: a non-block body is treated as a single atomic unit.
-        const whole = String(recallText || '').trim();
-        if (!whole) return minimal;
-        const full = makeRecallRootsSummaryMessageParts(oldHistory, whole, fittedPrior, recallMeta);
-        if (estimateMessagesTokens([full]) <= remainingTokens) return full;
-        return minimal;
-    }
-
-    let loB = 0;
-    let hiB = blocks.length;
-    let bestLo = -1;
-    while (loB <= hiB) {
-        const mid = Math.floor((loB + hiB) / 2);
-        const kept = blocks.slice(mid);
-        const body = [preamble, ...kept].filter(Boolean).join('\n\n');
-        const candidate = makeRecallRootsSummaryMessageParts(oldHistory, body, fittedPrior, recallMeta);
-        if (estimateMessagesTokens([candidate]) <= remainingTokens) {
-            bestLo = mid;
-            hiB = mid - 1;
-        } else {
-            loB = mid + 1;
-        }
-    }
-    if (bestLo >= 0) {
-        const kept = blocks.slice(bestLo);
-        const body = [preamble, ...kept].filter(Boolean).join('\n\n');
-        return makeRecallRootsSummaryMessageParts(oldHistory, body, fittedPrior, recallMeta);
-    }
-    // Even zero root blocks (preamble alone) overflows alongside the fitted
-    // prior — try preamble alone, else the no-recall minimal header.
-    if (preamble) {
-        const preambleOnly = makeRecallRootsSummaryMessageParts(oldHistory, preamble, fittedPrior, recallMeta);
-        if (estimateMessagesTokens([preambleOnly]) <= remainingTokens) return preambleOnly;
-    }
-    return minimal;
-}
