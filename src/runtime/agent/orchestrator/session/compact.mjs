@@ -45,11 +45,6 @@ export {
 } from './compact/budget.mjs';
 
 export {
-    buildRecallFastTrackQuery,
-    splitRecallRootBlocks,
-} from './compact/summary.mjs';
-
-export {
     semanticCompactMessages,
     recallFastTrackCompactMessages,
 } from './compact/runner.mjs';

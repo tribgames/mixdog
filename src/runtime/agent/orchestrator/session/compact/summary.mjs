@@ -346,28 +346,6 @@ function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}, pres
     return makeSummaryMessage(parts.join('\n\n'));
 }
 
-export function buildRecallFastTrackQuery(messages, opts = {}) {
-    const maxChars = Math.max(200, Number(opts.maxChars) || 2_000);
-    const hints = String(opts.hints || 'current task decisions constraints file paths changed files verification failures next steps').trim();
-    let latestUser = '';
-    const recent = [];
-    const input = Array.isArray(messages) ? messages : [];
-    for (let i = input.length - 1; i >= 0; i -= 1) {
-        const m = input[i];
-        const text = extractText(m).trim();
-        if (!text) continue;
-        if (recent.length < 6) recent.unshift(text);
-        if (!latestUser && m?.role === 'user' && !isProtectedContextUserMessage(m) && !isInjectedSkillBodyMessage(m)) {
-            latestUser = text;
-        }
-        if (latestUser && recent.length >= 6) break;
-    }
-    const parts = [latestUser, hints, recent.join('\n')]
-        .map((s) => String(s || '').trim())
-        .filter(Boolean);
-    return truncateMiddle([...new Set(parts)].join('\n'), maxChars);
-}
-
 // Fit the structured semantic summary into the remaining token budget WITHOUT
 // dropping any required section. The incoming `summary` is already schema-valid
 // (enforceSemanticSummarySchema ran upstream); here we shrink section bodies via
@@ -545,28 +523,23 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
     return best;
 }
 
-// --- Smart-compact root-based fitting (arrival-time replacement) -----------
+// --- Root-block splitting for the recall digest ----------------------------
 //
-// dump_session_roots (memory/index.mjs dumpSessionRootChunks) renders chunks
-// TIME-ORDERED (oldest first; chunks.sort by sourceTurn/ts/id ascending),
-// each root/raw block starting with one of:
+// A memory digest renders chunks TIME-ORDERED (oldest first), each root/raw
+// block starting with one of:
 //   # chunk N root=ID[ category=X]
 //   # raw_pending N id=ID
 //   # raw_terminal N id=ID
-// and blocks joined by "\n\n". runRecallFastTrackForSession additionally
-// prepends a "session_id=..." / cycle1-drain-status preamble before the dump
-// text (also "\n\n"-joined) — preserved verbatim as a non-block segment.
+// and blocks joined by "\n\n", after an optional preamble that is kept verbatim
+// as a non-block segment.
 //
-// Unlike fitRecallFastTrackSummaryMessage (character-slice binary search,
-// used by the LLM-summary-free but still-mid-turn recall-fasttrack compact
-// path), the smart-compact arrival path must never cut a root block
-// mid-entry — losing half a root's content silently corrupts that entry.
-// This splitter finds block boundaries by the label pattern (robust to
-// blank lines inside member/raw content, since it anchors on the distinctive
-// "# chunk /raw_pending/raw_terminal" line rather than a blank-line split).
+// fitRecallFastTrackSummaryMessage drops whole blocks instead of cutting one
+// mid-entry, since losing half a root's content silently corrupts that entry.
+// Boundaries come from the label pattern, which stays robust to blank lines
+// inside member/raw content.
 const RECALL_ROOT_BLOCK_HEADER_RE = /^# (?:chunk \d+ root=\d+(?: category=\S+)?|raw_pending \d+ id=\d+|raw_terminal \d+ id=\d+)[ \t]*$/;
 
-export function splitRecallRootBlocks(text) {
+function splitRecallRootBlocks(text) {
     const value = String(text || '');
     if (!value.trim()) return { preamble: '', blocks: [] };
     const re = new RegExp(RECALL_ROOT_BLOCK_HEADER_RE.source, 'gm');

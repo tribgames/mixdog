@@ -43,8 +43,8 @@ export function isProtectedContextUserMessage(m) {
 // content prefix (the `<skill>` envelope from buildSkillResultEnvelope) so the
 // check survives even if the synthetic `meta` field is dropped during a tail
 // rebuild. It is NOT the human's latest prompt and must be excluded from
-// "latest human request" selection (deriveCurrentRequest /
-// buildRecallFastTrackQuery). The `meta:'skill'` marker is also honoured.
+// "latest human request" selection (deriveCurrentRequest). The `meta:'skill'`
+// marker is also honoured.
 export function isInjectedSkillBodyMessage(m) {
     if (m?.role !== 'user') return false;
     if (m.meta === 'skill') return true;

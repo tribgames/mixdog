@@ -239,28 +239,6 @@ export function collectWorkingFileGroups(messages, cap = Number.POSITIVE_INFINIT
     }, prior, limit, cwd);
 }
 
-export function collectWorkingFiles(messages, cap = Number.POSITIVE_INFINITY, options = {}) {
-    const groups = collectWorkingFileGroups(messages, cap, options);
-    return [...groups.modified, ...groups.referenced].map((entry) => entry.path);
-}
-
-export function stripWorkingFileSections(text) {
-    const out = [];
-    let skipping = false;
-    for (const raw of String(text || '').split('\n')) {
-        const line = raw.trim();
-        if (line === '## Working files') {
-            skipping = true;
-            continue;
-        }
-        if (skipping && (/^##\s+/.test(line) || /^<\/?prior-compacted-context>$/.test(line))) {
-            skipping = false;
-        }
-        if (!skipping) out.push(raw);
-    }
-    return out.join('\n').replace(/\n{3,}/g, '\n\n');
-}
-
 function indexToolResults(messages) {
     const map = new Map();
     for (const m of messages || []) {

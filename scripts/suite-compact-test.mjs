@@ -22,7 +22,6 @@ import {
 import {
   collectToolOutcomeLines,
   collectWorkingFileGroups,
-  collectWorkingFiles,
   composeRecallHandoff,
   conversationLinesFromMemoryText,
   fitRecallHandoffText,
@@ -285,12 +284,15 @@ console.log('compact file-reattach test passed \u2713');
   assert.equal(lines[0], 'u: first question');
   assert.equal(lines[3], 'a: later answer #2 - final detail');
   assert.match(lines[3], /final detail/);
-  const files = collectWorkingFiles([
+  const files = collectWorkingFileGroups([
     { role: 'assistant', toolCalls: [{ name: 'read', arguments: { path: 'src/a.mjs' } }] },
     { role: 'assistant', toolCalls: [{ name: 'grep', arguments: { path: 'src' } }] },
     { role: 'assistant', toolCalls: [{ name: 'apply_patch', arguments: { patch: '*** Update File: src/b.mjs\n' } }] },
   ]);
-  assert.deepEqual(files, ['src/b.mjs', 'src/a.mjs']);
+  assert.deepEqual(
+    [...files.modified, ...files.referenced].map((entry) => entry.path),
+    ['src/b.mjs', 'src/a.mjs'],
+  );
   const groupedFiles = collectWorkingFileGroups([
     { role: 'assistant', createdAt: Date.parse('2026-01-03T00:00:00Z'), toolCalls: [{ name: 'apply_patch', arguments: { patch: '*** Update File: src/current.mjs\n' } }] },
     { role: 'assistant', createdAt: Date.parse('2026-01-04T00:00:00Z'), toolCalls: [{ name: 'read', arguments: { path: 'src/current-ref.mjs' } }] },
