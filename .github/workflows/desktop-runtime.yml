@@ -53,7 +53,11 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.runtime
-          key: desktop-prepared-runtime-v2-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', 'src/**', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs') }}
+          # Test sources never ship in the prepared runtime (package.json
+          # `files` excludes them), so hashing them retired all five prepared
+          # runtimes on every test-only change and paid the full 7-minute
+          # rebuild for output that was byte-identical.
+          key: desktop-prepared-runtime-v3-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs') }}
       - name: Restore stable desktop npm downloads
         if: steps.prepared-runtime.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

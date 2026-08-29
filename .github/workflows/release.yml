@@ -166,11 +166,14 @@ jobs:
         with:
           path: apps/desktop/out
           key: >-
-            desktop-out-v2-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
+            desktop-out-v3-${{ steps.desktop-key.outputs.manifest }}-${{ hashFiles(
               'apps/desktop/src/**',
+              '!apps/desktop/src/**/*.test.mjs',
+              '!apps/desktop/src/**/*.test.jsx',
               'apps/desktop/electron.vite.config.ts',
               'apps/desktop/tsconfig*.json',
-              'src/runtime/shared/**'
+              'src/runtime/shared/**',
+              '!src/runtime/shared/**/*.test.mjs'
             ) }}
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
