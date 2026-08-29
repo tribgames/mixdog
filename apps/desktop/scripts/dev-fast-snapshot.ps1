@@ -24,6 +24,7 @@
 param(
   [switch]$NoLaunch,
   [switch]$KeepDaemon,
+  [switch]$CleanupOnly,
   [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop')
 )
 
@@ -43,6 +44,70 @@ function New-DirectoryLink {
   if (-not (Test-Path -LiteralPath $Target)) { return }
   New-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null
   [void]$linked.Add($Link)
+}
+
+# The ONE way a snapshot worktree may be deleted. node_modules inside it is a
+# junction to the real dependency tree, and both `git worktree remove` and a
+# robocopy mirror will walk through a live junction and empty the TARGET — the
+# actual checkout's dependencies — instead of removing the link. Every deletion
+# path therefore severs the links first, by scanning the tree rather than
+# trusting a caller's bookkeeping, so a worktree orphaned by a crash (or by an
+# app restart that skipped `finally`) is just as safe to clean up.
+function Remove-SnapshotWorktree {
+  param([string]$Path)
+  if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return }
+  $leaf = Split-Path -Leaf $Path
+  if ($leaf -notlike 'mxsnap-*') { throw "Refusing to delete $Path : not a snapshot worktree" }
+
+  foreach ($entry in Get-ChildItem -LiteralPath $Path -Recurse -Force -Directory -ErrorAction SilentlyContinue) {
+    if ($entry.LinkType) { try { $entry.Delete() } catch {} }
+  }
+  # Both calls below are expected to fail sometimes — a directory that git never
+  # registered, a path it considers dirty. Under ErrorActionPreference='Stop' a
+  # native command's stderr becomes a terminating error, which would abandon the
+  # cleanup halfway and leave the tree behind, so they run detached from it.
+  try {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & git -C $repoRoot worktree remove --force $Path 2>&1 | Out-Null
+  } catch {
+  } finally { $ErrorActionPreference = $previous }
+  if (Test-Path -LiteralPath $Path) {
+    # git gave up on a long path; robocopy mirrors an empty directory over the
+    # tree, which uses the wide APIs and has no such limit. /XJ is belt and
+    # braces now that the links are already gone.
+    $empty = Join-Path $env:TEMP ("mxsnap-empty-" + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    New-Item -ItemType Directory -Path $empty -Force | Out-Null
+    try {
+      $previous = $ErrorActionPreference
+      $ErrorActionPreference = 'Continue'
+      # robocopy reports success with exit codes 0-7, which PowerShell would
+      # otherwise treat as failure.
+      & robocopy $empty $Path /MIR /XJ /NFL /NDL /NJH /NJS /NP 2>&1 | Out-Null
+    } catch {
+    } finally { $ErrorActionPreference = $previous }
+    Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  try {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & git -C $repoRoot worktree prune 2>&1 | Out-Null
+  } catch {
+  } finally { $ErrorActionPreference = $previous }
+}
+
+# A deploy that ends with an app restart never reaches its own finally block, so
+# the worktree it left behind is cleaned up by the next run — or on demand.
+if ($CleanupOnly) {
+  $stale = @(Get-ChildItem $env:TEMP -Directory -Filter 'mxsnap-*' -ErrorAction SilentlyContinue)
+  if (-not $stale) { Write-Step 'no snapshot worktrees to remove'; exit 0 }
+  foreach ($dir in $stale) {
+    Write-Step "removing $($dir.Name)"
+    Remove-SnapshotWorktree $dir.FullName
+  }
+  Write-Step 'done'
+  exit 0
 }
 
 try {
@@ -102,10 +167,8 @@ try {
       throw 'The working tree did not compile in three snapshots; let the in-flight edit finish and retry.'
     }
     Write-Host '  frozen copy does not compile (an edit was mid-save); retaking in 20s' -ForegroundColor Yellow
-    foreach ($link in $linked) { try { (Get-Item -LiteralPath $link -Force).Delete() } catch {} }
     $linked.Clear()
-    & git worktree remove --force $snapshotRoot 2>$null | Out-Null
-    Remove-Item -LiteralPath $snapshotRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SnapshotWorktree $snapshotRoot
     Start-Sleep -Seconds 20
   }
 
@@ -153,26 +216,6 @@ try {
   if ($status -ne 'completed') { throw "FastDirect worker did not finish within 15 minutes (last status: $status)" }
 } finally {
   Pop-Location -ErrorAction SilentlyContinue
-  # Junctions first: `git worktree remove` would otherwise walk into the linked
-  # dependency trees and delete the real ones.
-  foreach ($link in $linked) {
-    try { (Get-Item -LiteralPath $link -Force).Delete() } catch {}
-  }
-  if (Test-Path -LiteralPath $snapshotRoot) {
-    Write-Step 'removing the snapshot worktree'
-    & git -C $repoRoot worktree remove --force $snapshotRoot 2>$null | Out-Null
-    if (Test-Path -LiteralPath $snapshotRoot) {
-      # git gave up on a long path; robocopy mirrors an empty directory over the
-      # tree, which uses the wide APIs and has no such limit.
-      $empty = Join-Path $env:TEMP ("mxsnap-empty-" + [guid]::NewGuid().ToString('N').Substring(0, 6))
-      New-Item -ItemType Directory -Path $empty -Force | Out-Null
-      # /XJ is not optional: node_modules here is a junction to the real
-      # dependency tree, and a mirror without it deletes THAT tree instead of
-      # the link.
-      & robocopy $empty $snapshotRoot /MIR /XJ /NFL /NDL /NJH /NJS /NP | Out-Null
-      Remove-Item -LiteralPath $snapshotRoot -Recurse -Force -ErrorAction SilentlyContinue
-      Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
-    }
-  }
-  & git -C $repoRoot worktree prune 2>$null | Out-Null
+  if (Test-Path -LiteralPath $snapshotRoot) { Write-Step 'removing the snapshot worktree' }
+  Remove-SnapshotWorktree $snapshotRoot
 }

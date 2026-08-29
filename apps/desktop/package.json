@@ -39,6 +39,7 @@
     "update:dev:updater": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -ViaUpdater",
     "update:dev:fast": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -FastDirect",
     "update:dev:snapshot": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-fast-snapshot.ps1",
+    "update:dev:snapshot:clean": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-fast-snapshot.ps1 -CleanupOnly",
     "update:dev:runtime": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -RuntimeOnly",
     "update:dev:reinstall": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1",
     "update:dev:plan": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/dev-update-windows.ps1 -ViaUpdater -DryRun",
