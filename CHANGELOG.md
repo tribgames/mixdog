@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.154 - 2026-08-29
+
 - Computer Use sessions are reclaimed on every exit path instead of depending on
   an unref'd timer a departing runtime never fires: daemon and worker shutdown
   release them, a closing session releases its own, idle host workers expire on
