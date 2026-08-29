@@ -430,14 +430,17 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   // Version-neutral keys: Deploy rewrites the manifest version one job before
   // these caches are read, so a raw hashFiles() key can never hit on the run
   // that needs it. The gate warms the identical key on every main push.
+  // The key's version prefix is deliberately bumpable: what must hold is the
+  // version-neutral manifest digest and the absence of the lock file, not a
+  // particular generation number.
   assert.match(release,
-    /Restore unchanged desktop output[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
-  const desktopOutKey = release.match(/desktop-out-v2-[\s\S]*?\) \}\}/)?.[0] || '';
+    /Restore unchanged desktop output[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
+  const desktopOutKey = release.match(/desktop-out-v\d+-[\s\S]*?\) \}\}/)?.[0] || '';
   assert.ok(desktopOutKey, 'the desktop output cache key must be present');
   assert.doesNotMatch(desktopOutKey, /package-lock\.json/,
     'the lock file reaches this key only through the version-neutral digest');
   assert.match(automaticGate,
-    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v2-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
+    /name:\s*Reuse or warm the release desktop output cache[\s\S]*desktop-out-v\d+-\$\{\{ steps\.desktop-key\.outputs\.manifest \}\}/);
   assert.match(automaticGate, /name:\s*Build desktop[\s\S]*steps\.desktop-out\.outputs\.cache-hit != 'true'/,
     'an unchanged desktop bundle must not be rebuilt by the gate');
   assert.match(automaticGate, /manifest-cache-key\.mjs/);
@@ -475,7 +478,7 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.equal((desktopRuntime.match(
     /if:\s*steps\.prepared-runtime\.outputs\.cache-hit != 'true'/g,
   ) || []).length, 4);
-  const preparedRuntimeKey = desktopRuntime.match(/desktop-prepared-runtime-v2-[^\n]*/)?.[0] || '';
+  const preparedRuntimeKey = desktopRuntime.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '';
   assert.ok(preparedRuntimeKey, 'the prepared runtime cache key must be present');
   assert.doesNotMatch(preparedRuntimeKey, /hashFiles\([^)]*package(?:-lock)?\.json/,
     'the manifests reach this key only through the version-neutral digest');
