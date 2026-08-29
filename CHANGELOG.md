@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Portable Office authoring gains chart rendering and text metrics, so more
+  PPTX and XLSX work completes without handing off to the Office COM host.
+- Browser Use and Computer Use tool contracts are revised together with the
+  desktop settings store, IPC validation, and transcript tool formatting.
+- The desktop drops its vendored virtual-scroll fork for the upstream package.
+  Nothing imported the fork's extra module, but its scroll-deferral hook has no
+  upstream equivalent, so the transcript's bottom pin now relies on the core's
+  own scrolling deferral alone.
+- Development deploys can run from a frozen snapshot of the working tree
+  (`update:dev:snapshot`), which lets an install succeed while other sessions
+  keep editing the repository instead of failing the input-fingerprint check.
+
 ## v0.9.155 - 2026-08-29
 
 - PPTX slide import, image replacement, and table data authoring now run in the
