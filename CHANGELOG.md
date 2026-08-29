@@ -5,6 +5,29 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Computer Use sessions are reclaimed on every exit path instead of depending on
+  an unref'd timer a departing runtime never fires: daemon and worker shutdown
+  release them, a closing session releases its own, idle host workers expire on
+  the same clock as the window claims they hold, and a dropped client connection
+  aborts in-flight input rather than letting it drive the desktop until the
+  command timeout. The client also retries once against a republished bridge, so
+  restarting the desktop app no longer fails the next command outright.
+- A crashed Browser Use page recovers on the next command instead of failing it.
+  Refs bound to the dead document are dropped with it, so recovery can never
+  hand back coordinates from a page that no longer exists.
+- Compaction that runs between a prompt and the provider request no longer hangs
+  when the memory runtime stalls: the recall-fasttrack memory call is bounded for
+  every caller, not just the one path that happened to wire a timeout in.
+- The Windows Explorer hidden-entry parser splits attrib.exe output with Windows
+  path rules on any host, and the commit-hook capability probe now works across
+  git versions that disagree about whether a non-native hook name needs a flag.
+- Deploy stops rebuilding byte-identical platform runtimes. Test sources leave
+  both the published package and the runtime cache key, so a test-only change
+  hits the prepared-runtime cache instead of paying a seven-minute Windows
+  rebuild. Desktop suites run as parallel gate jobs, including a Windows leg that
+  finally exercises Computer Use in CI, and the 240-second git suite no longer
+  sits in the default local run.
+
 ## v0.9.153 - 2026-08-28
 
 - Windows Computer Use now runs a smaller CUA-style observation loop: compact
